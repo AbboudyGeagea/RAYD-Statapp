@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ report.report_name }}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background:#f8f9fa; color: #343a40; overflow: hidden; height: 100vh; }
+        .bg-accent { background-color: #38ada9; }
+        .text-accent { color: #38ada9; }
+        .sidebar-card { background: white; border-right: 2px solid #e9ecef; }
+        .filter-label { font-size:11px; font-weight:700; text-transform:uppercase; color:#38ada9; margin-bottom: 4px; display: block; }
+        .disabled { opacity:.45; pointer-events:none; }
+        .scroll-container { height: calc(100vh - 160px); overflow-y: auto; }
+    </style>
+</head>
+
+{% set selected_inputs = selected_inputs | default({}, true) %}
+{% set selected_ops = selected_ops | default({}, true) %}
+{% set dropdown_data = dropdown_data | default({}, true) %}
+{% set run_report = run_report | default(false, true) %}
+{% set chart_json = chart_json | default({'labels': [], 'counts': []}, true) %}
+
+<body class="p-4">
+<div class="max-w-[1600px] mx-auto h-full flex flex-col">
+
+    <div class="flex justify-between items-center mb-4 p-4 rounded-xl border-b-2" style="background-color: #e9ecef;">
+        <div class="flex items-center gap-3">
+            <h1 class="text-xl font-bold text-gray-800">{{ report.report_name }}</h1>
+        </div>
+        <a href="{{ url_for('viewer.viewer_dashboard') }}" class="px-4 py-2 bg-white text-gray-600 rounded-lg text-sm font-semibold shadow-sm border hover:bg-gray-50 transition">Exit Report</a>
+    </div>
+
+    <form method="POST" class="flex-1 flex gap-6 overflow-hidden">
+        <div class="w-80 sidebar-card rounded-2xl p-6 flex flex-col shadow-lg">
+            <div class="mb-4">
+                <label class="filter-label">Start Date</label>
+                <input type="date" name="start_date" value="{{ display_start }}" class="w-full border p-2 rounded-lg text-sm mb-4">
+                <label class="filter-label">End Date</label>
+                <input type="date" name="end_date" value="{{ display_end }}" class="w-full border p-2 rounded-lg text-sm">
+            </div>
+
+            <div class="flex-1 overflow-y-auto space-y-6 pr-2">
+                <div>
+                    <p class="text-[10px] font-black text-gray-400 mb-3 uppercase tracking-widest">Categories</p>
+                    {% for field in ["Modality","Study Status","Patient Class","Storing AE"] %}
+                    <div class="mb-3">
+                        <div class="flex items-center gap-2 mb-1">
+                            <input type="checkbox" name="apply_{{ field }}" value="1" {% if selected_inputs.get(field) %}checked{% endif %} onchange="toggle('{{ field }}')">
+                            <label class="filter-label m-0 text-gray-600">{{ field }}</label>
+                        </div>
+                        <select name="{{ field }}" multiple id="f_{{ field }}" class="w-full border rounded-lg h-24 text-xs {% if not selected_inputs.get(field) %}disabled{% endif %}">
+                            {% for v in dropdown_data[field] %}
+                                <option value="{{ v }}" {% if v in selected_inputs.get(field,[]) %}selected{% endif %}>{{ v }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% endfor %}
+                </div>
+
+                <div class="pt-4 border-t">
+                    <p class="text-[10px] font-black text-gray-400 mb-3 uppercase tracking-widest">Text Search</p>
+                    {% for field in ["Procedure Code","Referring Physician"] %}
+                    <div class="mb-3">
+                        <div class="flex items-center gap-2 mb-1">
+                            <input type="checkbox" name="apply_{{ field }}" value="1" {% if selected_inputs.get(field) %}checked{% endif %} onchange="toggle('{{ field }}')">
+                            <label class="filter-label m-0 text-gray-600">{{ field }}</label>
+                        </div>
+                        <div class="flex flex-col gap-1 {% if not selected_inputs.get(field) %}disabled{% endif %}" id="f_{{ field }}">
+                            <select name="op_{{ field }}" class="w-full border p-1 rounded bg-gray-50 text-[10px] uppercase font-bold">
+                                {% for op in ["equals","starts","contains","ends"] %}
+                                <option value="{{ op }}" {% if selected_ops[field]==op %}selected{% endif %}>{{ op }}</option>
+                                {% endfor %}
+                            </select>
+                            <input type="text" name="{{ field }}" value="{{ selected_inputs.get(field,'') }}" class="w-full border p-2 rounded-lg text-xs">
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            <button name="action" value="run" class="mt-6 w-full py-3 bg-accent text-white font-bold rounded-xl shadow-lg hover:opacity-90 transition">Run Analysis</button>
+        </div>
+
+        <div class="flex-1 overflow-y-auto pb-10 scroll-container">
+            {% if run_report %}
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                 <div class="bg-white p-5 rounded-2xl shadow-sm border border-l-4 border-l-teal-500">
+                    <label class="filter-label">Total Records</label>
+                    <div class="text-2xl font-black text-gray-800">{{ total_count }}</div>
+                 </div>
+            </div>
+            <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                <div class="bg-white p-6 rounded-2xl shadow-sm border h-fit"><canvas id="c"></canvas></div>
+                <div class="xl:col-span-2 bg-white rounded-2xl shadow-sm border overflow-hidden">
+                    <table class="w-full text-sm text-left">
+                        <thead class="bg-accent text-white">
+                            <tr><th class="p-3">Date</th><th class="p-3">Modality</th><th class="p-3">Status</th></tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100">
+                            {% for r in rows %}
+                            <tr><td class="p-3 text-gray-500">{{ r.study_date }}</td><td class="p-3 font-bold text-accent">{{ r.modality }}</td><td class="p-3 text-xs">{{ r.study_status }}</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% else %}
+            <div class="h-full flex flex-col items-center justify-center text-gray-300">
+                <i class="bi bi-graph-up text-6xl opacity-20"></i>
+                <p class="font-bold">Set filters and click Run Analysis</p>
+            </div>
+            {% endif %}
+        </div>
+    </form>
+</div>
+
+<script>
+    function toggle(field){
+        const el = document.getElementById("f_"+field);
+        if(el) el.classList.toggle("disabled");
+    }
+    {% if run_report and chart_json.labels %}
+    new Chart(document.getElementById("c"), {
+        type: "doughnut",
+        data: {
+            labels: {{ chart_json.labels|tojson }},
+            datasets: [{ data: {{ chart_json.counts|tojson }}, backgroundColor: ['#38ada9', '#55c2bf', '#7ed6d3', '#a8e9e7', '#d3fcfb'], borderWidth: 0 }]
+        }
+    });
+    {% endif %}
+</script>
+</body>
+</html>

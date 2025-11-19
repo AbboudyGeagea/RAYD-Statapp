@@ -1,0 +1,9 @@
+Flask
+Flask-Login
+Flask-SQLAlchemy
+psycopg2-binary
+cx_oracle
+pandas
+python-dotenv
+schedule
+Werkzeug

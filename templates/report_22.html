@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ report.report_name }}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        :root { --accent: #38ada9; }
+        body { font-family: 'Inter', sans-serif; background:#f8f9fa; overflow: hidden; height: 100vh; }
+        .disabled { opacity:.45; pointer-events:none; }
+        .filter-card { background: white; border-right: 2px solid #e9ecef; width: 320px; padding: 1.5rem; overflow-y: auto; }
+        label { font-size: 10px; font-weight: 800; color: var(--accent); text-transform: uppercase; }
+    </style>
+</head>
+
+{% set selected_inputs = selected_inputs | default({}, true) %}
+{% set selected_ops = selected_ops | default({}, true) %}
+{% set dropdown_data = dropdown_data | default({}, true) %}
+{% set run_report = run_report | default(false, true) %}
+
+<body class="p-4">
+<form method="POST" class="flex h-full gap-4">
+    <div class="filter-card flex flex-col gap-4 rounded-2xl shadow-lg">
+        <h2 class="font-bold border-b pb-2 mb-2 text-gray-400 text-xs">FILTERS</h2>
+        <div>
+            <label>Start Date</label>
+            <input type="date" name="start_date" value="{{ display_start }}" class="w-full border p-2 rounded mb-4 text-sm">
+            <label>End Date</label>
+            <input type="date" name="end_date" value="{{ display_end }}" class="w-full border p-2 rounded text-sm">
+        </div>
+
+        <div class="flex-1 space-y-4">
+            {% for field in ["Modality","Study Status","Patient Class","Storing AE"] %}
+            <div>
+                <div class="flex items-center gap-2 mb-1">
+                    <input type="checkbox" name="apply_{{ field }}" value="1" {% if selected_inputs.get(field) %}checked{% endif %} onchange="toggle('{{ field }}')">
+                    <label class="m-0 text-gray-600">{{ field }}</label>
+                </div>
+                <select name="{{ field }}" multiple id="f_{{ field }}" class="w-full border rounded h-24 text-xs {% if not selected_inputs.get(field) %}disabled{% endif %}">
+                    {% for v in dropdown_data[field] %}
+                        <option value="{{ v }}" {% if v in selected_inputs.get(field,[]) %}selected{% endif %}>{{ v }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endfor %}
+        </div>
+        <button name="action" value="run" class="w-full py-3 bg-teal-600 text-white font-bold rounded-xl shadow-lg">Run Analysis</button>
+    </div>
+
+    <div class="flex-1 bg-white rounded-2xl p-6 shadow-sm overflow-y-auto">
+        {% if run_report %}
+            <div class="grid grid-cols-4 gap-4 mb-6">
+                <div class="p-4 border-l-4 border-teal-500 bg-gray-50 rounded">
+                    <label>Total Studies</label>
+                    <div class="text-2xl font-black">{{ total_count }}</div>
+                </div>
+            </div>
+            <table class="w-full text-sm">
+                <thead class="bg-teal-600 text-white">
+                    <tr><th class="p-3 text-left">Date</th><th class="p-3 text-left">Modality</th><th class="p-3 text-left">Status</th></tr>
+                </thead>
+                <tbody class="divide-y">
+                    {% for r in rows %}
+                    <tr><td class="p-3">{{ r.study_date }}</td><td class="p-3 font-bold">{{ r.modality }}</td><td class="p-3">{{ r.study_status }}</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <div class="h-full flex flex-col items-center justify-center opacity-30">
+                <i class="bi bi-search text-6xl"></i>
+                <p class="font-bold">Set filters and run analysis</p>
+            </div>
+        {% endif %}
+    </div>
+</form>
+
+<script>
+    function toggle(field){
+        document.getElementById("f_"+field)?.classList.toggle("disabled");
+    }
+</script>
+</body>
+</html>

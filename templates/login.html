@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Login | StatsApp</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', sans-serif; background-color: #f8f9fa; color: #343a40; }
+    .bg-accent-600 { background-color: #38ada9; }
+    .bg-accent-600:hover { background-color: #339999; }
+    .text-accent-700 { color: #38ada9; }
+  </style>
+</head>
+<body class="flex items-center justify-center min-h-screen p-4">
+  <div class="w-full max-w-xl bg-white p-10 md:p-12 rounded-2xl shadow-2xl border border-gray-200">
+    <div class="flex justify-between items-center mb-10 p-4 rounded-lg border-b-2" style="background-color: #e9ecef;">
+      <h2 class="text-3xl font-bold text-accent-700">StatsApp</h2>
+      <span class="text-gray-400 text-sm font-semibold uppercase tracking-widest">Secure Portal</span>
+    </div>
+
+    <form method="POST" action="{{ url_for('auth.login') }}" id="loginForm">
+      <input type="hidden" name="override" id="overrideInput" value="false">
+      <div class="space-y-6">
+        <div>
+          <label class="block text-sm font-semibold text-gray-600 mb-2">Username</label>
+          <input type="text" name="username" required class="w-full px-5 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-teal-500 outline-none transition">
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-600 mb-2">Password</label>
+          <input type="password" name="password" required class="w-full px-5 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-teal-500 outline-none transition">
+        </div>
+        <button type="submit" class="w-full py-4 bg-accent-600 text-white font-bold rounded-xl shadow-lg transition transform hover:-translate-y-1">
+          Sign In
+        </button>
+      </div>
+    </form>
+  </div>
+
+  <div id="conflictModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black bg-opacity-40">
+    <div class="bg-white rounded-xl p-8 w-full max-w-md shadow-2xl">
+      <h3 class="text-xl font-bold mb-4">Active session detected</h3>
+      <p class="text-gray-600 mb-6 text-sm">There is an active session for this account. Do you want to override it?</p>
+      <div class="flex justify-end gap-3">
+        <button id="cancelOverride" class="px-5 py-2 rounded-lg border border-gray-300 font-semibold">Cancel</button>
+        <button id="doOverride" class="px-5 py-2 rounded-lg bg-accent-600 text-white font-semibold">Override</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      var conflict = {{ 'true' if conflict|default(False) else 'false' }};
+      if (conflict) {
+        document.getElementById('conflictModal').classList.remove('hidden');
+        document.getElementById('conflictModal').classList.add('flex');
+      }
+      document.getElementById('doOverride')?.addEventListener('click', () => {
+        document.getElementById('overrideInput').value = 'true';
+        document.getElementById('loginForm').submit();
+      });
+      document.getElementById('cancelOverride')?.addEventListener('click', () => {
+        document.getElementById('conflictModal').classList.add('hidden');
+      });
+    });
+  </script>
+</body>
+</html>

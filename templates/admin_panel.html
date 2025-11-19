@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Admin Panel | StatsApp</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        :root { --accent: #38ada9; --header: #e9ecef; }
+        body { font-family: 'Inter', sans-serif; background: #f8f9fa; color: #343a40; }
+        .card-custom { background: white; border-radius: 1rem; border: 1px solid #dee2e6; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+        .bg-accent { background-color: var(--accent); }
+    </style>
+</head>
+<body class="p-6">
+    <div class="max-w-7xl mx-auto">
+        <div class="flex justify-between items-center mb-8 p-4 rounded-xl border-b-2" style="background-color: var(--header);">
+            <div class="flex items-center gap-3">
+                <i class="bi bi-shield-lock-fill text-[38ada9] text-3xl"></i>
+                <h1 class="text-2xl font-bold">Admin Control Panel</h1>
+            </div>
+            <div class="flex gap-4">
+                <a href="{{ url_for('mapping.mapping_page') }}" class="px-5 py-2 bg-white rounded-lg border font-semibold shadow-sm hover:bg-gray-50 transition">
+                    <i class="bi bi-gear"></i> Mapping Console
+                </a>
+                <a href="{{ url_for('viewer.viewer_dashboard') }}" class="px-5 py-2 bg-white rounded-lg border font-semibold shadow-sm hover:bg-gray-50 transition">
+                    <i class="bi bi-speedometer2"></i> Dashboard
+                </a>
+                <button class="btn btn-sm btn-outline-danger" onclick="location.href='{{ url_for('auth.logout') }}'">
+    Logout
+</button>
+
+            </div>
+        </div>
+
+        <div class="card-custom p-8">
+            <label class="block text-xs font-bold text-[#38ada9] uppercase mb-2">Target User</label>
+            <select onchange="location.href='{{ url_for('admin.admin_panel') }}?target_user_id=' + this.value" class="w-full max-w-md p-3 rounded-lg border border-gray-300 mb-8">
+                <option value="">-- Select User --</option>
+                {% for user in users %}
+                    <option value="{{ user.id }}" {% if target_user and target_user.id == user.id %}selected{% endif %}>{{ user.username }}</option>
+                {% endfor %}
+            </select>
+
+            {% if target_user %}
+            <table class="w-full text-left">
+                <thead>
+                    <tr class="text-[11px] font-bold text-gray-400 uppercase border-b">
+                        <th class="py-3">Report Name</th>
+                        <th class="py-3 text-center">Access</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                    {% for report in reports %}
+                    <tr>
+                        <td class="py-4">{{ report.report_name }}</td>
+                        <td class="py-4 text-center">
+                            <input type="checkbox" class="w-5 h-5 accent-[#38ada9]" 
+                                   {% if report.report_id in enabled_report_ids %}checked{% endif %}
+                                   onchange="toggleAccess('{{ target_user.id }}', '{{ report.report_id }}', this.checked)">
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% endif %}
+        </div>
+    </div>
+
+    <script>
+        async function toggleAccess(userId, reportId, isEnabled) {
+            await fetch("{{ url_for('admin.toggle_access') }}", {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_id: userId, report_id: reportId, is_enabled: isEnabled })
+            });
+        }
+    </script>
+</body>
+</html>

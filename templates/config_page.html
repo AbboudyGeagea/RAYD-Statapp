@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Application Setup</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="bg-gray-50 flex items-center justify-center min-h-screen">
+    <div class="w-full max-w-lg p-8 space-y-6 bg-white rounded-xl shadow-2xl">
+        <div class="text-center">
+            <h2 class="text-3xl font-extrabold text-gray-900">Go-Live Date Configuration</h2>
+            <p class="mt-2 text-sm text-gray-600">This date determines the starting point for all data extraction (ETL).</p>
+        </div>
+
+        <!-- Flash Messages -->
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="space-y-2">
+                    {% for category, message in messages %}
+                        <div class="p-3 text-sm rounded-lg text-white 
+                        {% if category == 'danger' %}bg-red-500{% elif category == 'success' %}bg-green-500{% else %}bg-blue-500{% endif %}">
+                            {{ message }}
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+
+        {% if existing_date and role != 'report_admin' %}
+            <div class="p-4 bg-yellow-100 border border-yellow-300 rounded-lg text-yellow-800">
+                <p class="font-bold">Date already set:</p>
+                <p>The system is currently extracting data from: <span class="font-mono text-lg text-gray-900">{{ existing_date.date.strftime('%d-%b-%y').upper() }}</span>. Only the **Report Admin** role can modify this value.</p>
+                <p class="mt-3"><a href="{{ url_for('dashboard.index') }}" class="text-indigo-600 hover:text-indigo-800 font-medium">Go to Dashboard</a></p>
+            </div>
+        {% else %}
+            <form class="space-y-6" method="POST" action="{{ url_for('admin.config_setup') }}">
+                <div>
+                    <label for="go_live_date" class="block text-sm font-medium text-gray-700">
+                        Enter Go-Live Date (Required Format: DD-MMM-YY, e.g., 01-JAN-24)
+                    </label>
+                    <div class="mt-1">
+                        <input id="go_live_date" name="go_live_date" type="text" required
+                               value="{{ default_date or (existing_date.date.strftime('%d-%b-%y').upper() if existing_date else '') }}"
+                               class="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                    </div>
+                </div>
+
+                <div>
+                    <button type="submit"
+                            class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white 
+                            bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 ease-in-out">
+                        {{ 'Update Date' if existing_date else 'Set Go-Live Date' }}
+                    </button>
+                </div>
+            </form>
+        {% endif %}
+        
+    </div>
+</body>
+</html>
+
