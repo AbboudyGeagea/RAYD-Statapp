@@ -1,77 +1,57 @@
-from sqlalchemy import MetaData
-from sqlalchemy.dialects.postgresql import insert
-import cx_Oracle
-import time
-import traceback
+import logging
+from datetime import datetime
+from db import OracleConnector
 
-
-        
-def run_orders_etl(oracle_conn, pg_engine, go_live_date_filter, logger, batch_size=1000):
-    logger.info("Starting ETL for MDB_ORDERS...")
-    ora_cursor = None
-
-    query = """
-        SELECT order_dbid, patient_dbid, proc_id, proc_text,
-               study_instance_uid, study_db_uid, has_study,
-               scheduled_datetime, order_control, order_status,
-               placer_field1, placer_field2
-        FROM medlink.mdb_orders
-        WHERE scheduled_datetime >= TO_DATE(:go_live_date, 'DD-MON-YY')
-    """
-
+def run_orders_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_live_date):
+    # Added 'last_update' to the column list
     col_names = [
-        'order_dbid', 'patient_dbid', 'proc_id', 'proc_text',
-        'study_instance_uid', 'study_db_uid', 'has_study',
-        'scheduled_datetime', 'order_control', 'order_status',
-        'placer_field1', 'placer_field2', 'last_update'
+        'order_dbid', 'patient_dbid', 'proc_id', 'proc_text', 
+        'study_instance_uid', 'study_db_uid', 'has_study', 
+        'scheduled_datetime', 'order_control', 'order_status', 
+        'placer_field1', 'placer_field2', 'modality', 'body_part',
+        'last_update'
     ]
 
+    ora_conn = OracleConnector.get_connection(oracle_source)
+    cursor = ora_conn.cursor()
+
+    # Improvements:
+    # 1. Added CURRENT_TIMESTAMP to the SELECT for the Postgres last_update field.
+    # 2. Kept your CASE logic for the boolean 'has_study'.
+    query = """
+        SELECT 
+            CAST(ORDER_DBID AS VARCHAR2(100)), CAST(PATIENT_DBID AS VARCHAR2(100)), 
+            PROC_ID, PROC_TEXT, STUDY_INSTANCE_UID, CAST(STUDY_DB_UID AS VARCHAR2(100)),
+            CASE WHEN HAS_STUDY = 'Y' THEN 1 ELSE 0 END,
+            SCHEDULED_DATETIME, ORDER_CONTROL, ORDER_STATUS, 
+            PLACER_FIELD1, PLACER_FIELD2, MODALITY, BODY_PART,
+            CURRENT_TIMESTAMP
+        FROM MEDILINK.MDB_ORDERS
+        WHERE SCHEDULED_DATETIME >= TO_DATE(:gd, 'YYYY-MM-DD')
+    """
+    
     try:
-        start_time = time.time()
-        ora_cursor = oracle_conn.cursor()
-
-        try:
-            ora_cursor.execute(query, {'go_live_date': go_live_date_filter})
-            rows = ora_cursor.fetchall()
-        except cx_Oracle.Error as e:
-            logger.warning("⚠ Query failed or scheduled_datetime might be NULL for all rows.")
-            logger.warning(f"Oracle error: {e}")
-            return
-
-        if not rows:
-            logger.warning("⚠ No new orders found or scheduled_datetime is NULL for all rows.")
-            return
-
-        logger.info(f"Fetched {len(rows)} rows from Oracle.")
-
-        # Reflect PostgreSQL table
-        metadata = MetaData()
-        metadata.reflect(bind=pg_engine)
-        table = metadata.tables['etl_orders']
-
-        stmt = insert(table).on_conflict_do_update(
-            index_elements=['order_dbid'],
-            set_={col: getattr(stmt.excluded, col) for col in col_names}
-        )
-
-        # Chunked insert
-        with pg_engine.begin() as connection:
-            for i in range(0, len(rows), batch_size):
-                batch = rows[i:i + batch_size]
-                mapped_rows = [dict(zip(col_names[:-1], row)) for row in batch]
-                for r in mapped_rows:
-                    r['last_update'] = time.strftime('%Y-%m-%d %H:%M:%S')
-                connection.execute(stmt, mapped_rows)
-                logger.info(f"Inserted batch {i // batch_size + 1} ({len(mapped_rows)} rows)")
-
-        duration = time.time() - start_time
-        logger.info(f"ETL completed for orders: {len(rows)} records processed in {duration:.2f} seconds.")
-
-    except cx_Oracle.Error as e:
-        logger.error(f"Oracle ETL Error in orders job: {e}")
+        logging.info(f"🚀 Starting Orders ETL for Date >= {go_live_date}")
+        cursor.execute(query, {'gd': str(go_live_date)})
+        
+        total = 0
+        while True:
+            batch = cursor.fetchmany(1000)
+            if not batch: 
+                break
+            
+            # Using chunked_upsert_func to handle 'order_dbid' conflicts
+            chunked_upsert_func(pg_engine, pg_table, col_names, batch, 'order_dbid')
+            total += len(batch)
+            
+            if total % 5000 == 0:
+                logging.info(f"Synced {total} orders...")
+                
     except Exception as e:
-        logger.error("PostgreSQL/General ETL Error in orders job:")
-        logger.error(traceback.format_exc())
+        logging.error(f"💥 Orders ETL Error: {str(e)}")
+        raise
     finally:
-        if ora_cursor:
-            ora_cursor.close()
+        cursor.close()
+        ora_conn.close()
+        
+    return total

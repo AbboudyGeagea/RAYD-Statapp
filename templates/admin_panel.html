@@ -2,79 +2,210 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Admin Panel | StatsApp</title>
+    <title>RAYD | Admin Console</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
-        :root { --accent: #38ada9; --header: #e9ecef; }
-        body { font-family: 'Inter', sans-serif; background: #f8f9fa; color: #343a40; }
-        .card-custom { background: white; border-radius: 1rem; border: 1px solid #dee2e6; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
-        .bg-accent { background-color: var(--accent); }
+        :root { --accent: #38ada9; }
+        body { font-family: 'Inter', sans-serif; background: #f1f5f9; }
+        .sidebar-item { transition: all 0.2s; border-radius: 0.75rem; margin-bottom: 0.25rem; cursor: pointer; }
+        .sidebar-item:hover { background: #f8fafc; color: var(--accent); }
+        .sidebar-item.active { background: #f0fdfa; color: var(--accent); border-left: 4px solid var(--accent); }
+        .card-custom { background: white; border-radius: 1.5rem; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); }
+        @keyframes progress-scroll { from { background-position: 1rem 0; } to { background-position: 0 0; } }
+        .animate-progress { 
+            animation: progress-scroll 2s linear infinite;
+            background-image: linear-gradient(45deg, rgba(255,255,255,.15) 25%, transparent 25%, transparent 50%, rgba(255,255,255,.15) 50%, rgba(255,255,255,.15) 75%, transparent 75%, transparent);
+            background-size: 1rem 1rem;
+        }
     </style>
 </head>
-<body class="p-6">
-    <div class="max-w-7xl mx-auto">
-        <div class="flex justify-between items-center mb-8 p-4 rounded-xl border-b-2" style="background-color: var(--header);">
-            <div class="flex items-center gap-3">
-                <i class="bi bi-shield-lock-fill text-[38ada9] text-3xl"></i>
-                <h1 class="text-2xl font-bold">Admin Control Panel</h1>
-            </div>
-            <div class="flex gap-4">
-                <a href="{{ url_for('mapping.mapping_page') }}" class="px-5 py-2 bg-white rounded-lg border font-semibold shadow-sm hover:bg-gray-50 transition">
-                    <i class="bi bi-gear"></i> Mapping Console
-                </a>
-                <a href="{{ url_for('viewer.viewer_dashboard') }}" class="px-5 py-2 bg-white rounded-lg border font-semibold shadow-sm hover:bg-gray-50 transition">
-                    <i class="bi bi-speedometer2"></i> Dashboard
-                </a>
-                <button class="btn btn-sm btn-outline-danger" onclick="location.href='{{ url_for('auth.logout') }}'">
-    Logout
-</button>
+<body class="flex flex-col h-screen overflow-hidden" x-data="{ currentTab: '{{ 'permissions' if target_user else 'etl' }}' }">
 
-            </div>
+    <header class="bg-white border-b px-12 py-6 flex items-center justify-between shadow-md z-30 relative">
+        <div class="w-64 flex items-center justify-start">
+            <img src="{{ url_for('static', filename='philips.jpg') }}" class="h-12 w-auto object-contain">
         </div>
-
-        <div class="card-custom p-8">
-            <label class="block text-xs font-bold text-[#38ada9] uppercase mb-2">Target User</label>
-            <select onchange="location.href='{{ url_for('admin.admin_panel') }}?target_user_id=' + this.value" class="w-full max-w-md p-3 rounded-lg border border-gray-300 mb-8">
-                <option value="">-- Select User --</option>
-                {% for user in users %}
-                    <option value="{{ user.id }}" {% if target_user and target_user.id == user.id %}selected{% endif %}>{{ user.username }}</option>
-                {% endfor %}
-            </select>
-
-            {% if target_user %}
-            <table class="w-full text-left">
-                <thead>
-                    <tr class="text-[11px] font-bold text-gray-400 uppercase border-b">
-                        <th class="py-3">Report Name</th>
-                        <th class="py-3 text-center">Access</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-gray-100">
-                    {% for report in reports %}
-                    <tr>
-                        <td class="py-4">{{ report.report_name }}</td>
-                        <td class="py-4 text-center">
-                            <input type="checkbox" class="w-5 h-5 accent-[#38ada9]" 
-                                   {% if report.report_id in enabled_report_ids %}checked{% endif %}
-                                   onchange="toggleAccess('{{ target_user.id }}', '{{ report.report_id }}', this.checked)">
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            {% endif %}
+        <div class="flex flex-col items-center">
+            <img src="{{ url_for('static', filename='RAYD.png') }}" class="h-20 w-auto object-contain">
+            <div class="h-1.5 w-16 bg-[#38ada9] mt-3 rounded-full"></div>
         </div>
+        <div class="w-64 flex items-center justify-end">
+            <img src="{{ url_for('static', filename='intermedic.jpeg') }}" class="h-14 w-auto object-contain">
+        </div>
+    </header>
+
+    <div class="flex flex-1 overflow-hidden">
+        <aside class="w-72 bg-white border-r flex flex-col p-6 shadow-xl z-20">
+            <div class="flex items-center gap-3 mb-10 px-2">
+                <div class="bg-[#38ada9] p-2.5 rounded-xl text-white shadow-lg shadow-teal-500/20">
+                    <i class="bi bi-shield-lock-fill text-xl"></i>
+                </div>
+                <div>
+                    <h1 class="font-black text-slate-800 tracking-tighter uppercase leading-none text-xl">RAYD Admin</h1>
+                    <div class="flex items-center gap-1.5 mt-1">
+                        <span class="w-1.5 h-1.5 rounded-full bg-teal-500 animate-pulse"></span>
+                        <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Sync: {{ last_sync_time }}</p>
+                    </div>
+                </div>
+            </div>
+
+            <nav class="flex-1 space-y-1">
+                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2 mb-4">Navigation</p>
+                <a href="{{ url_for('viewer.viewer_dashboard') }}" class="sidebar-item flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-600">
+                    <i class="bi bi-speedometer2 text-lg"></i> Viewer Dashboard
+                </a>
+                <a href="{{ url_for('mapping.mapping_upload') }}" class="sidebar-item flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-600">
+                    <i class="bi bi-diagram-3 text-lg"></i> Mapping Console
+                </a>
+                
+                <div class="my-6 border-t border-slate-100"></div>
+                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2 mb-4">Admin Tools</p>
+                
+                <div @click="currentTab = 'permissions'" :class="currentTab === 'permissions' ? 'active' : ''" 
+                     class="sidebar-item flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-600">
+                    <i class="bi bi-person-lock text-lg"></i> User Permissions
+                </div>
+                <div @click="currentTab = 'etl'" :class="currentTab === 'etl' ? 'active' : ''" 
+                     class="sidebar-item flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-600">
+                    <i class="bi bi-activity text-lg"></i> ETL Pipeline
+                </div>
+            </nav>
+
+            <div class="mt-auto pt-6 border-t">
+                <a href="{{ url_for('auth.logout') }}" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-red-500 hover:bg-red-50 rounded-xl transition">
+                    <i class="bi bi-box-arrow-right text-lg"></i> Logout
+                </a>
+            </div>
+        </aside>
+
+        <main class="flex-1 overflow-y-auto p-12 bg-slate-50">
+            <div class="max-w-6xl mx-auto">
+                
+                <section x-show="currentTab === 'permissions'" x-transition class="space-y-6">
+                    <div>
+                        <h2 class="text-3xl font-black text-slate-800 tracking-tight">Access Control</h2>
+                        <p class="text-slate-400 font-medium">Manage report visibility for clinical users.</p>
+                    </div>
+
+                    <div class="card-custom p-8 border-t-4 border-[#38ada9]">
+                        <label class="block text-[10px] font-black text-[#38ada9] uppercase tracking-widest mb-3">Target User Profile</label>
+                        <select onchange="location.href='{{ url_for('admin.admin_dashboard') }}?target_user_id=' + this.value" 
+                                class="w-full p-4 rounded-xl border border-slate-200 bg-white text-sm font-bold outline-none focus:ring-4 focus:ring-teal-500/10 transition">
+                            <option value="">-- Select User --</option>
+                            {% for user in users %}
+                                <option value="{{ user.id }}" {% if target_user and target_user.id == user.id %}selected{% endif %}>
+                                    {{ user.username }} ({{ user.role }})
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    {% if target_user %}
+                    <div class="card-custom overflow-hidden">
+                        <table class="w-full text-left">
+                            <thead class="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b">
+                                <tr>
+                                    <th class="px-8 py-4">Report Template</th>
+                                    <th class="px-8 py-4 text-center">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100">
+                                {% for report in reports %}
+                                <tr class="hover:bg-slate-50/50 transition">
+                                    <td class="px-8 py-5 font-bold text-slate-700 text-sm">{{ report.report_name }}</td>
+                                    <td class="px-8 py-5 text-center">
+                                        <label class="relative inline-flex items-center cursor-pointer">
+                                            <input type="checkbox" class="sr-only peer" 
+                                                   {% if report.id in enabled_report_ids %}checked{% endif %}
+                                                   onchange="toggleAccess('{{ target_user.id }}', '{{ report.id }}')">
+                                            <div class="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:bg-[#38ada9] after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
+                                        </label>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% endif %}
+                </section>
+
+                <section x-show="currentTab === 'etl'" x-transition class="space-y-6">
+                    <div class="flex items-end justify-between">
+                        <div>
+                            <h2 class="text-3xl font-black text-slate-800 tracking-tight">ETL Pipeline Status</h2>
+                            <p class="text-slate-400 font-medium">Real-time sync monitoring for RAYD data sources.</p>
+                        </div>
+                        <button onclick="triggerETL()" id="etl-btn" class="px-8 py-4 bg-slate-800 text-white rounded-2xl font-bold flex items-center gap-2 hover:bg-slate-700 transition shadow-xl active:scale-95">
+                            <i class="bi bi-play-circle-fill"></i> Execute Full Sync
+                        </button>
+                    </div>
+
+                    <div class="grid grid-cols-12 gap-8">
+                        <div class="col-span-3">
+                            <div class="card-custom p-6 space-y-4">
+                                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Audit Logs</label>
+                                <input type="date" id="log-date-picker" onchange="refreshLogs(this.value)" class="w-full p-3 rounded-xl border border-slate-200 text-sm font-bold text-slate-600 outline-none focus:ring-2 focus:ring-[#38ada9]">
+                                <button onclick="resetLogs()" class="w-full text-[11px] font-black text-[#38ada9] uppercase border-2 border-[#38ada9] py-3 rounded-xl hover:bg-[#38ada9] hover:text-white transition">Reset View</button>
+                            </div>
+                        </div>
+
+                        <div class="col-span-9 card-custom overflow-hidden">
+                            <table class="w-full text-left">
+                                <thead class="bg-slate-800 text-[10px] font-black text-slate-300 uppercase tracking-widest">
+                                    <tr>
+                                        <th class="px-6 py-5">Sync Job</th>
+                                        <th class="px-6 py-5">Performance</th>
+                                        <th class="px-6 py-5">Record Count</th>
+                                        <th class="px-6 py-5 text-center">Result</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="etl-log-body">
+                                    {% include 'admin/etl_log_rows.html' %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </main>
     </div>
 
     <script>
-        async function toggleAccess(userId, reportId, isEnabled) {
-            await fetch("{{ url_for('admin.toggle_access') }}", {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ user_id: userId, report_id: reportId, is_enabled: isEnabled })
-            });
+        async function toggleAccess(userId, reportId) {
+            try {
+                await fetch(`/admin/user/${userId}/report/${reportId}/toggle`, { method: 'POST' });
+            } catch (e) { alert("Access update failed."); }
         }
+
+        let pollInterval;
+        async function triggerETL() {
+            const btn = document.getElementById('etl-btn');
+            btn.disabled = true;
+            btn.innerHTML = `<i class="bi bi-arrow-repeat animate-spin"></i> Initializing...`;
+            try {
+                await fetch("{{ url_for('admin.trigger_etl') }}", { method: 'POST' });
+                startPolling();
+            } catch (e) { console.error(e); }
+            setTimeout(() => { btn.disabled = false; btn.innerHTML = `<i class="bi bi-play-circle-fill"></i> Execute Full Sync`; }, 4000);
+        }
+
+        async function refreshLogs(date = null) {
+            let url = "{{ url_for('admin.refresh_etl_logs') }}";
+            if (date) { url += `?date=${date}`; stopPolling(); }
+            const res = await fetch(url);
+            const html = await res.text();
+            document.getElementById('etl-log-body').innerHTML = html;
+        }
+
+        function startPolling() {
+            if (pollInterval) clearInterval(pollInterval);
+            pollInterval = setInterval(() => refreshLogs(), 5000);
+        }
+        function stopPolling() { clearInterval(pollInterval); }
+        function resetLogs() { document.getElementById('log-date-picker').value = ''; refreshLogs(); startPolling(); }
+        startPolling();
     </script>
 </body>
 </html>

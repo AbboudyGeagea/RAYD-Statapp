@@ -1,249 +1,130 @@
-#mapper_editor_controller.py
-from flask import Blueprint, render_template, request, redirect, url_for, session, flash, jsonify, current_app
+from flask import Blueprint, render_template, request, redirect, url_for, session, flash, jsonify
 from functools import wraps
 import pandas as pd
 from io import StringIO
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from db import db, AEModalityMap, ProcedureDurationMap
-import logging
-import os
+from db import db, AETitleModalityMap, ProcedureDurationMap, User
+from flask_login import login_required, current_user
 
-# ----------------------------
-# Configure Logging
-# ----------------------------
-LOG_FILE = os.path.join(os.getcwd(), "mapping_upload.log")
-logging.basicConfig(filename=LOG_FILE, level=logging.INFO,
-                    format="%(asctime)s [%(levelname)s] %(message)s")
-
-# ----------------------------
-# Define Blueprint
-# ----------------------------
-mapper_editor_bp = Blueprint('mapper_editor', __name__)
+mapper_editor_bp = Blueprint('mapper_editor', __name__, url_prefix='/mapper-editor')
 
 # ----------------------------
 # Access Control Decorator
 # ----------------------------
 def mapping_access_required(f):
-    """Ensure user is logged in and authorized for mapping management."""
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if 'logged_in' not in session or not session.get('logged_in'):
-            flash('Please log in to access this utility.', 'danger')
-            return redirect(url_for('admin.login'))
-
-        user_role = session.get('role')
-        if user_role not in ['dashboard', 'report_admin']:
-            flash(f'Access denied. Your role ({user_role}) is not authorized for mapping management.', 'danger')
-            return redirect(url_for('dashboard.index'))
-
+        # Using current_user (Flask-Login) is more reliable than raw session
+        if not current_user.is_authenticated or current_user.role not in ['admin', 'report_admin']:
+            flash('Access denied. Admin privileges required.', 'danger')
+            return redirect(url_for('auth.login'))
         return f(*args, **kwargs)
     return decorated_function
 
 # ----------------------------
-# Validate CSV Headers
+# 1 & 2: Main Page (List & Upsert)
 # ----------------------------
-def validate_csv_headers(df, expected_headers):
-    """Validate that CSV contains required headers."""
-    missing = [col for col in expected_headers if col not in df.columns]
-    return missing
-
-# =========================================================================
-# MAPPING UPLOAD AND DISPLAY ROUTE
-# =========================================================================
-@mapper_editor_bp.route('/mapping-upload', methods=['GET', 'POST'])
+@mapper_editor_bp.route('/', methods=['GET', 'POST'])
+@login_required
 @mapping_access_required
-def mapping_upload():
-    """
-    Handles display of current mappings and upload/processing of new mapping CSV files.
-    Supports AE Title To Modality and Procedure Code To Duration mappings.
-    """
+def mapping_list():
     if request.method == 'POST':
         mapping_type = request.form.get('mapping_type')
+        file = request.files.get('file')
 
-        if 'file' not in request.files:
-            flash('No file part in the request.', 'danger')
-            return redirect(url_for('admin.mapping_page'))
-
-        file = request.files['file']
-        if file.filename == '':
-            flash('No file selected for upload.', 'danger')
-            return redirect(url_for('admin.mapping_page'))
+        if not file or file.filename == '':
+            flash('No file selected.', 'warning')
+            return redirect(url_for('mapper_editor.mapping_list'))
 
         try:
-            # Read CSV into DataFrame
-            stream = StringIO(file.stream.read().decode("UTF8"))
-            df = pd.read_csv(stream)
-
-            mapping_objects = []
-            rows_processed = 0
-
-            # ----------------------------
-            # AE Title → Modality Mapping
-            # ----------------------------
+            df = pd.read_csv(StringIO(file.stream.read().decode("UTF8")))
+            
             if mapping_type == 'modality':
-                expected_headers = ['aetitle', 'modality']
-                missing = validate_csv_headers(df, expected_headers)
-                if missing:
-                    flash(f'Missing columns: {missing}. Please check CSV header.', 'danger')
-                    return redirect(url_for('admin.mapping_page'))
-
-                df = df[expected_headers].dropna()
+                # Logic: Upsert (Delete existing keys found in CSV, then re-insert)
                 for _, row in df.iterrows():
-                    mapping_objects.append({
-                        'aetitle': row['aetitle'],
-                        'modality': row['modality']
-                    })
-                    rows_processed += 1
-
-                db.session.begin_nested()
-                db.session.bulk_update_mappings(AEModalityMap, mapping_objects)
-                db.session.commit()
-
-            # ----------------------------
-            # Procedure Code to Duration Mapping
-            # ----------------------------
+                    # Check for existing record by Primary Key (aetitle)
+                    existing = AETitleModalityMap.query.filter_by(aetitle=row['aetitle']).first()
+                    if existing:
+                        existing.modality = row['modality']
+                    else:
+                        new_rec = AETitleModalityMap(aetitle=row['aetitle'], modality=row['modality'])
+                        db.session.add(new_rec)
+                
             elif mapping_type == 'duration':
-                expected_headers = ['procedurecode', 'duration_minutes']
-                missing = validate_csv_headers(df, expected_headers)
-                if missing:
-                    flash(f'Missing columns: {missing}. Please check CSV header.', 'danger')
-                    return redirect(url_for('admin.mapping_page'))
-
-                df = df[expected_headers].dropna()
                 for _, row in df.iterrows():
-                    try:
-                        duration = int(row['duration_minutes'])
-                        if duration < 0:
-                            raise ValueError("Duration must be non-negative")
-                    except ValueError:
-                        current_app.logger.warning(f"Skipping invalid duration: {row['duration_minutes']}")
-                        continue
+                    # Check for existing record by Primary Key (procedure_code)
+                    existing = ProcedureDurationMap.query.filter_by(procedure_code=row['procedure_code']).first()
+                    if existing:
+                        existing.duration_minutes = int(row['duration_minutes'])
+                    else:
+                        new_rec = ProcedureDurationMap(
+                            procedure_code=row['procedure_code'], 
+                            duration_minutes=int(row['duration_minutes'])
+                        )
+                        db.session.add(new_rec)
 
-                    mapping_objects.append({
-                        'procedurecode': row['procedurecode'],
-                        'duration_minutes': duration
-                    })
-                    rows_processed += 1
-
-                db.session.begin_nested()
-                db.session.bulk_update_mappings(ProcedureDurationMap, mapping_objects)
-                db.session.commit()
-
-            else:
-                flash('Invalid mapping type specified.', 'danger')
-                return redirect(url_for('admin.mapping_page'))
-
-            # Log upload details
-            logging.info(f"User: {session.get('username')} uploaded {rows_processed} rows for {mapping_type} mapping.")
-            flash(f'Successfully updated/inserted {rows_processed} {mapping_type} mapping rows.', 'success')
-
-        except KeyError as e:
-            db.session.rollback()
-            flash(f'Missing expected column: {e}.', 'danger')
-        except IntegrityError:
-            db.session.rollback()
-            flash('Database integrity error. Ensure no duplicate primary keys.', 'danger')
-        except SQLAlchemyError as e:
-            db.session.rollback()
-            flash(f'Database error: {e}', 'danger')
+            db.session.commit()
+            flash(f'Successfully processed {mapping_type} mappings.', 'success')
         except Exception as e:
             db.session.rollback()
-            flash(f'Unexpected error: {e}', 'danger')
+            flash(f'Error processing file: {str(e)}', 'danger')
+        
+        return redirect(url_for('mapper_editor.mapping_list'))
 
-        return redirect(url_for('admin.mapping_page'))
+    # Requirement 1: Show from DB the mappings from 2 different tables
+    modality_data = AETitleModalityMap.query.all()
+    duration_data = ProcedureDurationMap.query.all()
+    
+    return render_template('mapping_upload.html', 
+                           modality_mappings=modality_data, 
+                           duration_mappings=duration_data)
 
-    # ----------------------------
-    # GET Request → Display Current Mappings
-    # ----------------------------
-    modality_mappings = AEModalityMap.query.all()
-    duration_mappings = ProcedureDurationMap.query.all()
-
-    return render_template('mapping_upload.html',
-                           modality_mappings=modality_mappings,
-                           duration_mappings=duration_mappings,
-                           role=session.get('role'))
-
-# =========================================================================
-# AJAX ENDPOINT: EDIT MAPPING
-# =========================================================================
-@mapper_editor_bp.route('/mapping-edit', methods=['POST'])
+# ----------------------------
+# 3: Manual Add (POST)
+# ----------------------------
+@mapper_editor_bp.route('/add', methods=['POST'])
+@login_required
 @mapping_access_required
-def mapping_edit():
-    """
-    Handles inline edit for AE Title → Modality or Procedure → Duration mappings.
-    Expects JSON: { "mapping_type": "modality|duration", "id": <int>, "field": <str>, "value": <str> }
-    """
-    data = request.get_json()
-    mapping_type = data.get('mapping_type')
-    record_id = data.get('id')
-    field = data.get('field')
-    value = data.get('value')
-
+def manual_add():
+    mapping_type = request.form.get('mapping_type')
     try:
         if mapping_type == 'modality':
-            mapping = AEModalityMap.query.get(record_id)
-            if not mapping:
-                return jsonify({"status": "error", "message": "Mapping not found"}), 404
-            if field not in ['aetitle', 'modality']:
-                return jsonify({"status": "error", "message": "Invalid field"}), 400
-            setattr(mapping, field, value)
-
-        elif mapping_type == 'duration':
-            mapping = ProcedureDurationMap.query.get(record_id)
-            if not mapping:
-                return jsonify({"status": "error", "message": "Mapping not found"}), 404
-            if field == 'duration_minutes':
-                try:
-                    value = int(value)
-                    if value < 0:
-                        return jsonify({"status": "error", "message": "Duration must be non-negative"}), 400
-                except ValueError:
-                    return jsonify({"status": "error", "message": "Invalid duration"}), 400
-            if field not in ['procedurecode', 'duration_minutes']:
-                return jsonify({"status": "error", "message": "Invalid field"}), 400
-            setattr(mapping, field, value)
-
+            new_rec = AETitleModalityMap(
+                aetitle=request.form.get('aetitle'),
+                modality=request.form.get('modality')
+            )
         else:
-            return jsonify({"status": "error", "message": "Invalid mapping type"}), 400
-
+            new_rec = ProcedureDurationMap(
+                procedure_code=request.form.get('procedure_code'),
+                duration_minutes=int(request.form.get('duration_minutes'))
+            )
+        db.session.add(new_rec)
         db.session.commit()
-        logging.info(f"User {session.get('username')} edited {mapping_type} ID {record_id}: {field} → {value}")
-        return jsonify({"status": "success", "message": "Mapping updated successfully"})
-
+        flash('Manual entry added.', 'success')
     except Exception as e:
         db.session.rollback()
-        return jsonify({"status": "error", "message": str(e)}), 500
+        flash(f'Error adding entry: {str(e)}', 'danger')
+    
+    return redirect(url_for('mapper_editor.mapping_list'))
 
-# =========================================================================
-# AJAX ENDPOINT: DELETE MAPPING
-# =========================================================================
-@mapper_editor_bp.route('/mapping-delete', methods=['DELETE'])
+# ----------------------------
+# 4: Delete (POST or DELETE)
+# ----------------------------
+@mapper_editor_bp.route('/delete/<string:m_type>/<path:id_val>', methods=['POST'])
+@login_required
 @mapping_access_required
-def mapping_delete():
-    """
-    Handles deletion of a mapping record.
-    Expects JSON: { "mapping_type": "modality|duration", "id": <int> }
-    """
-    data = request.get_json()
-    mapping_type = data.get('mapping_type')
-    record_id = data.get('id')
-
+def manual_delete(m_type, id_val):
     try:
-        if mapping_type == 'modality':
-            mapping = AEModalityMap.query.get(record_id)
-        elif mapping_type == 'duration':
-            mapping = ProcedureDurationMap.query.get(record_id)
+        if m_type == 'modality':
+            record = AETitleModalityMap.query.get(id_val)
         else:
-            return jsonify({"status": "error", "message": "Invalid mapping type"}), 400
-
-        if not mapping:
-            return jsonify({"status": "error", "message": "Mapping not found"}), 404
-
-        db.session.delete(mapping)
-        db.session.commit()
-        logging.info(f"User {session.get('username')} deleted {mapping_type} ID {record_id}")
-        return jsonify({"status": "success", "message": "Mapping deleted successfully"})
-
+            record = ProcedureDurationMap.query.get(id_val)
+            
+        if record:
+            db.session.delete(record)
+            db.session.commit()
+            flash('Record deleted.', 'info')
     except Exception as e:
         db.session.rollback()
-        return jsonify({"status": "error", "message": str(e)}), 500
+        flash(f'Delete failed: {str(e)}', 'danger')
+        
+    return redirect(url_for('mapper_editor.mapping_list'))

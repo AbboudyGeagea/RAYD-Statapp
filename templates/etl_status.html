@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ETL Job Monitor</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body { background-color: #f8f9fa; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .table-container { background: white; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); padding: 20px; }
+        .status-badge { width: 100px; text-align: center; }
+        .error-console { 
+            background-color: #1e1e1e; 
+            color: #d4d4d4; 
+            padding: 15px; 
+            border-radius: 5px; 
+            font-family: 'Consolas', 'Monaco', monospace; 
+            font-size: 0.85rem;
+            max-height: 400px;
+            overflow-y: auto;
+            border-left: 5px solid #dc3545;
+        }
+        .job-name { color: #0d6efd; font-weight: 600; }
+    </style>
+</head>
+<body>
+
+<nav class="navbar navbar-dark bg-dark mb-4">
+    <div class="container-fluid">
+        <span class="navbar-brand mb-0 h1"><i class="fas fa-server me-2"></i> System Administration</span>
+        <div class="d-flex">
+            <a href="/admin/dashboard" class="btn btn-outline-light btn-sm">User Management</a>
+        </div>
+    </div>
+</nav>
+
+<div class="container-fluid">
+    <div class="table-container">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h3 class="mb-0 text-dark">ETL Pipeline History</h3>
+            <span class="text-muted">Displaying last 100 jobs</span>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table table-hover border-top">
+                <thead>
+                    <tr class="table-light">
+                        <th>ID</th>
+                        <th>Job Name</th>
+                        <th>Started</th>
+                        <th>Duration</th>
+                        <th>Records Processed</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for log in logs %}
+                    <tr>
+                        <td><small class="text-muted">#{{ log.id }}</small></td>
+                        <td class="job-name">{{ log.job_name }}</td>
+                        <td>{{ log.start_time.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                        <td>
+                            {% if log.duration_seconds %}
+                                <span class="text-dark">{{ log.duration_seconds }}s</span>
+                            {% else %}
+                                <span class="text-muted italic">In progress...</span>
+                            {% endif %}
+                        </td>
+                        <td class="fw-bold">
+                            {{ "{:,}".format(log.records_processed or 0) }}
+                        </td>
+                        <td>
+                            {% if log.status == 'SUCCESS' %}
+                                <span class="badge bg-success status-badge"><i class="fas fa-check me-1"></i>SUCCESS</span>
+                            {% elif log.status == 'FAILED' %}
+                                <span class="badge bg-danger status-badge"><i class="fas fa-times me-1"></i>FAILED</span>
+                            {% else %}
+                                <span class="badge bg-warning text-dark status-badge"><i class="fas fa-sync fa-spin me-1"></i>RUNNING</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if log.error_message %}
+                            <button class="btn btn-sm btn-dark" type="button" data-bs-toggle="collapse" data-bs-target="#error-{{ log.id }}">
+                                <i class="fas fa-terminal me-1"></i> Logs
+                            </button>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    
+                    {% if log.error_message %}
+                    <tr class="collapse" id="error-{{ log.id }}">
+                        <td colspan="7">
+                            <div class="my-2 px-3">
+                                <div class="error-console shadow-sm">
+                                    <div class="mb-2 text-secondary border-bottom border-secondary pb-1">
+                                        <i class="fas fa-exclamation-circle text-danger me-2"></i>Runtime Exception Traceback
+                                    </div>
+                                    <pre class="mb-0">{{ log.error_message }}</pre>
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endif %}
+                    
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.min.js"></script>
+</body>
+</html>

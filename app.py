@@ -1,4 +1,3 @@
-# app.py
 import os
 import logging
 from datetime import date, datetime
@@ -27,7 +26,6 @@ load_dotenv()
 from db import (
     db,
     init_db,
-    ActiveSession,
     User,
     ReportTemplate,
     ReportDimension,
@@ -35,7 +33,7 @@ from db import (
     GoLiveDate
 )
 
-from routes import register_blueprints
+from routes.registry import register_blueprints
 
 # ---------------------------------------------------------
 # CONFIG
@@ -109,65 +107,29 @@ def create_app():
     # SESSION VALIDATION
     # -----------------------------------------------------
     @app.before_request
-    def validate_active_session():
-        if request.path.startswith('/static/'):
-            return
-
-        if request.endpoint and request.endpoint.startswith('auth.'):
+    def check_auth():
+        if request.path.startswith('/static/') or (request.endpoint and (request.endpoint.startswith('auth.') or request.endpoint == 'static')):
             return
 
         if not current_user.is_authenticated:
-            return redirect(url_for('auth.login'))
-
-        sess_uuid = flask_session.get('session_uuid')
-        if not sess_uuid:
-            logout_user()
-            flask_session.clear()
-            return redirect(url_for('auth.login'))
-
-        active = ActiveSession.query.get(sess_uuid)
-        if not active or active.user_id != current_user.id:
-            logout_user()
-            flask_session.clear()
-            return redirect(url_for('auth.login'))
+            if request.endpoint != 'auth.login':
+                return redirect(url_for('auth.login'))
 
     # -----------------------------------------------------
-    # REPORT VIEW (PLAIN ID, DB-GATED)
+    # ROOT REDIRECT
     # -----------------------------------------------------
-    @app.route('/report/<int:report_id>', methods=['GET', 'POST'])
-    @login_required
-    def view_report(report_id):
+    @app.route('/')
+    def index():
+        if not current_user.is_authenticated:
+            return redirect(url_for('auth.login'))
+        if current_user.role == 'admin':
+            return redirect(url_for('admin.admin_dashboard'))
+        return redirect(url_for('viewer.viewer_dashboard'))
 
-        # 🔒 Access control
-        if current_user.role != 'admin':
-            allowed = ReportAccessControl.query.filter_by(
-                user_id=current_user.id,
-                report_template_id=report_id,
-                is_enabled=True
-            ).first()
-            if not allowed:
-                abort(403, description="This report is not enabled for your account.")
-
-        report = ReportTemplate.query.filter_by(
-            report_id=report_id,
-            is_base=True
-        ).first_or_404()
-
-        dimensions = (
-            ReportDimension.query
-            .filter_by(report_id=report_id)
-            .order_by(ReportDimension.sort_order)
-            .all()
-        )
-
-        return render_template(
-            "report_page.html",
-            report=report,
-            dimensions=dimensions
-        )
+    # NOTE: The "GLOBAL REPORT GATEWAY" was removed from here.
+    # The individual report blueprints now handle the /report/ID routes directly.
 
     return app
-
 
 # ---------------------------------------------------------
 # RUN
@@ -175,4 +137,3 @@ def create_app():
 if __name__ == '__main__':
     app = create_app()
     app.run(host='0.0.0.0', port=8080, debug=True)
-

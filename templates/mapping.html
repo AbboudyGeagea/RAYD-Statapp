@@ -2,123 +2,124 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mapping Console | StatsApp</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
-        :root { --accent: #38ada9; --bg: #f8f9fa; --header: #e9ecef; }
-        body { font-family: 'Inter', sans-serif; background-color: var(--bg); color: #343a40; }
-        .bg-accent { background-color: var(--accent); }
-        .text-accent { color: var(--accent); }
-        .card-custom { background: white; border-radius: 1rem; border: 1px solid #dee2e6; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); padding: 1.5rem; }
+        :root { --accent: #38ada9; }
+        body { font-family: 'Inter', sans-serif; background: #f8f9fa; }
+        .card-custom { background: white; border-radius: 1rem; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+        code { background: #f1f5f9; padding: 2px 4px; border-radius: 4px; color: #e11d48; font-size: 0.9em; }
     </style>
 </head>
 <body class="p-8">
 
-<div class="max-w-7xl mx-auto">
-    <div class="flex justify-between items-center mb-8 p-4 rounded-xl border-b-2" style="background-color: var(--header);">
-        <div class="flex items-center gap-3">
-            <i class="bi bi-gear-fill text-accent text-3xl"></i>
-            <h1 class="text-2xl font-bold text-gray-800">Mapping Console</h1>
+<div class="max-w-7xl mx-auto space-y-8">
+    <div class="flex justify-between items-center bg-white p-6 rounded-2xl border shadow-sm">
+        <div class="flex items-center gap-4">
+            <div class="bg-[#38ada9] p-3 rounded-xl text-white">
+                <i class="bi bi-diagram-3-fill text-2xl"></i>
+            </div>
+            <div>
+                <h1 class="text-2xl font-black text-slate-800 uppercase tracking-tight">Mapping Console</h1>
+                <p class="text-xs text-slate-400 font-bold uppercase tracking-widest">Data Synchronization Engine</p>
+            </div>
         </div>
-        <a href="{{ url_for('viewer.viewer_dashboard') }}" class="px-5 py-2 bg-white text-gray-700 rounded-lg shadow-sm border font-semibold hover:bg-gray-50 transition">
-            <i class="bi bi-arrow-left"></i> Back to Dashboard
+        <a href="{{ url_for('admin.admin_dashboard') }}" class="px-6 py-2.5 bg-slate-800 text-white rounded-xl text-xs font-black hover:bg-slate-900 transition shadow-lg">
+            <i class="bi bi-arrow-left mr-2"></i> BACK TO ADMIN
         </a>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
-        <div class="card-custom">
-            <h2 class="text-sm font-bold text-accent uppercase tracking-widest mb-4">AE Title → Modality Upload</h2>
+    <div class="bg-blue-50 border-l-4 border-blue-500 p-6 rounded-r-2xl shadow-sm">
+        <div class="flex gap-4">
+            <i class="bi bi-info-circle-fill text-blue-500 text-xl"></i>
+            <div class="space-y-2">
+                <h3 class="font-black text-blue-900 text-sm uppercase">CSV Structure Instructions</h3>
+                <p class="text-xs text-blue-700 leading-relaxed">To update mappings in bulk, upload a CSV file with the following headers (case-insensitive):</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                    <div class="bg-white/50 p-3 rounded-lg border border-blue-100">
+                        <span class="text-[10px] font-bold text-blue-500 uppercase">Modality Mapping</span>
+                        <div class="mt-1 font-mono text-[11px]">aetitle, modality</div>
+                    </div>
+                    <div class="bg-white/50 p-3 rounded-lg border border-blue-100">
+                        <span class="text-[10px] font-bold text-blue-500 uppercase">Procedure Duration</span>
+                        <div class="mt-1 font-mono text-[11px]">procedure_code, duration_minutes</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="card-custom p-6">
+            <h2 class="text-xs font-black text-[#38ada9] uppercase tracking-widest mb-4">Modality Sync</h2>
             <form method="POST" action="{{ url_for('mapping.mapping_upload') }}" enctype="multipart/form-data">
                 <input type="hidden" name="mapping_type" value="modality">
                 <div class="flex gap-2">
-                    <input type="file" name="file" accept=".csv" class="flex-1 text-sm border p-2 rounded-lg" required>
-                    <button class="px-4 py-2 bg-accent text-white rounded-lg font-bold shadow hover:opacity-90 transition">Upload</button>
+                    <input type="file" name="file" accept=".csv" class="flex-1 text-xs border p-2 rounded-xl bg-slate-50" required>
+                    <button class="px-6 py-2 bg-[#38ada9] text-white text-xs font-black rounded-xl hover:opacity-90 transition shadow-md">SYNC</button>
                 </div>
             </form>
         </div>
-        <div class="card-custom">
-            <h2 class="text-sm font-bold text-accent uppercase tracking-widest mb-4">Procedure → Duration Upload</h2>
+
+        <div class="card-custom p-6">
+            <h2 class="text-xs font-black text-[#38ada9] uppercase tracking-widest mb-4">Duration Sync</h2>
             <form method="POST" action="{{ url_for('mapping.mapping_upload') }}" enctype="multipart/form-data">
                 <input type="hidden" name="mapping_type" value="duration">
                 <div class="flex gap-2">
-                    <input type="file" name="file" accept=".csv" class="flex-1 text-sm border p-2 rounded-lg" required>
-                    <button class="px-4 py-2 bg-accent text-white rounded-lg font-bold shadow hover:opacity-90 transition">Upload</button>
+                    <input type="file" name="file" accept=".csv" class="flex-1 text-xs border p-2 rounded-xl bg-slate-50" required>
+                    <button class="px-6 py-2 bg-[#38ada9] text-white text-xs font-black rounded-xl hover:opacity-90 transition shadow-md">SYNC</button>
                 </div>
             </form>
         </div>
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div class="card-custom">
-            <div class="flex justify-between items-center mb-4">
-                <h3 class="font-bold text-gray-700">Modality Mappings</h3>
-                <button onclick="addRow('modality-table', 'modality')" class="text-xs bg-accent text-white px-3 py-1 rounded shadow">+ New Entry</button>
+        <div class="card-custom overflow-hidden">
+            <div class="bg-slate-50 px-6 py-4 border-b flex justify-between items-center">
+                <h3 class="font-black text-xs text-slate-700 uppercase tracking-widest">Active Modality Mappings</h3>
+                <span class="bg-white px-2 py-1 rounded text-[10px] font-bold border">{{ modality_mappings|length }} Entries</span>
             </div>
-            <table id="modality-table" class="w-full text-sm text-left">
-                <thead class="bg-gray-50 text-[10px] font-bold text-gray-400 uppercase">
-                    <tr><th class="p-3">AE Title</th><th class="p-3">Modality</th><th class="p-3">Action</th></tr>
-                </thead>
-                <tbody class="divide-y divide-gray-100">
-                    {% for map in modality_mappings %}
-                    <tr><td class="p-3">{{ map.aetitle }}</td><td class="p-3 text-accent font-bold">{{ map.modality }}</td><td class="p-3 text-gray-300">-</td></tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+            <div class="max-h-96 overflow-y-auto">
+                <table class="w-full text-sm text-left">
+                    <thead class="bg-slate-50 text-[10px] font-black text-slate-400 uppercase sticky top-0">
+                        <tr><th class="px-6 py-3">AE Title</th><th class="px-6 py-3">Modality</th></tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        {% for map in modality_mappings %}
+                        <tr class="hover:bg-slate-50 transition">
+                            <td class="px-6 py-3 font-mono text-xs text-slate-500">{{ map.aetitle }}</td>
+                            <td class="px-6 py-3 font-black text-[#38ada9]">{{ map.modality }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
         </div>
 
-        <div class="card-custom">
-            <div class="flex justify-between items-center mb-4">
-                <h3 class="font-bold text-gray-700">Procedure Durations</h3>
-                <button onclick="addRow('duration-table', 'duration')" class="text-xs bg-accent text-white px-3 py-1 rounded shadow">+ New Entry</button>
+        <div class="card-custom overflow-hidden">
+            <div class="bg-slate-50 px-6 py-4 border-b flex justify-between items-center">
+                <h3 class="font-black text-xs text-slate-700 uppercase tracking-widest">Active Procedure Durations</h3>
+                <span class="bg-white px-2 py-1 rounded text-[10px] font-bold border">{{ duration_mappings|length }} Entries</span>
             </div>
-            <table id="duration-table" class="w-full text-sm text-left">
-                <thead class="bg-gray-50 text-[10px] font-bold text-gray-400 uppercase">
-                    <tr><th class="p-3">Code</th><th class="p-3">Min</th><th class="p-3">Action</th></tr>
-                </thead>
-                <tbody class="divide-y divide-gray-100">
-                    {% for map in duration_mappings %}
-                    <tr><td class="p-3 font-mono">{{ map.procedure_code }}</td><td class="p-3 font-bold">{{ map.duration_minutes }}</td><td class="p-3 text-gray-300">-</td></tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+            <div class="max-h-96 overflow-y-auto">
+                <table class="w-full text-sm text-left">
+                    <thead class="bg-slate-50 text-[10px] font-black text-slate-400 uppercase sticky top-0">
+                        <tr><th class="px-6 py-3">Proc. Code</th><th class="px-6 py-3">Min</th></tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        {% for map in duration_mappings %}
+                        <tr class="hover:bg-slate-50 transition">
+                            <td class="px-6 py-3 font-mono text-xs text-slate-500">{{ map.procedure_code }}</td>
+                            <td class="px-6 py-3 font-black text-slate-700">{{ map.duration_minutes }} <span class="text-[10px] font-normal text-slate-400 italic">min</span></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 </div>
 
-<script>
-    async function saveNewRow(btn, type) {
-        const tr = btn.closest('tr');
-        const cells = tr.querySelectorAll('[contenteditable=\"true\"]');
-        const payload = {
-            mapping_type: type,
-            fields: type === 'modality' 
-                ? { aetitle: cells[0].innerText.trim(), modality: cells[1].innerText.trim() }
-                : { procedure_code: cells[0].innerText.trim(), duration_minutes: cells[1].innerText.trim() }
-        };
-
-        const res = await fetch("{{ url_for('mapping.mapping_add') }}", {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(payload)
-        });
-        const json = await res.json();
-        if (json.status === 'success') location.reload();
-        else Swal.fire('Error', json.message, 'error');
-    }
-
-    function addRow(tableId, type) {
-        const tbody = document.querySelector(`#${tableId} tbody`);
-        const tr = document.createElement('tr');
-        tr.className = "bg-yellow-50";
-        tr.innerHTML = `<td contenteditable="true" class="p-3 border-b outline-none"></td>
-                        <td contenteditable="true" class="p-3 border-b outline-none"></td>
-                        <td class="p-3 border-b"><button onclick="saveNewRow(this, '${type}')" class="bg-accent text-white px-2 py-1 rounded text-[10px]">Save</button></td>`;
-        tbody.prepend(tr);
-    }
-</script>
 </body>
 </html>

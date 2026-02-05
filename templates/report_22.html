@@ -2,84 +2,221 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>{{ report.report_name }}</title>
+    <title>RAYD Intelligence | Analyst Diagnostic Suite</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
-        :root { --accent: #38ada9; }
-        body { font-family: 'Inter', sans-serif; background:#f8f9fa; overflow: hidden; height: 100vh; }
-        .disabled { opacity:.45; pointer-events:none; }
-        .filter-card { background: white; border-right: 2px solid #e9ecef; width: 320px; padding: 1.5rem; overflow-y: auto; }
-        label { font-size: 10px; font-weight: 800; color: var(--accent); text-transform: uppercase; }
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Plus+Jakarta+Sans:wght@400;600;800&display=swap');
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background: #020617; color: #f8fafc; height: 100vh; overflow: hidden; }
+        .mono { font-family: 'JetBrains Mono', monospace; }
+        .sidebar { width: 320px; background: #0f172a; border-right: 1px solid #1e293b; display: flex; flex-direction: column; }
+        .data-card { background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; display: flex; flex-direction: column; overflow: hidden; }
+        .card-header { padding: 10px 16px; border-bottom: 1px solid #1e293b; display: flex; justify-content: space-between; align-items: center; background: rgba(30, 41, 59, 0.3); }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; height: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+        .input-dark { background: #020617; border: 1px solid #334155; color: white; border-radius: 6px; padding: 6px; font-size: 11px; width: 100%; }
+        .stat-up { color: #10b981; }
+        .stat-down { color: #ef4444; }
     </style>
 </head>
+<body class="flex flex-col">
 
-{% set selected_inputs = selected_inputs | default({}, true) %}
-{% set selected_ops = selected_ops | default({}, true) %}
-{% set dropdown_data = dropdown_data | default({}, true) %}
-{% set run_report = run_report | default(false, true) %}
-
-<body class="p-4">
-<form method="POST" class="flex h-full gap-4">
-    <div class="filter-card flex flex-col gap-4 rounded-2xl shadow-lg">
-        <h2 class="font-bold border-b pb-2 mb-2 text-gray-400 text-xs">FILTERS</h2>
-        <div>
-            <label>Start Date</label>
-            <input type="date" name="start_date" value="{{ display_start }}" class="w-full border p-2 rounded mb-4 text-sm">
-            <label>End Date</label>
-            <input type="date" name="end_date" value="{{ display_end }}" class="w-full border p-2 rounded text-sm">
+    <header class="h-12 bg-[#0f172a] border-b border-slate-800 flex items-center px-6 justify-between shrink-0">
+        <div class="flex items-center gap-4">
+            <span class="font-black text-sm uppercase text-[#38ada9]">RAYD <span class="text-white">Diagnostic</span></span>
+            <div class="h-4 w-[1px] bg-slate-700"></div>
+            <span class="text-[10px] font-bold text-slate-500 uppercase mono">Mode: Absolute Counts & Volatility</span>
         </div>
+        <div class="flex gap-2">
+            <button class="text-[10px] font-bold bg-slate-800 px-3 py-1.5 rounded border border-slate-700">REFRESH STREAM</button>
+        </div>
+    </header>
 
-        <div class="flex-1 space-y-4">
-            {% for field in ["Modality","Study Status","Patient Class","Storing AE"] %}
-            <div>
-                <div class="flex items-center gap-2 mb-1">
-                    <input type="checkbox" name="apply_{{ field }}" value="1" {% if selected_inputs.get(field) %}checked{% endif %} onchange="toggle('{{ field }}')">
-                    <label class="m-0 text-gray-600">{{ field }}</label>
+    <div class="flex flex-1 overflow-hidden">
+        <aside class="sidebar p-4 shadow-2xl overflow-y-auto custom-scrollbar">
+            <form method="POST" class="space-y-6">
+                <section>
+                    <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 block">Date Logic</label>
+                    <select name="date_mode" class="input-dark mb-2">
+                        <option value="preset">Preset Range</option>
+                        <option value="manual">Manual Selection</option>
+                    </select>
+                    <select name="date_preset" class="input-dark">
+                        <option value="year_to_date">Year to Date</option>
+                        <option value="last_business_month">Last Business Month</option>
+                    </select>
+                </section>
+
+                <section>
+                    <div class="flex justify-between items-center mb-2">
+                        <label class="text-[10px] font-black text-slate-500 uppercase">Modality Filter</label>
+                        <input type="checkbox" name="enable_modality" class="accent-[#38ada9]" checked>
+                    </div>
+                    <div class="max-h-40 overflow-y-auto custom-scrollbar bg-slate-900/40 rounded p-2 border border-slate-800">
+                        {% for item in modalities %}
+                        <label class="flex items-center gap-2 py-1 text-[11px] text-slate-400 hover:text-white cursor-pointer">
+                            <input type="checkbox" name="modality" value="{{ item }}" class="accent-[#38ada9]"> {{ item }}
+                        </label>
+                        {% endfor %}
+                    </div>
+                </section>
+
+                <button type="submit" class="w-full py-3 bg-[#38ada9] text-white font-black rounded-lg hover:bg-[#2c8d8a] transition-all uppercase text-xs tracking-tighter">
+                    Recompute Dataset
+                </button>
+            </form>
+        </aside>
+
+        <main class="flex-1 overflow-y-auto p-4 bg-[#020617] custom-scrollbar space-y-4">
+            {% if run_report %}
+            
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <div class="data-card lg:col-span-2 h-[300px]">
+                    <div class="card-header"><span class="text-[10px] font-black uppercase text-slate-400">The Temporal Pulse (Monthly Volume)</span></div>
+                    <div id="chart_trend" class="flex-1 p-2"></div>
                 </div>
-                <select name="{{ field }}" multiple id="f_{{ field }}" class="w-full border rounded h-24 text-xs {% if not selected_inputs.get(field) %}disabled{% endif %}">
-                    {% for v in dropdown_data[field] %}
-                        <option value="{{ v }}" {% if v in selected_inputs.get(field,[]) %}selected{% endif %}>{{ v }}</option>
-                    {% endfor %}
-                </select>
+                <div class="data-card h-[300px]">
+                    <div class="card-header"><span class="text-[10px] font-black uppercase text-slate-400">Patient Class Mix</span></div>
+                    <div id="chart_pie" class="flex-1 p-2"></div>
+                </div>
             </div>
-            {% endfor %}
-        </div>
-        <button name="action" value="run" class="w-full py-3 bg-teal-600 text-white font-bold rounded-xl shadow-lg">Run Analysis</button>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div class="data-card h-[350px]">
+                    <div class="card-header">
+                        <span class="text-[10px] font-black uppercase text-slate-400">Top 10 Procedures (By Count)</span>
+                        <span class="text-[9px] text-slate-500 italic">Absolute Volume Only</span>
+                    </div>
+                    <div id="chart_proc" class="flex-1 p-2"></div>
+                </div>
+                
+                <div class="data-card h-[350px]">
+                    <div class="card-header"><span class="text-[10px] font-black uppercase text-slate-400">Referring Physician Distribution</span></div>
+                    <div class="overflow-y-auto custom-scrollbar flex-1">
+                        <table class="w-full text-[11px] mono">
+                            <thead class="bg-slate-900 sticky top-0">
+                                <tr class="text-slate-500 border-b border-slate-800">
+                                    <th class="p-3 text-left">Physician Name (Triple)</th>
+                                    <th class="p-3 text-right">Study Count</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% set phys_counts = {} %}
+                                {% for row in rows %}
+                                    {% set name = row.ref_phys %}
+                                    {% set _ = phys_counts.update({name: (phys_counts[name] | default(0)) + 1}) %}
+                                {% endfor %}
+                                {% for name, count in phys_counts.items() | sort(attribute='1', reverse=True) %}
+                                {% if loop.index <= 15 %}
+                                <tr class="border-b border-slate-900 hover:bg-slate-800/40">
+                                    <td class="p-2 pl-3 text-slate-300 uppercase">{{ name }}</td>
+                                    <td class="p-2 pr-3 text-right text-teal-400 font-bold">{{ count }}</td>
+                                </tr>
+                                {% endif %}
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="data-card">
+                <div class="card-header"><span class="text-[10px] font-black uppercase text-slate-400">Modality Volatility Ledger</span></div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse text-[11px] mono">
+                        <thead>
+                            <tr class="text-slate-500 border-b border-slate-800 uppercase bg-slate-900/50">
+                                <th class="p-4">Modality</th>
+                                <th class="p-4 text-right">Current Count</th>
+                                <th class="p-4 text-right">Previous Window</th>
+                                <th class="p-4 text-right">Absolute Δ</th>
+                                <th class="p-4 text-right">Variance Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% set mod_data = chart_json.modality_compare %}
+                            {% for k, v in mod_data.current.items() %}
+                            {% set prev = mod_data.previous[k] | default(0) %}
+                            {% set delta = v - prev %}
+                            <tr class="border-b border-slate-900 hover:bg-slate-800/20">
+                                <td class="p-4 font-bold text-white uppercase">{{ k }}</td>
+                                <td class="p-4 text-right">{{ "{:,}".format(v) }}</td>
+                                <td class="p-4 text-right text-slate-500">{{ "{:,}".format(prev) }}</td>
+                                <td class="p-4 text-right font-bold {{ 'stat-up' if delta > 0 else 'stat-down' }}">
+                                    {{ "+" if delta > 0 else "" }}{{ delta }}
+                                </td>
+                                <td class="p-4 text-right">
+                                    {% if prev > 0 %}
+                                        {% set perc = (delta / prev) * 100 %}
+                                        {% if perc > 15 %}<span class="bg-emerald-500/10 text-emerald-500 px-2 py-1 rounded text-[9px]">SURGE</span>
+                                        {% elif perc < -15 %}<span class="bg-red-500/10 text-red-500 px-2 py-1 rounded text-[9px]">DROP</span>
+                                        {% else %}<span class="text-slate-600 px-2 py-1 rounded text-[9px]">STABLE</span>{% endif %}
+                                    {% else %}
+                                        <span class="bg-blue-500/10 text-blue-400 px-2 py-1 rounded text-[9px]">NEW</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            {% else %}
+            <div class="h-full flex flex-col items-center justify-center opacity-10">
+                <i class="bi bi-cpu text-9xl"></i>
+                <p class="font-black uppercase tracking-[1em]">Engine Idle</p>
+            </div>
+            {% endif %}
+        </main>
     </div>
 
-    <div class="flex-1 bg-white rounded-2xl p-6 shadow-sm overflow-y-auto">
-        {% if run_report %}
-            <div class="grid grid-cols-4 gap-4 mb-6">
-                <div class="p-4 border-l-4 border-teal-500 bg-gray-50 rounded">
-                    <label>Total Studies</label>
-                    <div class="text-2xl font-black">{{ total_count }}</div>
-                </div>
-            </div>
-            <table class="w-full text-sm">
-                <thead class="bg-teal-600 text-white">
-                    <tr><th class="p-3 text-left">Date</th><th class="p-3 text-left">Modality</th><th class="p-3 text-left">Status</th></tr>
-                </thead>
-                <tbody class="divide-y">
-                    {% for r in rows %}
-                    <tr><td class="p-3">{{ r.study_date }}</td><td class="p-3 font-bold">{{ r.modality }}</td><td class="p-3">{{ r.study_status }}</td></tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        {% else %}
-            <div class="h-full flex flex-col items-center justify-center opacity-30">
-                <i class="bi bi-search text-6xl"></i>
-                <p class="font-bold">Set filters and run analysis</p>
-            </div>
-        {% endif %}
-    </div>
-</form>
+    <script>
+        const raw = {{ chart_json | safe if chart_json else 'null' }};
+        
+        if (raw) {
+            // 1. Temporal Pulse (Monthly Area)
+            const trend = echarts.init(document.getElementById('chart_trend'));
+            trend.setOption({
+                tooltip: { trigger: 'axis' },
+                grid: { top: 30, bottom: 30, left: 50, right: 20 },
+                xAxis: { type: 'category', data: raw.monthly.labels, axisLabel: { color: '#64748b' } },
+                yAxis: { type: 'value', splitLine: { lineStyle: { color: '#1e293b' } } },
+                series: [{ 
+                    data: raw.monthly.data, type: 'line', smooth: true, 
+                    areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{offset: 0, color: '#38ada955'}, {offset: 1, color: '#38ada900'}]) },
+                    itemStyle: { color: '#38ada9' } 
+                }]
+            });
 
-<script>
-    function toggle(field){
-        document.getElementById("f_"+field)?.classList.toggle("disabled");
-    }
-</script>
+            // 2. Patient Mix (Donut)
+            const pie = echarts.init(document.getElementById('chart_pie'));
+            pie.setOption({
+                tooltip: { trigger: 'item' },
+                series: [{
+                    type: 'pie', radius: ['50%', '80%'],
+                    data: Object.keys(raw.patient_class.current).map(k => ({ name: k, value: raw.patient_class.current[k] })),
+                    label: { show: false },
+                    itemStyle: { borderRadius: 5, borderColor: '#0f172a', borderWidth: 2 }
+                }]
+            });
+
+            // 3. Top Procedures (Horizontal Pareto)
+            const proc = echarts.init(document.getElementById('chart_proc'));
+            proc.setOption({
+                tooltip: { trigger: 'axis' },
+                grid: { left: '30%', right: '10%' },
+                xAxis: { type: 'value', show: false },
+                yAxis: { type: 'category', data: raw.top_proc_mod.labels, axisLabel: { color: '#94a3b8', fontSize: 9 } },
+                series: [{ 
+                    data: raw.top_proc_mod.data, type: 'bar', 
+                    itemStyle: { color: '#10b981', borderRadius: [0, 5, 5, 0] } 
+                }]
+            });
+
+            window.onresize = () => { [trend, pie, proc].forEach(c => c.resize()); };
+        }
+    </script>
 </body>
 </html>

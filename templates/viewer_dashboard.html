@@ -24,11 +24,11 @@
         </div>
         <div class="flex gap-4">
             {% if current_user.role == 'admin' %}
-                <a href="{{ url_for('admin.admin_panel') }}"
+                <a href="{{ url_for('admin.admin_dashboard') }}"
                    class="px-5 py-2 bg-white text-gray-700 rounded-lg shadow-sm border font-semibold hover:bg-gray-50 transition">
                     Admin Panel
                 </a>
-                <a href="{{ url_for('mapping.mapping_page') }}"
+                <a href="{{ url_for('mapper_editor.mapper_editor_dashboard') }}"
                    class="px-5 py-2 bg-white text-gray-700 rounded-lg shadow-sm border font-semibold hover:bg-gray-50 transition">
                     Mapping
                 </a>
@@ -54,8 +54,7 @@
                 {{ report.long_description }}
             </p>
 
-            <!-- ✅ CLEAN, TOKEN-FREE LINK -->
-            <a href="{{ url_for('view_report', report_id=report.report_id) }}"
+            <a href="{{ url_for('viewer.viewer_report', report_id=report.report_id) }}"
                target="_blank"
                class="w-full py-3 bg-accent text-white text-center font-bold rounded-xl shadow-lg hover:opacity-90 transition">
                 Launch Report Analysis
@@ -67,4 +66,3 @@
 
 </body>
 </html>
-

@@ -4,7 +4,7 @@ from datetime import datetime
 from db import get_report_data, get_etl_cutoff_date 
 
 # Define the Blueprint
-api_bp = Blueprint('api', __name__)
+api_bp = Blueprint('api', __name__, url_prefix='/api')
 
 # --- Helper Function for Authentication (Reused from Dashboard) ---
 

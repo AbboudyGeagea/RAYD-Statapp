@@ -1,0 +1,59 @@
+{% for log in etl_logs %}
+<tr class="hover:bg-slate-50/50 transition border-b border-slate-100 last:border-0">
+    <td class="px-6 py-4">
+        <div class="flex items-center gap-3">
+            <div class="w-2.5 h-2.5 rounded-full 
+                {% if log.status == 'RUNNING' %}bg-amber-400 animate-pulse
+                {% elif log.status == 'SUCCESS' and log.null_alerts > 0 %}bg-orange-500
+                {% elif log.status == 'SUCCESS' %}bg-teal-400
+                {% else %}bg-red-500{% endif %}">
+            </div>
+            <div>
+                <p class="font-bold text-slate-800 text-sm">{{ log.job_name }}</p>
+                <p class="text-[9px] text-slate-400 font-black uppercase tracking-widest">Run #{{ log.id }}</p>
+            </div>
+        </div>
+    </td>
+    
+    <td class="px-6 py-4">
+        <p class="text-[10px] font-bold text-slate-700">
+            {{ log.start_time.strftime('%H:%M:%S') }}
+            {% if log.duration_seconds %}
+                <span class="text-slate-400 font-normal ml-1">({{ log.duration_seconds }}s)</span>
+            {% endif %}
+        </p>
+        {% if log.status == 'RUNNING' %}
+            <div class="w-24 bg-slate-100 h-1.5 rounded-full overflow-hidden border mt-1">
+                <div class="bg-amber-500 h-full" style="width: 70%; animation: progress-scroll 2s linear infinite; background-image: linear-gradient(45deg,rgba(255,255,255,.15) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.15) 50%,rgba(255,255,255,.15) 75%,transparent 75%,transparent); background-size: 1rem 1rem;"></div>
+            </div>
+        {% endif %}
+    </td>
+
+    <td class="px-6 py-4">
+        <div class="font-mono text-xs font-bold text-slate-600">
+            {{ "{:,}".format(log.records_processed or 0) }}
+            <span class="text-[9px] text-slate-400 block font-normal">{{ log.rows_per_second or 0 }} rows/s</span>
+        </div>
+    </td>
+
+    <td class="px-6 py-4 text-center">
+        {% if log.null_alerts > 0 %}
+            <div class="inline-flex items-center gap-1 text-orange-600 bg-orange-50 px-2 py-0.5 rounded border border-orange-100 text-[10px] font-bold" title="Critical columns missing in Oracle">
+                ⚠️ {{ log.null_alerts }} Nulls
+            </div>
+        {% else %}
+            <span class="text-slate-300 text-[10px]">—</span>
+        {% endif %}
+    </td>
+
+    <td class="px-6 py-4 text-right">
+        {% if log.status == 'SUCCESS' %}
+            <span class="text-teal-600 bg-teal-50 px-3 py-1 rounded-full text-[10px] font-black uppercase border border-teal-100">Success</span>
+        {% elif log.status == 'FAILED' %}
+            <span class="text-red-600 bg-red-50 px-3 py-1 rounded-full text-[10px] font-black uppercase border border-red-100 cursor-help" title="{{ log.error_message }}">Failed</span>
+        {% else %}
+            <span class="text-amber-600 bg-amber-50 px-3 py-1 rounded-full text-[10px] font-black uppercase border border-amber-100 animate-pulse">Running</span>
+        {% endif %}
+    </td>
+</tr>
+{% endfor %}
