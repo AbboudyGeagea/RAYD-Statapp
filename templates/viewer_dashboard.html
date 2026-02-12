@@ -2,67 +2,140 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Dashboard | StatsApp</title>
+    <title>RAYD | Viewer Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
-        body { font-family: 'Inter', sans-serif; background-color: #f8f9fa; color: #343a40; }
-        .bg-accent { background-color: #38ada9; }
-        .text-accent { color: #38ada9; }
-        .card-report { transition: transform 0.2s; border: 1px solid #dee2e6; }
-        .card-report:hover { transform: translateY(-5px); }
+        html { font-size: 100%; font-family: 'Inter', sans-serif; } 
+        :root { --accent: #60a5fa; }
+        body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; }
+        
+        /* D. Unified Font and Styling for all sidebar links */
+        .sidebar-item { 
+            transition: all 0.2s; 
+            border-radius: 0.75rem; 
+            margin-bottom: 0.25rem; 
+            cursor: pointer; 
+            font-family: 'Inter', sans-serif !important;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.625rem 1rem;
+            font-size: 0.75rem;
+            color: #e2e8f0;
+        }
+        .sidebar-item:hover { background: #232b28; color: var(--accent); }
+        .sidebar-item.active { background: #232b28; color: var(--accent); border-left: 4px solid var(--accent); }
+        
+        .card-custom { background: #232b28; border-radius: 1.5rem; border: 1px solid #28332e; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.3); color: #e2e8f0; }
+        .tab-btn { transition: all 0.3s ease; border-bottom: 3px solid transparent; color: #64748b; font-size: 0.95rem; font-family: 'Inter', sans-serif; }
+        .tab-btn.active { border-bottom-color: var(--accent); color: var(--accent); font-weight: 900; }
+
+        .banner-integrated {
+            background: linear-gradient(90deg, rgba(24,31,28,0) 0%, rgba(35,43,40,1) 50%, rgba(24,31,28,0) 100%);
+            border-bottom: 1px solid rgba(96,165,250,0.05);
+        }
     </style>
 </head>
-<body class="p-8">
-
-<div class="max-w-7xl mx-auto">
-    <div class="flex justify-between items-center mb-8 p-4 rounded-xl border-b-2" style="background-color: #e9ecef;">
-        <div class="flex items-center gap-3">
-            <i class="bi bi-speedometer2 text-accent text-3xl"></i>
-            <h1 class="text-2xl font-bold text-gray-800">Viewer Dashboard</h1>
+<body class="flex flex-col h-screen overflow-hidden">
+    
+    <header class="banner-integrated px-12 py-6 flex items-center justify-center z-30 relative">
+        <div class="flex flex-col items-center">
+            <img src="{{ url_for('static', filename='RAYD.png') }}" class="h-24 w-auto object-contain brightness-110" alt="RAYD">
+            <div class="h-[2px] w-48 bg-gradient-to-r from-transparent via-[#60a5fa] to-transparent mt-3 opacity-40"></div>
         </div>
-        <div class="flex gap-4">
-            {% if current_user.role == 'admin' %}
-                <a href="{{ url_for('admin.admin_dashboard') }}"
-                   class="px-5 py-2 bg-white text-gray-700 rounded-lg shadow-sm border font-semibold hover:bg-gray-50 transition">
-                    Admin Panel
-                </a>
-                <a href="{{ url_for('mapper_editor.mapper_editor_dashboard') }}"
-                   class="px-5 py-2 bg-white text-gray-700 rounded-lg shadow-sm border font-semibold hover:bg-gray-50 transition">
-                    Mapping
-                </a>
-            {% endif %}
-            <a href="{{ url_for('auth.logout') }}"
-               class="px-5 py-2 bg-red-600 text-white rounded-lg shadow-md font-semibold hover:bg-red-700 transition">
-                Logout
-            </a>
-        </div>
-    </div>
+    </header>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-        {% for report in reports %}
-        <div class="bg-white rounded-2xl p-6 card-report flex flex-col shadow-sm">
-            <div class="flex items-center gap-3 mb-4">
-                <div class="p-2 bg-teal-50 rounded-lg text-accent">
-                    <i class="bi bi-file-earmark-bar-graph text-xl"></i>
-                </div>
-                <h2 class="text-lg font-bold text-gray-800">{{ report.report_name }}</h2>
+    <div class="flex flex-1 overflow-hidden">
+        <aside class="w-64 bg-[#232b28] border-r border-[#28332e] flex flex-col p-5 shadow-xl z-20">
+            <nav class="flex-1 space-y-1">
+                <p class="text-[9px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-3">Main Menu</p>
+                
+                <a href="{{ url_for('viewer.viewer_dashboard') }}" class="sidebar-item active">
+                    <i class="bi bi-speedometer2 text-base"></i> Dashboard
+                </a>
+                
+                {% if current_user.role == 'admin' %}
+                <a href="{{ url_for('admin.admin_dashboard') }}" class="sidebar-item">
+                    <i class="bi bi-cpu text-base"></i> ETL Control Room
+                </a>
+                
+                <a href="{{ url_for('mapping.mapping_page') }}" class="sidebar-item">
+                    <i class="bi bi-diagram-3 text-base"></i> Mapping Console
+                </a>
+                {% endif %}
+            </nav>
+
+            <div class="mt-auto pt-4 border-t border-[#28332e]">
+                <a href="{{ url_for('auth.logout') }}" class="sidebar-item text-red-400 hover:bg-red-400/10">
+                    <i class="bi bi-box-arrow-right text-base"></i> Logout
+                </a>
             </div>
+        </aside>
 
-            <p class="text-gray-500 text-sm mb-6 flex-1">
-                {{ report.long_description }}
-            </p>
+        <main class="flex-1 overflow-y-auto p-10 bg-[#181f1c]">
+            <div class="max-w-5xl mx-auto">
+                <div class="flex items-center gap-8 border-b border-[#28332e] mb-8">
+                    <button onclick="toggleTab('clinical')" id="tab-clinical-btn" class="tab-btn active pb-3 uppercase tracking-widest">Clinical KPIs</button>
+                    <button onclick="toggleTab('it')" id="tab-it-btn" class="tab-btn pb-3 uppercase tracking-widest">IT Systems</button>
+                </div>
 
-            <a href="{{ url_for('viewer.viewer_report', report_id=report.report_id) }}"
-               target="_blank"
-               class="w-full py-3 bg-accent text-white text-center font-bold rounded-xl shadow-lg hover:opacity-90 transition">
-                Launch Report Analysis
-            </a>
-        </div>
-        {% endfor %}
+                <div id="grid-clinical" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {% for report in reports if report.report_id in [22,23,25,27,28] %}
+                    <div class="card-custom p-6 flex flex-col hover:border-[#60a5fa]/30 transition-colors">
+                        <div class="p-2.5 bg-blue-400/10 rounded-xl text-[#60a5fa] w-fit mb-4">
+                            <i class="bi bi-graph-up-arrow text-xl"></i>
+                        </div>
+                        <h3 class="text-base font-bold text-white mb-2">{{ report.report_name }}</h3>
+                        <p class="text-slate-400 text-xs leading-relaxed mb-6 flex-1">{{ report.long_description }}</p>
+                        <a href="{{ url_for('viewer.viewer_report', report_id=report.report_id) }}" target="_blank"
+                           class="w-full py-3 bg-[#60a5fa] text-white text-center text-xs font-black uppercase tracking-widest rounded-xl">
+                            Open Analysis
+                        </a>
+                    </div>
+                    {% endfor %}
+                </div>
+
+                <div id="grid-it" class="hidden grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {% for report in reports if report.report_id == 29 %}
+                    <div class="card-custom p-6 flex flex-col hover:border-[#60a5fa]/30 transition-colors">
+                        <div class="p-2.5 bg-blue-400/10 rounded-xl text-[#60a5fa] w-fit mb-4">
+                            <i class="bi bi-hdd-stack text-xl"></i>
+                        </div>
+                        <h3 class="text-base font-bold text-white mb-2">{{ report.report_name }}</h3>
+                        <p class="text-slate-400 text-xs leading-relaxed mb-6 flex-1">{{ report.long_description }}</p>
+                        <a href="{{ url_for('viewer.viewer_report', report_id=report.report_id) }}" target="_blank"
+                           class="w-full py-3 bg-[#60a5fa] text-white text-center text-xs font-black uppercase tracking-widest rounded-xl">
+                            Infrastructure Audit
+                        </a>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </main>
     </div>
-</div>
 
+    <script>
+        function toggleTab(type) {
+            const clinicalGrid = document.getElementById('grid-clinical');
+            const itGrid = document.getElementById('grid-it');
+            const clinicalBtn = document.getElementById('tab-clinical-btn');
+            const itBtn = document.getElementById('tab-it-btn');
+            
+            if (type === 'clinical') {
+                clinicalGrid.classList.remove('hidden');
+                itGrid.classList.add('hidden');
+                clinicalBtn.classList.add('active');
+                itBtn.classList.remove('active');
+            } else {
+                itGrid.classList.remove('hidden');
+                clinicalGrid.classList.add('hidden');
+                itBtn.classList.add('active');
+                clinicalBtn.classList.remove('active');
+            }
+        }
+    </script>
 </body>
 </html>

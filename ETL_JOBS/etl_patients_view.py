@@ -1,31 +1,29 @@
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, date
 from sqlalchemy import text
-from sqlalchemy.dialects.postgresql import insert
 import cx_Oracle
 
 def run_patients_etl(oracle_conn, pg_engine, logger, batch_size=1000):
     """
-    Optimized Patient ETL: Only imports patients who exist in the 
-    local 'etl_didb_studies' table.
-    Now unified to use BIGINT (Python int) for all UID fields.
+    Optimized Patient ETL: Standardized on BIGINT for UIDs.
+    Updates gender and age_group to support report_23 analytics.
     """
     logger.info("🚀 Starting Patient ETL (Study-Linked Whitelist)")
     ora_cursor = None
     start_time = time.time()
     
-    # Target columns in Postgres (mapping fallback_pid -> fallback_id)
+    # Target columns in Postgres 
+    # Added 'gender' (mapped from Oracle 'sex') and 'age_group'
     col_names = [
-        'patient_db_uid', 'id', 'birth_date', 'sex',
+        'patient_db_uid', 'id', 'birth_date', 'gender',
         'number_of_patient_studies', 'number_of_patient_series', 
-        'number_of_patient_images', 'mdl_patient_dbid', 'fallback_id'
+        'number_of_patient_images', 'mdl_patient_dbid', 'fallback_id', 'age_group'
     ]
 
     try:
-        # 1. Fetch Whitelist from local Postgres
+        # 1. Fetch Whitelist from local Postgres (BigInt native)
         with pg_engine.connect() as conn:
-            # FIX: Keep patient_db_uid as an integer (r[0]), do not cast to str()
             query_whitelist = text("""
                 SELECT DISTINCT patient_db_uid 
                 FROM etl_didb_studies 
@@ -41,22 +39,22 @@ def run_patients_etl(oracle_conn, pg_engine, logger, batch_size=1000):
         ora_cursor = oracle_conn.cursor()
         total_processed = 0
 
-        # 2. Chunked Oracle Retrieval (Max 1000 IDs per IN clause)
+        # 2. Chunked Oracle Retrieval
         for i in range(0, len(valid_patient_ids), 1000):
             id_chunk = valid_patient_ids[i:i + 1000]
             bind_names = [f":id{j}" for j in range(len(id_chunk))]
             
-            # Mapping Oracle's 'fallback_pid' to our schema's 'fallback_id'
-            # Native selection of patient_db_uid as NUMBER (int)
+            # AGE_GROUP CALCULATION:
+            # We calculate current age here so report_23 doesn't have to do it on the fly.
             ora_query = f"""
-                SELECT patient_db_uid, id, birth_date, sex,
+                SELECT patient_db_uid, id, birth_date, sex as gender,
                        number_of_patient_studies, number_of_patient_series, 
-                       number_of_patient_images, mdl_patient_dbid, fallback_pid
+                       number_of_patient_images, mdl_patient_dbid, fallback_pid as fallback_id,
+                       FLOOR(MONTHS_BETWEEN(SYSDATE, birth_date) / 12) as age_group
                 FROM medistore.didb_patients_view
                 WHERE patient_db_uid IN ({','.join(bind_names)})
             """
             
-            # Bind parameters: dictionary mapping names to integer IDs
             bind_params = dict(zip([b.strip(':') for b in bind_names], id_chunk))
             ora_cursor.execute(ora_query, bind_params)
             
@@ -70,24 +68,30 @@ def run_patients_etl(oracle_conn, pg_engine, logger, batch_size=1000):
             for row in rows:
                 d = dict(zip(col_names, row))
                 d['last_update'] = current_ts
-                # Ensure the UID is treated as a native int for Postgres BIGINT
+                # Standardize gender to 'M', 'F', or 'O' if needed
+                if d['gender']:
+                    d['gender'] = str(d['gender']).strip().upper()[:1]
                 mapped_rows.append(d)
 
-            # 4. Postgres Upsert (Insert or Update if patient metadata changed)
+            # 4. Postgres Upsert 
+            # Note: fallback_id is kept as TEXT, patient_db_uid is BIGINT.
             upsert_stmt = text("""
                 INSERT INTO etl_patient_view (
                     patient_db_uid, id, birth_date, sex, 
                     number_of_patient_studies, number_of_patient_series, 
-                    number_of_patient_images, mdl_patient_dbid, fallback_id, last_update
+                    number_of_patient_images, mdl_patient_dbid, fallback_id, 
+                    age_group, last_update
                 ) VALUES (
-                    :patient_db_uid, :id, :birth_date, :sex, 
+                    :patient_db_uid, :id, :birth_date, :gender, 
                     :number_of_patient_studies, :number_of_patient_series, 
-                    :number_of_patient_images, :mdl_patient_dbid, :fallback_id, :last_update
+                    :number_of_patient_images, :mdl_patient_dbid, :fallback_id, 
+                    :age_group, :last_update
                 )
                 ON CONFLICT (patient_db_uid) DO UPDATE SET
                     id = EXCLUDED.id,
                     birth_date = EXCLUDED.birth_date,
                     sex = EXCLUDED.sex,
+                    age_group = EXCLUDED.age_group,
                     number_of_patient_studies = EXCLUDED.number_of_patient_studies,
                     number_of_patient_series = EXCLUDED.number_of_patient_series,
                     number_of_patient_images = EXCLUDED.number_of_patient_images,

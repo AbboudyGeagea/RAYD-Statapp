@@ -1,121 +1,116 @@
 import pandas as pd
-from datetime import date
-from flask import Blueprint, render_template, request, Response, redirect, url_for
+import numpy as np
+from datetime import date, datetime, timedelta
+from flask import Blueprint, render_template, request, Response
 from flask_login import login_required
 from sqlalchemy import text
 from db import db, get_go_live_date
 
 report_27_bp = Blueprint("report_27", __name__)
 
-def calculate_clinical_stage(birth_date):
-    """Data Science approach: Classifying by life stage instead of raw numbers."""
-    if not birth_date:
-        return 'Unknown'
-    try:
-        # birth_date comes from Postgres as a date object usually
-        today = date.today()
-        age = today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
-        
-        if age < 2: return 'Infant'
-        if age < 13: return 'Pediatric'
-        if age < 18: return 'Adolescent'
-        if age < 65: return 'Adult'
-        return 'Geriatric'
-    except Exception:
-        return 'Unknown'
+def calculate_age(birth_date):
+    if birth_date is None or pd.isna(birth_date):
+        return np.nan
+    today = date.today()
+    return today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
 
-def get_report_data(inputs):
-    go_live = get_go_live_date()
-    # Handle the empty string syntax error for Postgres
-    start = inputs.get('start_date') if inputs.get('start_date') else str(go_live)
-    end = inputs.get('end_date') if inputs.get('end_date') else str(date.today())
-
-    query = text("""
+def get_report_data(start, end):
+    sql = text("""
         SELECT
             o.order_dbid,
             o.order_status,
             o.proc_id,
+            o.proc_text,
             o.scheduled_datetime,
+            o.has_study,
             s.study_date,
             s.storing_ae,
+            s.procedure_code,
             p.birth_date,
-            p.sex
+            p.sex,
+            COALESCE(m.duration_minutes, 0) as duration_minutes
         FROM etl_orders o
-        LEFT JOIN etl_didb_studies s ON s.study_db_uid = o.study_db_uid
-        LEFT JOIN etl_patient_view p ON p.patient_db_uid = o.patient_dbid
-        WHERE o.scheduled_datetime::date >= :start 
-          AND o.scheduled_datetime::date <= :end
-        ORDER BY o.scheduled_datetime DESC
+        LEFT JOIN etl_didb_studies s 
+            ON s.study_db_uid::TEXT = o.study_db_uid::TEXT
+        LEFT JOIN etl_patient_view p 
+            ON p.patient_db_uid::TEXT = o.patient_dbid::TEXT
+        LEFT JOIN procedure_duration_map m 
+            ON m.procedure_code::TEXT = s.procedure_code::TEXT 
+            OR m.procedure_code::TEXT = o.proc_id::TEXT
+        WHERE o.scheduled_datetime BETWEEN :start AND :end
     """)
+    res = db.session.execute(sql, {"start": start, "end": end}).fetchall()
+    df = pd.DataFrame(res)
     
-    with db.engine.connect() as conn:
-        df = pd.read_sql(query, conn, params={"start": start, "end": end})
-    
-    return df, start, end
+    if not df.empty:
+        # 1. Standardize types and clean data
+        df['scheduled_datetime'] = pd.to_datetime(df['scheduled_datetime'])
+        df['study_date'] = pd.to_datetime(df['study_date'])
+        df['match'] = df['proc_id'].astype(str).str.strip() == df['procedure_code'].astype(str).str.strip()
+        
+        # 2. Handle Age Grouping Safely
+        df['age'] = df['birth_date'].apply(calculate_age)
+        df['age'] = pd.to_numeric(df['age'], errors='coerce')
+        
+        bins = [-1, 8, 18, 64, 150]
+        labels = ['0-8', '9-18', '19-64', '65+']
+        
+        # Use observed=False in groupby later, and fillna for categories
+        df['age_group'] = pd.cut(df['age'], bins=bins, labels=labels)
+        df['age_group'] = df['age_group'].cat.add_categories('Unknown').fillna('Unknown')
+        
+    return df
 
 @report_27_bp.route("/report/27", methods=["GET", "POST"])
 @login_required
 def report_27():
-    if request.method == "POST" and request.form.get("action") == "reset":
-        return redirect(url_for('report_27.report_27'))
+    today = date.today()
+    go_live = get_go_live_date() or date(2025, 1, 1)
+    
+    # Primary Range
+    start_a = request.form.get("start_date", go_live.strftime('%Y-%m-%d'))
+    end_a = request.form.get("end_date", today.strftime('%Y-%m-%d'))
+    # Comparison Range
+    start_b = request.form.get("comp_start_date", (go_live - timedelta(days=30)).strftime('%Y-%m-%d'))
+    end_b = request.form.get("comp_end_date", go_live.strftime('%Y-%m-%d'))
 
-    inputs = request.form if request.method == "POST" else request.args
-    df, start, end = get_report_data(inputs)
+    run_report = request.method == "POST"
+    data = {}
 
-    chart_json = {}
-    static_stats = {"total": 0, "fulfillment_rate": 0, "top_ae": "N/A"}
+    if run_report:
+        df_a = get_report_data(start_a, end_a)
+        df_b = get_report_data(start_b, end_b)
 
-    if not df.empty:
-        # Feature Engineering: Apply Clinical Stage
-        df['clinical_stage'] = df['birth_date'].apply(calculate_clinical_stage)
-        
-        # Calculate Stats
-        total = len(df)
-        fulfilled = df['study_date'].notnull().sum()
-        
-        static_stats = {
-            "total": total,
-            "fulfilled": int(fulfilled),
-            "fulfillment_rate": round((fulfilled / total * 100), 2) if total > 0 else 0,
-            "top_ae": df['storing_ae'].mode()[0] if not df['storing_ae'].dropna().empty else "N/A"
-        }
+        if not df_a.empty:
+            # Audit Metrics
+            data['audit'] = {
+                "total": len(df_a),
+                "orphans": int(len(df_a[df_a['has_study'] == False])),
+                "matches": int(df_a['match'].sum()),
+                "mismatches": int(len(df_a) - df_a['match'].sum()),
+                "avg_duration": round(df_a['duration_minutes'].mean(), 1),
+                "hourly": df_a['scheduled_datetime'].dt.hour.value_counts().sort_index().to_dict(),
+                "status_mix": df_a['order_status'].value_counts().to_dict(),
+                "ae_mix": df_a['storing_ae'].fillna('Unknown').value_counts().to_dict()
+            }
+            
+            # Comparison Metrics (observed=False handles categorical gaps)
+            data['growth'] = {
+                "vol_a": len(df_a),
+                "vol_b": len(df_b) if not df_b.empty else 0,
+                "demo": df_a.groupby(['age_group', 'sex'], observed=False).size().unstack(fill_value=0).to_dict('index')
+            }
 
-        # Visualization 1: Order Status Distribution
-        status_counts = df['order_status'].value_counts()
-        chart_json['status_pie'] = {
-            "labels": status_counts.index.tolist(),
-            "datasets": [{"data": status_counts.tolist(), "backgroundColor": ["#38ada9", "#f3a683", "#e55039"]}]
-        }
-
-        # Visualization 2: Fulfillment by Clinical Stage
-        # (Percent of orders that resulted in a study, per age group)
-        stage_group = df.groupby('clinical_stage').apply(
-            lambda x: (x['study_date'].notnull().sum() / len(x)) * 100
-        ).round(1)
-        
-        chart_json['fulfillment_by_stage'] = {
-            "labels": stage_group.index.tolist(),
-            "datasets": [{"label": "Fulfillment %", "data": stage_group.tolist(), "backgroundColor": "#60a3bc"}]
-        }
-
-    results = df.to_dict(orient='records')
-
-    return render_template(
-        "report_27.html",
-        results=results,
-        start_date=start,
-        end_date=end,
-        static_stats=static_stats,
-        chart_json=chart_json,
-        run_report=True if not df.empty else False
-    )
+    return render_template("report_27.html", data=data, run_report=run_report,
+                           display_start=start_a, display_end=end_a,
+                           comp_start=start_b, comp_end=end_b)
 
 @report_27_bp.route("/report/27/export", methods=["POST"])
 @login_required
 def export_report_27():
-    df, _, _ = get_report_data(request.form)
-    return Response(
-        df.to_csv(index=False),
-        mimetype="text/csv",
-        headers={"Content-disposition": f"attachment; filename=Order_Fulfillment_{date.today()}.csv"}
-    )
+    # Helper to re-fetch data for export based on the hidden start_date field
+    start = request.form.get("start_date")
+    end = request.form.get("end_date")
+    df = get_report_data(start, end)
+    return Response(df.to_csv(index=False), mimetype="text/csv", 
+                    headers={"Content-disposition": f"attachment; filename=Audit_Export_{start}.csv"})

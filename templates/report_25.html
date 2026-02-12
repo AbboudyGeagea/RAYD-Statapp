@@ -2,106 +2,172 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Report 25: TAT Analytics</title>
+    <title>RAYD | Advanced TAT & Utilization</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
-        :root { --accent: #38ada9; }
-        body { font-family: 'Inter', sans-serif; height: 100vh; display: flex; flex-direction: column; overflow: hidden; background: #f4f7f6; }
-        .rayd-watermark { position: fixed; top: 55%; left: 50%; transform: translate(-50%, -50%); width: 70vw; opacity: 0.05; z-index: 0; pointer-events: none; }
-        .metric-box { background: #f4f7f6; backdrop-filter: blur(10px); border-radius: 24px; padding: 1.5rem; border: 1px solid #fff; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05); text-align: center; }
-        .late-row { border-left: 5px solid #ef4444 !important; background-color: #f4f7f6; !important; }
-        .warning-row { border-left: 5px solid #f59e0b !important; }
+        body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; height: 100vh; overflow: hidden; }
+        .input-dark { background: #181f1c; border: 1px solid #28332e; color: #e2e8f0; border-radius: 0.75rem; padding: 0.75rem; font-size: 11px; width: 100%; outline: none; }
+        .data-card { background: #232b28; border: 1px solid #28332e; border-radius: 1.5rem; overflow: hidden; }
+        .card-header { padding: 1.25rem 1.5rem; border-bottom: 1px solid #28332e; background: rgba(40, 51, 46, 0.2); font-size: 10px; font-weight: 900; color: #60a5fa; text-transform: uppercase; letter-spacing: 0.15em; }
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #f4f7f6; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #28332e; border-radius: 10px; }
+        /* Grid for the procedures inside the cards */
+        .proc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 1rem; }
     </style>
 </head>
 <body class="flex flex-col">
-    <img src="{{ url_for('static', filename='RAYD.png') }}" class="rayd-watermark">
-
-    <header class="w-full bg-white border-b border-slate-100 py-6 flex justify-center items-center z-50 shadow-sm">
-        <img src="{{ url_for('static', filename='intermedic.jpeg') }}" class="h-16 w-auto object-contain">
+    <header class="h-20 bg-[#232b28] border-b border-[#28332e] flex items-center px-10 justify-between shrink-0">
+        <div class="w-64"><img src="{{ url_for('static', filename='philips.jpg') }}" class="h-8 grayscale opacity-40"></div>
+        <div class="flex flex-col items-center">
+            <img src="{{ url_for('static', filename='RAYD.png') }}" class="h-12 opacity-90">
+            <div class="h-1 w-10 bg-[#60a5fa] mt-1 rounded-full"></div>
+        </div>
+        <div class="w-64 flex justify-end"><img src="{{ url_for('static', filename='intermedic.jpeg') }}" class="h-8 grayscale opacity-40"></div>
     </header>
 
-    <main class="flex-1 p-10 overflow-y-auto custom-scrollbar z-10">
-        <div class="max-w-7xl mx-auto space-y-8">
-            <div class="flex justify-between items-end">
-                <div>
-                    <h2 class="text-4xl font-black text-slate-800 tracking-tighter uppercase">TAT Performance</h2>
-                    <p class="text-slate-400 text-[10px] font-black uppercase tracking-[0.3em] mt-1">Workflow Bottlenecks & Exceptions</p>
-                </div>
-                <div class="flex gap-3">
-                    <form action="{{ url_for('viewer.viewer_report', report_id=25) }}" method="POST" class="flex gap-2">
-                        <input type="date" name="start_date" value="{{ start_date }}" class="px-4 py-2 rounded-xl border border-slate-200 text-xs font-bold">
-                        <input type="date" name="end_date" value="{{ end_date }}" class="px-4 py-2 rounded-xl border border-slate-200 text-xs font-bold">
-                        <button type="submit" class="bg-slate-900 text-white px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest">Recalculate</button>
-                    </form>
-                    <form action="{{ url_for('viewer.viewer_export_report', report_id=25) }}" method="POST">
-                        <input type="hidden" name="start_date" value="{{ start_date }}">
-                        <input type="hidden" name="end_date" value="{{ end_date }}">
-                        <button type="submit" class="bg-white border border-slate-200 text-slate-800 px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest">Export</button>
-                    </form>
-                </div>
+    <div class="flex flex-1 overflow-hidden">
+        <aside class="w-80 bg-[#232b28] border-r border-[#28332e] flex flex-col p-6 overflow-y-auto">
+            <form method="POST" class="space-y-6">
+                <section>
+                    <label class="text-[10px] font-black text-[#60a5fa] uppercase mb-4 block tracking-widest">Date Range</label>
+                    <div class="space-y-4">
+                        <input type="date" name="start_date" class="input-dark" value="{{ display_start }}">
+                        <input type="date" name="end_date" class="input-dark" value="{{ display_end }}">
+                    </div>
+                </section>
+                <button type="submit" class="w-full py-4 bg-[#60a5fa] text-white font-black text-[11px] uppercase tracking-[0.2em] rounded-xl shadow-lg shadow-blue-500/10">Run Analysis</button>
+            </form>
+            
+            <div class="mt-auto pt-6 border-t border-[#28332e]">
+                <form method="POST" action="{{ url_for('report_25.export_report_25') }}">
+                    <input type="hidden" name="start_date" value="{{ display_start }}">
+                    <input type="hidden" name="end_date" value="{{ display_end }}">
+                    <button type="submit" class="w-full py-3 border border-[#28332e] text-slate-400 text-[10px] font-bold uppercase tracking-widest rounded-xl hover:bg-[#181f1c]">
+                        <i class="bi bi-download mr-2"></i> Export CSV
+                    </button>
+                </form>
             </div>
+        </aside>
 
+        <main class="flex-1 overflow-y-auto p-10 bg-[#181f1c] space-y-8 custom-scrollbar">
             {% if run_report %}
-            <div class="grid grid-cols-4 gap-6">
-                <div class="metric-box"><p class="text-[10px] font-black text-[#38ada9] tracking-widest uppercase mb-1">Avg Lateness</p><h3 class="text-3xl font-black text-slate-800">{{ stats.avg_perf }}m</h3></div>
-                <div class="metric-box"><p class="text-[10px] font-black text-teal-600 tracking-widest uppercase mb-1">On-Time Rate</p><h3 class="text-3xl font-black text-slate-800">{{ stats.on_time_rate }}%</h3></div>
-                <div class="metric-box"><p class="text-[10px] font-black text-orange-500 tracking-widest uppercase mb-1">Avg Throughput</p><h3 class="text-3xl font-black text-slate-800">{{ stats.avg_throughput }}h</h3></div>
-                <div class="metric-box"><p class="text-[10px] font-black text-blue-500 tracking-widest uppercase mb-1">System Lag</p><h3 class="text-3xl font-black text-slate-800">{{ stats.avg_tech }}m</h3></div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div class="bg-red-500/5 border border-red-500/10 rounded-2xl p-6 flex flex-col">
+                    <span class="text-[9px] font-black text-red-400 uppercase tracking-widest mb-1">Peak TAT (Slowest)</span>
+                    <h2 class="text-3xl font-black text-white tracking-tighter">{{ data.summary.max }}</h2>
+                </div>
+                <div class="bg-blue-500/5 border border-blue-500/10 rounded-2xl p-6 flex flex-col">
+                    <span class="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-1">System Average</span>
+                    <h2 class="text-3xl font-black text-white tracking-tighter">{{ data.summary.avg }}</h2>
+                </div>
+                <div class="bg-emerald-500/5 border border-emerald-500/10 rounded-2xl p-6 flex flex-col">
+                    <span class="text-[9px] font-black text-emerald-400 uppercase tracking-widest mb-1">Optimal TAT (Fastest)</span>
+                    <h2 class="text-3xl font-black text-white tracking-tighter">{{ data.summary.min }}</h2>
+                </div>
             </div>
 
-            <div class="bg-white/80 backdrop-blur-md p-8 rounded-[3rem] border border-white shadow-xl h-80">
-                <canvas id="modalityTatChart"></canvas>
-            </div>
-
-            <div class="bg-white/80 backdrop-blur-md rounded-[3rem] border border-white shadow-xl overflow-hidden">
-                <div class="px-8 py-5 bg-slate-900 text-white flex justify-between items-center">
-                    <span class="text-[10px] font-black uppercase tracking-[0.2em]">TAT Audit Log</span>
-                    <div class="flex gap-2">
-                        <span class="bg-white/10 px-3 py-1 rounded-full text-[9px] font-bold">{{ stats.total_count }} Cases</span>
-                        {% if stats.outlier_count > 0 %}
-                        <span class="bg-red-500 px-3 py-1 rounded-full text-[9px] font-bold">{{ stats.outlier_count }} Exceptions (>15m)</span>
-                        {% endif %}
+            <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
+                <div class="data-card h-[550px] flex flex-col lg:col-span-1">
+                    <div class="card-header">Modality: Avg TAT</div>
+                    <div id="waitChart" class="flex-1 p-4"></div>
+                    <div class="p-6 border-t border-[#28332e] bg-black/10">
+                        <p class="text-[10px] text-[#60a5fa] font-black uppercase tracking-widest mb-1 italic">
+                            <i class="bi bi-info-circle-fill mr-1"></i> Storing Delay
+                        </p>
+                        <p class="text-[9px] text-slate-500 leading-relaxed font-bold uppercase">
+                            Measured from Study Date to Final Report.
+                        </p>
                     </div>
                 </div>
-                <table class="w-full text-left text-xs">
-                    <thead class="bg-slate-50 border-b text-[9px] uppercase font-black text-slate-400 tracking-widest">
-                        <tr><th class="px-8 py-4">Order</th><th class="px-8 py-4">Modality</th><th class="px-8 py-4">Procedure</th><th class="px-8 py-4">Lateness</th><th class="px-8 py-4">Lag</th><th class="px-8 py-4">Journey</th></tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-100">
-                        {% for r in results %}
-                        <tr class="{% if r.perf_min > 30 %}late-row{% elif r.perf_min > 15 %}warning-row{% endif %} hover:bg-white/50 transition">
-                            <td class="px-8 py-4 font-bold text-slate-500">{{ r.order_dbid or 'N/A' }}</td>
-                            <td class="px-8 py-4 font-bold text-slate-800">{{ r.storing_ae }}</td>
-                            <td class="px-8 py-4 text-slate-600">{{ r.proc_text }}</td>
-                            <td class="px-8 py-4 font-black {{ 'text-red-500' if r.perf_min > 15 else 'text-teal-600' }}">{{ r.perf_min|round(1) }}m</td>
-                            <td class="px-8 py-4 text-slate-500">{{ r.tech_min|round(1) }}m</td>
-                            <td class="px-8 py-4 text-slate-800 font-bold">{{ r.total_tat_hrs|round(1) }}h</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+
+                <div class="lg:col-span-3 space-y-6">
+                    <div class="flex items-center justify-between border-b border-[#28332e] pb-4">
+                        <h2 class="text-xs font-black text-slate-400 uppercase tracking-[0.3em]">Individual Productivity Breakdown</h2>
+                    </div>
+
+                    {% for rad in data.rad_cards %}
+                    <div class="data-card border-l-4 border-l-blue-500 transition-all hover:border-l-blue-400">
+                        <div class="card-header flex justify-between items-center py-3 bg-white/5">
+                            <span class="text-sm tracking-tight text-white">{{ rad.name }}</span>
+                            <div class="flex items-center gap-3">
+                                <span class="text-[9px] text-slate-500 font-bold uppercase">Overall:</span>
+                                <span class="bg-blue-600/20 text-blue-400 border border-blue-500/20 px-3 py-1 rounded text-[11px] font-black">
+                                    {{ rad.overall_tat }}
+                                </span>
+                            </div>
+                        </div>
+                        <div class="p-6">
+                            <div class="proc-grid">
+                                {% for mod in rad.modalities %}
+                                <div class="bg-[#1a211e] border border-[#28332e] rounded-xl p-4">
+                                    <div class="flex justify-between items-center mb-3 border-b border-white/5 pb-2">
+                                        <span class="text-[10px] font-black text-blue-400 uppercase tracking-widest">{{ mod.name }}</span>
+                                        <span class="text-[10px] font-bold text-orange-400">{{ mod.tat }}</span>
+                                    </div>
+                                    <div class="space-y-1.5">
+                                        {% for proc in mod.procedures %}
+                                        <div class="flex justify-between items-center">
+                                            <span class="text-[10px] text-slate-500 truncate mr-2">{{ proc.code }}</span>
+                                            <span class="text-[10px] font-mono text-slate-400">{{ proc.tat }}</span>
+                                        </div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% else %}
+            <div class="h-full flex flex-col items-center justify-center opacity-10">
+                <i class="bi bi-clock-history text-8xl mb-6"></i>
+                <p class="text-2xl font-black uppercase tracking-[0.5em]">Analyze Turnaround</p>
             </div>
             {% endif %}
-        </div>
-    </main>
-
-    <footer class="w-full bg-white border-t border-slate-100 py-6 flex flex-col items-center gap-2 z-50">
-        <span class="text-[9px] font-black text-slate-300 uppercase tracking-[0.5em]">Global Technology Partner</span>
-        <img src="{{ url_for('static', filename='philips.jpg') }}" class="h-9 w-auto grayscale opacity-40">
-    </footer>
+        </main>
+    </div>
 
     <script>
-        {% if run_report and chart_json.modality_bar %}
-        new Chart(document.getElementById('modalityTatChart'), {
-            type: 'bar',
-            data: {{ chart_json.modality_bar|tojson|safe }},
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { grid: { color: 'rgba(0,0,0,0.03)' } }, x: { grid: { display: false } } } }
-        });
-        {% endif %}
+        const chartData = {{ data.modality_chart | tojson if data.modality_chart else 'null' }};
+        if (chartData && chartData.labels) {
+            echarts.init(document.getElementById('waitChart')).setOption({
+                tooltip: { 
+                    trigger: 'axis',
+                    backgroundColor: '#181f1c',
+                    borderColor: '#28332e',
+                    textStyle: { color: '#fff', fontSize: 11 }
+                },
+                grid: { top: '5%', left: '5%', right: '5%', bottom: '10%', containLabel: true },
+                xAxis: { 
+                    type: 'category', 
+                    data: chartData.labels, 
+                    axisLabel: { color: '#94a3b8', fontSize: 10, fontWeight: 700 } 
+                },
+                yAxis: { 
+                    type: 'value', 
+                    splitLine: { lineStyle: { color: '#28332e' } },
+                    axisLabel: { color: '#64748b', fontSize: 10 }
+                },
+                series: [{ 
+                    data: chartData.values, 
+                    type: 'bar', 
+                    itemStyle: {
+                        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                            {offset: 0, color: '#60a5fa'},
+                            {offset: 1, color: '#3b82f6'}
+                        ]),
+                        borderRadius: [4, 4, 0, 0]
+                    },
+                    barWidth: '50%'
+                }]
+            });
+        }
     </script>
 </body>
 </html>

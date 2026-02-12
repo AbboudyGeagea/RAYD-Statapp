@@ -3,36 +3,48 @@ from datetime import datetime
 from db import OracleConnector
 
 def run_orders_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_live_date):
-    # Added 'last_update' to the column list
+    # MATCHING YOUR PG STRUCTURE EXACTLY (13 Columns total)
+    # Order here must match the SELECT order below
     col_names = [
-        'order_dbid', 'patient_dbid', 'proc_id', 'proc_text', 
-        'study_instance_uid', 'study_db_uid', 'has_study', 
-        'scheduled_datetime', 'order_control', 'order_status', 
-        'placer_field1', 'placer_field2', 'modality', 'body_part',
+        'order_dbid', 'patient_dbid', 'study_db_uid', 'visit_dbid',
+        'study_instance_uid', 'proc_id', 'proc_text', 'scheduled_datetime',
+        'order_status', 'modality', 'has_study', 'order_control', 
         'last_update'
     ]
 
     ora_conn = OracleConnector.get_connection(oracle_source)
     cursor = ora_conn.cursor()
 
-    # Improvements:
-    # 1. Added CURRENT_TIMESTAMP to the SELECT for the Postgres last_update field.
-    # 2. Kept your CASE logic for the boolean 'has_study'.
+    # Query aligned to your new 13-column PG structure
     query = """
         SELECT 
-            CAST(ORDER_DBID AS VARCHAR2(100)), CAST(PATIENT_DBID AS VARCHAR2(100)), 
-            PROC_ID, PROC_TEXT, STUDY_INSTANCE_UID, CAST(STUDY_DB_UID AS VARCHAR2(100)),
-            CASE WHEN HAS_STUDY = 'Y' THEN 1 ELSE 0 END,
-            SCHEDULED_DATETIME, ORDER_CONTROL, ORDER_STATUS, 
-            PLACER_FIELD1, PLACER_FIELD2, MODALITY, BODY_PART,
-            CURRENT_TIMESTAMP
+            ORDER_DBID,            -- bigint
+            PATIENT_DBID,          -- text
+            STUDY_DB_UID,          -- text
+            VISIT_DBID,            -- text
+            STUDY_INSTANCE_UID,    -- text
+            PROC_ID,               -- text
+            PROC_TEXT,             -- text
+            SCHEDULED_DATETIME,    -- timestamp
+            ORDER_STATUS,          -- text
+            MODALITY,              -- text
+            CASE 
+                WHEN HAS_STUDY = 'Y' THEN 'true' 
+                ELSE 'false' 
+            END as has_study,      -- boolean
+            ORDER_CONTROL,         -- text
+            CURRENT_TIMESTAMP      -- last_update (timestamp)
         FROM MEDILINK.MDB_ORDERS
         WHERE SCHEDULED_DATETIME >= TO_DATE(:gd, 'YYYY-MM-DD')
     """
     
     try:
         logging.info(f"🚀 Starting Orders ETL for Date >= {go_live_date}")
-        cursor.execute(query, {'gd': str(go_live_date)})
+        
+        # Date handling
+        gd_str = go_live_date.strftime('%Y-%m-%d') if hasattr(go_live_date, 'strftime') else str(go_live_date)
+        
+        cursor.execute(query, {'gd': gd_str})
         
         total = 0
         while True:
@@ -40,7 +52,7 @@ def run_orders_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_l
             if not batch: 
                 break
             
-            # Using chunked_upsert_func to handle 'order_dbid' conflicts
+            # Upsert into Postgres
             chunked_upsert_func(pg_engine, pg_table, col_names, batch, 'order_dbid')
             total += len(batch)
             

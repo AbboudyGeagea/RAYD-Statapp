@@ -101,11 +101,14 @@ class ETLJobLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     job_name = db.Column(db.String(100))
     status = db.Column(db.String(50))
-    records_processed = db.Column(db.Integer)
+    records_processed = db.Column(db.Integer, default=0)
     start_time = db.Column(db.DateTime, default=func.now())
     end_time = db.Column(db.DateTime)
+    duration_seconds = db.Column(db.Float)       
+    rows_per_second = db.Column(db.Float)        
+    null_alerts = db.Column(db.Integer, default=0) 
     error_message = db.Column(db.Text)
-
+    
 # ----------------------------------------------------------------
 # 3. REPORT BUILDER MODELS
 # ----------------------------------------------------------------
@@ -162,17 +165,74 @@ class Patient(db.Model):
     age_group = db.Column(db.String(50))
     patient_class = db.Column(db.String(50))
 
-class Study(db.Model):
+
+class EtlDidbStudy(db.Model):
     __tablename__ = 'etl_didb_studies'
-    study_db_uid = db.Column(db.BigInteger, primary_key=True)
-    patient_db_uid = db.Column(db.BigInteger, index=True)
-    accession_number = db.Column(db.String)
-    study_date = db.Column(db.Date)
-    storing_ae = db.Column(db.String)
-    last_update = db.Column(db.DateTime, default=func.now(), onupdate=func.now())
     
-    # Relationships
-    series = db.relationship("Series", backref="study", cascade="all, delete-orphan")
+    # --- Primary Key ---
+    study_db_uid = db.Column(db.BigInteger, primary_key=True)
+
+    # --- Patient & Identity Info ---
+    patient_db_uid = db.Column(db.BigInteger)
+    study_instance_uid = db.Column(db.Text)
+    accession_number = db.Column(db.Text)
+    study_id = db.Column(db.Text)
+    storing_ae = db.Column(db.Text)
+
+    # --- Study Metadata ---
+    study_date = db.Column(db.Date)
+    study_description = db.Column(db.Text)
+    study_body_part = db.Column(db.Text)
+    study_age = db.Column(db.Integer)
+    age_at_exam = db.Column(db.Numeric(5, 2))
+    number_of_study_series = db.Column(db.Integer)
+    number_of_study_images = db.Column(db.Integer)
+    
+    # --- Statuses ---
+    study_status = db.Column(db.Text)
+    patient_class = db.Column(db.Text)
+    procedure_code = db.Column(db.Text)
+    report_status = db.Column(db.Text)
+    order_status = db.Column(db.Text)
+
+    # --- Referring Physician ---
+    referring_physician_first_name = db.Column(db.Text)
+    referring_physician_mid_name = db.Column(db.Text)
+    referring_physician_last_name = db.Column(db.Text)
+
+    # --- System Timestamps ---
+    last_accessed_time = db.Column(db.DateTime)
+    insert_time = db.Column(db.DateTime)
+    last_update = db.Column(db.DateTime, server_default=func.now(), onupdate=func.now())
+
+    # --- Reading & Signing Physicians ---
+    reading_physician_first_name = db.Column(db.Text)
+    reading_physician_last_name = db.Column(db.Text)
+    reading_physician_id = db.Column(db.BigInteger)
+
+    signing_physician_first_name = db.Column(db.Text)
+    signing_physician_last_name = db.Column(db.Text)
+    signing_physician_id = db.Column(db.BigInteger)
+
+    # --- Reporting Performance Metrics ---
+    study_has_report = db.Column(db.Boolean, default=False)
+    rep_prelim_timestamp = db.Column(db.DateTime, index=True) 
+    rep_prelim_signed_by = db.Column(db.Text)
+    
+    rep_transcribed_by = db.Column(db.Text)
+    rep_transcribed_timestamp = db.Column(db.DateTime)
+    
+    rep_final_signed_by = db.Column(db.Text)
+    rep_final_timestamp = db.Column(db.DateTime, index=True) 
+    
+    rep_addendum_by = db.Column(db.Text)
+    rep_addendum_timestamp = db.Column(db.DateTime)
+    rep_has_addendum = db.Column(db.Boolean, default=False)
+    
+    is_linked_study = db.Column(db.Boolean, default=False)
+
+    def __repr__(self):
+        return f"<Study {self.accession_number} - {self.study_description}>"
 
 class Series(db.Model):
     __tablename__ = 'etl_didb_serieses'
@@ -212,6 +272,8 @@ class Order(db.Model):
     proc_text = db.Column(db.String)
     scheduled_datetime = db.Column(db.DateTime)
     last_update = db.Column(db.DateTime)
+    visit_dbid = db.Column(db.Text)
+    order_control = db.Column(db.Text)
 
 #------------------------------------------------
 # Mapping Section
@@ -222,13 +284,30 @@ class ProcedureDurationMap(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     procedure_code = db.Column(db.String, unique=True, nullable=False)
     duration_minutes = db.Column(db.Integer, nullable=False)
+    rvu_value = db.Column(db.Numeric(10, 2), default=0.0)
 
 class AETitleModalityMap(db.Model):
     __tablename__ = 'aetitle_modality_map'
     id = db.Column(db.Integer, primary_key=True)
     aetitle = db.Column(db.String, nullable=False, index=True)
     modality = db.Column(db.String, nullable=False)
+    daily_capacity_minutes = db.Column(db.Integer, default=480)
 
+
+class SummaryStorageDaily(db.Model):
+    __tablename__ = 'summary_storage_daily'
+    id = db.Column(db.Integer, primary_key=True)
+    study_date = db.Column(db.Date, nullable=False, index=True)
+    storing_ae = db.Column(db.String(100)) 
+    modality = db.Column(db.String(50))
+    procedure_code = db.Column(db.String(255))
+    total_gb = db.Column(db.Numeric(12, 4), default=0)
+    study_count = db.Column(db.Integer, default=0)
+
+    
+    __table_args__ = (
+        db.UniqueConstraint('study_date', 'storing_ae', 'modality', 'procedure_code', name='_date_ae_mod_proc_uc'),
+    )
 # ----------------------------------------------------------------
 # 5. BACKWARD-COMPAT ALIASES (DO NOT REMOVE)
 # ----------------------------------------------------------------

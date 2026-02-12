@@ -8,6 +8,7 @@ from routes.report_22 import report_22 as report_22_func, export_report_22 as ex
 from routes.report_23 import report_23 as report_23_func, export_report_23 as export_23_func
 from routes.report_27 import report_27 as report_27_func, export_report_27 as export_27_func
 from routes.report_25 import report_25 as report_25_func, export_report_25 as export_25_func
+from routes.report_29 import report_29 as report_29_func, export_report_29 as export_29_func
 
 viewer_bp = Blueprint('viewer', __name__, url_prefix='/viewer')
 
@@ -67,7 +68,9 @@ def viewer_report(report_id):
     elif report_id == 27:
         return report_27_func()
     elif report_id == 25:
-        return report_25_func() 
+        return report_25_func()
+    elif report_id == 29:
+        return report_29_func()     
     else:
         abort(404, description=f"Report {report_id} is not implemented yet")
 
@@ -95,6 +98,8 @@ def viewer_export_report(report_id):
         return export_23_func()
     elif report_id == 25:
         return export_25_func()
+    elif report_id == 29:
+        return export_29_func()    
     else:
         abort(404, description=f"Export for Report {report_id} is not implemented yet")
 

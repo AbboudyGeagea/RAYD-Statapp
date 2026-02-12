@@ -35,6 +35,10 @@ from db import (
 
 from routes.registry import register_blueprints
 
+app = Flask(__name__)
+register_blueprints(app)
+
+
 # ---------------------------------------------------------
 # CONFIG
 # ---------------------------------------------------------

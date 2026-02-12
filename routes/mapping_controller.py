@@ -1,5 +1,5 @@
 # routes/mapping_controller.py
-from flask import Blueprint, request, render_template, flash, redirect, url_for, jsonify
+from flask import Blueprint, request, render_template, flash, redirect, url_for, jsonify, abort
 from flask_login import login_required, current_user
 from db import db, AETitleModalityMap, ProcedureDurationMap
 import pandas as pd
@@ -7,10 +7,13 @@ from io import StringIO
 
 mapping_bp = Blueprint('mapping', __name__, url_prefix='/mapping', template_folder='../templates')
 
-@mapping_bp.route('/', methods=['GET'])
+@mapping_bp.route('', methods=['GET'])
 @login_required
 def mapping_page():
-    # Fetch data to display in the tables
+    if current_user.role != 'admin':
+        flash("Unauthorized access.", "danger")
+        return redirect(url_for('viewer.viewer_dashboard'))
+
     modality_mappings = AETitleModalityMap.query.order_by(AETitleModalityMap.aetitle).all()
     duration_mappings = ProcedureDurationMap.query.order_by(ProcedureDurationMap.procedure_code).all()
     
@@ -24,8 +27,7 @@ def mapping_page():
 @login_required
 def mapping_upload():
     if current_user.role != 'admin':
-        flash("Unauthorized: Only admins can upload files.", "danger")
-        return redirect(url_for('mapping.mapping_page'))
+        return abort(403)
 
     file = request.files.get('file')
     mapping_type = request.form.get('mapping_type')
@@ -35,32 +37,50 @@ def mapping_upload():
         return redirect(url_for('mapping.mapping_page'))
 
     try:
-        # Read CSV and clean headers (strip spaces and lowercase everything)
         raw_data = file.stream.read().decode("utf-8")
         df = pd.read_csv(StringIO(raw_data))
         df.columns = df.columns.str.strip().str.lower()
 
         if mapping_type == 'modality':
-            # Required columns: aetitle, modality
+            # Expected columns: aetitle, modality, daily_capacity_minutes
             for _, row in df.iterrows():
                 ae = str(row.get('aetitle', '')).strip()
                 mod = str(row.get('modality', '')).strip()
+                # Default to 480 if missing or invalid
+                cap = row.get('daily_capacity_minutes', 480) 
+                
                 if not ae: continue
                 
                 rec = AETitleModalityMap.query.filter_by(aetitle=ae).first()
-                if rec: rec.modality = mod
-                else: db.session.add(AETitleModalityMap(aetitle=ae, modality=mod))
+                if rec:
+                    rec.modality = mod
+                    rec.daily_capacity_minutes = int(cap)
+                else:
+                    db.session.add(AETitleModalityMap(
+                        aetitle=ae, 
+                        modality=mod, 
+                        daily_capacity_minutes=int(cap)
+                    ))
 
         elif mapping_type == 'duration':
-            # Required columns: procedure_code, duration_minutes
+            # Expected columns: procedure_code, duration_minutes, rvu_value
             for _, row in df.iterrows():
                 code = str(row.get('procedure_code', '')).strip()
                 mins = row.get('duration_minutes', 0)
+                rvu = row.get('rvu_value', 0.0) # New RVU field
+                
                 if not code: continue
 
                 rec = ProcedureDurationMap.query.filter_by(procedure_code=code).first()
-                if rec: rec.duration_minutes = int(mins)
-                else: db.session.add(ProcedureDurationMap(procedure_code=code, duration_minutes=int(mins)))
+                if rec:
+                    rec.duration_minutes = int(mins)
+                    rec.rvu_value = float(rvu)
+                else:
+                    db.session.add(ProcedureDurationMap(
+                        procedure_code=code, 
+                        duration_minutes=int(mins),
+                        rvu_value=float(rvu)
+                    ))
         
         db.session.commit()
         flash(f"Successfully synchronized {mapping_type} mappings.", "success")
@@ -82,9 +102,17 @@ def mapping_add():
 
     try:
         if m_type == 'modality':
-            db.session.add(AETitleModalityMap(aetitle=f['aetitle'], modality=f['modality']))
+            db.session.add(AETitleModalityMap(
+                aetitle=f['aetitle'], 
+                modality=f['modality'],
+                daily_capacity_minutes=int(f.get('daily_capacity_minutes', 480))
+            ))
         else:
-            db.session.add(ProcedureDurationMap(procedure_code=f['procedure_code'], duration_minutes=int(f['duration_minutes'])))
+            db.session.add(ProcedureDurationMap(
+                procedure_code=f['procedure_code'], 
+                duration_minutes=int(f['duration_minutes']),
+                rvu_value=float(f.get('rvu_value', 0.0))
+            ))
         db.session.commit()
         return jsonify({"status": "success", "message": "Saved"})
     except Exception as e:

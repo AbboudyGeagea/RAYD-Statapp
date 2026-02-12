@@ -1,34 +1,136 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ page_title or 'Reports Portal' }}</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
-  <style>
-    body { background-color: #f8f9fa; font-size: 0.95rem; }
-    .card { border-radius: 1rem; }
-    h2 { font-weight: 600; }
-  </style>
+    <meta charset="UTF-8">
+    <title>RAYD | {% block title %}{% endblock %}</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+
+    <style>
+        html { font-size: 120%; }
+        :root { --accent: #60a5fa; }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #181f1c;
+            color: #e2e8f0;
+        }
+
+        .sidebar-item {
+            transition: all 0.2s;
+            border-radius: 0.75rem;
+            margin-bottom: 0.25rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem 1rem;
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: #e2e8f0;
+        }
+
+        .sidebar-item:hover {
+            background: #232b28;
+            color: var(--accent);
+        }
+
+        .sidebar-item.active {
+            background: #232b28;
+            color: var(--accent);
+            border-left: 4px solid var(--accent);
+        }
+
+        .card-custom {
+            background: #232b28;
+            border-radius: 1.5rem;
+            border: 1px solid #28332e;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.3);
+        }
+
+        .rayd-glow {
+            filter: drop-shadow(0 0 14px rgba(96,165,250,0.45));
+        }
+    </style>
+
+    {% block extra_css %}{% endblock %}
 </head>
-<body>
 
-  {% with messages = get_flashed_messages(with_categories=true) %}
-    {% if messages %}
-      <div class="container mt-3">
-        {% for category, message in messages %}
-          <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
-            {{ message }}
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-          </div>
-        {% endfor %}
-      </div>
-    {% endif %}
-  {% endwith %}
+<body class="flex flex-col h-screen overflow-hidden">
 
-  {% block content %}{% endblock %}
+    <!-- HEADER -->
+    <header class="bg-[#232b28] border-b border-[#28332e] px-12 py-6 flex items-center justify-center shadow-md z-30 relative">
+        <div class="flex flex-col items-center">
+            <img src="{{ url_for('static', filename='RAYD.png') }}"
+                 class="h-20 w-auto object-contain opacity-90 rayd-glow"
+                 alt="RAYD">
+            <div class="h-1.5 w-16 bg-[#60a5fa] mt-3 rounded-full"></div>
+        </div>
+    </header>
 
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <div class="flex flex-1 overflow-hidden">
+
+        <!-- SIDEBAR -->
+        <aside class="w-72 bg-[#232b28] border-r border-[#28332e] flex flex-col p-6 shadow-xl z-20">
+
+            <div class="flex items-center gap-3 mb-10 px-2">
+                <div class="bg-[#60a5fa] p-2.5 rounded-xl text-white shadow-lg shadow-blue-400/20">
+                    <i class="bi bi-grid-1x2-fill text-xl"></i>
+                </div>
+                <div>
+                    <h1 class="font-black text-[#e2e8f0] tracking-tighter uppercase leading-none text-xl">
+                        {% block page_name %}{% endblock %}
+                    </h1>
+                    <p class="text-[9px] font-black text-[#60a5fa] uppercase tracking-widest mt-1">
+                        RAYD Control
+                    </p>
+                </div>
+            </div>
+
+            <nav class="flex-1 space-y-1">
+                <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-4">
+                    Navigation
+                </p>
+
+                <a href="{{ url_for('viewer.viewer_dashboard') }}"
+                   class="sidebar-item {% if active_page == 'viewer' %}active{% endif %}">
+                    <i class="bi bi-speedometer2 text-lg"></i>
+                    Viewer Dashboard
+                </a>
+
+                <a href="{{ url_for('admin.admin_dashboard') }}"
+                   class="sidebar-item {% if active_page == 'etl' %}active{% endif %}">
+                    <i class="bi bi-cpu text-lg"></i>
+                    ETL Monitor
+                </a>
+
+                <a href="{{ url_for('mapping.mapping_page') }}"
+                   class="sidebar-item {% if active_page == 'mapping' %}active{% endif %}">
+                    <i class="bi bi-diagram-3 text-lg"></i>
+                    Mapping Console
+                </a>
+            </nav>
+
+            <div class="mt-auto pt-6 border-t border-[#28332e]">
+                <a href="{{ url_for('auth.logout') }}"
+                   class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-red-400 hover:bg-[#232b28] rounded-xl transition">
+                    <i class="bi bi-box-arrow-right text-lg"></i>
+                    Logout
+                </a>
+            </div>
+        </aside>
+
+        <!-- MAIN CONTENT -->
+        <main class="flex-1 overflow-y-auto p-12 bg-[#181f1c]">
+            <div class="max-w-7xl mx-auto space-y-8">
+                {% block content %}{% endblock %}
+            </div>
+        </main>
+
+    </div>
+
 </body>
 </html>
+

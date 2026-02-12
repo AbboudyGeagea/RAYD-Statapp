@@ -2,128 +2,198 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>{{ report_name }} | RAYD</title>
+    <title>RAYD | Population Intel</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
-        :root { --accent: #38ada9; }
-        body { font-family: 'Inter', sans-serif; height: 100vh; display: flex; flex-direction: column; overflow: hidden; background: #f4f7f6; }
-        .rayd-watermark { position: fixed; top: 55%; left: 50%; transform: translate(-50%, -50%); width: 70vw; opacity: 0.05; z-index: 0; pointer-events: none; }
-        .sidebar-glass { background: #f4f7f6; backdrop-filter: blur(12px); border-right: 1px solid rgba(0,0,0,0.05); z-index: 20; width: 320px; }
+        html { font-size: 100%; }
+        :root { --accent: #60a5fa; }
+        body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; height: 100vh; overflow: hidden; }
+        
+        /* Unified Sidebar Style */
+        .input-dark { 
+            background: #181f1c; 
+            border: 1px solid #28332e; 
+            color: #e2e8f0; 
+            border-radius: 0.75rem; 
+            padding: 0.75rem; 
+            font-size: 11px; 
+            width: 100%; 
+            outline: none; 
+            transition: border-color 0.2s;
+        }
+        .input-dark:focus { border-color: var(--accent); }
+
+        .data-card { background: #232b28; border: 1px solid #28332e; border-radius: 1.5rem; overflow: hidden; }
+        .card-header { 
+            padding: 1.25rem 1.5rem; 
+            border-bottom: 1px solid #28332e; 
+            background: rgba(40, 51, 46, 0.2); 
+            font-size: 10px; 
+            font-weight: 900; 
+            color: #60a5fa; 
+            text-transform: uppercase; 
+            letter-spacing: 0.15em; 
+        }
+        
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #f4f7f6; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #28332e; border-radius: 10px; }
     </style>
 </head>
 <body class="flex flex-col">
-    <img src="{{ url_for('static', filename='RAYD.png') }}" class="rayd-watermark">
-
-    <header class="w-full bg-white border-b border-slate-100 py-6 flex justify-center items-center z-50 shadow-sm">
-        <img src="{{ url_for('static', filename='intermedic.jpeg') }}" class="h-16 w-auto object-contain">
+    <header class="h-20 bg-[#232b28] border-b border-[#28332e] flex items-center px-10 justify-between shrink-0">
+        <div class="w-64">
+            <img src="{{ url_for('static', filename='philips.jpg') }}" class="h-8 grayscale opacity-40">
+        </div>
+        <div class="flex flex-col items-center">
+            <img src="{{ url_for('static', filename='RAYD.png') }}" class="h-12 opacity-90">
+            <div class="h-1 w-10 bg-[#60a5fa] mt-1 rounded-full"></div>
+        </div>
+        <div class="w-64 flex justify-end">
+            <img src="{{ url_for('static', filename='intermedic.jpeg') }}" class="h-8 grayscale opacity-40">
+        </div>
     </header>
 
-    <div class="flex flex-1 overflow-hidden relative">
-        <aside class="sidebar-glass flex flex-col p-8 custom-scrollbar">
-            <div class="flex justify-between items-center mb-8">
-                <span class="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">Volume Filters</span>
-                <a href="{{ url_for('viewer.viewer_dashboard') }}" class="text-slate-300 hover:text-red-500 transition-colors"><i class="bi bi-x-lg text-xl"></i></a>
-            </div>
+    <div class="flex flex-1 overflow-hidden">
+        <aside class="w-80 bg-[#232b28] border-r border-[#28332e] flex flex-col p-6 overflow-y-auto z-20">
             <form method="POST" class="space-y-6">
-                <div>
-                    <label class="text-[10px] font-black text-[#38ada9] uppercase tracking-widest block mb-2">Analysis Period</label>
-                    <input type="date" name="start_date" value="{{ display_start }}" class="w-full p-4 rounded-2xl border border-slate-200 text-sm font-bold mb-3 outline-none">
-                    <input type="date" name="end_date" value="{{ display_end }}" class="w-full p-4 rounded-2xl border border-slate-200 text-sm font-bold outline-none">
-                </div>
-                <button type="submit" class="w-full py-5 bg-slate-900 text-white font-black rounded-2xl shadow-xl hover:bg-[#38ada9] transition-all uppercase text-[11px] tracking-widest mt-4">
+                <section>
+                    <label class="text-[10px] font-black text-[#60a5fa] uppercase mb-4 block tracking-widest">Analysis Period</label>
+                    <div class="space-y-4">
+                        <div>
+                            <p class="text-[9px] text-slate-500 font-bold uppercase mb-1 ml-1">Start (Go-Live)</p>
+                            <input type="date" name="start_date" class="input-dark" value="{{ display_start }}">
+                        </div>
+                        <div>
+                            <p class="text-[9px] text-slate-500 font-bold uppercase mb-1 ml-1">End (Today)</p>
+                            <input type="date" name="end_date" class="input-dark" value="{{ display_end }}">
+                        </div>
+                    </div>
+                </section>
+
+                <button type="submit" class="w-full py-4 bg-[#60a5fa] text-white font-black text-[11px] uppercase tracking-[0.2em] rounded-xl hover:bg-blue-500 transition-all shadow-lg shadow-blue-500/10">
                     Run Analysis
                 </button>
             </form>
+
+            <div class="mt-auto pt-6 border-t border-[#28332e]">
+                <form method="POST" action="{{ url_for('report_23.export_report_23') }}">
+                    <input type="hidden" name="start_date" value="{{ display_start }}">
+                    <input type="hidden" name="end_date" value="{{ display_end }}">
+                    <button type="submit" class="w-full py-3 border border-[#28332e] text-slate-400 text-[10px] font-bold uppercase tracking-widest rounded-xl hover:bg-[#181f1c] transition">
+                        <i class="bi bi-download mr-2"></i> Export CSV
+                    </button>
+                </form>
+            </div>
         </aside>
 
-        <main class="flex-1 overflow-y-auto p-12 z-10 custom-scrollbar">
-            <div class="max-w-6xl mx-auto">
-                <h1 class="text-5xl font-black text-slate-800 tracking-tighter uppercase mb-2">{{ report_name }}</h1>
-                <div class="h-2 w-24 bg-[#38ada9] rounded-full mb-12"></div>
-                
-                {% if run_report %}
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
-                    <div class="bg-white/60 backdrop-blur-md p-8 rounded-[2.5rem] border border-white shadow-sm">
-                        <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Studies</p>
-                        <p class="text-4xl font-black text-slate-800">{{ "{:,}".format(total_count) }}</p>
+        <main class="flex-1 overflow-y-auto p-10 bg-[#181f1c] space-y-8 custom-scrollbar">
+            {% if run_report %}
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div class="data-card p-8 border-l-4 border-l-blue-400 flex justify-between items-center shadow-2xl">
+                    <div>
+                        <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest mb-1">Total Study Population</p>
+                        <p class="text-4xl font-black text-white tracking-tighter">{{ "{:,}".format(metrics.total_count) }}</p>
+                    </div>
+                    <div class="h-14 w-14 rounded-2xl bg-blue-400/10 flex items-center justify-center">
+                        <i class="bi bi-people text-2xl text-blue-400"></i>
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-10">
-                    <div class="bg-white/80 backdrop-blur-md p-10 rounded-[3rem] border border-white shadow-2xl h-[500px]">
-                        <h3 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">Patient Frequency Map</h3>
-                        <canvas id="patientChart"></canvas>
+                <div class="data-card p-8 border-l-4 border-l-red-500 flex justify-between items-center shadow-2xl">
+                    <div>
+                        <p class="text-[10px] font-black text-red-400 uppercase tracking-widest mb-1">Conflicted Records ($$$)</p>
+                        <p class="text-4xl font-black text-white tracking-tighter">{{ "{:,}".format(metrics.conflicted_ids) }}</p>
                     </div>
-
-                    <div class="bg-white/80 backdrop-blur-md rounded-[3rem] border border-white shadow-2xl overflow-hidden flex flex-col">
-                        <div class="p-6 bg-slate-900 text-white flex justify-between items-center">
-                            <span class="text-[10px] font-black uppercase tracking-widest">Top Frequent Patients</span>
-                        </div>
-                        <div class="flex-1 overflow-y-auto custom-scrollbar">
-                            <table class="w-full text-left text-sm">
-                                <thead class="bg-slate-50 border-b text-[9px] uppercase font-black text-slate-400 tracking-widest">
-                                    <tr>
-                                        <th class="px-8 py-4">Patient ID</th>
-                                        <th class="px-8 py-4 text-center">Count</th>
-                                        <th class="px-8 py-4">Period</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="divide-y divide-slate-100">
-                                    {% for p in top_patients_rows %}
-                                    <tr class="hover:bg-white/50 transition">
-                                        <td class="px-8 py-4 font-bold text-slate-500">{{ p.fallback_id }}</td>
-                                        <td class="px-8 py-4 text-center">
-                                            <span class="bg-teal-50 text-[#38ada9] px-3 py-1 rounded-full text-[10px] font-black">
-                                                {{ p.number_of_patient_studies }}
-                                            </span>
-                                        </td>
-                                        <td class="px-8 py-4 text-[10px] font-bold text-slate-400">{{ p.first_study }} <i class="bi bi-arrow-right mx-1"></i> {{ p.last_study }}</td>
-                                    </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
+                    <div class="h-14 w-14 rounded-2xl bg-red-500/10 flex items-center justify-center">
+                        <i class="bi bi-exclamation-triangle text-2xl text-red-500"></i>
                     </div>
                 </div>
-                {% else %}
-                <div class="h-96 flex flex-col items-center justify-center border-4 border-dashed rounded-[3rem] border-slate-100 text-slate-300">
-                    <i class="bi bi-funnel text-8xl mb-4 opacity-20"></i>
-                    <p class="text-xl font-black uppercase tracking-widest">Select range to begin</p>
-                </div>
-                {% endif %}
             </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div class="data-card h-[400px] flex flex-col shadow-xl">
+                    <div class="card-header">Medical Age Demographics</div>
+                    <div id="ageChart" class="flex-1 p-4"></div>
+                </div>
+
+                <div class="data-card h-[400px] flex flex-col shadow-xl">
+                    <div class="card-header">Gender Distribution</div>
+                    <div id="genderChart" class="flex-1 p-4"></div>
+                </div>
+
+                <div class="data-card h-[500px] lg:col-span-2 flex flex-col shadow-xl">
+                    <div class="card-header">High Utilization: Most Repetitive Patients</div>
+                    <div id="repetitiveChart" class="flex-1 p-6"></div>
+                </div>
+            </div>
+            {% else %}
+            <div class="h-full flex flex-col items-center justify-center opacity-10">
+                <i class="bi bi-search text-8xl mb-6"></i>
+                <p class="text-2xl font-black uppercase tracking-[0.5em]">Configure Parameters</p>
+            </div>
+            {% endif %}
         </main>
     </div>
 
-    <footer class="w-full bg-white border-t border-slate-100 py-8 flex flex-col items-center gap-2 z-50">
-        <span class="text-[9px] font-black text-slate-300 uppercase tracking-[0.5em]">Global Technology Partner</span>
-        <img src="{{ url_for('static', filename='philips.jpg') }}" class="h-10 w-auto grayscale opacity-40">
-    </footer>
-
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            const chartData = {{ chart_json | safe }};
-            const ctx = document.getElementById('patientChart');
-            if (ctx && chartData.labels && chartData.labels.length > 0) {
-                new Chart(ctx.getContext('2d'), {
-                    type: 'bar',
-                    data: chartData,
-                    options: {
-                        indexAxis: 'y',
-                        responsive: true, maintainAspectRatio: false,
-                        plugins: { legend: { display: false } },
-                        scales: {
-                            x: { grid: { display: false }, ticks: { font: { weight: 'bold' } } },
-                            y: { grid: { color: 'rgba(0,0,0,0.03)' }, ticks: { font: { weight: 'bold' } } }
+        const data = {{ chart_json | safe if chart_json else 'null' }};
+        if (data) {
+            // Age Distribution
+            echarts.init(document.getElementById('ageChart')).setOption({
+                tooltip: { trigger: 'axis', backgroundColor: '#232b28', borderColor: '#28332e', textStyle: { color: '#fff' } },
+                xAxis: { type: 'category', data: data.age.labels, axisLabel: {color: '#94a3b8', fontSize: 10, fontWeight: 'bold'} },
+                yAxis: { type: 'value', splitLine: {lineStyle: {color: '#28332e'}} },
+                series: [{ data: data.age.values, type: 'bar', itemStyle: {color: '#60a5fa', borderRadius: [4, 4, 0, 0]} }]
+            });
+
+            // Gender Distribution
+            echarts.init(document.getElementById('genderChart')).setOption({
+                tooltip: { trigger: 'item' },
+                series: [{
+                    type: 'pie', radius: ['45%', '75%'],
+                    data: data.gender.labels.map((l, i) => ({name: l, value: data.gender.values[i]})),
+                    label: { color: '#94a3b8', fontWeight: 'bold' },
+                    itemStyle: { 
+                        borderRadius: 12, 
+                        borderColor: '#232b28', 
+                        borderWidth: 4,
+                        color: function(params) {
+                            const colors = ['#60a5fa', '#f472b6', '#94a3b8'];
+                            return colors[params.dataIndex];
                         }
                     }
-                });
-            }
-        });
+                }]
+            });
+
+            // Repetitive Patient Chart
+            echarts.init(document.getElementById('repetitiveChart')).setOption({
+                tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+                grid: { left: '15%', right: '8%', bottom: '5%', top: '5%' },
+                xAxis: { type: 'value', splitLine: {show: true, lineStyle: {color: '#28332e'}} },
+                yAxis: { 
+                    type: 'category', 
+                    data: data.repetitive.labels, 
+                    inverse: true,
+                    axisLabel: {color: '#e2e8f0', fontSize: 11, fontWeight: 'bold'} 
+                },
+                series: [{ 
+                    name: 'Studies',
+                    data: data.repetitive.values, 
+                    type: 'bar', 
+                    barWidth: '50%',
+                    itemStyle: {
+                        color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+                            {offset: 0, color: '#38ada9'},
+                            {offset: 1, color: '#60a5fa'}
+                        ]),
+                        borderRadius: [0, 8, 8, 0]
+                    } 
+                }]
+            });
+        }
     </script>
 </body>
 </html>

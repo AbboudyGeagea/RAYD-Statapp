@@ -2,124 +2,181 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Mapping Console | StatsApp</title>
+    <title>RAYD | Mapping Console</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
-        :root { --accent: #38ada9; }
-        body { font-family: 'Inter', sans-serif; background: #f8f9fa; }
-        .card-custom { background: white; border-radius: 1rem; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
-        code { background: #f1f5f9; padding: 2px 4px; border-radius: 4px; color: #e11d48; font-size: 0.9em; }
+        html { font-size: 120%; }
+        :root { --accent: #60a5fa; }
+        body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; }
+        .sidebar-item { transition: all 0.2s; border-radius: 0.75rem; margin-bottom: 0.25rem; cursor: pointer; }
+        .sidebar-item:hover { background: #232b28; color: var(--accent); }
+        .sidebar-item.active { background: #232b28; color: var(--accent); border-left: 4px solid var(--accent); }
+        .card-custom { background: #232b28; border-radius: 1.5rem; border: 1px solid #28332e; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.3); color: #e2e8f0; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #181f1c; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #28332e; border-radius: 10px; }
     </style>
 </head>
-<body class="p-8">
-
-<div class="max-w-7xl mx-auto space-y-8">
-    <div class="flex justify-between items-center bg-white p-6 rounded-2xl border shadow-sm">
-        <div class="flex items-center gap-4">
-            <div class="bg-[#38ada9] p-3 rounded-xl text-white">
-                <i class="bi bi-diagram-3-fill text-2xl"></i>
-            </div>
-            <div>
-                <h1 class="text-2xl font-black text-slate-800 uppercase tracking-tight">Mapping Console</h1>
-                <p class="text-xs text-slate-400 font-bold uppercase tracking-widest">Data Synchronization Engine</p>
-            </div>
+<body class="flex flex-col h-screen overflow-hidden" style="background:#181f1c; color:#e2e8f0;">
+    <header class="bg-[#232b28] border-b border-[#28332e] px-12 py-6 flex items-center justify-between shadow-md z-30 relative">
+        <div class="w-64 flex items-center justify-start">
+            <img src="{{ url_for('static', filename='philips.jpg') }}" class="h-12 w-auto object-contain grayscale opacity-60">
         </div>
-        <a href="{{ url_for('admin.admin_dashboard') }}" class="px-6 py-2.5 bg-slate-800 text-white rounded-xl text-xs font-black hover:bg-slate-900 transition shadow-lg">
-            <i class="bi bi-arrow-left mr-2"></i> BACK TO ADMIN
-        </a>
-    </div>
+        <div class="flex flex-col items-center">
+            <img src="{{ url_for('static', filename='RAYD.png') }}" class="h-20 w-auto object-contain opacity-80">
+            <div class="h-1.5 w-16 bg-[#60a5fa] mt-3 rounded-full"></div>
+        </div>
+        <div class="w-64 flex items-center justify-end">
+            <img src="{{ url_for('static', filename='intermedic.jpeg') }}" class="h-14 w-auto object-contain grayscale opacity-60">
+        </div>
+    </header>
 
-    <div class="bg-blue-50 border-l-4 border-blue-500 p-6 rounded-r-2xl shadow-sm">
-        <div class="flex gap-4">
-            <i class="bi bi-info-circle-fill text-blue-500 text-xl"></i>
-            <div class="space-y-2">
-                <h3 class="font-black text-blue-900 text-sm uppercase">CSV Structure Instructions</h3>
-                <p class="text-xs text-blue-700 leading-relaxed">To update mappings in bulk, upload a CSV file with the following headers (case-insensitive):</p>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-                    <div class="bg-white/50 p-3 rounded-lg border border-blue-100">
-                        <span class="text-[10px] font-bold text-blue-500 uppercase">Modality Mapping</span>
-                        <div class="mt-1 font-mono text-[11px]">aetitle, modality</div>
+    <div class="flex flex-1 overflow-hidden">
+        <aside class="w-72 bg-[#232b28] border-r border-[#28332e] flex flex-col p-6 shadow-xl z-20">
+            <div class="flex items-center gap-3 mb-10 px-2">
+                <div class="bg-[#60a5fa] p-2.5 rounded-xl text-white shadow-lg shadow-blue-400/20">
+                    <i class="bi bi-diagram-3-fill text-xl"></i>
+                </div>
+                <div>
+                    <h1 class="font-black text-[#e2e8f0] tracking-tighter uppercase leading-none text-xl">Mapping</h1>
+                    <p class="text-[9px] font-black text-[#60a5fa] uppercase tracking-widest mt-1">Operational Engine</p>
+                </div>
+            </div>
+            <nav class="flex-1 space-y-1">
+                <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-4">Navigation</p>
+                <a href="{{ url_for('viewer.viewer_dashboard') }}" class="sidebar-item flex items-center gap-3 px-4 py-3 text-sm font-bold text-[#e2e8f0]">
+                    <i class="bi bi-speedometer2 text-lg"></i> Viewer Dashboard
+                </a>
+                <a href="{{ url_for('mapping.mapping_page') }}" class="sidebar-item active flex items-center gap-3 px-4 py-3 text-sm font-bold text-[#e2e8f0]">
+                    <i class="bi bi-diagram-3 text-lg"></i> Mapping Console
+                </a>
+                <div class="my-6 border-t border-[#28332e]"></div>
+                <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-4">Admin Tools</p>
+                <a href="{{ url_for('admin.admin_dashboard') }}" class="sidebar-item flex items-center gap-3 px-4 py-3 text-sm font-bold text-[#e2e8f0]">
+                    <i class="bi bi-activity text-lg"></i> ETL Pipeline
+                </a>
+            </nav>
+            <div class="mt-auto pt-6 border-t border-[#28332e]">
+                <a href="{{ url_for('auth.logout') }}" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-red-400 hover:bg-[#232b28] rounded-xl transition">
+                    <i class="bi bi-box-arrow-right text-lg"></i> Logout
+                </a>
+            </div>
+        </aside>
+
+        <main class="flex-1 overflow-y-auto p-12 bg-[#181f1c]">
+            <div class="max-w-6xl mx-auto space-y-8">
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                  {% if messages %}
+                    {% for category, message in messages %}
+                      <div class="p-4 rounded-2xl mb-4 text-xs font-bold uppercase tracking-widest shadow-sm border-l-4 
+                        {% if category == 'danger' or category == 'error' %}bg-red-50 border-red-500 text-red-700
+                        {% else %}bg-emerald-50 border-emerald-500 text-emerald-700{% endif %}">
+                        {{ message }}
+                      </div>
+                    {% endfor %}
+                  {% endif %}
+                {% endwith %}
+
+                <div class="flex items-end justify-between">
+                    <div>
+                        <h2 class="text-3xl font-black text-[#e2e8f0] tracking-tight">Mapping Console</h2>
+                        <p class="text-[#60a5fa] font-medium text-base">Configure machine capacity, procedure durations, and RVU values.</p>
                     </div>
-                    <div class="bg-white/50 p-3 rounded-lg border border-blue-100">
-                        <span class="text-[10px] font-bold text-blue-500 uppercase">Procedure Duration</span>
-                        <div class="mt-1 font-mono text-[11px]">procedure_code, duration_minutes</div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div class="card-custom p-8 border-t-4 border-[#60a5fa]">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest">Modality & Capacity Sync</h3>
+                            <i class="bi bi-info-circle text-slate-300 cursor-help" title="CSV columns: aetitle, modality, daily_capacity_minutes"></i>
+                        </div>
+                        <form method="POST" action="{{ url_for('mapping.mapping_upload') }}" enctype="multipart/form-data">
+                            <input type="hidden" name="mapping_type" value="modality">
+                            <div class="flex gap-2">
+                                <input type="file" name="file" accept=".csv" class="flex-1 text-xs border p-3 rounded-xl bg-[#181f1c] outline-none focus:ring-2 focus:ring-[#60a5fa]" required>
+                                <button type="submit" class="px-6 py-3 bg-[#60a5fa] text-white text-xs font-black rounded-xl hover:opacity-90 transition shadow-lg">SYNC</button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <div class="card-custom p-8 border-t-4 border-[#60a5fa]">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest">Proc. Duration & RVU Sync</h3>
+                            <i class="bi bi-info-circle text-slate-300 cursor-help" title="CSV columns: procedure_code, duration_minutes, rvu_value"></i>
+                        </div>
+                        <form method="POST" action="{{ url_for('mapping.mapping_upload') }}" enctype="multipart/form-data">
+                            <input type="hidden" name="mapping_type" value="duration">
+                            <div class="flex gap-2">
+                                <input type="file" name="file" accept=".csv" class="flex-1 text-xs border p-3 rounded-xl bg-[#181f1c] outline-none focus:ring-2 focus:ring-[#60a5fa]" required>
+                                <button type="submit" class="px-6 py-3 bg-[#60a5fa] text-white text-xs font-black rounded-xl hover:opacity-90 transition shadow-lg">SYNC</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <div class="card-custom overflow-hidden flex flex-col">
+                        <div class="bg-[#232b28] px-8 py-4 flex justify-between items-center">
+                            <h3 class="font-black text-[10px] text-[#60a5fa] uppercase tracking-widest">Modality Mappings</h3>
+                            <span class="bg-[#28332e] text-white px-2 py-0.5 rounded text-[9px] font-bold uppercase">{{ modality_mappings|length }} Machines</span>
+                        </div>
+                        <div class="max-h-[500px] overflow-y-auto custom-scrollbar">
+                            <table class="w-full text-left border-collapse">
+                                <thead class="bg-[#232b28] text-[10px] font-black text-[#38ada9] uppercase sticky top-0 border-b z-10">
+                                    <tr>
+                                        <th class="px-8 py-4">AE Title</th>
+                                        <th class="px-8 py-4">Modality</th>
+                                        <th class="px-8 py-4 text-right">Capacity</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-[#28332e] bg-[#232b28]">
+                                    {% for map in modality_mappings %}
+                                    <tr class="hover:bg-[#181f1c] transition group">
+                                        <td class="px-8 py-4 font-mono text-xs text-[#94a3b8]">{{ map.aetitle }}</td>
+                                        <td class="px-8 py-4 font-black text-[#38ada9] text-sm">{{ map.modality }}</td>
+                                        <td class="px-8 py-4 text-right">
+                                            <span class="text-[11px] font-bold text-[#94a3b8] group-hover:text-[#e2e8f0]">{{ map.daily_capacity_minutes }} <span class="text-[9px] font-normal">m/day</span></span>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="card-custom overflow-hidden flex flex-col">
+                        <div class="bg-[#232b28] px-8 py-4 flex justify-between items-center">
+                            <h3 class="font-black text-[10px] text-[#60a5fa] uppercase tracking-widest">Procedure Metrics</h3>
+                            <span class="bg-[#28332e] text-white px-2 py-0.5 rounded text-[9px] font-bold uppercase">{{ duration_mappings|length }} Codes</span>
+                        </div>
+                        <div class="max-h-[500px] overflow-y-auto custom-scrollbar">
+                            <table class="w-full text-left border-collapse">
+                                <thead class="bg-[#232b28] text-[10px] font-black text-[#38ada9] uppercase sticky top-0 border-b z-10">
+                                    <tr>
+                                        <th class="px-8 py-4">Proc. Code</th>
+                                        <th class="px-8 py-4 text-right">Duration</th>
+                                        <th class="px-8 py-4 text-right">RVU</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-[#28332e] bg-[#232b28]">
+                                    {% for map in duration_mappings %}
+                                    <tr class="hover:bg-[#181f1c] transition group">
+                                        <td class="px-8 py-4 font-mono text-xs text-[#94a3b8]">{{ map.procedure_code }}</td>
+                                        <td class="px-8 py-4 text-right font-bold text-[#e2e8f0] text-sm">{{ map.duration_minutes }} <span class="text-[9px] text-[#94a3b8]">min</span></td>
+                                        <td class="px-8 py-4 text-right">
+                                            <span class="bg-[#60a5fa]/10 text-[#60a5fa] px-2 py-1 rounded text-[10px] font-black border border-[#60a5fa]/20">{{ "%.2f"|format(map.rvu_value|float) }}</span>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
+        </main>
     </div>
-
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div class="card-custom p-6">
-            <h2 class="text-xs font-black text-[#38ada9] uppercase tracking-widest mb-4">Modality Sync</h2>
-            <form method="POST" action="{{ url_for('mapping.mapping_upload') }}" enctype="multipart/form-data">
-                <input type="hidden" name="mapping_type" value="modality">
-                <div class="flex gap-2">
-                    <input type="file" name="file" accept=".csv" class="flex-1 text-xs border p-2 rounded-xl bg-slate-50" required>
-                    <button class="px-6 py-2 bg-[#38ada9] text-white text-xs font-black rounded-xl hover:opacity-90 transition shadow-md">SYNC</button>
-                </div>
-            </form>
-        </div>
-
-        <div class="card-custom p-6">
-            <h2 class="text-xs font-black text-[#38ada9] uppercase tracking-widest mb-4">Duration Sync</h2>
-            <form method="POST" action="{{ url_for('mapping.mapping_upload') }}" enctype="multipart/form-data">
-                <input type="hidden" name="mapping_type" value="duration">
-                <div class="flex gap-2">
-                    <input type="file" name="file" accept=".csv" class="flex-1 text-xs border p-2 rounded-xl bg-slate-50" required>
-                    <button class="px-6 py-2 bg-[#38ada9] text-white text-xs font-black rounded-xl hover:opacity-90 transition shadow-md">SYNC</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div class="card-custom overflow-hidden">
-            <div class="bg-slate-50 px-6 py-4 border-b flex justify-between items-center">
-                <h3 class="font-black text-xs text-slate-700 uppercase tracking-widest">Active Modality Mappings</h3>
-                <span class="bg-white px-2 py-1 rounded text-[10px] font-bold border">{{ modality_mappings|length }} Entries</span>
-            </div>
-            <div class="max-h-96 overflow-y-auto">
-                <table class="w-full text-sm text-left">
-                    <thead class="bg-slate-50 text-[10px] font-black text-slate-400 uppercase sticky top-0">
-                        <tr><th class="px-6 py-3">AE Title</th><th class="px-6 py-3">Modality</th></tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-100">
-                        {% for map in modality_mappings %}
-                        <tr class="hover:bg-slate-50 transition">
-                            <td class="px-6 py-3 font-mono text-xs text-slate-500">{{ map.aetitle }}</td>
-                            <td class="px-6 py-3 font-black text-[#38ada9]">{{ map.modality }}</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <div class="card-custom overflow-hidden">
-            <div class="bg-slate-50 px-6 py-4 border-b flex justify-between items-center">
-                <h3 class="font-black text-xs text-slate-700 uppercase tracking-widest">Active Procedure Durations</h3>
-                <span class="bg-white px-2 py-1 rounded text-[10px] font-bold border">{{ duration_mappings|length }} Entries</span>
-            </div>
-            <div class="max-h-96 overflow-y-auto">
-                <table class="w-full text-sm text-left">
-                    <thead class="bg-slate-50 text-[10px] font-black text-slate-400 uppercase sticky top-0">
-                        <tr><th class="px-6 py-3">Proc. Code</th><th class="px-6 py-3">Min</th></tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-100">
-                        {% for map in duration_mappings %}
-                        <tr class="hover:bg-slate-50 transition">
-                            <td class="px-6 py-3 font-mono text-xs text-slate-500">{{ map.procedure_code }}</td>
-                            <td class="px-6 py-3 font-black text-slate-700">{{ map.duration_minutes }} <span class="text-[10px] font-normal text-slate-400 italic">min</span></td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-</div>
-
 </body>
 </html>

@@ -2,144 +2,151 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>RAYD | {{ report.report_name }}</title>
+    <title>RAYD | Audit & Comparison</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
-        :root { --accent: #38ada9; }
-        body { font-family: 'Inter', sans-serif; height: 100vh; display: flex; flex-direction: column; overflow: hidden; background: #f4f7f6; }
-        .rayd-watermark { position: fixed; top: 55%; left: 50%; transform: translate(-50%, -50%); width: 70vw; opacity: 0.05; z-index: 0; pointer-events: none; }
-        .sidebar-glass { background: rgba(255, 255, 255, 0.8); backdrop-filter: blur(12px); border-right: 1px solid rgba(0,0,0,0.05); z-index: 20; width: 320px; }
-        .disabled { opacity:.4; pointer-events:none; }
-        label { font-size: 10px; font-weight: 800; color: var(--accent); text-transform: uppercase; letter-spacing: 0.05em; }
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap');
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background: #020617; color: #f8fafc; height: 100vh; overflow: hidden; }
+        .input-dark { background: #0f172a; border: 1px solid #334155; color: white; border-radius: 6px; padding: 6px; font-size: 11px; width: 100%; outline: none; transition: border 0.2s; }
+        .input-dark:focus { border-color: #38ada9; }
+        .data-card { background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; overflow: hidden; }
+        .card-header { padding: 12px 16px; border-bottom: 1px solid #1e293b; background: rgba(30, 41, 59, 0.3); font-size: 10px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; }
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
     </style>
 </head>
 <body class="flex flex-col">
-    <img src="{{ url_for('static', filename='RAYD.png') }}" class="rayd-watermark">
-
-    <header class="w-full bg-white border-b border-slate-100 py-6 flex justify-center items-center z-50 shadow-sm">
-        <img src="{{ url_for('static', filename='intermedic.jpeg') }}" class="h-16 w-auto object-contain">
+    <header class="h-12 bg-[#0f172a] border-b border-slate-800 flex items-center px-6 justify-between shrink-0">
+        <span class="font-black text-sm uppercase text-[#38ada9]">RAYD <span class="text-white">Admin Console</span></span>
+        <form action="/report/27/export" method="POST">
+             <input type="hidden" name="start_date" value="{{ display_start }}">
+             <input type="hidden" name="end_date" value="{{ display_end }}">
+             <button type="submit" class="text-[10px] font-bold text-slate-400 hover:text-white uppercase transition-colors">Export CSV</button>
+        </form>
     </header>
 
-    <form method="POST" class="flex flex-1 overflow-hidden relative">
-        <aside class="sidebar-glass flex flex-col p-6 gap-5 custom-scrollbar">
-            <div class="flex justify-between items-center mb-2">
-                <span class="text-[11px] font-black text-slate-400 uppercase tracking-widest">Filters</span>
-                <button type="submit" name="action" value="reset" class="text-[10px] text-red-500 font-black">RESET</button>
-            </div>
-
-            <div>
-                <label>Date Range</label>
-                <div class="grid grid-cols-1 gap-2 mt-2">
-                    <input type="date" name="start_date" value="{{ display_start }}" class="border p-3 rounded-xl text-[11px] font-bold">
-                    <input type="date" name="end_date" value="{{ display_end }}" class="border p-3 rounded-xl text-[11px] font-bold">
+    <div class="flex flex-1 overflow-hidden">
+        <aside class="w-72 bg-[#0f172a] border-r border-slate-800 p-6 overflow-y-auto custom-scrollbar">
+            <form method="POST" class="space-y-6">
+                <div>
+                    <label class="text-[10px] font-black text-[#38ada9] uppercase block mb-3 tracking-widest">Audit Timeline</label>
+                    <input type="date" name="start_date" class="input-dark mb-2" value="{{ display_start }}">
+                    <input type="date" name="end_date" class="input-dark" value="{{ display_end }}">
                 </div>
-            </div>
-
-            {% for field in ["Modality", "Study Status", "Patient Class", "Storing AE"] %}
-            <div>
-                <div class="flex items-center gap-2 mb-2">
-                    <input type="checkbox" name="apply_{{ field }}" value="1" {% if selected_inputs.get('apply_'+field) %}checked{% endif %} onchange="document.getElementById('f_{{ field }}').classList.toggle('disabled')">
-                    <label class="text-slate-600 cursor-pointer">{{ field }}</label>
+                <div class="pt-6 border-t border-slate-800">
+                    <label class="text-[10px] font-black text-slate-500 uppercase block mb-3 tracking-widest">Growth Baseline</label>
+                    <input type="date" name="comp_start_date" class="input-dark mb-2" value="{{ comp_start }}">
+                    <input type="date" name="comp_end_date" class="input-dark" value="{{ comp_end }}">
                 </div>
-                <select name="{{ field }}" multiple id="f_{{ field }}" class="w-full border rounded-xl h-24 text-[10px] p-2 font-bold custom-scrollbar {% if not selected_inputs.get('apply_'+field) %}disabled{% endif %}">
-                    {% for v in dropdown_data[field] %}<option value="{{ v }}" {% if v in selected_inputs.getlist(field) %}selected{% endif %}>{{ v }}</option>{% endfor %}
-                </select>
-            </div>
-            {% endfor %}
-
-            <button name="action" value="run" class="mt-4 w-full py-4 bg-slate-900 text-white text-[10px] font-black rounded-2xl hover:bg-[#38ada9] transition-all tracking-[0.2em] shadow-xl">RUN ANALYSIS</button>
+                <button type="submit" class="w-full py-3 bg-[#38ada9] hover:bg-[#2d8e8a] text-white font-black rounded-lg uppercase text-[10px] tracking-widest transition-all">Run Analysis</button>
+            </form>
         </aside>
 
-        <main class="flex-1 p-10 overflow-y-auto custom-scrollbar z-10">
-            {% if run_report %}
-            <div class="max-w-6xl mx-auto space-y-8">
-                <div class="flex justify-between items-end">
-                    <div>
-                        <h1 class="text-4xl font-black text-slate-800 tracking-tighter uppercase">{{ report.report_name }}</h1>
-                        <div class="h-1.5 w-16 bg-[#38ada9] mt-2 rounded-full"></div>
-                    </div>
+        <main class="flex-1 overflow-y-auto p-6 bg-[#020617] custom-scrollbar space-y-6">
+            {% if run_report and data %}
+            <div class="grid grid-cols-4 gap-4">
+                <div class="data-card p-4 border-l-4 border-emerald-500 flex flex-col justify-center">
+                    <span class="text-[9px] font-bold text-slate-500 uppercase">Match Success</span>
+                    <span class="text-xl font-black text-white">{{ "{:.1f}%".format((data.audit.matches / data.audit.total * 100)) }}</span>
                 </div>
-
-                <div class="grid grid-cols-4 gap-6">
-                    <div class="bg-white/60 backdrop-blur-md p-6 rounded-2xl border-l-4 border-[#38ada9] shadow-sm">
-                        <label>Top Modality</label>
-                        <div class="text-xl font-black text-slate-800">{{ static_stats.top_mod_name }} ({{ static_stats.top_mod_val }})</div>
-                    </div>
-                    <div class="bg-white/60 backdrop-blur-md p-6 rounded-2xl border-l-4 border-orange-400 shadow-sm">
-                        <label>Top Procedure</label>
-                        <div class="text-[12px] font-black text-slate-700 truncate" title="{{ static_stats.top_proc_name }}">{{ static_stats.top_proc_name }}</div>
-                    </div>
-                    <div class="bg-white/60 backdrop-blur-md p-6 rounded-2xl border-l-4 border-blue-500 shadow-sm">
-                        <label>Top Pair</label>
-                        <div class="text-[11px] font-black text-slate-700">{{ static_stats.top_pair_name }}</div>
-                    </div>
-                    <div class="bg-white/60 backdrop-blur-md p-6 rounded-2xl border-l-4 border-indigo-600 shadow-sm">
-                        <label>Total Exams</label>
-                        <div class="text-xl font-black text-slate-800">{{ total_count }}</div>
-                    </div>
+                <div class="data-card p-4 border-l-4 border-red-500 flex flex-col justify-center">
+                    <span class="text-[9px] font-bold text-slate-500 uppercase">Orphans</span>
+                    <span class="text-xl font-black text-white">{{ data.audit.orphans }}</span>
                 </div>
-
-                <div class="bg-white/80 backdrop-blur-md p-8 rounded-[2rem] shadow-xl h-96">
-                    <h3 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Monthly Modality Trends</h3>
-                    <canvas id="reportChart"></canvas>
+                <div class="data-card p-4 border-l-4 border-blue-500 flex flex-col justify-center">
+                    <span class="text-[9px] font-bold text-slate-500 uppercase">Avg Duration</span>
+                    <span class="text-xl font-black text-white">{{ data.audit.avg_duration }}m</span>
                 </div>
-
-                <div class="bg-white/80 backdrop-blur-md rounded-[2rem] shadow-xl overflow-hidden">
-                    <div class="px-8 py-5 border-b border-slate-100">
-                        <h3 class="text-sm font-black text-slate-700 uppercase tracking-widest">Meaningful Execution Audit <small class="text-slate-400 normal-case ml-2">(Top 20 Records)</small></h3>
-                    </div>
-                    <table class="w-full text-[11px] text-left">
-                        <thead class="bg-slate-900 text-white uppercase font-black tracking-tighter">
-                            <tr>
-                                <th class="px-8 py-4">Execution Date</th>
-                                <th class="px-8 py-4">Modality</th>
-                                <th class="px-8 py-4">Procedure Description</th>
-                                <th class="px-8 py-4">Patient Class</th>
-                                <th class="px-8 py-4">Accession #</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-slate-100">
-                            {% for r in rows %}
-                            <tr class="hover:bg-white/50 transition-colors">
-                                <td class="px-8 py-4 font-bold text-slate-500">{{ r.study_date }}</td>
-                                <td class="px-8 py-4 font-black text-[#38ada9]">{{ r.modality }}</td>
-                                <td class="px-8 py-4 text-slate-700 font-bold">{{ r.procedure_description or r.procedure_code }}</td>
-                                <td class="px-8 py-4 italic text-slate-400">{{ r.patient_class or 'N/A' }}</td>
-                                <td class="px-8 py-4 font-mono text-slate-400">{{ r.accession_number }}</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
+                <div class="data-card p-4 border-l-4 border-purple-500 flex flex-col justify-center">
+                    <span class="text-[9px] font-bold text-slate-500 uppercase">Volume Delta</span>
+                    {% set delta = data.growth.vol_a - data.growth.vol_b %}
+                    <span class="text-xl font-black {{ 'text-emerald-400' if delta >= 0 else 'text-red-400' }}">{{ "+" if delta > 0 }}{{ delta }}</span>
                 </div>
             </div>
+
+            <div class="grid grid-cols-3 gap-6">
+                <div class="data-card h-[320px] col-span-2 flex flex-col">
+                    <div class="card-header">Hourly Load (Volume Trend)</div>
+                    <div id="chart_hourly" class="flex-1"></div>
+                </div>
+                <div class="data-card h-[320px] flex flex-col">
+                    <div class="card-header">Proc-ID Reconciliation</div>
+                    <div id="chart_match" class="flex-1"></div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-3 gap-6">
+                <div class="data-card h-[350px] flex flex-col">
+                    <div class="card-header">Demographics (Age & Gender)</div>
+                    <div id="chart_demo" class="flex-1"></div>
+                </div>
+                <div class="data-card h-[350px] flex flex-col">
+                    <div class="card-header">Order Status Mix</div>
+                    <div id="chart_status" class="flex-1"></div>
+                </div>
+                <div class="data-card h-[350px] flex flex-col">
+                    <div class="card-header">Modality Distribution (AE)</div>
+                    <div id="chart_ae" class="flex-1"></div>
+                </div>
+            </div>
+            {% else %}
+            <div class="h-full flex items-center justify-center text-slate-800 font-black text-4xl uppercase tracking-[0.2em]">Select Analysis Range</div>
             {% endif %}
         </main>
-    </form>
-
-    <footer class="w-full bg-white border-t border-slate-100 py-6 flex flex-col items-center gap-2 z-50">
-        <span class="text-[9px] font-black text-slate-300 uppercase tracking-[0.5em]">Technology Partner</span>
-        <img src="{{ url_for('static', filename='philips.jpg') }}" class="h-9 w-auto grayscale opacity-40">
-    </footer>
+    </div>
 
     <script>
-        {% if run_report %}
-        new Chart(document.getElementById('reportChart').getContext('2d'), {
-            type: 'line',
-            data: {{ chart_json | tojson }},
-            options: { 
-                responsive: true, maintainAspectRatio: false,
-                plugins: { legend: { position: 'bottom', labels: { font: { size: 10, weight: 'bold' } } } },
-                scales: {
-                    y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.03)' } },
-                    x: { grid: { display: false } }
-                }
-            }
-        });
-        {% endif %}
+        const raw = {{ data | tojson | safe if data else 'null' }};
+        if (raw) {
+            // MATCH PIE
+            echarts.init(document.getElementById('chart_match')).setOption({
+                tooltip: { trigger: 'item' },
+                series: [{ type: 'pie', radius: ['45%', '75%'], itemStyle: {borderRadius: 6}, data: [
+                    { value: raw.audit.matches, name: 'Match', itemStyle: {color: '#10b981'}},
+                    { value: raw.audit.mismatches, name: 'Mismatch', itemStyle: {color: '#ef4444'}}
+                ], label: {show: false} }]
+            });
+
+            // HOURLY TREND
+            echarts.init(document.getElementById('chart_hourly')).setOption({
+                tooltip: { trigger: 'axis' },
+                grid: { left: '3%', right: '4%', bottom: '10%', top: '10%', containLabel: true },
+                xAxis: { type: 'category', data: Object.keys(raw.audit.hourly).map(h => h+':00'), axisLabel: {color: '#64748b'} },
+                yAxis: { type: 'value', splitLine: {lineStyle: {color: '#1e293b'}} },
+                series: [{ data: Object.values(raw.audit.hourly), type: 'line', smooth: true, areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{offset: 0, color: '#38ada9'}, {offset: 1, color: 'transparent'}]) }, itemStyle: {color: '#38ada9'}}]
+            });
+
+            // DEMOGRAPHIC MATRIX
+            const ages = ['0-8', '9-18', '19-64', '65+', 'Unknown'];
+            echarts.init(document.getElementById('chart_demo')).setOption({
+                tooltip: { trigger: 'axis', axisPointer: {type: 'shadow'} },
+                legend: { textStyle: {color: '#94a3b8'}, bottom: 0, icon: 'circle' },
+                xAxis: { type: 'category', data: ages, axisLabel: {color: '#64748b'} },
+                yAxis: { type: 'value', splitLine: {lineStyle: {color: '#1e293b'}} },
+                series: [
+                    { name: 'M', type: 'bar', stack: 'total', data: ages.map(g => raw.growth.demo[g]?.M || 0), itemStyle: {color: '#3b82f6'}},
+                    { name: 'F', type: 'bar', stack: 'total', data: ages.map(g => raw.growth.demo[g]?.F || 0), itemStyle: {color: '#ec4899'}}
+                ]
+            });
+
+            // STATUS MIX
+            echarts.init(document.getElementById('chart_status')).setOption({
+                grid: { left: '3%', right: '10%', bottom: '5%', top: '5%', containLabel: true },
+                xAxis: { type: 'value', show: false },
+                yAxis: { type: 'category', data: Object.keys(raw.audit.status_mix), axisLabel: {color: '#94a3b8'} },
+                series: [{ type: 'bar', data: Object.values(raw.audit.status_mix), itemStyle: {color: '#6366f1', borderRadius: [0,4,4,0]}, label: {show: true, position: 'right', color: '#fff'} }]
+            });
+
+            // AE MIX
+            echarts.init(document.getElementById('chart_ae')).setOption({
+                grid: { left: '3%', right: '4%', bottom: '20%', top: '10%', containLabel: true },
+                xAxis: { type: 'category', data: Object.keys(raw.audit.ae_mix), axisLabel: {rotate: 45, color: '#94a3b8', fontSize: 9} },
+                yAxis: { type: 'value', splitLine: {lineStyle: {color: '#1e293b'}} },
+                series: [{ type: 'bar', data: Object.values(raw.audit.ae_mix), itemStyle: {color: '#f59e0b', borderRadius: [4,4,0,0]} }]
+            });
+        }
     </script>
 </body>
 </html>
