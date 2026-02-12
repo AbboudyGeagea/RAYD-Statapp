@@ -1,31 +1,21 @@
-Flask
-Flask-Login
-Flask-SQLAlchemy
-psycopg2-binary
-cx_oracle
-pandas
-python-dotenv
-schedule
-Werkzeug
-oracledb
-Flask-Migrate
-Flask-WTF
-Flask-Bcrypt
-Flask-Cors
-Flask-Mail
-Flask-Admin
-Flask-RESTful
-Flask-JWT-Extended
-marshmallow
-marshmallow-sqlalchemy
-APScheduler
-Flask-SocketIO
-eventlet
-redis
-flask-limiter
-Flask-Limiter
-itsdangerous
-email-validator
-gunicorn
-pytest
-scipy
+# Framework & Auth
+Flask==3.0.0
+Flask-Login==0.6.3
+Flask-SQLAlchemy==3.1.1
+Werkzeug==3.0.1
+
+# Database - PostgreSQL
+psycopg2-binary==2.9.9
+SQLAlchemy==2.0.23
+
+# Database - Oracle
+# Note: Requires Oracle Instant Client installed on the OS
+cx_Oracle==8.3.0
+
+# Data Analysis
+pandas==2.1.3
+numpy==1.26.2
+
+# Utilities
+python-dotenv==1.0.0
+gunicorn==21.2.0
