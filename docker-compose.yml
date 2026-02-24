@@ -1,4 +1,8 @@
-db_server:
+version: '3.8'
+
+services:
+  # 1. THE DATABASE
+  db_server:
     image: postgres:15
     container_name: rayd_db_container
     restart: always
@@ -11,3 +15,30 @@ db_server:
       - ./init-db:/docker-entrypoint-initdb.d 
     ports:
       - "5432:5432"
+
+  # 2. THE FLASK APP
+  web_app:
+    build: .
+    container_name: rayd_app_container
+    restart: always
+    expose:
+      - "8080"
+    env_file:
+      - .env
+    depends_on:
+      - db_server
+
+  # 3. THE FRONT DOOR (NGINX)
+  nginx:
+    image: nginx:latest
+    container_name: rayd_nginx
+    restart: always
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+    depends_on:
+      - web_app
+
+volumes:
+  postgres_data:

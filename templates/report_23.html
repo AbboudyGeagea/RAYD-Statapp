@@ -8,190 +8,111 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
-        html { font-size: 100%; }
-        :root { --accent: #60a5fa; }
-        body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; height: 100vh; overflow: hidden; }
-        
-        /* Unified Sidebar Style */
-        .input-dark { 
-            background: #181f1c; 
-            border: 1px solid #28332e; 
-            color: #e2e8f0; 
-            border-radius: 0.75rem; 
-            padding: 0.75rem; 
-            font-size: 11px; 
-            width: 100%; 
-            outline: none; 
-            transition: border-color 0.2s;
-        }
-        .input-dark:focus { border-color: var(--accent); }
-
-        .data-card { background: #232b28; border: 1px solid #28332e; border-radius: 1.5rem; overflow: hidden; }
-        .card-header { 
-            padding: 1.25rem 1.5rem; 
-            border-bottom: 1px solid #28332e; 
-            background: rgba(40, 51, 46, 0.2); 
-            font-size: 10px; 
-            font-weight: 900; 
-            color: #60a5fa; 
-            text-transform: uppercase; 
-            letter-spacing: 0.15em; 
-        }
-        
+        body { font-family: 'Inter', sans-serif; background: #0b0f0e; color: #e2e8f0; height: 100vh; overflow: hidden; }
+        .input-dark { background: #141a18; border: 1px solid #2d3733; color: #e2e8f0; border-radius: 0.5rem; padding: 0.6rem; font-size: 11px; width: 100%; outline: none; }
+        .data-card { background: #141a18; border: 1px solid #2d3733; border-radius: 1rem; overflow: hidden; }
+        .card-header { padding: 1rem; border-bottom: 1px solid #2d3733; font-size: 10px; font-weight: 900; color: #818cf8; text-transform: uppercase; letter-spacing: 0.1em; }
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #28332e; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #2d3733; border-radius: 10px; }
     </style>
 </head>
 <body class="flex flex-col">
-    <header class="h-20 bg-[#232b28] border-b border-[#28332e] flex items-center px-10 justify-between shrink-0">
-        <div class="w-64">
-            <img src="{{ url_for('static', filename='philips.jpg') }}" class="h-8 grayscale opacity-40">
-        </div>
-        <div class="flex flex-col items-center">
-            <img src="{{ url_for('static', filename='RAYD.png') }}" class="h-12 opacity-90">
-            <div class="h-1 w-10 bg-[#60a5fa] mt-1 rounded-full"></div>
-        </div>
-        <div class="w-64 flex justify-end">
-            <img src="{{ url_for('static', filename='intermedic.jpeg') }}" class="h-8 grayscale opacity-40">
+    <header class="h-16 bg-[#141a18] border-b border-[#2d3733] flex items-center px-8 justify-between shrink-0">
+        <div class="flex items-center gap-4">
+            <img src="{{ url_for('static', filename='RAYD.png') }}" class="h-8">
+            <span class="text-xs font-black tracking-widest text-slate-500">POPULATION INTEL</span>
         </div>
     </header>
 
     <div class="flex flex-1 overflow-hidden">
-        <aside class="w-80 bg-[#232b28] border-r border-[#28332e] flex flex-col p-6 overflow-y-auto z-20">
+        <aside class="w-72 bg-[#141a18] border-r border-[#2d3733] flex flex-col p-6 overflow-y-auto">
             <form method="POST" class="space-y-6">
-                <section>
-                    <label class="text-[10px] font-black text-[#60a5fa] uppercase mb-4 block tracking-widest">Analysis Period</label>
-                    <div class="space-y-4">
-                        <div>
-                            <p class="text-[9px] text-slate-500 font-bold uppercase mb-1 ml-1">Start (Go-Live)</p>
-                            <input type="date" name="start_date" class="input-dark" value="{{ display_start }}">
-                        </div>
-                        <div>
-                            <p class="text-[9px] text-slate-500 font-bold uppercase mb-1 ml-1">End (Today)</p>
-                            <input type="date" name="end_date" class="input-dark" value="{{ display_end }}">
-                        </div>
-                    </div>
-                </section>
-
-                <button type="submit" class="w-full py-4 bg-[#60a5fa] text-white font-black text-[11px] uppercase tracking-[0.2em] rounded-xl hover:bg-blue-500 transition-all shadow-lg shadow-blue-500/10">
-                    Run Analysis
-                </button>
+                <div class="space-y-4">
+                    <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Date Range</label>
+                    <input type="date" name="start_date" class="input-dark" value="{{ display_start }}">
+                    <input type="date" name="end_date" class="input-dark" value="{{ display_end }}">
+                </div>
+                <button type="submit" class="w-full py-3 bg-indigo-600 text-white font-bold text-xs uppercase rounded-lg hover:bg-indigo-500 transition-all">Update Dashboard</button>
             </form>
-
-            <div class="mt-auto pt-6 border-t border-[#28332e]">
-                <form method="POST" action="{{ url_for('report_23.export_report_23') }}">
-                    <input type="hidden" name="start_date" value="{{ display_start }}">
-                    <input type="hidden" name="end_date" value="{{ display_end }}">
-                    <button type="submit" class="w-full py-3 border border-[#28332e] text-slate-400 text-[10px] font-bold uppercase tracking-widest rounded-xl hover:bg-[#181f1c] transition">
-                        <i class="bi bi-download mr-2"></i> Export CSV
-                    </button>
-                </form>
-            </div>
         </aside>
 
-        <main class="flex-1 overflow-y-auto p-10 bg-[#181f1c] space-y-8 custom-scrollbar">
+        <main class="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar">
             {% if run_report %}
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <div class="data-card p-8 border-l-4 border-l-blue-400 flex justify-between items-center shadow-2xl">
-                    <div>
-                        <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest mb-1">Total Study Population</p>
-                        <p class="text-4xl font-black text-white tracking-tighter">{{ "{:,}".format(metrics.total_count) }}</p>
-                    </div>
-                    <div class="h-14 w-14 rounded-2xl bg-blue-400/10 flex items-center justify-center">
-                        <i class="bi bi-people text-2xl text-blue-400"></i>
-                    </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="data-card p-6 border-l-4 border-l-indigo-500">
+                    <p class="text-[10px] font-bold text-slate-500 uppercase">Analyzed Studies</p>
+                    <p class="text-4xl font-black text-white">{{ "{:,}".format(metrics.total_count) }}</p>
                 </div>
-
-                <div class="data-card p-8 border-l-4 border-l-red-500 flex justify-between items-center shadow-2xl">
-                    <div>
-                        <p class="text-[10px] font-black text-red-400 uppercase tracking-widest mb-1">Conflicted Records ($$$)</p>
-                        <p class="text-4xl font-black text-white tracking-tighter">{{ "{:,}".format(metrics.conflicted_ids) }}</p>
-                    </div>
-                    <div class="h-14 w-14 rounded-2xl bg-red-500/10 flex items-center justify-center">
-                        <i class="bi bi-exclamation-triangle text-2xl text-red-500"></i>
-                    </div>
+                <div class="data-card p-6 border-l-4 border-l-emerald-500">
+                    <p class="text-[10px] font-bold text-slate-500 uppercase">Avg System Age</p>
+                    <p class="text-4xl font-black text-white">Mixed Demographics</p>
                 </div>
             </div>
 
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <div class="data-card h-[400px] flex flex-col shadow-xl">
-                    <div class="card-header">Medical Age Demographics</div>
-                    <div id="ageChart" class="flex-1 p-4"></div>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="data-card h-80 flex flex-col">
+                    <div class="card-header">Patient Class Distribution (Bar)</div>
+                    <div id="classChart" class="flex-1"></div>
                 </div>
-
-                <div class="data-card h-[400px] flex flex-col shadow-xl">
-                    <div class="card-header">Gender Distribution</div>
-                    <div id="genderChart" class="flex-1 p-4"></div>
+                <div class="data-card h-80 flex flex-col">
+                    <div class="card-header">Average Age by Modality</div>
+                    <div id="modAgeChart" class="flex-1"></div>
                 </div>
-
-                <div class="data-card h-[500px] lg:col-span-2 flex flex-col shadow-xl">
-                    <div class="card-header">High Utilization: Most Repetitive Patients</div>
-                    <div id="repetitiveChart" class="flex-1 p-6"></div>
+                <div class="data-card h-80 flex flex-col">
+                    <div class="card-header">Age Group Breakdown</div>
+                    <div id="ageDistChart" class="flex-1"></div>
                 </div>
-            </div>
-            {% else %}
-            <div class="h-full flex flex-col items-center justify-center opacity-10">
-                <i class="bi bi-search text-8xl mb-6"></i>
-                <p class="text-2xl font-black uppercase tracking-[0.5em]">Configure Parameters</p>
+                <div class="data-card h-80 flex flex-col">
+                    <div class="card-header">Gender Ratio</div>
+                    <div id="genderChart" class="flex-1"></div>
+                </div>
+                <div class="data-card h-96 lg:col-span-2 flex flex-col">
+                    <div class="card-header">Top 10 High-Frequency Patients</div>
+                    <div id="repetitiveChart" class="flex-1"></div>
+                </div>
             </div>
             {% endif %}
         </main>
     </div>
 
     <script>
-        const data = {{ chart_json | safe if chart_json else 'null' }};
-        if (data) {
-            // Age Distribution
-            echarts.init(document.getElementById('ageChart')).setOption({
-                tooltip: { trigger: 'axis', backgroundColor: '#232b28', borderColor: '#28332e', textStyle: { color: '#fff' } },
-                xAxis: { type: 'category', data: data.age.labels, axisLabel: {color: '#94a3b8', fontSize: 10, fontWeight: 'bold'} },
-                yAxis: { type: 'value', splitLine: {lineStyle: {color: '#28332e'}} },
-                series: [{ data: data.age.values, type: 'bar', itemStyle: {color: '#60a5fa', borderRadius: [4, 4, 0, 0]} }]
+        const d = {{ chart_json | safe if chart_json else 'null' }};
+        if (d) {
+            // Class Bar (Sunset)
+            echarts.init(document.getElementById('classChart')).setOption({
+                tooltip: { trigger: 'axis' },
+                xAxis: { type: 'category', data: d.class.labels, axisLabel: { color: '#94a3b8', fontSize: 10 } },
+                yAxis: { type: 'value', splitLine: { lineStyle: { color: '#2d3733' } } },
+                series: [{ data: d.class.values, type: 'bar', itemStyle: { borderRadius: [4,4,0,0], color: new echarts.graphic.LinearGradient(0,0,0,1,[{offset:0,color:'#f43f5e'},{offset:1,color:'#fb923c'}]) } }]
             });
 
-            // Gender Distribution
+            // Modality Age (Amber)
+            echarts.init(document.getElementById('modAgeChart')).setOption({
+                tooltip: { trigger: 'axis' },
+                grid: { left: '15%', right: '10%' },
+                xAxis: { type: 'value', splitLine: { lineStyle: { color: '#2d3733' } } },
+                yAxis: { type: 'category', data: d.mod_age.labels, axisLabel: { color: '#e2e8f0' } },
+                series: [{ data: d.mod_age.values, type: 'bar', itemStyle: { borderRadius: [0,4,4,0], color: new echarts.graphic.LinearGradient(0,0,1,0,[{offset:0,color:'#d97706'},{offset:1,color:'#fbbf24'}]) }, label: { show: true, position: 'right', color: '#fff' } }]
+            });
+
+            // Age Dist (Indigo)
+            echarts.init(document.getElementById('ageDistChart')).setOption({
+                xAxis: { type: 'category', data: d.age_dist.labels },
+                yAxis: { type: 'value', splitLine: { show: false } },
+                series: [{ data: d.age_dist.values, type: 'bar', itemStyle: { color: '#6366f1' } }]
+            });
+
+            // Gender (Pie)
             echarts.init(document.getElementById('genderChart')).setOption({
-                tooltip: { trigger: 'item' },
-                series: [{
-                    type: 'pie', radius: ['45%', '75%'],
-                    data: data.gender.labels.map((l, i) => ({name: l, value: data.gender.values[i]})),
-                    label: { color: '#94a3b8', fontWeight: 'bold' },
-                    itemStyle: { 
-                        borderRadius: 12, 
-                        borderColor: '#232b28', 
-                        borderWidth: 4,
-                        color: function(params) {
-                            const colors = ['#60a5fa', '#f472b6', '#94a3b8'];
-                            return colors[params.dataIndex];
-                        }
-                    }
-                }]
+                series: [{ type: 'pie', radius: ['40%', '70%'], data: d.gender.labels.map((l, i) => ({ name: l, value: d.gender.values[i], itemStyle: { color: l === 'F' ? '#ec4899' : '#0ea5e9' } })), label: { color: '#fff' } }]
             });
 
-            // Repetitive Patient Chart
+            // Repetitive (Emerald)
             echarts.init(document.getElementById('repetitiveChart')).setOption({
-                tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-                grid: { left: '15%', right: '8%', bottom: '5%', top: '5%' },
-                xAxis: { type: 'value', splitLine: {show: true, lineStyle: {color: '#28332e'}} },
-                yAxis: { 
-                    type: 'category', 
-                    data: data.repetitive.labels, 
-                    inverse: true,
-                    axisLabel: {color: '#e2e8f0', fontSize: 11, fontWeight: 'bold'} 
-                },
-                series: [{ 
-                    name: 'Studies',
-                    data: data.repetitive.values, 
-                    type: 'bar', 
-                    barWidth: '50%',
-                    itemStyle: {
-                        color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
-                            {offset: 0, color: '#38ada9'},
-                            {offset: 1, color: '#60a5fa'}
-                        ]),
-                        borderRadius: [0, 8, 8, 0]
-                    } 
-                }]
+                grid: { left: '20%' },
+                xAxis: { type: 'value' },
+                yAxis: { type: 'category', data: d.repetitive.labels, inverse: true },
+                series: [{ data: d.repetitive.values, type: 'bar', itemStyle: { color: '#10b981' } }]
             });
         }
     </script>

@@ -1,52 +1,35 @@
 import logging
-import time
 from datetime import datetime, timedelta
 from sqlalchemy import text
 from db import OracleConnector
 
-def run_studies_etl(
-    pg_engine,
-    oracle_source,
-    pg_table,
-    chunked_upsert_func,
-    go_live_date
-):
+def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_live_date):
     job_name = "STUDIES_ETL"
     start_time = datetime.now()
     total_rows = 0
     status = "RUNNING"
     error_msg = None
     log_id = None
-    
-    # 1. INITIALIZE LOG
+    processed_uids = [] 
+
     try:
         with pg_engine.connect() as conn:
-            res = conn.execute(text("""
-                INSERT INTO etl_job_log (job_name, status, start_time, records_processed)
-                VALUES (:name, :status, :start, 0)
-                RETURNING id
-            """), {"name": job_name, "status": status, "start": start_time})
+            res = conn.execute(text("INSERT INTO etl_job_log (job_name, status, start_time, records_processed) VALUES (:n, :s, :t, 0) RETURNING id"),
+                               {"n": job_name, "s": status, "t": start_time})
             log_id = res.fetchone()[0]
-            conn.commit() 
-    except Exception as e:
-        logging.error(f"Failed to initialize ETL log: {e}")
+            conn.commit()
+    except Exception as e: logging.error(f"Log error: {e}")
 
-    # 2. CALCULATE INCREMENTAL FILTERS
-    # We look for the highest UID we already have and set a 10-day date window
     max_uid = 0
     lookback_date = (datetime.now() - timedelta(days=10)).strftime('%Y-%m-%d')
     gd_str = go_live_date.strftime('%Y-%m-%d') if hasattr(go_live_date, 'strftime') else str(go_live_date)
 
     try:
         with pg_engine.connect() as conn:
-            # Check if table exists/has data to get the high watermark
-            res = conn.execute(text(f"SELECT MAX(study_db_uid) FROM {pg_table}"))
-            val = res.fetchone()[0]
-            max_uid = val if val is not None else 0
-    except Exception as e:
-        logging.warning(f"Could not fetch max_uid, defaulting to 0: {e}")
+            val = conn.execute(text(f"SELECT MAX(study_db_uid) FROM {pg_table}")).fetchone()[0]
+            max_uid = val if val else 0
+    except: max_uid = 0
 
-    # 3. DEFINE COLUMNS
     col_names = [
         'study_db_uid', 'patient_db_uid', 'study_instance_uid', 'accession_number',
         'study_id', 'storing_ae', 'study_date', 'study_description',
@@ -64,14 +47,10 @@ def run_studies_etl(
         'is_linked_study', 'patient_location'
     ]
 
-    # 4. INITIALIZE CONNECTIONS
     ora_conn = OracleConnector.get_connection(oracle_source)
     cursor = ora_conn.cursor()
 
     try:
-        # 5. DUAL-LOGIC QUERY
-        # Logic: Pull if it's a NEW ID OR if it's a RECENT study (last 10 days)
-        # We still respect the global Go Live Date for the absolute floor.
         query = """
             SELECT 
                 s.STUDY_DB_UID, s.PATIENT_DB_UID, s.STUDY_INSTANCE_UID, s.ACCESSION_NUMBER, 
@@ -89,7 +68,7 @@ def run_studies_etl(
                 s.REPORT_STATUS, s.ORDER_STATUS, s.LAST_ACCESS_TIME, s.INSERT_TIME,
                 CURRENT_TIMESTAMP,
                 s.READING_PHYSICIAN_FIRST_NAME, s.READING_PHYSICIAN_LAST_NAME, s.READING_PHYSICIAN_ID,
-                s.SIGNING_PHYSICIAN_FIRST_NAME, s.SIGNING_PHYSICIAN_LAST_NAME, s.SIGNING_PHYSICIAN_ID,
+                s.SIGNING_PHYSICIAN_FIRST_NAME, s.SIGNING_PHYSICIAN_last_name, s.SIGNING_PHYSICIAN_ID,
                 CASE WHEN s.STUDY_HAS_REPORT = 'Y' THEN 'true' ELSE 'false' END,
                 s.REP_PRELIM_TIMESTAMP, s.REP_PRELIM_SIGNED_BY,
                 s.REP_TRANSCRIBED_BY, s.REP_TRANSCRIBED_TIMESTAMP,
@@ -101,58 +80,27 @@ def run_studies_etl(
             FROM medistore.didb_studies s
             LEFT JOIN medistore.didb_patients_view p ON p.PATIENT_DB_UID = s.PATIENT_DB_UID
             WHERE s.STUDY_DATE >= TO_DATE(:gd, 'YYYY-MM-DD')
-            AND (
-                s.STUDY_DB_UID > :max_id 
-                OR s.STUDY_DATE >= TO_DATE(:lb, 'YYYY-MM-DD')
-            )
+            AND (s.STUDY_DB_UID > :max_id OR s.STUDY_DATE >= TO_DATE(:lb, 'YYYY-MM-DD'))
         """
-
         cursor.execute(query, {'gd': gd_str, 'max_id': max_uid, 'lb': lookback_date})
         
         while True:
             batch = cursor.fetchmany(1000)
-            if not batch:
-                break
-
+            if not batch: break
+            processed_uids.extend([row[0] for row in batch])
             chunked_upsert_func(pg_engine, pg_table, col_names, batch, 'study_db_uid')
             total_rows += len(batch)
-            
-            if log_id and total_rows % 5000 == 0:
-                with pg_engine.connect() as conn:
-                    conn.execute(text("UPDATE etl_job_log SET records_processed = :r WHERE id = :id"), 
-                                     {"r": total_rows, "id": log_id})
-                    conn.commit()
-
         status = "SUCCESS"
-
-    except Exception as exc:
+    except Exception as e:
         status = "FAILED"
-        error_msg = str(exc)
-        logging.exception("STUDIES_ETL_ERROR")
-        raise 
-
+        error_msg = str(e)
+        raise
     finally:
-        end_time = datetime.now()
-        duration = (end_time - start_time).total_seconds()
-        rows_per_sec = total_rows / duration if duration > 0 else 0
-
         if log_id:
-            try:
-                with pg_engine.connect() as conn:
-                    conn.execute(text("""
-                        UPDATE etl_job_log 
-                        SET status = :status, end_time = :end, records_processed = :rows,
-                            rows_per_second = :rps, duration_seconds = :dur, error_message = :err
-                        WHERE id = :id
-                    """), {
-                        "status": status, "end": end_time, "rows": total_rows,
-                        "rps": rows_per_sec, "dur": duration, "err": error_msg, "id": log_id
-                    })
-                    conn.commit()
-            except Exception as log_err:
-                logging.error(f"Failed to finalize ETL log: {log_err}")
+            with pg_engine.connect() as conn:
+                conn.execute(text("UPDATE etl_job_log SET status=:s, end_time=NOW(), records_processed=:r, error_message=:e WHERE id=:id"),
+                             {"s": status, "r": total_rows, "e": error_msg, "id": log_id})
+                conn.commit()
+        cursor.close(); ora_conn.close()
 
-        cursor.close()
-        ora_conn.close()
-
-    return total_rows
+    return total_rows, processed_uids

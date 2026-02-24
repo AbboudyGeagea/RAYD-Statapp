@@ -9,82 +9,50 @@
     <style>
         :root { --accent: #60a5fa; }
         body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; }
-        .sidebar-item { transition: all 0.2s; border-radius: 0.75rem; margin-bottom: 0.25rem; cursor: pointer; }
-        .sidebar-item:hover { background: #232b28; color: var(--accent); }
-        .sidebar-item.active { background: #232b28; color: var(--accent); border-left: 4px solid var(--accent); }
+        .sidebar-item { transition: all 0.2s; border-radius: 0.75rem; margin-bottom: 0.25rem; cursor: pointer; font-family: 'Inter', sans-serif !important; text-decoration: none !important; }
+        .sidebar-item:hover { background: #1d2522; color: var(--accent) !important; }
+        .sidebar-item.active { background: #1d2522; color: var(--accent) !important; border-left: 4px solid var(--accent); }
+        .sidebar-item i { font-size: 1.1rem; width: 1.5rem; text-align: center; }
         .card-custom { background: #232b28; border-radius: 1.5rem; border: 1px solid #28332e; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.3); color: #e2e8f0; }
-        @keyframes progress-scroll { from { background-position: 1rem 0; } to { background-position: 0 0; } }
-        .animate-progress { 
-            animation: progress-scroll 2s linear infinite;
-            background-image: linear-gradient(45deg, rgba(255,255,255,.08) 25%, transparent 25%, transparent 50%, rgba(255,255,255,.08) 50%, rgba(255,255,255,.08) 75%, transparent 75%, transparent);
-            background-size: 1rem 1rem;
-        }
-        .dark-input {
-            background: #181f1c;
-            color: #e2e8f0;
-            border: 1px solid #28332e;
-        }
-        .dark-input:focus {
-            border-color: var(--accent);
-            outline: none;
-        }
-        .dark-table th {
-            background: #232b28;
-            color: var(--accent);
-        }
-        .dark-table td {
-            background: #181f1c;
-            color: #e2e8f0;
-        }
+        .dark-input { background: #181f1c; color: #e2e8f0; border: 1px solid #28332e; }
+        .dark-input:focus { border-color: var(--accent); outline: none; }
+        .dark-table th { background: #232b28; color: var(--accent); font-size: 0.75rem; font-weight: 900; }
+        .dark-table td { background: #181f1c; color: #e2e8f0; font-size: 0.8rem; }
     </style>
 </head>
-<body class="flex flex-col h-screen overflow-hidden" style="background:#181f1c; color:#e2e8f0;">
-
+<body class="flex flex-col h-screen overflow-hidden">
     <header class="bg-[#232b28] border-b border-[#28332e] px-12 py-6 flex items-center justify-between shadow-md z-30 relative">
-        <div class="w-64 flex items-center justify-start">
-            <img src="{{ url_for('static', filename='philips.jpg') }}" class="h-12 w-auto object-contain grayscale opacity-60">
-        </div>
+        <div class="w-64 flex items-center justify-start"><img src="{{ url_for('static', filename='philips.jpg') }}" class="h-12 w-auto object-contain grayscale opacity-60"></div>
         <div class="flex flex-col items-center">
             <img src="{{ url_for('static', filename='RAYD.png') }}" class="h-20 w-auto object-contain opacity-80">
             <div class="h-1.5 w-16 bg-[#60a5fa] mt-3 rounded-full"></div>
         </div>
-        <div class="w-64 flex items-center justify-end">
-            <img src="{{ url_for('static', filename='intermedic.jpeg') }}" class="h-14 w-auto object-contain grayscale opacity-60">
-        </div>
+        <div class="w-64 flex items-center justify-end"><img src="{{ url_for('static', filename='intermedic.jpeg') }}" class="h-14 w-auto object-contain grayscale opacity-60"></div>
     </header>
 
     <div class="flex flex-1 overflow-hidden">
         <aside class="w-72 bg-[#232b28] border-r border-[#28332e] flex flex-col p-6 shadow-xl z-20">
             <div class="flex items-center gap-3 mb-10 px-2">
-                <div class="bg-[#60a5fa] p-2.5 rounded-xl text-white shadow-lg shadow-blue-400/20">
-                    <i class="bi bi-cpu-fill text-xl"></i>
-                </div>
+                <div class="bg-[#60a5fa] p-2.5 rounded-xl text-white shadow-lg shadow-blue-400/20"><i class="bi bi-cpu-fill text-xl"></i></div>
                 <div>
-                    <h1 class="font-black text-[#e2e8f0] tracking-tighter uppercase leading-none text-xl">RAYD Admin</h1>
-                    <div class="flex items-center gap-1.5 mt-1">
-                        <span class="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse"></span>
-                        <p class="text-[9px] font-black text-[#60a5fa] uppercase tracking-widest">Sync: {{ last_sync_time }}</p>
-                    </div>
+                    <h1 class="font-black text-[#e2e8f0] tracking-tighter uppercase leading-none text-xl">RAYD</h1>
+                    <p class="text-[9px] font-black text-[#60a5fa] uppercase tracking-widest mt-1">Intelligence Hub</p>
                 </div>
             </div>
-
             <nav class="flex-1 space-y-1">
-                <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-4">Navigation</p>
-                <a href="{{ url_for('viewer.viewer_dashboard') }}" class="sidebar-item flex items-center gap-3 px-4 py-3 text-sm font-bold text-[#e2e8f0]">
+                <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-4">Main Menu</p>
+                <a href="{{ url_for('viewer.viewer_dashboard') }}" class="sidebar-item flex items-center gap-3 px-4 py-3 text-sm font-bold">
                     <i class="bi bi-speedometer2 text-lg"></i> Viewer Dashboard
                 </a>
-                <a href="{{ url_for('mapping.mapping_page') }}" class="sidebar-item flex items-center gap-3 px-4 py-3 text-sm font-bold text-[#e2e8f0]">
-                    <i class="bi bi-diagram-3 text-lg"></i> Mapping Console
+                <a href="{{ url_for('admin.admin_dashboard') }}" class="sidebar-item active flex items-center gap-3 px-4 py-3 text-sm font-bold">
+                    <i class="bi bi-cpu text-lg"></i> ETL Control Room
                 </a>
-                <div class="my-6 border-t border-[#28332e]"></div>
-                <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-4">Core Systems</p>
-                <div class="sidebar-item active flex items-center gap-3 px-4 py-3 text-sm font-bold text-[#e2e8f0]">
-                    <i class="bi bi-activity text-lg"></i> ETL Pipeline
-                </div>
+                <a href="{{ url_for('mapping.mapping_page') }}" class="sidebar-item flex items-center gap-3 px-4 py-3 text-sm font-bold">
+                    <i class="bi bi-calendar-week text-lg"></i> Live Week Matrix
+                </a>
             </nav>
-
             <div class="mt-auto pt-6 border-t border-[#28332e]">
-                <a href="{{ url_for('auth.logout') }}" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-red-400 hover:bg-[#232b28] rounded-xl transition">
+                <a href="{{ url_for('auth.logout') }}" class="sidebar-item flex items-center gap-3 px-4 py-3 text-sm font-bold text-red-400 hover:bg-red-400/10">
                     <i class="bi bi-box-arrow-right text-lg"></i> Logout
                 </a>
             </div>
@@ -92,80 +60,41 @@
 
         <main class="flex-1 overflow-y-auto p-12 bg-[#181f1c]">
             <div class="max-w-6xl mx-auto">
-                <section class="space-y-6">
-                    <div class="flex items-end justify-between">
-                        <div>
-                            <h2 class="text-3xl font-black text-[#e2e8f0] tracking-tight">ETL Pipeline Status</h2>
-                            <p class="text-[#60a5fa] font-medium">Real-time sync monitoring for RAYD data sources.</p>
-                        </div>
-                        <button onclick="triggerETL()" id="etl-btn" class="px-8 py-4 bg-[#232b28] text-[#60a5fa] rounded-2xl font-bold flex items-center gap-2 hover:bg-[#60a5fa] hover:text-white transition shadow-xl active:scale-95 border border-[#60a5fa]">
-                            <i class="bi bi-play-circle-fill"></i> Execute Full Sync
-                        </button>
+                <div class="flex items-end justify-between mb-8">
+                    <div>
+                        <h2 class="text-3xl font-black text-[#e2e8f0] tracking-tight">ETL Pipeline Status</h2>
+                        <p class="text-[#60a5fa] font-medium">Real-time sync monitoring for RAYD data sources.</p>
                     </div>
-                    <div class="grid grid-cols-12 gap-8">
-                        <div class="col-span-3">
-                            <div class="card-custom p-6 space-y-4">
-                                <label class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest block">Audit Logs</label>
-                                <input type="date" id="log-date-picker" onchange="refreshLogs(this.value)" class="w-full p-3 rounded-xl dark-input text-sm font-bold outline-none">
-                                <button onclick="resetLogs()" class="w-full text-[11px] font-black text-[#60a5fa] uppercase border-2 border-[#60a5fa] py-3 rounded-xl hover:bg-[#60a5fa] hover:text-white transition">Reset View</button>
-                            </div>
-                        </div>
-                        <div class="col-span-9 card-custom overflow-hidden">
-                            <table class="w-full text-left dark-table">
-                                <thead>
-                                    <tr>
-                                        <th class="px-6 py-5">Sync Job</th>
-                                        <th class="px-6 py-5">Performance</th>
-                                        <th class="px-6 py-5">Record Count</th>
-                                        <th class="px-6 py-5 text-center">Result</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="etl-log-body">
-                                    {% include 'admin/etl_log_rows.html' %}
-                                </tbody>
-                            </table>
+                    <button onclick="triggerETL()" id="etl-btn" class="px-8 py-4 bg-[#232b28] text-[#60a5fa] rounded-2xl font-bold flex items-center gap-2 hover:bg-[#60a5fa] hover:text-white transition shadow-xl border border-[#60a5fa]">
+                        <i class="bi bi-play-circle-fill"></i> Execute Full Sync
+                    </button>
+                </div>
+                <div class="grid grid-cols-12 gap-8">
+                    <div class="col-span-3">
+                        <div class="card-custom p-6 space-y-4">
+                            <label class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest block">Audit Logs</label>
+                            <input type="date" id="log-date-picker" onchange="refreshLogs(this.value)" class="w-full p-3 rounded-xl dark-input text-sm font-bold outline-none">
+                            <button onclick="resetLogs()" class="w-full text-[11px] font-black text-[#60a5fa] uppercase border-2 border-[#60a5fa] py-3 rounded-xl hover:bg-[#60a5fa] hover:text-white transition">Reset View</button>
                         </div>
                     </div>
-                </section>
+                    <div class="col-span-9 card-custom overflow-hidden">
+                        <table class="w-full text-left dark-table">
+                            <thead>
+                                <tr>
+                                    <th class="px-6 py-5">Sync Job</th>
+                                    <th class="px-6 py-5">Performance</th>
+                                    <th class="px-6 py-5">Record Count</th>
+                                    <th class="px-6 py-5 text-center">Result</th>
+                                </tr>
+                            </thead>
+                            <tbody id="etl-log-body">
+                                {% include 'admin/etl_log_rows.html' %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
         </main>
     </div>
-
-    <script>
-        let pollInterval;
-        async function triggerETL() {
-            const btn = document.getElementById('etl-btn');
-            btn.disabled = true;
-            btn.innerHTML = `<i class="bi bi-arrow-repeat animate-spin"></i> Initializing...`;
-            try {
-                await fetch("{{ url_for('admin.trigger_etl') }}", { method: 'POST' });
-                startPolling();
-            } catch (e) { console.error(e); }
-            setTimeout(() => { 
-                btn.disabled = false; 
-                btn.innerHTML = `<i class="bi bi-play-circle-fill"></i> Execute Full Sync`; 
-            }, 4000);
-        }
-
-        async function refreshLogs(date = null) {
-            let url = "{{ url_for('admin.refresh_etl_logs') }}";
-            if (date) { url += `?date=${date}`; stopPolling(); }
-            const res = await fetch(url);
-            const html = await res.text();
-            document.getElementById('etl-log-body').innerHTML = html;
-        }
-
-        function startPolling() {
-            if (pollInterval) clearInterval(pollInterval);
-            pollInterval = setInterval(() => refreshLogs(), 5000);
-        }
-        function stopPolling() { clearInterval(pollInterval); }
-        function resetLogs() { 
-            document.getElementById('log-date-picker').value = ''; 
-            refreshLogs(); 
-            startPolling(); 
-        }
-        startPolling();
-    </script>
 </body>
 </html>

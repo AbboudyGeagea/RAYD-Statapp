@@ -22,7 +22,7 @@
 
     <div class="flex flex-1 overflow-hidden">
         <aside class="w-72 bg-[#0f172a] border-r border-slate-800 p-6 overflow-y-auto custom-scrollbar">
-            <form method="POST" class="space-y-6">
+            <form method="POST" id="report_form" class="space-y-6">
                 <div>
                     <label class="text-[10px] font-black text-slate-500 uppercase block mb-2">Current Period</label>
                     <input type="date" name="start_date" class="input-dark mb-2" value="{{ display_start }}">
@@ -35,11 +35,19 @@
                 </div>
                 <button type="submit" class="w-full py-3 bg-[#38ada9] text-white font-black rounded-lg uppercase text-[10px] tracking-widest shadow-lg shadow-[#38ada9]/20">Analyze Variance</button>
             </form>
+
+            <div class="mt-6 pt-6 border-t border-slate-800">
+                <button type="button" 
+                        onclick="document.getElementById('report_form').action='/report/22/export'; document.getElementById('report_form').submit(); document.getElementById('report_form').action='/report/22';"
+                        class="w-full py-3 border border-slate-700 text-slate-400 font-black rounded-lg uppercase text-[10px] tracking-widest hover:bg-slate-800 transition-all">
+                    Export Raw Data (.csv)
+                </button>
+            </div>
         </aside>
 
         <main class="flex-1 overflow-y-auto p-6 bg-[#020617] custom-scrollbar space-y-6">
             {% if run_report %}
-            <div class="grid grid-cols-4 gap-4">
+            <div class="grid grid-cols-5 gap-4">
                 <div class="data-card p-4 border-l-4 border-emerald-500">
                     <p class="text-[9px] font-bold text-slate-500 uppercase">Studies (A)</p>
                     <p class="text-xl font-black">{{ data.summary.total_a }}</p>
@@ -51,6 +59,10 @@
                 <div class="data-card p-4 border-l-4 border-blue-500">
                     <p class="text-[9px] font-bold text-slate-500 uppercase">Unique Patients</p>
                     <p class="text-xl font-black">{{ data.summary.patients }}</p>
+                </div>
+                <div class="data-card p-4 border-l-4 border-indigo-500 bg-indigo-500/5">
+                    <p class="text-[9px] font-bold text-indigo-400 uppercase">Best Physician ({{ data.summary.report_month }})</p>
+                    <p class="text-sm font-black truncate text-indigo-100">{{ data.summary.best_physician }}</p>
                 </div>
                 <div class="data-card p-4 border-l-4 border-[#38ada9]">
                     <p class="text-[9px] font-bold text-slate-500 uppercase">Volume Growth</p>
@@ -68,6 +80,10 @@
                     <div class="card-header">Referring Physician Growth</div>
                     <div id="chart_phys_comp" class="flex-1"></div>
                 </div>
+                <div class="data-card h-[350px] col-span-2">
+                    <div class="card-header">Physician Activity by Procedure Code</div>
+                    <div id="chart_phys_proc" class="flex-1"></div>
+                </div>
                 <div class="data-card h-[350px]">
                     <div class="card-header">Patient Demographics (A)</div>
                     <div id="chart_demo" class="flex-1"></div>
@@ -84,54 +100,143 @@
     </div>
 
     <script>
-        const d = {{ data | tojson | safe if data else 'null' }};
-        if (d) {
-            // Modality Comparison
-            const mods = Object.keys(d.modality_comp.current);
-            echarts.init(document.getElementById('chart_mod_comp')).setOption({
-                tooltip: { trigger: 'axis' },
-                legend: { textStyle: {color: '#94a3b8'}, bottom: 0 },
-                xAxis: { type: 'category', data: mods, axisLabel: {color: '#64748b'} },
-                yAxis: { type: 'value', splitLine: {lineStyle: {color: '#1e293b'}} },
-                series: [
-                    { name: 'Baseline', type: 'bar', data: mods.map(m => d.modality_comp.prev[m] || 0), itemStyle: {color: '#334155'} },
-                    { name: 'Current', type: 'bar', data: mods.map(m => d.modality_comp.current[m] || 0), itemStyle: {color: '#38ada9'} }
-                ]
-            });
+    const d = {{ data | tojson | safe if data else 'null' }};
+    
+    // Helper for common chart styling to keep code clean
+    const commonTextStyle = { color: '#94a3b8', fontSize: 10 };
+    const gridStyle = { top: 40, right: 20, bottom: 60, left: 50, containLabel: true };
 
-            // Physician Growth
-            const phys = Object.keys(d.physician_comp.current);
-            echarts.init(document.getElementById('chart_phys_comp')).setOption({
-                tooltip: { trigger: 'axis' },
-                legend: { textStyle: {color: '#94a3b8'}, bottom: 0 },
-                xAxis: { type: 'category', data: phys, axisLabel: {color: '#64748b', rotate: 20} },
-                yAxis: { type: 'value', splitLine: {lineStyle: {color: '#1e293b'}} },
-                series: [
-                    { name: 'Baseline', type: 'line', data: phys.map(p => d.physician_comp.prev[p] || 0), itemStyle: {color: '#475569'} },
-                    { name: 'Current', type: 'bar', data: phys.map(p => d.physician_comp.current[p] || 0), itemStyle: {color: '#6366f1'} }
-                ]
-            });
+    if (d) {
+        // 1. MODALITY COMPARISON (Gradient Bars)
+        const mods = Object.keys(d.modality_comp.current);
+        echarts.init(document.getElementById('chart_mod_comp')).setOption({
+            tooltip: { trigger: 'axis', backgroundColor: '#0f172a', borderColor: '#334155', textStyle: {color: '#fff'} },
+            legend: { textStyle: commonTextStyle, bottom: 0 },
+            grid: gridStyle,
+            xAxis: { type: 'category', data: mods, axisLabel: commonTextStyle },
+            yAxis: { type: 'value', splitLine: { lineStyle: { color: '#1e293b' } }, axisLabel: commonTextStyle },
+            series: [
+                { 
+                    name: 'Baseline', type: 'bar', barGap: '20%',
+                    data: mods.map(m => d.modality_comp.prev[m] || 0), 
+                    itemStyle: { color: '#334155', borderRadius: [4, 4, 0, 0] } 
+                },
+                { 
+                    name: 'Current', type: 'bar',
+                    data: mods.map(m => d.modality_comp.current[m] || 0), 
+                    itemStyle: { 
+                        borderRadius: [4, 4, 0, 0],
+                        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                            { offset: 0, color: '#38ada9' },
+                            { offset: 1, color: '#00d2d3' }
+                        ])
+                    },
+                    emphasis: { itemStyle: { shadowBlur: 10, shadowColor: 'rgba(56, 173, 169, 0.5)' } }
+                }
+            ]
+        });
 
-            // Demographics
-            const ages = Object.keys(d.demo);
-            echarts.init(document.getElementById('chart_demo')).setOption({
-                tooltip: { trigger: 'axis' },
-                xAxis: { type: 'category', data: ages, axisLabel: {color: '#64748b'} },
-                yAxis: { type: 'value', splitLine: {lineStyle: {color: '#1e293b'}} },
-                series: [
-                    { name: 'M', type: 'bar', stack: 'total', data: ages.map(a => d.demo[a]?.M || 0), itemStyle: {color: '#3b82f6'} },
-                    { name: 'F', type: 'bar', stack: 'total', data: ages.map(a => d.demo[a]?.F || 0), itemStyle: {color: '#ec4899'} }
-                ]
-            });
+        // 2. PHYSICIAN GROWTH (Line + Area)
+        const physNames = Object.keys(d.physician_comp.current);
+        echarts.init(document.getElementById('chart_phys_comp')).setOption({
+            tooltip: { trigger: 'axis' },
+            legend: { textStyle: commonTextStyle, bottom: 0 },
+            grid: gridStyle,
+            xAxis: { type: 'category', data: physNames, axisLabel: { ...commonTextStyle, rotate: 25 } },
+            yAxis: { type: 'value', splitLine: { lineStyle: { color: '#1e293b' } } },
+            series: [
+                { 
+                    name: 'Baseline', type: 'line', smooth: true,
+                    data: physNames.map(p => d.physician_comp.prev[p] || 0), 
+                    itemStyle: { color: '#475569' },
+                    lineStyle: { width: 3, type: 'dashed' }
+                },
+                { 
+                    name: 'Current', type: 'bar',
+                    data: physNames.map(p => d.physician_comp.current[p] || 0), 
+                    itemStyle: { 
+                        borderRadius: [4, 4, 0, 0],
+                        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                            { offset: 0, color: '#6366f1' },
+                            { offset: 1, color: '#4f46e5' }
+                        ])
+                    }
+                }
+            ]
+        });
 
-            // AE Distribution
-            echarts.init(document.getElementById('chart_ae')).setOption({
-                tooltip: { trigger: 'axis' },
-                xAxis: { type: 'value', show: false },
-                yAxis: { type: 'category', data: Object.keys(d.summary.top_ae), axisLabel: {color: '#94a3b8'} },
-                series: [{ type: 'bar', data: Object.values(d.summary.top_ae), itemStyle: {color: '#f59e0b'}, label: {show: true, position: 'right'} }]
+        // 3. PHYSICIAN BY PROCEDURE (Stacked & Interactive)
+        const physProcChart = echarts.init(document.getElementById('chart_phys_proc'));
+        const physicians = Object.keys(d.physician_proc_chart);
+        const procedures = [...new Set(physicians.flatMap(p => Object.keys(d.physician_proc_chart[p])))];
+        
+        const procSeries = procedures.map((proc, index) => ({
+            name: proc,
+            type: 'bar',
+            stack: 'total',
+            emphasis: { focus: 'series' }, // Highlights entire stack on hover
+            data: physicians.map(p => d.physician_proc_chart[p][proc] || 0)
+        }));
+
+        physProcChart.setOption({
+            tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+            legend: { textStyle: commonTextStyle, type: 'scroll', bottom: 0 },
+            grid: { top: 60, bottom: 100, left: 50, right: 30 },
+            xAxis: { type: 'category', data: physicians, axisLabel: { ...commonTextStyle, rotate: 30 } },
+            yAxis: { type: 'value', splitLine: { lineStyle: { color: '#1e293b' } } },
+            series: procSeries
+        });
+
+        // 4. DEMOGRAPHICS (Styled Stack)
+        const ages = Object.keys(d.demo);
+        echarts.init(document.getElementById('chart_demo')).setOption({
+            tooltip: { trigger: 'item' },
+            grid: gridStyle,
+            xAxis: { type: 'category', data: ages, axisLabel: commonTextStyle },
+            yAxis: { type: 'value', splitLine: { lineStyle: { color: '#1e293b' } } },
+            series: [
+                { 
+                    name: 'M', type: 'bar', stack: 'demo', 
+                    data: ages.map(a => d.demo[a]?.M || 0), 
+                    itemStyle: { color: '#3b82f6', borderRadius: [0, 0, 4, 4] } 
+                },
+                { 
+                    name: 'F', type: 'bar', stack: 'demo', 
+                    data: ages.map(a => d.demo[a]?.F || 0), 
+                    itemStyle: { color: '#ec4899', borderRadius: [4, 4, 0, 0] } 
+                }
+            ]
+        });
+
+        // 5. AE DISTRIBUTION (Horizontal Glow)
+        echarts.init(document.getElementById('chart_ae')).setOption({
+            tooltip: { trigger: 'axis' },
+            grid: { left: '3%', right: '10%', bottom: '3%', containLabel: true },
+            xAxis: { type: 'value', show: false },
+            yAxis: { type: 'category', data: Object.keys(d.summary.top_ae), axisLabel: commonTextStyle },
+            series: [{ 
+                type: 'bar', 
+                data: Object.values(d.summary.top_ae), 
+                itemStyle: { 
+                    borderRadius: [0, 10, 10, 0],
+                    color: new echarts.graphic.LinearGradient(1, 0, 0, 0, [
+                        { offset: 0, color: '#f59e0b' },
+                        { offset: 1, color: '#9a3412' }
+                    ])
+                },
+                label: { show: true, position: 'right', color: '#fff', fontSize: 10 } 
+            }]
+        });
+        
+        // Resize charts on window resize
+        window.addEventListener('resize', () => {
+            const instances = document.querySelectorAll('[id^="chart_"]');
+            instances.forEach(el => {
+                const chart = echarts.getInstanceByDom(el);
+                if(chart) chart.resize();
             });
-        }
-    </script>
+        });
+    }
+</script>
 </body>
 </html>

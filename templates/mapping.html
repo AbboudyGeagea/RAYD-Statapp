@@ -1,182 +1,243 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" x-data="modalityHub()">
 <head>
     <meta charset="UTF-8">
-    <title>RAYD | Mapping Console</title>
+    <title>RAYD | Modality Control</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
-        html { font-size: 120%; }
+        html { font-size: 110%; }
         :root { --accent: #60a5fa; }
         body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; }
-        .sidebar-item { transition: all 0.2s; border-radius: 0.75rem; margin-bottom: 0.25rem; cursor: pointer; }
-        .sidebar-item:hover { background: #232b28; color: var(--accent); }
-        .sidebar-item.active { background: #232b28; color: var(--accent); border-left: 4px solid var(--accent); }
-        .card-custom { background: #232b28; border-radius: 1.5rem; border: 1px solid #28332e; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.3); color: #e2e8f0; }
-        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: #181f1c; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #28332e; border-radius: 10px; }
+        .sidebar-item { transition: all 0.2s; border-radius: 0.75rem; margin-bottom: 0.25rem; cursor: pointer; text-decoration: none !important; color: #94a3b8; }
+        .sidebar-item:hover { background: #1d2522; color: var(--accent) !important; }
+        .sidebar-item.active { background: #1d2522; color: var(--accent) !important; border-left: 4px solid var(--accent); }
+        .card-custom { background: #232b28; border-radius: 1.5rem; border: 1px solid #28332e; }
+        .upload-zone { background: #1d2522; border: 2px dashed #28332e; border-radius: 1rem; transition: all 0.2s; cursor: pointer; }
+        .upload-zone:hover { border-color: var(--accent); background: #232b28; }
+        .capacity-tile { background: #181f1c; border: 1px solid #28332e; display: flex; overflow: hidden; transition: all 0.2s; }
+        .capacity-tile.has-exception { border-color: #f97316 !important; background: #241a14; }
+        .tile-input { width: 70%; padding: 0.75rem 0.25rem; background: transparent; text-align: center; font-weight: 900; font-size: 0.85rem; color: white; outline: none; }
+        .tile-btn { width: 30%; border-left: 1px solid #28332e; display: flex; align-items: center; justify-content: center; background: #1d2522; color: #4b5563; }
+        [x-cloak] { display: none !important; }
     </style>
 </head>
-<body class="flex flex-col h-screen overflow-hidden" style="background:#181f1c; color:#e2e8f0;">
+<body class="flex flex-col h-screen overflow-hidden" x-init="generateWeekDates()">
+    
     <header class="bg-[#232b28] border-b border-[#28332e] px-12 py-6 flex items-center justify-between shadow-md z-30 relative">
-        <div class="w-64 flex items-center justify-start">
-            <img src="{{ url_for('static', filename='philips.jpg') }}" class="h-12 w-auto object-contain grayscale opacity-60">
-        </div>
+        <div class="w-64"><img src="{{ url_for('static', filename='philips.jpg') }}" class="h-10 w-auto grayscale opacity-40"></div>
         <div class="flex flex-col items-center">
-            <img src="{{ url_for('static', filename='RAYD.png') }}" class="h-20 w-auto object-contain opacity-80">
-            <div class="h-1.5 w-16 bg-[#60a5fa] mt-3 rounded-full"></div>
+            <img src="{{ url_for('static', filename='RAYD.png') }}" class="h-16 w-auto opacity-80">
+            <div class="h-1 w-12 bg-[#60a5fa] mt-2 rounded-full"></div>
         </div>
-        <div class="w-64 flex items-center justify-end">
-            <img src="{{ url_for('static', filename='intermedic.jpeg') }}" class="h-14 w-auto object-contain grayscale opacity-60">
-        </div>
+        <div class="w-64 flex justify-end"><img src="{{ url_for('static', filename='intermedic.jpeg') }}" class="h-10 w-auto grayscale opacity-40"></div>
     </header>
 
     <div class="flex flex-1 overflow-hidden">
         <aside class="w-72 bg-[#232b28] border-r border-[#28332e] flex flex-col p-6 shadow-xl z-20">
             <div class="flex items-center gap-3 mb-10 px-2">
-                <div class="bg-[#60a5fa] p-2.5 rounded-xl text-white shadow-lg shadow-blue-400/20">
-                    <i class="bi bi-diagram-3-fill text-xl"></i>
-                </div>
+                <div class="bg-[#60a5fa] p-2.5 rounded-xl text-white shadow-lg shadow-blue-400/20"><i class="bi bi-cpu-fill text-xl"></i></div>
                 <div>
-                    <h1 class="font-black text-[#e2e8f0] tracking-tighter uppercase leading-none text-xl">Mapping</h1>
-                    <p class="text-[9px] font-black text-[#60a5fa] uppercase tracking-widest mt-1">Operational Engine</p>
+                    <h1 class="font-black text-[#e2e8f0] tracking-tighter uppercase leading-none text-xl">RAYD</h1>
+                    <p class="text-[9px] font-black text-[#60a5fa] uppercase tracking-widest mt-1">Intelligence Hub</p>
                 </div>
             </div>
             <nav class="flex-1 space-y-1">
-                <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-4">Navigation</p>
-                <a href="{{ url_for('viewer.viewer_dashboard') }}" class="sidebar-item flex items-center gap-3 px-4 py-3 text-sm font-bold text-[#e2e8f0]">
-                    <i class="bi bi-speedometer2 text-lg"></i> Viewer Dashboard
+                <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-4">Main Menu</p>
+                <a href="{{ url_for('viewer.viewer_dashboard') }}" class="sidebar-item flex items-center gap-3 px-4 py-3 text-sm font-bold">
+                    <i class="bi bi-speedometer2"></i> Viewer Dashboard
                 </a>
-                <a href="{{ url_for('mapping.mapping_page') }}" class="sidebar-item active flex items-center gap-3 px-4 py-3 text-sm font-bold text-[#e2e8f0]">
-                    <i class="bi bi-diagram-3 text-lg"></i> Mapping Console
+                <a href="{{ url_for('admin.admin_dashboard') }}" class="sidebar-item flex items-center gap-3 px-4 py-3 text-sm font-bold">
+                    <i class="bi bi-cpu"></i> ETL Control Room
                 </a>
-                <div class="my-6 border-t border-[#28332e]"></div>
-                <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-4">Admin Tools</p>
-                <a href="{{ url_for('admin.admin_dashboard') }}" class="sidebar-item flex items-center gap-3 px-4 py-3 text-sm font-bold text-[#e2e8f0]">
-                    <i class="bi bi-activity text-lg"></i> ETL Pipeline
+                <a href="{{ url_for('mapping.mapping_page') }}" class="sidebar-item active flex items-center gap-3 px-4 py-3 text-sm font-bold">
+                    <i class="bi bi-calendar-week"></i> Live Week Matrix
                 </a>
             </nav>
-            <div class="mt-auto pt-6 border-t border-[#28332e]">
-                <a href="{{ url_for('auth.logout') }}" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-red-400 hover:bg-[#232b28] rounded-xl transition">
-                    <i class="bi bi-box-arrow-right text-lg"></i> Logout
-                </a>
-            </div>
         </aside>
 
-        <main class="flex-1 overflow-y-auto p-12 bg-[#181f1c]">
-            <div class="max-w-6xl mx-auto space-y-8">
-                {% with messages = get_flashed_messages(with_categories=true) %}
-                  {% if messages %}
-                    {% for category, message in messages %}
-                      <div class="p-4 rounded-2xl mb-4 text-xs font-bold uppercase tracking-widest shadow-sm border-l-4 
-                        {% if category == 'danger' or category == 'error' %}bg-red-50 border-red-500 text-red-700
-                        {% else %}bg-emerald-50 border-emerald-500 text-emerald-700{% endif %}">
-                        {{ message }}
-                      </div>
-                    {% endfor %}
-                  {% endif %}
-                {% endwith %}
+        <main class="flex-1 overflow-y-auto p-10 bg-[#181f1c]">
+            <div class="max-w-7xl mx-auto space-y-8">
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="card-custom p-6">
+                        <h4 class="text-[10px] font-black text-[#60a5fa] uppercase tracking-[0.2em] mb-4">Modality & Capacity Map</h4>
+                        <form action="{{ url_for('mapping.upload_modality_map') }}" method="POST" enctype="multipart/form-data" class="flex flex-col gap-3">
+                            <input type="file" name="file" id="modalityFile" class="hidden" onchange="this.form.submit()">
+                            <div onclick="document.getElementById('modalityFile').click()" class="upload-zone p-6 flex flex-col items-center justify-center text-center">
+                                <i class="bi bi-file-earmark-arrow-up text-2xl text-slate-500 mb-2"></i>
+                                <span class="text-xs font-bold text-slate-400">Upload AETitle CSV</span>
+                                <span class="text-[9px] text-slate-600 mt-1 uppercase">aetitle, modality, daily_capacity_minutes</span>
+                            </div>
+                        </form>
+                    </div>
+
+                    <div class="card-custom p-6">
+                        <h4 class="text-[10px] font-black text-[#60a5fa] uppercase tracking-[0.2em] mb-4">Procedure & RVU Map</h4>
+                        <form action="{{ url_for('mapping.upload_procedure_map') }}" method="POST" enctype="multipart/form-data" class="flex flex-col gap-3">
+                            <input type="file" name="file" id="procFile" class="hidden" onchange="this.form.submit()">
+                            <div onclick="document.getElementById('procFile').click()" class="upload-zone p-6 flex flex-col items-center justify-center text-center">
+                                <i class="bi bi-calculator text-2xl text-slate-500 mb-2"></i>
+                                <span class="text-xs font-bold text-slate-400">Upload Procedure CSV</span>
+                                <span class="text-[9px] text-slate-600 mt-1 uppercase">procedure_code, duration_minutes, rvu_value</span>
+                            </div>
+                        </form>
+                    </div>
+                </div>
 
                 <div class="flex items-end justify-between">
                     <div>
-                        <h2 class="text-3xl font-black text-[#e2e8f0] tracking-tight">Mapping Console</h2>
-                        <p class="text-[#60a5fa] font-medium text-base">Configure machine capacity, procedure durations, and RVU values.</p>
+                        <h2 class="text-3xl font-black text-[#e2e8f0] tracking-tight uppercase">Capacity Grid</h2>
+                        <p class="text-[#60a5fa] font-bold text-xs uppercase tracking-widest mt-1" x-text="weekRangeLabel"></p>
                     </div>
+                    <button @click="saveAllChanges()" class="px-8 py-3 bg-[#60a5fa] text-white text-[10px] font-black rounded-xl hover:bg-blue-500 transition shadow-lg flex items-center gap-2">
+                        <i class="bi bi-cloud-check-fill"></i> SAVE GRID CHANGES
+                    </button>
                 </div>
 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <div class="card-custom p-8 border-t-4 border-[#60a5fa]">
-                        <div class="flex items-center justify-between mb-4">
-                            <h3 class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest">Modality & Capacity Sync</h3>
-                            <i class="bi bi-info-circle text-slate-300 cursor-help" title="CSV columns: aetitle, modality, daily_capacity_minutes"></i>
-                        </div>
-                        <form method="POST" action="{{ url_for('mapping.mapping_upload') }}" enctype="multipart/form-data">
-                            <input type="hidden" name="mapping_type" value="modality">
-                            <div class="flex gap-2">
-                                <input type="file" name="file" accept=".csv" class="flex-1 text-xs border p-3 rounded-xl bg-[#181f1c] outline-none focus:ring-2 focus:ring-[#60a5fa]" required>
-                                <button type="submit" class="px-6 py-3 bg-[#60a5fa] text-white text-xs font-black rounded-xl hover:opacity-90 transition shadow-lg">SYNC</button>
-                            </div>
-                        </form>
-                    </div>
-
-                    <div class="card-custom p-8 border-t-4 border-[#60a5fa]">
-                        <div class="flex items-center justify-between mb-4">
-                            <h3 class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest">Proc. Duration & RVU Sync</h3>
-                            <i class="bi bi-info-circle text-slate-300 cursor-help" title="CSV columns: procedure_code, duration_minutes, rvu_value"></i>
-                        </div>
-                        <form method="POST" action="{{ url_for('mapping.mapping_upload') }}" enctype="multipart/form-data">
-                            <input type="hidden" name="mapping_type" value="duration">
-                            <div class="flex gap-2">
-                                <input type="file" name="file" accept=".csv" class="flex-1 text-xs border p-3 rounded-xl bg-[#181f1c] outline-none focus:ring-2 focus:ring-[#60a5fa]" required>
-                                <button type="submit" class="px-6 py-3 bg-[#60a5fa] text-white text-xs font-black rounded-xl hover:opacity-90 transition shadow-lg">SYNC</button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                    <div class="card-custom overflow-hidden flex flex-col">
-                        <div class="bg-[#232b28] px-8 py-4 flex justify-between items-center">
-                            <h3 class="font-black text-[10px] text-[#60a5fa] uppercase tracking-widest">Modality Mappings</h3>
-                            <span class="bg-[#28332e] text-white px-2 py-0.5 rounded text-[9px] font-bold uppercase">{{ modality_mappings|length }} Machines</span>
-                        </div>
-                        <div class="max-h-[500px] overflow-y-auto custom-scrollbar">
-                            <table class="w-full text-left border-collapse">
-                                <thead class="bg-[#232b28] text-[10px] font-black text-[#38ada9] uppercase sticky top-0 border-b z-10">
-                                    <tr>
-                                        <th class="px-8 py-4">AE Title</th>
-                                        <th class="px-8 py-4">Modality</th>
-                                        <th class="px-8 py-4 text-right">Capacity</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="divide-y divide-[#28332e] bg-[#232b28]">
-                                    {% for map in modality_mappings %}
-                                    <tr class="hover:bg-[#181f1c] transition group">
-                                        <td class="px-8 py-4 font-mono text-xs text-[#94a3b8]">{{ map.aetitle }}</td>
-                                        <td class="px-8 py-4 font-black text-[#38ada9] text-sm">{{ map.modality }}</td>
-                                        <td class="px-8 py-4 text-right">
-                                            <span class="text-[11px] font-bold text-[#94a3b8] group-hover:text-[#e2e8f0]">{{ map.daily_capacity_minutes }} <span class="text-[9px] font-normal">m/day</span></span>
-                                        </td>
-                                    </tr>
+                <div class="card-custom overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left">
+                            <thead class="text-[10px] font-black text-slate-500 uppercase border-b border-[#28332e]">
+                                <tr>
+                                    <th class="px-8 py-5 text-[#60a5fa]">Modality / AE Title</th>
+                                    <template x-for="day in weekDates">
+                                        <th class="px-2 py-5 text-center border-l border-[#28332e]/50">
+                                            <div x-text="day.name"></div>
+                                            <div class="text-[9px] text-slate-400 mt-1" x-text="day.dateLabel"></div>
+                                        </th>
+                                    </template>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-[#28332e]">
+                                {% for map in modality_mappings %}
+                                <tr class="hover:bg-[#1d2521]/50 transition">
+                                    <td class="px-8 py-5">
+                                        <div class="font-mono text-xs font-bold text-white">{{ map.aetitle }}</div>
+                                        <div class="text-[9px] text-[#60a5fa] font-black uppercase tracking-widest">{{ map.modality }}</div>
+                                    </td>
+                                    {% for day_idx in range(7) %}
+                                    <td class="px-2 py-4 border-l border-[#28332e]/30">
+                                        <div class="capacity-tile rounded-xl" :class="hasException('{{ map.aetitle }}', {{ day_idx }}) ? 'has-exception' : ''">
+                                            <input type="number" 
+                                                   :value="getCapacityValue('{{ map.aetitle }}', {{ day_idx }}, {{ map.daily_capacity_minutes or 480 }})"
+                                                   class="tile-input"
+                                                   @change="updateCapacity('{{ map.aetitle }}', {{ day_idx }}, $event.target.value)">
+                                            
+                                            <button @click="openNoteModal('{{ map.aetitle }}', {{ day_idx }}, $event.target.closest('.capacity-tile').querySelector('input').value)" 
+                                                    class="tile-btn" :class="hasException('{{ map.aetitle }}', {{ day_idx }}) ? 'active-exception' : ''">
+                                                <i class="bi" :class="hasException('{{ map.aetitle }}', {{ day_idx }}) ? 'bi-exclamation-triangle-fill' : 'bi-gear-fill'"></i>
+                                            </button>
+                                        </div>
+                                    </td>
                                     {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-
-                    <div class="card-custom overflow-hidden flex flex-col">
-                        <div class="bg-[#232b28] px-8 py-4 flex justify-between items-center">
-                            <h3 class="font-black text-[10px] text-[#60a5fa] uppercase tracking-widest">Procedure Metrics</h3>
-                            <span class="bg-[#28332e] text-white px-2 py-0.5 rounded text-[9px] font-bold uppercase">{{ duration_mappings|length }} Codes</span>
-                        </div>
-                        <div class="max-h-[500px] overflow-y-auto custom-scrollbar">
-                            <table class="w-full text-left border-collapse">
-                                <thead class="bg-[#232b28] text-[10px] font-black text-[#38ada9] uppercase sticky top-0 border-b z-10">
-                                    <tr>
-                                        <th class="px-8 py-4">Proc. Code</th>
-                                        <th class="px-8 py-4 text-right">Duration</th>
-                                        <th class="px-8 py-4 text-right">RVU</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="divide-y divide-[#28332e] bg-[#232b28]">
-                                    {% for map in duration_mappings %}
-                                    <tr class="hover:bg-[#181f1c] transition group">
-                                        <td class="px-8 py-4 font-mono text-xs text-[#94a3b8]">{{ map.procedure_code }}</td>
-                                        <td class="px-8 py-4 text-right font-bold text-[#e2e8f0] text-sm">{{ map.duration_minutes }} <span class="text-[9px] text-[#94a3b8]">min</span></td>
-                                        <td class="px-8 py-4 text-right">
-                                            <span class="bg-[#60a5fa]/10 text-[#60a5fa] px-2 py-1 rounded text-[10px] font-black border border-[#60a5fa]/20">{{ "%.2f"|format(map.rvu_value|float) }}</span>
-                                        </td>
-                                    </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>
         </main>
     </div>
+
+    <div x-show="modalOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-6">
+        <div class="absolute inset-0 bg-[#181f1c]/90 backdrop-blur-md" @click="modalOpen = false"></div>
+        <div class="bg-[#232b28] border border-[#28332e] rounded-3xl w-full max-w-sm p-8 shadow-2xl relative z-10">
+            <h2 class="text-xl font-black text-white" x-text="activeContext.ae"></h2>
+            <p class="text-[10px] text-orange-400 font-bold uppercase tracking-widest mb-6" x-text="activeContext.dateLabel"></p>
+            
+            <div class="space-y-3">
+                <template x-for="reason in reasons">
+                    <button @click="activeContext.note = reason" 
+                            :class="activeContext.note === reason ? 'bg-[#60a5fa] text-white border-[#60a5fa]' : 'bg-[#181f1c] text-slate-400 border-[#28332e]'"
+                            class="w-full text-left px-5 py-4 rounded-xl border text-xs font-bold transition flex justify-between items-center">
+                        <span x-text="reason"></span>
+                        <i x-show="activeContext.note === reason" class="bi bi-check-circle-fill"></i>
+                    </button>
+                </template>
+                <button @click="saveNote()" class="w-full mt-4 py-4 bg-orange-500 text-white font-black text-[10px] uppercase tracking-widest rounded-xl">
+                    Confirm & Save
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function modalityHub() {
+            return {
+                weekDates: [],
+                weekRangeLabel: '',
+                changedData: [],
+                modalOpen: false,
+                reasons: ['Technical Maintenance', 'Staffing Shortage', 'Public Holiday', 'Device Breakdown'],
+                activeContext: { ae: '', date: '', dateLabel: '', currentMin: '', note: '' },
+                existingExceptions: {{ exceptions_json | safe if exceptions_json else '{}' }},
+
+                generateWeekDates() {
+                    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+                    const curr = new Date();
+                    const first = curr.getDate() - curr.getDay() + (curr.getDay() === 0 ? -6 : 1);
+                    for (let i = 0; i < 7; i++) {
+                        const dayDate = new Date(new Date().setDate(first + i));
+                        this.weekDates.push({
+                            name: days[i],
+                            dateLabel: dayDate.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' }),
+                            iso: dayDate.toISOString().split('T')[0]
+                        });
+                    }
+                    this.weekRangeLabel = `${this.weekDates[0].dateLabel} - ${this.weekDates[6].dateLabel}`;
+                },
+
+                getCapacityValue(ae, dayIdx, defaultValue) {
+                    const key = `${ae}_${this.weekDates[dayIdx].iso}`;
+                    return this.existingExceptions.hasOwnProperty(key) ? this.existingExceptions[key] : defaultValue;
+                },
+
+                hasException(ae, dayIdx) {
+                    const key = `${ae}_${this.weekDates[dayIdx].iso}`;
+                    return this.existingExceptions.hasOwnProperty(key);
+                },
+
+                updateCapacity(aetitle, dayIdx, value) {
+                    this.changedData.push({ aetitle, date: this.weekDates[dayIdx].iso, value });
+                },
+
+                openNoteModal(ae, dayIdx, currentMin) {
+                    const day = this.weekDates[dayIdx];
+                    this.activeContext = { ae, date: day.iso, dateLabel: `${day.name} ${day.dateLabel}`, currentMin, note: '' };
+                    this.modalOpen = true;
+                },
+
+                async saveNote() {
+                    const res = await fetch('/mapping/device/exception/save', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            aetitle: this.activeContext.ae, 
+                            date: this.activeContext.date,
+                            minutes: this.activeContext.currentMin,
+                            reason: this.activeContext.note 
+                        })
+                    });
+                    if (res.ok) {
+                        this.existingExceptions[`${this.activeContext.ae}_${this.activeContext.date}`] = this.activeContext.currentMin;
+                        this.modalOpen = false;
+                    }
+                },
+
+                async saveAllChanges() {
+                    if (this.changedData.length === 0) return alert("No changes detected.");
+                    const res = await fetch('/mapping/device/grid/save', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ updates: this.changedData })
+                    });
+                    if (res.ok) { location.reload(); }
+                }
+            }
+        }
+    </script>
 </body>
 </html>

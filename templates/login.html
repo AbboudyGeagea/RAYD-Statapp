@@ -21,7 +21,7 @@
         /* FULL SCREEN WATERMARK */
         .rayd-watermark {
             position: fixed;
-            top: 55%; /* Slighly lower than center for visual balance */
+            top: 55%;
             left: 50%;
             transform: translate(-50%, -50%);
             width: 65vw;
@@ -45,7 +45,6 @@
             box-shadow: 0 10px 25px -5px rgba(56, 173, 169, 0.1);
         }
 
-        /* Ensure text is readable over watermark */
         .label-shadow {
             text-shadow: 0 1px 2px rgba(255,255,255,1);
         }
@@ -83,9 +82,17 @@
                            class="w-full px-6 py-5 rounded-2xl floating-input outline-none font-bold text-slate-700 text-lg">
                 </div>
 
-                <button type="submit" class="w-full py-5 bg-slate-900 text-white font-black rounded-2xl shadow-2xl hover:bg-[#38ada9] transition-all duration-500 uppercase tracking-[0.25em] text-xs mt-6">
-                   Sign In to RAYD
-                </button>
+                <div class="space-y-6">
+                    <button type="submit" class="w-full py-5 bg-slate-900 text-white font-black rounded-2xl shadow-2xl hover:bg-[#38ada9] transition-all duration-500 uppercase tracking-[0.25em] text-xs mt-2">
+                       Sign In to RAYD
+                    </button>
+
+                    <div class="text-center">
+                        <a href="{{ url_for('auth.register') }}" class="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] hover:text-[#38ada9] transition-colors border-b border-transparent hover:border-[#38ada9] pb-1">
+                            New Identity? Register Access
+                        </a>
+                    </div>
+                </div>
             </form>
         </div>
     </main>

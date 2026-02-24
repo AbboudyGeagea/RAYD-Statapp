@@ -308,6 +308,41 @@ class SummaryStorageDaily(db.Model):
     __table_args__ = (
         db.UniqueConstraint('study_date', 'storing_ae', 'modality', 'procedure_code', name='_date_ae_mod_proc_uc'),
     )
+
+class AETitleModalityMap(db.Model):
+    __tablename__ = 'aetitle_modality_map'  # Ensure this matches your DB exactly
+    __table_args__ = {'extend_existing': True} #
+    aetitle = db.Column(db.String(50), primary_key=True)
+    modality = db.Column(db.String(20))
+    daily_capacity_minutes = db.Column(db.Integer, default=480)
+    weekly_schedules = relationship("DeviceWeeklySchedule", back_populates="device", cascade="all, delete-orphan")
+    exceptions = relationship("DeviceException", back_populates="device", cascade="all, delete-orphan")
+
+
+class DeviceWeeklySchedule(db.Model):
+    __tablename__ = 'device_weekly_schedule'
+    __table_args__ = {'extend_existing': True}
+    aetitle = db.Column(db.String(50), db.ForeignKey('aetitle_modality_map.aetitle', ondelete='CASCADE'), primary_key=True)
+    day_of_week = db.Column(db.Integer, primary_key=True)  # 0-6
+    std_opening_minutes = db.Column(db.Integer, nullable=False, default=720)
+
+    # The relationship points to the CLASS name: "AETitleModalityMap"
+    device = relationship("AETitleModalityMap", back_populates="weekly_schedules")
+
+
+class DeviceException(db.Model):
+    __tablename__ = 'device_exceptions'
+    __table_args__ = {'extend_existing': True}
+    id = db.Column(db.Integer, primary_key=True)
+    aetitle = db.Column(db.String(50), db.ForeignKey('aetitle_modality_map.aetitle', ondelete='CASCADE'), nullable=False)
+    exception_date = db.Column(db.Date, nullable=False)
+    actual_opening_minutes = db.Column(db.Integer, nullable=False)
+    reason = db.Column(db.String(255))
+
+    device = relationship("AETitleModalityMap", back_populates="exceptions")
+    
+    __table_args__ = (db.UniqueConstraint('aetitle', 'exception_date', name='_ae_date_uc'),)
+    
 # ----------------------------------------------------------------
 # 5. BACKWARD-COMPAT ALIASES (DO NOT REMOVE)
 # ----------------------------------------------------------------
