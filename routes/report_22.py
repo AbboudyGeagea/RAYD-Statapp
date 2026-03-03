@@ -1,5 +1,6 @@
-import pandas as pd
-from datetime import date, datetime, timedelta
+import io
+import csv
+from datetime import date
 from flask import Blueprint, render_template, request, Response
 from flask_login import login_required
 from sqlalchemy import text
@@ -7,108 +8,175 @@ from db import db, get_go_live_date
 
 report_22_bp = Blueprint("report_22", __name__)
 
-def get_report_data(start, end):
-    # Updated SQL to include concatenated names
-    sql = text("""
-        SELECT
-            s.study_db_uid,
-            s.procedure_code,
-            s.study_date,
-            s.storing_ae,        
-            m.modality,          
-            s.study_status,
-            s.patient_db_uid,
-            p.sex,
-            p.age_group,
-            s.last_update,
-            s.patient_class,
-            -- Concatenating name parts for consistent referring physician display
-            TRIM(CONCAT_WS(' ', 
-                NULLIF(s.referring_physician_first_name, ''), 
-                NULLIF(s.referring_physician_mid_name, ''), 
-                NULLIF(s.referring_physician_last_name, '')
-            )) as referring_physician_full,
-            s.signing_physician_last_name
-        FROM etl_didb_studies s
-        LEFT JOIN aetitle_modality_map m ON s.storing_ae = m.aetitle
-        LEFT JOIN etl_patient_view p ON p.patient_db_uid::TEXT = s.patient_db_uid::TEXT
-        WHERE s.study_date BETWEEN :start AND :end
-    """)
-    res = db.session.execute(sql, {"start": start, "end": end})
-    return pd.DataFrame(res.fetchall(), columns=res.keys())
+def get_where_params(form):
+    start_date = form.get("start_date")
+    end_date = form.get("end_date")
+    where = "WHERE study_date BETWEEN :start AND :end"
+    params = {"start": start_date, "end": end_date}
+    
+    if form.get("f_class_active") == "on" and form.get("f_class"):
+        where += " AND patient_class = :p_class"
+        params["p_class"] = form.get("f_class")
+    
+    if form.get("f_sex_active") == "on" and form.get("f_sex"):
+        where += " AND sex = :sex"
+        params["sex"] = form.get("f_sex")
+        
+    if form.get("f_status_active") == "on" and form.get("f_status"):
+        where += " AND study_status = :status"
+        params["status"] = form.get("f_status")
+        
+    if form.get("f_mod_active") == "on" and form.get("f_mod"):
+        where += " AND modality = :mod"
+        params["mod"] = form.get("f_mod")
+        
+    if form.get("f_ae_active") == "on" and form.get("f_ae"):
+        where += " AND storing_ae = :ae"
+        params["ae"] = form.get("f_ae")
+        
+    return where, params
 
 @report_22_bp.route("/report/22", methods=["GET", "POST"])
 @login_required
 def report_22():
-    today = date.today()
     go_live = get_go_live_date() or date(2025, 1, 1)
-    
-    start_a = request.form.get("start_date", go_live.strftime('%Y-%m-%d'))
-    end_a = request.form.get("end_date", today.strftime('%Y-%m-%d'))
-    start_b = request.form.get("comp_start_date", (go_live - timedelta(days=30)).strftime('%Y-%m-%d'))
-    end_b = request.form.get("comp_end_date", go_live.strftime('%Y-%m-%d'))
+    today = date.today()
+    start_date = request.form.get("start_date", go_live.strftime('%Y-%m-%d'))
+    end_date = request.form.get("end_date", today.strftime('%Y-%m-%d'))
+
+    status_list = db.session.execute(text("SELECT DISTINCT study_status FROM etl_didb_studies WHERE study_status IS NOT NULL")).fetchall()
+    mod_list = db.session.execute(text("SELECT DISTINCT modality FROM aetitle_modality_map")).fetchall()
+    ae_list = db.session.execute(text("SELECT DISTINCT storing_ae FROM etl_didb_studies WHERE storing_ae IS NOT NULL")).fetchall()
+
+    filters = {
+        "f_class_active": request.form.get("f_class_active") == "on",
+        "f_sex_active": request.form.get("f_sex_active") == "on",
+        "f_status_active": request.form.get("f_status_active") == "on",
+        "f_mod_active": request.form.get("f_mod_active") == "on",
+        "f_ae_active": request.form.get("f_ae_active") == "on",
+        "p_class": request.form.get("f_class"),
+        "sex": request.form.get("f_sex"),
+        "status": request.form.get("f_status"),
+        "mod": request.form.get("f_mod"),
+        "ae": request.form.get("f_ae")
+    }
 
     run_report = request.method == "POST"
     data = {}
 
     if run_report:
-        df_a = get_report_data(start_a, end_a)
-        df_b = get_report_data(start_b, end_b)
+        where, params = get_where_params(request.form)
 
-        if not df_a.empty:
-            # 1. Modality Comparison
-            mod_a = df_a['modality'].fillna('Unknown').value_counts().to_dict()
-            mod_b = df_b['modality'].fillna('Unknown').value_counts().to_dict() if not df_b.empty else {}
-            
-            # 2. Referring Physician Comparison (Using Full Name)
-            ref_a_counts = df_a['referring_physician_full'].replace('', 'Unknown').value_counts()
-            ref_a = ref_a_counts.head(10).to_dict()
-            ref_b = df_b['referring_physician_full'].replace('', 'Unknown').value_counts().to_dict() if not df_b.empty else {}
+        # UPDATED BASE SQL: Added fallback_id for unique patient counting
+        base_sql = """
+            SELECT 
+                s.study_db_uid, s.procedure_code, s.study_date, s.storing_ae, s.study_description,
+                m.modality, s.study_status, s.patient_db_uid, p.sex, p.age_group,
+                s.patient_class, s.referring_physician_first_name, s.referring_physician_last_name, 
+                s.patient_location, p.fallback_id as patient_id
+            FROM etl_didb_studies s
+            LEFT JOIN aetitle_modality_map m ON s.storing_ae = m.aetitle
+            LEFT JOIN etl_patient_view p ON p.patient_db_uid::TEXT = s.patient_db_uid::TEXT
+        """
+        
+        cte = f"WITH base_data AS ({base_sql})"
 
-            # Feature: Best Physician for current selection
-            best_physician = ref_a_counts.idxmax() if not ref_a_counts.empty else "N/A"
-            current_month_name = datetime.strptime(start_a, '%Y-%m-%d').strftime('%B %Y')
+        # 1. Base Stats
+        res_status = db.session.execute(text(f"{cte} SELECT COALESCE(study_status, 'N/A'), COUNT(*) FROM base_data {where} GROUP BY 1"), params).fetchall()
+        
+        # 2. Top Physicians (Study Count)
+        res_phys = db.session.execute(text(f"""
+            {cte} 
+            SELECT COALESCE(NULLIF(TRIM(CONCAT_WS(' ', referring_physician_first_name, referring_physician_last_name)), ''), 'Unknown'), COUNT(*) 
+            FROM base_data {where} GROUP BY 1 ORDER BY 2 DESC LIMIT 10
+        """), params).fetchall()
 
-            # Feature: Referring Physicians per Procedure Code (Top 10 Physicians)
-            # This creates a data structure for a stacked or grouped bar chart
-            top_physicians = ref_a_counts.head(10).index
-            proc_per_ref = df_a[df_a['referring_physician_full'].isin(top_physicians)]
-            proc_chart_data = proc_per_ref.groupby(['referring_physician_full', 'procedure_code']).size().unstack(fill_value=0).to_dict('index')
+        # 2b. NEW: Top Physicians (UNIQUE Patient Count)
+        res_phys_unique = db.session.execute(text(f"""
+            {cte} 
+            SELECT COALESCE(NULLIF(TRIM(CONCAT_WS(' ', referring_physician_first_name, referring_physician_last_name)), ''), 'Unknown'), COUNT(DISTINCT patient_id) 
+            FROM base_data {where} GROUP BY 1 ORDER BY 2 DESC LIMIT 10
+        """), params).fetchall()
+        
+        # 3. Demographics
+        res_demo = db.session.execute(text(f"{cte} SELECT COALESCE(age_group, 'Unknown'), COALESCE(sex, 'U'), COUNT(*) FROM base_data {where} GROUP BY 1, 2"), params).fetchall()
+        
+        gender_counts = {"M": 0, "F": 0, "U": 0}
+        age_map = {}
+        for age, sex, count in res_demo:
+            if sex in gender_counts: gender_counts[sex] += count
+            age_map[age] = age_map.get(age, 0) + count
 
-            # 3. Demographics
-            demo = df_a.groupby(['age_group', 'sex'], observed=False).size().unstack(fill_value=0).to_dict('index')
+        # 4. Tree Flow Logic
+        res_flow = db.session.execute(text(f"""
+            {cte} 
+            SELECT COALESCE(modality, 'UNMAPPED'), COALESCE(storing_ae, 'Unknown AE'), COALESCE(study_description, 'No Description'), COUNT(*) 
+            FROM base_data {where} GROUP BY 1, 2, 3
+        """), params).fetchall()
 
-            data = {
-                "summary": {
-                    "total_a": len(df_a),
-                    "total_b": len(df_b),
-                    "patients": int(df_a['patient_db_uid'].nunique()),
-                    "top_ae": df_a['storing_ae'].value_counts().head(5).to_dict(),
-                    "best_physician": best_physician,
-                    "report_month": current_month_name
-                },
-                "modality_comp": {"current": mod_a, "prev": mod_b},
-                "physician_comp": {"current": ref_a, "prev": ref_b},
-                "physician_proc_chart": proc_chart_data,
-                "demo": demo
-            }
+        total_vol = 0
+        mod_map = {}
+        for mod, ae, desc, count in res_flow:
+            total_vol += count
+            if mod not in mod_map: mod_map[mod] = {"count": 0, "aes": {}}
+            if ae not in mod_map[mod]["aes"]: mod_map[mod]["aes"][ae] = {"count": 0, "procs": {}}
+            mod_map[mod]["aes"][ae]["procs"][desc] = mod_map[mod]["aes"][ae]["procs"].get(desc, 0) + count
+            mod_map[mod]["aes"][ae]["count"] += count
+            mod_map[mod]["count"] += count
 
-    return render_template("report_22.html", data=data, run_report=run_report,
-                           display_start=start_a, display_end=end_a,
-                           comp_start=start_b, comp_end=end_b)
+        final_tree = {"name": f"TOTAL\n{total_vol}", "children": []}
+        for m_name, m_data in mod_map.items():
+            m_node = {"name": f"{m_name}\n{m_data['count']}", "children": []}
+            for ae_name, ae_data in m_data["aes"].items():
+                ae_node = {"name": f"{ae_name}\n({ae_data['count']})", "children": []}
+                top_procs = sorted(ae_data["procs"].items(), key=lambda x: x[1], reverse=True)[:5]
+                for p_name, p_count in top_procs:
+                    ae_node["children"].append({"name": f"{p_name}: {p_count}"})
+                m_node["children"].append(ae_node)
+            final_tree["children"].append(m_node)
+
+        data = {
+            "stat_c": {r[0]: r[1] for r in res_status},
+            "phys_c": {r[0]: r[1] for r in res_phys},
+            "phys_unique": {r[0]: r[1] for r in res_phys_unique}, # <--- NEW DATA OBJECT
+            "tree_data": [final_tree],
+            "gender_data": [{"name": k, "value": v} for k, v in gender_counts.items() if v > 0],
+            "age_labels": sorted(age_map.keys()),
+            "age_values": [age_map[a] for a in sorted(age_map.keys())]
+        }
+
+    return render_template("report_22.html", data=data, filters=filters, run_report=run_report, display_start=start_date, display_end=end_date, status_list=status_list, mod_list=mod_list, ae_list=ae_list)
 
 @report_22_bp.route("/report/22/export", methods=["POST"])
 @login_required
 def export_report_22():
-    # Feature: Global export giving the raw data shown in the page
-    start_date = request.form.get("start_date")
-    end_date = request.form.get("end_date")
+    where, params = get_where_params(request.form)
+    sql = text(f"""
+        WITH base_data AS (
+            SELECT s.study_date, s.patient_class, m.modality, p.sex, s.study_status, s.patient_location,
+            TRIM(CONCAT_WS(' ', s.referring_physician_first_name, s.referring_physician_last_name)) as physician,
+            p.fallback_id as patient_id
+            FROM etl_didb_studies s
+            LEFT JOIN aetitle_modality_map m ON s.storing_ae = m.aetitle
+            LEFT JOIN etl_patient_view p ON p.patient_db_uid::TEXT = s.patient_db_uid::TEXT
+        )
+        SELECT study_date, COALESCE(patient_class, 'N/A'), COALESCE(modality, 'N/A'), COALESCE(sex, 'U'), 
+               COALESCE(study_status, 'N/A'), COALESCE(patient_location, 'N/A'), COALESCE(physician, 'Unknown'),
+               patient_id
+        FROM base_data {where} ORDER BY study_date DESC
+    """)
     
-    df = get_report_data(start_date, end_date)
+    def generate():
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(['Date', 'Class', 'Modality', 'Sex', 'Status', 'Location', 'Physician', 'PatientID'])
+        yield output.getvalue()
+        output.seek(0); output.truncate(0)
+        with db.engine.connect() as conn:
+            result = conn.execution_options(stream_results=True).execute(sql, params)
+            for row in result:
+                writer.writerow(row)
+                yield output.getvalue()
+                output.seek(0); output.truncate(0)
     
-    csv_data = df.to_csv(index=False)
-    return Response(
-        csv_data,
-        mimetype="text/csv",
-        headers={"Content-disposition": f"attachment; filename=report_22_raw_data_{start_date}.csv"}
-    )
+    return Response(generate(), mimetype="text/csv", headers={"Content-disposition": "attachment; filename=raw_data.csv"})

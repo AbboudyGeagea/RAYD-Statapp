@@ -1,24 +1,32 @@
 from flask import Blueprint, request, render_template, flash, redirect, url_for, jsonify, abort
 from flask_login import login_required, current_user
-from db import db, AETitleModalityMap, ProcedureDurationMap, DeviceException
+# Import the CLASS names from your db file
+from db import db, AETitleModalityMap, ProcedureDurationMap, DeviceException, DeviceWeeklySchedule
 import pandas as pd
-from io import StringIO
 from datetime import datetime, timedelta
 import json
+import logging
 
-mapping_bp = Blueprint('mapping', __name__, url_prefix='/mapping', template_folder='../templates')
+mapping_bp = Blueprint('mapping', __name__, url_prefix='/mapping')
+
+# --- HELPER FOR UPSERT LOGIC ---
+def get_or_create(model, **kwargs):
+    instance = db.session.query(model).filter_by(**kwargs).first()
+    if instance:
+        return instance, False
+    else:
+        instance = model(**kwargs)
+        db.session.add(instance)
+        return instance, True
 
 @mapping_bp.route('', methods=['GET'])
 @login_required
 def mapping_page():
-    if current_user.role != 'admin':
-        flash("Unauthorized access.", "danger")
-        return redirect(url_for('viewer.viewer_dashboard'))
+    if current_user.role != 'admin': return abort(403)
 
     modality_mappings = AETitleModalityMap.query.order_by(AETitleModalityMap.aetitle).all()
     duration_mappings = ProcedureDurationMap.query.order_by(ProcedureDurationMap.procedure_code).all()
     
-    # Calculate Monday of current week
     today = datetime.now().date()
     start_of_week = today - timedelta(days=today.weekday()) 
     end_of_week = start_of_week + timedelta(days=6)
@@ -29,7 +37,7 @@ def mapping_page():
     ).all()
 
     exceptions_lookup = {
-        f"{ex.aetitle}_{ex.exception_date.strftime('%Y-%m-%d')}": ex.actual_opening_minutes 
+        f"{ex.aetitle.upper()}_{ex.exception_date.strftime('%Y-%m-%d')}": ex.actual_opening_minutes 
         for ex in exceptions
     }
     
@@ -40,83 +48,127 @@ def mapping_page():
         exceptions_json=json.dumps(exceptions_lookup)
     )
 
+
 @mapping_bp.route('/upload/modality', methods=['POST'])
 @login_required
 def upload_modality_map():
-    if current_user.role != 'admin': return abort(403)
     file = request.files.get('file')
     if not file: return redirect(url_for('mapping.mapping_page'))
 
     try:
         df = pd.read_csv(file)
-        # Expected columns: aetitle, modality, daily_capacity_minutes
+        # Clean headers to lowercase
+        df.columns = [str(c).strip().lower() for c in df.columns]
+        
         for _, row in df.iterrows():
-            mapping = AETitleModalityMap.query.filter_by(aetitle=row['aetitle']).first()
-            if mapping:
-                mapping.modality = row['modality']
-                mapping.daily_capacity_minutes = int(row['daily_capacity_minutes'])
+            ae = str(row['aetitle']).strip().upper()
+            mod = str(row['modality']).strip().upper()
+            # Handle capacity: use CSV value or default to 720
+            try:
+                cap = int(float(row['daily_capacity_minutes'])) if pd.notna(row['daily_capacity_minutes']) else 720
+            except:
+                cap = 720
+
+            # 1. Sync Parent (AETitleModalityMap)
+            parent = AETitleModalityMap.query.filter_by(aetitle=ae).first()
+            if not parent:
+                parent = AETitleModalityMap(aetitle=ae, modality=mod)
+                db.session.add(parent)
             else:
-                db.session.add(AETitleModalityMap(
-                    aetitle=row['aetitle'],
-                    modality=row['modality'],
-                    daily_capacity_minutes=int(row['daily_capacity_minutes'])
-                ))
+                parent.modality = mod
+            
+            # Flush tells the DB about the parent so the Foreign Key doesn't fail
+            db.session.flush()
+
+            # 2. Sync 7 Days of Schedule (device_weekly_schedule)
+            for d in range(7):
+                # Filter by both AETitle AND Day (Composite Key)
+                sched = DeviceWeeklySchedule.query.filter_by(aetitle=ae, day_of_week=d).first()
+                if sched:
+                    sched.std_opening_minutes = cap
+                else:
+                    db.session.add(DeviceWeeklySchedule(
+                        aetitle=ae, 
+                        day_of_week=d, 
+                        std_opening_minutes=cap
+                    ))
+        
         db.session.commit()
-        flash("Modality Map updated successfully!", "success")
+        flash("Modality & Weekly Schedules synchronized successfully.", "success")
     except Exception as e:
         db.session.rollback()
-        flash(f"Error: {str(e)}", "danger")
-    
+        # This will show you exactly if it's a DB error or a naming error
+        flash(f"Upload Error: {str(e)}", "danger")
+        print(f"DEBUG ERROR: {str(e)}") # Check your terminal for this!
+        
     return redirect(url_for('mapping.mapping_page'))
-
+    
+    
 @mapping_bp.route('/upload/procedure', methods=['POST'])
 @login_required
 def upload_procedure_map():
-    if current_user.role != 'admin': return abort(403)
     file = request.files.get('file')
     if not file: return redirect(url_for('mapping.mapping_page'))
 
     try:
         df = pd.read_csv(file)
-        # Expected columns: procedure_code, duration_minutes, rvu_value
+        df.columns = [str(c).strip().lower() for c in df.columns]
+
+        # LAYER OF PROTECTION: Schema Validation
+        required = {'procedure_code', 'duration_minutes', 'rvu_value'}
+        if not required.issubset(df.columns):
+            flash("Upload Aborted: CSV headers must be procedure_code, duration_minutes, rvu_value", "danger")
+            return redirect(url_for('mapping.mapping_page'))
+
+        # LAYER OF PROTECTION: Data Integrity Check (Dry Run)
+        for idx, row in df.iterrows():
+            try:
+                # Ensure we can actually convert these before doing any DB work
+                _ = int(float(row['duration_minutes']))
+                _ = float(row['rvu_value'])
+                if pd.isna(row['procedure_code']): raise ValueError("Empty Code")
+            except Exception:
+                flash(f"Protection Alert: Row {idx+2} contains invalid data. Entire upload canceled.", "danger")
+                return redirect(url_for('mapping.mapping_page'))
+
+        # If we passed the dry run, proceed to UPSERT
         for _, row in df.iterrows():
-            mapping = ProcedureDurationMap.query.filter_by(procedure_code=str(row['procedure_code'])).first()
-            if mapping:
-                mapping.duration_minutes = int(row['duration_minutes'])
-                mapping.rvu_value = float(row['rvu_value'])
-            else:
-                db.session.add(ProcedureDurationMap(
-                    procedure_code=str(row['procedure_code']),
-                    duration_minutes=int(row['duration_minutes']),
-                    rvu_value=float(row['rvu_value'])
-                ))
+            p_code = str(row['procedure_code']).strip().upper()
+            duration = int(float(row['duration_minutes']))
+            rvu = float(row['rvu_value'])
+
+            mapping, created = get_or_create(ProcedureDurationMap, procedure_code=p_code)
+            mapping.duration_minutes = duration
+            mapping.rvu_value = rvu
+
         db.session.commit()
-        flash("Procedure Map updated successfully!", "success")
+        flash(f"Success: {len(df)} procedures verified and updated.", "success")
     except Exception as e:
         db.session.rollback()
-        flash(f"Error: {str(e)}", "danger")
-    
+        flash(f"Procedure DB Error: {str(e)}", "danger")
     return redirect(url_for('mapping.mapping_page'))
 
 @mapping_bp.route('/device/grid/save', methods=['POST'])
 @login_required
 def save_grid_changes():
-    if current_user.role != 'admin': return abort(403)
     data = request.get_json(force=True)
     updates = data.get('updates', [])
     try:
         for item in updates:
+            ae = str(item['aetitle']).strip().upper()
             exc_date = datetime.strptime(item['date'], '%Y-%m-%d').date()
-            existing = DeviceException.query.filter_by(aetitle=item['aetitle'], exception_date=exc_date).first()
+            val = int(item['value'])
+            
+            # Logic for Point #3: Store in DeviceException
+            existing = DeviceException.query.filter_by(aetitle=ae, exception_date=exc_date).first()
             if existing:
-                existing.actual_opening_minutes = int(item['value'])
-                if not existing.reason: existing.reason = "Manual Adjustment"
+                existing.actual_opening_minutes = val
             else:
                 db.session.add(DeviceException(
-                    aetitle=item['aetitle'],
-                    exception_date=exc_date,
-                    actual_opening_minutes=int(item['value']),
-                    reason="Manual Adjustment"
+                    aetitle=ae, 
+                    exception_date=exc_date, 
+                    actual_opening_minutes=val, 
+                    reason="Grid Adjustment"
                 ))
         db.session.commit()
         return jsonify({"status": "success"})
@@ -124,26 +176,20 @@ def save_grid_changes():
         db.session.rollback()
         return jsonify({"status": "error", "message": str(e)}), 500
 
-@mapping_bp.route('/device/exception/save', methods=['POST'])
+# NEW: Inline edit for individual procedures (Point #4)
+@mapping_bp.route('/procedure/update', methods=['POST'])
 @login_required
-def save_device_exception():
-    if current_user.role != 'admin': return abort(403)
+def update_single_procedure():
     data = request.get_json(force=True)
     try:
-        exc_date = datetime.strptime(data['date'], '%Y-%m-%d').date()
-        existing = DeviceException.query.filter_by(aetitle=data['aetitle'], exception_date=exc_date).first()
-        if existing:
-            existing.actual_opening_minutes = int(data['minutes'])
-            existing.reason = data.get('reason', 'Manual Adjustment')
-        else:
-            db.session.add(DeviceException(
-                aetitle=data['aetitle'],
-                exception_date=exc_date,
-                actual_opening_minutes=int(data['minutes']),
-                reason=data.get('reason', 'Manual Adjustment')
-            ))
-        db.session.commit()
-        return jsonify({"status": "success"})
+        p_code = str(data['code']).strip().upper()
+        mapping = ProcedureDurationMap.query.filter_by(procedure_code=p_code).first()
+        if mapping:
+            mapping.duration_minutes = int(data['duration'])
+            mapping.rvu_value = float(data.get('rvu', mapping.rvu_value))
+            db.session.commit()
+            return jsonify({"status": "success"})
+        return jsonify({"status": "error", "message": "Procedure not found"}), 404
     except Exception as e:
         db.session.rollback()
         return jsonify({"status": "error", "message": str(e)}), 500

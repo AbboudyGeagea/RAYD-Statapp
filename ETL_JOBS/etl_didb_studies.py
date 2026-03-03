@@ -12,6 +12,7 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
     log_id = None
     processed_uids = [] 
 
+    # 1. Start Log Entry
     try:
         with pg_engine.connect() as conn:
             res = conn.execute(text("INSERT INTO etl_job_log (job_name, status, start_time, records_processed) VALUES (:n, :s, :t, 0) RETURNING id"),
@@ -20,41 +21,44 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
             conn.commit()
     except Exception as e: logging.error(f"Log error: {e}")
 
-    max_uid = 0
+    # Prepare Dates
     lookback_date = (datetime.now() - timedelta(days=10)).strftime('%Y-%m-%d')
     gd_str = go_live_date.strftime('%Y-%m-%d') if hasattr(go_live_date, 'strftime') else str(go_live_date)
 
     try:
-        with pg_engine.connect() as conn:
-            val = conn.execute(text(f"SELECT MAX(study_db_uid) FROM {pg_table}")).fetchone()[0]
-            max_uid = val if val else 0
-    except: max_uid = 0
+        # Get Max ID to find new studies
+        try:
+            with pg_engine.connect() as conn:
+                val = conn.execute(text(f"SELECT MAX(study_db_uid) FROM {pg_table}")).fetchone()[0]
+                max_uid = val if val else 0
+        except: max_uid = 0
 
-    col_names = [
-        'study_db_uid', 'patient_db_uid', 'study_instance_uid', 'accession_number',
-        'study_id', 'storing_ae', 'study_date', 'study_description',
-        'study_body_part', 'study_age', 'age_at_exam', 'number_of_study_series',
-        'number_of_study_images', 'study_status', 'patient_class', 'procedure_code',
-        'referring_physician_first_name', 'referring_physician_mid_name',
-        'referring_physician_last_name', 'report_status', 'order_status',
-        'last_accessed_time', 'insert_time', 'last_update',
-        'reading_physician_first_name', 'reading_physician_last_name', 'reading_physician_id',
-        'signing_physician_first_name', 'signing_physician_last_name', 'signing_physician_id',
-        'study_has_report', 'rep_prelim_timestamp', 'rep_prelim_signed_by',
-        'rep_transcribed_by', 'rep_transcribed_timestamp',
-        'rep_final_signed_by', 'rep_final_timestamp',
-        'rep_addendum_by', 'rep_addendum_timestamp', 'rep_has_addendum',
-        'is_linked_study', 'patient_location'
-    ]
+        col_names = [
+            'study_db_uid', 'patient_db_uid', 'study_instance_uid', 'accession_number',
+            'study_id', 'storing_ae', 'study_date', 'study_description',
+            'study_body_part', 'study_age', 'age_at_exam', 'number_of_study_series',
+            'number_of_study_images', 'study_status', 'patient_class', 'procedure_code',
+            'referring_physician_first_name', 'referring_physician_mid_name',
+            'referring_physician_last_name', 'report_status', 'order_status',
+            'last_accessed_time', 'insert_time', 'last_update',
+            'reading_physician_first_name', 'reading_physician_last_name', 'reading_physician_id',
+            'signing_physician_first_name', 'signing_physician_last_name', 'signing_physician_id',
+            'study_has_report', 'rep_prelim_timestamp', 'rep_prelim_signed_by',
+            'rep_transcribed_by', 'rep_transcribed_timestamp',
+            'rep_final_signed_by', 'rep_final_timestamp',
+            'rep_addendum_by', 'rep_addendum_timestamp', 'rep_has_addendum',
+            'is_linked_study', 'patient_location'
+        ]
 
-    ora_conn = OracleConnector.get_connection(oracle_source)
-    cursor = ora_conn.cursor()
+        ora_conn = OracleConnector.get_connection(oracle_source)
+        cursor = ora_conn.cursor()
 
-    try:
         query = """
             SELECT 
                 s.STUDY_DB_UID, s.PATIENT_DB_UID, s.STUDY_INSTANCE_UID, s.ACCESSION_NUMBER, 
-                s.STUDY_ID, s.STORING_AE, s.STUDY_DATE, 
+                s.STUDY_ID,
+                 UPPER(TRIM(s.STORING_AE)),
+                  s.STUDY_DATE, 
                 CAST(SUBSTR(s.STUDY_DESCRIPTION, 1, 4000) AS VARCHAR2(4000)),
                 s.STUDY_BODY_PART, s.STUDY_AGE,
                 CASE 
@@ -90,17 +94,28 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
             processed_uids.extend([row[0] for row in batch])
             chunked_upsert_func(pg_engine, pg_table, col_names, batch, 'study_db_uid')
             total_rows += len(batch)
+        
         status = "SUCCESS"
+        cursor.close()
+        ora_conn.close()
+
     except Exception as e:
         status = "FAILED"
         error_msg = str(e)
-        raise
+        logging.error(f"Studies ETL Failed: {error_msg}")
+
     finally:
+        # 3. Guaranteed Log Closure
         if log_id:
-            with pg_engine.connect() as conn:
-                conn.execute(text("UPDATE etl_job_log SET status=:s, end_time=NOW(), records_processed=:r, error_message=:e WHERE id=:id"),
-                             {"s": status, "r": total_rows, "e": error_msg, "id": log_id})
-                conn.commit()
-        cursor.close(); ora_conn.close()
+            try:
+                end_time = datetime.now()
+                with pg_engine.connect() as conn:
+                    conn.execute(
+                        text("UPDATE etl_job_log SET status=:s, end_time=:et, records_processed=:r, error_message=:e WHERE id=:id"),
+                        {"s": status, "et": end_time, "r": total_rows, "e": error_msg, "id": log_id}
+                    )
+                    conn.commit()
+            except Exception as le:
+                logging.error(f"Failed to update studies log: {le}")
 
     return total_rows, processed_uids

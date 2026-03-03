@@ -2,241 +2,175 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>RAYD | Comparative Performance</title>
+    <title>RAYD | Flow Analytics</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap');
-        body { font-family: 'Plus Jakarta Sans', sans-serif; background: #020617; color: #f8fafc; height: 100vh; overflow: hidden; }
-        .input-dark { background: #0f172a; border: 1px solid #334155; color: white; border-radius: 6px; padding: 6px; font-size: 11px; width: 100%; outline: none; }
-        .data-card { background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; display: flex; flex-direction: column; }
-        .card-header { padding: 12px 16px; border-bottom: 1px solid #1e293b; font-size: 10px; font-weight: 800; color: #38ada9; text-transform: uppercase; letter-spacing: 0.1em; }
-        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
+        body { background: #020617; color: #f8fafc; font-family: 'Inter', sans-serif; }
+        .input-dark { background: #0f172a; border: 1px solid #1e293b; color: white; padding: 10px; border-radius: 6px; width: 100%; font-size: 11px; }
+        .input-dark:disabled { opacity: 0.3; cursor: not-allowed; }
+        .card { background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; margin-bottom: 24px; transition: all 0.3s ease; }
+        .card:hover { border-color: #38ada9; }
+        .card-header { padding: 14px 20px; border-bottom: 1px solid #1e293b; font-size: 10px; font-weight: 900; color: #38ada9; text-transform: uppercase; letter-spacing: 1px; }
+        .tree-container { height: 600px; width: 100%; }
+        .chart-container { height: 380px; width: 100%; padding: 20px; }
+        label { font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase; margin-bottom: 4px; display: block; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 10px; }
     </style>
 </head>
-<body class="flex flex-col">
-    <header class="h-12 bg-[#0f172a] border-b border-slate-800 flex items-center px-6 justify-between shrink-0">
-        <span class="font-black text-sm uppercase text-[#38ada9]">RAYD <span class="text-white">Performance Engine</span></span>
-    </header>
-
-    <div class="flex flex-1 overflow-hidden">
-        <aside class="w-72 bg-[#0f172a] border-r border-slate-800 p-6 overflow-y-auto custom-scrollbar">
-            <form method="POST" id="report_form" class="space-y-6">
-                <div>
-                    <label class="text-[10px] font-black text-slate-500 uppercase block mb-2">Current Period</label>
-                    <input type="date" name="start_date" class="input-dark mb-2" value="{{ display_start }}">
-                    <input type="date" name="end_date" class="input-dark" value="{{ display_end }}">
-                </div>
-                <div class="pt-4 border-t border-slate-800">
-                    <label class="text-[10px] font-black text-slate-500 uppercase block mb-2">Comparison Baseline</label>
-                    <input type="date" name="comp_start_date" class="input-dark mb-2" value="{{ comp_start }}">
-                    <input type="date" name="comp_end_date" class="input-dark" value="{{ comp_end }}">
-                </div>
-                <button type="submit" class="w-full py-3 bg-[#38ada9] text-white font-black rounded-lg uppercase text-[10px] tracking-widest shadow-lg shadow-[#38ada9]/20">Analyze Variance</button>
-            </form>
-
-            <div class="mt-6 pt-6 border-t border-slate-800">
-                <button type="button" 
-                        onclick="document.getElementById('report_form').action='/report/22/export'; document.getElementById('report_form').submit(); document.getElementById('report_form').action='/report/22';"
-                        class="w-full py-3 border border-slate-700 text-slate-400 font-black rounded-lg uppercase text-[10px] tracking-widest hover:bg-slate-800 transition-all">
-                    Export Raw Data (.csv)
-                </button>
+<body class="flex h-screen overflow-hidden">
+    <aside class="w-80 border-r border-slate-800 p-6 flex flex-col gap-6 overflow-y-auto bg-[#020617]">
+        <h1 class="font-black text-[#38ada9] text-xl tracking-tighter uppercase italic">Operations</h1>
+        <form method="POST" class="space-y-5">
+            <div>
+                <label>Timeframe</label>
+                <input type="date" name="start_date" class="input-dark mb-2" value="{{ display_start }}">
+                <input type="date" name="end_date" class="input-dark" value="{{ display_end }}">
             </div>
-        </aside>
 
-        <main class="flex-1 overflow-y-auto p-6 bg-[#020617] custom-scrollbar space-y-6">
-            {% if run_report %}
-            <div class="grid grid-cols-5 gap-4">
-                <div class="data-card p-4 border-l-4 border-emerald-500">
-                    <p class="text-[9px] font-bold text-slate-500 uppercase">Studies (A)</p>
-                    <p class="text-xl font-black">{{ data.summary.total_a }}</p>
+            <hr class="border-slate-800">
+
+            <div class="space-y-4">
+                <div class="flex flex-col gap-1">
+                    <div class="flex justify-between items-center"><label class="mb-0">Study Status</label>
+                        <input type="checkbox" name="f_status_active" onchange="document.getElementById('f_status').disabled = !this.checked" {% if filters.f_status_active %}checked{% endif %}>
+                    </div>
+                    <select name="f_status" id="f_status" class="input-dark" {% if not filters.f_status_active %}disabled{% endif %}>
+                        {% for s in status_list %}<option value="{{ s[0] }}" {% if filters.status == s[0] %}selected{% endif %}>{{ s[0] }}</option>{% endfor %}
+                    </select>
                 </div>
-                <div class="data-card p-4 border-l-4 border-slate-600">
-                    <p class="text-[9px] font-bold text-slate-500 uppercase">Studies (B)</p>
-                    <p class="text-xl font-black text-slate-400">{{ data.summary.total_b }}</p>
+
+                <div class="flex flex-col gap-1">
+                    <div class="flex justify-between items-center"><label class="mb-0">Modality</label>
+                        <input type="checkbox" name="f_mod_active" onchange="document.getElementById('f_mod').disabled = !this.checked" {% if filters.f_mod_active %}checked{% endif %}>
+                    </div>
+                    <select name="f_mod" id="f_mod" class="input-dark" {% if not filters.f_mod_active %}disabled{% endif %}>
+                        {% for m in mod_list %}<option value="{{ m[0] }}" {% if filters.mod == m[0] %}selected{% endif %}>{{ m[0] }}</option>{% endfor %}
+                    </select>
                 </div>
-                <div class="data-card p-4 border-l-4 border-blue-500">
-                    <p class="text-[9px] font-bold text-slate-500 uppercase">Unique Patients</p>
-                    <p class="text-xl font-black">{{ data.summary.patients }}</p>
-                </div>
-                <div class="data-card p-4 border-l-4 border-indigo-500 bg-indigo-500/5">
-                    <p class="text-[9px] font-bold text-indigo-400 uppercase">Best Physician ({{ data.summary.report_month }})</p>
-                    <p class="text-sm font-black truncate text-indigo-100">{{ data.summary.best_physician }}</p>
-                </div>
-                <div class="data-card p-4 border-l-4 border-[#38ada9]">
-                    <p class="text-[9px] font-bold text-slate-500 uppercase">Volume Growth</p>
-                    {% set growth = data.summary.total_a - data.summary.total_b %}
-                    <p class="text-xl font-black {{ 'text-emerald-400' if growth >= 0 else 'text-red-400' }}">{{ "+" if growth > 0 }}{{ growth }}</p>
+
+                <div class="flex flex-col gap-1">
+                    <div class="flex justify-between items-center"><label class="mb-0">Storing AE</label>
+                        <input type="checkbox" name="f_ae_active" onchange="document.getElementById('f_ae').disabled = !this.checked" {% if filters.f_ae_active %}checked{% endif %}>
+                    </div>
+                    <select name="f_ae" id="f_ae" class="input-dark" {% if not filters.f_ae_active %}disabled{% endif %}>
+                        {% for ae in ae_list %}<option value="{{ ae[0] }}" {% if filters.ae == ae[0] %}selected{% endif %}>{{ ae[0] }}</option>{% endfor %}
+                    </select>
                 </div>
             </div>
 
-            <div class="grid grid-cols-2 gap-6">
-                <div class="data-card h-[350px]">
-                    <div class="card-header">Modality Volume Shift</div>
-                    <div id="chart_mod_comp" class="flex-1"></div>
-                </div>
-                <div class="data-card h-[350px]">
-                    <div class="card-header">Referring Physician Growth</div>
-                    <div id="chart_phys_comp" class="flex-1"></div>
-                </div>
-                <div class="data-card h-[350px] col-span-2">
-                    <div class="card-header">Physician Activity by Procedure Code</div>
-                    <div id="chart_phys_proc" class="flex-1"></div>
-                </div>
-                <div class="data-card h-[350px]">
-                    <div class="card-header">Patient Demographics (A)</div>
-                    <div id="chart_demo" class="flex-1"></div>
-                </div>
-                <div class="data-card h-[350px]">
-                    <div class="card-header">Top AE Titles By Throughput</div>
-                    <div id="chart_ae" class="flex-1"></div>
-                </div>
+            <button type="submit" class="w-full bg-[#38ada9] py-4 rounded-xl font-black text-[10px] uppercase tracking-widest hover:brightness-110 transition-all mt-4 text-white">Update Dashboard</button>
+        </form>
+    </aside>
+
+    <main class="flex-1 p-10 overflow-y-auto bg-[#020617] space-y-8">
+        {% if run_report %}
+        <div class="card">
+            <div class="card-header">Modality ➜ AE Source ➜ Top 5 Procedures</div>
+            <div id="tree_chart" class="tree-container"></div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="card">
+                <div class="card-header">Top Referring Physicians (Study Volume)</div>
+                <div id="c3" class="chart-container"></div>
             </div>
-            {% else %}
-            <div class="h-full flex items-center justify-center text-slate-900 font-black text-5xl uppercase tracking-tighter">Compare Periods</div>
-            {% endif %}
-        </main>
-    </div>
+            <div class="card">
+                <div class="card-header text-emerald-400">Physician Loyalty (Unique Patient Count)</div>
+                <div id="c_unique_phys" class="chart-container"></div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div class="card"><div class="card-header">Case Status Distribution</div><div id="c2" class="chart-container"></div></div>
+            <div class="card"><div class="card-header">Gender (Rose)</div><div id="c_gender" class="chart-container"></div></div>
+            <div class="card"><div class="card-header">Age Group (Wave)</div><div id="c_age" class="chart-container"></div></div>
+        </div>
+        {% else %}
+        <div class="h-full flex items-center justify-center text-slate-900 font-black text-7xl uppercase tracking-tighter opacity-20">Enter Filter Criteria</div>
+        {% endif %}
+    </main>
 
     <script>
-    const d = {{ data | tojson | safe if data else 'null' }};
-    
-    // Helper for common chart styling to keep code clean
-    const commonTextStyle = { color: '#94a3b8', fontSize: 10 };
-    const gridStyle = { top: 40, right: 20, bottom: 60, left: 50, containLabel: true };
-
-    if (d) {
-        // 1. MODALITY COMPARISON (Gradient Bars)
-        const mods = Object.keys(d.modality_comp.current);
-        echarts.init(document.getElementById('chart_mod_comp')).setOption({
-            tooltip: { trigger: 'axis', backgroundColor: '#0f172a', borderColor: '#334155', textStyle: {color: '#fff'} },
-            legend: { textStyle: commonTextStyle, bottom: 0 },
-            grid: gridStyle,
-            xAxis: { type: 'category', data: mods, axisLabel: commonTextStyle },
-            yAxis: { type: 'value', splitLine: { lineStyle: { color: '#1e293b' } }, axisLabel: commonTextStyle },
-            series: [
-                { 
-                    name: 'Baseline', type: 'bar', barGap: '20%',
-                    data: mods.map(m => d.modality_comp.prev[m] || 0), 
-                    itemStyle: { color: '#334155', borderRadius: [4, 4, 0, 0] } 
-                },
-                { 
-                    name: 'Current', type: 'bar',
-                    data: mods.map(m => d.modality_comp.current[m] || 0), 
-                    itemStyle: { 
-                        borderRadius: [4, 4, 0, 0],
-                        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                            { offset: 0, color: '#38ada9' },
-                            { offset: 1, color: '#00d2d3' }
-                        ])
-                    },
-                    emphasis: { itemStyle: { shadowBlur: 10, shadowColor: 'rgba(56, 173, 169, 0.5)' } }
-                }
-            ]
-        });
-
-        // 2. PHYSICIAN GROWTH (Line + Area)
-        const physNames = Object.keys(d.physician_comp.current);
-        echarts.init(document.getElementById('chart_phys_comp')).setOption({
-            tooltip: { trigger: 'axis' },
-            legend: { textStyle: commonTextStyle, bottom: 0 },
-            grid: gridStyle,
-            xAxis: { type: 'category', data: physNames, axisLabel: { ...commonTextStyle, rotate: 25 } },
-            yAxis: { type: 'value', splitLine: { lineStyle: { color: '#1e293b' } } },
-            series: [
-                { 
-                    name: 'Baseline', type: 'line', smooth: true,
-                    data: physNames.map(p => d.physician_comp.prev[p] || 0), 
-                    itemStyle: { color: '#475569' },
-                    lineStyle: { width: 3, type: 'dashed' }
-                },
-                { 
-                    name: 'Current', type: 'bar',
-                    data: physNames.map(p => d.physician_comp.current[p] || 0), 
-                    itemStyle: { 
-                        borderRadius: [4, 4, 0, 0],
-                        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                            { offset: 0, color: '#6366f1' },
-                            { offset: 1, color: '#4f46e5' }
-                        ])
-                    }
-                }
-            ]
-        });
-
-        // 3. PHYSICIAN BY PROCEDURE (Stacked & Interactive)
-        const physProcChart = echarts.init(document.getElementById('chart_phys_proc'));
-        const physicians = Object.keys(d.physician_proc_chart);
-        const procedures = [...new Set(physicians.flatMap(p => Object.keys(d.physician_proc_chart[p])))];
-        
-        const procSeries = procedures.map((proc, index) => ({
-            name: proc,
-            type: 'bar',
-            stack: 'total',
-            emphasis: { focus: 'series' }, // Highlights entire stack on hover
-            data: physicians.map(p => d.physician_proc_chart[p][proc] || 0)
-        }));
-
-        physProcChart.setOption({
-            tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-            legend: { textStyle: commonTextStyle, type: 'scroll', bottom: 0 },
-            grid: { top: 60, bottom: 100, left: 50, right: 30 },
-            xAxis: { type: 'category', data: physicians, axisLabel: { ...commonTextStyle, rotate: 30 } },
-            yAxis: { type: 'value', splitLine: { lineStyle: { color: '#1e293b' } } },
-            series: procSeries
-        });
-
-        // 4. DEMOGRAPHICS (Styled Stack)
-        const ages = Object.keys(d.demo);
-        echarts.init(document.getElementById('chart_demo')).setOption({
-            tooltip: { trigger: 'item' },
-            grid: gridStyle,
-            xAxis: { type: 'category', data: ages, axisLabel: commonTextStyle },
-            yAxis: { type: 'value', splitLine: { lineStyle: { color: '#1e293b' } } },
-            series: [
-                { 
-                    name: 'M', type: 'bar', stack: 'demo', 
-                    data: ages.map(a => d.demo[a]?.M || 0), 
-                    itemStyle: { color: '#3b82f6', borderRadius: [0, 0, 4, 4] } 
-                },
-                { 
-                    name: 'F', type: 'bar', stack: 'demo', 
-                    data: ages.map(a => d.demo[a]?.F || 0), 
-                    itemStyle: { color: '#ec4899', borderRadius: [4, 4, 0, 0] } 
-                }
-            ]
-        });
-
-        // 5. AE DISTRIBUTION (Horizontal Glow)
-        echarts.init(document.getElementById('chart_ae')).setOption({
-            tooltip: { trigger: 'axis' },
-            grid: { left: '3%', right: '10%', bottom: '3%', containLabel: true },
-            xAxis: { type: 'value', show: false },
-            yAxis: { type: 'category', data: Object.keys(d.summary.top_ae), axisLabel: commonTextStyle },
-            series: [{ 
-                type: 'bar', 
-                data: Object.values(d.summary.top_ae), 
-                itemStyle: { 
-                    borderRadius: [0, 10, 10, 0],
-                    color: new echarts.graphic.LinearGradient(1, 0, 0, 0, [
-                        { offset: 0, color: '#f59e0b' },
-                        { offset: 1, color: '#9a3412' }
-                    ])
-                },
-                label: { show: true, position: 'right', color: '#fff', fontSize: 10 } 
-            }]
-        });
-        
-        // Resize charts on window resize
-        window.addEventListener('resize', () => {
-            const instances = document.querySelectorAll('[id^="chart_"]');
-            instances.forEach(el => {
-                const chart = echarts.getInstanceByDom(el);
-                if(chart) chart.resize();
+        const d = {{ data | tojson | safe if data else 'null' }};
+        if (d) {
+            const style = { color: '#64748b', fontSize: 10, fontWeight: 'bold' };
+            
+            // 1. Tree Flow
+            echarts.init(document.getElementById('tree_chart')).setOption({
+                tooltip: { trigger: 'item' },
+                series: [{
+                    type: 'tree', data: d.tree_data,
+                    top: '5%', bottom: '15%', layout: 'vertical',
+                    symbol: 'emptyCircle', symbolSize: 8, initialTreeDepth: 2,
+                    label: { position: 'top', rotate: 0, align: 'center', fontSize: 12, color: '#38ada9', fontWeight: 'bold' },
+                    leaves: { label: { position: 'bottom', rotate: 0, align: 'center', fontSize: 10, color: '#f8fafc' } },
+                    lineStyle: { color: '#1e293b', width: 1.5, curveness: 0.5 },
+                    itemStyle: { color: '#38ada9' }
+                }]
             });
-        });
-    }
-</script>
+
+            // 2. Study Status
+            echarts.init(document.getElementById('c2')).setOption({
+                tooltip: { trigger: 'axis' },
+                xAxis: { type: 'category', data: Object.keys(d.stat_c), axisLabel: style },
+                yAxis: { type: 'value', splitLine: { lineStyle: { color: '#111827' } }, axisLabel: style },
+                series: [{ data: Object.values(d.stat_c), type: 'bar', itemStyle: { color: '#f59e0b', borderRadius: [4, 4, 0, 0] } }]
+            });
+
+            // 3. Physician Volume (Purple)
+            echarts.init(document.getElementById('c3')).setOption({
+                tooltip: { trigger: 'item' },
+                xAxis: { type: 'value', splitLine: { show: false }, axisLabel: { show: false } },
+                yAxis: { type: 'category', data: Object.keys(d.phys_c).reverse(), axisLabel: style },
+                series: [{ 
+                    data: Object.values(d.phys_c).reverse(), 
+                    type: 'bar', 
+                    itemStyle: { color: '#8b5cf6', borderRadius: [0, 4, 4, 0] },
+                    label: { show: true, position: 'right', color: '#8b5cf6', fontSize: 10 }
+                }]
+            });
+
+            // 4. Physician Unique Patients (Emerald) - NEW
+            echarts.init(document.getElementById('c_unique_phys')).setOption({
+                tooltip: { trigger: 'item', formatter: '{b}: {c} Patients' },
+                xAxis: { type: 'value', splitLine: { show: false }, axisLabel: { show: false } },
+                yAxis: { type: 'category', data: Object.keys(d.phys_unique).reverse(), axisLabel: style },
+                series: [{ 
+                    data: Object.values(d.phys_unique).reverse(), 
+                    type: 'bar', 
+                    itemStyle: { color: '#10b981', borderRadius: [0, 4, 4, 0] },
+                    label: { show: true, position: 'right', color: '#10b981', fontSize: 10 }
+                }]
+            });
+
+            // 5. Gender Rose
+            echarts.init(document.getElementById('c_gender')).setOption({
+                tooltip: { trigger: 'item' },
+                series: [{
+                    type: 'pie', radius: [20, 100], roseType: 'area', center: ['50%', '50%'],
+                    itemStyle: { borderRadius: 6 },
+                    label: { show: false },
+                    data: d.gender_data,
+                    color: ['#3b82f6', '#ec4899', '#64748b']
+                }]
+            });
+
+            // 6. Age Wave
+            echarts.init(document.getElementById('c_age')).setOption({
+                tooltip: { trigger: 'axis' },
+                xAxis: { type: 'category', boundaryGap: false, data: d.age_labels, axisLabel: style },
+                yAxis: { type: 'value', splitLine: { lineStyle: { color: '#111827' } }, axisLabel: style },
+                series: [{
+                    data: d.age_values, type: 'line', smooth: true,
+                    areaStyle: { color: 'rgba(56, 173, 169, 0.2)' },
+                    itemStyle: { color: '#38ada9' },
+                    lineStyle: { width: 3 }
+                }]
+            });
+        }
+    </script>
 </body>
 </html>

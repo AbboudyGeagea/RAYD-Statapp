@@ -16,10 +16,15 @@
         .card-custom { background: #232b28; border-radius: 1.5rem; border: 1px solid #28332e; }
         .upload-zone { background: #1d2522; border: 2px dashed #28332e; border-radius: 1rem; transition: all 0.2s; cursor: pointer; }
         .upload-zone:hover { border-color: var(--accent); background: #232b28; }
-        .capacity-tile { background: #181f1c; border: 1px solid #28332e; display: flex; overflow: hidden; transition: all 0.2s; }
+        .capacity-tile { background: #181f1c; border: 1px solid #28332e; display: flex; overflow: hidden; }
         .capacity-tile.has-exception { border-color: #f97316 !important; background: #241a14; }
-        .tile-input { width: 70%; padding: 0.75rem 0.25rem; background: transparent; text-align: center; font-weight: 900; font-size: 0.85rem; color: white; outline: none; }
-        .tile-btn { width: 30%; border-left: 1px solid #28332e; display: flex; align-items: center; justify-content: center; background: #1d2522; color: #4b5563; }
+        .tile-input { width: 70%; padding: 0.75rem 0.25rem; background: transparent; text-align: center; font-weight: 900; color: white; outline: none; }
+        .tile-btn { width: 30%; border-left: 1px solid #28332e; background: #1d2522; color: #4b5563; }
+        /* Procedure Table specific styles */
+        .proc-input { background: #181f1c; border: 1px solid #28332e; color: white; border-radius: 0.5rem; text-align: center; font-size: 12px; transition: border-color 0.2s; }
+        .proc-input:focus { border-color: var(--accent); outline: none; }
+        .proc-input.saving { border-color: #fbbf24; background: #242114; }
+        .proc-input.saved { border-color: #10b981; }
         [x-cloak] { display: none !important; }
     </style>
 </head>
@@ -57,14 +62,24 @@
             </nav>
         </aside>
 
-        <main class="flex-1 overflow-y-auto p-10 bg-[#181f1c]">
-            <div class="max-w-7xl mx-auto space-y-8">
+        <main class="flex-1 overflow-y-auto p-10 bg-[#181f1c] custom-scrollbar">
+            <div class="max-w-7xl mx-auto space-y-12">
                 
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                  {% if messages %}
+                    {% for category, message in messages %}
+                      <div class="p-4 rounded-xl mb-4 font-bold text-sm {% if category == 'danger' %}bg-red-900/50 text-red-200 border border-red-500{% else %}bg-green-900/50 text-green-200 border border-green-500{% endif %}">
+                        {{ message }}
+                      </div>
+                    {% endfor %}
+                  {% endif %}
+                {% endwith %}
+
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div class="card-custom p-6">
                         <h4 class="text-[10px] font-black text-[#60a5fa] uppercase tracking-[0.2em] mb-4">Modality & Capacity Map</h4>
-                        <form action="{{ url_for('mapping.upload_modality_map') }}" method="POST" enctype="multipart/form-data" class="flex flex-col gap-3">
-                            <input type="file" name="file" id="modalityFile" class="hidden" onchange="this.form.submit()">
+                        <form action="{{ url_for('mapping.upload_modality_map') }}" method="POST" enctype="multipart/form-data" id="modalityForm">
+                            <input type="file" name="file" id="modalityFile" class="hidden" onchange="document.getElementById('modalityForm').submit()">
                             <div onclick="document.getElementById('modalityFile').click()" class="upload-zone p-6 flex flex-col items-center justify-center text-center">
                                 <i class="bi bi-file-earmark-arrow-up text-2xl text-slate-500 mb-2"></i>
                                 <span class="text-xs font-bold text-slate-400">Upload AETitle CSV</span>
@@ -75,8 +90,8 @@
 
                     <div class="card-custom p-6">
                         <h4 class="text-[10px] font-black text-[#60a5fa] uppercase tracking-[0.2em] mb-4">Procedure & RVU Map</h4>
-                        <form action="{{ url_for('mapping.upload_procedure_map') }}" method="POST" enctype="multipart/form-data" class="flex flex-col gap-3">
-                            <input type="file" name="file" id="procFile" class="hidden" onchange="this.form.submit()">
+                        <form action="{{ url_for('mapping.upload_procedure_map') }}" method="POST" enctype="multipart/form-data" id="procForm">
+                            <input type="file" name="file" id="procFile" class="hidden" onchange="document.getElementById('procForm').submit()">
                             <div onclick="document.getElementById('procFile').click()" class="upload-zone p-6 flex flex-col items-center justify-center text-center">
                                 <i class="bi bi-calculator text-2xl text-slate-500 mb-2"></i>
                                 <span class="text-xs font-bold text-slate-400">Upload Procedure CSV</span>
@@ -86,58 +101,115 @@
                     </div>
                 </div>
 
-                <div class="flex items-end justify-between">
-                    <div>
-                        <h2 class="text-3xl font-black text-[#e2e8f0] tracking-tight uppercase">Capacity Grid</h2>
-                        <p class="text-[#60a5fa] font-bold text-xs uppercase tracking-widest mt-1" x-text="weekRangeLabel"></p>
+                <div class="space-y-6">
+                    <div class="flex items-end justify-between">
+                        <div>
+                            <h2 class="text-3xl font-black text-[#e2e8f0] tracking-tight uppercase">Capacity Grid</h2>
+                            <p class="text-[#60a5fa] font-bold text-xs uppercase" x-text="weekRangeLabel"></p>
+                        </div>
+                        <button @click="saveAllChanges()" class="px-8 py-3 bg-[#60a5fa] text-white text-[10px] font-black rounded-xl hover:bg-blue-500 transition shadow-lg">
+                            SAVE GRID CHANGES
+                        </button>
                     </div>
-                    <button @click="saveAllChanges()" class="px-8 py-3 bg-[#60a5fa] text-white text-[10px] font-black rounded-xl hover:bg-blue-500 transition shadow-lg flex items-center gap-2">
-                        <i class="bi bi-cloud-check-fill"></i> SAVE GRID CHANGES
-                    </button>
+
+                    <div class="card-custom overflow-hidden">
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left">
+                                <thead class="text-[10px] font-black text-slate-500 uppercase border-b border-[#28332e]">
+                                    <tr>
+                                        <th class="px-8 py-5 text-[#60a5fa]">Modality / AE Title</th>
+                                        <template x-for="day in weekDates">
+                                            <th class="px-2 py-5 text-center border-l border-[#28332e]/50">
+                                                <div x-text="day.name"></div>
+                                                <div class="text-[9px] text-slate-400 mt-1" x-text="day.dateLabel"></div>
+                                            </th>
+                                        </template>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-[#28332e]">
+{% for map in modality_mappings %}
+<tr class="hover:bg-[#1d2521]/50 transition">
+    <td class="px-8 py-5">
+        <div class="font-mono text-xs font-bold text-white">{{ map.aetitle.upper() }}</div>
+        <div class="text-[9px] text-[#60a5fa] font-black uppercase tracking-widest">{{ map.modality.upper() }}</div>
+    </td>
+    
+    {% for day_idx in range(7) %}
+    {# NEW LOGIC: Extract the correct day's minutes from the relationship #}
+    {% set day_schedule = map.weekly_schedules | selectattr("day_of_week", "equalto", day_idx) | first %}
+    {% set baseline_mins = day_schedule.std_opening_minutes if day_schedule else 720 %}
+    
+    <td class="px-2 py-4 border-l border-[#28332e]/30">
+        <div class="capacity-tile rounded-xl" :class="hasException('{{ map.aetitle.upper() }}', {{ day_idx }}) ? 'has-exception' : ''">
+            <input type="number" 
+                   {# Pass the baseline_mins we just calculated #}
+                   :value="getCapacityValue('{{ map.aetitle.upper() }}', {{ day_idx }}, {{ baseline_mins }})"
+                   class="tile-input"
+                   @change="updateCapacity('{{ map.aetitle.upper() }}', {{ day_idx }}, $event.target.value)">
+            
+            <button @click="openNoteModal('{{ map.aetitle.upper() }}', {{ day_idx }}, $event.target.closest('.capacity-tile').querySelector('input').value)" 
+                    class="tile-btn">
+                <i class="bi" :class="hasException('{{ map.aetitle.upper() }}', {{ day_idx }}) ? 'bi-exclamation-triangle-fill text-orange-400' : 'bi-gear-fill'"></i>
+            </button>
+        </div>
+    </td>
+    {% endfor %}
+</tr>
+{% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
 
-                <div class="card-custom overflow-hidden">
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-left">
-                            <thead class="text-[10px] font-black text-slate-500 uppercase border-b border-[#28332e]">
-                                <tr>
-                                    <th class="px-8 py-5 text-[#60a5fa]">Modality / AE Title</th>
-                                    <template x-for="day in weekDates">
-                                        <th class="px-2 py-5 text-center border-l border-[#28332e]/50">
-                                            <div x-text="day.name"></div>
-                                            <div class="text-[9px] text-slate-400 mt-1" x-text="day.dateLabel"></div>
-                                        </th>
-                                    </template>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-[#28332e]">
-                                {% for map in modality_mappings %}
-                                <tr class="hover:bg-[#1d2521]/50 transition">
-                                    <td class="px-8 py-5">
-                                        <div class="font-mono text-xs font-bold text-white">{{ map.aetitle }}</div>
-                                        <div class="text-[9px] text-[#60a5fa] font-black uppercase tracking-widest">{{ map.modality }}</div>
-                                    </td>
-                                    {% for day_idx in range(7) %}
-                                    <td class="px-2 py-4 border-l border-[#28332e]/30">
-                                        <div class="capacity-tile rounded-xl" :class="hasException('{{ map.aetitle }}', {{ day_idx }}) ? 'has-exception' : ''">
-                                            <input type="number" 
-                                                   :value="getCapacityValue('{{ map.aetitle }}', {{ day_idx }}, {{ map.daily_capacity_minutes or 480 }})"
-                                                   class="tile-input"
-                                                   @change="updateCapacity('{{ map.aetitle }}', {{ day_idx }}, $event.target.value)">
-                                            
-                                            <button @click="openNoteModal('{{ map.aetitle }}', {{ day_idx }}, $event.target.closest('.capacity-tile').querySelector('input').value)" 
-                                                    class="tile-btn" :class="hasException('{{ map.aetitle }}', {{ day_idx }}) ? 'active-exception' : ''">
-                                                <i class="bi" :class="hasException('{{ map.aetitle }}', {{ day_idx }}) ? 'bi-exclamation-triangle-fill' : 'bi-gear-fill'"></i>
-                                            </button>
-                                        </div>
-                                    </td>
+                <div class="space-y-6">
+                    <div class="flex items-center justify-between">
+                        <h2 class="text-3xl font-black text-[#e2e8f0] tracking-tight uppercase">Procedure Catalog</h2>
+                        <div class="relative">
+                            <i class="bi bi-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs"></i>
+                            <input type="text" x-model="procSearch" placeholder="SEARCH CODES..." 
+                                   class="bg-[#232b28] border border-[#28332e] rounded-xl pl-9 pr-4 py-2 text-[10px] font-black text-[#60a5fa] focus:border-blue-400 outline-none w-64">
+                        </div>
+                    </div>
+
+                    <div class="card-custom p-2 overflow-hidden">
+                        <div class="max-h-[500px] overflow-y-auto custom-scrollbar">
+                            <table class="w-full text-left">
+                                <thead class="sticky top-0 bg-[#232b28] text-[9px] font-black text-slate-500 uppercase border-b border-[#28332e] z-10">
+                                    <tr>
+                                        <th class="px-6 py-4">Procedure Code</th>
+                                        <th class="px-6 py-4 text-center">Duration (Min)</th>
+                                        <th class="px-6 py-4 text-center">RVU Value</th>
+                                        <th class="px-6 py-4 text-right">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-[#28332e]">
+                                    {% for proc in duration_mappings %}
+                                    <tr class="hover:bg-white/5 transition" x-show="'{{ proc.procedure_code }}'.includes(procSearch.toUpperCase())">
+                                        <td class="px-6 py-4">
+                                            <span class="font-mono text-xs font-bold text-white tracking-widest">{{ proc.procedure_code }}</span>
+                                        </td>
+                                        <td class="px-6 py-4 text-center">
+                                            <input type="number" value="{{ proc.duration_minutes }}" 
+                                                   @change="updateProcData('{{ proc.procedure_code }}', $event.target.value, '{{ proc.rvu_value }}', $event.target)"
+                                                   class="proc-input w-24 py-1.5">
+                                        </td>
+                                        <td class="px-6 py-4 text-center">
+                                            <input type="number" step="0.1" value="{{ proc.rvu_value }}" 
+                                                   @change="updateProcData('{{ proc.procedure_code }}', $event.target.closest('tr').querySelector('input[type=number]').value, $event.target.value, $event.target)"
+                                                   class="proc-input w-24 py-1.5">
+                                        </td>
+                                        <td class="px-6 py-4 text-right">
+                                            <span class="text-[9px] font-black uppercase px-2 py-1 rounded bg-slate-800 text-slate-500">Live</span>
+                                        </td>
+                                    </tr>
                                     {% endfor %}
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
+
             </div>
         </main>
     </div>
@@ -147,7 +219,6 @@
         <div class="bg-[#232b28] border border-[#28332e] rounded-3xl w-full max-w-sm p-8 shadow-2xl relative z-10">
             <h2 class="text-xl font-black text-white" x-text="activeContext.ae"></h2>
             <p class="text-[10px] text-orange-400 font-bold uppercase tracking-widest mb-6" x-text="activeContext.dateLabel"></p>
-            
             <div class="space-y-3">
                 <template x-for="reason in reasons">
                     <button @click="activeContext.note = reason" 
@@ -170,43 +241,49 @@
                 weekDates: [],
                 weekRangeLabel: '',
                 changedData: [],
+                procSearch: '',
                 modalOpen: false,
-                reasons: ['Technical Maintenance', 'Staffing Shortage', 'Public Holiday', 'Device Breakdown'],
+                reasons: ['Maintenance', 'Shortage', 'Holiday', 'Breakdown','Extra Staff', 'Extra Load'],
                 activeContext: { ae: '', date: '', dateLabel: '', currentMin: '', note: '' },
                 existingExceptions: {{ exceptions_json | safe if exceptions_json else '{}' }},
 
                 generateWeekDates() {
                     const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
                     const curr = new Date();
-                    const first = curr.getDate() - curr.getDay() + (curr.getDay() === 0 ? -6 : 1);
+                    const dayNum = curr.getDay() || 7; 
+                    const monday = new Date(curr.getTime());
+                    monday.setDate(curr.getDate() - dayNum + 1);
+                    monday.setHours(0,0,0,0);
+
                     for (let i = 0; i < 7; i++) {
-                        const dayDate = new Date(new Date().setDate(first + i));
+                        const d = new Date(monday.getTime());
+                        d.setDate(monday.getDate() + i);
                         this.weekDates.push({
                             name: days[i],
-                            dateLabel: dayDate.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' }),
-                            iso: dayDate.toISOString().split('T')[0]
+                            dateLabel: d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' }),
+                            iso: d.toISOString().split('T')[0]
                         });
                     }
                     this.weekRangeLabel = `${this.weekDates[0].dateLabel} - ${this.weekDates[6].dateLabel}`;
                 },
 
                 getCapacityValue(ae, dayIdx, defaultValue) {
-                    const key = `${ae}_${this.weekDates[dayIdx].iso}`;
+                    const key = `${ae.toUpperCase()}_${this.weekDates[dayIdx].iso}`;
                     return this.existingExceptions.hasOwnProperty(key) ? this.existingExceptions[key] : defaultValue;
                 },
 
                 hasException(ae, dayIdx) {
-                    const key = `${ae}_${this.weekDates[dayIdx].iso}`;
+                    const key = `${ae.toUpperCase()}_${this.weekDates[dayIdx].iso}`;
                     return this.existingExceptions.hasOwnProperty(key);
                 },
 
                 updateCapacity(aetitle, dayIdx, value) {
-                    this.changedData.push({ aetitle, date: this.weekDates[dayIdx].iso, value });
+                    this.changedData.push({ aetitle: aetitle.toUpperCase(), date: this.weekDates[dayIdx].iso, value });
                 },
 
                 openNoteModal(ae, dayIdx, currentMin) {
                     const day = this.weekDates[dayIdx];
-                    this.activeContext = { ae, date: day.iso, dateLabel: `${day.name} ${day.dateLabel}`, currentMin, note: '' };
+                    this.activeContext = { ae: ae.toUpperCase(), date: day.iso, dateLabel: `${day.name} ${day.dateLabel}`, currentMin, note: '' };
                     this.modalOpen = true;
                 },
 
@@ -221,9 +298,9 @@
                             reason: this.activeContext.note 
                         })
                     });
-                    if (res.ok) {
+                    if (res.ok) { 
                         this.existingExceptions[`${this.activeContext.ae}_${this.activeContext.date}`] = this.activeContext.currentMin;
-                        this.modalOpen = false;
+                        this.modalOpen = false; 
                     }
                 },
 
@@ -235,6 +312,26 @@
                         body: JSON.stringify({ updates: this.changedData })
                     });
                     if (res.ok) { location.reload(); }
+                },
+
+                // NEW: Procedure Data Update Handler
+                async updateProcData(code, duration, rvu, el) {
+                    el.classList.add('saving');
+                    try {
+                        const res = await fetch('/mapping/procedure/update', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ code, duration, rvu })
+                        });
+                        if (res.ok) {
+                            el.classList.remove('saving');
+                            el.classList.add('saved');
+                            setTimeout(() => el.classList.remove('saved'), 1500);
+                        }
+                    } catch (e) {
+                        alert("Failed to update procedure.");
+                        el.classList.remove('saving');
+                    }
                 }
             }
         }

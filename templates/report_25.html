@@ -2,196 +2,181 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>RAYD | Productivity & Efficiency Hub</title>
+    <title>RAYD PRO | v2.5 Executive</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
-        body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; height: 100vh; overflow: hidden; }
-        .input-dark { background: #1a211e; border: 1px solid #28332e; color: #e2e8f0; border-radius: 0.75rem; padding: 0.75rem; font-size: 11px; width: 100%; outline: none; }
-        .data-card { background: #232b28; border: 1px solid #28332e; border-radius: 1.5rem; overflow: hidden; }
-        .card-header { padding: 1.25rem 1.5rem; border-bottom: 1px solid #28332e; background: rgba(40, 51, 46, 0.1); font-size: 10px; font-weight: 900; color: #60a5fa; text-transform: uppercase; letter-spacing: 0.15em; }
-        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #28332e; border-radius: 10px; }
-        .proc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem; }
-        .hover-info { visibility: hidden; position: absolute; background: #000; color: #fff; padding: 12px; border-radius: 8px; z-index: 50; font-size: 10px; border: 1px solid #f59e0b; width: 200px; pointer-events: none; opacity: 0; transition: opacity 0.2s; right: 40px; }
-        .has-tooltip:hover .hover-info { visibility: visible; opacity: 1; }
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap');
+        body { background: #080a09; color: #d1d1d6; font-family: 'Plus Jakarta Sans', sans-serif; overflow: hidden; font-size: 14px; }
+        .glass-card { background: #111413; border: 1px solid rgba(255,255,255,0.08); border-radius: 1.5rem; padding: 24px; }
+        .tab-btn { font-size: 13px; font-weight: 800; text-transform: uppercase; color: #71717a; padding: 24px 0; border-bottom: 3px solid transparent; transition: 0.3s; cursor: pointer; }
+        .tab-btn.active { color: #3b82f6; border-bottom: 3px solid #3b82f6; }
+        .sidebar-label { font-size: 11px; font-weight: 800; color: #52525b; text-transform: uppercase; margin-bottom: 8px; display: block; }
+        .input-dark { background: #000; border: 1px solid #27272a; color: #fff; border-radius: 12px; padding: 12px; width: 100%; font-size: 13px; }
+        .select2-container--default .select2-selection--multiple { background: #000 !important; border: 1px solid #27272a !important; min-height: 45px !important; border-radius: 12px !important; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-thumb { background: #3b82f6; border-radius: 10px; }
     </style>
 </head>
-<body class="flex flex-col">
-    <header class="h-20 bg-[#232b28] border-b border-[#28332e] flex items-center px-10 justify-between shrink-0">
-        <div class="w-64"><img src="{{ url_for('static', filename='philips.jpg') }}" class="h-8 grayscale opacity-40"></div>
-        <div class="flex flex-col items-center">
-            <img src="{{ url_for('static', filename='RAYD.png') }}" class="h-12 opacity-90">
-            <div class="h-1 w-10 bg-[#60a5fa] mt-1 rounded-full"></div>
+<body class="flex h-screen">
+
+    <aside class="w-80 bg-[#111413] border-r border-white/5 p-8 flex flex-col">
+        <div class="mb-10">
+            <h1 class="text-2xl font-extrabold text-white tracking-tighter">RAYD <span class="text-blue-500 text-sm">PRO</span></h1>
+            <p class="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">v2.5 Intelligence</p>
         </div>
-        <div class="w-64 flex justify-end"><img src="{{ url_for('static', filename='intermedic.jpeg') }}" class="h-8 grayscale opacity-40"></div>
-    </header>
 
-    <div class="flex flex-1 overflow-hidden">
-        <aside class="w-80 bg-[#232b28] border-r border-[#28332e] flex flex-col p-6 overflow-y-auto">
-            <form method="POST" class="space-y-8">
-                <section>
-                    <label class="text-[10px] font-black text-[#60a5fa] uppercase mb-4 block tracking-widest">Temporal Analysis Window</label>
-                    <div class="space-y-3">
-                        <input type="date" name="start_date" class="input-dark" value="{{ display_start }}">
-                        <input type="date" name="end_date" class="input-dark" value="{{ display_end }}">
-                    </div>
-                </section>
-                <button type="submit" class="w-full py-4 bg-[#60a5fa] text-white font-black text-[11px] uppercase tracking-[0.2em] rounded-xl shadow-lg shadow-blue-500/20 hover:bg-blue-500 transition-all">Generate Analysis</button>
-            </form>
-        </aside>
+        <form id="mainForm" method="POST" class="space-y-6 flex-1 overflow-y-auto pr-2">
+            <input type="hidden" name="active_tab" id="active_tab_input" value="{{ active_tab }}">
 
-        <main class="flex-1 overflow-y-auto p-10 bg-[#181f1c] space-y-12 custom-scrollbar">
+            <div>
+                <label class="sidebar-label">Date Range</label>
+                <input type="date" name="start_date" value="{{ display_start }}" class="input-dark mb-2">
+                <input type="date" name="end_date" value="{{ display_end }}" class="input-dark">
+            </div>
+
+            <div>
+                <label class="sidebar-label">Patient Class</label>
+                <select name="patient_class" multiple class="select2-js w-full">
+                    {% for c in classes %}<option value="{{c}}">{{c}}</option>{% endfor %}
+                </select>
+                <label class="inline-flex items-center mt-2 cursor-pointer">
+                    <input type="checkbox" name="class_enabled" checked class="w-4 h-4 bg-black border-zinc-800 rounded text-blue-600">
+                    <span class="ml-2 text-[10px] font-black text-zinc-500 uppercase">Apply Filter</span>
+                </label>
+            </div>
+
+            <div class="pt-6 border-t border-white/5">
+                <label class="sidebar-label text-blue-500">Journey Audit (ID)</label>
+                <input type="text" name="patient_id" placeholder="Patient Fallback ID..." class="input-dark border-blue-900/30" value="{{ request.form.get('patient_id', '') }}">
+            </div>
+
+            <div class="flex flex-col gap-3 pt-4">
+                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-2xl font-black text-xs uppercase shadow-xl transition-all text-white">Update View</button>
+                <button type="submit" formaction="{{ url_for('report_25.export_report_25') }}" class="w-full bg-zinc-900 border border-white/10 py-3 rounded-2xl font-black text-xs uppercase text-zinc-400 hover:text-white transition-all">Download Excel</button>
+            </div>
+        </form>
+    </aside>
+
+    <main class="flex-1 flex flex-col">
+        <header class="h-20 border-b border-white/5 flex items-center justify-between px-10 bg-[#080a09]/95 backdrop-blur-xl z-10">
+            <nav class="flex space-x-12 h-full">
+                <div onclick="switchTab('ops')" class="tab-btn" id="btn-ops">Operations</div>
+                <div onclick="switchTab('infra')" class="tab-btn" id="btn-infra">Infrastructure</div>
+                <div onclick="switchTab('clinical')" class="tab-btn" id="btn-clinical">Radiologists</div>
+                <div onclick="switchTab('audit')" class="tab-btn text-blue-400" id="btn-audit">Audit Journey</div>
+            </nav>
+            <div class="flex gap-4">
+                <div class="px-6 py-2 bg-blue-500/10 border border-blue-500/20 rounded-xl text-center">
+                    <p class="text-[9px] font-black text-blue-500 uppercase">ER Avg</p>
+                    <p class="text-lg font-black text-white">{{ data.summary.er_wait if data else '0m' }}</p>
+                </div>
+            </div>
+        </header>
+
+        <div class="flex-1 overflow-y-auto p-10">
             {% if run_report %}
             
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div class="bg-blue-500/5 border border-blue-500/10 rounded-2xl p-6">
-                    <span class="text-[9px] font-black text-blue-400 uppercase tracking-widest block mb-1">Mean System Utilization</span>
-                    <h2 class="text-3xl font-black text-white">{{ data.summary.avg_util }}</h2>
+            <div id="tab-ops" class="tab-content hidden space-y-10">
+                <div class="grid grid-cols-2 gap-8">
+                    <div class="glass-card"><p class="text-xs font-black text-zinc-500 uppercase mb-6">TAT per Class</p><div id="chart-1" class="h-80"></div></div>
+                    <div class="glass-card"><p class="text-xs font-black text-zinc-500 uppercase mb-6">Hourly Arrivals</p><div id="chart-6" class="h-80"></div></div>
                 </div>
-                <div class="bg-emerald-500/5 border border-emerald-500/10 rounded-2xl p-6">
-                    <span class="text-[9px] font-black text-emerald-400 uppercase tracking-widest block mb-1">Scanner Active Time</span>
-                    <h2 class="text-3xl font-black text-white">{{ data.summary.active_time }}</h2>
-                </div>
-                <div class="bg-purple-500/5 border border-purple-500/10 rounded-2xl p-6">
-                    <span class="text-[9px] font-black text-purple-400 uppercase tracking-widest block mb-1">Studies Processed</span>
-                    <h2 class="text-3xl font-black text-white">{{ data.summary.total_exams }}</h2>
+                <div class="grid grid-cols-2 gap-8">
+                    <div class="glass-card"><p class="text-xs font-black text-zinc-500 uppercase mb-6">Modality Volume</p><div id="chart-5" class="h-80"></div></div>
+                    <div class="glass-card"><p class="text-xs font-black text-zinc-500 uppercase mb-6">Correlation Map</p><div id="chart-7" class="h-80"></div></div>
                 </div>
             </div>
 
-            <section class="space-y-6">
-                <div class="flex items-center gap-4">
-                    <h2 class="text-xs font-black text-slate-400 uppercase tracking-[0.3em]">TAT by Patient Class (Minutes)</h2>
-                    <div class="h-[1px] flex-1 bg-[#28332e]"></div>
-                </div>
-                <div class="data-card p-6 h-80">
-                    <div id="classTatChart" class="w-full h-full"></div>
-                </div>
-            </section>
-
-            <section class="space-y-6">
-                <div class="flex justify-between items-end">
-                    <h2 class="text-xs font-black text-slate-400 uppercase tracking-[0.3em]">Clinical Velocity</h2>
-                    <form method="POST" action="{{ url_for('report_25.export_report_25') }}">
-                        <input type="hidden" name="type" value="rads">
-                        <input type="hidden" name="start_date" value="{{ display_start }}">
-                        <input type="hidden" name="end_date" value="{{ display_end }}">
-                        <button class="text-[9px] font-black text-indigo-400 bg-indigo-400/10 px-3 py-1.5 rounded-lg border border-indigo-400/20">EXPORT PERFORMANCE</button>
-                    </form>
-                </div>
-                <div class="space-y-6">
-                    {% for rad in data.rad_cards %}
-                    <div class="data-card border-l-4 border-l-blue-500">
-                        <div class="card-header flex justify-between items-center py-3">
-                            <span class="text-sm font-bold text-white">{{ rad.name }}</span>
-                            <span class="bg-blue-500/20 text-blue-400 px-3 py-1 rounded text-[11px] font-black">{{ rad.overall_avg }}m AVG</span>
-                        </div>
-                        <div class="p-6">
-                            <div class="proc-grid">
-                                {% for mod in rad.modalities %}
-                                <div class="bg-[#1a211e] border border-[#28332e] rounded-xl p-4">
-                                    <div class="flex justify-between items-center mb-2">
-                                        <span class="text-[10px] font-black text-blue-400">{{ mod.name }}</span>
-                                        <span class="text-[10px] font-bold text-orange-400">{{ mod.avg_tat }}m</span>
-                                    </div>
-                                    <div class="space-y-1">
-                                        {% for proc in mod.procedures %}
-                                        <div class="flex justify-between text-[10px]">
-                                            <span class="text-slate-500 truncate mr-2">{{ proc.code }}</span>
-                                            <span class="text-slate-400">{{ proc.tat }}</span>
-                                        </div>
-                                        {% endfor %}
-                                    </div>
-                                </div>
-                                {% endfor %}
-                            </div>
-                        </div>
-                    </div>
-                    {% endfor %}
-                </div>
-            </section>
-
-            <section class="space-y-6 pb-12">
-                <div class="flex justify-between items-end">
-                    <h2 class="text-xs font-black text-slate-400 uppercase tracking-[0.3em]">Asset Optimization</h2>
-                    <form method="POST" action="{{ url_for('report_25.export_report_25') }}">
-                        <input type="hidden" name="type" value="usage">
-                        <input type="hidden" name="start_date" value="{{ display_start }}">
-                        <input type="hidden" name="end_date" value="{{ display_end }}">
-                        <button class="text-[9px] font-black text-emerald-400 bg-emerald-400/10 px-3 py-1.5 rounded-lg border border-emerald-400/20">EXPORT UTILIZATION</button>
-                    </form>
-                </div>
-                <div class="data-card overflow-hidden">
-                    <table class="w-full text-left">
-                        <thead class="bg-black/20 text-[10px] text-slate-500 uppercase font-black border-b border-[#28332e]">
-                            <tr>
-                                <th class="px-6 py-4">AETitle</th>
-                                <th class="px-6 py-4">Modality</th>
-                                <th class="px-6 py-4 text-center">Exams</th>
-                                <th class="px-6 py-4">Utilization %</th>
-                                <th class="px-6 py-4 text-center">Peak Delay</th>
-                            </tr>
+            <div id="tab-infra" class="tab-content hidden space-y-10">
+                <div class="glass-card !p-0 overflow-hidden">
+                    <p class="p-6 text-xs font-black text-zinc-500 uppercase">Device Utilization Matrix</p>
+                    <table class="w-full text-sm text-left border-t border-white/5">
+                        <thead class="bg-white/5 text-zinc-500 uppercase font-black text-[10px]">
+                            <tr><th class="p-4">Infrastructure</th>{% for d in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}<th class="p-4 text-center">{{d}}</th>{% endfor %}<th class="p-4 text-center">Avg</th></tr>
                         </thead>
-                        <tbody class="text-[11px] divide-y divide-[#28332e]">
-                            {% for row in data.usage_table %}
-                            <tr class="hover:bg-white/5 transition-colors">
-                                <td class="px-6 py-4 font-bold text-white">{{ row.aetitle }}</td>
-                                <td class="px-6 py-4 text-blue-400">{{ row.modality }}</td>
-                                <td class="px-6 py-4 text-center">{{ row.exam_count }}</td>
-                                <td class="px-6 py-4">
-                                    <div class="flex items-center gap-3">
-                                        <div class="w-24 bg-slate-800 h-1 rounded-full overflow-hidden">
-                                            <div class="bg-{{ row.util_color }} h-full" style="width: {{ row.util_pct }}%"></div>
-                                        </div>
-                                        <span class="font-black text-{{ row.util_color }}">{{ row.util_pct }}%</span>
-                                    </div>
-                                </td>
-                                <td class="px-6 py-4 text-center">
-                                    <div class="has-tooltip cursor-help inline-block">
-                                        <i class="bi bi-info-circle text-orange-400"></i>
-                                        <div class="hover-info text-left">
-                                            <p class="font-black text-orange-400 mb-2 uppercase border-b border-white/10 pb-1">Highest Delay Study</p>
-                                            <p>Patient: <span class="text-white">{{ row.worst_case_id }}</span></p>
-                                            <p>Procedure: <span class="text-white">{{ row.worst_proc }}</span></p>
-                                            <p>Wait Time: <span class="text-white">{{ row.worst_tat }}m</span></p>
-                                        </div>
-                                    </div>
-                                </td>
+                        <tbody>
+                            {% for row in data.matrix %}
+                            <tr class="border-b border-white/5 hover:bg-white/[0.02]">
+                                <td class="p-4 font-bold text-white">{{ row.ae }}</td>
+                                {% for day in row.days %}<td class="p-2 text-center"><span class="px-3 py-1 rounded-lg font-black {% if day.pct > 75 %}bg-rose-500/20 text-rose-400{% else %}bg-blue-500/20 text-blue-400{% endif %}">{{ day.pct }}%</span></td>{% endfor %}
+                                <td class="p-4 text-center font-black text-blue-400 bg-white/5">{{ row.avg }}%</td>
                             </tr>
                             {% endfor %}
                         </tbody>
                     </table>
                 </div>
-            </section>
+            </div>
+
+            <div id="tab-clinical" class="tab-content hidden grid grid-cols-2 gap-8">
+                {% for rad in data.rad_cards %}
+                <div class="glass-card border-t-4 border-blue-600">
+                    <div class="flex justify-between items-start mb-6">
+                        <h3 class="text-lg font-black text-white uppercase">{{ rad.name }}</h3>
+                        <div class="text-right"><span class="text-2xl font-black text-blue-500">{{ rad.overall }}m</span></div>
+                    </div>
+                    {% for loc in rad.drilldown %}
+                    <div class="bg-black/40 p-4 rounded-xl mb-3 border border-white/5">
+                        <p class="text-[10px] font-black text-zinc-500 uppercase mb-2">{{ loc.loc }}</p>
+                        <div class="grid grid-cols-1 gap-2">
+                            {% for m in loc.mods %}<div class="flex justify-between text-xs p-2 bg-white/5 rounded"><span class="text-zinc-400">{{ m.m }}</span><span class="font-bold text-white">{{ m.avg }}m ({{ m.count }} studies)</span></div>{% endfor %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endfor %}
+            </div>
+
+            <div id="tab-audit" class="tab-content hidden h-[750px]">
+                <div class="glass-card h-full">
+                    <p class="text-xs font-black text-blue-500 uppercase mb-6">Patient Journey Topology (True Entry Audit)</p>
+                    {% if journey_json %}<div id="chart-8" class="w-full h-full"></div>{% else %}<div class="h-full flex flex-col items-center justify-center opacity-20"><i class="bi bi-search text-5xl mb-4"></i><p class="font-bold">Awaiting Target Fallback ID</p></div>{% endif %}
+                </div>
+            </div>
 
             {% else %}
-            <div class="h-full flex flex-col items-center justify-center opacity-10">
-                <i class="bi bi-cpu-fill text-8xl mb-6"></i>
-                <p class="text-2xl font-black uppercase tracking-[0.5em]">Analytics Ready</p>
-            </div>
+            <div class="h-full flex flex-col items-center justify-center opacity-20"><i class="bi bi-cpu text-6xl mb-4"></i><h2 class="text-2xl font-black uppercase tracking-tighter">Engine Standby</h2></div>
             {% endif %}
-        </main>
-    </div>
+        </div>
+    </main>
 
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            const d = {{ data.class_tat | safe if data and data.class_tat else 'null' }};
-            if (d && d.labels.length > 0) {
-                echarts.init(document.getElementById('classTatChart')).setOption({
-                    backgroundColor: 'transparent',
-                    tooltip: { trigger: 'axis' },
-                    grid: { top: '10%', left: '3%', right: '4%', bottom: '10%', containLabel: true },
-                    xAxis: { type: 'category', data: d.labels, axisLabel: { color: '#94a3b8', fontSize: 10 } },
-                    yAxis: { type: 'value', splitLine: { lineStyle: { color: '#28332e' } }, axisLabel: { color: '#94a3b8' } },
-                    series: [{
-                        data: d.values, type: 'bar', barWidth: '40%',
-                        itemStyle: { color: new echarts.graphic.LinearGradient(0,0,0,1,[{offset:0,color:'#60a5fa'},{offset:1,color:'#3b82f6'}]), borderRadius: [4,4,0,0] }
-                    }]
-                });
-            }
+        $(document).ready(function() { 
+            $('.select2-js').select2(); 
+            switchTab('{{ active_tab }}'); 
         });
+
+        function switchTab(t) { 
+            $('.tab-content').addClass('hidden'); $(`#tab-${t}`).removeClass('hidden');
+            $('.tab-btn').removeClass('active'); $(`#btn-${t}`).addClass('active');
+            $('#active_tab_input').val(t);
+            initCharts(); 
+        }
+
+        function initCharts() {
+            const d = {{ data|tojson|safe if data else "{}" }};
+            const axis = { axisLabel: {color: '#52525b', fontWeight: 600, fontSize: 11}, splitLine: {lineStyle: {color: '#1f1f23'}} };
+            
+            if(document.getElementById('chart-1') && !$('#tab-ops').hasClass('hidden')) {
+                echarts.init(document.getElementById('chart-1')).setOption({ xAxis: {type: 'category', data: Object.keys(d.class_tat || {}), ...axis}, yAxis: {type: 'value', ...axis}, series: [{type: 'bar', data: Object.values(d.class_tat || {}), itemStyle: {color: '#3b82f6', borderRadius: [5,5,0,0]}, label: {show: true, position: 'top', color: '#fff'}}]});
+            }
+            if(document.getElementById('chart-6') && !$('#tab-ops').hasClass('hidden')) {
+                echarts.init(document.getElementById('chart-6')).setOption({ xAxis: {type: 'category', data: Object.keys(d.hourly_patterns || {}), ...axis}, yAxis: {type: 'value', ...axis}, series: [{type: 'line', smooth: true, data: Object.values(d.hourly_patterns || {}), lineStyle: {width: 4, color: '#3b82f6'}, areaStyle: {color: 'rgba(59,130,246,0.1)'}}]});
+            }
+            if(document.getElementById('chart-5') && !$('#tab-ops').hasClass('hidden')) {
+                echarts.init(document.getElementById('chart-5')).setOption({ tooltip: {trigger: 'item'}, series: [{type: 'pie', radius: ['40%', '70%'], data: d.modality_split || []}]});
+            }
+            if(document.getElementById('chart-7') && !$('#tab-ops').hasClass('hidden')) {
+                echarts.init(document.getElementById('chart-7')).setOption({ xAxis: axis, yAxis: axis, series: [{type: 'scatter', data: d.correlation || [], itemStyle: {color: '#3b82f6', opacity: 0.4}}]});
+            }
+            if(document.getElementById('chart-8') && !$('#tab-audit').hasClass('hidden')) {
+                echarts.init(document.getElementById('chart-8')).setOption({ series: [{type: 'tree', data: [{{ journey_json|safe if journey_json else "{}" }}], orient: 'LR', symbolSize: 10, label: {color: '#fff', fontWeight: 700, fontSize: 12}, lineStyle: {color: '#3b82f6', width: 2}}]});
+            }
+        }
     </script>
 </body>
 </html>
