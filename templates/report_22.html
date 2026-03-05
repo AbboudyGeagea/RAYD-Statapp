@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>RAYD | Flow Analytics</title>
+    <title>RAYD | Flow Analytics & Churn</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <style>
@@ -10,11 +10,12 @@
         body { background: #020617; color: #f8fafc; font-family: 'Inter', sans-serif; }
         .input-dark { background: #0f172a; border: 1px solid #1e293b; color: white; padding: 10px; border-radius: 6px; width: 100%; font-size: 11px; }
         .input-dark:disabled { opacity: 0.3; cursor: not-allowed; }
-        .card { background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; margin-bottom: 24px; transition: all 0.3s ease; }
+        .card { background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; margin-bottom: 24px; transition: all 0.3s ease; overflow: hidden; }
         .card:hover { border-color: #38ada9; }
         .card-header { padding: 14px 20px; border-bottom: 1px solid #1e293b; font-size: 10px; font-weight: 900; color: #38ada9; text-transform: uppercase; letter-spacing: 1px; }
         .tree-container { height: 600px; width: 100%; }
         .chart-container { height: 380px; width: 100%; padding: 20px; }
+        .risk-badge { font-size: 9px; font-weight: 900; padding: 2px 8px; border-radius: 4px; text-transform: uppercase; }
         label { font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase; margin-bottom: 4px; display: block; }
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 10px; }
@@ -67,6 +68,30 @@
 
     <main class="flex-1 p-10 overflow-y-auto bg-[#020617] space-y-8">
         {% if run_report %}
+        
+        <section class="space-y-4">
+            <h2 class="text-xs font-black text-rose-500 uppercase tracking-widest flex items-center gap-2">
+                <span class="w-2 h-2 bg-rose-500 rounded-full animate-pulse"></span> Physician Churn Alerts (Last 60 Days)
+            </h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                {% for doc in data.phys_churn %}
+                <div class="card !mb-0 border-l-4 border-l-rose-600 bg-rose-950/10 p-4">
+                    <div class="flex justify-between items-start">
+                        <p class="text-[11px] font-bold text-white truncate w-32">{{ doc.name }}</p>
+                        <span class="risk-badge bg-rose-500/20 text-rose-500">{{ doc.change }}%</span>
+                    </div>
+                    <div class="mt-2 flex items-baseline gap-2">
+                        <span class="text-xs text-slate-500 italic">Prev: {{ doc.prev }}</span>
+                        <span class="text-lg font-black text-white">➜ {{ doc.cur }}</span>
+                    </div>
+                </div>
+                {% endfor %}
+                {% if not data.phys_churn %}
+                <div class="col-span-4 p-4 text-center border border-dashed border-slate-800 rounded-xl text-slate-600 text-[10px] font-bold uppercase">No significant referral drops detected</div>
+                {% endif %}
+            </div>
+        </section>
+
         <div class="card">
             <div class="card-header">Modality ➜ AE Source ➜ Top 5 Procedures</div>
             <div id="tree_chart" class="tree-container"></div>
@@ -133,7 +158,7 @@
                 }]
             });
 
-            // 4. Physician Unique Patients (Emerald) - NEW
+            // 4. Physician Unique Patients (Emerald)
             echarts.init(document.getElementById('c_unique_phys')).setOption({
                 tooltip: { trigger: 'item', formatter: '{b}: {c} Patients' },
                 xAxis: { type: 'value', splitLine: { show: false }, axisLabel: { show: false } },

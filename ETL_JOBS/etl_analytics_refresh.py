@@ -20,7 +20,8 @@ from db import (
     ImageLocation, 
     ETLJobLog, 
     AETitleModalityMap,
-    get_etl_cutoff_date
+    get_etl_cutoff_date,
+    EtlDidbRawImage   # ✅ REQUIRED FOR CORRECT JOIN
 )
 
 logger = logging.getLogger("STORAGE_ANALYTICS")
@@ -28,21 +29,19 @@ logger = logging.getLogger("STORAGE_ANALYTICS")
 def refresh_storage_summary():
     """
     Cumulative Rollup: Recalculates storage from Go-Live to today.
-    Uses the additive logic: if images are added to old studies, 
+    Uses additive logic: if images are added to old studies, 
     the total goes UP, never down.
     """
     job_name = "STORAGE_CUMULATIVE_SYNC"
     start_time = datetime.now()
-    
-    # 1. Get the official start date
+
     go_live = get_etl_cutoff_date()
     if not go_live:
         print("❌ No Go-Live date found. Skipping.")
         return
 
     try:
-        # 2. THE QUERY: Aggregate everything since Go-Live
-        # This sums up the GB for every unique Date/AE/Modality combo
+        # ✅ FIXED QUERY (Correct Join Chain)
         raw_data_query = db.session.query(
             EtlDidbStudy.study_date,
             EtlDidbStudy.storing_ae,
@@ -51,27 +50,33 @@ def refresh_storage_summary():
             (func.sum(ImageLocation.image_size_kb) / 1024.0 / 1024.0).label('total_gb'),
             func.count(distinct(EtlDidbStudy.study_db_uid)).label('study_count')
         ).join(
-            ImageLocation, EtlDidbStudy.study_db_uid == ImageLocation.raw_images_db_uid
+            # Study → Raw Images (via study_instance_uid)
+            EtlDidbRawImage,
+            EtlDidbStudy.study_instance_uid.cast(text) == EtlDidbRawImage.study_instance_uid.cast(text)
+        ).join(
+            # Raw Images → Image Locations (via raw_image_db_uid)
+            ImageLocation,
+            EtlDidbRawImage.raw_image_db_uid.cast(text) == ImageLocation.raw_image_db_uid.cast(text)
         ).outerjoin(
-            AETitleModalityMap, EtlDidbStudy.storing_ae == AETitleModalityMap.aetitle
+            AETitleModalityMap,
+            EtlDidbStudy.storing_ae == AETitleModalityMap.aetitle
         ).filter(
             EtlDidbStudy.study_date >= go_live
         ).group_by(
-            EtlDidbStudy.study_date, 
-            EtlDidbStudy.storing_ae, 
-            text("modality"), 
+            EtlDidbStudy.study_date,
+            EtlDidbStudy.storing_ae,
+            text("modality"),
             EtlDidbStudy.procedure_code
         ).subquery()
 
-        # 3. THE UPSERT
+        # UPSERT
         stmt = insert(SummaryStorageDaily).from_select(
             ['study_date', 'storing_ae', 'modality', 'procedure_code', 'total_gb', 'study_count'],
             db.session.query(raw_data_query)
         )
 
-        # CRITICAL: This part prevents "New Row every ETL run"
         upsert_stmt = stmt.on_conflict_do_update(
-            constraint='_date_ae_mod_proc_uc', # Must exist in Postgres!
+            constraint='_date_ae_mod_proc_uc',
             set_={
                 'total_gb': stmt.excluded.total_gb,
                 'study_count': stmt.excluded.study_count
@@ -80,14 +85,14 @@ def refresh_storage_summary():
 
         db.session.execute(upsert_stmt)
         db.session.commit()
+
         print(f"✅ Storage Rollup successful from {go_live}")
 
     except Exception as e:
         db.session.rollback()
         print(f"❌ Storage Rollup Failed: {str(e)}")
-        
+
     finally:
-        # Logging to ETLJobLog
         try:
             duration = (datetime.now() - start_time).total_seconds()
             new_log = ETLJobLog(

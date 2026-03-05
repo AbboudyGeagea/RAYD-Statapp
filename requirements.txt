@@ -19,4 +19,4 @@ numpy==1.26.2
 # Utilities
 python-dotenv==1.0.0
 gunicorn==21.2.0
-curl=7.81.0
+

@@ -16,6 +16,7 @@
         .card-custom { background: white; border-radius: 1.5rem; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05); }
         .chart-container { position: relative; height: 300px; width: 100%; }
         .banner-integrated { background: white; border-bottom: 1px solid #e2e8f0; }
+        .status-pill { padding: 2px 8px; border-radius: 9999px; font-size: 9px; font-weight: 900; text-transform: uppercase; }
     </style>
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
@@ -51,17 +52,6 @@
                         Run Analysis
                     </button>
                 </form>
-
-                <div class="pt-6 px-2">
-                    <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-3">Data Export</p>
-                    <form method="POST" action="{{ url_for('report_29.export_report_29') }}">
-                        <input type="hidden" name="start_date" value="{{ display_start }}">
-                        <input type="hidden" name="end_date" value="{{ display_end }}">
-                        <button type="submit" class="w-full py-3 border-2 border-slate-100 text-slate-500 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition flex items-center justify-center gap-2">
-                            <i class="bi bi-download"></i> Export CSV
-                        </button>
-                    </form>
-                </div>
             </nav>
         </aside>
 
@@ -71,7 +61,7 @@
                 <div class="flex justify-between items-end">
                     <div>
                         <h2 class="text-3xl font-black text-slate-800 uppercase tracking-tighter leading-none">{{ report_name }}</h2>
-                        <p class="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] mt-2">Storage Intelligence Portal</p>
+                        <p class="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] mt-2">Target Capacity: 4.0 TB Standard</p>
                     </div>
                     <div class="text-right">
                         <span class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Total Archive Size</span>
@@ -80,16 +70,19 @@
                 </div>
 
                 {% if run_report %}
-                    {% if alerts %}
-                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {% for alert in alerts %}
-                        <div class="bg-white border-l-4 border-red-500 p-4 rounded-xl shadow-sm flex items-center gap-3">
-                            <i class="bi bi-exclamation-triangle-fill text-red-500"></i>
-                            <p class="text-[10px] font-black text-slate-600 uppercase tracking-tight">{{ alert.msg }}</p>
+                        <div class="bg-white border-l-4 border-red-500 p-5 rounded-xl shadow-sm flex items-center gap-4">
+                            <div class="h-10 w-10 bg-red-50 rounded-full flex items-center justify-center">
+                                <i class="bi bi-exclamation-octagon-fill text-red-500 text-xl"></i>
+                            </div>
+                            <div>
+                                <p class="text-[8px] font-black text-red-500 uppercase tracking-widest">Storage Alert</p>
+                                <p class="text-[11px] font-black text-slate-700 uppercase tracking-tight">{{ alert.msg }}</p>
+                            </div>
                         </div>
                         {% endfor %}
                     </div>
-                    {% endif %}
 
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
                         <div class="card-custom p-8">
@@ -98,39 +91,58 @@
                                 <canvas id="modalityChart"></canvas>
                             </div>
                         </div>
+                        
                         <div class="card-custom p-8">
-                            <h3 class="text-[10px] font-black text-slate-400 uppercase mb-6 tracking-widest">Top Procedures by Volume</h3>
+                            <div class="flex justify-between items-start mb-6">
+                                <h3 class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Technician Storage Hogs (Avg MB)</h3>
+                                <span class="text-[8px] font-bold bg-slate-100 px-2 py-1 rounded text-slate-500 uppercase">Threshold: 500MB</span>
+                            </div>
                             <div class="chart-container">
-                                <canvas id="procChart"></canvas>
+                                <canvas id="techChart"></canvas>
                             </div>
                         </div>
                     </div>
 
                     <div class="card-custom p-8">
-                        <h3 class="text-[11px] font-black text-slate-400 uppercase mb-6 tracking-widest">Storage Inventory Breakdown</h3>
+                        <h3 class="text-[11px] font-black text-slate-400 uppercase mb-6 tracking-widest">Protocol Density Inventory</h3>
                         <div class="overflow-x-auto">
                             <table class="w-full text-left">
                                 <thead class="border-b border-slate-200 text-xs font-black text-slate-600 uppercase tracking-wider">
                                     <tr>
-                                        <th class="pb-5 pr-4">Procedure</th>
+                                        <th class="pb-5 pr-4">Procedure / Tech</th>
                                         <th class="pb-5 pr-4">Modality</th>
                                         <th class="pb-5 text-right">Studies</th>
                                         <th class="pb-5 text-right">Avg Density (MB)</th>
-                                        <th class="pb-5 text-right">Total Size (GB)</th>
+                                        <th class="pb-5 text-right">Runway Impact</th>
+                                        <th class="pb-5 text-right">Total GB</th>
                                     </tr>
                                 </thead>
                                 <tbody class="text-xs font-bold text-slate-600">
                                     {% for row in table_data %}
                                     <tr class="border-b border-slate-50 hover:bg-slate-50/50 transition">
-                                        <td class="py-4 uppercase font-black text-slate-800">{{ row.procedure_code or 'UNKNOWN' }}</td>
                                         <td class="py-4">
-                                            <span class="px-2.5 py-1 bg-teal-50 text-teal-700 rounded text-[10px] font-black uppercase">
+                                            <p class="uppercase font-black text-slate-800">{{ row.procedure_code or 'UNKNOWN' }}</p>
+                                            <p class="text-[9px] text-slate-400 uppercase mt-0.5">Tech: {{ row.performing_technician or 'Unassigned' }}</p>
+                                        </td>
+                                        <td class="py-4">
+                                            <span class="px-2.5 py-1 bg-slate-100 text-slate-600 rounded text-[10px] font-black uppercase">
                                                 {{ row.modality }}
                                             </span>
                                         </td>
                                         <td class="py-4 text-right text-slate-500">{{ "{:,}".format(row.study_count) }}</td>
-                                        <td class="py-4 text-right {{ 'text-red-600 font-black' if (row.avg_mb_per_study or 0) > 500 }}">
-                                            {{ "{:,.1f}".format(row.avg_mb_per_study or 0) }}
+                                        <td class="py-4 text-right">
+                                            <span class="{% if row.avg_mb_per_study > 500 %}text-red-600 font-black{% elif row.avg_mb_per_study > 250 %}text-amber-600{% else %}text-emerald-600{% endif %}">
+                                                {{ "{:,.1f}".format(row.avg_mb_per_study or 0) }} MB
+                                            </span>
+                                        </td>
+                                        <td class="py-4 text-right">
+                                            {% if row.avg_mb_per_study > 500 %}
+                                                <span class="status-pill bg-red-100 text-red-600">Critical Hog</span>
+                                            {% elif row.avg_mb_per_study > 250 %}
+                                                <span class="status-pill bg-amber-100 text-amber-600">Warning</span>
+                                            {% else %}
+                                                <span class="status-pill bg-emerald-100 text-emerald-600">Optimized</span>
+                                            {% endif %}
                                         </td>
                                         <td class="py-4 text-right text-slate-900 font-black">{{ "{:,.2f}".format(row.total_gb) }}</td>
                                     </tr>
@@ -142,10 +154,10 @@
                 {% else %}
                     <div class="h-96 flex flex-col items-center justify-center text-center card-custom border-dashed border-2 border-slate-200">
                         <div class="bg-slate-50 p-6 rounded-full mb-4">
-                            <i class="bi bi-hdd-stack text-4xl text-slate-300"></i>
+                            <i class="bi bi-hdd-network text-4xl text-slate-300"></i>
                         </div>
-                        <p class="text-slate-400 font-black uppercase tracking-[0.2em] text-xs">Ready for Audit</p>
-                        <p class="text-slate-300 text-[10px] mt-2">Select a date range and click "Run Analysis" to start.</p>
+                        <p class="text-slate-400 font-black uppercase tracking-[0.2em] text-xs">Ready for Storage Audit</p>
+                        <p class="text-slate-300 text-[10px] mt-2">Standard Disk Size: 4TB (Hard-coded)</p>
                     </div>
                 {% endif %}
             </div>
@@ -162,17 +174,11 @@
         scales: {
             x: { 
                 grid: { display: false }, 
-                ticks: { 
-                    color: '#64748b', 
-                    font: { size: 11, weight: 'bold', family: "'Inter', sans-serif" } 
-                } 
+                ticks: { color: '#64748b', font: { size: 10, weight: 'bold' } } 
             },
             y: { 
                 grid: { display: false }, 
-                ticks: { 
-                    color: '#1e293b', 
-                    font: { size: 11, weight: 'bold', family: "'Inter', sans-serif" } 
-                } 
+                ticks: { color: '#1e293b', font: { size: 10, weight: 'bold' } } 
             }
         }
     };
@@ -183,9 +189,19 @@
         options: sharedOptions
     });
 
-    new Chart(document.getElementById('procChart'), {
+    // Tech Chart - Logic to highlight hogs in Red
+    const techData = {{ tech_bar_json | tojson if tech_bar_json else '{"labels":[], "datasets":[]}' }};
+    new Chart(document.getElementById('techChart'), {
         type: 'bar',
-        data: {{ proc_bar_json | tojson }},
+        data: {
+            labels: techData.labels,
+            datasets: [{
+                label: 'Avg MB',
+                data: techData.data,
+                backgroundColor: techData.data.map(v => v > 500 ? '#ef4444' : v > 250 ? '#f59e0b' : '#10b981'),
+                borderRadius: 4
+            }]
+        },
         options: sharedOptions
     });
     {% endif %}

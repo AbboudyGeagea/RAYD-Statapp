@@ -67,12 +67,12 @@ def report_22():
     if run_report:
         where, params = get_where_params(request.form)
 
-        # UPDATED BASE SQL: Added fallback_id for unique patient counting
         base_sql = """
             SELECT 
                 s.study_db_uid, s.procedure_code, s.study_date, s.storing_ae, s.study_description,
                 m.modality, s.study_status, s.patient_db_uid, p.sex, p.age_group,
-                s.patient_class, s.referring_physician_first_name, s.referring_physician_last_name, 
+                s.patient_class, 
+                COALESCE(NULLIF(TRIM(CONCAT_WS(' ', s.referring_physician_first_name, s.referring_physician_last_name)), ''), 'Unknown') as physician,
                 s.patient_location, p.fallback_id as patient_id
             FROM etl_didb_studies s
             LEFT JOIN aetitle_modality_map m ON s.storing_ae = m.aetitle
@@ -85,19 +85,41 @@ def report_22():
         res_status = db.session.execute(text(f"{cte} SELECT COALESCE(study_status, 'N/A'), COUNT(*) FROM base_data {where} GROUP BY 1"), params).fetchall()
         
         # 2. Top Physicians (Study Count)
-        res_phys = db.session.execute(text(f"""
-            {cte} 
-            SELECT COALESCE(NULLIF(TRIM(CONCAT_WS(' ', referring_physician_first_name, referring_physician_last_name)), ''), 'Unknown'), COUNT(*) 
-            FROM base_data {where} GROUP BY 1 ORDER BY 2 DESC LIMIT 10
-        """), params).fetchall()
+        res_phys = db.session.execute(text(f"{cte} SELECT physician, COUNT(*) FROM base_data {where} GROUP BY 1 ORDER BY 2 DESC LIMIT 10"), params).fetchall()
 
-        # 2b. NEW: Top Physicians (UNIQUE Patient Count)
-        res_phys_unique = db.session.execute(text(f"""
-            {cte} 
-            SELECT COALESCE(NULLIF(TRIM(CONCAT_WS(' ', referring_physician_first_name, referring_physician_last_name)), ''), 'Unknown'), COUNT(DISTINCT patient_id) 
-            FROM base_data {where} GROUP BY 1 ORDER BY 2 DESC LIMIT 10
-        """), params).fetchall()
+        # 2b. Top Physicians (UNIQUE Patient Count)
+        res_phys_unique = db.session.execute(text(f"{cte} SELECT physician, COUNT(DISTINCT patient_id) FROM base_data {where} GROUP BY 1 ORDER BY 2 DESC LIMIT 10"), params).fetchall()
         
+        # 2c. NEW: PHYSICIAN CHURN/TREND LOGIC
+        # This looks at the 60-day window to compare Last Month vs This Month
+        res_phys_trend = db.session.execute(text(f"""
+            {cte},
+            monthly_agg AS (
+                SELECT 
+                    physician,
+                    DATE_TRUNC('month', study_date) as month,
+                    COUNT(*) as vol
+                FROM base_data
+                WHERE study_date >= CURRENT_DATE - INTERVAL '60 days'
+                GROUP BY 1, 2
+            ),
+            comparison AS (
+                SELECT 
+                    physician,
+                    vol as current_vol,
+                    LAG(vol) OVER (PARTITION BY physician ORDER BY month) as prev_vol
+                FROM monthly_agg
+            )
+            SELECT 
+                physician, 
+                current_vol, 
+                prev_vol,
+                ROUND(((current_vol - prev_vol)::numeric / NULLIF(prev_vol, 0)) * 100, 1) as pct_change
+            FROM comparison
+            WHERE prev_vol IS NOT NULL AND current_vol < prev_vol
+            ORDER BY pct_change ASC LIMIT 10
+        """)).fetchall()
+
         # 3. Demographics
         res_demo = db.session.execute(text(f"{cte} SELECT COALESCE(age_group, 'Unknown'), COALESCE(sex, 'U'), COUNT(*) FROM base_data {where} GROUP BY 1, 2"), params).fetchall()
         
@@ -108,11 +130,7 @@ def report_22():
             age_map[age] = age_map.get(age, 0) + count
 
         # 4. Tree Flow Logic
-        res_flow = db.session.execute(text(f"""
-            {cte} 
-            SELECT COALESCE(modality, 'UNMAPPED'), COALESCE(storing_ae, 'Unknown AE'), COALESCE(study_description, 'No Description'), COUNT(*) 
-            FROM base_data {where} GROUP BY 1, 2, 3
-        """), params).fetchall()
+        res_flow = db.session.execute(text(f"{cte} SELECT COALESCE(modality, 'UNMAPPED'), COALESCE(storing_ae, 'Unknown AE'), COALESCE(study_description, 'No Description'), COUNT(*) FROM base_data {where} GROUP BY 1, 2, 3"), params).fetchall()
 
         total_vol = 0
         mod_map = {}
@@ -138,7 +156,8 @@ def report_22():
         data = {
             "stat_c": {r[0]: r[1] for r in res_status},
             "phys_c": {r[0]: r[1] for r in res_phys},
-            "phys_unique": {r[0]: r[1] for r in res_phys_unique}, # <--- NEW DATA OBJECT
+            "phys_unique": {r[0]: r[1] for r in res_phys_unique},
+            "phys_churn": [{"name": r[0], "cur": r[1], "prev": r[2], "change": r[3]} for r in res_phys_trend],
             "tree_data": [final_tree],
             "gender_data": [{"name": k, "value": v} for k, v in gender_counts.items() if v > 0],
             "age_labels": sorted(age_map.keys()),
@@ -146,6 +165,8 @@ def report_22():
         }
 
     return render_template("report_22.html", data=data, filters=filters, run_report=run_report, display_start=start_date, display_end=end_date, status_list=status_list, mod_list=mod_list, ae_list=ae_list)
+
+
 
 @report_22_bp.route("/report/22/export", methods=["POST"])
 @login_required

@@ -20,6 +20,8 @@
         .select2-container--default .select2-selection--multiple { background: #000 !important; border: 1px solid #27272a !important; min-height: 45px !important; border-radius: 12px !important; }
         ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-thumb { background: #3b82f6; border-radius: 10px; }
+        .util-badge { font-family: 'Monaco', monospace; transition: all 0.2s; }
+        .util-badge:hover { transform: scale(1.1); filter: brightness(1.2); }
     </style>
 </head>
 <body class="flex h-screen">
@@ -52,7 +54,7 @@
 
             <div class="pt-6 border-t border-white/5">
                 <label class="sidebar-label text-blue-500">Journey Audit (ID)</label>
-                <input type="text" name="patient_id" placeholder="Patient Fallback ID..." class="input-dark border-blue-900/30" value="{{ request.form.get('patient_id', '') }}">
+                <input type="text" name="fallback_id" placeholder="Patient Fallback ID..." class="input-dark border-blue-900/30" value="{{ request.form.get('fallback_id', '') }}">
             </div>
 
             <div class="flex flex-col gap-3 pt-4">
@@ -70,11 +72,24 @@
                 <div onclick="switchTab('clinical')" class="tab-btn" id="btn-clinical">Radiologists</div>
                 <div onclick="switchTab('audit')" class="tab-btn text-blue-400" id="btn-audit">Audit Journey</div>
             </nav>
-            <div class="flex gap-4">
+            
+            <div class="flex gap-3">
+                {% if data %}
+                <div class="flex gap-2 border-r border-white/10 pr-4">
+                    <div class="px-4 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
+                        <p class="text-[8px] font-black text-emerald-500 uppercase">Global Util</p>
+                        <p class="text-md font-black text-white">{{ data.summary.global_util }}</p>
+                    </div>
+                    <div class="px-4 py-2 bg-amber-500/10 border border-amber-500/20 rounded-xl">
+                        <p class="text-[8px] font-black text-amber-500 uppercase">Total RVU</p>
+                        <p class="text-md font-black text-white">{{ data.summary.total_rvu }}</p>
+                    </div>
+                </div>
                 <div class="px-6 py-2 bg-blue-500/10 border border-blue-500/20 rounded-xl text-center">
                     <p class="text-[9px] font-black text-blue-500 uppercase">ER Avg</p>
-                    <p class="text-lg font-black text-white">{{ data.summary.er_wait if data else '0m' }}</p>
+                    <p class="text-lg font-black text-white">{{ data.summary.er_wait }}</p>
                 </div>
+                {% endif %}
             </div>
         </header>
 
@@ -82,6 +97,24 @@
             {% if run_report %}
             
             <div id="tab-ops" class="tab-content hidden space-y-10">
+                <div class="grid grid-cols-4 gap-6 mb-10">
+                    <div class="glass-card flex flex-col items-center">
+                        <p class="text-[10px] font-black text-zinc-500 uppercase mb-2">Total Studies</p>
+                        <p class="text-3xl font-black text-white">{{ data.summary.total }}</p>
+                    </div>
+                    <div class="glass-card flex flex-col items-center">
+                        <p class="text-[10px] font-black text-zinc-500 uppercase mb-2">Active Scan Time</p>
+                        <p class="text-3xl font-black text-white">{{ data.summary.work_hours }}h</p>
+                    </div>
+                    <div class="glass-card flex flex-col items-center">
+                        <p class="text-[10px] font-black text-zinc-500 uppercase mb-2">High Stress</p>
+                        <p class="text-3xl font-black text-rose-500">{{ data.summary.high_stress_count }}</p>
+                    </div>
+                    <div class="glass-card flex flex-col items-center border border-amber-500/20">
+                        <p class="text-[10px] font-black text-amber-500 uppercase mb-2">Revenue Capture</p>
+                        <p class="text-3xl font-black text-white">{{ data.summary.total_rvu }}</p>
+                    </div>
+                </div>
                 <div class="grid grid-cols-2 gap-8">
                     <div class="glass-card"><p class="text-xs font-black text-zinc-500 uppercase mb-6">TAT per Class</p><div id="chart-1" class="h-80"></div></div>
                     <div class="glass-card"><p class="text-xs font-black text-zinc-500 uppercase mb-6">Hourly Arrivals</p><div id="chart-6" class="h-80"></div></div>
@@ -94,17 +127,38 @@
 
             <div id="tab-infra" class="tab-content hidden space-y-10">
                 <div class="glass-card !p-0 overflow-hidden">
-                    <p class="p-6 text-xs font-black text-zinc-500 uppercase">Device Utilization Matrix</p>
+                    <p class="p-6 text-xs font-black text-zinc-500 uppercase">Device Utilization & Revenue Matrix</p>
                     <table class="w-full text-sm text-left border-t border-white/5">
                         <thead class="bg-white/5 text-zinc-500 uppercase font-black text-[10px]">
-                            <tr><th class="p-4">Infrastructure</th>{% for d in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}<th class="p-4 text-center">{{d}}</th>{% endfor %}<th class="p-4 text-center">Avg</th></tr>
+                            <tr>
+                                <th class="p-4">Infrastructure (AE)</th>
+                                {% for d in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}<th class="p-4 text-center">{{d}}</th>{% endfor %}
+                                <th class="p-4 text-center">Avg Util</th>
+                                <th class="p-4 text-center text-amber-500">Device RVU</th>
+                            </tr>
                         </thead>
                         <tbody>
                             {% for row in data.matrix %}
                             <tr class="border-b border-white/5 hover:bg-white/[0.02]">
                                 <td class="p-4 font-bold text-white">{{ row.ae }}</td>
-                                {% for day in row.days %}<td class="p-2 text-center"><span class="px-3 py-1 rounded-lg font-black {% if day.pct > 75 %}bg-rose-500/20 text-rose-400{% else %}bg-blue-500/20 text-blue-400{% endif %}">{{ day.pct }}%</span></td>{% endfor %}
-                                <td class="p-4 text-center font-black text-blue-400 bg-white/5">{{ row.avg }}%</td>
+                                {% for day in row.days %}
+                                <td class="p-2 text-center">
+                                    <span class="util-badge px-3 py-1 rounded-lg font-black text-[11px] 
+                                        {% if day.pct > 85 %}bg-rose-500/20 text-rose-400 border border-rose-500/30
+                                        {% elif day.pct > 30 %}bg-emerald-500/20 text-emerald-400 border border-emerald-500/30
+                                        {% elif day.pct > 0 %}bg-amber-500/10 text-amber-500/60
+                                        {% else %}bg-zinc-900 text-zinc-700{% endif %}">
+                                        {{ day.pct }}%
+                                    </span>
+                                </td>
+                                {% endfor %}
+                                <td class="p-4 text-center font-black bg-white/5 
+                                    {% if row.avg > 85 %}text-rose-400{% elif row.avg > 30 %}text-blue-400{% else %}text-zinc-500{% endif %}">
+                                    {{ row.avg }}%
+                                </td>
+                                <td class="p-4 text-center font-mono text-amber-500 bg-white/[0.02] border-l border-white/5">
+                                    {{ row.total_rvu }}
+                                </td>
                             </tr>
                             {% endfor %}
                         </tbody>
@@ -116,14 +170,33 @@
                 {% for rad in data.rad_cards %}
                 <div class="glass-card border-t-4 border-blue-600">
                     <div class="flex justify-between items-start mb-6">
-                        <h3 class="text-lg font-black text-white uppercase">{{ rad.name }}</h3>
-                        <div class="text-right"><span class="text-2xl font-black text-blue-500">{{ rad.overall }}m</span></div>
+                        <div>
+                            <h3 class="text-lg font-black text-white uppercase">{{ rad.name }}</h3>
+                            <span class="text-[10px] font-bold text-amber-500 px-2 py-0.5 bg-amber-500/10 rounded-full">
+                                Total RVU: {{ rad.total_rvu }}
+                            </span>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-[10px] font-black text-zinc-500 uppercase">Avg TAT</p>
+                            <span class="text-2xl font-black text-blue-500">{{ rad.overall }}m</span>
+                        </div>
                     </div>
                     {% for loc in rad.drilldown %}
                     <div class="bg-black/40 p-4 rounded-xl mb-3 border border-white/5">
-                        <p class="text-[10px] font-black text-zinc-500 uppercase mb-2">{{ loc.loc }}</p>
+                        <div class="flex justify-between items-center mb-2">
+                            <p class="text-[10px] font-black text-zinc-500 uppercase">{{ loc.loc }}</p>
+                            <p class="text-[10px] font-bold text-amber-500/70">{{ loc.loc_rvu }} RVU</p>
+                        </div>
                         <div class="grid grid-cols-1 gap-2">
-                            {% for m in loc.mods %}<div class="flex justify-between text-xs p-2 bg-white/5 rounded"><span class="text-zinc-400">{{ m.m }}</span><span class="font-bold text-white">{{ m.avg }}m ({{ m.count }} studies)</span></div>{% endfor %}
+                            {% for m in loc.mods %}
+                            <div class="flex justify-between items-center text-xs p-2 bg-white/5 rounded">
+                                <span class="text-zinc-400">{{ m.m }}</span>
+                                <div class="flex gap-4 items-center">
+                                    <span class="text-amber-500/80 font-mono text-[10px]">{{ m.rvu }} RVU</span>
+                                    <span class="font-bold text-white">{{ m.avg }}m ({{ m.count }})</span>
+                                </div>
+                            </div>
+                            {% endfor %}
                         </div>
                     </div>
                     {% endfor %}
