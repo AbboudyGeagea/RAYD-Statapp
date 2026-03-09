@@ -26,10 +26,10 @@ services:
     restart: always
     # No "ports" section here; Nginx talks to it internally on 8080
     environment:
-      - TZ=America/New_York
+      - TZ=Asia/Beirut
       - POSTGRES_USER=etl_user
-      - POSTGRES_PASSWORD=$ecureC3ynbabe
-      - POSTGRES_HOST=db
+      - POSTGRES_PASSWORD=SecureCrynBabe
+      - POSTGRES_HOST=etl_db
       - POSTGRES_PORT=5432
       - POSTGRES_DB=etl_db
       - SECRET_KEY=P@ssw0rd123!
@@ -49,7 +49,7 @@ services:
     restart: always
     environment:
       - POSTGRES_USER=etl_user
-      - POSTGRES_PASSWORD=$ecureC3ynbabe
+      - POSTGRES_PASSWORD=SecureCrynBabe
       - POSTGRES_DB=etl_db
     volumes:
       - postgres_data:/var/lib/postgresql/data

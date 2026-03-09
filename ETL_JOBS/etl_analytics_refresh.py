@@ -1,113 +1,153 @@
+"""
+etl_storage_summary.py
+────────────────────────────────────────────────────────────────────────────
+Phase 4 of the ETL pipeline.
+Aggregates per-image file sizes into summary_storage_daily after each sync.
+
+Join chain:
+  etl_didb_studies
+    → etl_didb_raw_images  (on study_instance_uid)
+    → etl_image_locations  (on raw_image_db_uid)   ← file_size_kb lives here
+    ⇢ aetitle_modality_map (outerjoin, for modality label)
+
+Called from etl_runner.py as the final phase.
+Can also be run standalone: python etl_storage_summary.py
+"""
+
 import os
 import sys
 import logging
 from datetime import datetime
+
 from sqlalchemy import text, func, distinct
 from sqlalchemy.dialects.postgresql import insert
 
-# PATH INJECTION
+# ── Path injection (needed when run standalone) ───────────────────────────
 current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(current_dir)
-if parent_dir not in sys.path:
-    sys.path.append(parent_dir)
-if current_dir not in sys.path:
-    sys.path.append(current_dir)
+parent_dir  = os.path.dirname(current_dir)
+for p in (parent_dir, current_dir):
+    if p not in sys.path:
+        sys.path.append(p)
 
 from db import (
-    db, 
-    SummaryStorageDaily, 
-    EtlDidbStudy, 
-    ImageLocation, 
-    ETLJobLog, 
+    db,
+    SummaryStorageDaily,
+    EtlDidbStudy,
+    etl_didb_raw_images,
+    etl_image_locations,
+    ETLJobLog,
     AETitleModalityMap,
     get_etl_cutoff_date,
-    EtlDidbRawImage   # ✅ REQUIRED FOR CORRECT JOIN
 )
 
 logger = logging.getLogger("STORAGE_ANALYTICS")
 
+
 def refresh_storage_summary():
     """
-    Cumulative Rollup: Recalculates storage from Go-Live to today.
-    Uses additive logic: if images are added to old studies, 
-    the total goes UP, never down.
+    Cumulative rollup: recalculates storage from go-live to today.
+    Upserts into summary_storage_daily — existing rows are overwritten
+    so that newly arrived images on old study dates are captured.
     """
-    job_name = "STORAGE_CUMULATIVE_SYNC"
+    job_name   = "STORAGE_CUMULATIVE_SYNC"
     start_time = datetime.now()
+    success    = False
 
     go_live = get_etl_cutoff_date()
     if not go_live:
-        print("❌ No Go-Live date found. Skipping.")
+        logger.error("❌ [Storage Summary] No go-live date found — skipping.")
         return
 
+    logger.info(f"📦 [Storage Summary] Rolling up storage from {go_live} ...")
+
     try:
-        # ✅ FIXED QUERY (Correct Join Chain)
-        raw_data_query = db.session.query(
-            EtlDidbStudy.study_date,
-            EtlDidbStudy.storing_ae,
-            func.coalesce(AETitleModalityMap.modality, 'UNKNOWN').label('modality'),
-            EtlDidbStudy.procedure_code,
-            (func.sum(ImageLocation.image_size_kb) / 1024.0 / 1024.0).label('total_gb'),
-            func.count(distinct(EtlDidbStudy.study_db_uid)).label('study_count')
-        ).join(
-            # Study → Raw Images (via study_instance_uid)
-            EtlDidbRawImage,
-            EtlDidbStudy.study_instance_uid.cast(text) == EtlDidbRawImage.study_instance_uid.cast(text)
-        ).join(
-            # Raw Images → Image Locations (via raw_image_db_uid)
-            ImageLocation,
-            EtlDidbRawImage.raw_image_db_uid.cast(text) == ImageLocation.raw_image_db_uid.cast(text)
-        ).outerjoin(
-            AETitleModalityMap,
-            EtlDidbStudy.storing_ae == AETitleModalityMap.aetitle
-        ).filter(
-            EtlDidbStudy.study_date >= go_live
-        ).group_by(
-            EtlDidbStudy.study_date,
-            EtlDidbStudy.storing_ae,
-            text("modality"),
-            EtlDidbStudy.procedure_code
-        ).subquery()
-
-        # UPSERT
-        stmt = insert(SummaryStorageDaily).from_select(
-            ['study_date', 'storing_ae', 'modality', 'procedure_code', 'total_gb', 'study_count'],
-            db.session.query(raw_data_query)
+        # ── Core aggregation query ────────────────────────────────────────
+        # NOTE: file_size_kb is on ImageLocation (the physical file record),
+        #       not on EtlDidbRawImage (the DICOM object record).
+        #       If your schema differs, swap the column source and re-test.
+        agg_query = (
+            db.session.query(
+                EtlDidbStudy.study_date,
+                EtlDidbStudy.storing_ae,
+                func.coalesce(
+                    AETitleModalityMap.modality, "UNKNOWN"
+                ).label("modality"),
+                EtlDidbStudy.procedure_code,
+                # KB → GB  (1 GB = 1,048,576 KB)
+                func.round(
+                    func.coalesce(func.sum(ImageLocation.image_size_kb), 0)
+                    / 1_048_576.0,
+                    4,
+                ).label("total_gb"),
+                func.count(
+                    distinct(EtlDidbStudy.study_db_uid)
+                ).label("study_count"),
+            )
+            .join(
+                EtlDidbRawImage,
+                EtlDidbStudy.study_instance_uid == EtlDidbRawImage.study_instance_uid,
+            )
+            .join(
+                ImageLocation,
+                EtlDidbRawImage.raw_image_db_uid == ImageLocation.raw_image_db_uid,
+            )
+            .outerjoin(
+                AETitleModalityMap,
+                func.upper(func.trim(EtlDidbStudy.storing_ae))
+                == func.upper(func.trim(AETitleModalityMap.aetitle)),
+            )
+            .filter(EtlDidbStudy.study_date >= go_live)
+            .group_by(
+                EtlDidbStudy.study_date,
+                EtlDidbStudy.storing_ae,
+                # Reference the coalesce label by position to avoid repeating it
+                text("3"),
+                EtlDidbStudy.procedure_code,
+            )
         )
 
-        upsert_stmt = stmt.on_conflict_do_update(
-            constraint='_date_ae_mod_proc_uc',
+        # ── UPSERT into summary_storage_daily ─────────────────────────────
+        insert_stmt = insert(SummaryStorageDaily).from_select(
+            ["study_date", "storing_ae", "modality", "procedure_code",
+             "total_gb", "study_count"],
+            agg_query,
+        )
+        upsert_stmt = insert_stmt.on_conflict_do_update(
+            constraint="_date_ae_mod_proc_uc",
             set_={
-                'total_gb': stmt.excluded.total_gb,
-                'study_count': stmt.excluded.study_count
-            }
+                "total_gb":    insert_stmt.excluded.total_gb,
+                "study_count": insert_stmt.excluded.study_count,
+            },
         )
 
-        db.session.execute(upsert_stmt)
+        result  = db.session.execute(upsert_stmt)
         db.session.commit()
+        success = True
 
-        print(f"✅ Storage Rollup successful from {go_live}")
+        logger.info(f"✅ [Storage Summary] Done — {result.rowcount} rows upserted (go-live: {go_live}).")
 
     except Exception as e:
         db.session.rollback()
-        print(f"❌ Storage Rollup Failed: {str(e)}")
+        logger.error(f"🛑 [Storage Summary] Failed: {e}", exc_info=True)
 
     finally:
+        # ── Write ETL job log ─────────────────────────────────────────────
         try:
-            duration = (datetime.now() - start_time).total_seconds()
-            new_log = ETLJobLog(
-                job_name=job_name,
-                status="SUCCESS" if 'upsert_stmt' in locals() else "FAILED",
-                start_time=start_time,
-                end_time=datetime.now(),
-                duration_seconds=round(duration, 2),
-                error_message=None
-            )
-            db.session.add(new_log)
+            duration = round((datetime.now() - start_time).total_seconds(), 2)
+            db.session.add(ETLJobLog(
+                job_name         = job_name,
+                status           = "SUCCESS" if success else "FAILED",
+                start_time       = start_time,
+                end_time         = datetime.now(),
+                duration_seconds = duration,
+                error_message    = None,
+            ))
             db.session.commit()
         except Exception as log_e:
-            print(f"Log Error: {log_e}")
+            logger.error(f"[Storage Summary] Log write failed: {log_e}")
 
+
+# ── Standalone entry point ────────────────────────────────────────────────
 if __name__ == "__main__":
     from app import create_app
     app = create_app()

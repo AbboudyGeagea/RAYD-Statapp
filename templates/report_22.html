@@ -13,6 +13,7 @@
         .card { background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; margin-bottom: 24px; transition: all 0.3s ease; overflow: hidden; }
         .card:hover { border-color: #38ada9; }
         .card-header { padding: 14px 20px; border-bottom: 1px solid #1e293b; font-size: 10px; font-weight: 900; color: #38ada9; text-transform: uppercase; letter-spacing: 1px; }
+        .card-desc { padding: 8px 20px; font-size: 10px; color: #475569; font-style: italic; border-bottom: 1px solid #0f172a; background: #080f1e; }
         .tree-container { height: 600px; width: 100%; }
         .chart-container { height: 380px; width: 100%; padding: 20px; }
         .risk-badge { font-size: 9px; font-weight: 900; padding: 2px 8px; border-radius: 4px; text-transform: uppercase; }
@@ -69,10 +70,14 @@
     <main class="flex-1 p-10 overflow-y-auto bg-[#020617] space-y-8">
         {% if run_report %}
         
+        <!-- Physician Churn Alerts -->
         <section class="space-y-4">
             <h2 class="text-xs font-black text-rose-500 uppercase tracking-widest flex items-center gap-2">
                 <span class="w-2 h-2 bg-rose-500 rounded-full animate-pulse"></span> Physician Churn Alerts (Last 60 Days)
             </h2>
+            <p class="text-[10px] text-slate-500 italic -mt-2">
+                Physicians whose referral volume dropped month-over-month in the last 60 days. Each card shows their current month count vs. previous month, with the percentage decline. Only physicians with a confirmed drop are listed.
+            </p>
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 {% for doc in data.phys_churn %}
                 <div class="card !mb-0 border-l-4 border-l-rose-600 bg-rose-950/10 p-4">
@@ -92,27 +97,58 @@
             </div>
         </section>
 
+        <!-- Tree Flow -->
         <div class="card">
             <div class="card-header">Modality ➜ AE Source ➜ Top 5 Procedures</div>
+            <div class="card-desc">
+                A hierarchical breakdown of study volume across the selected period. Starting from total studies, it branches by imaging modality (CT, MR, US…), then by the DICOM AE title that received the study, and finally shows the top 5 procedure descriptions per AE. Node sizes reflect study count.
+            </div>
             <div id="tree_chart" class="tree-container"></div>
         </div>
 
+        <!-- Physician charts -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div class="card">
                 <div class="card-header">Top Referring Physicians (Study Volume)</div>
+                <div class="card-desc">
+                    The 10 physicians who referred the highest total number of studies in the selected period. A single physician may refer the same patient multiple times — this chart counts studies, not patients.
+                </div>
                 <div id="c3" class="chart-container"></div>
             </div>
             <div class="card">
                 <div class="card-header text-emerald-400">Physician Loyalty (Unique Patient Count)</div>
+                <div class="card-desc">
+                    The 10 physicians with the broadest patient reach — ranked by the number of distinct patients they referred. A high unique count relative to study volume indicates the physician refers many different patients rather than repeat visits.
+                </div>
                 <div id="c_unique_phys" class="chart-container"></div>
             </div>
         </div>
 
+        <!-- Demographics row -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div class="card"><div class="card-header">Case Status Distribution</div><div id="c2" class="chart-container"></div></div>
-            <div class="card"><div class="card-header">Gender (Rose)</div><div id="c_gender" class="chart-container"></div></div>
-            <div class="card"><div class="card-header">Age Group (Wave)</div><div id="c_age" class="chart-container"></div></div>
+            <div class="card">
+                <div class="card-header">Case Status Distribution</div>
+                <div class="card-desc">
+                    Count of studies grouped by their current DICOM study status (e.g. Read, Unread, Dictated). Helps identify backlogs or workflow bottlenecks.
+                </div>
+                <div id="c2" class="chart-container"></div>
+            </div>
+            <div class="card">
+                <div class="card-header">Gender (Rose)</div>
+                <div class="card-desc">
+                    Proportion of studies by patient gender (M / F / Unknown) in the selected period. Rose chart segments are sized by study count.
+                </div>
+                <div id="c_gender" class="chart-container"></div>
+            </div>
+            <div class="card">
+                <div class="card-header">Age Group (Wave)</div>
+                <div class="card-desc">
+                    Distribution of studies across patient age groups. Each point on the wave represents the total study count for that age band, helping identify the most active patient demographics.
+                </div>
+                <div id="c_age" class="chart-container"></div>
+            </div>
         </div>
+
         {% else %}
         <div class="h-full flex items-center justify-center text-slate-900 font-black text-7xl uppercase tracking-tighter opacity-20">Enter Filter Criteria</div>
         {% endif %}

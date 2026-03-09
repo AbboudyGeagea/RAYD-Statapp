@@ -1,6 +1,11 @@
+import sys
 import os
 import logging
+import oracledb
 from datetime import date, datetime
+from hl7_listener import start_mllp_listener
+# 1. ORACLE ALIAS (Must be before other imports)
+sys.modules["cx_Oracle"] = oracledb
 
 from flask import (
     Flask, request, redirect, url_for,
@@ -12,17 +17,16 @@ from flask_login import (
 )
 
 from dotenv import load_dotenv
-import psycopg2
 from sqlalchemy.sql import text
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+import pytz
 
 # ---------------------------------------------------------
-# LOAD ENV
+# LOAD ENV & PROJECT MODULES
 # ---------------------------------------------------------
 load_dotenv()
 
-# ---------------------------------------------------------
-# IMPORT PROJECT MODULES
-# ---------------------------------------------------------
 from db import (
     db,
     init_db,
@@ -32,85 +36,49 @@ from db import (
     ReportAccessControl,
     GoLiveDate
 )
-
 from routes.registry import register_blueprints
-
-# ---------------------------------------------------------
-# CONFIG
-# ---------------------------------------------------------
-class Config:
-    SECRET_KEY = os.environ.get('SECRET_KEY', 'P@ssw0rd123!')
-    SQLALCHEMY_TRACK_MODIFICATIONS = False
-    LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
-    LOG_FILE = os.environ.get('LOG_FILE', 'application.log')
-    SQLALCHEMY_DATABASE_URI = ""  # loaded dynamically
-
-
-# ---------------------------------------------------------
-# DB URI LOADER
-# ---------------------------------------------------------
-def get_db_uri_from_db():
-    user = os.environ.get('POSTGRES_USER', 'etl_user')
-    password = os.environ.get('POSTGRES_PASSWORD', '$ecureC3ynbabe')
-    host = os.environ.get('POSTGRES_HOST', 'localhost')
-    port = os.environ.get('POSTGRES_PORT', '5432')
-    dbname = os.environ.get('POSTGRES_DB', 'etl_db')
-
-    fallback_dsn = f"host={host} dbname={dbname} user={user} password={password} port={port}"
-    fallback_uri = f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{dbname}"
-
-    try:
-        with psycopg2.connect(fallback_dsn) as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT conn_string
-                    FROM db_params
-                    WHERE name = %s AND db_type = %s
-                    LIMIT 1
-                """, ('etl_db', 'postgres'))
-                row = cur.fetchone()
-                if row and row[0]:
-                    return row[0]
-    except Exception:
-        pass
-
-    return fallback_uri
-
 
 # ---------------------------------------------------------
 # CREATE APP
 # ---------------------------------------------------------
 def create_app():
     app = Flask(__name__)
-    app.config.from_object(Config)
+    app.secret_key = os.getenv("SECRET_KEY", "P@ssw0rd123!")
 
-    # 1. Initialize Database
-    app.config['SQLALCHEMY_DATABASE_URI'] = get_db_uri_from_db()
+    # --- DB CONFIG ---
+    user = os.environ.get('POSTGRES_USER', 'etl_user')
+    password = os.environ.get('POSTGRES_PASSWORD', 'Rayd_Secure_2026')
+    host = os.environ.get('POSTGRES_HOST', 'localhost')
+    port = os.environ.get('POSTGRES_PORT', '5432')
+    dbname = os.environ.get('POSTGRES_DB', 'etl_db')
+
+    app.config['SQLALCHEMY_DATABASE_URI'] = f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{dbname}"
+    app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+    
     init_db(app)
 
-    # 2. Login Manager
+    # --- LOGIN MANAGER ---
     login_manager = LoginManager()
     login_manager.login_view = 'auth.login'
     login_manager.init_app(app)
 
     @login_manager.user_loader
     def load_user(user_id):
-        return User.query.get(int(user_id))
+        return db.session.get(User, int(user_id))
 
-    # 3. Register Blueprints
+    # --- ROUTES ---
     register_blueprints(app)
 
-    # 4. Session Validation & Auth Checks
+    # --- AUTH CHECKS ---
     @app.before_request
     def check_auth():
         if request.path.startswith('/static/') or (request.endpoint and (request.endpoint.startswith('auth.') or request.endpoint == 'static')):
             return
-
         if not current_user.is_authenticated:
             if request.endpoint != 'auth.login':
                 return redirect(url_for('auth.login'))
 
-    # 5. Root Redirect Logic
+    # --- ROOT REDIRECT ---
     @app.route('/')
     def index():
         if not current_user.is_authenticated:
@@ -119,19 +87,45 @@ def create_app():
             return redirect(url_for('admin.admin_dashboard'))
         return redirect(url_for('viewer.viewer_dashboard'))
 
-    # 6. Start ETL Scheduler (Imported locally to avoid circular dependency)
-    # This starts the 5 AM job within the Docker container process
-    try:
-        from etl_processor import start_etl_scheduler
-        start_etl_scheduler(app)
-    except Exception as e:
-        app.logger.error(f"Failed to start ETL scheduler: {e}")
+    # --- SCHEDULER (5:00 AM AUTO-SYNC) ---
+    scheduler = BackgroundScheduler(timezone=pytz.timezone("Asia/Beirut"))
+    
+    def scheduled_etl():
+        # This helper ensures the 4TB job runs in the app bubble
+        with app.app_context():
+            from ETL_JOBS.etl_runner import execute_sync
+            print(f"⏰ [5:00 AM] Scheduled ETL Start: {datetime.now()}")
+            execute_sync(app)
+
+    # Add cron job for 5:00 AM
+    scheduler.add_job(
+        func=scheduled_etl,
+        trigger=CronTrigger(hour=5, minute=0),
+        id='daily_etl_sync',
+        name='Sync Data from Oracle',
+        replace_existing=True
+    )
+    scheduler.start()
 
     return app
 
 # ---------------------------------------------------------
-# RUN
+# EXECUTION
 # ---------------------------------------------------------
 if __name__ == '__main__':
     app = create_app()
-    app.run(host='0.0.0.0', port=8080, debug=True)
+
+    # MANUAL TRIGGER CHECK
+    # Usage: python app.py -m
+    if len(sys.argv) > 1 and sys.argv[1] == '-m':
+        with app.app_context():
+            try:
+                from ETL_JOBS.etl_runner import execute_sync
+                print("🚀 Manual ETL Trigger Detected...")
+                execute_sync(app)
+                print("✅ Manual Sync Finished.")
+            except Exception as e:
+                print(f"❌ Manual Sync Failed: {e}")
+                
+    start_mllp_listener(app, host='0.0.0.0', port=6661)
+    app.run(host='0.0.0.0', port=8080, debug=True, use_reloader=False)

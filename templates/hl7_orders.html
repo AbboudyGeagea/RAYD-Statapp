@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HL7 Orders — {{ date_str }}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:        #0d0f14;
+    --surface:   #13161e;
+    --border:    #1e2330;
+    --border2:   #252a38;
+    --text:      #c8cdd8;
+    --text-dim:  #5a6070;
+    --text-bright: #eef0f5;
+    --accent:    #00b4d8;
+    --accent2:   #0077a8;
+    --green:     #00c896;
+    --yellow:    #f4b942;
+    --red:       #e05c5c;
+    --mono:      'IBM Plex Mono', monospace;
+    --sans:      'IBM Plex Sans', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 13px;
+    min-height: 100vh;
+  }
+
+  /* ── Header ── */
+  .header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 56px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .header-logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .logo-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent);
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 8px var(--accent); }
+    50%       { opacity: 0.5; box-shadow: 0 0 3px var(--accent); }
+  }
+
+  .logo-text {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-bright);
+    letter-spacing: 0.05em;
+  }
+
+  .header-divider {
+    width: 1px; height: 20px;
+    background: var(--border2);
+  }
+
+  .header-title {
+    font-size: 13px;
+    color: var(--text-dim);
+    font-weight: 400;
+  }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .live-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(0,200,150,0.08);
+    border: 1px solid rgba(0,200,150,0.2);
+    border-radius: 4px;
+    padding: 4px 10px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--green);
+    letter-spacing: 0.08em;
+  }
+
+  .live-dot {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: var(--green);
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+
+  .last-refresh {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+  }
+
+  /* ── Controls bar ── */
+  .controls {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 28px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .control-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .control-label {
+    font-size: 10px;
+    font-family: var(--mono);
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    white-space: nowrap;
+  }
+
+  .control-input, .control-select {
+    background: var(--bg);
+    border: 1px solid var(--border2);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 5px 10px;
+    border-radius: 4px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+
+  .control-input:focus, .control-select:focus {
+    border-color: var(--accent2);
+  }
+
+  .control-select option { background: var(--surface); }
+
+  .btn-apply {
+    background: var(--accent2);
+    color: #fff;
+    border: none;
+    padding: 6px 16px;
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 11px;
+    cursor: pointer;
+    letter-spacing: 0.05em;
+    transition: background 0.15s;
+  }
+
+  .btn-apply:hover { background: var(--accent); }
+
+  .controls-spacer { flex: 1; }
+
+  .stats-chips {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .chip {
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 20px;
+    border: 1px solid var(--border2);
+    color: var(--text-dim);
+  }
+
+  .chip span { color: var(--text-bright); font-weight: 500; }
+
+  /* ── Main content ── */
+  .main { padding: 20px 28px; }
+
+  /* ── Table ── */
+  .table-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+
+  thead tr {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border2);
+  }
+
+  th {
+    padding: 10px 14px;
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    white-space: nowrap;
+  }
+
+  tbody tr {
+    border-bottom: 1px solid var(--border);
+    transition: background 0.1s;
+  }
+
+  tbody tr:last-child { border-bottom: none; }
+
+  tbody tr:hover { background: rgba(255,255,255,0.025); }
+
+  td {
+    padding: 10px 14px;
+    vertical-align: middle;
+    color: var(--text);
+    white-space: nowrap;
+  }
+
+  .td-mono {
+    font-family: var(--mono);
+    font-size: 11px;
+  }
+
+  .td-patient-name {
+    color: var(--text-bright);
+    font-weight: 500;
+  }
+
+  .td-dim { color: var(--text-dim); }
+
+  /* Status badges */
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.05em;
+  }
+
+  .badge-NW { background: rgba(0,180,216,0.12); color: var(--accent);  border: 1px solid rgba(0,180,216,0.25); }
+  .badge-CA { background: rgba(224,92,92,0.12);  color: var(--red);    border: 1px solid rgba(224,92,92,0.25); }
+  .badge-DC { background: rgba(224,92,92,0.12);  color: var(--red);    border: 1px solid rgba(224,92,92,0.25); }
+  .badge-SC { background: rgba(0,200,150,0.12);  color: var(--green);  border: 1px solid rgba(0,200,150,0.25); }
+  .badge-IP { background: rgba(244,185,66,0.12); color: var(--yellow); border: 1px solid rgba(244,185,66,0.25); }
+  .badge-CM { background: rgba(0,200,150,0.12);  color: var(--green);  border: 1px solid rgba(0,200,150,0.25); }
+  .badge-default { background: rgba(90,96,112,0.2); color: var(--text-dim); border: 1px solid var(--border2); }
+
+  /* Modality tag */
+  .modality-tag {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 3px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border2);
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+  }
+
+  /* Gender indicator */
+  .gender-m { color: #6ab0e0; }
+  .gender-f { color: #e080b0; }
+
+  /* Empty state */
+  .empty-state {
+    text-align: center;
+    padding: 80px 20px;
+    color: var(--text-dim);
+  }
+
+  .empty-icon {
+    font-size: 40px;
+    margin-bottom: 16px;
+    opacity: 0.3;
+  }
+
+  .empty-title {
+    font-size: 15px;
+    color: var(--text);
+    margin-bottom: 8px;
+  }
+
+  .empty-sub {
+    font-size: 12px;
+    font-family: var(--mono);
+  }
+
+  /* Row animation */
+  tbody tr {
+    animation: fadeIn 0.2s ease forwards;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+</style>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        :root { --accent: #60a5fa; }
+        .sidebar-item { transition: all 0.2s; border-radius: 0.75rem; margin-bottom: 0.25rem; cursor: pointer; text-decoration: none !important; color: #94a3b8; }
+        .sidebar-item:hover { background: #1d2522; color: var(--accent) !important; }
+        .sidebar-item.active { background: #1d2522; color: var(--accent) !important; border-left: 4px solid var(--accent); }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+
+<!-- Standard App Header -->
+<header class="bg-[#232b28] border-b border-[#28332e] px-12 py-6 flex items-center justify-between shadow-md z-30 relative">
+    <div class="w-64"><img src="{{ url_for('static', filename='philips.jpg') }}" class="h-10 w-auto grayscale opacity-40"></div>
+    <div class="flex flex-col items-center">
+        <img src="{{ url_for('static', filename='RAYD.png') }}" class="h-16 w-auto opacity-80">
+        <div class="h-1 w-12 bg-[#60a5fa] mt-2 rounded-full"></div>
+    </div>
+    <div class="w-64 flex justify-end"><img src="{{ url_for('static', filename='intermedic.jpeg') }}" class="h-10 w-auto grayscale opacity-40"></div>
+</header>
+<div class="flex flex-1 overflow-hidden">
+        <aside class="w-72 bg-[#232b28] border-r border-[#28332e] flex flex-col p-6 shadow-xl z-20">
+            <div class="flex items-center gap-3 mb-10 px-2">
+                <div class="bg-[#60a5fa] p-2.5 rounded-xl text-white shadow-lg shadow-blue-400/20"><i class="bi bi-cpu-fill text-xl"></i></div>
+                <div>
+                    <h1 class="font-black text-[#e2e8f0] tracking-tighter uppercase leading-none text-xl">RAYD</h1>
+                    <p class="text-[9px] font-black text-[#60a5fa] uppercase tracking-widest mt-1">Intelligence Hub</p>
+                </div>
+            </div>
+            <nav class="flex-1 space-y-1">
+                <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-4">Main Menu</p>
+                <a href="{{ url_for('viewer.viewer_dashboard') }}" class="sidebar-item  flex items-center gap-3 px-4 py-3 text-sm font-bold text-[#94a3b8]">
+                    <i class="bi bi-speedometer2"></i> Viewer Dashboard
+                </a>
+                <a href="{{ url_for('admin.admin_dashboard') }}" class="sidebar-item  flex items-center gap-3 px-4 py-3 text-sm font-bold text-[#94a3b8]">
+                    <i class="bi bi-cpu"></i> ETL Control Room
+                </a>
+                <a href="{{ url_for('mapping.mapping_page') }}" class="sidebar-item  flex items-center gap-3 px-4 py-3 text-sm font-bold text-[#94a3b8]">
+                    <i class="bi bi-calendar-week"></i> Live Week Matrix
+                </a>
+                <div class="pt-4 pb-2">
+                    <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-2">RIS</p>
+                </div>
+                <a href="{{ url_for('hl7_orders.hl7_orders_page') }}" class="sidebar-item active flex items-center gap-3 px-4 py-3 text-sm font-bold text-[#94a3b8]">
+                    <i class="bi bi-activity"></i> HL7 Orders
+                </a>
+            </nav>
+            <div class="mt-auto p-4 bg-[#181f1c] rounded-2xl border border-[#28332e]">
+                <p class="text-[10px] uppercase text-slate-500 font-bold mb-1">System Health</p>
+                <p class="text-xs text-green-400 font-mono flex items-center gap-2">
+                    <span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span> All Systems Operational
+                </p>
+            </div>
+        </aside>
+    <div class="flex-1 overflow-y-auto bg-[#0d0f14]">
+
+<!-- ── Controls ── -->
+<div class="controls">
+  <form method="GET" action="/hl7-orders" style="display:contents">
+    <div class="control-group">
+      <span class="control-label">Date</span>
+      <input type="date" name="date" class="control-input"
+             value="{{ date_str }}" max="{{ date_str }}">
+    </div>
+    <div class="control-group">
+      <span class="control-label">Modality</span>
+      <select name="modality" class="control-select">
+        <option value="">All</option>
+        {% for m in modalities %}
+        <option value="{{ m }}" {% if m == selected_modality %}selected{% endif %}>{{ m }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="control-group">
+      <span class="control-label">Status</span>
+      <select name="status" class="control-select">
+        <option value="">All</option>
+        {% for s in statuses %}
+        <option value="{{ s }}" {% if s == selected_status %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="btn-apply">Apply</button>
+  </form>
+
+  <div class="controls-spacer"></div>
+
+  <div class="stats-chips">
+    <div class="chip">Orders today <span id="totalCount">{{ total }}</span></div>
+  </div>
+</div>
+
+<!-- ── Table ── -->
+<div class="main">
+  <div class="table-wrap">
+    {% if orders %}
+    <table id="ordersTable">
+      <thead>
+        <tr>
+          <th>Received</th>
+          <th>Patient ID</th>
+          <th>Patient Name</th>
+          <th>DOB</th>
+          <th>Sex</th>
+          <th>Accession</th>
+          <th>Procedure</th>
+          <th>Modality</th>
+          <th>Scheduled</th>
+          <th>Physician</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="ordersBody">
+        {% for o in orders %}
+        <tr>
+          <td class="td-mono td-dim">
+            {{ o.received_at.strftime('%H:%M:%S') if o.received_at else '—' }}
+          </td>
+          <td class="td-mono">{{ o.patient_id or '—' }}</td>
+          <td class="td-patient-name">{{ o.patient_name or '—' }}</td>
+          <td class="td-mono td-dim">
+            {{ o.date_of_birth.strftime('%Y-%m-%d') if o.date_of_birth else '—' }}
+          </td>
+          <td>
+            {% if o.gender == 'M' %}
+              <span class="gender-m">M</span>
+            {% elif o.gender == 'F' %}
+              <span class="gender-f">F</span>
+            {% else %}
+              <span class="td-dim">—</span>
+            {% endif %}
+          </td>
+          <td class="td-mono">{{ o.accession_number or '—' }}</td>
+          <td>
+            {% if o.procedure_text %}
+              {{ o.procedure_text }}
+              {% if o.procedure_code %}
+                <span class="td-dim td-mono"> ({{ o.procedure_code }})</span>
+              {% endif %}
+            {% elif o.procedure_code %}
+              <span class="td-mono">{{ o.procedure_code }}</span>
+            {% else %}
+              <span class="td-dim">—</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if o.modality %}
+              <span class="modality-tag">{{ o.modality }}</span>
+            {% else %}
+              <span class="td-dim">—</span>
+            {% endif %}
+          </td>
+          <td class="td-mono td-dim">
+            {{ o.scheduled_datetime.strftime('%Y-%m-%d %H:%M') if o.scheduled_datetime else '—' }}
+          </td>
+          <td>{{ o.ordering_physician or '—' }}</td>
+          <td>
+            {% set s = o.order_status or '' %}
+            <span class="badge badge-{{ s if s in ['NW','CA','DC','SC','IP','CM'] else 'default' }}">
+              {{ s or '—' }}
+            </span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+      <div class="empty-icon">📭</div>
+      <div class="empty-title">No orders for {{ date_str }}</div>
+      <div class="empty-sub">Waiting for HL7 ORM^O01 messages on port 6661</div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+  // ── Auto-refresh every 30 seconds (JSON fetch, no full page reload) ────────
+  const isToday = () => {
+    const sel = document.querySelector('input[name="date"]').value;
+    return sel === new Date().toISOString().slice(0,10);
+  };
+
+  function updateLastRefresh() {
+    const now = new Date();
+    document.getElementById('lastRefresh').textContent =
+      'Refreshed ' + now.toLocaleTimeString('en-GB');
+  }
+
+  function statusBadgeClass(s) {
+    const map = {NW:'NW',CA:'CA',DC:'DC',SC:'SC',IP:'IP',CM:'CM'};
+    return map[s] ? `badge badge-${s}` : 'badge badge-default';
+  }
+
+  function fmtDate(iso) {
+    if (!iso) return '—';
+    return iso.replace('T', ' ').slice(0, 16);
+  }
+
+  function fmtTime(iso) {
+    if (!iso) return '—';
+    return iso.replace('T', ' ').slice(11, 19);
+  }
+
+  async function refreshOrders() {
+    if (!isToday()) return;   // don't auto-refresh historical dates
+    try {
+      const params = new URLSearchParams(window.location.search);
+      params.set('date', new Date().toISOString().slice(0,10));
+      const res  = await fetch('/hl7-orders/data?' + params.toString());
+      const data = await res.json();
+
+      document.getElementById('totalCount').textContent = data.total;
+      updateLastRefresh();
+
+      if (data.total === 0) return;
+
+      const tbody = document.getElementById('ordersBody');
+      if (!tbody) return;
+
+      tbody.innerHTML = data.orders.map(o => `
+        <tr>
+          <td class="td-mono td-dim">${fmtTime(o.received_at)}</td>
+          <td class="td-mono">${o.patient_id || '—'}</td>
+          <td class="td-patient-name">${o.patient_name || '—'}</td>
+          <td class="td-mono td-dim">${o.date_of_birth ? o.date_of_birth.slice(0,10) : '—'}</td>
+          <td>${o.gender === 'M' ? '<span class="gender-m">M</span>' : o.gender === 'F' ? '<span class="gender-f">F</span>' : '<span class="td-dim">—</span>'}</td>
+          <td class="td-mono">${o.accession_number || '—'}</td>
+          <td>${o.procedure_text ? o.procedure_text + (o.procedure_code ? ` <span class="td-dim td-mono">(${o.procedure_code})</span>` : '') : o.procedure_code || '—'}</td>
+          <td>${o.modality ? `<span class="modality-tag">${o.modality}</span>` : '<span class="td-dim">—</span>'}</td>
+          <td class="td-mono td-dim">${fmtDate(o.scheduled_datetime)}</td>
+          <td>${o.ordering_physician || '—'}</td>
+          <td><span class="${statusBadgeClass(o.order_status)}">${o.order_status || '—'}</span></td>
+        </tr>
+      `).join('');
+    } catch(e) {
+      console.warn('HL7 refresh failed:', e);
+    }
+  }
+
+  updateLastRefresh();
+  setInterval(refreshOrders, 30000);
+</script>
+
+    </div>
+</div>
+</body>
+</html>

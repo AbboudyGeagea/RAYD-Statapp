@@ -1,3 +1,4 @@
+#routes/registry.py
 from .auth_controller import auth_bp
 from .admin_controller import admin_bp
 from .viewer_controller import viewer_bp
@@ -9,7 +10,7 @@ from .report_23 import report_23_bp
 from .report_25 import report_25_bp
 from .report_27 import report_27_bp
 from .report_29 import report_29_bp
-
+from routes.hl7_orders import hl7_orders_bp
 
 def register_blueprints(app):
     app.register_blueprint(auth_bp)
@@ -25,4 +26,4 @@ def register_blueprints(app):
     app.register_blueprint(report_25_bp)
     app.register_blueprint(report_27_bp)
     app.register_blueprint(report_29_bp)
-
+    app.register_blueprint(hl7_orders_bp)

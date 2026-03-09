@@ -7,7 +7,7 @@ FROM python:3.11-slim
 RUN apt-get update && apt-get install -y \
     libpq-dev \
     gcc \
-    libaio1 \
+    libaio1t64 \
     libaio-dev \
     tzdata \
     && rm -rf /var/lib/apt/lists/*

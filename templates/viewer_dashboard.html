@@ -9,7 +9,7 @@
     <style>
         :root { --accent: #60a5fa; }
         body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; }
-        .sidebar-item { transition: all 0.2s; border-radius: 0.75rem; margin-bottom: 0.25rem; cursor: pointer; font-family: 'Inter', sans-serif !important; text-decoration: none !important; }
+        .sidebar-item { transition: all 0.2s; border-radius: 0.75rem; margin-bottom: 0.25rem; cursor: pointer; font-family: 'Inter', sans-serif !important; text-decoration: none !important; color: #94a3b8; }
         .sidebar-item:hover { background: #1d2522; color: var(--accent) !important; }
         .sidebar-item.active { background: #1d2522; color: var(--accent) !important; border-left: 4px solid var(--accent); }
         .sidebar-item i { font-size: 1.1rem; width: 1.5rem; text-align: center; }
@@ -20,12 +20,12 @@
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
     <header class="bg-[#232b28] border-b border-[#28332e] px-12 py-6 flex items-center justify-between shadow-md z-30 relative">
-        <div class="w-64"><img src="{{ url_for('static', filename='philips.jpg') }}" class="h-12 w-auto grayscale opacity-60"></div>
+        <div class="w-64"><img src="{{ url_for('static', filename='philips.jpg') }}" class="h-10 w-auto grayscale opacity-40"></div>
         <div class="flex flex-col items-center">
-            <img src="{{ url_for('static', filename='RAYD.png') }}" class="h-20 w-auto opacity-80">
-            <div class="h-1.5 w-16 bg-[#60a5fa] mt-3 rounded-full"></div>
+            <img src="{{ url_for('static', filename='RAYD.png') }}" class="h-16 w-auto opacity-80">
+            <div class="h-1 w-12 bg-[#60a5fa] mt-2 rounded-full"></div>
         </div>
-        <div class="w-64 flex justify-end"><img src="{{ url_for('static', filename='intermedic.jpeg') }}" class="h-14 w-auto grayscale opacity-60"></div>
+        <div class="w-64 flex justify-end"><img src="{{ url_for('static', filename='intermedic.jpeg') }}" class="h-10 w-auto grayscale opacity-40"></div>
     </header>
 
     <div class="flex flex-1 overflow-hidden">
@@ -40,21 +40,31 @@
             <nav class="flex-1 space-y-1">
                 <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-4">Main Menu</p>
                 <a href="{{ url_for('viewer.viewer_dashboard') }}" class="sidebar-item active flex items-center gap-3 px-4 py-3 text-sm font-bold">
-                    <i class="bi bi-speedometer2 text-lg"></i> Viewer Dashboard
+                    <i class="bi bi-speedometer2"></i> Viewer Dashboard
                 </a>
                 {% if current_user.role == 'admin' %}
                 <a href="{{ url_for('admin.admin_dashboard') }}" class="sidebar-item flex items-center gap-3 px-4 py-3 text-sm font-bold">
-                    <i class="bi bi-cpu text-lg"></i> ETL Control Room
+                    <i class="bi bi-cpu"></i> ETL Control Room
                 </a>
                 <a href="{{ url_for('mapping.mapping_page') }}" class="sidebar-item flex items-center gap-3 px-4 py-3 text-sm font-bold">
-                    <i class="bi bi-calendar-week text-lg"></i> Live Week Matrix
+                    <i class="bi bi-calendar-week"></i> Live Week Matrix
+                </a>
+                {% endif %}
+
+                <div class="pt-4 pb-2">
+                    <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-2">RIS</p>
+                </div>
+                {% if current_user.role == 'admin' %}
+                <a href="{{ url_for('hl7_orders.hl7_orders_page') }}" class="sidebar-item flex items-center gap-3 px-4 py-3 text-sm font-bold">
+                    <i class="bi bi-activity"></i> HL7 Orders
                 </a>
                 {% endif %}
             </nav>
-            <div class="mt-auto pt-6 border-t border-[#28332e]">
-                <a href="{{ url_for('auth.logout') }}" class="sidebar-item flex items-center gap-3 px-4 py-3 text-sm font-bold text-red-400 hover:bg-red-400/10">
-                    <i class="bi bi-box-arrow-right text-lg"></i> Logout
-                </a>
+            <div class="mt-auto p-4 bg-[#181f1c] rounded-2xl border border-[#28332e]">
+                <p class="text-[10px] uppercase text-slate-500 font-bold mb-1">System Health</p>
+                <p class="text-xs text-green-400 font-mono flex items-center gap-2">
+                    <span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span> All Systems Operational
+                </p>
             </div>
         </aside>
 

@@ -1,0 +1,18 @@
+2026-03-05 14:26:08,548 [INFO] [ETL_MASTER] --- INITIALIZING VERBOSE ETL SYNC ---
+2026-03-05 14:26:08,549 [DEBUG] [ETL_MASTER] Input received: <class 'flask.app.Flask'>
+2026-03-05 14:26:08,549 [DEBUG] [ETL_MASTER] Extracting engine from Flask SQLAlchemy extension.
+2026-03-05 14:26:08,549 [ERROR] [app] ETL Startup Error: db
+2026-03-05 14:26:08,570 [INFO] [werkzeug] [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8080
+ * Running on http://10.10.11.34:8080
+2026-03-05 14:26:08,571 [INFO] [werkzeug] [33mPress CTRL+C to quit[0m
+2026-03-05 14:26:08,572 [INFO] [werkzeug]  * Restarting with stat
+2026-03-05 14:26:09,708 [INFO] [ETL_MASTER] --- INITIALIZING VERBOSE ETL SYNC ---
+2026-03-05 14:26:09,709 [DEBUG] [ETL_MASTER] Input received: <class 'flask.app.Flask'>
+2026-03-05 14:26:09,709 [DEBUG] [ETL_MASTER] Extracting engine from Flask SQLAlchemy extension.
+2026-03-05 14:26:09,709 [ERROR] [app] ETL Startup Error: db
+2026-03-05 14:26:09,714 [WARNING] [werkzeug]  * Debugger is active!
+2026-03-05 14:26:09,714 [INFO] [werkzeug]  * Debugger PIN: 976-957-591
+2026-03-05 14:27:04,848 [INFO] [werkzeug]  * Detected change in '/home/stats/StatsApp/ETL_JOBS/etl_runner.py', reloading
+2026-03-05 14:27:05,315 [INFO] [werkzeug]  * Restarting with stat

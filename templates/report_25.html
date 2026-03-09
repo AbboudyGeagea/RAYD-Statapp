@@ -22,6 +22,26 @@
         ::-webkit-scrollbar-thumb { background: #3b82f6; border-radius: 10px; }
         .util-badge { font-family: 'Monaco', monospace; transition: all 0.2s; }
         .util-badge:hover { transform: scale(1.1); filter: brightness(1.2); }
+
+        /* Chart card with description */
+        .chart-card { background: #111413; border: 1px solid rgba(255,255,255,0.08); border-radius: 1.5rem; overflow: hidden; display: flex; flex-direction: column; }
+        .chart-card-header { padding: 18px 24px 0 24px; display: flex; align-items: center; justify-content: space-between; }
+        .chart-card-title { font-size: 12px; font-weight: 800; color: #52525b; text-transform: uppercase; letter-spacing: 0.08em; }
+        .chart-card-desc { padding: 8px 24px 12px 24px; font-size: 13px; color: #52525b; font-style: italic; line-height: 1.5; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .chart-card-body { padding: 16px; flex: 1; }
+
+        /* Section description strip */
+        .section-desc { font-size: 13px; color: #52525b; font-style: italic; line-height: 1.6; margin-bottom: 20px; padding: 12px 16px; background: rgba(255,255,255,0.02); border-left: 3px solid #3b82f6; border-radius: 0 8px 8px 0; }
+
+        /* PNG export button */
+        .export-png-btn {
+            display: inline-flex; align-items: center; gap: 4px;
+            font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em;
+            color: #3f3f46; border: 1px solid #27272a; border-radius: 6px;
+            padding: 4px 10px; background: #080a09; cursor: pointer; transition: all 0.15s;
+            white-space: nowrap;
+        }
+        .export-png-btn:hover { color: #3b82f6; border-color: #3b82f6; }
     </style>
 </head>
 <body class="flex h-screen">
@@ -58,35 +78,48 @@
             </div>
 
             <div class="flex flex-col gap-3 pt-4">
-                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-2xl font-black text-xs uppercase shadow-xl transition-all text-white">Update View</button>
-                <button type="submit" formaction="{{ url_for('report_25.export_report_25') }}" class="w-full bg-zinc-900 border border-white/10 py-3 rounded-2xl font-black text-xs uppercase text-zinc-400 hover:text-white transition-all">Download Excel</button>
+                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-2xl font-black text-xs uppercase shadow-xl transition-all text-white">
+                    Update View
+                </button>
+                <button type="submit" formaction="{{ url_for('report_25.export_report_25') }}"
+                        class="w-full bg-zinc-900 border border-white/10 py-3 rounded-2xl font-black text-xs uppercase text-zinc-400 hover:text-white transition-all flex items-center justify-center gap-2">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                    </svg>
+                    Download Excel
+                </button>
+                {% if run_report %}
+                <p class="text-[11px] text-zinc-700 italic leading-relaxed">
+                    Excel export contains all raw study-level rows for the selected date range and filters — one row per study.
+                </p>
+                {% endif %}
             </div>
         </form>
     </aside>
 
-    <main class="flex-1 flex flex-col">
-        <header class="h-20 border-b border-white/5 flex items-center justify-between px-10 bg-[#080a09]/95 backdrop-blur-xl z-10">
+    <main class="flex-1 flex flex-col overflow-hidden">
+        <header class="h-20 border-b border-white/5 flex items-center justify-between px-10 bg-[#080a09]/95 backdrop-blur-xl z-10 shrink-0">
             <nav class="flex space-x-12 h-full">
-                <div onclick="switchTab('ops')" class="tab-btn" id="btn-ops">Operations</div>
-                <div onclick="switchTab('infra')" class="tab-btn" id="btn-infra">Infrastructure</div>
+                <div onclick="switchTab('ops')"      class="tab-btn" id="btn-ops">Operations</div>
+                <div onclick="switchTab('infra')"    class="tab-btn" id="btn-infra">Infrastructure</div>
                 <div onclick="switchTab('clinical')" class="tab-btn" id="btn-clinical">Radiologists</div>
-                <div onclick="switchTab('audit')" class="tab-btn text-blue-400" id="btn-audit">Audit Journey</div>
+                <div onclick="switchTab('audit')"    class="tab-btn text-blue-400" id="btn-audit">Audit Journey</div>
             </nav>
-            
+
             <div class="flex gap-3">
                 {% if data %}
                 <div class="flex gap-2 border-r border-white/10 pr-4">
                     <div class="px-4 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
-                        <p class="text-[8px] font-black text-emerald-500 uppercase">Global Util</p>
+                        <p class="text-[9px] font-black text-emerald-500 uppercase">Global Util</p>
                         <p class="text-md font-black text-white">{{ data.summary.global_util }}</p>
                     </div>
                     <div class="px-4 py-2 bg-amber-500/10 border border-amber-500/20 rounded-xl">
-                        <p class="text-[8px] font-black text-amber-500 uppercase">Total RVU</p>
+                        <p class="text-[9px] font-black text-amber-500 uppercase">Total RVU</p>
                         <p class="text-md font-black text-white">{{ data.summary.total_rvu }}</p>
                     </div>
                 </div>
                 <div class="px-6 py-2 bg-blue-500/10 border border-blue-500/20 rounded-xl text-center">
-                    <p class="text-[9px] font-black text-blue-500 uppercase">ER Avg</p>
+                    <p class="text-[9px] font-black text-blue-500 uppercase">ER Avg TAT</p>
                     <p class="text-lg font-black text-white">{{ data.summary.er_wait }}</p>
                 </div>
                 {% endif %}
@@ -95,41 +128,112 @@
 
         <div class="flex-1 overflow-y-auto p-10">
             {% if run_report %}
-            
+
+            <!-- ── OPERATIONS TAB ─────────────────────────────────────────── -->
             <div id="tab-ops" class="tab-content hidden space-y-10">
-                <div class="grid grid-cols-4 gap-6 mb-10">
+
+                <p class="section-desc">
+                    Operational overview of the imaging department for the selected period. Shows total study volume, active machine time, equipment stress levels, and revenue capture. Use the charts below to identify throughput bottlenecks, peak arrival hours, and the correlation between procedure duration and turnaround time.
+                </p>
+
+                <!-- KPI Row -->
+                <div class="grid grid-cols-4 gap-6">
                     <div class="glass-card flex flex-col items-center">
-                        <p class="text-[10px] font-black text-zinc-500 uppercase mb-2">Total Studies</p>
+                        <p class="text-[11px] font-black text-zinc-500 uppercase mb-1">Total Studies</p>
                         <p class="text-3xl font-black text-white">{{ data.summary.total }}</p>
+                        <p class="text-[12px] text-zinc-600 italic mt-2 text-center">Total imaging studies completed in the selected period.</p>
                     </div>
                     <div class="glass-card flex flex-col items-center">
-                        <p class="text-[10px] font-black text-zinc-500 uppercase mb-2">Active Scan Time</p>
+                        <p class="text-[11px] font-black text-zinc-500 uppercase mb-1">Active Scan Time</p>
                         <p class="text-3xl font-black text-white">{{ data.summary.work_hours }}h</p>
+                        <p class="text-[12px] text-zinc-600 italic mt-2 text-center">Total hours machines were actively scanning, based on procedure durations.</p>
                     </div>
                     <div class="glass-card flex flex-col items-center">
-                        <p class="text-[10px] font-black text-zinc-500 uppercase mb-2">High Stress</p>
+                        <p class="text-[11px] font-black text-zinc-500 uppercase mb-1">High Stress Devices</p>
                         <p class="text-3xl font-black text-rose-500">{{ data.summary.high_stress_count }}</p>
+                        <p class="text-[12px] text-zinc-600 italic mt-2 text-center">Devices running above 85% utilization — at risk of burnout or patient delays.</p>
                     </div>
                     <div class="glass-card flex flex-col items-center border border-amber-500/20">
-                        <p class="text-[10px] font-black text-amber-500 uppercase mb-2">Revenue Capture</p>
+                        <p class="text-[11px] font-black text-amber-500 uppercase mb-1">Revenue Capture (RVU)</p>
                         <p class="text-3xl font-black text-white">{{ data.summary.total_rvu }}</p>
+                        <p class="text-[12px] text-zinc-600 italic mt-2 text-center">Total Relative Value Units generated — a proxy for billing revenue across all studies.</p>
                     </div>
                 </div>
+
+                <!-- Charts Row 1 -->
                 <div class="grid grid-cols-2 gap-8">
-                    <div class="glass-card"><p class="text-xs font-black text-zinc-500 uppercase mb-6">TAT per Class</p><div id="chart-1" class="h-80"></div></div>
-                    <div class="glass-card"><p class="text-xs font-black text-zinc-500 uppercase mb-6">Hourly Arrivals</p><div id="chart-6" class="h-80"></div></div>
+                    <div class="chart-card">
+                        <div class="chart-card-header">
+                            <span class="chart-card-title">TAT per Patient Class</span>
+                            <button class="export-png-btn" onclick="exportChart('chart-1', 'tat_per_class')">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                                PNG
+                            </button>
+                        </div>
+                        <div class="chart-card-desc">
+                            Average Turnaround Time (minutes from study order to report) broken down by patient class. Higher bars indicate longer waits — compare Emergency vs. Outpatient to spot service-level gaps.
+                        </div>
+                        <div class="chart-card-body"><div id="chart-1" class="h-80"></div></div>
+                    </div>
+
+                    <div class="chart-card">
+                        <div class="chart-card-header">
+                            <span class="chart-card-title">Hourly Arrival Pattern</span>
+                            <button class="export-png-btn" onclick="exportChart('chart-6', 'hourly_arrivals')">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                                PNG
+                            </button>
+                        </div>
+                        <div class="chart-card-desc">
+                            Number of studies scheduled per hour of the day, aggregated across the full date range. Peaks indicate high-demand windows — useful for staffing and scheduling optimization.
+                        </div>
+                        <div class="chart-card-body"><div id="chart-6" class="h-80"></div></div>
+                    </div>
                 </div>
+
+                <!-- Charts Row 2 -->
                 <div class="grid grid-cols-2 gap-8">
-                    <div class="glass-card"><p class="text-xs font-black text-zinc-500 uppercase mb-6">Modality Volume</p><div id="chart-5" class="h-80"></div></div>
-                    <div class="glass-card"><p class="text-xs font-black text-zinc-500 uppercase mb-6">Correlation Map</p><div id="chart-7" class="h-80"></div></div>
+                    <div class="chart-card">
+                        <div class="chart-card-header">
+                            <span class="chart-card-title">Modality Volume Split</span>
+                            <button class="export-png-btn" onclick="exportChart('chart-5', 'modality_split')">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                                PNG
+                            </button>
+                        </div>
+                        <div class="chart-card-desc">
+                            Share of total studies per imaging modality (CT, MR, US, XR…). Identifies which modalities carry the highest load and may need additional capacity.
+                        </div>
+                        <div class="chart-card-body"><div id="chart-5" class="h-80"></div></div>
+                    </div>
+
+                    <div class="chart-card">
+                        <div class="chart-card-header">
+                            <span class="chart-card-title">Duration vs. TAT Correlation</span>
+                            <button class="export-png-btn" onclick="exportChart('chart-7', 'duration_tat_correlation')">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                                PNG
+                            </button>
+                        </div>
+                        <div class="chart-card-desc">
+                            Scatter plot of procedure duration (X) vs. total turnaround time (Y) per study. A tight diagonal cluster suggests TAT is driven by scan length; wide scatter suggests reporting or workflow delays are the main bottleneck.
+                        </div>
+                        <div class="chart-card-body"><div id="chart-7" class="h-80"></div></div>
+                    </div>
                 </div>
             </div>
 
-            <div id="tab-infra" class="tab-content hidden space-y-10">
+            <!-- ── INFRASTRUCTURE TAB ─────────────────────────────────────── -->
+            <div id="tab-infra" class="tab-content hidden space-y-6">
+
+                <p class="section-desc">
+                    Weekly device utilization matrix for every AE title (imaging device) in the fleet. Each cell shows the percentage of scheduled capacity consumed on that weekday. <span class="text-rose-400 not-italic font-bold">Red (&gt;85%)</span> = overloaded, <span class="text-emerald-400 not-italic font-bold">Green (30–85%)</span> = healthy, <span class="text-amber-400 not-italic font-bold">Amber (&lt;30%)</span> = under-utilized. The final column shows total RVU generated per device.
+                </p>
+
                 <div class="glass-card !p-0 overflow-hidden">
-                    <p class="p-6 text-xs font-black text-zinc-500 uppercase">Device Utilization & Revenue Matrix</p>
+                    <p class="p-6 text-xs font-black text-zinc-500 uppercase">Device Utilization &amp; Revenue Matrix</p>
                     <table class="w-full text-sm text-left border-t border-white/5">
-                        <thead class="bg-white/5 text-zinc-500 uppercase font-black text-[10px]">
+                        <thead class="bg-white/5 text-zinc-500 uppercase font-black text-[11px]">
                             <tr>
                                 <th class="p-4">Infrastructure (AE)</th>
                                 {% for d in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}<th class="p-4 text-center">{{d}}</th>{% endfor %}
@@ -140,10 +244,10 @@
                         <tbody>
                             {% for row in data.matrix %}
                             <tr class="border-b border-white/5 hover:bg-white/[0.02]">
-                                <td class="p-4 font-bold text-white">{{ row.ae }}</td>
+                                <td class="p-4 font-bold text-white text-sm">{{ row.ae }}</td>
                                 {% for day in row.days %}
                                 <td class="p-2 text-center">
-                                    <span class="util-badge px-3 py-1 rounded-lg font-black text-[11px] 
+                                    <span class="util-badge px-3 py-1 rounded-lg font-black text-[12px]
                                         {% if day.pct > 85 %}bg-rose-500/20 text-rose-400 border border-rose-500/30
                                         {% elif day.pct > 30 %}bg-emerald-500/20 text-emerald-400 border border-emerald-500/30
                                         {% elif day.pct > 0 %}bg-amber-500/10 text-amber-500/60
@@ -152,11 +256,11 @@
                                     </span>
                                 </td>
                                 {% endfor %}
-                                <td class="p-4 text-center font-black bg-white/5 
+                                <td class="p-4 text-center font-black text-sm bg-white/5
                                     {% if row.avg > 85 %}text-rose-400{% elif row.avg > 30 %}text-blue-400{% else %}text-zinc-500{% endif %}">
                                     {{ row.avg }}%
                                 </td>
-                                <td class="p-4 text-center font-mono text-amber-500 bg-white/[0.02] border-l border-white/5">
+                                <td class="p-4 text-center font-mono text-amber-500 bg-white/[0.02] border-l border-white/5 text-sm">
                                     {{ row.total_rvu }}
                                 </td>
                             </tr>
@@ -166,88 +270,184 @@
                 </div>
             </div>
 
-            <div id="tab-clinical" class="tab-content hidden grid grid-cols-2 gap-8">
-                {% for rad in data.rad_cards %}
-                <div class="glass-card border-t-4 border-blue-600">
-                    <div class="flex justify-between items-start mb-6">
-                        <div>
-                            <h3 class="text-lg font-black text-white uppercase">{{ rad.name }}</h3>
-                            <span class="text-[10px] font-bold text-amber-500 px-2 py-0.5 bg-amber-500/10 rounded-full">
-                                Total RVU: {{ rad.total_rvu }}
-                            </span>
-                        </div>
-                        <div class="text-right">
-                            <p class="text-[10px] font-black text-zinc-500 uppercase">Avg TAT</p>
-                            <span class="text-2xl font-black text-blue-500">{{ rad.overall }}m</span>
-                        </div>
-                    </div>
-                    {% for loc in rad.drilldown %}
-                    <div class="bg-black/40 p-4 rounded-xl mb-3 border border-white/5">
-                        <div class="flex justify-between items-center mb-2">
-                            <p class="text-[10px] font-black text-zinc-500 uppercase">{{ loc.loc }}</p>
-                            <p class="text-[10px] font-bold text-amber-500/70">{{ loc.loc_rvu }} RVU</p>
-                        </div>
-                        <div class="grid grid-cols-1 gap-2">
-                            {% for m in loc.mods %}
-                            <div class="flex justify-between items-center text-xs p-2 bg-white/5 rounded">
-                                <span class="text-zinc-400">{{ m.m }}</span>
-                                <div class="flex gap-4 items-center">
-                                    <span class="text-amber-500/80 font-mono text-[10px]">{{ m.rvu }} RVU</span>
-                                    <span class="font-bold text-white">{{ m.avg }}m ({{ m.count }})</span>
-                                </div>
+            <!-- ── RADIOLOGISTS TAB ───────────────────────────────────────── -->
+            <div id="tab-clinical" class="tab-content hidden space-y-6">
+
+                <p class="section-desc">
+                    Individual radiologist performance cards. Each card shows the physician's average Turnaround Time and total RVU, then drills down by patient location and modality. Use this to compare reporting speed and revenue contribution across the team.
+                </p>
+
+                <div class="grid grid-cols-2 gap-8">
+                    {% for rad in data.rad_cards %}
+                    <div class="glass-card border-t-4 border-blue-600">
+                        <div class="flex justify-between items-start mb-6">
+                            <div>
+                                <h3 class="text-lg font-black text-white uppercase">{{ rad.name }}</h3>
+                                <span class="text-[11px] font-bold text-amber-500 px-2 py-0.5 bg-amber-500/10 rounded-full">
+                                    Total RVU: {{ rad.total_rvu }}
+                                </span>
                             </div>
-                            {% endfor %}
+                            <div class="text-right">
+                                <p class="text-[11px] font-black text-zinc-500 uppercase">Avg TAT</p>
+                                <span class="text-2xl font-black text-blue-500">{{ rad.overall }}m</span>
+                            </div>
                         </div>
+                        {% for loc in rad.drilldown %}
+                        <div class="bg-black/40 p-4 rounded-xl mb-3 border border-white/5">
+                            <div class="flex justify-between items-center mb-2">
+                                <p class="text-[11px] font-black text-zinc-500 uppercase">{{ loc.loc }}</p>
+                                <p class="text-[11px] font-bold text-amber-500/70">{{ loc.loc_rvu }} RVU</p>
+                            </div>
+                            <div class="grid grid-cols-1 gap-2">
+                                {% for m in loc.mods %}
+                                <div class="flex justify-between items-center text-xs p-2 bg-white/5 rounded">
+                                    <span class="text-zinc-400 text-[13px]">{{ m.m }}</span>
+                                    <div class="flex gap-4 items-center">
+                                        <span class="text-amber-500/80 font-mono text-[11px]">{{ m.rvu }} RVU</span>
+                                        <span class="font-bold text-white text-[13px]">{{ m.avg }}m ({{ m.count }})</span>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endfor %}
                     </div>
                     {% endfor %}
                 </div>
-                {% endfor %}
             </div>
 
-            <div id="tab-audit" class="tab-content hidden h-[750px]">
-                <div class="glass-card h-full">
-                    <p class="text-xs font-black text-blue-500 uppercase mb-6">Patient Journey Topology (True Entry Audit)</p>
-                    {% if journey_json %}<div id="chart-8" class="w-full h-full"></div>{% else %}<div class="h-full flex flex-col items-center justify-center opacity-20"><i class="bi bi-search text-5xl mb-4"></i><p class="font-bold">Awaiting Target Fallback ID</p></div>{% endif %}
+            <!-- ── AUDIT JOURNEY TAB ──────────────────────────────────────── -->
+            <div id="tab-audit" class="tab-content hidden space-y-6">
+
+                <p class="section-desc">
+                    Enter a patient's Fallback ID in the sidebar to reconstruct their full imaging journey as a tree. Each node represents a procedure — expanding to show the scheduled time and the true computed entry time (insert time minus procedure duration). Use this to audit delays between scheduling and actual scan start.
+                </p>
+
+                <div class="glass-card" style="height: 700px;">
+                    <p class="text-xs font-black text-blue-500 uppercase mb-4">Patient Journey Topology (True Entry Audit)</p>
+                    {% if journey_json %}
+                    <div id="chart-8" class="w-full" style="height: 640px;"></div>
+                    {% else %}
+                    <div class="h-full flex flex-col items-center justify-center opacity-20">
+                        <i class="bi bi-search text-5xl mb-4"></i>
+                        <p class="font-bold text-sm">Enter a Patient Fallback ID in the sidebar to load the journey</p>
+                    </div>
+                    {% endif %}
                 </div>
             </div>
 
             {% else %}
-            <div class="h-full flex flex-col items-center justify-center opacity-20"><i class="bi bi-cpu text-6xl mb-4"></i><h2 class="text-2xl font-black uppercase tracking-tighter">Engine Standby</h2></div>
+            <div class="h-full flex flex-col items-center justify-center opacity-20">
+                <i class="bi bi-cpu text-6xl mb-4"></i>
+                <h2 class="text-2xl font-black uppercase tracking-tighter">Engine Standby</h2>
+                <p class="text-sm mt-2">Select a date range and click Update View</p>
+            </div>
             {% endif %}
         </div>
     </main>
 
     <script>
-        $(document).ready(function() { 
-            $('.select2-js').select2(); 
-            switchTab('{{ active_tab }}'); 
-        });
+        // ── Chart instance registry for PNG export ───────────────────────────
+        const chartInstances = {};
 
-        function switchTab(t) { 
-            $('.tab-content').addClass('hidden'); $(`#tab-${t}`).removeClass('hidden');
-            $('.tab-btn').removeClass('active'); $(`#btn-${t}`).addClass('active');
-            $('#active_tab_input').val(t);
-            initCharts(); 
+        function registerChart(id, instance) {
+            chartInstances[id] = instance;
         }
 
+        function exportChart(id, filename) {
+            const instance = chartInstances[id];
+            if (!instance) return;
+            const url = instance.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#111413' });
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${filename}_{{ display_start }}_to_{{ display_end }}.png`;
+            a.click();
+        }
+
+        // ── Tab switching ────────────────────────────────────────────────────
+        $(document).ready(function() {
+            $('.select2-js').select2();
+            switchTab('{{ active_tab }}');
+        });
+
+        function switchTab(t) {
+            $('.tab-content').addClass('hidden');
+            $(`#tab-${t}`).removeClass('hidden');
+            $('.tab-btn').removeClass('active');
+            $(`#btn-${t}`).addClass('active');
+            $('#active_tab_input').val(t);
+            initCharts();
+        }
+
+        // ── Chart rendering ──────────────────────────────────────────────────
         function initCharts() {
             const d = {{ data|tojson|safe if data else "{}" }};
-            const axis = { axisLabel: {color: '#52525b', fontWeight: 600, fontSize: 11}, splitLine: {lineStyle: {color: '#1f1f23'}} };
-            
-            if(document.getElementById('chart-1') && !$('#tab-ops').hasClass('hidden')) {
-                echarts.init(document.getElementById('chart-1')).setOption({ xAxis: {type: 'category', data: Object.keys(d.class_tat || {}), ...axis}, yAxis: {type: 'value', ...axis}, series: [{type: 'bar', data: Object.values(d.class_tat || {}), itemStyle: {color: '#3b82f6', borderRadius: [5,5,0,0]}, label: {show: true, position: 'top', color: '#fff'}}]});
+            const axisStyle = {
+                axisLabel: { color: '#52525b', fontWeight: 600, fontSize: 12 },
+                splitLine:  { lineStyle: { color: '#1f1f23' } }
+            };
+
+            // Chart 1 — TAT per Class
+            if (document.getElementById('chart-1') && !$('#tab-ops').hasClass('hidden')) {
+                const c1 = echarts.init(document.getElementById('chart-1'));
+                c1.setOption({
+                    tooltip: { trigger: 'axis' },
+                    xAxis: { type: 'category', data: Object.keys(d.class_tat || {}), ...axisStyle },
+                    yAxis: { type: 'value', name: 'Minutes', nameTextStyle: { color: '#52525b', fontSize: 11 }, ...axisStyle },
+                    series: [{ type: 'bar', data: Object.values(d.class_tat || {}), itemStyle: { color: '#3b82f6', borderRadius: [5,5,0,0] }, label: { show: true, position: 'top', color: '#fff', fontSize: 12 } }]
+                });
+                registerChart('chart-1', c1);
             }
-            if(document.getElementById('chart-6') && !$('#tab-ops').hasClass('hidden')) {
-                echarts.init(document.getElementById('chart-6')).setOption({ xAxis: {type: 'category', data: Object.keys(d.hourly_patterns || {}), ...axis}, yAxis: {type: 'value', ...axis}, series: [{type: 'line', smooth: true, data: Object.values(d.hourly_patterns || {}), lineStyle: {width: 4, color: '#3b82f6'}, areaStyle: {color: 'rgba(59,130,246,0.1)'}}]});
+
+            // Chart 6 — Hourly Arrivals
+            if (document.getElementById('chart-6') && !$('#tab-ops').hasClass('hidden')) {
+                const c6 = echarts.init(document.getElementById('chart-6'));
+                c6.setOption({
+                    tooltip: { trigger: 'axis' },
+                    xAxis: { type: 'category', data: Object.keys(d.hourly_patterns || {}), name: 'Hour of Day', nameTextStyle: { color: '#52525b', fontSize: 11 }, ...axisStyle },
+                    yAxis: { type: 'value', name: 'Studies', nameTextStyle: { color: '#52525b', fontSize: 11 }, ...axisStyle },
+                    series: [{ type: 'line', smooth: true, data: Object.values(d.hourly_patterns || {}), lineStyle: { width: 4, color: '#3b82f6' }, areaStyle: { color: 'rgba(59,130,246,0.1)' } }]
+                });
+                registerChart('chart-6', c6);
             }
-            if(document.getElementById('chart-5') && !$('#tab-ops').hasClass('hidden')) {
-                echarts.init(document.getElementById('chart-5')).setOption({ tooltip: {trigger: 'item'}, series: [{type: 'pie', radius: ['40%', '70%'], data: d.modality_split || []}]});
+
+            // Chart 5 — Modality Split
+            if (document.getElementById('chart-5') && !$('#tab-ops').hasClass('hidden')) {
+                const c5 = echarts.init(document.getElementById('chart-5'));
+                c5.setOption({
+                    tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+                    legend: { textStyle: { color: '#71717a', fontSize: 12 }, bottom: 0 },
+                    series: [{ type: 'pie', radius: ['40%', '70%'], data: d.modality_split || [], label: { color: '#d1d1d6', fontSize: 12 } }]
+                });
+                registerChart('chart-5', c5);
             }
-            if(document.getElementById('chart-7') && !$('#tab-ops').hasClass('hidden')) {
-                echarts.init(document.getElementById('chart-7')).setOption({ xAxis: axis, yAxis: axis, series: [{type: 'scatter', data: d.correlation || [], itemStyle: {color: '#3b82f6', opacity: 0.4}}]});
+
+            // Chart 7 — Correlation Scatter
+            if (document.getElementById('chart-7') && !$('#tab-ops').hasClass('hidden')) {
+                const c7 = echarts.init(document.getElementById('chart-7'));
+                c7.setOption({
+                    tooltip: { trigger: 'item', formatter: p => `Duration: ${p.value[0]}m<br>TAT: ${p.value[1]}m` },
+                    xAxis: { name: 'Proc Duration (min)', nameTextStyle: { color: '#52525b', fontSize: 11 }, ...axisStyle },
+                    yAxis: { name: 'Total TAT (min)',      nameTextStyle: { color: '#52525b', fontSize: 11 }, ...axisStyle },
+                    series: [{ type: 'scatter', data: d.correlation || [], itemStyle: { color: '#3b82f6', opacity: 0.4 }, symbolSize: 6 }]
+                });
+                registerChart('chart-7', c7);
             }
-            if(document.getElementById('chart-8') && !$('#tab-audit').hasClass('hidden')) {
-                echarts.init(document.getElementById('chart-8')).setOption({ series: [{type: 'tree', data: [{{ journey_json|safe if journey_json else "{}" }}], orient: 'LR', symbolSize: 10, label: {color: '#fff', fontWeight: 700, fontSize: 12}, lineStyle: {color: '#3b82f6', width: 2}}]});
+
+            // Chart 8 — Journey Tree
+            if (document.getElementById('chart-8') && !$('#tab-audit').hasClass('hidden')) {
+                const c8 = echarts.init(document.getElementById('chart-8'));
+                c8.setOption({
+                    tooltip: { trigger: 'item' },
+                    series: [{
+                        type: 'tree',
+                        data: [{{ journey_json|safe if journey_json else "{}" }}],
+                        orient: 'LR', symbolSize: 10,
+                        label: { color: '#fff', fontWeight: 700, fontSize: 13 },
+                        lineStyle: { color: '#3b82f6', width: 2 }
+                    }]
+                });
+                registerChart('chart-8', c8);
             }
         }
     </script>
