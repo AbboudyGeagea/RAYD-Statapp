@@ -3,6 +3,10 @@ from flask_login import login_required, current_user
 from db import User, ReportTemplate, ETLJobLog, db
 from sqlalchemy import func
 from datetime import datetime
+import sys, os
+_etl_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'ETL_JOBS')
+if _etl_path not in sys.path: sys.path.insert(0, _etl_path)
+from etl_settings import ETL_GEAR
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
 
@@ -52,6 +56,7 @@ def admin_dashboard():
         pagination     = pagination,
         last_sync_time = last_sync_time,
         selected_date  = selected_date,
+        etl_gear       = ETL_GEAR,
     )
 
 

@@ -34,11 +34,16 @@
         .btn-csv:hover { background: #1e3028; border-color: #34d399; }
     </style>
 </head>
-<body class="flex flex-col">
-    <header class="h-14 bg-[#141a18] border-b border-[#2d3733] flex items-center px-8 shrink-0">
-        <span class="text-xs font-black tracking-widest text-indigo-500">RAYD</span>
-        <span class="mx-3 text-slate-700">|</span>
-        <span class="text-[11px] font-bold text-slate-500 uppercase tracking-[0.3em]">Population Intel Dashboard</span>
+<body class="flex flex-col h-screen overflow-hidden">
+    <header class="bg-[#232b28] border-b border-[#28332e] px-8 py-4 flex items-center justify-center shadow-md z-30 relative shrink-0">
+        <div class="flex items-center gap-5">
+            <img src="{{ url_for('static', filename='RAYD.png') }}" class="h-12 w-auto opacity-90">
+            <div class="flex flex-col items-center">
+                <div class="h-px w-52 bg-gradient-to-r from-transparent via-[#60a5fa] to-transparent mb-1.5"></div>
+                <p class="text-[9px] font-black text-[#60a5fa] uppercase tracking-[0.35em]">Reliable Analytics for Your Department</p>
+                <div class="h-px w-52 bg-gradient-to-r from-transparent via-[#60a5fa] to-transparent mt-1.5"></div>
+            </div>
+        </div>
     </header>
 
     <div class="flex flex-1 overflow-hidden">

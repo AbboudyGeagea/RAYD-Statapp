@@ -52,11 +52,17 @@
         label { font-size: 11px; }
     </style>
 </head>
-<body class="flex flex-col">
+<body class="flex flex-col h-screen overflow-hidden">
 
-    <header class="h-12 bg-[#0f172a] border-b border-slate-800 flex items-center px-6 justify-between shrink-0">
-        <span class="font-black text-sm uppercase text-[#38ada9]">RAYD <span class="text-white">Audit Console</span></span>
-        <span class="text-[11px] text-slate-600 font-bold uppercase tracking-widest">Orders Audit &amp; Period Comparison</span>
+    <header class="bg-[#232b28] border-b border-[#28332e] px-8 py-4 flex items-center justify-center shadow-md z-30 relative shrink-0">
+        <div class="flex items-center gap-5">
+            <img src="{{ url_for('static', filename='RAYD.png') }}" class="h-12 w-auto opacity-90">
+            <div class="flex flex-col items-center">
+                <div class="h-px w-52 bg-gradient-to-r from-transparent via-[#60a5fa] to-transparent mb-1.5"></div>
+                <p class="text-[9px] font-black text-[#60a5fa] uppercase tracking-[0.35em]">Reliable Analytics for Your Department</p>
+                <div class="h-px w-52 bg-gradient-to-r from-transparent via-[#60a5fa] to-transparent mt-1.5"></div>
+            </div>
+        </div>
     </header>
 
     <div class="flex flex-1 overflow-hidden">

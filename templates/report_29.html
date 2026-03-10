@@ -62,10 +62,14 @@
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
 
-    <header class="banner-integrated px-12 py-5 flex items-center justify-center z-30 relative shadow-sm">
-        <div class="flex flex-col items-center">
-            <img src="{{ url_for('static', filename='RAYD.png') }}" class="h-20 w-auto object-contain" alt="RAYD">
-            <div class="h-1 w-20 bg-[#38ada9] mt-2 rounded-full opacity-40"></div>
+    <header class="bg-[#232b28] border-b border-[#28332e] px-8 py-4 flex items-center justify-center shadow-md z-30 relative shrink-0">
+        <div class="flex items-center gap-5">
+            <img src="{{ url_for('static', filename='RAYD.png') }}" class="h-12 w-auto opacity-90">
+            <div class="flex flex-col items-center">
+                <div class="h-px w-52 bg-gradient-to-r from-transparent via-[#60a5fa] to-transparent mb-1.5"></div>
+                <p class="text-[9px] font-black text-[#60a5fa] uppercase tracking-[0.35em]">Reliable Analytics for Your Department</p>
+                <div class="h-px w-52 bg-gradient-to-r from-transparent via-[#60a5fa] to-transparent mt-1.5"></div>
+            </div>
         </div>
     </header>
 

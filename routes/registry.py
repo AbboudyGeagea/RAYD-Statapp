@@ -11,12 +11,14 @@ from .report_25 import report_25_bp
 from .report_27 import report_27_bp
 from .report_29 import report_29_bp
 from routes.hl7_orders import hl7_orders_bp
+from routes.etl_gear_route import etl_gear_bp
+
 
 def register_blueprints(app):
     app.register_blueprint(auth_bp)
     app.register_blueprint(admin_bp, url_prefix='/admin')
     app.register_blueprint(viewer_bp, url_prefix='/viewer')
-    app.register_blueprint(mapping_bp)   # prefix already in blueprint
+    app.register_blueprint(mapping_bp)  
     app.register_blueprint(report_bp)
     app.register_blueprint(saved_reports_bp, url_prefix='/saved')
 
@@ -27,3 +29,4 @@ def register_blueprints(app):
     app.register_blueprint(report_27_bp)
     app.register_blueprint(report_29_bp)
     app.register_blueprint(hl7_orders_bp)
+    app.register_blueprint(etl_gear_bp)
