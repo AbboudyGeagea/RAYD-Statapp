@@ -1,48 +1,37 @@
 version: '3.8'
 
 services:
-  # ---------------------------------------------------------
-  # NGINX (The HTTPS Gatekeeper)
-  # ---------------------------------------------------------
+
   nginx:
     image: nginx:stable-alpine
     container_name: rayd_proxy
     ports:
       - "443:443"
-      - "80:80" # Redirects to 443
+      - "80:80"
     volumes:
       - ./nginx/conf.d:/etc/nginx/conf.d
-      - ./nginx/certs:/etc/nginx/certs # Where you put client SSL keys
+      - ./nginx/certs:/etc/nginx/certs
     depends_on:
       - rayd-app
     restart: always
 
-  # ---------------------------------------------------------
-  # RAYD Web Application (Internal Only)
-  # ---------------------------------------------------------
   rayd-app:
     build: .
     container_name: rayd_service
     restart: always
-    # No "ports" section here; Nginx talks to it internally on 8080
     environment:
       - TZ=Asia/Beirut
       - POSTGRES_USER=etl_user
       - POSTGRES_PASSWORD=SecureCrynBabe
-      - POSTGRES_HOST=etl_db
+      - POSTGRES_HOST=db
       - POSTGRES_PORT=5432
       - POSTGRES_DB=etl_db
       - SECRET_KEY=P@ssw0rd123!
-      - LD_LIBRARY_PATH=/opt/oracle/instantclient_19_19
-    volumes:
-      - /opt/oracle/instantclient_19_19:/opt/oracle/instantclient_19_19
+      - LD_LIBRARY_PATH=/opt/oracle/instantclient_21_13
     depends_on:
       db:
         condition: service_healthy
 
-  # ---------------------------------------------------------
-  # PostgreSQL Database
-  # ---------------------------------------------------------
   db:
     image: postgres:15
     container_name: rayd_db
@@ -53,6 +42,7 @@ services:
       - POSTGRES_DB=etl_db
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./init-db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U etl_user -d etl_db"]
       interval: 10s
