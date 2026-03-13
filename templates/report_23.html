@@ -168,6 +168,56 @@
 
             </div>
 
+                <!-- Repeat Visit Rate -->
+                <div class="data-card !h-auto p-6 border-l-4 border-l-emerald-500 lg:col-span-2">
+                    <p class="text-xs font-black text-emerald-400 uppercase mb-4">Patient Return Rate</p>
+                    <p class="text-[11px] text-slate-500 italic mb-5">Percentage of patients who returned for another visit within 30, 60, or 90 days of their first study in the selected period.</p>
+                    <div class="grid grid-cols-3 gap-4" id="repeat-rate-cards">
+                        <div class="bg-[#0b0f0e] border border-[#2d3733] rounded-xl p-4 text-center">
+                            <p class="text-[9px] font-black text-slate-500 uppercase mb-1">Within 30 Days</p>
+                            <p class="text-3xl font-black text-emerald-400" id="rate-30d">—</p>
+                        </div>
+                        <div class="bg-[#0b0f0e] border border-[#2d3733] rounded-xl p-4 text-center">
+                            <p class="text-[9px] font-black text-slate-500 uppercase mb-1">Within 60 Days</p>
+                            <p class="text-3xl font-black text-blue-400" id="rate-60d">—</p>
+                        </div>
+                        <div class="bg-[#0b0f0e] border border-[#2d3733] rounded-xl p-4 text-center">
+                            <p class="text-[9px] font-black text-slate-500 uppercase mb-1">Within 90 Days</p>
+                            <p class="text-3xl font-black text-indigo-400" id="rate-90d">—</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Monthly Seasonal Trend -->
+                <div class="data-card lg:col-span-2">
+                    <div class="card-header">
+                        <span>Monthly Volume Trend (Seasonal)</span>
+                        <button class="export-img-btn" onclick="exportChart('monthlyChart', 'monthly_trend')">
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                            </svg>
+                            PNG
+                        </button>
+                    </div>
+                    <div class="card-desc">Study count per month over the selected period. Reveals seasonal demand patterns — useful for staffing, equipment planning and capacity management.</div>
+                    <div id="monthlyChart" class="chart-container"></div>
+                </div>
+
+                <!-- Age x Gender x Modality Cube -->
+                <div class="data-card lg:col-span-2">
+                    <div class="card-header">
+                        <span>Age × Gender × Modality Cube</span>
+                        <button class="export-img-btn" onclick="exportChart('cubeChart', 'age_gender_modality_cube')">
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                            </svg>
+                            PNG
+                        </button>
+                    </div>
+                    <div class="card-desc">3-axis breakdown: age band vs study count, split by gender and colored by modality (top 5). Reveals which equipment predominantly serves specific demographic groups.</div>
+                    <div id="cubeChart" class="chart-container" style="min-height: 400px;"></div>
+                </div>
+
             {% else %}
             <div class="h-full flex flex-col items-center justify-center text-slate-800">
                 <span class="text-7xl font-black italic uppercase tracking-tighter opacity-50">Intel Pending</span>
@@ -248,6 +298,60 @@
                     itemStyle: { borderRadius: 8, borderColor: '#141a18', borderWidth: 2 }
                 }]
             });
+
+            // Repeat Visit Rate KPIs
+            if (d.repeat_rates) {
+                document.getElementById('rate-30d').textContent = d.repeat_rates['30d'] + '%';
+                document.getElementById('rate-60d').textContent = d.repeat_rates['60d'] + '%';
+                document.getElementById('rate-90d').textContent = d.repeat_rates['90d'] + '%';
+            }
+
+            // Monthly Trend
+            if (d.monthly_trend && document.getElementById('monthlyChart')) {
+                initChart('monthlyChart', {
+                    tooltip: { trigger: 'axis' },
+                    xAxis: { type: 'category', data: d.monthly_trend.labels, axisLabel: { color: '#64748b', fontSize: 10, rotate: 30 } },
+                    yAxis: { type: 'value', splitLine, axisLabel },
+                    series: [{
+                        type: 'line', smooth: true,
+                        data: d.monthly_trend.values,
+                        lineStyle: { width: 3, color: '#818cf8' },
+                        areaStyle: { color: 'rgba(129,140,248,0.15)' },
+                        itemStyle: { color: '#818cf8' },
+                        label: { show: true, position: 'top', color: '#818cf8', fontSize: 10 }
+                    }]
+                });
+            }
+
+            // Age x Gender x Modality Cube
+            if (d.cube_data && document.getElementById('cubeChart')) {
+                const modColors = ['#818cf8','#34d399','#f59e0b','#ec4899','#38bdf8'];
+                const mods = [...new Set(d.cube_data.map(r => r.mod))];
+                const ages = ['Under 18','19-35','36-64','65+'];
+                const genders = ['M','F','U'];
+                const series = [];
+                mods.forEach((mod, i) => {
+                    genders.forEach(sex => {
+                        const data = ages.map(age => {
+                            const row = d.cube_data.find(r => r.mod === mod && r.age === age && r.sex === sex);
+                            return row ? row.cnt : 0;
+                        });
+                        series.push({
+                            name: `${mod} (${sex})`, type: 'bar', stack: sex,
+                            data,
+                            itemStyle: { color: modColors[i % modColors.length], opacity: sex === 'F' ? 0.7 : 1, borderRadius: sex === 'F' ? [4,4,0,0] : [0,0,0,0] }
+                        });
+                    });
+                });
+                initChart('cubeChart', {
+                    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+                    legend: { bottom: 0, textStyle: { color: '#94a3b8', fontSize: 10 }, type: 'scroll' },
+                    grid: { top: '5%', bottom: '20%', containLabel: true },
+                    xAxis: { type: 'category', data: ages, axisLabel: { color: '#94a3b8', fontSize: 12 } },
+                    yAxis: { type: 'value', splitLine, axisLabel },
+                    series
+                });
+            }
         }
     </script>
 </body>

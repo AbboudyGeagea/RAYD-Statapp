@@ -120,6 +120,41 @@ def report_22():
             ORDER BY pct_change ASC LIMIT 10
         """)).fetchall()
 
+        # 3b. NEW vs RETURNING patients
+        res_new_returning = db.session.execute(text(f"""
+            {cte},
+            first_visits AS (
+                SELECT patient_id, MIN(study_date) as first_date
+                FROM base_data
+                GROUP BY patient_id
+            )
+            SELECT
+                COUNT(DISTINCT CASE WHEN b.study_date = f.first_date THEN b.patient_id END) as new_patients,
+                COUNT(DISTINCT CASE WHEN b.study_date > f.first_date THEN b.patient_id END) as returning_patients
+            FROM base_data b
+            JOIN first_visits f ON b.patient_id = f.patient_id
+            {where}
+        """), params).fetchone()
+
+        # 3c. Geographic breakdown by patient_location
+        res_geo = db.session.execute(text(f"""
+            {cte}
+            SELECT COALESCE(patient_location, 'Unknown'), COUNT(*) as cnt
+            FROM base_data {where}
+            GROUP BY 1 ORDER BY 2 DESC LIMIT 15
+        """), params).fetchall()
+
+        # 3d. Monthly trend for sparklines (last 12 months)
+        res_monthly_trend = db.session.execute(text(f"""
+            {cte}
+            SELECT
+                TO_CHAR(study_date, 'YYYY-MM') as month,
+                COUNT(*) as cnt
+            FROM base_data {where}
+            GROUP BY 1 ORDER BY 1
+        """), params).fetchall()
+
+
         # 3. Demographics
         res_demo = db.session.execute(text(f"{cte} SELECT COALESCE(age_group, 'Unknown'), COALESCE(sex, 'U'), COUNT(*) FROM base_data {where} GROUP BY 1, 2"), params).fetchall()
         
@@ -161,7 +196,11 @@ def report_22():
             "tree_data": [final_tree],
             "gender_data": [{"name": k, "value": v} for k, v in gender_counts.items() if v > 0],
             "age_labels": sorted(age_map.keys()),
-            "age_values": [age_map[a] for a in sorted(age_map.keys())]
+            "age_values": [age_map[a] for a in sorted(age_map.keys())],
+            "new_patients": res_new_returning[0] if res_new_returning else 0,
+            "returning_patients": res_new_returning[1] if res_new_returning else 0,
+            "geo_data": [{"name": r[0], "value": r[1]} for r in res_geo],
+            "monthly_trend": {"labels": [r[0] for r in res_monthly_trend], "values": [r[1] for r in res_monthly_trend]}
         }
 
     return render_template("report_22.html", data=data, filters=filters, run_report=run_report, display_start=start_date, display_end=end_date, status_list=status_list, mod_list=mod_list, ae_list=ae_list)

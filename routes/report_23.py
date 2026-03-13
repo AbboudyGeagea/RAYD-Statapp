@@ -111,6 +111,72 @@ def report_23():
                             ]
                         }
                     }
+            # Repeat visit rate (30/60/90 days)
+            repeat_sql = text(f"""
+                {cte_base}
+                SELECT
+                    study_date,
+                    patient_id
+                FROM base_data
+                WHERE study_date BETWEEN :s AND :e
+                  AND patient_id IS NOT NULL
+            """)
+            df_visits = pd.DataFrame(db.session.execute(repeat_sql, {"s": start_date, "e": end_date}).fetchall())
+            repeat_rates = {"30d": 0, "60d": 0, "90d": 0}
+            if not df_visits.empty and 'patient_id' in df_visits.columns:
+                df_visits['study_date'] = pd.to_datetime(df_visits['study_date'])
+                first_visits = df_visits.groupby('patient_id')['study_date'].min().reset_index()
+                first_visits.columns = ['patient_id', 'first_date']
+                merged = df_visits.merge(first_visits, on='patient_id')
+                merged['days_since_first'] = (merged['study_date'] - merged['first_date']).dt.days
+                total_patients = df_visits['patient_id'].nunique()
+                for days, key in [(30, '30d'), (60, '60d'), (90, '90d')]:
+                    repeat = merged[merged['days_since_first'].between(1, days)]['patient_id'].nunique()
+                    repeat_rates[key] = round((repeat / total_patients * 100), 1) if total_patients > 0 else 0
+
+            # Seasonal monthly trend
+            monthly_sql = text(f"""
+                {cte_base}
+                SELECT TO_CHAR(study_date, 'YYYY-MM') as month, COUNT(*) as cnt
+                FROM base_data
+                WHERE study_date BETWEEN :s AND :e
+                GROUP BY 1 ORDER BY 1
+            """)
+            df_monthly = pd.DataFrame(db.session.execute(monthly_sql, {"s": start_date, "e": end_date}).fetchall())
+            monthly_trend = {"labels": [], "values": []}
+            if not df_monthly.empty:
+                monthly_trend = {"labels": df_monthly.iloc[:,0].tolist(), "values": df_monthly.iloc[:,1].tolist()}
+
+            # Age x Gender x Modality cube (top 5 modalities)
+            cube_sql = text(f"""
+                {cte_base}
+                SELECT
+                    CASE
+                        WHEN age_at_exam <= 18 THEN 'Under 18'
+                        WHEN age_at_exam <= 35 THEN '19-35'
+                        WHEN age_at_exam <= 64 THEN '36-64'
+                        ELSE '65+'
+                    END as age_band,
+                    COALESCE(sex, 'U') as sex,
+                    modality,
+                    COUNT(*) as cnt
+                FROM base_data
+                WHERE study_date BETWEEN :s AND :e
+                GROUP BY 1, 2, 3
+            """)
+            df_cube = pd.DataFrame(db.session.execute(cube_sql, {"s": start_date, "e": end_date}).fetchall())
+            cube_data = []
+            if not df_cube.empty:
+                top_mods = df_cube.groupby('modality')['cnt'].sum().nlargest(5).index.tolist()
+                df_cube_top = df_cube[df_cube['modality'].isin(top_mods)]
+                for _, row in df_cube_top.iterrows():
+                    cube_data.append({"age": row['age_band'], "sex": row['sex'], "mod": row['modality'], "cnt": int(row['cnt'])})
+            
+            chart_json["repeat_rates"] = repeat_rates
+            chart_json["monthly_trend"] = monthly_trend
+            chart_json["cube_data"] = cube_data
+            metrics["total_patients"] = df_visits['patient_id'].nunique() if not df_visits.empty and 'patient_id' in df_visits.columns else 0
+
         except Exception as e:
             print(f"Error executing report: {e}")
 

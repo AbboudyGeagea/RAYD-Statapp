@@ -83,10 +83,7 @@
                 </label>
             </div>
 
-            <div class="pt-6 border-t border-white/5">
-                <label class="sidebar-label text-blue-500">Journey Audit (ID)</label>
-                <input type="text" name="fallback_id" placeholder="Patient Fallback ID..." class="input-dark border-blue-900/30" value="{{ request.form.get('fallback_id', '') }}">
-            </div>
+
 
             <div class="flex flex-col gap-3 pt-4">
                 <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-2xl font-black text-xs uppercase shadow-xl transition-all text-white">
@@ -114,7 +111,8 @@
                 <div onclick="switchTab('ops')"      class="tab-btn" id="btn-ops">Operations</div>
                 <div onclick="switchTab('infra')"    class="tab-btn" id="btn-infra">Infrastructure</div>
                 <div onclick="switchTab('clinical')" class="tab-btn" id="btn-clinical">Radiologists</div>
-                <div onclick="switchTab('audit')"    class="tab-btn text-blue-400" id="btn-audit">Audit Journey</div>
+                <div onclick="switchTab('efficiency')"  class="tab-btn" id="btn-efficiency">Efficiency Intel</div>
+
             </nav>
 
             <div class="flex gap-3">
@@ -327,24 +325,69 @@
                 </div>
             </div>
 
-            <!-- ── AUDIT JOURNEY TAB ──────────────────────────────────────── -->
-            <div id="tab-audit" class="tab-content hidden space-y-6">
+            <!-- ── EFFICIENCY INTEL TAB ──────────────────────────────────── -->
+            <div id="tab-efficiency" class="tab-content hidden space-y-6">
 
-                <p class="section-desc">
-                    Enter a patient's Fallback ID in the sidebar to reconstruct their full imaging journey as a tree. Each node represents a procedure — expanding to show the scheduled time and the true computed entry time (insert time minus procedure duration). Use this to audit delays between scheduling and actual scan start.
-                </p>
-
-                <div class="glass-card" style="height: 700px;">
-                    <p class="text-xs font-black text-blue-500 uppercase mb-4">Patient Journey Topology (True Entry Audit)</p>
-                    {% if journey_json %}
-                    <div id="chart-8" class="w-full" style="height: 640px;"></div>
-                    {% else %}
-                    <div class="h-full flex flex-col items-center justify-center opacity-20">
-                        <i class="bi bi-search text-5xl mb-4"></i>
-                        <p class="font-bold text-sm">Enter a Patient Fallback ID in the sidebar to load the journey</p>
+                <!-- KPI Row -->
+                <div class="grid grid-cols-3 gap-4">
+                    <div class="glass-card text-center">
+                        <p class="text-[9px] font-black text-blue-500 uppercase tracking-widest mb-1">Top Efficient AE</p>
+                        <p class="text-2xl font-black text-white" id="kpi-top-ae">—</p>
+                        <p class="text-[10px] text-zinc-500 mt-1">Highest RVU/Util ratio</p>
                     </div>
-                    {% endif %}
+                    <div class="glass-card text-center">
+                        <p class="text-[9px] font-black text-amber-500 uppercase tracking-widest mb-1">TAT Outliers</p>
+                        <p class="text-2xl font-black text-amber-400" id="kpi-outlier-count">—</p>
+                        <p class="text-[10px] text-zinc-500 mt-1">Procedures >1.5× median TAT</p>
+                    </div>
+                    <div class="glass-card text-center">
+                        <p class="text-[9px] font-black text-rose-500 uppercase tracking-widest mb-1">High Stress AEs</p>
+                        <p class="text-2xl font-black text-rose-400">{{ data.summary.high_stress_count if data else '—' }}</p>
+                        <p class="text-[10px] text-zinc-500 mt-1">Utilization >85%</p>
+                    </div>
                 </div>
+
+                <!-- Row 1: Efficiency Score Bar + Stress vs Output Scatter -->
+                <div class="grid grid-cols-2 gap-6">
+                    <div class="glass-card">
+                        <div class="flex items-center justify-between mb-4">
+                            <p class="text-xs font-black text-blue-500 uppercase">Modality Efficiency Score</p>
+                            <p class="text-[9px] text-zinc-500 uppercase">RVU per 1% Utilization</p>
+                        </div>
+                        <div id="chart-eff-bar" class="w-full" style="height:300px;"></div>
+                    </div>
+                    <div class="glass-card">
+                        <div class="flex items-center justify-between mb-4">
+                            <p class="text-xs font-black text-blue-500 uppercase">Stress vs Output</p>
+                            <p class="text-[9px] text-zinc-500 uppercase">Util % vs RVU per AE</p>
+                        </div>
+                        <div id="chart-stress-scatter" class="w-full" style="height:300px;"></div>
+                    </div>
+                </div>
+
+                <!-- Row 2: TAT Outlier Table -->
+                <div class="glass-card">
+                    <p class="text-xs font-black text-amber-500 uppercase mb-4">TAT Outlier Detection — Procedures >1.5× Median</p>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-xs">
+                            <thead>
+                                <tr class="border-b border-white/5 text-zinc-500 uppercase text-[10px]">
+                                    <th class="text-left py-3 px-4">Radiologist</th>
+                                    <th class="text-left py-3 px-4">Location</th>
+                                    <th class="text-left py-3 px-4">Modality</th>
+                                    <th class="text-right py-3 px-4">Avg TAT</th>
+                                    <th class="text-right py-3 px-4">Median TAT</th>
+                                    <th class="text-right py-3 px-4">Ratio</th>
+                                    <th class="text-right py-3 px-4">Studies</th>
+                                </tr>
+                            </thead>
+                            <tbody id="outlier-table-body" class="divide-y divide-white/5">
+                                <tr><td colspan="7" class="text-center py-8 text-zinc-600">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
             </div>
 
             {% else %}
@@ -445,20 +488,154 @@
                 registerChart('chart-7', c7);
             }
 
-            // Chart 8 — Journey Tree
-            if (document.getElementById('chart-8') && !$('#tab-audit').hasClass('hidden')) {
-                const c8 = echarts.init(document.getElementById('chart-8'));
-                c8.setOption({
-                    tooltip: { trigger: 'item' },
-                    series: [{
-                        type: 'tree',
-                        data: [{{ journey_json|safe if journey_json else "{}" }}],
-                        orient: 'LR', symbolSize: 10,
-                        label: { color: '#fff', fontWeight: 700, fontSize: 13 },
-                        lineStyle: { color: '#3b82f6', width: 2 }
-                    }]
+            // ── EFFICIENCY INTEL CHARTS ──────────────────────────────────────
+            if (!$('#tab-efficiency').hasClass('hidden') && d.matrix) {
+
+                // --- Modality Efficiency Score (RVU / util%) ---
+                const effData = (d.matrix || [])
+                    .filter(r => r.avg > 0)
+                    .map(r => ({ ae: r.ae, score: r.avg > 0 ? +(r.total_rvu / r.avg).toFixed(2) : 0 }))
+                    .sort((a, b) => b.score - a.score);
+
+                // Set top AE KPI
+                if (effData.length > 0) {
+                    document.getElementById('kpi-top-ae').textContent = effData[0].ae;
+                }
+
+                if (document.getElementById('chart-eff-bar')) {
+                    const cEff = echarts.init(document.getElementById('chart-eff-bar'));
+                    cEff.setOption({
+                        tooltip: { trigger: 'axis', formatter: p => `${p[0].name}<br>Score: ${p[0].value}` },
+                        grid: { left: 80, right: 20, top: 10, bottom: 30 },
+                        xAxis: { type: 'value', ...axisStyle },
+                        yAxis: { type: 'category', data: effData.map(r => r.ae).reverse(), ...axisStyle },
+                        series: [{
+                            type: 'bar', data: effData.map(r => r.score).reverse(),
+                            itemStyle: {
+                                borderRadius: [0,5,5,0],
+                                color: p => {
+                                    const v = p.value;
+                                    const max = effData[0].score;
+                                    const ratio = v / max;
+                                    if (ratio > 0.75) return '#22c55e';
+                                    if (ratio > 0.4)  return '#3b82f6';
+                                    return '#f59e0b';
+                                }
+                            },
+                            label: { show: true, position: 'right', color: '#71717a', fontSize: 11, formatter: p => p.value }
+                        }]
+                    });
+                    registerChart('chart-eff-bar', cEff);
+                }
+
+                // --- Stress vs Output Scatter ---
+                if (document.getElementById('chart-stress-scatter')) {
+                    const scatterData = (d.matrix || []).map(r => ({
+                        value: [r.avg, r.total_rvu, r.ae],
+                        symbolSize: Math.max(8, Math.min(r.avg / 5, 30))
+                    }));
+
+                    const cScatter = echarts.init(document.getElementById('chart-stress-scatter'));
+                    cScatter.setOption({
+                        tooltip: {
+                            trigger: 'item',
+                            formatter: p => `<b>${p.value[2]}</b><br>Util: ${p.value[0]}%<br>RVU: ${p.value[1]}`
+                        },
+                        grid: { left: 60, right: 20, top: 20, bottom: 40 },
+                        xAxis: {
+                            type: 'value', name: 'Utilization %',
+                            nameTextStyle: { color: '#52525b', fontSize: 11 },
+                            splitArea: { show: true, areaStyle: { color: ['rgba(239,68,68,0.03)', 'transparent'] } },
+                            ...axisStyle
+                        },
+                        yAxis: {
+                            type: 'value', name: 'Total RVU',
+                            nameTextStyle: { color: '#52525b', fontSize: 11 },
+                            ...axisStyle
+                        },
+                        // Reference lines: 85% stress threshold
+                        series: [
+                            {
+                                type: 'scatter',
+                                data: scatterData,
+                                itemStyle: {
+                                    color: p => {
+                                        const util = p.value[0];
+                                        if (util > 85) return '#ef4444';
+                                        if (util < 30) return '#f59e0b';
+                                        return '#3b82f6';
+                                    },
+                                    opacity: 0.8
+                                }
+                            },
+                            {
+                                type: 'line',
+                                markLine: {
+                                    silent: true,
+                                    lineStyle: { color: '#ef4444', type: 'dashed', width: 1 },
+                                    data: [{ xAxis: 85, label: { formatter: 'Stress', color: '#ef4444', fontSize: 10 } }]
+                                },
+                                data: []
+                            }
+                        ]
+                    });
+                    registerChart('chart-stress-scatter', cScatter);
+                }
+
+                // --- TAT Outlier Table ---
+                const allTats = [];
+                (d.rad_cards || []).forEach(rad => {
+                    (rad.drilldown || []).forEach(loc => {
+                        (loc.mods || []).forEach(m => {
+                            allTats.push(m.avg);
+                        });
+                    });
                 });
-                registerChart('chart-8', c8);
+
+                const sorted = [...allTats].sort((a, b) => a - b);
+                const median = sorted.length > 0 ? sorted[Math.floor(sorted.length / 2)] : 0;
+                const threshold = median * 1.5;
+
+                const outliers = [];
+                (d.rad_cards || []).forEach(rad => {
+                    (rad.drilldown || []).forEach(loc => {
+                        (loc.mods || []).forEach(m => {
+                            if (m.avg > threshold) {
+                                outliers.push({
+                                    rad: rad.name, loc: loc.loc,
+                                    mod: m.m, avg: m.avg, median: median,
+                                    ratio: +(m.avg / median).toFixed(2), count: m.count
+                                });
+                            }
+                        });
+                    });
+                });
+
+                outliers.sort((a, b) => b.ratio - a.ratio);
+
+                // Update outlier KPI
+                document.getElementById('kpi-outlier-count').textContent = outliers.length;
+
+                const tbody = document.getElementById('outlier-table-body');
+                if (outliers.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="7" class="text-center py-8 text-zinc-500">No TAT outliers detected — all procedures within normal range.</td></tr>';
+                } else {
+                    tbody.innerHTML = outliers.map(o => `
+                        <tr class="hover:bg-white/5 transition">
+                            <td class="py-3 px-4 font-bold text-white">${o.rad}</td>
+                            <td class="py-3 px-4 text-zinc-400">${o.loc}</td>
+                            <td class="py-3 px-4"><span class="px-2 py-0.5 rounded bg-slate-800 text-zinc-300 font-mono text-[10px]">${o.mod}</span></td>
+                            <td class="py-3 px-4 text-right font-bold text-amber-400">${o.avg}m</td>
+                            <td class="py-3 px-4 text-right text-zinc-500">${o.median.toFixed(1)}m</td>
+                            <td class="py-3 px-4 text-right">
+                                <span class="px-2 py-0.5 rounded font-black text-[10px] ${o.ratio > 2.5 ? 'bg-rose-500/20 text-rose-400' : 'bg-amber-500/20 text-amber-400'}">
+                                    ${o.ratio}×
+                                </span>
+                            </td>
+                            <td class="py-3 px-4 text-right text-zinc-400">${o.count}</td>
+                        </tr>
+                    `).join('');
+                }
             }
         }
     </script>

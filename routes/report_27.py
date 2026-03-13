@@ -82,16 +82,57 @@ def report_27():
         df_b = get_report_data(start_b, end_b)
 
         if not df_a.empty:
+            # Orphan drill-down table (top 50)
+            orphan_df = df_a[df_a['has_study'] == False][['proc_id','proc_text','scheduled_datetime','order_status']].head(50)
+            orphan_list = []
+            for _, row in orphan_df.iterrows():
+                orphan_list.append({
+                    "proc": str(row['proc_id']) if row['proc_id'] else 'N/A',
+                    "desc": str(row['proc_text'])[:40] if row['proc_text'] else 'N/A',
+                    "date": row['scheduled_datetime'].strftime('%Y-%m-%d %H:%M') if pd.notna(row['scheduled_datetime']) else 'N/A',
+                    "status": str(row['order_status']) if row['order_status'] else 'N/A'
+                })
+
+            # Weekly match rate trend
+            df_a['week'] = df_a['scheduled_datetime'].dt.to_period('W').astype(str)
+            weekly = df_a.groupby('week').apply(
+                lambda x: round(x['match'].sum() / len(x) * 100, 1) if len(x) > 0 else 0
+            ).reset_index()
+            weekly.columns = ['week', 'match_rate']
+
+            # No-show / cancellation rate
+            cancelled_statuses = ['Cancelled', 'CANCELLED', 'No Show', 'NO SHOW', 'Canceled']
+            cancelled_count = int(df_a[df_a['order_status'].isin(cancelled_statuses)].shape[0])
+            cancellation_rate = round(cancelled_count / len(df_a) * 100, 1) if len(df_a) > 0 else 0
+
+            # Daily cancellation trend
+            df_a['day'] = df_a['scheduled_datetime'].dt.date.astype(str)
+            daily_cancel = df_a[df_a['order_status'].isin(cancelled_statuses)].groupby('day').size().reset_index()
+            daily_total = df_a.groupby('day').size().reset_index()
+            daily_total.columns = ['day', 'total']
+            if not daily_cancel.empty:
+                daily_cancel.columns = ['day', 'cancelled']
+                daily_merged = daily_total.merge(daily_cancel, on='day', how='left').fillna(0)
+                daily_merged['rate'] = (daily_merged['cancelled'] / daily_merged['total'] * 100).round(1)
+                cancel_trend = {"labels": daily_merged['day'].tolist(), "values": daily_merged['rate'].tolist()}
+            else:
+                cancel_trend = {"labels": [], "values": []}
+
             # Audit Metrics
             data['audit'] = {
                 "total": len(df_a),
                 "orphans": int(len(df_a[df_a['has_study'] == False])),
+                "orphan_list": orphan_list,
                 "matches": int(df_a['match'].sum()),
                 "mismatches": int(len(df_a) - df_a['match'].sum()),
                 "avg_duration": round(df_a['duration_minutes'].mean(), 1),
                 "hourly": df_a['scheduled_datetime'].dt.hour.value_counts().sort_index().to_dict(),
                 "status_mix": df_a['order_status'].value_counts().to_dict(),
-                "ae_mix": df_a['storing_ae'].fillna('Unknown').value_counts().to_dict()
+                "ae_mix": df_a['storing_ae'].fillna('Unknown').value_counts().to_dict(),
+                "weekly_match": {"labels": weekly['week'].tolist(), "values": weekly['match_rate'].tolist()},
+                "cancellation_rate": cancellation_rate,
+                "cancel_trend": cancel_trend,
+                "cancelled_count": cancelled_count
             }
             
             # Comparison Metrics (observed=False handles categorical gaps)

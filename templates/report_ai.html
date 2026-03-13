@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | AI Intelligence</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg:       #03070f;
+            --surface:  #080e1a;
+            --border:   #0f1e35;
+            --border2:  #162440;
+            --text:     #c9d8f0;
+            --muted:    #3d5278;
+            --accent:   #2f80ed;
+            --accent2:  #56ccf2;
+            --success:  #27ae60;
+            --warning:  #f2994a;
+            --danger:   #eb5757;
+            --purple:   #9b51e0;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Space Grotesk', sans-serif;
+            height: 100vh;
+            overflow: hidden;
+        }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 10px; }
+
+        /* ── HEADER ── */
+        .rayd-header {
+            background: #232b28;
+            border-bottom: 1px solid #28332e;
+            padding: 16px 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        /* ── SIDEBAR ── */
+        .sidebar {
+            width: 280px;
+            background: var(--surface);
+            border-right: 1px solid var(--border);
+            padding: 24px 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-col: column;
+            gap: 20px;
+            flex-shrink: 0;
+        }
+        .input-field {
+            width: 100%;
+            background: var(--bg);
+            border: 1px solid var(--border2);
+            color: var(--text);
+            border-radius: 8px;
+            padding: 9px 12px;
+            font-size: 12px;
+            font-family: 'Space Grotesk', sans-serif;
+            outline: none;
+            transition: border 0.2s;
+        }
+        .input-field:focus { border-color: var(--accent); }
+        .run-btn {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(135deg, #1a6fd4, #2f80ed);
+            border: none;
+            border-radius: 10px;
+            color: white;
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .run-btn:hover { filter: brightness(1.15); transform: translateY(-1px); }
+
+        /* ── TABS ── */
+        .tab-bar {
+            display: flex;
+            gap: 4px;
+            padding: 16px 24px 0;
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+        }
+        .tab {
+            padding: 10px 20px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--muted);
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+        .tab:hover { color: var(--text); }
+        .tab.active { color: var(--accent2); border-bottom-color: var(--accent2); }
+
+        /* ── CARDS ── */
+        .panel { display: none; }
+        .panel.active { display: block; }
+
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            overflow: hidden;
+            transition: border-color 0.2s;
+        }
+        .card:hover { border-color: var(--border2); }
+        .card-head {
+            padding: 14px 18px;
+            border-bottom: 1px solid var(--border);
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: var(--accent2);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .card-desc {
+            padding: 10px 18px;
+            font-size: 11px;
+            color: var(--muted);
+            font-style: italic;
+            background: rgba(0,0,0,0.2);
+            border-bottom: 1px solid var(--border);
+            line-height: 1.55;
+        }
+
+        /* ── KPI ── */
+        .kpi-grid { display: grid; gap: 16px; }
+        .kpi {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 18px;
+            position: relative;
+            overflow: hidden;
+        }
+        .kpi::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 2px;
+        }
+        .kpi.blue::before  { background: var(--accent); }
+        .kpi.cyan::before  { background: var(--accent2); }
+        .kpi.green::before { background: var(--success); }
+        .kpi.orange::before{ background: var(--warning); }
+        .kpi.red::before   { background: var(--danger); }
+        .kpi.purple::before{ background: var(--purple); }
+        .kpi-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin-bottom: 6px; }
+        .kpi-val   { font-size: 28px; font-weight: 700; color: white; line-height: 1; font-family: 'JetBrains Mono', monospace; }
+        .kpi-sub   { font-size: 11px; color: var(--muted); margin-top: 6px; font-style: italic; }
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 9px;
+            font-weight: 700;
+            text-transform: uppercase;
+            padding: 3px 8px;
+            border-radius: 4px;
+        }
+        .badge-up   { background: rgba(39,174,96,0.15);  color: #27ae60; }
+        .badge-down { background: rgba(235,87,87,0.15);  color: #eb5757; }
+        .badge-warn { background: rgba(242,153,74,0.15); color: #f2994a; }
+
+        /* ── EXPLANATION BOX ── */
+        .explain-box {
+            background: rgba(47,128,237,0.06);
+            border: 1px solid rgba(47,128,237,0.2);
+            border-left: 3px solid var(--accent);
+            border-radius: 0 10px 10px 0;
+            padding: 14px 18px;
+            font-size: 12px;
+            color: #8fb3e0;
+            line-height: 1.7;
+            margin-bottom: 24px;
+        }
+        .explain-box strong { color: var(--accent2); }
+
+        /* ── PROGRESS BAR ── */
+        .progress-wrap { background: var(--border); border-radius: 4px; height: 6px; overflow: hidden; }
+        .progress-fill { height: 100%; border-radius: 4px; transition: width 0.6s ease; }
+
+        /* ── PHYSICIAN TABLE ── */
+        .phys-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .phys-table th { text-align: left; padding: 10px 14px; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); border-bottom: 1px solid var(--border); }
+        .phys-table td { padding: 10px 14px; border-bottom: 1px solid rgba(15,30,53,0.6); vertical-align: middle; }
+        .phys-table tr:hover td { background: rgba(255,255,255,0.02); }
+
+        /* ── AE ANOMALY CARDS ── */
+        .ae-card {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .ae-card:hover { border-color: var(--accent); }
+        .ae-card.selected { border-color: var(--accent2); background: rgba(86,204,242,0.05); }
+        .ae-card.stress { border-left: 3px solid var(--danger); }
+        .ae-card.low    { border-left: 3px solid var(--warning); }
+        .ae-card.normal { border-left: 3px solid var(--success); }
+
+        /* ── CAPACITY GAUGE ── */
+        .gauge-wrap { position: relative; width: 200px; height: 200px; margin: 0 auto; }
+
+        label { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; display: block; margin-bottom: 6px; }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+
+    <!-- RAYD Header -->
+    <header class="rayd-header">
+        <div class="flex items-center gap-5">
+            <img src="{{ url_for('static', filename='RAYD.png') }}" class="h-12 w-auto opacity-90">
+            <div class="flex flex-col items-center">
+                <div class="h-px w-52" style="background: linear-gradient(to right, transparent, #60a5fa, transparent); margin-bottom: 6px;"></div>
+                <p style="font-size:9px; font-weight:900; color:#60a5fa; text-transform:uppercase; letter-spacing:0.35em;">Reliable Analytics for Your Department</p>
+                <div class="h-px w-52" style="background: linear-gradient(to right, transparent, #60a5fa, transparent); margin-top: 6px;"></div>
+            </div>
+        </div>
+    </header>
+
+    <div class="flex flex-1 overflow-hidden">
+
+        <!-- Sidebar -->
+        <aside class="sidebar flex flex-col gap-5">
+            <div>
+                <div class="flex items-center gap-2 mb-4">
+                    <div style="width:6px;height:6px;border-radius:50%;background:#2f80ed;box-shadow:0 0 8px #2f80ed;"></div>
+                    <span style="font-size:11px;font-weight:700;color:#56ccf2;text-transform:uppercase;letter-spacing:0.1em;">AI Intelligence</span>
+                </div>
+                <p style="font-size:11px;color:var(--muted);line-height:1.6;">
+                    Forecasting engine using linear regression and anomaly detection on your historical PACS data. All predictions include plain-language explanations.
+                </p>
+            </div>
+
+            <form method="POST" class="flex flex-col gap-4">
+                <div>
+                    <label>Analysis Window</label>
+                    <input type="date" name="start_date" class="input-field mb-2" value="{{ display_start }}">
+                    <input type="date" name="end_date"   class="input-field"      value="{{ display_end }}">
+                </div>
+                <button type="submit" class="run-btn">
+                    Run AI Analysis
+                </button>
+            </form>
+
+            {% if run_report and data %}
+            <div style="border-top:1px solid var(--border);padding-top:16px;">
+                <label class="mb-3">Modules Run</label>
+                <div class="flex flex-col gap-2">
+                    {% for module, label, color in [
+                        ('storage','Storage Forecast','#2f80ed'),
+                        ('volume','Volume Forecast','#56ccf2'),
+                        ('utilization','Utilization Anomalies','#f2994a'),
+                        ('physician','Physician Intelligence','#9b51e0')
+                    ] %}
+                    <div class="flex items-center justify-between">
+                        <span style="font-size:11px;color:var(--muted);">{{ label }}</span>
+                        <span style="font-size:9px;font-weight:700;padding:2px 8px;border-radius:4px;
+                            background:{{ 'rgba(39,174,96,0.15)' if data[module] else 'rgba(235,87,87,0.15)' }};
+                            color:{{ '#27ae60' if data[module] else '#eb5757' }};">
+                            {{ 'OK' if data[module] else 'NO DATA' }}
+                        </span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        </aside>
+
+        <!-- Main -->
+        <div class="flex-1 flex flex-col overflow-hidden">
+
+            {% if run_report and data %}
+
+            <!-- Tab Bar -->
+            <div class="tab-bar">
+                <div class="tab active" onclick="switchTab('storage',   this)">📦 Storage</div>
+                <div class="tab"        onclick="switchTab('volume',    this)">📈 Volume</div>
+                <div class="tab"        onclick="switchTab('util',      this)">⚡ Utilization</div>
+                <div class="tab"        onclick="switchTab('physician', this)">👨‍⚕️ Physicians</div>
+            </div>
+
+            <!-- Content panels -->
+            <div class="flex-1 overflow-y-auto p-6" style="background:var(--bg);">
+
+                <!-- ══════════════════════════════════════
+                     STORAGE PANEL
+                ═══════════════════════════════════════ -->
+                <div id="panel-storage" class="panel active space-y-6">
+                    {% if data.storage %}
+                    {% set s = data.storage %}
+
+                    <!-- Explanation -->
+                    <div class="explain-box">
+                        <strong>AI Analysis:</strong> {{ s.explanation }}
+                    </div>
+
+                    <!-- KPIs -->
+                    <div class="kpi-grid" style="grid-template-columns: repeat(4, 1fr);">
+                        <div class="kpi blue">
+                            <div class="kpi-label">Current Storage</div>
+                            <div class="kpi-val">{{ "%.1f"|format(s.current_gb) }}<span style="font-size:14px;color:var(--muted);"> GB</span></div>
+                            <div class="kpi-sub">of {{ "%.0f"|format(s.capacity_gb) }} GB capacity</div>
+                        </div>
+                        <div class="kpi {{ 'red' if s.daily_growth_gb > 1 else 'cyan' }}">
+                            <div class="kpi-label">Daily Growth</div>
+                            <div class="kpi-val">{{ "%.2f"|format(s.daily_growth_gb) }}<span style="font-size:14px;color:var(--muted);"> GB</span></div>
+                            <div class="kpi-sub">per day (linear trend)</div>
+                        </div>
+                        <div class="kpi {{ 'red' if s.days_to_full and s.days_to_full < 180 else 'green' }}">
+                            <div class="kpi-label">Days to Capacity</div>
+                            <div class="kpi-val">{{ s.days_to_full if s.days_to_full else '—' }}</div>
+                            <div class="kpi-sub">at current growth rate</div>
+                        </div>
+                        <div class="kpi {{ 'green' if s.vs_prev_pct and s.vs_prev_pct > 0 else 'orange' }}">
+                            <div class="kpi-label">vs Same Period -1Y</div>
+                            {% if s.vs_prev_pct is not none %}
+                            <div class="kpi-val">{{ '+' if s.vs_prev_pct > 0 else '' }}{{ s.vs_prev_pct }}<span style="font-size:14px;color:var(--muted);">%</span></div>
+                            {% else %}
+                            <div class="kpi-val">—</div>
+                            {% endif %}
+                            <div class="kpi-sub">year-over-year change</div>
+                        </div>
+                    </div>
+
+                    <!-- Capacity progress bar -->
+                    {% set used_pct = (s.current_gb / s.capacity_gb * 100)|round(1) %}
+                    <div class="card p-5">
+                        <div class="flex justify-between items-center mb-3">
+                            <span style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;">Capacity Usage</span>
+                            <span style="font-size:13px;font-weight:700;color:white;font-family:'JetBrains Mono',monospace;">{{ used_pct }}%</span>
+                        </div>
+                        <div class="progress-wrap">
+                            <div class="progress-fill" style="width:{{ used_pct }}%;background:{{ '#eb5757' if used_pct > 80 else '#f2994a' if used_pct > 60 else '#27ae60' }};"></div>
+                        </div>
+                        <div class="flex justify-between mt-2">
+                            <span style="font-size:10px;color:var(--muted);">{{ "%.1f"|format(s.current_gb) }} GB used</span>
+                            <span style="font-size:10px;color:var(--muted);">{{ "%.1f"|format(s.capacity_gb - s.current_gb) }} GB free</span>
+                        </div>
+                    </div>
+
+                    <!-- Forecast Chart -->
+                    <div class="card">
+                        <div class="card-head">
+                            Storage Growth + 90-Day Forecast
+                            <span style="font-size:9px;color:var(--muted);">R² = {{ s.r2 }}</span>
+                        </div>
+                        <div class="card-desc">Historical storage consumption with a linear regression forecast for the next 90 days. The dashed line shows the projected trajectory — shaded area represents the forecast zone.</div>
+                        <div id="chart-storage" style="height:380px;padding:16px;"></div>
+                    </div>
+                    {% else %}
+                    <div class="flex items-center justify-center h-64 text-center" style="color:var(--muted);">
+                        <div>
+                            <div style="font-size:32px;margin-bottom:12px;">📦</div>
+                            <p style="font-size:13px;font-weight:700;">No storage data found</p>
+                            <p style="font-size:11px;margin-top:4px;">summary_storage_daily table may be empty</p>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+
+                <!-- ══════════════════════════════════════
+                     VOLUME PANEL
+                ═══════════════════════════════════════ -->
+                <div id="panel-volume" class="panel space-y-6">
+                    {% if data.volume %}
+                    {% set v = data.volume %}
+
+                    <div class="explain-box">
+                        <strong>AI Analysis:</strong> {{ v.explanation }}
+                    </div>
+
+                    <div class="kpi-grid" style="grid-template-columns: repeat(4, 1fr);">
+                        <div class="kpi blue">
+                            <div class="kpi-label">Total Studies</div>
+                            <div class="kpi-val">{{ "{:,}".format(v.total) }}</div>
+                            <div class="kpi-sub">in selected period</div>
+                        </div>
+                        <div class="kpi cyan">
+                            <div class="kpi-label">Avg Daily Volume</div>
+                            <div class="kpi-val">{{ v.avg_daily }}</div>
+                            <div class="kpi-sub">studies per day</div>
+                        </div>
+                        <div class="kpi {{ 'green' if v.slope > 0 else 'red' }}">
+                            <div class="kpi-label">Trend</div>
+                            <div class="kpi-val">{{ '+' if v.slope > 0 else '' }}{{ v.slope }}</div>
+                            <div class="kpi-sub">studies/day change</div>
+                        </div>
+                        <div class="kpi {{ 'green' if v.vs_prev_pct and v.vs_prev_pct > 0 else 'orange' if v.vs_prev_pct else 'blue' }}">
+                            <div class="kpi-label">vs Same Period -1Y</div>
+                            {% if v.vs_prev_pct is not none %}
+                            <div class="kpi-val">{{ '+' if v.vs_prev_pct > 0 else '' }}{{ v.vs_prev_pct }}<span style="font-size:14px;color:var(--muted);">%</span></div>
+                            <div class="kpi-sub">{{ "{:,}".format(v.vs_prev_total) }} studies last year</div>
+                            {% else %}
+                            <div class="kpi-val">—</div>
+                            <div class="kpi-sub">no prior year data</div>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <!-- Volume Forecast Chart -->
+                    <div class="card">
+                        <div class="card-head">
+                            Daily Study Volume + 90-Day Forecast
+                            <span style="font-size:9px;color:var(--muted);">R² = {{ v.r2 }} · anomalies highlighted</span>
+                        </div>
+                        <div class="card-desc">Daily study count with linear forecast. Red dots indicate days where volume was statistically anomalous (±2 standard deviations from mean). Dashed line shows projected trend.</div>
+                        <div id="chart-volume" style="height:380px;padding:16px;"></div>
+                    </div>
+
+                    <!-- Modality split -->
+                    <div class="card">
+                        <div class="card-head">Volume Split by Modality</div>
+                        <div class="card-desc">Proportion of total studies per modality in the selected period. Helps identify which equipment is driving overall volume growth.</div>
+                        <div id="chart-volume-mod" style="height:320px;padding:16px;"></div>
+                    </div>
+
+                    {% else %}
+                    <div class="flex items-center justify-center h-64" style="color:var(--muted);">No study data available.</div>
+                    {% endif %}
+                </div>
+
+                <!-- ══════════════════════════════════════
+                     UTILIZATION PANEL
+                ═══════════════════════════════════════ -->
+                <div id="panel-util" class="panel space-y-6">
+                    {% if data.utilization %}
+                    {% set u = data.utilization %}
+
+                    <div class="explain-box">
+                        <strong>AI Analysis:</strong> {{ u.explanation }}
+                    </div>
+
+                    <div class="kpi-grid" style="grid-template-columns: repeat(3, 1fr);">
+                        <div class="kpi {{ 'red' if u.anomaly_count > 10 else 'orange' if u.anomaly_count > 0 else 'green' }}">
+                            <div class="kpi-label">Anomalies Detected</div>
+                            <div class="kpi-val">{{ u.anomaly_count }}</div>
+                            <div class="kpi-sub">days outside normal range (±2σ)</div>
+                        </div>
+                        <div class="kpi red">
+                            <div class="kpi-label">High Stress AEs</div>
+                            <div class="kpi-val">{{ u.high_stress|length }}</div>
+                            <div class="kpi-sub">avg utilization >85%</div>
+                        </div>
+                        <div class="kpi orange">
+                            <div class="kpi-label">Under-Utilized AEs</div>
+                            <div class="kpi-val">{{ u.low_util|length }}</div>
+                            <div class="kpi-sub">avg utilization <30%</div>
+                        </div>
+                    </div>
+
+                    <!-- AE selector + detail chart -->
+                    <div class="grid gap-6" style="grid-template-columns: 280px 1fr;">
+                        <div style="display:flex;flex-direction:column;gap:8px;max-height:500px;overflow-y:auto;">
+                            {% for ae in u.ae_list %}
+                            <div class="ae-card {% if ae.avg_util > 85 %}stress{% elif ae.avg_util < 30 and ae.avg_util > 0 %}low{% else %}normal{% endif %}"
+                                 onclick="selectAE({{ loop.index0 }})" id="ae-card-{{ loop.index0 }}">
+                                <div class="flex justify-between items-center mb-2">
+                                    <span style="font-size:12px;font-weight:700;color:white;">{{ ae.ae }}</span>
+                                    <span style="font-family:'JetBrains Mono',monospace;font-size:12px;
+                                        color:{{ '#eb5757' if ae.avg_util > 85 else '#f2994a' if ae.avg_util > 60 else '#27ae60' }};">
+                                        {{ ae.avg_util }}%
+                                    </span>
+                                </div>
+                                <div class="progress-wrap" style="height:4px;">
+                                    <div class="progress-fill" style="width:{{ [ae.avg_util, 100]|min }}%;
+                                        background:{{ '#eb5757' if ae.avg_util > 85 else '#f2994a' if ae.avg_util > 60 else '#27ae60' }};"></div>
+                                </div>
+                                {% if ae.anomaly_count > 0 %}
+                                <div style="margin-top:6px;font-size:9px;color:#f2994a;">⚠ {{ ae.anomaly_count }} anomaly days</div>
+                                {% endif %}
+                            </div>
+                            {% endfor %}
+                        </div>
+                        <div class="card flex flex-col">
+                            <div class="card-head" id="ae-chart-title">Select an AE to view detail</div>
+                            <div class="card-desc" id="ae-chart-desc">Click any AE title on the left to view its daily utilization trend, anomalies, and 30-day forecast.</div>
+                            <div id="chart-ae-detail" style="flex:1;min-height:400px;padding:16px;"></div>
+                        </div>
+                    </div>
+
+                    {% else %}
+                    <div class="flex items-center justify-center h-64" style="color:var(--muted);">No utilization data available.</div>
+                    {% endif %}
+                </div>
+
+                <!-- ══════════════════════════════════════
+                     PHYSICIAN PANEL
+                ═══════════════════════════════════════ -->
+                <div id="panel-physician" class="panel space-y-6">
+                    {% if data.physician %}
+                    {% set p = data.physician %}
+
+                    <div class="explain-box">
+                        <strong>AI Analysis:</strong> {{ p.explanation }}
+                    </div>
+
+                    <!-- Alert strips -->
+                    {% if p.churning %}
+                    <div style="background:rgba(235,87,87,0.07);border:1px solid rgba(235,87,87,0.25);border-radius:10px;padding:14px 18px;">
+                        <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#eb5757;margin-bottom:8px;">⬇ Declining Referral Trend</div>
+                        <div class="flex flex-wrap gap-2">
+                            {% for name in p.churning %}
+                            <span style="background:rgba(235,87,87,0.15);color:#eb5757;font-size:10px;font-weight:700;padding:3px 10px;border-radius:5px;">{{ name }}</span>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    {% if p.growing %}
+                    <div style="background:rgba(39,174,96,0.07);border:1px solid rgba(39,174,96,0.25);border-radius:10px;padding:14px 18px;">
+                        <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#27ae60;margin-bottom:8px;">⬆ Growing Referral Trend</div>
+                        <div class="flex flex-wrap gap-2">
+                            {% for name in p.growing %}
+                            <span style="background:rgba(39,174,96,0.15);color:#27ae60;font-size:10px;font-weight:700;padding:3px 10px;border-radius:5px;">{{ name }}</span>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <!-- Physician table -->
+                    <div class="card">
+                        <div class="card-head">
+                            Top 20 Referring Physicians — Trend Analysis
+                            <span style="font-size:9px;color:var(--muted);">click row to view monthly chart</span>
+                        </div>
+                        <div class="card-desc">Monthly referral volume per physician with linear trend slope. Negative slope = declining. Positive = growing. The -1Y comparison shows volume change vs the same date range one year ago.</div>
+                        <div style="overflow-x:auto;max-height:400px;overflow-y:auto;">
+                            <table class="phys-table">
+                                <thead>
+                                    <tr>
+                                        <th>Physician</th>
+                                        <th>Total</th>
+                                        <th>Trend</th>
+                                        <th>vs -1Y</th>
+                                        <th>Forecast</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for doc in p.physicians %}
+                                    <tr onclick="selectPhysician({{ loop.index0 }})" style="cursor:pointer;" id="phys-row-{{ loop.index0 }}">
+                                        <td style="font-weight:700;color:white;">{{ doc.name }}</td>
+                                        <td style="font-family:'JetBrains Mono',monospace;">{{ "{:,}".format(doc.total) }}</td>
+                                        <td>
+                                            {% if doc.slope > 0.5 %}
+                                            <span class="badge badge-up">▲ +{{ doc.slope }}</span>
+                                            {% elif doc.slope < -0.5 %}
+                                            <span class="badge badge-down">▼ {{ doc.slope }}</span>
+                                            {% else %}
+                                            <span class="badge" style="background:rgba(61,82,120,0.3);color:var(--muted);">→ stable</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if doc.vs_prev is not none %}
+                                            <span class="badge {{ 'badge-up' if doc.vs_prev >= 0 else 'badge-down' }}">
+                                                {{ '+' if doc.vs_prev >= 0 else '' }}{{ doc.vs_prev }}%
+                                            </span>
+                                            {% else %}
+                                            <span style="color:var(--muted);font-size:11px;">no prior data</span>
+                                            {% endif %}
+                                        </td>
+                                        <td style="font-size:10px;color:var(--muted);">
+                                            {% if doc.chart.forecast_vals %}
+                                            ~{{ doc.chart.forecast_vals[-1]|round|int }}/mo
+                                            {% else %}—{% endif %}
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Physician detail chart -->
+                    <div class="card">
+                        <div class="card-head" id="phys-chart-title">Select a physician to view monthly trend</div>
+                        <div id="chart-physician-detail" style="height:340px;padding:16px;"></div>
+                    </div>
+
+                    {% else %}
+                    <div class="flex items-center justify-center h-64" style="color:var(--muted);">No physician data available.</div>
+                    {% endif %}
+                </div>
+
+            </div><!-- /content -->
+
+            {% else %}
+            <!-- Empty state -->
+            <div class="flex-1 flex flex-col items-center justify-center" style="background:var(--bg);">
+                <div style="text-align:center;max-width:420px;">
+                    <div style="font-size:64px;margin-bottom:16px;opacity:0.15;">🤖</div>
+                    <h2 style="font-size:22px;font-weight:700;color:white;margin-bottom:8px;">AI Intelligence Module</h2>
+                    <p style="font-size:13px;color:var(--muted);line-height:1.7;">
+                        Select a date range and click <strong style="color:var(--accent2);">Run AI Analysis</strong> to generate storage forecasts, volume predictions, utilization anomaly detection, and physician trend analysis — each with an automatic plain-language explanation.
+                    </p>
+                </div>
+            </div>
+            {% endif %}
+
+        </div><!-- /main -->
+    </div><!-- /flex -->
+
+    <script>
+    // ── DATA ──────────────────────────────────────────────────────────
+    const D = {{ data | tojson | safe if data else '{}' }};
+
+    // ── TABS ──────────────────────────────────────────────────────────
+    function switchTab(name, el) {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+        el.classList.add('active');
+        document.getElementById('panel-' + name).classList.add('active');
+    }
+
+    // ── CHART REGISTRY ────────────────────────────────────────────────
+    const charts = {};
+    function mkChart(id) {
+        if (charts[id]) charts[id].dispose();
+        const el = document.getElementById(id);
+        if (!el) return null;
+        const c = echarts.init(el, null, { renderer: 'canvas' });
+        charts[id] = c;
+        return c;
+    }
+
+    const axisLabel  = { color: '#3d5278', fontSize: 11 };
+    const splitLine  = { lineStyle: { color: '#0f1e35' } };
+
+    // ── STORAGE CHART ─────────────────────────────────────────────────
+    if (D.storage && D.storage.chart) {
+        const sc = D.storage.chart;
+        const c  = mkChart('chart-storage');
+        if (c) {
+            const allDates = [...sc.historical_dates, ...sc.forecast_dates];
+            c.setOption({
+                tooltip: { trigger: 'axis', formatter: p => {
+                    return p.map(s => `${s.marker} ${s.seriesName}: ${s.value != null ? s.value + ' GB' : '—'}`).join('<br>');
+                }},
+                legend: { bottom: 0, textStyle: { color: '#3d5278', fontSize: 11 } },
+                grid: { left: 60, right: 30, top: 20, bottom: 50 },
+                xAxis: { type: 'category', data: allDates, axisLabel: { ...axisLabel, rotate: 30 } },
+                yAxis: { type: 'value', name: 'GB', nameTextStyle: { color: '#3d5278', fontSize: 10 }, splitLine, axisLabel: { ...axisLabel, formatter: v => v + ' GB' } },
+                series: [
+                    {
+                        name: 'Historical',
+                        type: 'line', smooth: true,
+                        data: [...sc.historical_vals, ...new Array(sc.forecast_dates.length).fill(null)],
+                        lineStyle: { color: '#2f80ed', width: 2.5 },
+                        itemStyle: { color: '#2f80ed' },
+                        areaStyle: { color: 'rgba(47,128,237,0.1)' },
+                        symbol: 'none'
+                    },
+                    {
+                        name: 'Forecast',
+                        type: 'line', smooth: true,
+                        data: [...new Array(sc.historical_dates.length).fill(null), ...sc.forecast_vals],
+                        lineStyle: { color: '#56ccf2', width: 2, type: 'dashed' },
+                        itemStyle: { color: '#56ccf2' },
+                        areaStyle: { color: 'rgba(86,204,242,0.07)' },
+                        symbol: 'none'
+                    }
+                ]
+            });
+        }
+    }
+
+    // ── VOLUME CHART ──────────────────────────────────────────────────
+    if (D.volume && D.volume.chart) {
+        const vc = D.volume.chart;
+        const c  = mkChart('chart-volume');
+        if (c) {
+            const allDates = [...vc.historical_dates, ...vc.forecast_dates];
+            const anomalyData = vc.historical_dates.map((d, i) =>
+                vc.anomaly_flags[i] ? { value: vc.historical_vals[i], itemStyle: { color: '#eb5757' }, symbolSize: 8 } : { value: vc.historical_vals[i], symbolSize: 0 }
+            );
+            c.setOption({
+                tooltip: { trigger: 'axis' },
+                legend: { bottom: 0, textStyle: { color: '#3d5278', fontSize: 11 } },
+                grid: { left: 60, right: 30, top: 20, bottom: 50 },
+                xAxis: { type: 'category', data: allDates, axisLabel: { ...axisLabel, rotate: 30 } },
+                yAxis: { type: 'value', name: 'Studies', nameTextStyle: { color: '#3d5278', fontSize: 10 }, splitLine, axisLabel },
+                series: [
+                    {
+                        name: 'Daily Volume',
+                        type: 'bar',
+                        data: [...vc.historical_vals, ...new Array(vc.forecast_dates.length).fill(null)],
+                        itemStyle: { color: '#2f80ed', borderRadius: [2,2,0,0] },
+                        barMaxWidth: 12
+                    },
+                    {
+                        name: 'Anomaly',
+                        type: 'scatter',
+                        data: [...anomalyData, ...new Array(vc.forecast_dates.length).fill(null)],
+                        itemStyle: { color: '#eb5757' },
+                        symbol: 'circle', symbolSize: 8,
+                        z: 10
+                    },
+                    {
+                        name: 'Forecast',
+                        type: 'line', smooth: true,
+                        data: [...new Array(vc.historical_dates.length).fill(null), ...vc.forecast_vals],
+                        lineStyle: { color: '#56ccf2', width: 2, type: 'dashed' },
+                        itemStyle: { color: '#56ccf2' },
+                        symbol: 'none'
+                    }
+                ]
+            });
+        }
+
+        // Modality split
+        if (D.volume.modality_split) {
+            const cm = mkChart('chart-volume-mod');
+            if (cm) {
+                cm.setOption({
+                    tooltip: { trigger: 'item', formatter: '{b}: {c} studies ({d}%)' },
+                    series: [{
+                        type: 'pie', radius: ['40%', '72%'], center: ['50%', '50%'],
+                        data: D.volume.modality_split.map(m => ({ name: m.name, value: m.value })),
+                        itemStyle: { borderRadius: 6, borderColor: '#03070f', borderWidth: 2 },
+                        label: { color: '#8fb3e0', fontSize: 12 },
+                        emphasis: { itemStyle: { shadowBlur: 10, shadowColor: 'rgba(47,128,237,0.5)' } }
+                    }],
+                    color: ['#2f80ed','#56ccf2','#27ae60','#f2994a','#9b51e0','#eb5757','#6fcf97','#bb87fc']
+                });
+            }
+        }
+    }
+
+    // ── UTILIZATION CHARTS ────────────────────────────────────────────
+    const AE_DATA = D.utilization ? D.utilization.ae_list : [];
+    let selectedAE = -1;
+    const aeChart = mkChart('chart-ae-detail');
+
+    function selectAE(idx) {
+        document.querySelectorAll('.ae-card').forEach((c, i) => c.classList.toggle('selected', i === idx));
+        selectedAE = idx;
+        const ae = AE_DATA[idx];
+        if (!ae || !aeChart) return;
+
+        document.getElementById('ae-chart-title').textContent = `${ae.ae} — Daily Utilization + 30-Day Forecast`;
+        document.getElementById('ae-chart-desc').textContent =
+            `Average utilization: ${ae.avg_util}% | Anomaly days: ${ae.anomaly_count} | Trend slope: ${ae.slope > 0 ? '+' : ''}${ae.slope}%/day`;
+
+        const allDates = [...ae.chart.dates, ...ae.chart.forecast_dates];
+        const anomalyData = ae.chart.dates.map((d, i) =>
+            ae.chart.anomaly_flags[i]
+                ? { value: ae.chart.utils[i], itemStyle: { color: '#eb5757' }, symbolSize: 10 }
+                : { value: ae.chart.utils[i], symbolSize: 0 }
+        );
+
+        aeChart.setOption({
+            tooltip: { trigger: 'axis', formatter: p => p.map(s => `${s.marker} ${s.seriesName}: ${s.value != null ? s.value + '%' : '—'}`).join('<br>') },
+            legend: { bottom: 0, textStyle: { color: '#3d5278', fontSize: 11 } },
+            grid: { left: 60, right: 30, top: 20, bottom: 50 },
+            xAxis: { type: 'category', data: allDates, axisLabel: { ...axisLabel, rotate: 30 } },
+            yAxis: {
+                type: 'value', min: 0, max: 110, name: 'Util %',
+                nameTextStyle: { color: '#3d5278', fontSize: 10 }, splitLine, axisLabel,
+                markLine: { data: [{ yAxis: 85, lineStyle: { color: '#eb5757', type: 'dashed' } }] }
+            },
+            series: [
+                {
+                    name: 'Utilization',
+                    type: 'line', smooth: true,
+                    data: [...ae.chart.utils, ...new Array(ae.chart.forecast_dates.length).fill(null)],
+                    lineStyle: { color: '#2f80ed', width: 2.5 },
+                    areaStyle: { color: 'rgba(47,128,237,0.08)' },
+                    itemStyle: { color: '#2f80ed' }, symbol: 'none'
+                },
+                {
+                    name: 'Anomaly',
+                    type: 'scatter',
+                    data: [...anomalyData, ...new Array(ae.chart.forecast_dates.length).fill(null)],
+                    itemStyle: { color: '#eb5757' }
+                },
+                {
+                    name: 'Forecast',
+                    type: 'line', smooth: true,
+                    data: [...new Array(ae.chart.dates.length).fill(null), ...ae.chart.forecast_vals],
+                    lineStyle: { color: '#f2994a', width: 2, type: 'dashed' },
+                    itemStyle: { color: '#f2994a' }, symbol: 'none'
+                },
+                {
+                    name: '85% Threshold',
+                    type: 'line',
+                    data: allDates.map(() => 85),
+                    lineStyle: { color: '#eb5757', type: 'dashed', width: 1, opacity: 0.5 },
+                    symbol: 'none', itemStyle: { color: '#eb5757' }
+                }
+            ]
+        });
+    }
+
+    if (AE_DATA.length > 0) selectAE(0);
+
+    // ── PHYSICIAN CHARTS ──────────────────────────────────────────────
+    const PHYS_DATA = D.physician ? D.physician.physicians : [];
+    let selectedPhys = -1;
+    const physChart = mkChart('chart-physician-detail');
+
+    function selectPhysician(idx) {
+        document.querySelectorAll('[id^="phys-row-"]').forEach((r, i) => {
+            r.style.background = i === idx ? 'rgba(47,128,237,0.08)' : '';
+        });
+        selectedPhys = idx;
+        const doc = PHYS_DATA[idx];
+        if (!doc || !physChart) return;
+
+        document.getElementById('phys-chart-title').textContent =
+            `${doc.name} — Monthly Referrals + Forecast (slope: ${doc.slope > 0 ? '+' : ''}${doc.slope}/mo)`;
+
+        const allMonths = [...doc.chart.months, ...doc.chart.forecast_months];
+        physChart.setOption({
+            tooltip: { trigger: 'axis' },
+            legend: { bottom: 0, textStyle: { color: '#3d5278', fontSize: 11 } },
+            grid: { left: 60, right: 30, top: 20, bottom: 50 },
+            xAxis: { type: 'category', data: allMonths, axisLabel: { ...axisLabel, rotate: 30 } },
+            yAxis: { type: 'value', name: 'Referrals', nameTextStyle: { color: '#3d5278', fontSize: 10 }, splitLine, axisLabel },
+            series: [
+                {
+                    name: 'Monthly Referrals',
+                    type: 'bar',
+                    data: [...doc.chart.counts, ...new Array(doc.chart.forecast_months.length).fill(null)],
+                    itemStyle: {
+                        color: doc.slope < -0.5 ? '#eb5757' : doc.slope > 0.5 ? '#27ae60' : '#2f80ed',
+                        borderRadius: [3,3,0,0]
+                    },
+                    barMaxWidth: 30
+                },
+                {
+                    name: 'Forecast',
+                    type: 'line', smooth: true,
+                    data: [...new Array(doc.chart.months.length).fill(null), ...doc.chart.forecast_vals],
+                    lineStyle: { color: '#56ccf2', width: 2, type: 'dashed' },
+                    itemStyle: { color: '#56ccf2' }, symbol: 'circle', symbolSize: 6
+                }
+            ]
+        });
+    }
+
+    if (PHYS_DATA.length > 0) selectPhysician(0);
+
+    // ── RESIZE ────────────────────────────────────────────────────────
+    window.addEventListener('resize', () => Object.values(charts).forEach(c => c && c.resize()));
+    </script>
+</body>
+</html>

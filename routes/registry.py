@@ -12,6 +12,8 @@ from .report_27 import report_27_bp
 from .report_29 import report_29_bp
 from routes.hl7_orders import hl7_orders_bp
 from routes.etl_gear_route import etl_gear_bp
+from report_ai import report_ai_bp
+
 
 
 def register_blueprints(app):
@@ -21,7 +23,7 @@ def register_blueprints(app):
     app.register_blueprint(mapping_bp)  
     app.register_blueprint(report_bp)
     app.register_blueprint(saved_reports_bp, url_prefix='/saved')
-
+    app.register_blueprint(report_ai_bp)
     # legacy / direct testing
     app.register_blueprint(report_22_bp)
     app.register_blueprint(report_23_bp)
