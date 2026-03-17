@@ -8,12 +8,12 @@
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg:       #03070f;
-            --surface:  #080e1a;
-            --border:   #0f1e35;
-            --border2:  #162440;
-            --text:     #c9d8f0;
-            --muted:    #3d5278;
+            --bg:       #050d1a;
+            --surface:  #0a1220;
+            --border:   #162440;
+            --border2:  #1e3255;
+            --text:     #e8f0fe;
+            --muted:    #7a9cc9;
             --accent:   #2f80ed;
             --accent2:  #56ccf2;
             --success:  #27ae60;
@@ -95,7 +95,7 @@
         }
         .tab {
             padding: 10px 20px;
-            font-size: 11px;
+            font-size: 12px;
             font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 0.08em;
@@ -123,7 +123,7 @@
         .card-head {
             padding: 14px 18px;
             border-bottom: 1px solid var(--border);
-            font-size: 10px;
+            font-size: 12px;
             font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 0.12em;
@@ -133,9 +133,9 @@
             justify-content: space-between;
         }
         .card-desc {
-            padding: 10px 18px;
-            font-size: 11px;
-            color: var(--muted);
+            padding: 12px 18px;
+            font-size: 13px;
+            color: #94b8d8;
             font-style: italic;
             background: rgba(0,0,0,0.2);
             border-bottom: 1px solid var(--border);
@@ -164,14 +164,14 @@
         .kpi.orange::before{ background: var(--warning); }
         .kpi.red::before   { background: var(--danger); }
         .kpi.purple::before{ background: var(--purple); }
-        .kpi-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin-bottom: 6px; }
+        .kpi-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #94b8d8; margin-bottom: 6px; }
         .kpi-val   { font-size: 28px; font-weight: 700; color: white; line-height: 1; font-family: 'JetBrains Mono', monospace; }
-        .kpi-sub   { font-size: 11px; color: var(--muted); margin-top: 6px; font-style: italic; }
+        .kpi-sub   { font-size: 12px; color: #7a9cc9; margin-top: 6px; font-style: italic; }
         .badge {
             display: inline-flex;
             align-items: center;
             gap: 4px;
-            font-size: 9px;
+            font-size: 11px;
             font-weight: 700;
             text-transform: uppercase;
             padding: 3px 8px;
@@ -183,13 +183,13 @@
 
         /* ── EXPLANATION BOX ── */
         .explain-box {
-            background: rgba(47,128,237,0.06);
-            border: 1px solid rgba(47,128,237,0.2);
+            background: rgba(47,128,237,0.08);
+            border: 1px solid rgba(47,128,237,0.3);
             border-left: 3px solid var(--accent);
             border-radius: 0 10px 10px 0;
-            padding: 14px 18px;
-            font-size: 12px;
-            color: #8fb3e0;
+            padding: 16px 20px;
+            font-size: 14px;
+            color: #b8d4f0;
             line-height: 1.7;
             margin-bottom: 24px;
         }
@@ -200,8 +200,8 @@
         .progress-fill { height: 100%; border-radius: 4px; transition: width 0.6s ease; }
 
         /* ── PHYSICIAN TABLE ── */
-        .phys-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-        .phys-table th { text-align: left; padding: 10px 14px; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); border-bottom: 1px solid var(--border); }
+        .phys-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .phys-table th { text-align: left; padding: 10px 14px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #94b8d8; border-bottom: 1px solid var(--border2); }
         .phys-table td { padding: 10px 14px; border-bottom: 1px solid rgba(15,30,53,0.6); vertical-align: middle; }
         .phys-table tr:hover td { background: rgba(255,255,255,0.02); }
 
@@ -223,7 +223,7 @@
         /* ── CAPACITY GAUGE ── */
         .gauge-wrap { position: relative; width: 200px; height: 200px; margin: 0 auto; }
 
-        label { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; display: block; margin-bottom: 6px; }
+        label { font-size: 12px; font-weight: 700; color: #94b8d8; text-transform: uppercase; letter-spacing: 0.06em; display: block; margin-bottom: 6px; }
     </style>
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
@@ -247,9 +247,9 @@
             <div>
                 <div class="flex items-center gap-2 mb-4">
                     <div style="width:6px;height:6px;border-radius:50%;background:#2f80ed;box-shadow:0 0 8px #2f80ed;"></div>
-                    <span style="font-size:11px;font-weight:700;color:#56ccf2;text-transform:uppercase;letter-spacing:0.1em;">AI Intelligence</span>
+                    <span style="font-size:13px;font-weight:700;color:#56ccf2;text-transform:uppercase;letter-spacing:0.1em;">AI Intelligence</span>
                 </div>
-                <p style="font-size:11px;color:var(--muted);line-height:1.6;">
+                <p style="font-size:13px;color:#94b8d8;line-height:1.7;">
                     Forecasting engine using linear regression and anomaly detection on your historical PACS data. All predictions include plain-language explanations.
                 </p>
             </div>
@@ -276,8 +276,8 @@
                         ('physician','Physician Intelligence','#9b51e0')
                     ] %}
                     <div class="flex items-center justify-between">
-                        <span style="font-size:11px;color:var(--muted);">{{ label }}</span>
-                        <span style="font-size:9px;font-weight:700;padding:2px 8px;border-radius:4px;
+                        <span style="font-size:13px;color:#b0cce8;">{{ label }}</span>
+                        <span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:4px;
                             background:{{ 'rgba(39,174,96,0.15)' if data[module] else 'rgba(235,87,87,0.15)' }};
                             color:{{ '#27ae60' if data[module] else '#eb5757' }};">
                             {{ 'OK' if data[module] else 'NO DATA' }}
@@ -321,12 +321,12 @@
                     <div class="kpi-grid" style="grid-template-columns: repeat(4, 1fr);">
                         <div class="kpi blue">
                             <div class="kpi-label">Current Storage</div>
-                            <div class="kpi-val">{{ "%.1f"|format(s.current_gb) }}<span style="font-size:14px;color:var(--muted);"> GB</span></div>
+                            <div class="kpi-val">{{ "%.1f"|format(s.current_gb) }}<span style="font-size:16px;color:#94b8d8;"> GB</span></div>
                             <div class="kpi-sub">of {{ "%.0f"|format(s.capacity_gb) }} GB capacity</div>
                         </div>
                         <div class="kpi {{ 'red' if s.daily_growth_gb > 1 else 'cyan' }}">
                             <div class="kpi-label">Daily Growth</div>
-                            <div class="kpi-val">{{ "%.2f"|format(s.daily_growth_gb) }}<span style="font-size:14px;color:var(--muted);"> GB</span></div>
+                            <div class="kpi-val">{{ "%.2f"|format(s.daily_growth_gb) }}<span style="font-size:16px;color:#94b8d8;"> GB</span></div>
                             <div class="kpi-sub">per day (linear trend)</div>
                         </div>
                         <div class="kpi {{ 'red' if s.days_to_full and s.days_to_full < 180 else 'green' }}">
@@ -349,15 +349,15 @@
                     {% set used_pct = (s.current_gb / s.capacity_gb * 100)|round(1) %}
                     <div class="card p-5">
                         <div class="flex justify-between items-center mb-3">
-                            <span style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;">Capacity Usage</span>
-                            <span style="font-size:13px;font-weight:700;color:white;font-family:'JetBrains Mono',monospace;">{{ used_pct }}%</span>
+                            <span style="font-size:13px;font-weight:700;color:#b0cce8;text-transform:uppercase;letter-spacing:0.06em;">Capacity Usage</span>
+                            <span style="font-size:15px;font-weight:700;color:white;font-family:'JetBrains Mono',monospace;">{{ used_pct }}%</span>
                         </div>
                         <div class="progress-wrap">
                             <div class="progress-fill" style="width:{{ used_pct }}%;background:{{ '#eb5757' if used_pct > 80 else '#f2994a' if used_pct > 60 else '#27ae60' }};"></div>
                         </div>
                         <div class="flex justify-between mt-2">
-                            <span style="font-size:10px;color:var(--muted);">{{ "%.1f"|format(s.current_gb) }} GB used</span>
-                            <span style="font-size:10px;color:var(--muted);">{{ "%.1f"|format(s.capacity_gb - s.current_gb) }} GB free</span>
+                            <span style="font-size:12px;color:#94b8d8;">{{ "%.1f"|format(s.current_gb) }} GB used</span>
+                            <span style="font-size:12px;color:#94b8d8;">{{ "%.1f"|format(s.capacity_gb - s.current_gb) }} GB free</span>
                         </div>
                     </div>
 
@@ -365,7 +365,7 @@
                     <div class="card">
                         <div class="card-head">
                             Storage Growth + 90-Day Forecast
-                            <span style="font-size:9px;color:var(--muted);">R² = {{ s.r2 }}</span>
+                            <span style="font-size:11px;color:#7a9cc9;">R² = {{ s.r2 }}</span>
                         </div>
                         <div class="card-desc">Historical storage consumption with a linear regression forecast for the next 90 days. The dashed line shows the projected trajectory — shaded area represents the forecast zone.</div>
                         <div id="chart-storage" style="height:380px;padding:16px;"></div>
@@ -374,8 +374,8 @@
                     <div class="flex items-center justify-center h-64 text-center" style="color:var(--muted);">
                         <div>
                             <div style="font-size:32px;margin-bottom:12px;">📦</div>
-                            <p style="font-size:13px;font-weight:700;">No storage data found</p>
-                            <p style="font-size:11px;margin-top:4px;">summary_storage_daily table may be empty</p>
+                            <p style="font-size:15px;font-weight:700;color:white;">No storage data found</p>
+                            <p style="font-size:13px;margin-top:4px;color:#7a9cc9;">summary_storage_daily table may be empty</p>
                         </div>
                     </div>
                     {% endif %}
@@ -424,7 +424,7 @@
                     <div class="card">
                         <div class="card-head">
                             Daily Study Volume + 90-Day Forecast
-                            <span style="font-size:9px;color:var(--muted);">R² = {{ v.r2 }} · anomalies highlighted</span>
+                            <span style="font-size:11px;color:#7a9cc9;">R² = {{ v.r2 }} · anomalies highlighted</span>
                         </div>
                         <div class="card-desc">Daily study count with linear forecast. Red dots indicate days where volume was statistically anomalous (±2 standard deviations from mean). Dashed line shows projected trend.</div>
                         <div id="chart-volume" style="height:380px;padding:16px;"></div>
@@ -478,7 +478,7 @@
                             <div class="ae-card {% if ae.avg_util > 85 %}stress{% elif ae.avg_util < 30 and ae.avg_util > 0 %}low{% else %}normal{% endif %}"
                                  onclick="selectAE({{ loop.index0 }})" id="ae-card-{{ loop.index0 }}">
                                 <div class="flex justify-between items-center mb-2">
-                                    <span style="font-size:12px;font-weight:700;color:white;">{{ ae.ae }}</span>
+                                    <span style="font-size:13px;font-weight:700;color:white;">{{ ae.ae }}</span>
                                     <span style="font-family:'JetBrains Mono',monospace;font-size:12px;
                                         color:{{ '#eb5757' if ae.avg_util > 85 else '#f2994a' if ae.avg_util > 60 else '#27ae60' }};">
                                         {{ ae.avg_util }}%
@@ -489,7 +489,7 @@
                                         background:{{ '#eb5757' if ae.avg_util > 85 else '#f2994a' if ae.avg_util > 60 else '#27ae60' }};"></div>
                                 </div>
                                 {% if ae.anomaly_count > 0 %}
-                                <div style="margin-top:6px;font-size:9px;color:#f2994a;">⚠ {{ ae.anomaly_count }} anomaly days</div>
+                                <div style="margin-top:6px;font-size:11px;color:#f2994a;font-weight:600;">⚠ {{ ae.anomaly_count }} anomaly days</div>
                                 {% endif %}
                             </div>
                             {% endfor %}
@@ -520,7 +520,7 @@
                     <!-- Alert strips -->
                     {% if p.churning %}
                     <div style="background:rgba(235,87,87,0.07);border:1px solid rgba(235,87,87,0.25);border-radius:10px;padding:14px 18px;">
-                        <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#eb5757;margin-bottom:8px;">⬇ Declining Referral Trend</div>
+                        <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#eb5757;margin-bottom:8px;">⬇ Declining Referral Trend</div>
                         <div class="flex flex-wrap gap-2">
                             {% for name in p.churning %}
                             <span style="background:rgba(235,87,87,0.15);color:#eb5757;font-size:10px;font-weight:700;padding:3px 10px;border-radius:5px;">{{ name }}</span>
@@ -531,7 +531,7 @@
 
                     {% if p.growing %}
                     <div style="background:rgba(39,174,96,0.07);border:1px solid rgba(39,174,96,0.25);border-radius:10px;padding:14px 18px;">
-                        <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#27ae60;margin-bottom:8px;">⬆ Growing Referral Trend</div>
+                        <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#27ae60;margin-bottom:8px;">⬆ Growing Referral Trend</div>
                         <div class="flex flex-wrap gap-2">
                             {% for name in p.growing %}
                             <span style="background:rgba(39,174,96,0.15);color:#27ae60;font-size:10px;font-weight:700;padding:3px 10px;border-radius:5px;">{{ name }}</span>
@@ -544,7 +544,7 @@
                     <div class="card">
                         <div class="card-head">
                             Top 20 Referring Physicians — Trend Analysis
-                            <span style="font-size:9px;color:var(--muted);">click row to view monthly chart</span>
+                            <span style="font-size:11px;color:#7a9cc9;">click row to view monthly chart</span>
                         </div>
                         <div class="card-desc">Monthly referral volume per physician with linear trend slope. Negative slope = declining. Positive = growing. The -1Y comparison shows volume change vs the same date range one year ago.</div>
                         <div style="overflow-x:auto;max-height:400px;overflow-y:auto;">
@@ -645,8 +645,8 @@
         return c;
     }
 
-    const axisLabel  = { color: '#3d5278', fontSize: 11 };
-    const splitLine  = { lineStyle: { color: '#0f1e35' } };
+    const axisLabel  = { color: '#7a9cc9', fontSize: 12 };
+    const splitLine  = { lineStyle: { color: '#162440' } };
 
     // ── STORAGE CHART ─────────────────────────────────────────────────
     if (D.storage && D.storage.chart) {

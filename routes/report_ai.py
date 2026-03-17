@@ -16,7 +16,7 @@ report_ai_bp = Blueprint("report_ai", __name__)
 def _linear_forecast(dates, values, forecast_days=90):
     """Simple linear regression forecast. Returns (forecast_dates, forecast_values, r2)."""
     if len(values) < 5:
-        return [], [], 0
+        return [], [], 0, 0
     x = np.arange(len(values))
     coeffs = np.polyfit(x, values, 1)
     slope, intercept = coeffs
@@ -39,7 +39,7 @@ def _detect_anomalies(values, threshold=2.0):
     mean, std = arr.mean(), arr.std()
     if std == 0:
         return [False] * len(values)
-    return [abs(v - mean) > threshold * std for v in values]
+    return [bool(abs(v - mean) > threshold * std) for v in values]
 
 
 def _pct_change(current, previous):
@@ -116,10 +116,10 @@ def _generate_explanation(section, data):
 
 def _get_storage_intelligence(start, end):
     rows = db.session.execute(text("""
-        SELECT snapshot_date, total_gb
+        SELECT study_date, total_gb
         FROM summary_storage_daily
-        WHERE snapshot_date BETWEEN :s AND :e
-        ORDER BY snapshot_date
+        WHERE study_date BETWEEN :s AND :e
+        ORDER BY study_date
     """), {"s": start, "e": end}).fetchall()
 
     if not rows or len(rows) < 3:
@@ -135,11 +135,7 @@ def _get_storage_intelligence(start, end):
     daily_growth  = slope
     days_to_full  = None
 
-    # Try to get total capacity from config (fallback to 10TB)
-    cap_row = db.session.execute(text(
-        "SELECT config_value FROM app_config WHERE config_key = 'storage_capacity_gb' LIMIT 1"
-    )).fetchone()
-    capacity_gb = float(cap_row[0]) if cap_row else 10240.0
+    capacity_gb = 10240.0  # 10TB default
 
     remaining = capacity_gb - current_gb
     if daily_growth > 0:
@@ -150,7 +146,7 @@ def _get_storage_intelligence(start, end):
     one_year_ago_end   = (pd.to_datetime(end)   - timedelta(days=365)).strftime('%Y-%m-%d')
     prev_row = db.session.execute(text("""
         SELECT AVG(total_gb) FROM summary_storage_daily
-        WHERE snapshot_date BETWEEN :s AND :e
+        WHERE study_date BETWEEN :s AND :e
     """), {"s": one_year_ago_start, "e": one_year_ago_end}).fetchone()
     prev_avg  = float(prev_row[0]) if prev_row and prev_row[0] else None
     vs_prev   = _pct_change(current_gb, prev_avg)

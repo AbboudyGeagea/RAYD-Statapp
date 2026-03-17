@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ config.get('hospital_name', 'Patient Portal') }} — Results Portal</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --bg:      #f0f4f8;
+            --white:   #ffffff;
+            --ink:     #1a2332;
+            --muted:   #64748b;
+            --border:  #e2e8f0;
+            --accent:  #1d6fa4;
+            --accent2: #1558833;
+            --error:   #dc2626;
+            --success: #16a34a;
+            --radius:  12px;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+
+        /* Card */
+        .card {
+            background: var(--white);
+            border-radius: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.04), 0 20px 60px rgba(0,0,0,0.08);
+            width: 100%;
+            max-width: 420px;
+            overflow: hidden;
+        }
+
+        /* Top band */
+        .card-top {
+            background: var(--accent);
+            padding: 36px 40px 32px;
+            text-align: center;
+            position: relative;
+        }
+        .card-top::after {
+            content: '';
+            position: absolute;
+            bottom: -1px; left: 0; right: 0;
+            height: 24px;
+            background: var(--white);
+            border-radius: 20px 20px 0 0;
+        }
+        .hospital-logo {
+            width: 72px;
+            height: 72px;
+            border-radius: 16px;
+            background: rgba(255,255,255,0.15);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 16px;
+            font-size: 32px;
+        }
+        .hospital-logo img {
+            width: 64px;
+            height: 64px;
+            object-fit: contain;
+            border-radius: 12px;
+        }
+        .hospital-name {
+            font-size: 18px;
+            font-weight: 700;
+            color: white;
+            margin-bottom: 4px;
+        }
+        .portal-label {
+            font-size: 13px;
+            color: rgba(255,255,255,0.75);
+            font-weight: 400;
+        }
+
+        /* Body */
+        .card-body { padding: 32px 40px 40px; }
+
+        .welcome-text {
+            text-align: center;
+            margin-bottom: 28px;
+        }
+        .welcome-text h2 {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--ink);
+            margin-bottom: 6px;
+        }
+        .welcome-text p {
+            font-size: 13px;
+            color: var(--muted);
+            line-height: 1.6;
+        }
+
+        /* Form */
+        .field { margin-bottom: 20px; }
+        .field label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            margin-bottom: 8px;
+        }
+        .field input {
+            width: 100%;
+            padding: 13px 16px;
+            border: 1.5px solid var(--border);
+            border-radius: var(--radius);
+            font-family: 'Inter', sans-serif;
+            font-size: 15px;
+            color: var(--ink);
+            background: var(--white);
+            outline: none;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        .field input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(29,111,164,0.1);
+        }
+        .field input::placeholder { color: #cbd5e1; }
+
+        /* Password toggle */
+        .password-wrap { position: relative; }
+        .password-wrap input { padding-right: 48px; }
+        .toggle-pw {
+            position: absolute;
+            right: 14px; top: 50%;
+            transform: translateY(-50%);
+            background: none; border: none;
+            cursor: pointer; color: var(--muted);
+            font-size: 16px; padding: 4px;
+            transition: color 0.15s;
+        }
+        .toggle-pw:hover { color: var(--accent); }
+
+        /* Error */
+        .error-box {
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            border-radius: var(--radius);
+            padding: 12px 16px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 13px;
+            color: var(--error);
+        }
+        .error-box .err-icon { font-size: 16px; flex-shrink: 0; }
+
+        /* Submit button */
+        .btn-login {
+            width: 100%;
+            padding: 14px;
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: var(--radius);
+            font-family: 'Inter', sans-serif;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        .btn-login:hover {
+            background: #155f8e;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 16px rgba(29,111,164,0.3);
+        }
+        .btn-login:active { transform: translateY(0); }
+
+        /* Divider */
+        .divider {
+            border: none;
+            border-top: 1px solid var(--border);
+            margin: 28px 0;
+        }
+
+        /* Help text */
+        .help-text {
+            text-align: center;
+            font-size: 12px;
+            color: var(--muted);
+            line-height: 1.7;
+        }
+        .help-text strong { color: var(--ink); }
+
+        /* Footer */
+        .portal-footer {
+            margin-top: 28px;
+            text-align: center;
+            font-size: 11px;
+            color: #94a3b8;
+        }
+        .portal-footer a { color: #94a3b8; text-decoration: none; }
+
+        /* Secure badge */
+        .secure-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: #f0fdf4;
+            border: 1px solid #bbf7d0;
+            border-radius: 20px;
+            padding: 5px 12px;
+            font-size: 11px;
+            color: var(--success);
+            font-weight: 600;
+            margin-bottom: 24px;
+        }
+
+        @media (max-width: 480px) {
+            .card-top { padding: 28px 24px 28px; }
+            .card-body { padding: 24px 24px 32px; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <!-- Top band with hospital branding -->
+        <div class="card-top">
+            <div class="hospital-logo">
+                {% if config.get('hospital_logo_url') %}
+                <img src="{{ config.get('hospital_logo_url') }}" alt="Hospital Logo">
+                {% else %}
+                🏥
+                {% endif %}
+            </div>
+            <div class="hospital-name">{{ config.get('hospital_name', 'Radiology Department') }}</div>
+            <div class="portal-label">Patient Results Portal</div>
+        </div>
+
+        <!-- Login form -->
+        <div class="card-body">
+
+            <div class="welcome-text">
+                <div class="secure-badge">
+                    🔒 Secure Access
+                </div>
+                <h2>Access Your Results</h2>
+                <p>Use the username and password sent to your mobile number via WhatsApp to log in.</p>
+            </div>
+
+            {% if error %}
+            <div class="error-box">
+                <span class="err-icon">⚠️</span>
+                <span>{{ error }}</span>
+            </div>
+            {% endif %}
+
+            <form method="POST" action="{{ url_for('portal.portal_login') }}">
+                <div class="field">
+                    <label for="username">Username (Patient ID)</label>
+                    <input type="text" id="username" name="username"
+                           placeholder="Enter your username"
+                           value="{{ request.form.get('username', '') }}"
+                           autocomplete="username" required>
+                </div>
+
+                <div class="field">
+                    <label for="password">Password</label>
+                    <div class="password-wrap">
+                        <input type="password" id="password" name="password"
+                               placeholder="Enter your password"
+                               autocomplete="current-password" required>
+                        <button type="button" class="toggle-pw" onclick="togglePw()" title="Show/hide password">
+                            👁
+                        </button>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn-login">
+                    <span>View My Results</span>
+                    <span>→</span>
+                </button>
+            </form>
+
+            <hr class="divider">
+
+            <div class="help-text">
+                <strong>Need help?</strong><br>
+                Your username and password were sent to your registered mobile number via WhatsApp when your examination was scheduled.<br><br>
+                If you did not receive your credentials, please contact the radiology reception desk.
+            </div>
+
+        </div>
+    </div>
+
+    <div class="portal-footer">
+        Powered by RAYD &nbsp;·&nbsp; {{ config.get('hospital_name', '') }}<br>
+        <a href="#">Privacy Policy</a>
+    </div>
+
+    <script>
+    function togglePw() {
+        const input = document.getElementById('password');
+        const btn   = document.querySelector('.toggle-pw');
+        if (input.type === 'password') {
+            input.type = 'text';
+            btn.textContent = '🙈';
+        } else {
+            input.type = 'password';
+            btn.textContent = '👁';
+        }
+    }
+    </script>
+</body>
+</html>

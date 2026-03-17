@@ -22,7 +22,6 @@ db = SQLAlchemy()
 class OracleConnector:
     @staticmethod
     def get_connection(sysdba=False):
-        # We import inside to avoid circular deps if needed
         params = DBParams.query.filter(DBParams.name.ilike('%oracle%')).first()
         if not params: 
             raise Exception("No Oracle configuration found in db_params table.")
@@ -35,7 +34,6 @@ class OracleConnector:
         }
         
         if sysdba or (params.mode and params.mode.upper() == 'SYSDBA'):
-            # Note: oracledb thin mode uses different sysdba syntax than old cx_Oracle
             connect_kwargs["mode"] = oracledb.SYSDBA
             
         return oracledb.connect(**connect_kwargs)
@@ -71,6 +69,7 @@ def chunked_upsert(engine, table_name, col_names, data, constraint_col):
     with engine.begin() as conn:
         dict_data = [dict(zip(col_names, row)) for row in data]
         conn.execute(query, dict_data)
+
 # ----------------------------------------------------------------
 # 3. CORE & AUTH MODELS
 # ----------------------------------------------------------------
@@ -230,7 +229,7 @@ class etl_image_locations(db.Model):
     __tablename__ = 'etl_image_locations'
     raw_image_db_uid = db.Column(BigInteger, ForeignKey('etl_didb_raw_images.raw_image_db_uid'), primary_key=True)
     file_system = db.Column(Text)
-    image_size_kb = db.Column(Integer) # Note: schema says Integer, but BigInteger is safer for 4TB
+    image_size_kb = db.Column(Integer)
     last_update = db.Column(DateTime, server_default=func.now())
 
 class etl_orders(db.Model):
@@ -290,13 +289,57 @@ class summary_storage_daily(db.Model):
     study_count = db.Column(Integer, default=0)
 
 # ----------------------------------------------------------------
-# 7. ALIASES (KEEPS CONTROLLERS HAPPY)
+# 7. PATIENT PORTAL TABLES  ← NEW
 # ----------------------------------------------------------------
-ActiveSession = active_sessions
-AETitleModalityMap = aetitle_modality_map
+
+class PatientPortalUser(db.Model):
+    """
+    One record per patient MRN.
+    Upserted every time an ORM arrives for that patient.
+    password_plain is masked (visible to admin), never hashed.
+    """
+    __tablename__ = 'patient_portal_users'
+    id               = db.Column(Integer, primary_key=True)
+    mrn              = db.Column(String(50), nullable=False)
+    full_name        = db.Column(String(200))
+    phone            = db.Column(String(30))
+    accession_number = db.Column(String(100))
+    username         = db.Column(String(50), unique=True, nullable=False)  # = MRN
+    password_plain   = db.Column(String(20), nullable=False)               # masked, not hashed
+    is_active        = db.Column(Boolean, default=True)
+    last_login       = db.Column(DateTime)
+    whatsapp_sent    = db.Column(Boolean, default=False)
+    whatsapp_sent_at = db.Column(DateTime)
+    created_at       = db.Column(DateTime, server_default=func.now())
+    updated_at       = db.Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    def __repr__(self):
+        return f"<PatientPortalUser mrn={self.mrn} name={self.full_name}>"
+
+
+class PortalConfig(db.Model):
+    """
+    Key-value store for per-site portal settings.
+    Editable via /admin/portal/config without redeploy.
+    """
+    __tablename__ = 'portal_config'
+    id           = db.Column(Integer, primary_key=True)
+    config_key   = db.Column(String(100), unique=True, nullable=False)
+    config_value = db.Column(Text)
+    description  = db.Column(String(255))
+    updated_at   = db.Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    def __repr__(self):
+        return f"<PortalConfig {self.config_key}>"
+
+# ----------------------------------------------------------------
+# 8. ALIASES (KEEPS CONTROLLERS HAPPY)
+# ----------------------------------------------------------------
+ActiveSession        = active_sessions
+AETitleModalityMap   = aetitle_modality_map
 ProcedureDurationMap = procedure_duration_map
-DeviceException = device_exceptions
+DeviceException      = device_exceptions
 DeviceWeeklySchedule = device_weekly_schedule
-EtlDidbStudy = etl_didb_studies
-Patient = etl_patient_view
-SummaryStorageDaily = summary_storage_daily
+EtlDidbStudy         = etl_didb_studies
+Patient              = etl_patient_view
+SummaryStorageDaily  = summary_storage_daily

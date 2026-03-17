@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | Super Report</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        :root { --accent: #60a5fa; --bg: #181f1c; --surface: #232b28; --border: #28332e; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Inter', sans-serif; background: var(--bg); color: #e2e8f0; height: 100vh; overflow: hidden; }
+        ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-thumb { background: #28332e; border-radius: 10px; }
+
+        .sidebar-item { transition: all 0.2s; border-radius: 0.75rem; margin-bottom: 0.25rem; text-decoration: none !important; color: #94a3b8; display: flex; align-items: center; gap: 12px; padding: 10px 16px; font-size: 14px; font-weight: 700; }
+        .sidebar-item:hover { background: #1d2522; color: var(--accent); }
+        .sidebar-item.active { background: #1d2522; color: var(--accent); border-left: 4px solid var(--accent); }
+
+        .card { background: var(--surface); border-radius: 1rem; border: 1px solid var(--border); }
+
+        /* Filter panel */
+        .f-label { font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.08em; color: #64748b; margin-bottom: 4px; display: block; }
+        .f-input  { width: 100%; background: #181f1c; border: 1px solid #28332e; color: #e2e8f0; border-radius: 6px; padding: 6px 8px; font-size: 11px; font-family: 'Inter', sans-serif; outline: none; transition: border 0.15s; }
+        .f-input:focus { border-color: var(--accent); }
+        .f-multi  { width: 100%; background: #181f1c; border: 1px solid #28332e; color: #e2e8f0; border-radius: 6px; padding: 3px 2px; font-size: 11px; max-height: 80px; outline: none; }
+        .f-multi:focus { border-color: var(--accent); }
+        .chip { font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 4px; background: rgba(96,165,250,0.12); color: #60a5fa; border: 1px solid rgba(96,165,250,0.2); display: inline-flex; align-items: center; gap: 3px; cursor: pointer; margin: 1px; }
+        .chip:hover { background: rgba(96,165,250,0.25); }
+
+        /* Searchable dropdown */
+        .search-dropdown { position: relative; }
+        .search-dropdown input { width: 100%; }
+        .dropdown-list { position: absolute; top: 100%; left: 0; right: 0; background: #141a17; border: 1px solid #28332e; border-radius: 6px; max-height: 160px; overflow-y: auto; z-index: 50; display: none; }
+        .dropdown-list.open { display: block; }
+        .dropdown-item { padding: 6px 10px; font-size: 11px; color: #e2e8f0; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+        .dropdown-item:hover { background: #1d2522; }
+        .dropdown-item.selected { color: #60a5fa; }
+        .dropdown-item input[type=checkbox] { accent-color: #60a5fa; }
+
+        /* Stats rows */
+        .row-stat { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px solid #1a2420; }
+        .row-stat:last-child { border-bottom: none; }
+        .row-stat .lbl { color: #64748b; font-size: 12px; }
+        .row-stat .val { color: white; font-family: monospace; font-weight: 700; font-size: 12px; }
+        .val.warn { color: #fbbf24; }
+        .kpi-card { border-top: 2px solid; }
+
+        /* Narrative */
+        .narrative-box { background: rgba(251,191,36,0.05); border: 1px solid rgba(251,191,36,0.2); border-left: 3px solid #fbbf24; border-radius: 0 10px 10px 0; padding: 14px 18px; font-size: 13px; color: #cbd5e1; line-height: 1.75; }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+
+    <!-- Header -->
+    <header class="bg-[#232b28] border-b border-[#28332e] px-8 py-4 flex items-center justify-center shadow-md z-30 shrink-0">
+        <div class="flex items-center gap-5">
+            <img src="{{ url_for('static', filename='RAYD.png') }}" class="h-12 w-auto opacity-90">
+            <div class="flex flex-col items-center">
+                <div class="h-px w-52 bg-gradient-to-r from-transparent via-[#60a5fa] to-transparent mb-1.5"></div>
+                <p class="text-[9px] font-black text-[#60a5fa] uppercase tracking-[0.35em]">Reliable Analytics for Your Department</p>
+                <div class="h-px w-52 bg-gradient-to-r from-transparent via-[#60a5fa] to-transparent mt-1.5"></div>
+            </div>
+        </div>
+    </header>
+
+    <div class="flex flex-1 overflow-hidden">
+
+        <!-- Nav Sidebar -->
+        <aside class="w-64 bg-[#232b28] border-r border-[#28332e] flex flex-col p-5 shadow-xl z-20 shrink-0">
+            <div class="flex items-center gap-3 mb-8 px-2">
+                <div class="bg-[#60a5fa] p-2.5 rounded-xl text-white shadow-lg shadow-blue-400/20"><i class="bi bi-cpu-fill text-xl"></i></div>
+                <div>
+                    <h1 class="font-black text-[#e2e8f0] tracking-tighter uppercase leading-none text-xl">RAYD</h1>
+                    <p class="text-[9px] font-black text-[#60a5fa] uppercase tracking-widest mt-1">Intelligence Hub</p>
+                </div>
+            </div>
+            <nav class="flex-1 space-y-1">
+                <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-3">Main Menu</p>
+                <a href="{{ url_for('viewer.viewer_dashboard') }}" class="sidebar-item"><i class="bi bi-speedometer2"></i> Viewer Dashboard</a>
+                {% if current_user.role == 'admin' %}
+                <a href="{{ url_for('admin.admin_dashboard') }}" class="sidebar-item"><i class="bi bi-cpu"></i> ETL Control Room</a>
+                <a href="{{ url_for('mapping.mapping_page') }}" class="sidebar-item"><i class="bi bi-calendar-week"></i> Live Week Matrix</a>
+                {% endif %}
+                <div class="pt-3 pb-1"><p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-2">RIS</p></div>
+                {% if current_user.role == 'admin' %}
+                <a href="{{ url_for('hl7_orders.hl7_orders_page') }}" class="sidebar-item"><i class="bi bi-activity"></i> HL7 Orders</a>
+                <a href="{{ url_for('portal_admin.portal_users') }}" target="_blank" class="sidebar-item"><i class="bi bi-person-vcard"></i> Patient Portal</a>
+                {% endif %}
+            </nav>
+            <div class="mt-auto p-4 bg-[#181f1c] rounded-2xl border border-[#28332e]">
+                <p class="text-[10px] uppercase text-slate-500 font-bold mb-1">System Health</p>
+                <p class="text-xs text-green-400 font-mono flex items-center gap-2">
+                    <span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span> All Systems Operational
+                </p>
+            </div>
+        </aside>
+
+        <!-- Filter Sidebar -->
+        <aside id="filter-sidebar" class="shrink-0 bg-[#1a2420] border-r border-[#28332e] flex flex-col transition-all duration-300 z-10" style="width:240px;">
+
+            <!-- Header -->
+            <div class="flex items-center justify-between px-4 py-3 border-b border-[#28332e] shrink-0">
+                <span class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest flex items-center gap-2">
+                    <i class="bi bi-funnel-fill"></i> <span id="filter-header-text">Filters</span>
+                </span>
+                <button onclick="toggleFilters()" class="text-slate-500 hover:text-white transition-colors">
+                    <i class="bi bi-layout-sidebar-reverse text-sm" id="filter-toggle-icon"></i>
+                </button>
+            </div>
+
+            <!-- Saved presets -->
+            <div class="px-3 py-2 border-b border-[#28332e] shrink-0" id="presets-section">
+                <div class="flex items-center justify-between mb-1">
+                    <span class="text-[9px] font-black text-slate-500 uppercase tracking-widest">Saved Presets</span>
+                    <button onclick="saveCurrentPreset()"
+                            class="text-[9px] font-black text-[#60a5fa] hover:text-white uppercase tracking-widest flex items-center gap-1 transition-colors">
+                        <i class="bi bi-floppy"></i> Save
+                    </button>
+                </div>
+                <div id="presets-list" class="space-y-1">
+                    <p class="text-[10px] text-slate-600 italic">Loading...</p>
+                </div>
+            </div>
+
+            <!-- Scrollable body -->
+            <div class="flex-1 overflow-y-auto p-3 space-y-4" id="filter-body">
+
+                <!-- Main period -->
+                <div>
+                    <span class="f-label">Main Period</span>
+                    <input type="date" id="super-start" class="f-input mb-1">
+                    <input type="date" id="super-end"   class="f-input">
+                </div>
+
+                <!-- Comparison period -->
+                <div>
+                    <span class="f-label" style="display:flex;justify-content:space-between;">
+                        Comparison Period <span class="text-[8px] text-slate-600 normal-case font-normal" id="cmp-auto-label">auto</span>
+                    </span>
+                    <input type="date" id="cmp-start" class="f-input mb-1">
+                    <input type="date" id="cmp-end"   class="f-input">
+                </div>
+
+                <!-- Age range -->
+                <div>
+                    <span class="f-label">Age Range</span>
+                    <div class="flex gap-1">
+                        <input type="number" id="age-min" placeholder="Min" min="0" max="120" class="f-input">
+                        <input type="number" id="age-max" placeholder="Max" min="0" max="120" class="f-input">
+                    </div>
+                </div>
+
+                <!-- Has report -->
+                <div>
+                    <span class="f-label">Has Report</span>
+                    <select id="f-has_report" class="f-input">
+                        <option value="">All</option>
+                        <option value="Yes">Yes</option>
+                        <option value="No">No</option>
+                    </select>
+                </div>
+
+                <!-- Dynamic filters injected here -->
+                <div id="dynamic-filters"></div>
+
+            </div>
+
+            <!-- Actions -->
+            <div class="p-3 border-t border-[#28332e] shrink-0 space-y-2" id="filter-actions">
+                <button onclick="runSuperReport()" id="run-btn"
+                        class="w-full flex items-center justify-center gap-2 py-2.5 bg-[#60a5fa] text-[#0a1020] text-[10px] font-black uppercase tracking-widest rounded-xl hover:brightness-110 transition-all">
+                    <i class="bi bi-lightning-charge-fill"></i> Run Report
+                </button>
+                <button onclick="clearFilters()"
+                        class="w-full text-slate-600 hover:text-slate-400 text-[9px] font-bold uppercase tracking-widest transition-colors py-1">
+                    <i class="bi bi-x-circle mr-1"></i> Clear All
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main content -->
+        <main class="flex-1 overflow-y-auto p-6 bg-[#181f1c]">
+
+            <!-- Loading -->
+            <div id="super-loading" class="hidden flex flex-col items-center justify-center h-full gap-4">
+                <div class="relative w-14 h-14">
+                    <div class="absolute inset-0 border-4 border-[#28332e] rounded-full"></div>
+                    <div class="absolute inset-0 border-4 border-t-[#60a5fa] rounded-full animate-spin"></div>
+                </div>
+                <p class="text-[#60a5fa] text-sm font-black uppercase tracking-widest">Analyzing all data...</p>
+                <p class="text-slate-600 text-xs" id="loading-step">Querying database</p>
+            </div>
+
+            <!-- Results -->
+            <div id="super-results" class="hidden space-y-5">
+
+                <!-- Narrative -->
+                <div>
+                    <div class="flex items-center gap-2 mb-2">
+                        <i class="bi bi-file-earmark-text text-yellow-400"></i>
+                        <span class="text-[10px] font-black text-yellow-400 uppercase tracking-widest">Executive Summary</span>
+                        <span class="text-[9px] text-slate-600 ml-auto" id="period-label"></span>
+                    </div>
+                    <div class="narrative-box" id="super-narrative"></div>
+                </div>
+
+                <!-- KPIs -->
+                <div id="super-kpis" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3"></div>
+
+                <!-- Sections -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="card p-5">
+                        <h4 class="text-[#60a5fa] text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-graph-up-arrow"></i> Volume & Trends</h4>
+                        <div id="super-volume"></div>
+                    </div>
+                    <div class="card p-5">
+                        <h4 class="text-emerald-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-hdd-stack"></i> Storage & Images</h4>
+                        <div id="super-storage"></div>
+                    </div>
+                    <div class="card p-5">
+                        <h4 class="text-violet-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-person-badge"></i> Top Referring Physicians</h4>
+                        <div id="super-physicians"></div>
+                    </div>
+                    <div class="card p-5">
+                        <h4 class="text-orange-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-clipboard2-pulse"></i> Orders & Fulfillment</h4>
+                        <div id="super-orders"></div>
+                    </div>
+                </div>
+
+                <!-- Demographics -->
+                <div class="card p-5">
+                    <h4 class="text-pink-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-people"></i> Patient Demographics</h4>
+                    <div id="super-demographics" class="grid grid-cols-2 md:grid-cols-4 gap-3"></div>
+                </div>
+
+            </div>
+
+            <!-- Empty state -->
+            <div id="super-empty" class="flex flex-col items-center justify-center h-full gap-5">
+                <div class="p-6 bg-[#232b28] rounded-2xl border border-[#28332e] text-yellow-400/30">
+                    <i class="bi bi-lightning-charge text-5xl"></i>
+                </div>
+                <div class="text-center">
+                    <p class="text-white text-xl font-black uppercase tracking-tight mb-2">Super Report</p>
+                    <p class="text-slate-500 text-sm max-w-md leading-relaxed">Set your filters and date range on the left, then click Run Report for a full cross-table analysis with period comparison and executive summary.</p>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <script>
+    // ── Filter definitions ────────────────────────────────────────────
+    const MULTI_FILTERS = [
+        { key:'modality',            label:'Modality' },
+        { key:'storing_ae',          label:'AE Title' },
+        { key:'study_status',        label:'Study Status' },
+        { key:'report_status',       label:'Report Status' },
+        { key:'order_status',        label:'Order Status' },
+        { key:'patient_class',       label:'Patient Class' },
+        { key:'patient_location',    label:'Patient Location' },
+        { key:'sex',                 label:'Sex' },
+        { key:'age_group',           label:'Age Group' },
+        { key:'order_modality',      label:'Order Modality' },
+        { key:'order_control',       label:'Order Control' },
+        { key:'series_modality',     label:'Series Modality' },
+        { key:'referring_physician', label:'Referring Physician' },
+        { key:'signing_physician',   label:'Signing Physician' },
+        { key:'procedure_code',      label:'Procedure Code' },
+    ];
+
+    // These two use searchable dropdowns
+    const SEARCH_FILTERS = [
+        { key:'body_part',      label:'Body Part' },
+        { key:'protocol_name',  label:'Protocol Name' },
+        { key:'body_part_series', label:'Body Part (Series)' },
+    ];
+
+    // Stores all loaded filter data
+    window._fd = {};
+    // Stores selected values for search filters
+    window._searchSelected = {};
+
+    // ── Dates ─────────────────────────────────────────────────────────
+    const today = new Date();
+    const prior = new Date(); prior.setDate(today.getDate() - 30);
+    document.getElementById('super-end').value   = today.toISOString().split('T')[0];
+    document.getElementById('super-start').value = prior.toISOString().split('T')[0];
+    updateCmpDates();
+    ['super-start','super-end'].forEach(id =>
+        document.getElementById(id).addEventListener('change', updateCmpDates)
+    );
+
+    function updateCmpDates() {
+        const s = document.getElementById('super-start').value;
+        const e = document.getElementById('super-end').value;
+        if (!s || !e) return;
+        const ds = new Date(s), de = new Date(e);
+        const delta = Math.round((de - ds) / 86400000) + 1;
+        const ce = new Date(ds); ce.setDate(ce.getDate() - 1);
+        const cs = new Date(ce); cs.setDate(cs.getDate() - delta + 1);
+        document.getElementById('cmp-end').value   = ce.toISOString().split('T')[0];
+        document.getElementById('cmp-start').value = cs.toISOString().split('T')[0];
+        document.getElementById('cmp-auto-label').textContent = `auto · ${delta}d prior`;
+    }
+
+    // ── Filter sidebar toggle ─────────────────────────────────────────
+    let _filterOpen = true;
+    function toggleFilters() {
+        _filterOpen = !_filterOpen;
+        const sb = document.getElementById('filter-sidebar');
+        sb.style.width = _filterOpen ? '240px' : '42px';
+        document.getElementById('filter-body').classList.toggle('hidden', !_filterOpen);
+        document.getElementById('filter-actions').classList.toggle('hidden', !_filterOpen);
+        document.getElementById('filter-header-text').classList.toggle('hidden', !_filterOpen);
+        document.getElementById('filter-toggle-icon').className =
+            _filterOpen ? 'bi bi-layout-sidebar-reverse text-sm' : 'bi bi-layout-sidebar text-sm';
+    }
+
+    // ── Load filters from API ─────────────────────────────────────────
+    async function loadFilters() {
+        try {
+            const res  = await fetch('/viewer/super-report/filters');
+            const data = await res.json();
+            window._fd = data;
+            renderMultiFilters(data);
+            renderSearchFilters(data);
+        } catch(e) { console.error('Filter load failed', e); }
+    }
+
+    function renderMultiFilters(data) {
+        const container = document.getElementById('dynamic-filters');
+        MULTI_FILTERS.forEach(fc => {
+            const vals = data[fc.key] || [];
+            if (!vals.length) return;
+            const div = document.createElement('div');
+            div.innerHTML = `
+                <span class="f-label">${fc.label}</span>
+                <select multiple id="f-${fc.key}" class="f-multi">
+                    ${vals.map(v => `<option value="${escHtml(v)}">${escHtml(v)}</option>`).join('')}
+                </select>
+                <div class="mt-1" id="chips-${fc.key}"></div>
+            `;
+            container.appendChild(div);
+            document.getElementById(`f-${fc.key}`).addEventListener('change', function() {
+                const sel = Array.from(this.selectedOptions).map(o => o.value);
+                document.getElementById(`chips-${fc.key}`).innerHTML =
+                    sel.map(v => `<span class="chip" onclick="removeChip('${fc.key}','${escHtml(v)}')">${escHtml(v)} ×</span>`).join('');
+            });
+        });
+    }
+
+    function renderSearchFilters(data) {
+        const container = document.getElementById('dynamic-filters');
+        SEARCH_FILTERS.forEach(fc => {
+            const vals = data[fc.key] || [];
+            if (!vals.length) return;
+            window._searchSelected[fc.key] = [];
+            const div = document.createElement('div');
+            div.innerHTML = `
+                <span class="f-label">${fc.label} <span class="text-[8px] text-slate-600 normal-case font-normal">(${vals.length} values)</span></span>
+                <div class="search-dropdown" id="sd-wrap-${fc.key}">
+                    <input type="text" class="f-input" id="sd-input-${fc.key}"
+                           placeholder="Search ${fc.label.toLowerCase()}..."
+                           autocomplete="off"
+                           oninput="filterDropdown('${fc.key}')"
+                           onfocus="openDropdown('${fc.key}')"
+                    >
+                    <div class="dropdown-list" id="sd-list-${fc.key}"></div>
+                </div>
+                <div class="mt-1" id="sd-chips-${fc.key}"></div>
+            `;
+            container.appendChild(div);
+            // Pre-render all items
+            renderDropdownItems(fc.key, vals, '');
+        });
+
+        // Close dropdowns on outside click
+        document.addEventListener('click', e => {
+            SEARCH_FILTERS.forEach(fc => {
+                const wrap = document.getElementById(`sd-wrap-${fc.key}`);
+                if (wrap && !wrap.contains(e.target)) closeDropdown(fc.key);
+            });
+        });
+    }
+
+    function renderDropdownItems(key, vals, query) {
+        const list = document.getElementById(`sd-list-${key}`);
+        if (!list) return;
+        const sel  = window._searchSelected[key] || [];
+        const filtered = query
+            ? vals.filter(v => v.toLowerCase().includes(query.toLowerCase()))
+            : vals;
+        list.innerHTML = filtered.slice(0, 100).map(v => `
+            <div class="dropdown-item ${sel.includes(v)?'selected':''}"
+                 onclick="toggleSearchItem('${key}','${escJs(v)}')">
+                <input type="checkbox" ${sel.includes(v)?'checked':''} onclick="event.stopPropagation()">
+                ${escHtml(v)}
+            </div>`).join('');
+        if (filtered.length > 100) {
+            list.innerHTML += `<div class="dropdown-item" style="color:#64748b;cursor:default;">... ${filtered.length-100} more — type to narrow</div>`;
+        }
+    }
+
+    function filterDropdown(key) {
+        const q    = document.getElementById(`sd-input-${key}`).value;
+        const vals = window._fd[key] || [];
+        openDropdown(key);
+        renderDropdownItems(key, vals, q);
+    }
+
+    function openDropdown(key) {
+        document.getElementById(`sd-list-${key}`).classList.add('open');
+    }
+
+    function closeDropdown(key) {
+        document.getElementById(`sd-list-${key}`).classList.remove('open');
+    }
+
+    function toggleSearchItem(key, val) {
+        const sel = window._searchSelected[key] || [];
+        const idx = sel.indexOf(val);
+        if (idx >= 0) sel.splice(idx, 1); else sel.push(val);
+        window._searchSelected[key] = sel;
+        // Re-render dropdown
+        const q    = document.getElementById(`sd-input-${key}`).value;
+        const vals = window._fd[key] || [];
+        renderDropdownItems(key, vals, q);
+        // Update chips
+        document.getElementById(`sd-chips-${key}`).innerHTML =
+            sel.map(v => `<span class="chip" onclick="removeSearchItem('${key}','${escJs(v)}')">${escHtml(v)} ×</span>`).join('');
+    }
+
+    function removeSearchItem(key, val) { toggleSearchItem(key, val); }
+
+    function removeChip(key, val) {
+        const el = document.getElementById(`f-${key}`);
+        if (!el) return;
+        Array.from(el.options).forEach(o => { if (o.value === val) o.selected = false; });
+        el.dispatchEvent(new Event('change'));
+    }
+
+    function clearFilters() {
+        MULTI_FILTERS.forEach(fc => {
+            const el = document.getElementById(`f-${fc.key}`);
+            if (el) { Array.from(el.options).forEach(o => o.selected = false); el.dispatchEvent(new Event('change')); }
+        });
+        SEARCH_FILTERS.forEach(fc => {
+            window._searchSelected[fc.key] = [];
+            document.getElementById(`sd-chips-${fc.key}`).innerHTML = '';
+            document.getElementById(`sd-input-${fc.key}`).value = '';
+            renderDropdownItems(fc.key, window._fd[fc.key]||[], '');
+        });
+        document.getElementById('f-has_report').value = '';
+        document.getElementById('age-min').value = '';
+        document.getElementById('age-max').value = '';
+    }
+
+    // ── Build query string ────────────────────────────────────────────
+    function buildQS() {
+        const p = new URLSearchParams();
+        p.set('start',     document.getElementById('super-start').value);
+        p.set('end',       document.getElementById('super-end').value);
+        p.set('cmp_start', document.getElementById('cmp-start').value);
+        p.set('cmp_end',   document.getElementById('cmp-end').value);
+
+        MULTI_FILTERS.forEach(fc => {
+            const el = document.getElementById(`f-${fc.key}`);
+            if (el) Array.from(el.selectedOptions).forEach(o => p.append(fc.key, o.value));
+        });
+        SEARCH_FILTERS.forEach(fc => {
+            (window._searchSelected[fc.key]||[]).forEach(v => p.append(fc.key, v));
+        });
+
+        const hr   = document.getElementById('f-has_report').value;
+        const amin = document.getElementById('age-min').value;
+        const amax = document.getElementById('age-max').value;
+        if (hr)   p.set('has_report', hr);
+        if (amin) p.set('age_min', amin);
+        if (amax) p.set('age_max', amax);
+        return p.toString();
+    }
+
+    // ── Run ───────────────────────────────────────────────────────────
+    async function runSuperReport() {
+        const start = document.getElementById('super-start').value;
+        const end   = document.getElementById('super-end').value;
+        if (!start || !end) { alert('Select a date range'); return; }
+
+        document.getElementById('super-empty').classList.add('hidden');
+        document.getElementById('super-results').classList.add('hidden');
+        document.getElementById('super-loading').classList.remove('hidden');
+        document.getElementById('run-btn').disabled = true;
+
+        const steps = ['Querying database','Joining tables','Aggregating metrics','Writing summary'];
+        let si = 0;
+        const iv = setInterval(() => {
+            document.getElementById('loading-step').textContent = steps[si++ % steps.length];
+        }, 1600);
+
+        try {
+            const res  = await fetch(`/viewer/super-report?${buildQS()}`);
+            const data = await res.json();
+            clearInterval(iv);
+            document.getElementById('super-loading').classList.add('hidden');
+            if (data.error) {
+                alert('Error: ' + data.error);
+                document.getElementById('super-empty').classList.remove('hidden');
+            } else {
+                render(data);
+                document.getElementById('super-results').classList.remove('hidden');
+            }
+        } catch(e) {
+            clearInterval(iv);
+            document.getElementById('super-loading').classList.add('hidden');
+            document.getElementById('super-empty').classList.remove('hidden');
+            alert('Network error: ' + e.message);
+        }
+        document.getElementById('run-btn').disabled = false;
+    }
+
+    // ── Render ────────────────────────────────────────────────────────
+    function render(d) {
+        const cur = d.current, prev = d.previous;
+
+        document.getElementById('period-label').textContent =
+            `${d.delta_days} days · comparing to ${d.cmp_start} → ${d.cmp_end}`;
+        document.getElementById('super-narrative').textContent = d.narrative;
+
+        // KPIs
+        const kpis = [
+            {label:'Studies',    cur:cur.kpis.total_studies,  prev:prev.kpis.total_studies,  color:'#60a5fa', icon:'bi-journal-medical'},
+            {label:'Patients',   cur:cur.kpis.total_patients, prev:prev.kpis.total_patients, color:'#34d399', icon:'bi-people'},
+            {label:'Images',     cur:cur.kpis.total_images,   prev:prev.kpis.total_images,   color:'#a78bfa', icon:'bi-images'},
+            {label:'Storage GB', cur:cur.storage.total_gb,    prev:prev.storage.total_gb,    color:'#2dd4bf', icon:'bi-hdd-stack'},
+            {label:'Orders',     cur:cur.orders.total,        prev:prev.orders.total,        color:'#f97316', icon:'bi-clipboard2-pulse'},
+        ];
+        document.getElementById('super-kpis').innerHTML = kpis.map(k => {
+            const p = pct(k.cur, k.prev);
+            const badge = p !== null
+                ? `<span style="font-size:9px;font-weight:700;color:${p>=0?'#34d399':'#f87171'}">${p>=0?'+':''}${p}%</span>`
+                : '';
+            return `<div class="card kpi-card p-4" style="border-top-color:${k.color}">
+                <div class="flex items-center gap-2 mb-1">
+                    <i class="bi ${k.icon}" style="color:${k.color};font-size:12px;"></i>
+                    <span class="text-[9px] font-black uppercase tracking-widest text-slate-500">${k.label}</span>
+                </div>
+                <div class="text-xl font-black text-white font-mono">${fmt(k.cur)}</div>
+                <div class="mt-1">${badge}</div>
+            </div>`;
+        }).join('');
+
+        // Volume
+        const v = cur.volume, pv = prev.volume;
+        document.getElementById('super-volume').innerHTML =
+            row('Studies',   fmt(cur.kpis.total_studies), pct(cur.kpis.total_studies, prev.kpis.total_studies)) +
+            row('Avg/day',   fmtD(v.avg_per_day), pct(v.avg_per_day, pv.avg_per_day)) +
+            row('Peak day',  v.peak_day||'—', null) +
+            row('Peak count',fmt(v.peak_count), null) +
+            subSection('Top Modalities', (v.top_modalities||[]).map(m=>row(m.modality, fmt(m.cnt), null)).join(''));
+
+        // Storage
+        const s = cur.storage, ps = prev.storage;
+        document.getElementById('super-storage').innerHTML =
+            row('Total GB',     fmtD(s.total_gb), pct(s.total_gb, ps.total_gb)) +
+            row('Avg GB/day',   fmtD(s.avg_gb_per_day), pct(s.avg_gb_per_day, ps.avg_gb_per_day)) +
+            row('Total images', fmt(s.total_study_count), null) +
+            subSection('By Modality', (s.by_modality||[]).map(m=>row(m.modality, fmtD(m.gb)+' GB', null)).join(''));
+
+        // Physicians
+        document.getElementById('super-physicians').innerHTML =
+            (cur.physicians||[]).map(p => row(p.physician, fmt(p.cnt), null)).join('') ||
+            '<p class="text-slate-600 text-xs">No data</p>';
+
+        // Orders
+        const o = cur.orders, po = prev.orders;
+        document.getElementById('super-orders').innerHTML =
+            row('Total', fmt(o.total), pct(o.total, po.total)) +
+            row('Fulfilled', fmt(o.fulfilled), null) +
+            rowWarn('Fulfillment %', fmtD(o.fulfillment_pct)+'%', parseFloat(o.fulfillment_pct||0) < 85) +
+            subSection('By Modality', (o.by_modality||[]).map(m=>row(m.modality, fmt(m.cnt), null)).join(''));
+
+        // Demographics
+        const dm = cur.demographics, pdm = prev.demographics;
+        document.getElementById('super-demographics').innerHTML = [
+            {label:'Male',       val:fmt(dm.male),       chg:pct(dm.male,pdm.male),       color:'#60a5fa'},
+            {label:'Female',     val:fmt(dm.female),     chg:pct(dm.female,pdm.female),   color:'#f472b6'},
+            {label:'Inpatient',  val:fmt(dm.inpatient),  chg:pct(dm.inpatient,pdm.inpatient),  color:'#f97316'},
+            {label:'Outpatient', val:fmt(dm.outpatient), chg:pct(dm.outpatient,pdm.outpatient),color:'#34d399'},
+        ].map(c=>`<div class="bg-[#141a17] rounded-xl p-4 border border-[#28332e]">
+            <p class="text-[10px] font-black uppercase tracking-widest mb-1" style="color:${c.color}">${c.label}</p>
+            <p class="text-2xl font-black text-white font-mono">${c.val}</p>
+            ${c.chg!==null?`<p style="font-size:9px;font-weight:700;color:${c.chg>=0?'#34d399':'#f87171'}">${c.chg>=0?'+':''}${c.chg}%</p>`:''}`
+        +`</div>`).join('');
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────
+    function pct(a, b) {
+        a = parseFloat(a||0); b = parseFloat(b||0);
+        return b ? parseFloat(((a-b)/b*100).toFixed(1)) : null;
+    }
+    function fmt(n)  { try { return parseInt(n).toLocaleString(); }  catch(e) { return '—'; } }
+    function fmtD(n) { try { return parseFloat(n).toFixed(1); } catch(e) { return '—'; } }
+
+    function row(label, val, pctVal) {
+        const badge = pctVal !== null && pctVal !== undefined
+            ? ` <span style="font-size:9px;font-weight:700;color:${pctVal>=0?'#34d399':'#f87171'}">${pctVal>=0?'+':''}${pctVal}%</span>`
+            : '';
+        return `<div class="row-stat"><span class="lbl">${label}</span><span class="val">${val}${badge}</span></div>`;
+    }
+    function rowWarn(label, val, warn) {
+        return `<div class="row-stat"><span class="lbl">${label}</span><span class="val ${warn?'warn':''}">${val}</span></div>`;
+    }
+    function subSection(title, html) {
+        return `<div class="pt-2 mt-1 border-t border-[#1a2420]">
+            <p class="text-[9px] text-slate-600 font-bold uppercase tracking-widest mb-1">${title}</p>
+            ${html}
+        </div>`;
+    }
+    function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+    function escJs(s)   { return String(s).replace(/'/g,"\\'"); }
+
+    // ── Saved Presets ─────────────────────────────────────────────────
+
+    async function loadPresets() {
+        try {
+            const res  = await fetch('/viewer/super-report/saved');
+            const data = await res.json();
+            renderPresets(data);
+        } catch(e) {
+            document.getElementById('presets-list').innerHTML =
+                '<p class="text-[10px] text-slate-600 italic">Could not load</p>';
+        }
+    }
+
+    function renderPresets(presets) {
+        const el = document.getElementById('presets-list');
+        if (!presets.length) {
+            el.innerHTML = '<p class="text-[10px] text-slate-600 italic">No saved presets</p>';
+            return;
+        }
+        el.innerHTML = presets.map(p => `
+            <div class="flex items-center gap-1 group">
+                <button onclick="loadPreset(${p.id})"
+                        class="flex-1 text-left text-[10px] font-bold text-slate-400 hover:text-white truncate transition-colors py-1 px-2 rounded hover:bg-[#1d2522]"
+                        title="${escHtml(p.name)} · ${p.updated_at}">
+                    <i class="bi bi-bookmark-fill text-[#60a5fa] mr-1" style="font-size:8px;"></i>
+                    ${escHtml(p.name)}
+                </button>
+                <button onclick="deletePreset(${p.id}, this)"
+                        class="opacity-0 group-hover:opacity-100 text-slate-600 hover:text-red-400 transition-all px-1 text-xs">
+                    <i class="bi bi-trash3"></i>
+                </button>
+            </div>
+        `).join('');
+    }
+
+    async function saveCurrentPreset() {
+        const name = prompt('Name this preset:');
+        if (!name || !name.trim()) return;
+
+        const filters = collectFilters();
+        try {
+            const res  = await fetch('/viewer/super-report/save', {
+                method:  'POST',
+                headers: {'Content-Type': 'application/json'},
+                body:    JSON.stringify({ name: name.trim(), filters })
+            });
+            const data = await res.json();
+            if (data.success) {
+                showToast(`Saved "${name.trim()}"`);
+                loadPresets();
+            } else {
+                alert('Save failed: ' + data.error);
+            }
+        } catch(e) {
+            alert('Network error: ' + e.message);
+        }
+    }
+
+    async function loadPreset(id) {
+        try {
+            const res  = await fetch('/viewer/super-report/saved');
+            const list = await res.json();
+            const preset = list.find(p => p.id === id);
+            if (!preset) return;
+            applyFilters(preset.filters);
+            showToast(`Loaded "${preset.name}"`);
+        } catch(e) {
+            alert('Could not load preset');
+        }
+    }
+
+    async function deletePreset(id, btn) {
+        if (!confirm('Delete this preset?')) return;
+        try {
+            const res = await fetch(`/viewer/super-report/saved/${id}`, { method: 'DELETE' });
+            const data = await res.json();
+            if (data.success) { loadPresets(); showToast('Deleted'); }
+            else alert('Delete failed: ' + data.error);
+        } catch(e) {
+            alert('Network error');
+        }
+    }
+
+    // Collect all current filter values into a plain object for saving
+    function collectFilters() {
+        const f = {
+            start:      document.getElementById('super-start').value,
+            end:        document.getElementById('super-end').value,
+            cmp_start:  document.getElementById('cmp-start').value,
+            cmp_end:    document.getElementById('cmp-end').value,
+            age_min:    document.getElementById('age-min').value,
+            age_max:    document.getElementById('age-max').value,
+            has_report: document.getElementById('f-has_report').value,
+        };
+        MULTI_FILTERS.forEach(fc => {
+            const el = document.getElementById(`f-${fc.key}`);
+            if (el) f[fc.key] = Array.from(el.selectedOptions).map(o => o.value);
+        });
+        SEARCH_FILTERS.forEach(fc => {
+            f[fc.key] = window._searchSelected[fc.key] || [];
+        });
+        return f;
+    }
+
+    // Apply a saved filter object back to the UI
+    function applyFilters(f) {
+        if (f.start)      document.getElementById('super-start').value = f.start;
+        if (f.end)        document.getElementById('super-end').value   = f.end;
+        if (f.cmp_start)  document.getElementById('cmp-start').value   = f.cmp_start;
+        if (f.cmp_end)    document.getElementById('cmp-end').value     = f.cmp_end;
+        if (f.age_min)    document.getElementById('age-min').value     = f.age_min;
+        if (f.age_max)    document.getElementById('age-max').value     = f.age_max;
+        if (f.has_report !== undefined)
+            document.getElementById('f-has_report').value = f.has_report;
+
+        MULTI_FILTERS.forEach(fc => {
+            const el = document.getElementById(`f-${fc.key}`);
+            if (!el || !f[fc.key]) return;
+            Array.from(el.options).forEach(o => {
+                o.selected = f[fc.key].includes(o.value);
+            });
+            el.dispatchEvent(new Event('change'));
+        });
+
+        SEARCH_FILTERS.forEach(fc => {
+            if (!f[fc.key]) return;
+            window._searchSelected[fc.key] = f[fc.key];
+            const chips = document.getElementById(`sd-chips-${fc.key}`);
+            if (chips) chips.innerHTML = f[fc.key].map(v =>
+                `<span class="chip" onclick="removeSearchItem('${fc.key}','${escJs(v)}')">${escHtml(v)} ×</span>`
+            ).join('');
+            renderDropdownItems(fc.key, window._fd[fc.key]||[], '');
+        });
+
+        // Update cmp label
+        updateCmpDates();
+    }
+
+    // Simple toast
+    function showToast(msg) {
+        let t = document.getElementById('_toast');
+        if (!t) {
+            t = document.createElement('div');
+            t.id = '_toast';
+            t.style.cssText = 'position:fixed;bottom:24px;right:24px;background:#064e3b;color:#6ee7b7;border:1px solid #065f46;padding:10px 18px;border-radius:10px;font-size:12px;font-weight:700;z-index:9999;transition:opacity 0.3s;';
+            document.body.appendChild(t);
+        }
+        t.textContent = msg;
+        t.style.opacity = '1';
+        clearTimeout(t._to);
+        t._to = setTimeout(() => t.style.opacity = '0', 2500);
+    }
+
+    // ── Init ──────────────────────────────────────────────────────────
+    loadFilters();
+    loadPresets();
+    </script>
+</body>
+</html>

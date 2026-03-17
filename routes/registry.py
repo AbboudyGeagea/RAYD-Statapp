@@ -1,4 +1,4 @@
-#routes/registry.py
+# routes/registry.py
 from .auth_controller import auth_bp
 from .admin_controller import admin_bp
 from .viewer_controller import viewer_bp
@@ -12,18 +12,22 @@ from .report_27 import report_27_bp
 from .report_29 import report_29_bp
 from routes.hl7_orders import hl7_orders_bp
 from routes.etl_gear_route import etl_gear_bp
-from report_ai import report_ai_bp
-
+from routes.report_ai import report_ai_bp
+from routes.portal_bp import portal_bp
+from routes.portal_admin import portal_admin_bp
+from routes.super_report import super_report_bp
 
 
 def register_blueprints(app):
     app.register_blueprint(auth_bp)
     app.register_blueprint(admin_bp, url_prefix='/admin')
     app.register_blueprint(viewer_bp, url_prefix='/viewer')
-    app.register_blueprint(mapping_bp)  
+    app.register_blueprint(mapping_bp)
     app.register_blueprint(report_bp)
     app.register_blueprint(saved_reports_bp, url_prefix='/saved')
     app.register_blueprint(report_ai_bp)
+    app.register_blueprint(portal_bp)
+    app.register_blueprint(portal_admin_bp)
     # legacy / direct testing
     app.register_blueprint(report_22_bp)
     app.register_blueprint(report_23_bp)
@@ -32,3 +36,4 @@ def register_blueprints(app):
     app.register_blueprint(report_29_bp)
     app.register_blueprint(hl7_orders_bp)
     app.register_blueprint(etl_gear_bp)
+    app.register_blueprint(super_report_bp)

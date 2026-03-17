@@ -789,6 +789,44 @@ ALTER SEQUENCE public.summary_storage_daily_id_seq OWNED BY public.summary_stora
 
 
 --
+-- Name: patient_portal_users; Type: TABLE; Schema: public; Owner: etl_user
+--
+
+CREATE TABLE public.patient_portal_users (
+    id               SERIAL PRIMARY KEY,
+    mrn              VARCHAR(50) UNIQUE NOT NULL,
+    full_name        VARCHAR(200),
+    phone            VARCHAR(30),
+    accession_number VARCHAR(100),
+    username         VARCHAR(50) UNIQUE NOT NULL,
+    password_plain   VARCHAR(50),
+    is_active        BOOLEAN DEFAULT TRUE,
+    last_login       TIMESTAMP WITHOUT TIME ZONE,
+    whatsapp_sent    BOOLEAN DEFAULT FALSE,
+    whatsapp_sent_at TIMESTAMP WITHOUT TIME ZONE,
+    created_at       TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW(),
+    updated_at       TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
+);
+
+ALTER TABLE public.patient_portal_users OWNER TO etl_user;
+
+
+--
+-- Name: portal_config; Type: TABLE; Schema: public; Owner: etl_user
+--
+
+CREATE TABLE public.portal_config (
+    id           SERIAL PRIMARY KEY,
+    config_key   VARCHAR(100) UNIQUE NOT NULL,
+    config_value TEXT,
+    description  TEXT,
+    updated_at   TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
+);
+
+ALTER TABLE public.portal_config OWNER TO etl_user;
+
+
+--
 -- Name: users; Type: TABLE; Schema: public; Owner: etl_user
 --
 
@@ -1574,4 +1612,3 @@ SELECT pg_catalog.setval('public.users_id_seq', 6, true);
 --
 
 \unrestrict KpFa2gmV9BQHG54KR4rxklK1ZwpTJSKtyYfoXhv2SStduMzJCFFthoLqZysRXMG
-

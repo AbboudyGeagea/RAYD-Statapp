@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | Portal Configuration</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&family=IBM+Plex+Sans:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        :root {
+            --bg:      #0a0f0d;
+            --surface: #111814;
+            --card:    #161d1a;
+            --border:  #1e2b26;
+            --border2: #263830;
+            --accent:  #38ada9;
+            --accent2: #56cfcb;
+            --text:    #e2ede8;
+            --muted:   #5a7a72;
+            --danger:  #e05757;
+            --success: #3db87a;
+            --warn:    #e0943a;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'IBM Plex Sans', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            height: 100vh;
+            overflow: hidden;
+        }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 10px; }
+
+        /* sidebar items */
+        .sidebar-item {
+            transition: all 0.2s;
+            border-radius: 0.75rem;
+            margin-bottom: 0.25rem;
+            text-decoration: none !important;
+            color: #94a3b8;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 16px;
+            font-size: 14px;
+            font-weight: 700;
+        }
+        .sidebar-item:hover { background: #1d2522; color: #60a5fa; }
+        .sidebar-item.active { background: #1d2522; color: #60a5fa; border-left: 4px solid #60a5fa; }
+        .sidebar-item i { font-size: 1.1rem; width: 1.5rem; text-align: center; }
+
+        /* section cards */
+        .cfg-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            overflow: hidden;
+            transition: border-color 0.2s;
+        }
+        .cfg-card:hover { border-color: var(--border2); }
+        .cfg-card-head {
+            padding: 16px 22px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .cfg-card-icon {
+            width: 36px; height: 36px;
+            border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 16px;
+            flex-shrink: 0;
+        }
+        .cfg-card-title {
+            font-size: 13px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--accent2);
+        }
+        .cfg-card-desc {
+            font-size: 12px;
+            color: var(--muted);
+            margin-top: 2px;
+        }
+        .cfg-body { padding: 22px; }
+
+        /* inputs */
+        label {
+            display: block;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--muted);
+            margin-bottom: 6px;
+        }
+        .inp {
+            width: 100%;
+            background: var(--bg);
+            border: 1px solid var(--border2);
+            color: var(--text);
+            border-radius: 8px;
+            padding: 10px 14px;
+            font-size: 13px;
+            font-family: 'IBM Plex Sans', sans-serif;
+            outline: none;
+            transition: border 0.2s, box-shadow 0.2s;
+        }
+        .inp:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(56,173,169,0.12);
+        }
+        .inp-mono { font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+        textarea.inp { resize: vertical; min-height: 110px; line-height: 1.6; }
+
+        /* arabic textarea */
+        .inp-arabic {
+            direction: rtl;
+            text-align: right;
+            font-size: 14px;
+            line-height: 1.8;
+        }
+
+        /* buttons */
+        .btn {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            padding: 9px 18px;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn-primary {
+            background: var(--accent);
+            color: #021a18;
+        }
+        .btn-primary:hover { filter: brightness(1.1); transform: translateY(-1px); }
+        .btn-ghost {
+            background: rgba(56,173,169,0.1);
+            color: var(--accent2);
+            border: 1px solid rgba(56,173,169,0.2);
+        }
+        .btn-ghost:hover { background: rgba(56,173,169,0.2); }
+        .btn-danger {
+            background: rgba(224,87,87,0.1);
+            color: var(--danger);
+            border: 1px solid rgba(224,87,87,0.2);
+        }
+        .btn-danger:hover { background: rgba(224,87,87,0.2); }
+
+        /* logo preview */
+        .logo-preview {
+            width: 100%;
+            height: 120px;
+            background: var(--bg);
+            border: 2px dashed var(--border2);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            cursor: pointer;
+            transition: border-color 0.2s;
+            position: relative;
+        }
+        .logo-preview:hover { border-color: var(--accent); }
+        .logo-preview img { max-height: 100px; max-width: 100%; object-fit: contain; }
+        .logo-placeholder { text-align: center; color: var(--muted); }
+        .logo-placeholder i { font-size: 28px; display: block; margin-bottom: 6px; }
+        .logo-placeholder span { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
+
+        /* test connection badge */
+        .conn-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+        }
+        .conn-badge.idle    { background: rgba(90,122,114,0.15); color: var(--muted); }
+        .conn-badge.ok      { background: rgba(61,184,122,0.15); color: var(--success); }
+        .conn-badge.fail    { background: rgba(224,87,87,0.15);  color: var(--danger); }
+        .conn-badge.testing { background: rgba(224,148,58,0.15); color: var(--warn); }
+
+        /* template vars helper */
+        .var-chip {
+            display: inline-block;
+            background: rgba(56,173,169,0.1);
+            border: 1px solid rgba(56,173,169,0.25);
+            color: var(--accent2);
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 10px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.15s;
+            margin: 2px;
+        }
+        .var-chip:hover { background: rgba(56,173,169,0.25); }
+
+        /* toast */
+        .toast {
+            position: fixed; bottom: 24px; right: 24px;
+            padding: 12px 20px; border-radius: 10px;
+            font-size: 12px; font-weight: 600;
+            z-index: 9999; opacity: 0; transform: translateY(8px);
+            transition: all 0.3s; pointer-events: none;
+        }
+        .toast.show { opacity: 1; transform: translateY(0); }
+        .toast.success { background: #062b1e; color: #6ee7b7; border: 1px solid #0a4a2e; }
+        .toast.error   { background: #2b0606; color: #fca5a5; border: 1px solid #4a0a0a; }
+
+        /* divider */
+        .field-row { display: grid; gap: 16px; }
+        .field-row.cols-2 { grid-template-columns: 1fr 1fr; }
+        .field-row.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+
+    <!-- Header -->
+    <header class="bg-[#232b28] border-b border-[#28332e] px-8 py-4 flex items-center justify-center shadow-md z-30 shrink-0">
+        <div class="flex items-center gap-5">
+            <img src="{{ url_for('static', filename='RAYD.png') }}" class="h-12 w-auto opacity-90">
+            <div class="flex flex-col items-center">
+                <div class="h-px w-52 bg-gradient-to-r from-transparent via-[#60a5fa] to-transparent mb-1.5"></div>
+                <p class="text-[9px] font-black text-[#60a5fa] uppercase tracking-[0.35em]">Reliable Analytics for Your Department</p>
+                <div class="h-px w-52 bg-gradient-to-r from-transparent via-[#60a5fa] to-transparent mt-1.5"></div>
+            </div>
+        </div>
+    </header>
+
+    <div class="flex flex-1 overflow-hidden">
+
+        <!-- Sidebar -->
+        <aside class="w-72 bg-[#232b28] border-r border-[#28332e] flex flex-col p-6 shadow-xl z-20 shrink-0">
+            <div class="flex items-center gap-3 mb-10 px-2">
+                <div class="bg-[#60a5fa] p-2.5 rounded-xl text-white shadow-lg shadow-blue-400/20"><i class="bi bi-cpu-fill text-xl"></i></div>
+                <div>
+                    <h1 class="font-black text-[#e2e8f0] tracking-tighter uppercase leading-none text-xl">RAYD</h1>
+                    <p class="text-[9px] font-black text-[#60a5fa] uppercase tracking-widest mt-1">Intelligence Hub</p>
+                </div>
+            </div>
+            <nav class="flex-1 space-y-1">
+                <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-4">Main Menu</p>
+                <a href="{{ url_for('viewer.viewer_dashboard') }}" class="sidebar-item">
+                    <i class="bi bi-speedometer2"></i> Viewer Dashboard
+                </a>
+                <a href="{{ url_for('admin.admin_dashboard') }}" class="sidebar-item">
+                    <i class="bi bi-cpu"></i> ETL Control Room
+                </a>
+                <a href="{{ url_for('mapping.mapping_page') }}" class="sidebar-item">
+                    <i class="bi bi-calendar-week"></i> Live Week Matrix
+                </a>
+                <div class="pt-4 pb-2">
+                    <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-2">RIS</p>
+                </div>
+                <a href="{{ url_for('hl7_orders.hl7_orders_page') }}" class="sidebar-item">
+                    <i class="bi bi-activity"></i> HL7 Orders
+                </a>
+                <a href="{{ url_for('portal_admin.portal_users') }}" target="_blank" class="sidebar-item active">
+                    <i class="bi bi-person-vcard"></i> Patient Portal
+                </a>
+            </nav>
+            <div class="mt-auto p-4 bg-[#181f1c] rounded-2xl border border-[#28332e]">
+                <p class="text-[10px] uppercase text-slate-500 font-bold mb-1">System Health</p>
+                <p class="text-xs text-green-400 font-mono flex items-center gap-2">
+                    <span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span> All Systems Operational
+                </p>
+            </div>
+        </aside>
+
+        <!-- Main -->
+        <main class="flex-1 overflow-y-auto bg-[#0a0f0d]">
+            <div class="max-w-4xl mx-auto p-8 space-y-6">
+
+                <!-- Page header -->
+                <div class="flex items-center justify-between mb-2">
+                    <div>
+                        <h1 class="text-2xl font-black text-white uppercase tracking-tight">Portal Configuration</h1>
+                        <p class="text-sm text-[var(--muted)] mt-1">Manage patient portal settings, integrations and branding</p>
+                    </div>
+                    <a href="{{ url_for('portal_admin.portal_users') }}" class="btn btn-ghost">
+                        <i class="bi bi-arrow-left"></i> Back to Users
+                    </a>
+                </div>
+
+                <form method="POST" action="{{ url_for('portal_admin.portal_config') }}" enctype="multipart/form-data" id="cfg-form">
+
+                <!-- ── 1. HOSPITAL BRANDING ───────────────────────────── -->
+                <div class="cfg-card">
+                    <div class="cfg-card-head">
+                        <div class="cfg-card-icon" style="background:rgba(96,165,250,0.12);color:#60a5fa;">
+                            <i class="bi bi-building"></i>
+                        </div>
+                        <div>
+                            <div class="cfg-card-title">Hospital Branding</div>
+                            <div class="cfg-card-desc">Name and logo shown to patients on the portal login page</div>
+                        </div>
+                    </div>
+                    <div class="cfg-body space-y-5">
+                        <div>
+                            <label>Hospital Name</label>
+                            <input type="text" name="cfg_hospital_name" class="inp"
+                                   placeholder="e.g. Beirut Medical Center — Radiology"
+                                   value="{{ configs | selectattr('config_key','equalto','hospital_name') | map(attribute='config_value') | first | default('') }}">
+                        </div>
+                        <div class="field-row cols-2" style="align-items:start;">
+                            <div>
+                                <label>Hospital Logo</label>
+                                <div class="logo-preview" id="logo-drop" onclick="document.getElementById('logo-file').click()">
+                                    {% set logo = configs | selectattr('config_key','equalto','hospital_logo_url') | map(attribute='config_value') | first | default('') %}
+                                    {% if logo %}
+                                    <img id="logo-img" src="{{ logo }}" alt="Hospital Logo">
+                                    {% else %}
+                                    <div class="logo-placeholder" id="logo-placeholder">
+                                        <i class="bi bi-image"></i>
+                                        <span>Click to upload</span>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                                <input type="file" id="logo-file" name="hospital_logo" accept="image/*" class="hidden">
+                                <p class="text-[10px] text-[var(--muted)] mt-2">PNG, JPG or SVG · max 2 MB · shown at 72×72 px</p>
+                            </div>
+                            <div>
+                                <label>Logo URL (or uploaded path)</label>
+                                <input type="text" name="cfg_hospital_logo_url" class="inp inp-mono"
+                                       id="logo-url-field"
+                                       placeholder="/static/hospital_logo.png"
+                                       value="{{ logo }}">
+                                <p class="text-[10px] text-[var(--muted)] mt-2">Auto-filled on upload, or enter a URL manually</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ── 2. VIEWER URL ──────────────────────────────────── -->
+                <div class="cfg-card">
+                    <div class="cfg-card-head">
+                        <div class="cfg-card-icon" style="background:rgba(56,173,169,0.12);color:var(--accent2);">
+                            <i class="bi bi-display"></i>
+                        </div>
+                        <div>
+                            <div class="cfg-card-title">DICOM Viewer</div>
+                            <div class="cfg-card-desc">The viewer patients are redirected to after login</div>
+                        </div>
+                    </div>
+                    <div class="cfg-body space-y-4">
+                        <div>
+                            <label>Viewer Base URL</label>
+                            <input type="url" name="cfg_viewer_base_url" class="inp inp-mono"
+                                   placeholder="https://viewer.hospital.com/viewer"
+                                   value="{{ configs | selectattr('config_key','equalto','viewer_base_url') | map(attribute='config_value') | first | default('') }}">
+                        </div>
+                        <div class="field-row cols-3">
+                            <div>
+                                <label>Viewer Username</label>
+                                <input type="text" name="cfg_viewer_username" class="inp inp-mono"
+                                       placeholder="viewer_user"
+                                       value="{{ configs | selectattr('config_key','equalto','viewer_username') | map(attribute='config_value') | first | default('') }}">
+                            </div>
+                            <div>
+                                <label>Viewer Password</label>
+                                <div class="relative">
+                                    <input type="password" name="cfg_viewer_password" class="inp inp-mono" id="vp-field"
+                                           placeholder="••••••••"
+                                           value="{{ configs | selectattr('config_key','equalto','viewer_password') | map(attribute='config_value') | first | default('') }}">
+                                    <button type="button" onclick="togglePw('vp-field',this)"
+                                            class="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--muted)] hover:text-white transition-colors text-sm">
+                                        <i class="bi bi-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div>
+                                <label>Accession Param Name</label>
+                                <input type="text" name="cfg_viewer_accession_param" class="inp inp-mono"
+                                       placeholder="accession"
+                                       value="{{ configs | selectattr('config_key','equalto','viewer_accession_param') | map(attribute='config_value') | first | default('accession') }}">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ── 3. WHATSAPP API ────────────────────────────────── -->
+                <div class="cfg-card">
+                    <div class="cfg-card-head">
+                        <div class="cfg-card-icon" style="background:rgba(61,184,122,0.12);color:var(--success);">
+                            <i class="bi bi-whatsapp"></i>
+                        </div>
+                        <div>
+                            <div class="cfg-card-title">WhatsApp Integration</div>
+                            <div class="cfg-card-desc">Twilio credentials for sending patient credentials via WhatsApp</div>
+                        </div>
+                    </div>
+                    <div class="cfg-body space-y-4">
+                        <div class="field-row cols-2">
+                            <div>
+                                <label>Twilio Account SID</label>
+                                <input type="text" name="cfg_twilio_account_sid" class="inp inp-mono"
+                                       placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                                       value="{{ configs | selectattr('config_key','equalto','twilio_account_sid') | map(attribute='config_value') | first | default('') }}">
+                            </div>
+                            <div>
+                                <label>Twilio Auth Token</label>
+                                <div class="relative">
+                                    <input type="password" name="cfg_twilio_auth_token" class="inp inp-mono" id="ta-field"
+                                           placeholder="••••••••••••••••••••••••••••••••"
+                                           value="{{ configs | selectattr('config_key','equalto','twilio_auth_token') | map(attribute='config_value') | first | default('') }}">
+                                    <button type="button" onclick="togglePw('ta-field',this)"
+                                            class="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--muted)] hover:text-white transition-colors text-sm">
+                                        <i class="bi bi-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="field-row cols-2">
+                            <div>
+                                <label>WhatsApp From Number</label>
+                                <input type="text" name="cfg_twilio_whatsapp_from" class="inp inp-mono"
+                                       placeholder="+1415XXXXXXX"
+                                       value="{{ configs | selectattr('config_key','equalto','twilio_whatsapp_from') | map(attribute='config_value') | first | default('') }}">
+                                <p class="text-[10px] text-[var(--muted)] mt-1">Your Twilio WhatsApp-enabled number</p>
+                            </div>
+                            <div>
+                                <label>Portal Base URL</label>
+                                <input type="url" name="cfg_portal_base_url" class="inp inp-mono"
+                                       placeholder="https://hospital.com"
+                                       value="{{ configs | selectattr('config_key','equalto','portal_base_url') | map(attribute='config_value') | first | default('') }}">
+                                <p class="text-[10px] text-[var(--muted)] mt-1">Used to build the login link in the WhatsApp message</p>
+                            </div>
+                        </div>
+
+                        <!-- Test connection -->
+                        <div class="flex items-center gap-4 pt-2 border-t border-[var(--border)]">
+                            <div>
+                                <label>Test Phone Number</label>
+                                <input type="text" id="test-phone" class="inp inp-mono" placeholder="+9611234567" style="width:200px;">
+                            </div>
+                            <div style="padding-top:22px;">
+                                <button type="button" onclick="testWhatsApp()" class="btn btn-ghost">
+                                    <i class="bi bi-send"></i> Send Test Message
+                                </button>
+                            </div>
+                            <div style="padding-top:22px;">
+                                <span class="conn-badge idle" id="conn-badge">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-current inline-block"></span>
+                                    Not tested
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ── 4. WHATSAPP TEMPLATE ───────────────────────────── -->
+                <div class="cfg-card">
+                    <div class="cfg-card-head">
+                        <div class="cfg-card-icon" style="background:rgba(224,148,58,0.12);color:var(--warn);">
+                            <i class="bi bi-chat-left-text"></i>
+                        </div>
+                        <div>
+                            <div class="cfg-card-title">WhatsApp Message Template</div>
+                            <div class="cfg-card-desc">Sent to patients when their order is received · supports Arabic</div>
+                        </div>
+                    </div>
+                    <div class="cfg-body space-y-4">
+
+                        <!-- Language toggle -->
+                        <div class="flex gap-2 mb-1">
+                            <button type="button" onclick="setLang('en')" id="btn-lang-en"
+                                    class="btn btn-primary" style="font-size:10px;padding:5px 14px;">EN</button>
+                            <button type="button" onclick="setLang('ar')" id="btn-lang-ar"
+                                    class="btn btn-ghost" style="font-size:10px;padding:5px 14px;">عربي</button>
+                        </div>
+
+                        <!-- EN template -->
+                        <div id="tpl-en">
+                            <label>English Template</label>
+                            <textarea name="cfg_whatsapp_message_template" class="inp" rows="7"
+                                      id="tpl-en-area"
+                                      placeholder="Hello {name}, your radiology results are ready...">{{ configs | selectattr('config_key','equalto','whatsapp_message_template') | map(attribute='config_value') | first | default('') }}</textarea>
+                        </div>
+
+                        <!-- AR template -->
+                        <div id="tpl-ar" class="hidden">
+                            <label>Arabic Template (RTL)</label>
+                            <textarea name="cfg_whatsapp_message_template_ar" class="inp inp-arabic" rows="7"
+                                      id="tpl-ar-area"
+                                      placeholder="مرحباً {name}، نتائج فحصك الإشعاعي جاهزة...">{{ configs | selectattr('config_key','equalto','whatsapp_message_template_ar') | map(attribute='config_value') | first | default('') }}</textarea>
+                        </div>
+
+                        <!-- Variable chips -->
+                        <div>
+                            <p class="text-[10px] font-bold text-[var(--muted)] uppercase tracking-wider mb-2">Available Variables — click to insert</p>
+                            <div>
+                                <span class="var-chip" onclick="insertVar('{name}')        ">{name}</span>
+                                <span class="var-chip" onclick="insertVar('{username}')    ">{username}</span>
+                                <span class="var-chip" onclick="insertVar('{password}')    ">{password}</span>
+                                <span class="var-chip" onclick="insertVar('{portal_url}')  ">{portal_url}</span>
+                                <span class="var-chip" onclick="insertVar('{hospital_name}')">{hospital_name}</span>
+                            </div>
+                        </div>
+
+                        <!-- Preview -->
+                        <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:16px;">
+                            <p class="text-[10px] font-bold text-[var(--muted)] uppercase tracking-wider mb-3">Live Preview</p>
+                            <div id="tpl-preview" style="font-size:13px;color:var(--text);line-height:1.8;white-space:pre-wrap;word-break:break-word;"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ── SAVE BUTTON ────────────────────────────────────── -->
+                <div class="flex justify-end gap-3 pb-4">
+                    <a href="{{ url_for('portal_admin.portal_users') }}" class="btn btn-danger">
+                        <i class="bi bi-x-circle"></i> Discard
+                    </a>
+                    <button type="submit" class="btn btn-primary" style="font-size:12px;padding:10px 28px;">
+                        <i class="bi bi-check2-circle"></i> Save Configuration
+                    </button>
+                </div>
+
+                </form>
+            </div>
+        </main>
+    </div>
+
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
+
+    <script>
+    // ── Password toggle ───────────────────────────────────────────────
+    function togglePw(fieldId, btn) {
+        const f = document.getElementById(fieldId);
+        const showing = f.type === 'text';
+        f.type = showing ? 'password' : 'text';
+        btn.innerHTML = showing ? '<i class="bi bi-eye"></i>' : '<i class="bi bi-eye-slash"></i>';
+    }
+
+    // ── Logo preview ──────────────────────────────────────────────────
+    document.getElementById('logo-file').addEventListener('change', function() {
+        const file = this.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = e => {
+            const drop = document.getElementById('logo-drop');
+            drop.innerHTML = `<img src="${e.target.result}" style="max-height:100px;max-width:100%;object-fit:contain;">`;
+            document.getElementById('logo-url-field').value = file.name;
+        };
+        reader.readAsDataURL(file);
+    });
+
+    // ── Language toggle ───────────────────────────────────────────────
+    let activeLang = 'en';
+    function setLang(lang) {
+        activeLang = lang;
+        document.getElementById('tpl-en').classList.toggle('hidden', lang !== 'en');
+        document.getElementById('tpl-ar').classList.toggle('hidden', lang !== 'ar');
+        document.getElementById('btn-lang-en').className = lang === 'en'
+            ? 'btn btn-primary' : 'btn btn-ghost';
+        document.getElementById('btn-lang-en').style = 'font-size:10px;padding:5px 14px;';
+        document.getElementById('btn-lang-ar').className = lang === 'ar'
+            ? 'btn btn-primary' : 'btn btn-ghost';
+        document.getElementById('btn-lang-ar').style = 'font-size:10px;padding:5px 14px;';
+        updatePreview();
+    }
+
+    // ── Template variables insert ─────────────────────────────────────
+    function insertVar(v) {
+        const ta = activeLang === 'en'
+            ? document.getElementById('tpl-en-area')
+            : document.getElementById('tpl-ar-area');
+        const start = ta.selectionStart;
+        const end   = ta.selectionEnd;
+        ta.value = ta.value.slice(0, start) + v.trim() + ta.value.slice(end);
+        ta.selectionStart = ta.selectionEnd = start + v.trim().length;
+        ta.focus();
+        updatePreview();
+    }
+
+    // ── Live preview ──────────────────────────────────────────────────
+    function updatePreview() {
+        const ta = activeLang === 'en'
+            ? document.getElementById('tpl-en-area')
+            : document.getElementById('tpl-ar-area');
+        const hospitalName = document.querySelector('[name="cfg_hospital_name"]').value || 'Hospital Name';
+        let preview = ta.value
+            .replace(/{name}/g,          'Ahmad Khalil')
+            .replace(/{username}/g,       'MRN123456')
+            .replace(/{password}/g,       'Abc7Xyz9')
+            .replace(/{portal_url}/g,     window.location.origin + '/portal')
+            .replace(/{hospital_name}/g,  hospitalName);
+        const previewEl = document.getElementById('tpl-preview');
+        previewEl.textContent = preview;
+        previewEl.style.direction = activeLang === 'ar' ? 'rtl' : 'ltr';
+        previewEl.style.textAlign = activeLang === 'ar' ? 'right' : 'left';
+    }
+
+    document.getElementById('tpl-en-area').addEventListener('input', updatePreview);
+    document.getElementById('tpl-ar-area').addEventListener('input', updatePreview);
+    document.querySelector('[name="cfg_hospital_name"]').addEventListener('input', updatePreview);
+    updatePreview();
+
+    // ── Test WhatsApp connection ──────────────────────────────────────
+    async function testWhatsApp() {
+        const phone = document.getElementById('test-phone').value.trim();
+        if (!phone) { showToast('Enter a test phone number', 'error'); return; }
+
+        const badge = document.getElementById('conn-badge');
+        badge.className = 'conn-badge testing';
+        badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-current inline-block animate-pulse"></span> Testing...';
+
+        try {
+            const res  = await fetch('/admin/portal/test-whatsapp', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ phone })
+            });
+            const data = await res.json();
+            if (data.success) {
+                badge.className = 'conn-badge ok';
+                badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-current inline-block"></span> Message Sent';
+                showToast('WhatsApp test message sent!', 'success');
+            } else {
+                badge.className = 'conn-badge fail';
+                badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-current inline-block"></span> Failed';
+                showToast('Failed: ' + (data.error || 'Unknown error'), 'error');
+            }
+        } catch(e) {
+            badge.className = 'conn-badge fail';
+            badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-current inline-block"></span> Network Error';
+            showToast('Network error', 'error');
+        }
+    }
+
+    // ── Toast ─────────────────────────────────────────────────────────
+    function showToast(msg, type = 'success') {
+        const t = document.getElementById('toast');
+        t.textContent = msg;
+        t.className = `toast ${type} show`;
+        setTimeout(() => t.classList.remove('show'), 3500);
+    }
+
+    // ── Flash messages as toast ───────────────────────────────────────
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+    {% for category, message in messages %}
+    document.addEventListener('DOMContentLoaded', () => showToast('{{ message }}', '{{ "success" if category == "success" else "error" }}'));
+    {% endfor %}
+    {% endif %}
+    {% endwith %}
+    </script>
+</body>
+</html>
