@@ -28,18 +28,59 @@ def get_report_config(form):
     default_end = date.today().strftime('%Y-%m-%d')
 
     start = form.get("start_date", default_start)
-    end = form.get("end_date", default_end)
+    end   = form.get("end_date",   default_end)
 
-    return base_sql, start, end
+    # Build extra WHERE clauses
+    extra = []
+    params = {"s": start, "e": end}
+
+    if form.get("f_mod_active") == "on" and form.get("f_mod"):
+        extra.append("modality = :mod")
+        params["mod"] = form.get("f_mod")
+
+    if form.get("f_class_active") == "on" and form.get("f_class"):
+        extra.append("patient_class = :p_class")
+        params["p_class"] = form.get("f_class")
+
+    if form.get("f_sex_active") == "on" and form.get("f_sex"):
+        extra.append("sex = :sex")
+        params["sex"] = form.get("f_sex")
+
+    if form.get("f_age_min"):
+        extra.append("age_at_exam >= :age_min")
+        params["age_min"] = float(form.get("f_age_min"))
+
+    if form.get("f_age_max"):
+        extra.append("age_at_exam <= :age_max")
+        params["age_max"] = float(form.get("f_age_max"))
+
+    extra_where = (" AND " + " AND ".join(extra)) if extra else ""
+
+    return base_sql, start, end, params, extra_where
 
 
 @report_23_bp.route('/report/23', methods=['GET', 'POST'])
 @login_required
 def report_23():
     run_report = request.method == 'POST'
-    base_sql, start_date, end_date = get_report_config(request.form)
+    base_sql, start_date, end_date, params, extra_where = get_report_config(request.form)
 
-    metrics = {"total_count": 0}
+    mod_list   = db.session.execute(text("SELECT DISTINCT modality FROM aetitle_modality_map ORDER BY 1")).fetchall()
+    class_list = db.session.execute(text("SELECT DISTINCT patient_class FROM etl_didb_studies WHERE patient_class IS NOT NULL ORDER BY 1")).fetchall()
+    sex_list   = db.session.execute(text("SELECT DISTINCT sex FROM etl_patient_view WHERE sex IS NOT NULL ORDER BY 1")).fetchall()
+
+    filters = {
+        "f_mod_active":   request.form.get("f_mod_active") == "on",
+        "f_class_active": request.form.get("f_class_active") == "on",
+        "f_sex_active":   request.form.get("f_sex_active") == "on",
+        "mod":     request.form.get("f_mod"),
+        "p_class": request.form.get("f_class"),
+        "sex":     request.form.get("f_sex"),
+        "age_min": request.form.get("f_age_min"),
+        "age_max": request.form.get("f_age_max"),
+    }
+
+    metrics    = {"total_count": 0}
     chart_json = {}
 
     if run_report and base_sql:
@@ -49,7 +90,7 @@ def report_23():
             {cte_base}
             SELECT modality, patient_class, age_at_exam, study_date
             FROM base_data
-            WHERE study_date BETWEEN :s AND :e
+            WHERE study_date BETWEEN :s AND :e{extra_where}
         """)
 
         demo_sql = text(f"""
@@ -68,13 +109,13 @@ def report_23():
                 sex,
                 COUNT(*) as cnt
             FROM base_data
-            WHERE study_date BETWEEN :s AND :e
+            WHERE study_date BETWEEN :s AND :e{extra_where}
             GROUP BY 1, 2, 3
         """)
 
         try:
-            df_agg  = pd.DataFrame(db.session.execute(agg_sql,  {"s": start_date, "e": end_date}).fetchall())
-            df_demo = pd.DataFrame(db.session.execute(demo_sql, {"s": start_date, "e": end_date}).fetchall())
+            df_agg  = pd.DataFrame(db.session.execute(agg_sql,  params).fetchall())
+            df_demo = pd.DataFrame(db.session.execute(demo_sql, params).fetchall())
 
             if not df_agg.empty:
                 metrics["total_count"] = len(df_agg)
@@ -111,72 +152,6 @@ def report_23():
                             ]
                         }
                     }
-            # Repeat visit rate (30/60/90 days)
-            repeat_sql = text(f"""
-                {cte_base}
-                SELECT
-                    study_date,
-                    patient_id
-                FROM base_data
-                WHERE study_date BETWEEN :s AND :e
-                  AND patient_id IS NOT NULL
-            """)
-            df_visits = pd.DataFrame(db.session.execute(repeat_sql, {"s": start_date, "e": end_date}).fetchall())
-            repeat_rates = {"30d": 0, "60d": 0, "90d": 0}
-            if not df_visits.empty and 'patient_id' in df_visits.columns:
-                df_visits['study_date'] = pd.to_datetime(df_visits['study_date'])
-                first_visits = df_visits.groupby('patient_id')['study_date'].min().reset_index()
-                first_visits.columns = ['patient_id', 'first_date']
-                merged = df_visits.merge(first_visits, on='patient_id')
-                merged['days_since_first'] = (merged['study_date'] - merged['first_date']).dt.days
-                total_patients = df_visits['patient_id'].nunique()
-                for days, key in [(30, '30d'), (60, '60d'), (90, '90d')]:
-                    repeat = merged[merged['days_since_first'].between(1, days)]['patient_id'].nunique()
-                    repeat_rates[key] = round((repeat / total_patients * 100), 1) if total_patients > 0 else 0
-
-            # Seasonal monthly trend
-            monthly_sql = text(f"""
-                {cte_base}
-                SELECT TO_CHAR(study_date, 'YYYY-MM') as month, COUNT(*) as cnt
-                FROM base_data
-                WHERE study_date BETWEEN :s AND :e
-                GROUP BY 1 ORDER BY 1
-            """)
-            df_monthly = pd.DataFrame(db.session.execute(monthly_sql, {"s": start_date, "e": end_date}).fetchall())
-            monthly_trend = {"labels": [], "values": []}
-            if not df_monthly.empty:
-                monthly_trend = {"labels": df_monthly.iloc[:,0].tolist(), "values": df_monthly.iloc[:,1].tolist()}
-
-            # Age x Gender x Modality cube (top 5 modalities)
-            cube_sql = text(f"""
-                {cte_base}
-                SELECT
-                    CASE
-                        WHEN age_at_exam <= 18 THEN 'Under 18'
-                        WHEN age_at_exam <= 35 THEN '19-35'
-                        WHEN age_at_exam <= 64 THEN '36-64'
-                        ELSE '65+'
-                    END as age_band,
-                    COALESCE(sex, 'U') as sex,
-                    modality,
-                    COUNT(*) as cnt
-                FROM base_data
-                WHERE study_date BETWEEN :s AND :e
-                GROUP BY 1, 2, 3
-            """)
-            df_cube = pd.DataFrame(db.session.execute(cube_sql, {"s": start_date, "e": end_date}).fetchall())
-            cube_data = []
-            if not df_cube.empty:
-                top_mods = df_cube.groupby('modality')['cnt'].sum().nlargest(5).index.tolist()
-                df_cube_top = df_cube[df_cube['modality'].isin(top_mods)]
-                for _, row in df_cube_top.iterrows():
-                    cube_data.append({"age": row['age_band'], "sex": row['sex'], "mod": row['modality'], "cnt": int(row['cnt'])})
-            
-            chart_json["repeat_rates"] = repeat_rates
-            chart_json["monthly_trend"] = monthly_trend
-            chart_json["cube_data"] = cube_data
-            metrics["total_patients"] = df_visits['patient_id'].nunique() if not df_visits.empty and 'patient_id' in df_visits.columns else 0
-
         except Exception as e:
             print(f"Error executing report: {e}")
 
@@ -186,14 +161,18 @@ def report_23():
         display_end=end_date,
         metrics=metrics,
         chart_json=chart_json,
-        run_report=run_report
+        run_report=run_report,
+        filters=filters,
+        mod_list=mod_list,
+        class_list=class_list,
+        sex_list=sex_list,
     )
 
 
 @report_23_bp.route('/report/23/export', methods=['POST'])
 @login_required
 def export_report_23():
-    base_sql, start_date, end_date = get_report_config(request.form)
+    base_sql, start_date, end_date, params, extra_where = get_report_config(request.form)
 
     if not base_sql:
         return Response("No query configured.", status=500)
@@ -201,11 +180,7 @@ def export_report_23():
     sql = text(f"""
         WITH base_data AS ({base_sql})
         SELECT
-            study_date,
-            modality,
-            patient_class,
-            sex,
-            age_at_exam,
+            study_date, modality, patient_class, sex, age_at_exam,
             COALESCE(proc_id, 'Unknown') as procedure_code,
             CASE
                 WHEN age_at_exam <= 0.083 THEN '[0-1 month]'
@@ -217,7 +192,7 @@ def export_report_23():
                 ELSE '[65+]'
             END as age_group
         FROM base_data
-        WHERE study_date BETWEEN :s AND :e
+        WHERE study_date BETWEEN :s AND :e{extra_where}
         ORDER BY study_date DESC
     """)
 
@@ -231,7 +206,7 @@ def export_report_23():
 
         with db.engine.connect() as conn:
             result = conn.execution_options(stream_results=True).execute(
-                sql, {"s": start_date, "e": end_date}
+                sql, params
             )
             for row in result:
                 writer.writerow(row)

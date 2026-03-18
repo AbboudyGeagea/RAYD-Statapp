@@ -62,9 +62,9 @@ def refresh_storage_summary():
         agg_query = (
             db.session.query(
                 etl_didb_studies.study_date,
-                etl_didb_studies.storing_ae,
-                etl_didb_studies.study_modality.label("modality"),
-                etl_didb_studies.procedure_code,
+                func.coalesce(etl_didb_studies.storing_ae, 'UNKNOWN').label("storing_ae"),
+                func.coalesce(etl_didb_studies.study_modality, 'UNKNOWN').label("modality"),
+                func.coalesce(etl_didb_studies.procedure_code, 'UNKNOWN').label("procedure_code"),
                 func.round(
                     func.cast(
                         func.coalesce(

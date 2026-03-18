@@ -56,6 +56,49 @@
                     <input type="date" name="start_date" class="input-dark mb-2" value="{{ display_start }}">
                     <input type="date" name="end_date" class="input-dark" value="{{ display_end }}">
                 </div>
+
+                <hr class="border-[#2d3733]">
+
+                <div class="space-y-3">
+                    <div class="flex flex-col gap-1">
+                        <div class="flex justify-between items-center">
+                            <label class="mb-0 text-[10px]">Modality</label>
+                            <input type="checkbox" name="f_mod_active" onchange="document.getElementById('f_mod_23').disabled=!this.checked" {% if filters and filters.f_mod_active %}checked{% endif %}>
+                        </div>
+                        <select name="f_mod" id="f_mod_23" class="input-dark" {% if not (filters and filters.f_mod_active) %}disabled{% endif %}>
+                            {% for m in mod_list %}<option value="{{ m[0] }}" {% if filters and filters.mod == m[0] %}selected{% endif %}>{{ m[0] }}</option>{% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="flex flex-col gap-1">
+                        <div class="flex justify-between items-center">
+                            <label class="mb-0 text-[10px]">Patient Class</label>
+                            <input type="checkbox" name="f_class_active" onchange="document.getElementById('f_class_23').disabled=!this.checked" {% if filters and filters.f_class_active %}checked{% endif %}>
+                        </div>
+                        <select name="f_class" id="f_class_23" class="input-dark" {% if not (filters and filters.f_class_active) %}disabled{% endif %}>
+                            {% for c in class_list %}<option value="{{ c[0] }}" {% if filters and filters.p_class == c[0] %}selected{% endif %}>{{ c[0] }}</option>{% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="flex flex-col gap-1">
+                        <div class="flex justify-between items-center">
+                            <label class="mb-0 text-[10px]">Sex</label>
+                            <input type="checkbox" name="f_sex_active" onchange="document.getElementById('f_sex_23').disabled=!this.checked" {% if filters and filters.f_sex_active %}checked{% endif %}>
+                        </div>
+                        <select name="f_sex" id="f_sex_23" class="input-dark" {% if not (filters and filters.f_sex_active) %}disabled{% endif %}>
+                            {% for s in sex_list %}<option value="{{ s[0] }}" {% if filters and filters.sex == s[0] %}selected{% endif %}>{{ s[0] }}</option>{% endfor %}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block mb-1 text-[10px]">Age Range</label>
+                        <div class="flex gap-2">
+                            <input type="number" name="f_age_min" placeholder="Min" min="0" max="120" class="input-dark" value="{{ filters.age_min if filters and filters.age_min else '' }}">
+                            <input type="number" name="f_age_max" placeholder="Max" min="0" max="120" class="input-dark" value="{{ filters.age_max if filters and filters.age_max else '' }}">
+                        </div>
+                    </div>
+                </div>
+
                 <button type="submit" class="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs uppercase rounded-lg transition-all">
                     Analyze Population
                 </button>
@@ -68,6 +111,13 @@
                 <form method="POST" action="{{ url_for('report_23.export_report_23') }}">
                     <input type="hidden" name="start_date" value="{{ display_start }}">
                     <input type="hidden" name="end_date" value="{{ display_end }}">
+                    {% if filters %}
+                    {% if filters.f_mod_active %}<input type="hidden" name="f_mod_active" value="on"><input type="hidden" name="f_mod" value="{{ filters.mod }}">{% endif %}
+                    {% if filters.f_class_active %}<input type="hidden" name="f_class_active" value="on"><input type="hidden" name="f_class" value="{{ filters.p_class }}">{% endif %}
+                    {% if filters.f_sex_active %}<input type="hidden" name="f_sex_active" value="on"><input type="hidden" name="f_sex" value="{{ filters.sex }}">{% endif %}
+                    {% if filters.age_min %}<input type="hidden" name="f_age_min" value="{{ filters.age_min }}">{% endif %}
+                    {% if filters.age_max %}<input type="hidden" name="f_age_max" value="{{ filters.age_max }}">{% endif %}
+                    {% endif %}
                     <button type="submit" class="btn-csv">
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"

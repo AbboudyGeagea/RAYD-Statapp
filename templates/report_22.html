@@ -72,6 +72,33 @@
                         {% for ae in ae_list %}<option value="{{ ae[0] }}" {% if filters.ae == ae[0] %}selected{% endif %}>{{ ae[0] }}</option>{% endfor %}
                     </select>
                 </div>
+
+                <div class="flex flex-col gap-1">
+                    <div class="flex justify-between items-center"><label class="mb-0">Referring Physician</label>
+                        <input type="checkbox" name="f_physician_active" onchange="document.getElementById('f_physician').disabled = !this.checked" {% if filters.f_physician_active %}checked{% endif %}>
+                    </div>
+                    <select name="f_physician" id="f_physician" class="input-dark" {% if not filters.f_physician_active %}disabled{% endif %}>
+                        {% for p in physician_list %}<option value="{{ p[0] }}" {% if filters.physician == p[0] %}selected{% endif %}>{{ p[0] }}</option>{% endfor %}
+                    </select>
+                </div>
+
+                <div class="flex flex-col gap-1">
+                    <div class="flex justify-between items-center"><label class="mb-0">Patient Location</label>
+                        <input type="checkbox" name="f_location_active" onchange="document.getElementById('f_location').disabled = !this.checked" {% if filters.f_location_active %}checked{% endif %}>
+                    </div>
+                    <select name="f_location" id="f_location" class="input-dark" {% if not filters.f_location_active %}disabled{% endif %}>
+                        {% for l in location_list %}<option value="{{ l[0] }}" {% if filters.location == l[0] %}selected{% endif %}>{{ l[0] }}</option>{% endfor %}
+                    </select>
+                </div>
+
+                <div class="flex flex-col gap-1">
+                    <div class="flex justify-between items-center"><label class="mb-0">Report Status</label>
+                        <input type="checkbox" name="f_report_status_active" onchange="document.getElementById('f_report_status').disabled = !this.checked" {% if filters.f_report_status_active %}checked{% endif %}>
+                    </div>
+                    <select name="f_report_status" id="f_report_status" class="input-dark" {% if not filters.f_report_status_active %}disabled{% endif %}>
+                        {% for rs in report_status_list %}<option value="{{ rs[0] }}" {% if filters.report_status == rs[0] %}selected{% endif %}>{{ rs[0] }}</option>{% endfor %}
+                    </select>
+                </div>
             </div>
 
             <button type="submit" class="w-full bg-[#38ada9] py-4 rounded-xl font-black text-[10px] uppercase tracking-widest hover:brightness-110 transition-all mt-4 text-white">Update Dashboard</button>

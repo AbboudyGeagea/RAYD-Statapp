@@ -175,9 +175,8 @@ def create_app():
         replace_existing=True
     )
     scheduler.start()
-
+    start_mllp_listener(app, host='0.0.0.0', port=6661)
     return app
-
 
 # ---------------------------------------------------------
 # EXECUTION

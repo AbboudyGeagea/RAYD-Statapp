@@ -80,12 +80,6 @@ def _parse_hl7_datetime(val):
     if not val:
         return None
     val = val.strip().split('+')[0].split('-')[0]  # strip timezone
-    for fmt in ('%Y%m%d%H%M%S', '%Y%m%d%H%M', '%Y%m%d'):
-        try:
-            return datetime.strptime(val[:len(fmt.replace('%', '  ').replace('Y','    ').replace('m','  ').replace('d','  ').replace('H','  ').replace('M','  ').replace('S','  '))], fmt)
-        except Exception:
-            pass
-    # Simple fallback
     try:
         if len(val) >= 14: return datetime.strptime(val[:14], '%Y%m%d%H%M%S')
         if len(val) >= 12: return datetime.strptime(val[:12], '%Y%m%d%H%M')
@@ -129,7 +123,7 @@ def parse_orm_o01(raw_message):
     Returns None if the message is not ORM^O01.
 
     Tested against:
-      MSH|^~\&|Experience 4 RIS|ORM_HIS|...
+      MSH|^~\\&|Experience 4 RIS|ORM_HIS|...
       PID|||00301796^^^HIS||KHALIL^ROUAIDA^FAYSAL|...
       ORC|SC||249389^HIS||IP||...
       OBR|1||249389^HIS|ECABDPEL^76700-76856-...|...||...|US|...
@@ -149,55 +143,41 @@ def parse_orm_o01(raw_message):
         logger.warning(f"Ignoring non-ORM message: {msg_type}")
         return None
 
-    # MSH field note: MSH-1=pipe, MSH-2=encoding chars, so array index matches
-    # HL7 field number exactly (MSH[8]=ORM^O01, MSH[9]=message_id, MSH[6]=datetime)
-    message_id       = _field(msh, 9)                          # MSH-9  control ID
-    message_datetime = _parse_hl7_datetime(_field(msh, 6))     # MSH-6  datetime
-    msg_type         = _field(msh, 8)                          # MSH-8  ORM^O01
+    message_id       = _field(msh, 9)
+    message_datetime = _parse_hl7_datetime(_field(msh, 6))
+    msg_type         = _field(msh, 8)
 
     # ── PID — Patient info ───────────────────────────────────────────────────
-    # PID-3: 00301796^^^HIS → first component is patient ID
     patient_id   = _component(_field(pid, 3, ''), 0)
-    # PID-5: KHALIL^ROUAIDA^FAYSAL → formatted as First Mid Last
     patient_name = _format_name(_field(pid, 5))
     dob          = _parse_hl7_datetime(_field(pid, 7))
     gender       = _field(pid, 8)
 
     # ── ORC — Order control ──────────────────────────────────────────────────
-    # ORC-1: SC (order control code), ORC-5: IP (filler order status)
     orc_control  = _field(orc, 1)
     orc_status   = _field(orc, 5)
     order_status = orc_status or orc_control
 
-    # ORC-3: 249389^HIS → accession number
     accession_number    = _component(_field(orc, 3, ''), 0)
     placer_order_number = _component(_field(orc, 2, ''), 0)
-
-    # ORC-12: ID2^^Jihad Falou → ordering physician
-    ordering_physician = _format_name(_field(orc, 12, ''))
+    ordering_physician  = _format_name(_field(orc, 12, ''))
 
     # ── OBR — Observation request ────────────────────────────────────────────
-    # OBR-3: 249389^HIS → fallback accession
     if not accession_number:
         accession_number = _component(_field(obr, 3, ''), 0)
     if not placer_order_number:
         placer_order_number = _component(_field(obr, 3, ''), 0)
 
-    # OBR-4: ECABDPEL^76700-76856-Ultrasound Abdomen And Pelvis
     proc_raw       = _field(obr, 4, '')
     procedure_code = _component(proc_raw, 0)
     procedure_text = _component(proc_raw, 1)
 
-    # Modality: OBR-19 in your RIS (Experience 4), OBR-24 in standard HL7
-    # Try all known positions for flexibility across customers
     modality = _field(obr, 24) or _field(obr, 19) or _field(obr, 17)
 
-    # Scheduled datetime: OBR-7 is observation datetime in your messages
     scheduled_datetime = _parse_hl7_datetime(
         _field(obr, 7) or _field(obr, 36) or _field(obr, 6)
     )
 
-    # OBR-16: fallback physician if ORC-12 empty
     if not ordering_physician:
         ordering_physician = _format_name(_field(obr, 16, ''))
 
@@ -257,22 +237,46 @@ def _handle_client(conn, addr, app):
                     buffer = buffer[start:]
                     break
 
-                raw_bytes = buffer[start + 1:end]
-                buffer    = buffer[end + 2:]
-
+                raw_bytes   = buffer[start + 1:end]
+                buffer      = buffer[end + 2:]
                 raw_message = raw_bytes.decode('utf-8', errors='replace')
                 segments    = [s.strip() for s in raw_message.replace('\r\n','\r').replace('\n','\r').split('\r') if s.strip()]
                 msh         = _seg(segments, 'MSH')
 
                 try:
                     parsed = parse_orm_o01(raw_message)
+
                     if parsed:
+                        # ── Store in hl7_orders ───────────────────────────
                         with app.app_context():
                             from sqlalchemy import text
                             from db import db
                             db.session.execute(text(INSERT_SQL), parsed)
                             db.session.commit()
-                        logger.info(f"✅ HL7 stored | msg_id={parsed['message_id']} | patient={parsed['patient_id']} | accession={parsed['accession_number']}")
+
+                        logger.info(
+                            f"✅ HL7 stored | msg_id={parsed['message_id']} "
+                            f"| patient={parsed['patient_id']} "
+                            f"| accession={parsed['accession_number']}"
+                        )
+
+                        # ── Trigger patient portal user creation + WhatsApp ─
+                        # This is wrapped in its own try/except so that portal
+                        # errors never break the HL7 ACK response to the RIS.
+                        try:
+                            from routes.portal_bp import process_orm_for_portal
+                            with app.app_context():
+                                process_orm_for_portal(
+                                    raw_message,
+                                    parsed.get('accession_number', '')
+                                )
+                            logger.info(
+                                f"✅ Portal hook fired | "
+                                f"accession={parsed.get('accession_number')}"
+                            )
+                        except Exception as portal_err:
+                            logger.warning(f"⚠ Portal hook error: {portal_err}")
+
                     ack = _build_ack(msh, ACK_AA)
 
                 except Exception as e:

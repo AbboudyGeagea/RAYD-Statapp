@@ -110,12 +110,42 @@
 
                 <!-- ── Report AI Tab ── -->
                 <div id="grid-ai" class="hidden grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+
                     <div class="card-custom p-6 flex flex-col hover:border-[#60a5fa]/30 transition-colors">
-                        <div class="p-2.5 bg-violet-400/10 rounded-xl text-violet-400 w-fit mb-4"><i class="bi bi-stars text-xl"></i></div>
-                        <h3 class="text-base font-bold text-white mb-2">AI Intelligence</h3>
-                        <p class="text-slate-400 text-xs leading-relaxed mb-6 flex-1">Forecasting engine using linear regression and anomaly detection. Covers storage forecasts, volume predictions, utilization anomalies, and physician trend analysis — each with plain-language explanations.</p>
-                        <a href="https://{{ request.host }}/report/ai" target="_blank" class="w-full py-3 bg-violet-600 text-white text-center text-xs font-black uppercase tracking-widest rounded-xl">Open Report AI</a>
+                        <div class="p-2.5 bg-blue-400/10 rounded-xl text-blue-400 w-fit mb-4"><i class="bi bi-hdd-stack text-xl"></i></div>
+                        <h3 class="text-base font-bold text-white mb-2">Storage Forecast</h3>
+                        <p class="text-slate-400 text-xs leading-relaxed mb-6 flex-1">Linear regression on daily storage consumption. Predicts days to capacity, daily growth rate, and year-over-year comparison with a 90-day forecast chart.</p>
+                        <a href="{{ url_for('report_ai.report_ai') }}" target="_blank" class="w-full py-3 bg-[#60a5fa] text-[#0a1020] text-center text-xs font-black uppercase tracking-widest rounded-xl">Open Storage Forecast</a>
                     </div>
+
+                    <div class="card-custom p-6 flex flex-col hover:border-[#60a5fa]/30 transition-colors">
+                        <div class="p-2.5 bg-cyan-400/10 rounded-xl text-cyan-400 w-fit mb-4"><i class="bi bi-graph-up-arrow text-xl"></i></div>
+                        <h3 class="text-base font-bold text-white mb-2">Volume Forecast</h3>
+                        <p class="text-slate-400 text-xs leading-relaxed mb-6 flex-1">Daily study count trend with anomaly detection (±2σ). 90-day projection with modality split and highlighted outlier days.</p>
+                        <a href="{{ url_for('report_ai.report_ai') }}" target="_blank" class="w-full py-3 bg-cyan-500 text-[#0a1020] text-center text-xs font-black uppercase tracking-widest rounded-xl">Open Volume Forecast</a>
+                    </div>
+
+                    <div class="card-custom p-6 flex flex-col hover:border-[#60a5fa]/30 transition-colors">
+                        <div class="p-2.5 bg-orange-400/10 rounded-xl text-orange-400 w-fit mb-4"><i class="bi bi-lightning-charge-fill text-xl"></i></div>
+                        <h3 class="text-base font-bold text-white mb-2">Utilization Anomalies</h3>
+                        <p class="text-slate-400 text-xs leading-relaxed mb-6 flex-1">Per-AE daily utilization vs. schedule capacity. Flags high-stress (>85%) and under-utilized (<30%) equipment with anomaly detection and 30-day forecast.</p>
+                        <a href="{{ url_for('report_ai.report_ai') }}" target="_blank" class="w-full py-3 bg-orange-500 text-white text-center text-xs font-black uppercase tracking-widest rounded-xl">Open Utilization</a>
+                    </div>
+
+                    <div class="card-custom p-6 flex flex-col hover:border-[#60a5fa]/30 transition-colors">
+                        <div class="p-2.5 bg-purple-400/10 rounded-xl text-purple-400 w-fit mb-4"><i class="bi bi-person-badge text-xl"></i></div>
+                        <h3 class="text-base font-bold text-white mb-2">Physician Intelligence</h3>
+                        <p class="text-slate-400 text-xs leading-relaxed mb-6 flex-1">Top 20 referring physicians with trend slope, growing vs. churning detection, year-over-year comparison, and monthly referral forecast.</p>
+                        <a href="{{ url_for('report_ai.report_ai') }}" target="_blank" class="w-full py-3 bg-purple-600 text-white text-center text-xs font-black uppercase tracking-widest rounded-xl">Open Physician Intel</a>
+                    </div>
+
+                    <div class="card-custom p-6 flex flex-col hover:border-[#60a5fa]/30 transition-colors">
+                        <div class="p-2.5 bg-green-400/10 rounded-xl text-green-400 w-fit mb-4"><i class="bi bi-ladder text-xl"></i></div>
+                        <h3 class="text-base font-bold text-white mb-2">Capacity Ladder</h3>
+                        <p class="text-slate-400 text-xs leading-relaxed mb-6 flex-1">Visual daily schedule for every modality. Utilization bars per AE, drill-down timeline, and gap suggestions — which procedures fit in open slots based on your real device schedule.</p>
+                        <a href="{{ url_for('capacity_ladder.capacity_ladder_page') }}" target="_blank" class="w-full py-3 bg-green-600 text-white text-center text-xs font-black uppercase tracking-widest rounded-xl">Open Capacity Ladder</a>
+                    </div>
+
                 </div>
 
                 <!-- ── Super Report Tab ── -->

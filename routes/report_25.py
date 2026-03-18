@@ -22,6 +22,18 @@ def get_gold_standard_data(form_data):
     if form_data.get("class_enabled") == "on" and form_data.getlist("patient_class"):
         where_clauses.append("patient_class IN :classes")
         params["classes"] = tuple(form_data.getlist("patient_class"))
+
+    if form_data.get("mod_enabled") == "on" and form_data.getlist("modality"):
+        where_clauses.append("modality IN :modalities")
+        params["modalities"] = tuple(form_data.getlist("modality"))
+
+    if form_data.get("ae_enabled") == "on" and form_data.getlist("aetitle"):
+        where_clauses.append("aetitle IN :aetitles")
+        params["aetitles"] = tuple(form_data.getlist("aetitle"))
+
+    if form_data.get("loc_enabled") == "on" and form_data.getlist("patient_location"):
+        where_clauses.append("patient_location IN :locations")
+        params["locations"] = tuple(form_data.getlist("patient_location"))
         
     # 2. Fetch SQL Template
     template_res = db.session.execute(text("SELECT report_sql_query FROM report_template WHERE report_id = 25")).fetchone()
@@ -130,8 +142,10 @@ def get_gold_standard_data(form_data):
 @report_25_bp.route("/report/25", methods=["GET", "POST"])
 @login_required
 def report_25():
-    classes = [r[0] for r in db.session.execute(text("SELECT DISTINCT patient_class FROM etl_didb_studies WHERE patient_class IS NOT NULL")).all()]
-    locations = [r[0] for r in db.session.execute(text("SELECT DISTINCT patient_location FROM etl_didb_studies WHERE patient_location IS NOT NULL")).all()]
+    classes   = [r[0] for r in db.session.execute(text("SELECT DISTINCT patient_class FROM etl_didb_studies WHERE patient_class IS NOT NULL ORDER BY 1")).all()]
+    locations = [r[0] for r in db.session.execute(text("SELECT DISTINCT patient_location FROM etl_didb_studies WHERE patient_location IS NOT NULL ORDER BY 1")).all()]
+    modalities= [r[0] for r in db.session.execute(text("SELECT DISTINCT modality FROM aetitle_modality_map ORDER BY 1")).all()]
+    aetitles  = [r[0] for r in db.session.execute(text("SELECT DISTINCT aetitle FROM aetitle_modality_map ORDER BY 1")).all()]
     
     tree_raw = db.session.execute(text("SELECT modality, aetitle FROM aetitle_modality_map")).all()
     tree_dict = {}
@@ -155,7 +169,7 @@ def report_25():
             journey_json = json.dumps({"name": f"ID: {pid}", "children": nodes})
 
     template_data = {k: v for k, v in data.items() if k != 'raw_df'} if data else None
-    return render_template("report_25.html", data=template_data, display_start=start, display_end=end, classes=classes, locations=locations, tree_json=tree_json, journey_json=journey_json, run_report=bool(data), active_tab=active_tab)
+    return render_template("report_25.html", data=template_data, display_start=start, display_end=end, classes=classes, locations=locations, modalities=modalities, aetitles=aetitles, tree_json=tree_json, journey_json=journey_json, run_report=bool(data), active_tab=active_tab)
 
 @report_25_bp.route("/report/25/export", methods=["POST"])
 @login_required

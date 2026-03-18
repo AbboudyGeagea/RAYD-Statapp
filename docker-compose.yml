@@ -1,7 +1,5 @@
 version: '3.8'
-
 services:
-
   nginx:
     image: nginx:stable-alpine
     container_name: rayd_proxy
@@ -19,6 +17,8 @@ services:
     build: .
     container_name: rayd_service
     restart: always
+    ports:
+      - "6661:6661"
     environment:
       - TZ=Asia/Beirut
       - POSTGRES_USER=etl_user

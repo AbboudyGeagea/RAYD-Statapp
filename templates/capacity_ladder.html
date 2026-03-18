@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | Capacity Ladder</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        :root { --accent:#60a5fa; --bg:#181f1c; --surface:#232b28; --border:#28332e; }
+        * { box-sizing:border-box; margin:0; padding:0; }
+        body { font-family:'Inter',sans-serif; background:var(--bg); color:#e2e8f0; height:100vh; overflow:hidden; }
+        ::-webkit-scrollbar { width:4px; height:4px; }
+        ::-webkit-scrollbar-thumb { background:#28332e; border-radius:10px; }
+        .sidebar-item { transition:all 0.2s; border-radius:0.75rem; margin-bottom:0.25rem; text-decoration:none!important; color:#94a3b8; display:flex; align-items:center; gap:12px; padding:10px 16px; font-size:14px; font-weight:700; }
+        .sidebar-item:hover { background:#1d2522; color:var(--accent); }
+        .sidebar-item.active { background:#1d2522; color:var(--accent); border-left:4px solid var(--accent); }
+        .ae-card { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:16px; cursor:pointer; transition:all 0.2s; }
+        .ae-card:hover { border-color:var(--accent); transform:translateY(-2px); box-shadow:0 8px 24px rgba(0,0,0,0.3); }
+        .ae-card.selected { border-color:var(--accent); box-shadow:0 0 0 2px rgba(96,165,250,0.2); }
+        .ae-card.closed { opacity:0.4; cursor:default; pointer-events:none; }
+        .util-track { background:#1a2420; border-radius:4px; height:8px; overflow:hidden; margin-top:8px; }
+        .util-fill  { height:100%; border-radius:4px; transition:width 0.6s ease; }
+        .badge { font-size:9px; font-weight:900; padding:2px 8px; border-radius:4px; text-transform:uppercase; }
+        .badge-green  { background:rgba(34,197,94,0.15);  color:#22c55e; }
+        .badge-yellow { background:rgba(234,179,8,0.15);  color:#eab308; }
+        .badge-red    { background:rgba(239,68,68,0.15);  color:#ef4444; }
+        .badge-gray   { background:rgba(100,116,139,0.15);color:#64748b; }
+        .badge-blue   { background:rgba(96,165,250,0.15); color:#60a5fa; }
+        .strat-tab { flex:1; padding:9px 4px; text-align:center; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.07em; color:#64748b; cursor:pointer; border-bottom:2px solid transparent; transition:all 0.2s; white-space:nowrap; }
+        .strat-tab:hover { color:#e2e8f0; }
+        .strat-tab.active-base     { color:#60a5fa; border-bottom-color:#60a5fa; }
+        .strat-tab.active-variety  { color:#f59e0b; border-bottom-color:#f59e0b; }
+        .strat-tab.active-volume   { color:#3b82f6; border-bottom-color:#3b82f6; }
+        .strat-tab.active-priority { color:#a855f7; border-bottom-color:#a855f7; }
+        .proc-block { position:absolute; left:2px; right:2px; border-radius:6px; padding:4px 8px; overflow:hidden; }
+        .proc-block.scheduled { background:linear-gradient(135deg,#166534,#15803d); border:1px solid rgba(255,255,255,0.08); }
+        .proc-block.gap-empty { background:rgba(96,165,250,0.03); border:1px dashed rgba(96,165,250,0.12); display:flex; align-items:center; justify-content:center; }
+        .proc-block.suggested { border:1px solid rgba(255,255,255,0.15); animation:fadeSlide 0.3s ease; }
+        @keyframes fadeSlide { from{opacity:0;transform:scaleY(0.85)} to{opacity:1;transform:scaleY(1)} }
+        .hour-line { position:absolute; left:0; right:0; border-top:1px dashed #1e2b26; display:flex; align-items:center; pointer-events:none; }
+        .hour-label { font-size:9px; font-weight:700; color:#3d5278; width:38px; flex-shrink:0; padding-left:4px; margin-top:-6px; font-family:monospace; }
+        .sug-pill { display:inline-flex; align-items:center; gap:4px; padding:3px 10px; border-radius:20px; font-size:10px; font-weight:700; margin:2px; }
+        .toast { position:fixed; bottom:20px; right:20px; padding:10px 16px; border-radius:10px; font-size:12px; font-weight:700; z-index:9999; opacity:0; transform:translateY(6px); transition:all 0.3s; pointer-events:none; }
+        .toast.show { opacity:1; transform:translateY(0); }
+        .toast.success { background:#064e3b; color:#6ee7b7; border:1px solid #065f46; }
+        .toast.warn    { background:#451a03; color:#fcd34d; border:1px solid #78350f; }
+        .tooltip { position:fixed; background:#0f1a16; border:1px solid #28332e; border-radius:8px; padding:10px 14px; font-size:11px; color:#e2e8f0; pointer-events:none; z-index:1000; display:none; max-width:240px; box-shadow:0 8px 24px rgba(0,0,0,0.5); line-height:1.6; }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+
+    <header class="bg-[#232b28] border-b border-[#28332e] px-8 py-4 flex items-center justify-center shadow-md z-30 shrink-0">
+        <div class="flex items-center gap-5">
+            <img src="{{ url_for('static', filename='RAYD.png') }}" class="h-12 w-auto opacity-90">
+            <div class="flex flex-col items-center">
+                <div class="h-px w-52 bg-gradient-to-r from-transparent via-[#60a5fa] to-transparent mb-1.5"></div>
+                <p class="text-[9px] font-black text-[#60a5fa] uppercase tracking-[0.35em]">Reliable Analytics for Your Department</p>
+                <div class="h-px w-52 bg-gradient-to-r from-transparent via-[#60a5fa] to-transparent mt-1.5"></div>
+            </div>
+        </div>
+    </header>
+
+    <div class="flex flex-1 overflow-hidden">
+
+        <aside class="w-64 bg-[#232b28] border-r border-[#28332e] flex flex-col p-5 shadow-xl z-20 shrink-0">
+            <div class="flex items-center gap-3 mb-8 px-2">
+                <div class="bg-[#60a5fa] p-2.5 rounded-xl text-white shadow-lg shadow-blue-400/20"><i class="bi bi-cpu-fill text-xl"></i></div>
+                <div>
+                    <h1 class="font-black text-[#e2e8f0] tracking-tighter uppercase leading-none text-xl">RAYD</h1>
+                    <p class="text-[9px] font-black text-[#60a5fa] uppercase tracking-widest mt-1">Intelligence Hub</p>
+                </div>
+            </div>
+            <nav class="flex-1 space-y-1">
+                <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-3">Main Menu</p>
+                <a href="{{ url_for('viewer.viewer_dashboard') }}" class="sidebar-item"><i class="bi bi-speedometer2"></i> Viewer Dashboard</a>
+                {% if current_user.role == 'admin' %}
+                <a href="{{ url_for('admin.admin_dashboard') }}" class="sidebar-item"><i class="bi bi-cpu"></i> ETL Control Room</a>
+                <a href="{{ url_for('mapping.mapping_page') }}" class="sidebar-item"><i class="bi bi-calendar-week"></i> Live Week Matrix</a>
+                {% endif %}
+                <div class="pt-3 pb-1"><p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-2">RIS</p></div>
+                {% if current_user.role == 'admin' %}
+                <a href="{{ url_for('hl7_orders.hl7_orders_page') }}" class="sidebar-item"><i class="bi bi-activity"></i> HL7 Orders</a>
+                <a href="{{ url_for('portal_admin.portal_users') }}" target="_blank" class="sidebar-item"><i class="bi bi-person-vcard"></i> Patient Portal</a>
+                {% endif %}
+            </nav>
+            <div class="mt-auto p-4 bg-[#181f1c] rounded-2xl border border-[#28332e]">
+                <p class="text-[10px] uppercase text-slate-500 font-bold mb-1">System Health</p>
+                <p class="text-xs text-green-400 font-mono flex items-center gap-2">
+                    <span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span> All Systems Operational
+                </p>
+            </div>
+        </aside>
+
+        <main class="flex-1 overflow-hidden flex flex-col">
+
+            <!-- Top bar -->
+            <div class="bg-[#232b28] border-b border-[#28332e] px-6 py-3 flex items-center gap-4 shrink-0">
+                <i class="bi bi-ladder text-[#60a5fa] text-lg"></i>
+                <h1 class="font-black text-white uppercase tracking-tight">Capacity Ladder</h1>
+                <div class="flex items-center gap-3 ml-4">
+                    <input type="date" id="ladder-date" class="bg-[#181f1c] border border-[#28332e] text-white text-sm font-mono rounded-lg px-3 py-1.5 outline-none focus:border-[#60a5fa] transition-colors">
+                    <button onclick="loadOverview()" class="flex items-center gap-2 px-4 py-1.5 bg-[#60a5fa] text-[#0a1020] text-[10px] font-black uppercase tracking-widest rounded-lg hover:brightness-110 transition-all">
+                        <i class="bi bi-arrow-clockwise"></i> Load
+                    </button>
+                </div>
+                <div class="ml-auto flex items-center gap-5 text-[9px] font-black uppercase tracking-widest">
+                    <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded inline-block" style="background:#15803d;"></span>Scheduled</span>
+                    <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded inline-block" style="border:1px dashed rgba(96,165,250,0.3);"></span>Gap</span>
+                    <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded inline-block" style="background:#b45309;"></span>Variety</span>
+                    <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded inline-block" style="background:#1d4ed8;"></span>Volume</span>
+                    <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded inline-block" style="background:#7e22ce;"></span>Priority</span>
+                </div>
+            </div>
+
+            <div class="flex flex-1 overflow-hidden">
+
+                <!-- Overview grid -->
+                <div id="overview-panel" class="flex-1 overflow-y-auto p-6">
+                    <div id="ov-loading" class="hidden flex-col items-center justify-center h-64 gap-3">
+                        <div class="relative w-10 h-10">
+                            <div class="absolute inset-0 border-4 border-[#28332e] rounded-full"></div>
+                            <div class="absolute inset-0 border-4 border-t-[#60a5fa] rounded-full animate-spin"></div>
+                        </div>
+                        <p class="text-slate-500 text-xs font-bold uppercase tracking-widest">Loading modalities...</p>
+                    </div>
+                    <div id="ov-empty" class="flex flex-col items-center justify-center h-64 gap-4">
+                        <div class="p-5 bg-[#232b28] rounded-2xl border border-[#28332e] text-slate-600"><i class="bi bi-ladder text-4xl"></i></div>
+                        <p class="text-white font-black uppercase tracking-tight">Pick a date to load the capacity ladder</p>
+                        <p class="text-slate-500 text-sm">Click any AE to see 3 AI scheduling strategies</p>
+                    </div>
+                    <div id="ov-grid" class="hidden">
+                        <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4" id="ov-date-label"></p>
+                        <div id="ae-cards" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3"></div>
+                    </div>
+                </div>
+
+                <!-- Detail + strategy panel -->
+                <div id="detail-panel" class="hidden shrink-0 border-l border-[#28332e] flex flex-col" style="width:490px;background:#141a17;">
+
+                    <!-- AE header -->
+                    <div class="px-5 py-3 border-b border-[#28332e] flex items-center justify-between shrink-0">
+                        <div>
+                            <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest" id="d-aetitle"></p>
+                            <p class="text-white font-black text-sm" id="d-modality"></p>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <span id="d-util-badge"></span>
+                            <button onclick="closeDetail()" class="text-slate-500 hover:text-white transition-colors"><i class="bi bi-x-lg"></i></button>
+                        </div>
+                    </div>
+
+                    <!-- Stats row -->
+                    <div class="grid grid-cols-3 border-b border-[#28332e] shrink-0">
+                        <div class="px-4 py-3 border-r border-[#28332e]">
+                            <p class="text-[9px] text-slate-500 font-bold uppercase tracking-widest">Opening</p>
+                            <p class="text-white font-black font-mono text-sm" id="d-opening"></p>
+                        </div>
+                        <div class="px-4 py-3 border-r border-[#28332e]">
+                            <p class="text-[9px] text-slate-500 font-bold uppercase tracking-widest">Scheduled</p>
+                            <p class="text-green-400 font-black font-mono text-sm" id="d-scheduled"></p>
+                        </div>
+                        <div class="px-4 py-3">
+                            <p class="text-[9px] text-slate-500 font-bold uppercase tracking-widest">Available</p>
+                            <p class="text-[#60a5fa] font-black font-mono text-sm" id="d-available"></p>
+                        </div>
+                    </div>
+
+                    <!-- Strategy tabs -->
+                    <div class="flex border-b border-[#28332e] shrink-0">
+                        <div class="strat-tab active-base"    data-cls="base"     onclick="showStrat(0,this)">📅 Schedule</div>
+                        <div class="strat-tab"                data-cls="variety"  onclick="showStrat(1,this)" id="stab-1">🎨 Variety</div>
+                        <div class="strat-tab"                data-cls="volume"   onclick="showStrat(2,this)" id="stab-2">⚡ Volume</div>
+                        <div class="strat-tab"                data-cls="priority" onclick="showStrat(3,this)" id="stab-3">💎 Priority</div>
+                    </div>
+
+                    <!-- Strategy summary bar (hidden for base) -->
+                    <div id="strat-bar" class="hidden px-4 py-3 border-b border-[#28332e] shrink-0">
+                        <p class="text-[10px] text-slate-400 mb-2" id="strat-desc"></p>
+                        <div id="strat-pills" class="flex flex-wrap mb-2"></div>
+                        <div class="flex items-center gap-3 mt-1">
+                            <span class="text-[11px] font-black" id="strat-fill-txt"></span>
+                            <div class="flex-1 h-1.5 bg-[#28332e] rounded-full overflow-hidden">
+                                <div id="strat-fill-bar" class="h-full rounded-full transition-all duration-500" style="width:0%"></div>
+                            </div>
+                            <span class="text-[11px] font-black" id="strat-fill-pct"></span>
+                        </div>
+                    </div>
+
+                    <!-- Timeline scroll -->
+                    <div class="flex-1 overflow-y-auto p-4">
+                        <div id="timeline-container">
+                            <div class="flex items-center justify-center h-32 text-slate-600">
+                                <i class="bi bi-hourglass-split text-2xl animate-pulse"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <div class="tooltip" id="tooltip"></div>
+    <div class="toast"   id="toast"></div>
+
+<script>
+let _date = '', _detail = null, _strats = [], _activeStrat = 0;
+const PX = 1.85;
+
+const SC = {
+    1: { bg:'rgba(180,83,9,0.75)',   border:'#d97706', text:'#fcd34d', tab:'#f59e0b' },
+    2: { bg:'rgba(29,78,216,0.75)',  border:'#3b82f6', text:'#bfdbfe', tab:'#3b82f6' },
+    3: { bg:'rgba(109,40,217,0.75)', border:'#8b5cf6', text:'#e9d5ff', tab:'#a855f7' },
+};
+
+document.getElementById('ladder-date').value = new Date().toISOString().split('T')[0];
+
+// ── Overview ──────────────────────────────────────────────────────────
+async function loadOverview() {
+    const d = document.getElementById('ladder-date').value;
+    if (!d) return;
+    _date = d;
+    setVis('ov-empty', false); setVis('ov-grid', false); setVis('ov-loading', true);
+    closeDetail();
+    try {
+        const data = await (await fetch(`/viewer/capacity-ladder/overview?date=${d}`)).json();
+        setVis('ov-loading', false);
+        const label = new Date(d + 'T12:00:00').toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+        document.getElementById('ov-date-label').textContent = label;
+        document.getElementById('ae-cards').innerHTML = data.map(ae => {
+            const closed = ae.status === 'closed';
+            const clr = {overbooked:'#ef4444',tight:'#eab308',empty:'#475569'}[ae.status]||'#22c55e';
+            const bdg = {overbooked:'badge-red',tight:'badge-yellow',closed:'badge-gray',empty:'badge-blue'}[ae.status]||'badge-green';
+            return `<div class="ae-card${closed?' closed':''}" onclick="${closed?'':  `drillDown('${escJs(ae.aetitle)}')`}">
+                <div class="flex items-start justify-between mb-2">
+                    <div><p class="text-[9px] font-black text-slate-500 uppercase tracking-widest">${ae.modality}</p>
+                    <p class="text-white font-black text-sm leading-tight">${escHtml(ae.aetitle)}</p></div>
+                    <span class="badge ${bdg}">${ae.status}</span>
+                </div>
+                <div class="flex justify-between items-end mb-1">
+                    <span class="text-[10px] font-mono text-slate-400">${ae.scheduled_min}/${ae.opening_min} min</span>
+                    <span class="text-[11px] font-black" style="color:${clr}">${ae.utilization}%</span>
+                </div>
+                <div class="util-track"><div class="util-fill" style="width:${Math.min(ae.utilization,100)}%;background:${clr};"></div></div>
+                <p class="text-[9px] text-slate-600 mt-2">${closed?'Closed this day':`${ae.scheduled_count} procedure${ae.scheduled_count!==1?'s':''} scheduled`}</p>
+            </div>`;
+        }).join('');
+        setVis('ov-grid', true);
+    } catch(e) { setVis('ov-loading',false); setVis('ov-empty',true); toast('Load failed: '+e.message,'warn'); }
+}
+
+// ── Drill down ────────────────────────────────────────────────────────
+async function drillDown(aetitle) {
+    document.querySelectorAll('.ae-card').forEach(c => {
+        c.classList.toggle('selected', c.querySelector('p.text-white')?.textContent.trim() === aetitle);
+    });
+    setVis('detail-panel', true);
+    document.getElementById('timeline-container').innerHTML =
+        '<div class="flex items-center justify-center h-32"><div class="w-8 h-8 border-4 border-[#28332e] border-t-[#60a5fa] rounded-full animate-spin"></div></div>';
+
+    // Reset tabs
+    _activeStrat = 0; _strats = [];
+    document.querySelectorAll('.strat-tab').forEach((t,i) => {
+        t.classList.remove('active-base','active-variety','active-volume','active-priority');
+        if (i===0) t.classList.add('active-base');
+    });
+    setVis('strat-bar', false);
+
+    try {
+        const [dr, sr] = await Promise.all([
+            fetch(`/viewer/capacity-ladder/detail?date=${_date}&aetitle=${encodeURIComponent(aetitle)}`),
+            fetch(`/viewer/capacity-ladder/suggestions?date=${_date}&aetitle=${encodeURIComponent(aetitle)}`),
+        ]);
+        _detail = await dr.json();
+        const sg = await sr.json();
+        _strats  = sg.strategies || [];
+
+        // Header stats
+        document.getElementById('d-aetitle').textContent   = _detail.aetitle;
+        document.getElementById('d-modality').textContent  = _detail.modality;
+        document.getElementById('d-opening').textContent   = hm(_detail.opening_min);
+        document.getElementById('d-scheduled').textContent = hm(_detail.scheduled_min);
+        document.getElementById('d-available').textContent = hm(_detail.opening_min - _detail.scheduled_min);
+        const bc = _detail.utilization>=100?'badge-red':_detail.utilization>=85?'badge-yellow':'badge-green';
+        document.getElementById('d-util-badge').innerHTML  = `<span class="badge ${bc}">${_detail.utilization}% utilized</span>`;
+
+        renderTimeline(null);
+
+        // Update tab labels with fill %
+        _strats.forEach((s,i) => {
+            const el = document.getElementById(`stab-${i+1}`);
+            if (el) el.innerHTML = `${'🎨⚡💎'.split('')[i] || ''} ${s.name} <span style="font-size:8px;opacity:0.75;">${s.fill_pct}%</span>`;
+        });
+
+    } catch(e) { toast('Error: '+e.message,'warn'); }
+}
+
+// ── Strategy switch ───────────────────────────────────────────────────
+function showStrat(idx, el) {
+    _activeStrat = idx;
+    const cls = el.dataset.cls;
+    document.querySelectorAll('.strat-tab').forEach(t =>
+        t.classList.remove('active-base','active-variety','active-volume','active-priority'));
+    el.classList.add(`active-${cls}`);
+
+    if (idx === 0) { setVis('strat-bar',false); renderTimeline(null); return; }
+
+    const s = _strats[idx-1];
+    if (!s) { toast('No suggestions available','warn'); return; }
+    const c = SC[idx];
+
+    setVis('strat-bar', true);
+    document.getElementById('strat-desc').textContent = s.description;
+
+    // Grouped pills: "3× MRI Brain", "1× MRI Knee"
+    const counts = {};
+    s.placements.forEach(p => { counts[p.code] = (counts[p.code]||0)+1; });
+    document.getElementById('strat-pills').innerHTML = Object.entries(counts).map(([code,n]) =>
+        `<span class="sug-pill" style="background:${c.bg};border:1px solid ${c.border};color:${c.text};">
+            ${n>1?`<strong>${n}×</strong> `:''} ${escHtml(code)}
+        </span>`
+    ).join('');
+
+    document.getElementById('strat-fill-txt').textContent = `+${hm(s.total_filled_min)} filled`;
+    document.getElementById('strat-fill-txt').style.color = c.tab;
+    document.getElementById('strat-fill-pct').textContent = s.fill_pct + '%';
+    document.getElementById('strat-fill-pct').style.color = c.tab;
+    document.getElementById('strat-fill-bar').style.width      = s.fill_pct + '%';
+    document.getElementById('strat-fill-bar').style.background = c.tab;
+
+    renderTimeline(s, idx);
+}
+
+// ── Timeline renderer ─────────────────────────────────────────────────
+function renderTimeline(strategy, stratIdx) {
+    const d        = _detail;
+    const startMin = d.start_min;
+    const endMin   = d.end_min;
+    const totalPx  = d.opening_min * PX;
+    const c        = stratIdx ? SC[stratIdx] : null;
+
+    // Hour lines
+    let hoursHtml = '';
+    for (let h = Math.floor(startMin/60); h <= Math.ceil(endMin/60); h++) {
+        const top = Math.max(0, (h*60-startMin)*PX);
+        hoursHtml += `<div class="hour-line" style="top:${top}px;">
+            <span class="hour-label">${String(h).padStart(2,'0')}:00</span>
+        </div>`;
+    }
+
+    // Scheduled blocks
+    let html = '';
+    d.blocks.forEach(b => {
+        const top = (b.start_min - startMin) * PX;
+        const h   = Math.max(b.duration * PX, 22);
+        html += `<div class="proc-block scheduled" style="top:${top}px;height:${h}px;"
+             onmouseenter="showTip(event,'${escJs(b.label)}','${escJs(b.proc_code)} · ${hm(b.duration)}')"
+             onmouseleave="hideTip()">
+            <p class="text-[9px] font-black text-green-200 truncate leading-tight">${escHtml(b.label)}</p>
+            ${h>30?`<p class="text-[8px] text-green-400/70 font-mono">${hm(b.duration)}</p>`:''}
+        </div>`;
+    });
+
+    // Gap blocks
+    (d.gaps||[]).forEach(g => {
+        const gapDur = g.duration;
+        const gTop   = (g.start_min - startMin) * PX;
+
+        if (!strategy) {
+            const gh = Math.max(gapDur * PX, 8);
+            html += `<div class="proc-block gap-empty" style="top:${gTop}px;height:${gh}px;">
+                ${gh>18?`<span style="font-size:9px;font-weight:700;color:rgba(96,165,250,0.25);">+${hm(gapDur)}</span>`:''}
+            </div>`;
+        } else {
+            const inGap = strategy.placements.filter(
+                p => p.start_min >= g.start_min && p.start_min < g.start_min + gapDur
+            );
+            inGap.forEach(p => {
+                const pt = (p.start_min - startMin) * PX;
+                const ph = Math.max(p.duration * PX, 22);
+                html += `<div class="proc-block suggested"
+                     style="top:${pt}px;height:${ph}px;background:${c.bg};border-color:${c.border};"
+                     onmouseenter="showTip(event,'${escJs(p.code)}','${hm(p.duration)} · ${p.freq}× historical · RVU ${p.rvu}')"
+                     onmouseleave="hideTip()">
+                    <p class="text-[9px] font-black truncate leading-tight" style="color:${c.text};">${escHtml(p.code)}</p>
+                    ${ph>30?`<p class="text-[8px] font-mono" style="color:${c.text};opacity:0.7;">${hm(p.duration)}</p>`:''}
+                </div>`;
+            });
+            // Remaining unfilled gap
+            const lastEnd = inGap.length
+                ? inGap[inGap.length-1].start_min + inGap[inGap.length-1].duration
+                : g.start_min;
+            const rem = (g.start_min + gapDur) - lastEnd;
+            if (rem >= 8) {
+                const rt = (lastEnd - startMin) * PX;
+                const rh = rem * PX;
+                html += `<div class="proc-block gap-empty" style="top:${rt}px;height:${rh}px;">
+                    ${rh>16?`<span style="font-size:9px;font-weight:700;color:rgba(96,165,250,0.2);">+${hm(rem)}</span>`:''}
+                </div>`;
+            }
+        }
+    });
+
+    document.getElementById('timeline-container').innerHTML = `
+    <div style="height:${totalPx+40}px;position:relative;">
+        ${hoursHtml}
+        <div style="position:absolute;top:0;left:38px;right:0;height:${totalPx}px;">${html}</div>
+    </div>`;
+}
+
+function closeDetail() {
+    setVis('detail-panel',false);
+    document.querySelectorAll('.ae-card').forEach(c=>c.classList.remove('selected'));
+    _detail=null; _strats=[]; _activeStrat=0;
+}
+
+// ── Tooltip / Toast / Helpers ─────────────────────────────────────────
+function showTip(e,title,sub){
+    const t=document.getElementById('tooltip');
+    t.innerHTML=`<strong style="color:white;">${title}</strong><br><span style="color:#94a3b8;">${sub}</span>`;
+    t.style.display='block'; t.style.left=(e.clientX+14)+'px'; t.style.top=(e.clientY-12)+'px';
+}
+function hideTip(){ document.getElementById('tooltip').style.display='none'; }
+
+function toast(msg,type='success'){
+    const t=document.getElementById('toast');
+    t.textContent=msg; t.className=`toast ${type} show`;
+    setTimeout(()=>t.classList.remove('show'),2800);
+}
+
+function setVis(id, on) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (on) { el.classList.remove('hidden'); el.classList.add('flex'); }
+    else    { el.classList.add('hidden');    el.classList.remove('flex'); }
+}
+function hm(m){ m=parseInt(m||0); const h=Math.floor(m/60),mn=m%60; return h>0?`${h}h${mn>0?' '+mn+'m':''}`:`${mn}m`; }
+function escHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function escJs(s){ return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+
+loadOverview();
+</script>
+</body>
+</html>

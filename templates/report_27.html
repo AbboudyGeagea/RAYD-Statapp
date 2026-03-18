@@ -80,9 +80,44 @@
                 <!-- Comparison range -->
                 <div class="pt-4 border-t border-slate-800">
                     <label class="font-black text-slate-500 uppercase block mb-2 tracking-widest">Growth Baseline</label>
-                    <p class="text-[11px] text-slate-600 italic mb-3">Reference period for the Volume Delta KPI — used to compare order count against the primary range.</p>
+                    <p class="text-[11px] text-slate-600 italic mb-3">Reference period for the Volume Delta KPI.</p>
                     <input type="date" name="comp_start_date" class="input-dark mb-2" value="{{ comp_start }}">
                     <input type="date" name="comp_end_date" class="input-dark" value="{{ comp_end }}">
+                </div>
+
+                <!-- Extra filters -->
+                <div class="pt-4 border-t border-slate-800 space-y-3">
+                    <label class="font-black text-slate-500 uppercase block tracking-widest">Filters</label>
+
+                    <div>
+                        <label class="block text-[10px] font-black text-slate-600 uppercase mb-1">Modality</label>
+                        <select name="modality" multiple class="input-dark" style="height:70px;">
+                            {% for m in modality_list %}<option value="{{ m }}" {% if filters and m in filters.modality %}selected{% endif %}>{{ m }}</option>{% endfor %}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-[10px] font-black text-slate-600 uppercase mb-1">Order Status</label>
+                        <select name="order_status" multiple class="input-dark" style="height:70px;">
+                            {% for s in order_status_list %}<option value="{{ s }}" {% if filters and s in filters.order_status %}selected{% endif %}>{{ s }}</option>{% endfor %}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-[10px] font-black text-slate-600 uppercase mb-1">AE Title</label>
+                        <select name="storing_ae" multiple class="input-dark" style="height:70px;">
+                            {% for ae in ae_list %}<option value="{{ ae }}" {% if filters and ae in filters.storing_ae %}selected{% endif %}>{{ ae }}</option>{% endfor %}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-[10px] font-black text-slate-600 uppercase mb-1">Has Study</label>
+                        <select name="has_study" class="input-dark">
+                            <option value="" {% if not filters or not filters.has_study %}selected{% endif %}>All</option>
+                            <option value="yes" {% if filters and filters.has_study == 'yes' %}selected{% endif %}>Yes — fulfilled</option>
+                            <option value="no"  {% if filters and filters.has_study == 'no'  %}selected{% endif %}>No — orphaned</option>
+                        </select>
+                    </div>
                 </div>
 
                 <button type="submit" class="w-full py-3 bg-[#38ada9] hover:bg-[#2d8e8a] text-white font-black rounded-lg uppercase text-[11px] tracking-widest transition-all">

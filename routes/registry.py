@@ -16,6 +16,7 @@ from routes.report_ai import report_ai_bp
 from routes.portal_bp import portal_bp
 from routes.portal_admin import portal_admin_bp
 from routes.super_report import super_report_bp
+from routes.capacity_ladder import capacity_ladder_bp
 
 
 def register_blueprints(app):
@@ -37,3 +38,4 @@ def register_blueprints(app):
     app.register_blueprint(hl7_orders_bp)
     app.register_blueprint(etl_gear_bp)
     app.register_blueprint(super_report_bp)
+    app.register_blueprint(capacity_ladder_bp)

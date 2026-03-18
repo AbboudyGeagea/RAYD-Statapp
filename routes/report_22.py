@@ -33,6 +33,18 @@ def get_where_params(form):
     if form.get("f_ae_active") == "on" and form.get("f_ae"):
         where += " AND storing_ae = :ae"
         params["ae"] = form.get("f_ae")
+
+    if form.get("f_physician_active") == "on" and form.get("f_physician"):
+        where += " AND TRIM(CONCAT_WS(' ', s.referring_physician_first_name, s.referring_physician_last_name)) = :physician"
+        params["physician"] = form.get("f_physician")
+
+    if form.get("f_location_active") == "on" and form.get("f_location"):
+        where += " AND patient_location = :location"
+        params["location"] = form.get("f_location")
+
+    if form.get("f_report_status_active") == "on" and form.get("f_report_status"):
+        where += " AND report_status = :report_status"
+        params["report_status"] = form.get("f_report_status")
         
     return where, params
 
@@ -47,6 +59,14 @@ def report_22():
     status_list = db.session.execute(text("SELECT DISTINCT study_status FROM etl_didb_studies WHERE study_status IS NOT NULL")).fetchall()
     mod_list = db.session.execute(text("SELECT DISTINCT modality FROM aetitle_modality_map")).fetchall()
     ae_list = db.session.execute(text("SELECT DISTINCT storing_ae FROM etl_didb_studies WHERE storing_ae IS NOT NULL")).fetchall()
+    physician_list = db.session.execute(text("""
+        SELECT DISTINCT TRIM(CONCAT_WS(' ', referring_physician_first_name, referring_physician_last_name))
+        FROM etl_didb_studies
+        WHERE referring_physician_last_name IS NOT NULL AND referring_physician_last_name != ''
+        ORDER BY 1
+    """)).fetchall()
+    location_list = db.session.execute(text("SELECT DISTINCT patient_location FROM etl_didb_studies WHERE patient_location IS NOT NULL ORDER BY 1")).fetchall()
+    report_status_list = db.session.execute(text("SELECT DISTINCT report_status FROM etl_didb_studies WHERE report_status IS NOT NULL ORDER BY 1")).fetchall()
 
     filters = {
         "f_class_active": request.form.get("f_class_active") == "on",
@@ -54,11 +74,17 @@ def report_22():
         "f_status_active": request.form.get("f_status_active") == "on",
         "f_mod_active": request.form.get("f_mod_active") == "on",
         "f_ae_active": request.form.get("f_ae_active") == "on",
+        "f_physician_active": request.form.get("f_physician_active") == "on",
+        "f_location_active": request.form.get("f_location_active") == "on",
+        "f_report_status_active": request.form.get("f_report_status_active") == "on",
         "p_class": request.form.get("f_class"),
         "sex": request.form.get("f_sex"),
         "status": request.form.get("f_status"),
         "mod": request.form.get("f_mod"),
-        "ae": request.form.get("f_ae")
+        "ae": request.form.get("f_ae"),
+        "physician": request.form.get("f_physician"),
+        "location": request.form.get("f_location"),
+        "report_status": request.form.get("f_report_status"),
     }
 
     run_report = request.method == "POST"
@@ -120,41 +146,6 @@ def report_22():
             ORDER BY pct_change ASC LIMIT 10
         """)).fetchall()
 
-        # 3b. NEW vs RETURNING patients
-        res_new_returning = db.session.execute(text(f"""
-            {cte},
-            first_visits AS (
-                SELECT patient_id, MIN(study_date) as first_date
-                FROM base_data
-                GROUP BY patient_id
-            )
-            SELECT
-                COUNT(DISTINCT CASE WHEN b.study_date = f.first_date THEN b.patient_id END) as new_patients,
-                COUNT(DISTINCT CASE WHEN b.study_date > f.first_date THEN b.patient_id END) as returning_patients
-            FROM base_data b
-            JOIN first_visits f ON b.patient_id = f.patient_id
-            {where}
-        """), params).fetchone()
-
-        # 3c. Geographic breakdown by patient_location
-        res_geo = db.session.execute(text(f"""
-            {cte}
-            SELECT COALESCE(patient_location, 'Unknown'), COUNT(*) as cnt
-            FROM base_data {where}
-            GROUP BY 1 ORDER BY 2 DESC LIMIT 15
-        """), params).fetchall()
-
-        # 3d. Monthly trend for sparklines (last 12 months)
-        res_monthly_trend = db.session.execute(text(f"""
-            {cte}
-            SELECT
-                TO_CHAR(study_date, 'YYYY-MM') as month,
-                COUNT(*) as cnt
-            FROM base_data {where}
-            GROUP BY 1 ORDER BY 1
-        """), params).fetchall()
-
-
         # 3. Demographics
         res_demo = db.session.execute(text(f"{cte} SELECT COALESCE(age_group, 'Unknown'), COALESCE(sex, 'U'), COUNT(*) FROM base_data {where} GROUP BY 1, 2"), params).fetchall()
         
@@ -196,14 +187,10 @@ def report_22():
             "tree_data": [final_tree],
             "gender_data": [{"name": k, "value": v} for k, v in gender_counts.items() if v > 0],
             "age_labels": sorted(age_map.keys()),
-            "age_values": [age_map[a] for a in sorted(age_map.keys())],
-            "new_patients": res_new_returning[0] if res_new_returning else 0,
-            "returning_patients": res_new_returning[1] if res_new_returning else 0,
-            "geo_data": [{"name": r[0], "value": r[1]} for r in res_geo],
-            "monthly_trend": {"labels": [r[0] for r in res_monthly_trend], "values": [r[1] for r in res_monthly_trend]}
+            "age_values": [age_map[a] for a in sorted(age_map.keys())]
         }
 
-    return render_template("report_22.html", data=data, filters=filters, run_report=run_report, display_start=start_date, display_end=end_date, status_list=status_list, mod_list=mod_list, ae_list=ae_list)
+    return render_template("report_22.html", data=data, filters=filters, run_report=run_report, display_start=start_date, display_end=end_date, status_list=status_list, mod_list=mod_list, ae_list=ae_list, physician_list=physician_list, location_list=location_list, report_status_list=report_status_list)
 
 
 
