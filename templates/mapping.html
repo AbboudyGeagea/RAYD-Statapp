@@ -270,7 +270,7 @@
                         this.weekDates.push({
                             name: days[i],
                             dateLabel: d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' }),
-                            iso: d.toISOString().split('T')[0]
+                            iso: `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
                         });
                     }
                     this.weekRangeLabel = `${this.weekDates[0].dateLabel} - ${this.weekDates[6].dateLabel}`;

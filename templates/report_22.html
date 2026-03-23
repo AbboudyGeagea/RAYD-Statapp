@@ -72,33 +72,6 @@
                         {% for ae in ae_list %}<option value="{{ ae[0] }}" {% if filters.ae == ae[0] %}selected{% endif %}>{{ ae[0] }}</option>{% endfor %}
                     </select>
                 </div>
-
-                <div class="flex flex-col gap-1">
-                    <div class="flex justify-between items-center"><label class="mb-0">Referring Physician</label>
-                        <input type="checkbox" name="f_physician_active" onchange="document.getElementById('f_physician').disabled = !this.checked" {% if filters.f_physician_active %}checked{% endif %}>
-                    </div>
-                    <select name="f_physician" id="f_physician" class="input-dark" {% if not filters.f_physician_active %}disabled{% endif %}>
-                        {% for p in physician_list %}<option value="{{ p[0] }}" {% if filters.physician == p[0] %}selected{% endif %}>{{ p[0] }}</option>{% endfor %}
-                    </select>
-                </div>
-
-                <div class="flex flex-col gap-1">
-                    <div class="flex justify-between items-center"><label class="mb-0">Patient Location</label>
-                        <input type="checkbox" name="f_location_active" onchange="document.getElementById('f_location').disabled = !this.checked" {% if filters.f_location_active %}checked{% endif %}>
-                    </div>
-                    <select name="f_location" id="f_location" class="input-dark" {% if not filters.f_location_active %}disabled{% endif %}>
-                        {% for l in location_list %}<option value="{{ l[0] }}" {% if filters.location == l[0] %}selected{% endif %}>{{ l[0] }}</option>{% endfor %}
-                    </select>
-                </div>
-
-                <div class="flex flex-col gap-1">
-                    <div class="flex justify-between items-center"><label class="mb-0">Report Status</label>
-                        <input type="checkbox" name="f_report_status_active" onchange="document.getElementById('f_report_status').disabled = !this.checked" {% if filters.f_report_status_active %}checked{% endif %}>
-                    </div>
-                    <select name="f_report_status" id="f_report_status" class="input-dark" {% if not filters.f_report_status_active %}disabled{% endif %}>
-                        {% for rs in report_status_list %}<option value="{{ rs[0] }}" {% if filters.report_status == rs[0] %}selected{% endif %}>{{ rs[0] }}</option>{% endfor %}
-                    </select>
-                </div>
             </div>
 
             <button type="submit" class="w-full bg-[#38ada9] py-4 rounded-xl font-black text-[10px] uppercase tracking-widest hover:brightness-110 transition-all mt-4 text-white">Update Dashboard</button>
@@ -187,42 +160,6 @@
             </div>
         </div>
 
-
-        <!-- New vs Returning Patients -->
-        <section class="space-y-4">
-            <h2 class="text-xs font-black text-emerald-400 uppercase tracking-widest flex items-center gap-2">
-                <span class="w-2 h-2 bg-emerald-400 rounded-full"></span> Patient Loyalty — New vs Returning
-            </h2>
-            <p class="text-[10px] text-slate-500 italic -mt-2">
-                Compares patients appearing for the first time in the selected period against those who had prior visits. High returning rate indicates strong physician loyalty and continuity of care.
-            </p>
-            <div class="grid grid-cols-2 gap-4">
-                <div class="card !mb-0 border-l-4 border-l-emerald-500 p-5">
-                    <p class="text-[10px] font-black text-slate-500 uppercase mb-1">New Patients</p>
-                    <p class="text-3xl font-black text-white">{{ data.new_patients }}</p>
-                    <p class="text-[10px] text-slate-600 italic mt-1">First appearance in selected period</p>
-                </div>
-                <div class="card !mb-0 border-l-4 border-l-blue-500 p-5">
-                    <p class="text-[10px] font-black text-slate-500 uppercase mb-1">Returning Patients</p>
-                    <p class="text-3xl font-black text-white">{{ data.returning_patients }}</p>
-                    <p class="text-[10px] text-slate-600 italic mt-1">Had prior visits before this period</p>
-                </div>
-            </div>
-        </section>
-
-        <!-- Monthly Volume Trend -->
-        <div class="card">
-            <div class="card-header">Monthly Volume Trend</div>
-            <div class="card-desc">Study count per month over the selected period. Peaks and troughs reveal seasonal demand patterns — useful for capacity planning and staffing decisions.</div>
-            <div id="c_monthly" class="chart-container"></div>
-        </div>
-
-        <!-- Geographic Breakdown -->
-        <div class="card">
-            <div class="card-header">Geographic Breakdown (Patient Location)</div>
-            <div class="card-desc">Study volume ranked by patient location. Identifies which facilities, wards, or referring sites are driving the most imaging demand.</div>
-            <div id="c_geo" class="chart-container"></div>
-        </div>
         {% else %}
         <div class="h-full flex items-center justify-center text-slate-900 font-black text-7xl uppercase tracking-tighter opacity-20">Enter Filter Criteria</div>
         {% endif %}
@@ -305,38 +242,6 @@
                     lineStyle: { width: 3 }
                 }]
             });
-
-            // Monthly Trend
-            if (document.getElementById('c_monthly') && d.monthly_trend) {
-                echarts.init(document.getElementById('c_monthly')).setOption({
-                    tooltip: { trigger: 'axis' },
-                    xAxis: { type: 'category', data: d.monthly_trend.labels, axisLabel: { color: '#64748b', fontSize: 10, rotate: 30 } },
-                    yAxis: { type: 'value', splitLine: { lineStyle: { color: '#111827' } }, axisLabel: { color: '#64748b', fontSize: 10 } },
-                    series: [{
-                        data: d.monthly_trend.values, type: 'bar',
-                        itemStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                            { offset: 0, color: '#38ada9' }, { offset: 1, color: '#0f766e' }
-                        ]), borderRadius: [4,4,0,0] },
-                        label: { show: true, position: 'top', color: '#38ada9', fontSize: 10 }
-                    }]
-                });
-            }
-
-            // Geographic Breakdown
-            if (document.getElementById('c_geo') && d.geo_data) {
-                echarts.init(document.getElementById('c_geo')).setOption({
-                    tooltip: { trigger: 'axis', formatter: p => `${p[0].name}: ${p[0].value} studies` },
-                    grid: { left: 160, right: 60, top: 10, bottom: 20 },
-                    xAxis: { type: 'value', splitLine: { lineStyle: { color: '#111827' } }, axisLabel: { color: '#64748b', fontSize: 10 } },
-                    yAxis: { type: 'category', data: d.geo_data.map(r => r.name).reverse(), axisLabel: { color: '#e2e8f0', fontSize: 11 } },
-                    series: [{
-                        type: 'bar',
-                        data: d.geo_data.map(r => r.value).reverse(),
-                        itemStyle: { color: '#8b5cf6', borderRadius: [0,4,4,0] },
-                        label: { show: true, position: 'right', color: '#8b5cf6', fontSize: 10 }
-                    }]
-                });
-            }
         }
     </script>
     </div>

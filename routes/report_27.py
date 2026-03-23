@@ -14,46 +14,32 @@ def calculate_age(birth_date):
     today = date.today()
     return today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
 
-def get_report_data(start, end, filters=None):
-    filters = filters or {}
-    where_clauses = ["o.scheduled_datetime BETWEEN :start AND :end"]
-    params = {"start": start, "end": end}
-
-    if filters.get("modality"):
-        where_clauses.append("o.modality IN :modalities")
-        params["modalities"] = tuple(filters["modality"])
-
-    if filters.get("order_status"):
-        where_clauses.append("o.order_status IN :order_statuses")
-        params["order_statuses"] = tuple(filters["order_status"])
-
-    if filters.get("storing_ae"):
-        where_clauses.append("s.storing_ae IN :aetitles")
-        params["aetitles"] = tuple(filters["storing_ae"])
-
-    if filters.get("has_study") == "yes":
-        where_clauses.append("o.has_study = TRUE")
-    elif filters.get("has_study") == "no":
-        where_clauses.append("o.has_study = FALSE")
-
-    sql = text(f"""
+def get_report_data(start, end):
+    sql = text("""
         SELECT
-            o.order_dbid, o.order_status, o.proc_id, o.proc_text,
-            o.scheduled_datetime, o.has_study,
-            s.study_date, s.storing_ae, s.procedure_code,
-            p.birth_date, p.sex,
+            o.order_dbid,
+            o.order_status,
+            o.proc_id,
+            o.proc_text,
+            o.scheduled_datetime,
+            o.has_study,
+            s.study_date,
+            s.storing_ae,
+            s.procedure_code,
+            p.birth_date,
+            p.sex,
             COALESCE(m.duration_minutes, 0) as duration_minutes
         FROM etl_orders o
-        LEFT JOIN etl_didb_studies s
+        LEFT JOIN etl_didb_studies s 
             ON s.study_db_uid::TEXT = o.study_db_uid::TEXT
-        LEFT JOIN etl_patient_view p
+        LEFT JOIN etl_patient_view p 
             ON p.patient_db_uid::TEXT = o.patient_dbid::TEXT
-        LEFT JOIN procedure_duration_map m
-            ON m.procedure_code::TEXT = s.procedure_code::TEXT
+        LEFT JOIN procedure_duration_map m 
+            ON m.procedure_code::TEXT = s.procedure_code::TEXT 
             OR m.procedure_code::TEXT = o.proc_id::TEXT
-        WHERE {' AND '.join(where_clauses)}
+        WHERE o.scheduled_datetime BETWEEN :start AND :end
     """)
-    res = db.session.execute(sql, params).fetchall()
+    res = db.session.execute(sql, {"start": start, "end": end}).fetchall()
     df = pd.DataFrame(res)
     
     if not df.empty:
@@ -91,20 +77,9 @@ def report_27():
     run_report = request.method == "POST"
     data = {}
 
-    modality_list    = [r[0] for r in db.session.execute(text("SELECT DISTINCT modality FROM aetitle_modality_map ORDER BY 1")).all()]
-    order_status_list= [r[0] for r in db.session.execute(text("SELECT DISTINCT order_status FROM etl_orders WHERE order_status IS NOT NULL ORDER BY 1")).all()]
-    ae_list          = [r[0] for r in db.session.execute(text("SELECT DISTINCT aetitle FROM aetitle_modality_map ORDER BY 1")).all()]
-
-    filters = {
-        "modality":     request.form.getlist("modality"),
-        "order_status": request.form.getlist("order_status"),
-        "storing_ae":   request.form.getlist("storing_ae"),
-        "has_study":    request.form.get("has_study", ""),
-    }
-
     if run_report:
-        df_a = get_report_data(start_a, end_a, filters)
-        df_b = get_report_data(start_b, end_b, filters)
+        df_a = get_report_data(start_a, end_a)
+        df_b = get_report_data(start_b, end_b)
 
         if not df_a.empty:
             # Audit Metrics
@@ -128,11 +103,7 @@ def report_27():
 
     return render_template("report_27.html", data=data, run_report=run_report,
                            display_start=start_a, display_end=end_a,
-                           comp_start=start_b, comp_end=end_b,
-                           filters=filters,
-                           modality_list=modality_list,
-                           order_status_list=order_status_list,
-                           ae_list=ae_list)
+                           comp_start=start_b, comp_end=end_b)
 
 @report_27_bp.route("/report/27/export", methods=["POST"])
 @login_required

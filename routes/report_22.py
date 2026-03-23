@@ -33,18 +33,6 @@ def get_where_params(form):
     if form.get("f_ae_active") == "on" and form.get("f_ae"):
         where += " AND storing_ae = :ae"
         params["ae"] = form.get("f_ae")
-
-    if form.get("f_physician_active") == "on" and form.get("f_physician"):
-        where += " AND TRIM(CONCAT_WS(' ', s.referring_physician_first_name, s.referring_physician_last_name)) = :physician"
-        params["physician"] = form.get("f_physician")
-
-    if form.get("f_location_active") == "on" and form.get("f_location"):
-        where += " AND patient_location = :location"
-        params["location"] = form.get("f_location")
-
-    if form.get("f_report_status_active") == "on" and form.get("f_report_status"):
-        where += " AND report_status = :report_status"
-        params["report_status"] = form.get("f_report_status")
         
     return where, params
 
@@ -59,14 +47,6 @@ def report_22():
     status_list = db.session.execute(text("SELECT DISTINCT study_status FROM etl_didb_studies WHERE study_status IS NOT NULL")).fetchall()
     mod_list = db.session.execute(text("SELECT DISTINCT modality FROM aetitle_modality_map")).fetchall()
     ae_list = db.session.execute(text("SELECT DISTINCT storing_ae FROM etl_didb_studies WHERE storing_ae IS NOT NULL")).fetchall()
-    physician_list = db.session.execute(text("""
-        SELECT DISTINCT TRIM(CONCAT_WS(' ', referring_physician_first_name, referring_physician_last_name))
-        FROM etl_didb_studies
-        WHERE referring_physician_last_name IS NOT NULL AND referring_physician_last_name != ''
-        ORDER BY 1
-    """)).fetchall()
-    location_list = db.session.execute(text("SELECT DISTINCT patient_location FROM etl_didb_studies WHERE patient_location IS NOT NULL ORDER BY 1")).fetchall()
-    report_status_list = db.session.execute(text("SELECT DISTINCT report_status FROM etl_didb_studies WHERE report_status IS NOT NULL ORDER BY 1")).fetchall()
 
     filters = {
         "f_class_active": request.form.get("f_class_active") == "on",
@@ -74,17 +54,11 @@ def report_22():
         "f_status_active": request.form.get("f_status_active") == "on",
         "f_mod_active": request.form.get("f_mod_active") == "on",
         "f_ae_active": request.form.get("f_ae_active") == "on",
-        "f_physician_active": request.form.get("f_physician_active") == "on",
-        "f_location_active": request.form.get("f_location_active") == "on",
-        "f_report_status_active": request.form.get("f_report_status_active") == "on",
         "p_class": request.form.get("f_class"),
         "sex": request.form.get("f_sex"),
         "status": request.form.get("f_status"),
         "mod": request.form.get("f_mod"),
-        "ae": request.form.get("f_ae"),
-        "physician": request.form.get("f_physician"),
-        "location": request.form.get("f_location"),
-        "report_status": request.form.get("f_report_status"),
+        "ae": request.form.get("f_ae")
     }
 
     run_report = request.method == "POST"
@@ -190,7 +164,7 @@ def report_22():
             "age_values": [age_map[a] for a in sorted(age_map.keys())]
         }
 
-    return render_template("report_22.html", data=data, filters=filters, run_report=run_report, display_start=start_date, display_end=end_date, status_list=status_list, mod_list=mod_list, ae_list=ae_list, physician_list=physician_list, location_list=location_list, report_status_list=report_status_list)
+    return render_template("report_22.html", data=data, filters=filters, run_report=run_report, display_start=start_date, display_end=end_date, status_list=status_list, mod_list=mod_list, ae_list=ae_list)
 
 
 

@@ -1,5 +1,6 @@
 version: '3.8'
 services:
+
   nginx:
     image: nginx:stable-alpine
     container_name: rayd_proxy
@@ -20,14 +21,34 @@ services:
     ports:
       - "6661:6661"
     environment:
+      # ── Core ─────────────────────────────────────────────────
       - TZ=Asia/Beirut
+      - SECRET_KEY=P@ssw0rd123!
+      - LD_LIBRARY_PATH=/opt/oracle/instantclient_21_13
+
+      # ── Database ─────────────────────────────────────────────
       - POSTGRES_USER=etl_user
       - POSTGRES_PASSWORD=SecureCrynBabe
       - POSTGRES_HOST=db
       - POSTGRES_PORT=5432
       - POSTGRES_DB=etl_db
-      - SECRET_KEY=P@ssw0rd123!
-      - LD_LIBRARY_PATH=/opt/oracle/instantclient_21_13
+
+      # ── Feature Flags ─────────────────────────────────────────
+      - PATIENT_PORTAL_ENABLED=true
+      - LIVE_FEED_ENABLED=true
+
+      # ── BitNet AI Assistant ───────────────────────────────────
+      - BITNET_ENABLED=true
+      # llama-server runs on the host, container reaches it via docker bridge IP
+      - BITNET_SERVER=http://172.17.0.1:8081
+      - BITNET_TOKENS=200
+      - BITNET_TIMEOUT=120
+
+    volumes:
+      # No longer needed for inference (llama-server runs on host)
+      # Kept in case health check or fallback needs it
+      - /home/stats/BitNet:/home/stats/BitNet:ro
+
     depends_on:
       db:
         condition: service_healthy

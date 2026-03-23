@@ -52,17 +52,11 @@
         label { font-size: 11px; }
     </style>
 </head>
-<body class="flex flex-col h-screen overflow-hidden">
+<body class="flex flex-col">
 
-    <header class="bg-[#232b28] border-b border-[#28332e] px-8 py-4 flex items-center justify-center shadow-md z-30 relative shrink-0">
-        <div class="flex items-center gap-5">
-            <img src="{{ url_for('static', filename='RAYD.png') }}" class="h-12 w-auto opacity-90">
-            <div class="flex flex-col items-center">
-                <div class="h-px w-52 bg-gradient-to-r from-transparent via-[#60a5fa] to-transparent mb-1.5"></div>
-                <p class="text-[9px] font-black text-[#60a5fa] uppercase tracking-[0.35em]">Reliable Analytics for Your Department</p>
-                <div class="h-px w-52 bg-gradient-to-r from-transparent via-[#60a5fa] to-transparent mt-1.5"></div>
-            </div>
-        </div>
+    <header class="h-12 bg-[#0f172a] border-b border-slate-800 flex items-center px-6 justify-between shrink-0">
+        <span class="font-black text-sm uppercase text-[#38ada9]">RAYD <span class="text-white">Audit Console</span></span>
+        <span class="text-[11px] text-slate-600 font-bold uppercase tracking-widest">Orders Audit &amp; Period Comparison</span>
     </header>
 
     <div class="flex flex-1 overflow-hidden">
@@ -80,44 +74,9 @@
                 <!-- Comparison range -->
                 <div class="pt-4 border-t border-slate-800">
                     <label class="font-black text-slate-500 uppercase block mb-2 tracking-widest">Growth Baseline</label>
-                    <p class="text-[11px] text-slate-600 italic mb-3">Reference period for the Volume Delta KPI.</p>
+                    <p class="text-[11px] text-slate-600 italic mb-3">Reference period for the Volume Delta KPI — used to compare order count against the primary range.</p>
                     <input type="date" name="comp_start_date" class="input-dark mb-2" value="{{ comp_start }}">
                     <input type="date" name="comp_end_date" class="input-dark" value="{{ comp_end }}">
-                </div>
-
-                <!-- Extra filters -->
-                <div class="pt-4 border-t border-slate-800 space-y-3">
-                    <label class="font-black text-slate-500 uppercase block tracking-widest">Filters</label>
-
-                    <div>
-                        <label class="block text-[10px] font-black text-slate-600 uppercase mb-1">Modality</label>
-                        <select name="modality" multiple class="input-dark" style="height:70px;">
-                            {% for m in modality_list %}<option value="{{ m }}" {% if filters and m in filters.modality %}selected{% endif %}>{{ m }}</option>{% endfor %}
-                        </select>
-                    </div>
-
-                    <div>
-                        <label class="block text-[10px] font-black text-slate-600 uppercase mb-1">Order Status</label>
-                        <select name="order_status" multiple class="input-dark" style="height:70px;">
-                            {% for s in order_status_list %}<option value="{{ s }}" {% if filters and s in filters.order_status %}selected{% endif %}>{{ s }}</option>{% endfor %}
-                        </select>
-                    </div>
-
-                    <div>
-                        <label class="block text-[10px] font-black text-slate-600 uppercase mb-1">AE Title</label>
-                        <select name="storing_ae" multiple class="input-dark" style="height:70px;">
-                            {% for ae in ae_list %}<option value="{{ ae }}" {% if filters and ae in filters.storing_ae %}selected{% endif %}>{{ ae }}</option>{% endfor %}
-                        </select>
-                    </div>
-
-                    <div>
-                        <label class="block text-[10px] font-black text-slate-600 uppercase mb-1">Has Study</label>
-                        <select name="has_study" class="input-dark">
-                            <option value="" {% if not filters or not filters.has_study %}selected{% endif %}>All</option>
-                            <option value="yes" {% if filters and filters.has_study == 'yes' %}selected{% endif %}>Yes — fulfilled</option>
-                            <option value="no"  {% if filters and filters.has_study == 'no'  %}selected{% endif %}>No — orphaned</option>
-                        </select>
-                    </div>
                 </div>
 
                 <button type="submit" class="w-full py-3 bg-[#38ada9] hover:bg-[#2d8e8a] text-white font-black rounded-lg uppercase text-[11px] tracking-widest transition-all">
@@ -157,7 +116,7 @@
             </p>
 
             <!-- KPI Row -->
-            <div class="grid grid-cols-3 lg:grid-cols-6 gap-4">
+            <div class="grid grid-cols-4 gap-4">
                 <div class="data-card p-4 border-l-4 border-emerald-500 flex flex-col justify-center">
                     <span class="text-[11px] font-bold text-slate-500 uppercase">Match Success</span>
                     <span class="text-2xl font-black text-white mt-1">{{ "{:.1f}%".format((data.audit.matches / data.audit.total * 100)) }}</span>
@@ -178,16 +137,6 @@
                     {% set delta = data.growth.vol_a - data.growth.vol_b %}
                     <span class="text-2xl font-black mt-1 {{ 'text-emerald-400' if delta >= 0 else 'text-red-400' }}">{{ "+" if delta > 0 }}{{ delta }}</span>
                     <span class="text-[12px] text-slate-600 italic mt-1">Change in order volume vs. the Growth Baseline period.</span>
-                </div>
-                <div class="data-card p-4 border-l-4 border-orange-500 flex flex-col justify-center">
-                    <span class="text-[11px] font-bold text-slate-500 uppercase">Cancellation Rate</span>
-                    <span class="text-2xl font-black text-orange-400 mt-1">{{ data.audit.cancellation_rate }}%</span>
-                    <span class="text-[12px] text-slate-600 italic mt-1">{{ data.audit.cancelled_count }} orders cancelled or no-show.</span>
-                </div>
-                <div class="data-card p-4 border-l-4 border-yellow-500 flex flex-col justify-center">
-                    <span class="text-[11px] font-bold text-slate-500 uppercase">Orphan Orders</span>
-                    <span class="text-2xl font-black text-yellow-400 mt-1">{{ data.audit.orphans }}</span>
-                    <span class="text-[12px] text-slate-600 italic mt-1">Ordered but no PACS study linked.</span>
                 </div>
             </div>
 
@@ -264,56 +213,6 @@
                         Number of linked PACS studies per storing AE title (imaging device). Shows which physical machines received the most studies in the period — cross-reference with Infrastructure tab for utilization context.
                     </div>
                     <div id="chart_ae" class="flex-1 p-2"></div>
-                </div>
-            </div>
-
-            <!-- Row 3: Weekly Match Rate Trend + Cancellation Trend -->
-            <div class="grid grid-cols-2 gap-6">
-                <div class="data-card flex flex-col" style="height:340px;">
-                    <div class="card-header">
-                        <span>Weekly Match Rate Trend</span>
-                        <button class="export-png-btn" onclick="exportChart('chart_match_trend', 'weekly_match_rate')">
-                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
-                            PNG
-                        </button>
-                    </div>
-                    <div class="card-desc">Proc-ID match rate per week as a trend line. A declining trend indicates growing data entry or mapping issues between RIS and PACS.</div>
-                    <div id="chart_match_trend" class="flex-1 p-2"></div>
-                </div>
-                <div class="data-card flex flex-col" style="height:340px;">
-                    <div class="card-header">
-                        <span>Daily Cancellation Rate</span>
-                        <button class="export-png-btn" onclick="exportChart('chart_cancel_trend', 'cancellation_trend')">
-                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
-                            PNG
-                        </button>
-                    </div>
-                    <div class="card-desc">Percentage of orders cancelled or marked no-show each day. Spikes may correlate with specific staff, equipment issues, or scheduling problems.</div>
-                    <div id="chart_cancel_trend" class="flex-1 p-2"></div>
-                </div>
-            </div>
-
-            <!-- Row 4: Orphan Orders Drill-Down Table -->
-            <div class="data-card">
-                <div class="card-header">
-                    <span>Orphan Orders — Drill-Down</span>
-                    <span class="text-orange-400 text-[10px]">Orders with no linked PACS study (top 50)</span>
-                </div>
-                <div class="card-desc">Full list of orders that were scheduled but never linked to a completed PACS study. Each row shows the procedure, scheduled time, and current RIS status — use this to investigate specific cases.</div>
-                <div class="overflow-x-auto max-h-72 overflow-y-auto">
-                    <table class="w-full text-xs">
-                        <thead class="sticky top-0 bg-[#0f172a]">
-                            <tr class="border-b border-slate-800 text-slate-500 uppercase text-[10px]">
-                                <th class="text-left py-3 px-4">Proc Code</th>
-                                <th class="text-left py-3 px-4">Description</th>
-                                <th class="text-left py-3 px-4">Scheduled</th>
-                                <th class="text-left py-3 px-4">Status</th>
-                            </tr>
-                        </thead>
-                        <tbody id="orphan-tbody" class="divide-y divide-slate-800/50">
-                            <tr><td colspan="4" class="text-center py-6 text-slate-600">Loading...</td></tr>
-                        </tbody>
-                    </table>
                 </div>
             </div>
 
@@ -437,83 +336,6 @@
                 }]
             });
             registerChart('chart_ae', cAE);
-
-            // Weekly Match Rate Trend
-            if (raw.audit.weekly_match && document.getElementById('chart_match_trend')) {
-                const cMatchTrend = echarts.init(document.getElementById('chart_match_trend'));
-                cMatchTrend.setOption({
-                    tooltip: { trigger: 'axis', formatter: p => `Week: ${p[0].name}<br>Match Rate: ${p[0].value}%` },
-                    grid: { left: '3%', right: '4%', bottom: '15%', top: '10%', containLabel: true },
-                    xAxis: {
-                        type: 'category', data: raw.audit.weekly_match.labels,
-                        axisLabel: { color: '#64748b', fontSize: 9, rotate: 30 }
-                    },
-                    yAxis: {
-                        type: 'value', min: 0, max: 100,
-                        axisLabel: { color: '#64748b', fontSize: 11, formatter: v => v + '%' },
-                        splitLine
-                    },
-                    series: [{
-                        type: 'line', smooth: true,
-                        data: raw.audit.weekly_match.values,
-                        lineStyle: { width: 3, color: '#10b981' },
-                        areaStyle: { color: 'rgba(16,185,129,0.1)' },
-                        itemStyle: { color: '#10b981' },
-                        markLine: {
-                            silent: true,
-                            lineStyle: { color: '#ef4444', type: 'dashed' },
-                            data: [{ type: 'average', label: { formatter: 'Avg', color: '#ef4444', fontSize: 10 } }]
-                        }
-                    }]
-                });
-                registerChart('chart_match_trend', cMatchTrend);
-            }
-
-            // Daily Cancellation Trend
-            if (raw.audit.cancel_trend && document.getElementById('chart_cancel_trend')) {
-                const cCancel = echarts.init(document.getElementById('chart_cancel_trend'));
-                cCancel.setOption({
-                    tooltip: { trigger: 'axis', formatter: p => `${p[0].name}<br>Cancel Rate: ${p[0].value}%` },
-                    grid: { left: '3%', right: '4%', bottom: '15%', top: '10%', containLabel: true },
-                    xAxis: {
-                        type: 'category', data: raw.audit.cancel_trend.labels,
-                        axisLabel: { color: '#64748b', fontSize: 9, rotate: 30 }
-                    },
-                    yAxis: {
-                        type: 'value', min: 0,
-                        axisLabel: { color: '#64748b', fontSize: 11, formatter: v => v + '%' },
-                        splitLine
-                    },
-                    series: [{
-                        type: 'bar', data: raw.audit.cancel_trend.values,
-                        itemStyle: { color: '#f97316', borderRadius: [3,3,0,0] }
-                    }]
-                });
-                registerChart('chart_cancel_trend', cCancel);
-            }
-
-            // Orphan Orders Table
-            if (raw.audit.orphan_list) {
-                const tbody = document.getElementById('orphan-tbody');
-                if (raw.audit.orphan_list.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="4" class="text-center py-6 text-slate-500">No orphan orders found.</td></tr>';
-                } else {
-                    tbody.innerHTML = raw.audit.orphan_list.map(o => `
-                        <tr class="hover:bg-white/5 transition">
-                            <td class="py-2 px-4 font-mono text-[11px] text-slate-300">${o.proc}</td>
-                            <td class="py-2 px-4 text-slate-400 text-[11px]">${o.desc}</td>
-                            <td class="py-2 px-4 text-slate-500 text-[11px]">${o.date}</td>
-                            <td class="py-2 px-4">
-                                <span class="px-2 py-0.5 rounded text-[9px] font-black uppercase ${
-                                    o.status.toLowerCase().includes('cancel') ? 'bg-red-500/20 text-red-400' :
-                                    o.status.toLowerCase().includes('schedule') ? 'bg-blue-500/20 text-blue-400' :
-                                    'bg-slate-700 text-slate-400'
-                                }">${o.status}</span>
-                            </td>
-                        </tr>
-                    `).join('');
-                }
-            }
         }
     </script>
 </body>

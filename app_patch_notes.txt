@@ -1,0 +1,29 @@
+# ── app.py changes needed ─────────────────────────────────────
+# Add these two lines near the top of create_app(), right after
+# app = Flask(__name__)
+
+# FROM:
+#   app = Flask(__name__)
+#   # ... existing config lines like app.config['SQLALCHEMY_DATABASE_URI'] = ...
+
+# TO:
+#   from config import config as app_config
+#
+#   app = Flask(__name__)
+#   app.config.from_object(app_config)   # ← loads all flags from config.py
+
+# That's it. All existing app.config['...'] = ... lines still work fine
+# — from_object() only sets what's defined in config.py, it doesn't
+# override anything you set manually afterwards.
+
+# ── Then in templates, expose config to Jinja ─────────────────
+# In create_app(), add:
+#
+#   @app.context_processor
+#   def inject_config():
+#       return {"config": app.config}
+#
+# This lets templates do:
+#   {% if config.BITNET_ENABLED %}
+#     <a href="/ai/assistant">AI Assistant</a>
+#   {% endif %}

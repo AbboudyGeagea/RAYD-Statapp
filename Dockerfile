@@ -34,4 +34,4 @@ EXPOSE 8080
 
 # 7. Start the application using Gunicorn
 # We use --workers 1 to prevent multiple 5 AM ETL triggers
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "1", "--threads", "4", "--timeout", "120", "app:create_app()"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "1", "--threads", "4", "--timeout", "300", "app:create_app()"]

@@ -27,6 +27,8 @@ import pytz
 # ---------------------------------------------------------
 load_dotenv()
 
+from config import config as app_config
+
 from db import (
     db,
     init_db,
@@ -103,6 +105,14 @@ def trigger_initial_etl(app):
 def create_app():
     app = Flask(__name__)
     app.secret_key = os.getenv("SECRET_KEY", "P@ssw0rd123!")
+
+    # --- LOAD FEATURE FLAGS FROM config.py ---
+    app.config.from_object(app_config)
+
+    # --- EXPOSE CONFIG TO ALL JINJA TEMPLATES ---
+    @app.context_processor
+    def inject_config():
+        return {"config": app.config}
 
     # --- DB CONFIG ---
     user     = os.environ.get('POSTGRES_USER',     'etl_user')

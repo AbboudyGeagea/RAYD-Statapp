@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | AI Assistant</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        :root { --bg:#0a0f0d; --surface:#111714; --border:#1a2420; --accent:#60a5fa; }
+        * { box-sizing:border-box; margin:0; padding:0; }
+        body { font-family:'Inter',sans-serif; background:var(--bg); color:#e2e8f0; height:100vh; overflow:hidden; }
+        ::-webkit-scrollbar { width:4px; } ::-webkit-scrollbar-thumb { background:#1a2420; border-radius:10px; }
+
+        .sidebar-item { transition:all 0.2s; border-radius:0.75rem; margin-bottom:0.25rem; text-decoration:none!important; color:#94a3b8; display:flex; align-items:center; gap:12px; padding:10px 16px; font-size:14px; font-weight:700; }
+        .sidebar-item:hover { background:#1d2522; color:var(--accent); }
+        .sidebar-item.active { background:#1d2522; color:var(--accent); border-left:4px solid var(--accent); }
+
+        /* Chat bubbles */
+        .bubble { max-width:75%; padding:12px 16px; border-radius:16px; font-size:14px; line-height:1.6; animation:fadeUp 0.3s ease; }
+        .bubble.user { background:#1d4ed8; color:white; border-bottom-right-radius:4px; margin-left:auto; }
+        .bubble.ai   { background:#1a2420; color:#e2e8f0; border-bottom-left-radius:4px; border:1px solid #28332e; }
+        .bubble.error{ background:rgba(239,68,68,0.1); color:#f87171; border:1px solid rgba(239,68,68,0.2); }
+        .bubble.thinking { background:#1a2420; border:1px solid #28332e; color:#475569; }
+
+        @keyframes fadeUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+
+        /* Thinking dots */
+        .dot { display:inline-block; width:6px; height:6px; border-radius:50%; background:#475569; animation:bounce 1.2s ease-in-out infinite; }
+        .dot:nth-child(2) { animation-delay:0.2s; }
+        .dot:nth-child(3) { animation-delay:0.4s; }
+        @keyframes bounce { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-6px)} }
+
+        /* Input */
+        .chat-input { background:#111714; border:1px solid #1a2420; color:#e2e8f0; border-radius:12px; padding:12px 16px; font-size:14px; font-family:'Inter',sans-serif; resize:none; outline:none; transition:border 0.2s; width:100%; }
+        .chat-input:focus { border-color:#60a5fa; }
+
+        /* Suggested questions */
+        .suggestion { background:#111714; border:1px solid #1a2420; border-radius:8px; padding:8px 12px; font-size:11px; color:#94a3b8; cursor:pointer; transition:all 0.2s; text-align:left; }
+        .suggestion:hover { border-color:#60a5fa; color:#e2e8f0; }
+
+        /* Status badge */
+        .status-badge { font-size:9px; font-weight:900; padding:2px 8px; border-radius:4px; text-transform:uppercase; letter-spacing:0.08em; }
+        .status-ready  { background:rgba(34,197,94,0.15);  color:#22c55e; }
+        .status-loading{ background:rgba(96,165,250,0.15); color:#60a5fa; }
+        .status-error  { background:rgba(239,68,68,0.15);  color:#ef4444; }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+
+    <!-- Header -->
+    <header class="bg-[#111714] border-b border-[#1a2420] px-8 py-4 flex items-center justify-center shadow-md z-30 shrink-0">
+        <div class="flex items-center gap-5">
+            <img src="{{ url_for('static', filename='RAYD.png') }}" class="h-12 w-auto opacity-90">
+            <div class="flex flex-col items-center">
+                <div class="h-px w-52 bg-gradient-to-r from-transparent via-[#60a5fa] to-transparent mb-1.5"></div>
+                <p class="text-[9px] font-black text-[#60a5fa] uppercase tracking-[0.35em]">AI Assistant — Powered by BitNet</p>
+                <div class="h-px w-52 bg-gradient-to-r from-transparent via-[#60a5fa] to-transparent mt-1.5"></div>
+            </div>
+        </div>
+    </header>
+
+    <div class="flex flex-1 overflow-hidden">
+
+        <!-- Sidebar -->
+        <aside class="w-64 bg-[#111714] border-r border-[#1a2420] flex flex-col p-5 shadow-xl z-20 shrink-0">
+            <div class="flex items-center gap-3 mb-8 px-2">
+                <div class="bg-[#60a5fa] p-2.5 rounded-xl text-white shadow-lg shadow-blue-400/20"><i class="bi bi-cpu-fill text-xl"></i></div>
+                <div>
+                    <h1 class="font-black text-[#e2e8f0] tracking-tighter uppercase leading-none text-xl">RAYD</h1>
+                    <p class="text-[9px] font-black text-[#60a5fa] uppercase tracking-widest mt-1">Intelligence Hub</p>
+                </div>
+            </div>
+            <nav class="flex-1 space-y-1">
+                <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-3">Main Menu</p>
+                <a href="{{ url_for('viewer.viewer_dashboard') }}" class="sidebar-item"><i class="bi bi-speedometer2"></i> Viewer Dashboard</a>
+                {% if current_user.role == 'admin' %}
+                <a href="{{ url_for('admin.admin_dashboard') }}" class="sidebar-item"><i class="bi bi-cpu"></i> ETL Control Room</a>
+                {% endif %}
+                <a href="{{ url_for('bitnet.assistant_page') }}" class="sidebar-item active"><i class="bi bi-stars"></i> AI Assistant</a>
+            </nav>
+
+            <!-- Model status -->
+            <div class="mt-auto space-y-3">
+                <div class="p-4 bg-[#0a0f0d] rounded-2xl border border-[#1a2420]">
+                    <div class="flex items-center justify-between mb-2">
+                        <p class="text-[10px] uppercase text-slate-500 font-bold">BitNet Status</p>
+                        <span class="status-badge status-loading" id="model-status-badge">Checking...</span>
+                    </div>
+                    <p class="text-[10px] text-slate-600 font-mono" id="model-name">—</p>
+                    <p class="text-[10px] text-slate-600 mt-1" id="model-threads">—</p>
+                </div>
+                <button onclick="clearChat()"
+                    class="w-full text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-red-400 transition-colors py-2 border border-[#1a2420] rounded-xl hover:border-red-400/30">
+                    <i class="bi bi-trash3 mr-1"></i> Clear Chat
+                </button>
+            </div>
+        </aside>
+
+        <!-- Chat area -->
+        <main class="flex-1 flex flex-col overflow-hidden">
+
+            <!-- Messages -->
+            <div class="flex-1 overflow-y-auto p-6 space-y-4" id="chat-messages">
+
+                <!-- Welcome message -->
+                <div class="flex gap-3">
+                    <div class="w-8 h-8 rounded-xl bg-[#1a2420] border border-[#28332e] flex items-center justify-center shrink-0 mt-1">
+                        <i class="bi bi-stars text-[#60a5fa] text-sm"></i>
+                    </div>
+                    <div>
+                        <div class="bubble ai">
+                            <p class="font-black text-white mb-1">مرحباً! I'm RAYD AI — your radiology analytics assistant.</p>
+                            <p class="text-slate-400 text-sm">I can answer questions about your department's performance, storage, physicians, and scheduling — in Arabic or English. I run entirely on your server with no internet connection.</p>
+                        </div>
+                        <div class="flex flex-wrap gap-2 mt-3" id="suggestions">
+                            <button class="suggestion" onclick="sendSuggestion(this)">What's the busiest modality this month?</button>
+                            <button class="suggestion" onclick="sendSuggestion(this)">How much storage did we use last week?</button>
+                            <button class="suggestion" onclick="sendSuggestion(this)">Who are the top referring physicians?</button>
+                            <button class="suggestion" onclick="sendSuggestion(this)">كم دراسة أُجريت الشهر الماضي؟</button>
+                            <button class="suggestion" onclick="sendSuggestion(this)">Are there any orphaned orders?</button>
+                            <button class="suggestion" onclick="sendSuggestion(this)">ما هي نسبة استخدام الأجهزة هذا الأسبوع؟</button>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Input bar -->
+            <div class="border-t border-[#1a2420] p-4 shrink-0" style="background:#0d1310;">
+                <div class="flex gap-3 items-end max-w-4xl mx-auto">
+                    <textarea
+                        id="chat-input"
+                        class="chat-input flex-1"
+                        rows="1"
+                        placeholder="Ask anything about your radiology department... (Arabic or English)"
+                        onkeydown="handleKey(event)"
+                        oninput="autoResize(this)"
+                    ></textarea>
+                    <button onclick="sendMessage()"
+                        id="send-btn"
+                        class="px-5 py-3 bg-[#60a5fa] text-[#0a1020] font-black text-sm rounded-xl hover:brightness-110 transition-all shrink-0 flex items-center gap-2">
+                        <i class="bi bi-send-fill"></i>
+                    </button>
+                </div>
+                <p class="text-[9px] text-slate-600 text-center mt-2 font-mono">
+                    BitNet b1.58 · 100% local · no internet · no data leaves your server
+                </p>
+            </div>
+
+        </main>
+    </div>
+
+<script>
+let _thinking = false;
+
+// ── Check model health on load ────────────────────────────────
+async function checkHealth() {
+    try {
+        const res  = await fetch('/ai/health');
+        if (!res.ok || res.redirected) throw new Error('Not reachable');
+        const data = await res.json();
+        const badge = document.getElementById('model-status-badge');
+        const name  = document.getElementById('model-name');
+        const thr   = document.getElementById('model-threads');
+
+        if (data.ready) {
+            badge.textContent = 'Ready';
+            badge.className   = 'status-badge status-ready';
+            name.textContent  = 'BitNet b1.58 · llama-server';
+            thr.textContent   = data.mode || 'persistent mode';
+        } else {
+            badge.textContent = 'Not Ready';
+            badge.className   = 'status-badge status-error';
+            name.textContent  = data.error || 'Server not running';
+            thr.textContent   = 'Start llama-server on host';
+        }
+    } catch(e) {
+        const badge = document.getElementById('model-status-badge');
+        badge.textContent = 'Error';
+        badge.className   = 'status-badge status-error';
+        document.getElementById('model-name').textContent = 'Cannot reach /ai/health';
+    }
+}
+
+// ── Send message ──────────────────────────────────────────────
+async function sendMessage() {
+    if (_thinking) return;
+    const input = document.getElementById('chat-input');
+    const msg   = input.value.trim();
+    if (!msg) return;
+
+    input.value = '';
+    autoResize(input);
+    document.getElementById('suggestions')?.remove();
+
+    appendBubble('user', msg);
+    const thinkId = appendThinking();
+    _thinking = true;
+    document.getElementById('send-btn').disabled = true;
+
+    try {
+        const res  = await fetch('/ai/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: msg }),
+        });
+
+        // Handle session expiry — redirect to login
+        if (res.redirected || res.url.includes('/login')) {
+            removeThinking(thinkId);
+            appendBubble('error', '⚠ Session expired — please refresh the page and log in again.');
+            _thinking = false;
+            document.getElementById('send-btn').disabled = false;
+            return;
+        }
+
+        // Guard against non-JSON response (HTML error pages etc.)
+        const contentType = res.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+            const text = await res.text();
+            removeThinking(thinkId);
+            appendBubble('error', `⚠ Unexpected response (HTTP ${res.status}). Check server logs.`);
+            console.error('Non-JSON response:', text.slice(0, 300));
+            _thinking = false;
+            document.getElementById('send-btn').disabled = false;
+            return;
+        }
+
+        const data = await res.json();
+        removeThinking(thinkId);
+
+        if (data.error) {
+            appendBubble('error', '⚠ ' + data.error);
+        } else {
+            appendRichBubble(data);
+        }
+    } catch(e) {
+        removeThinking(thinkId);
+        appendBubble('error', '⚠ Connection error: ' + e.message);
+    } finally {
+        _thinking = false;
+        document.getElementById('send-btn').disabled = false;
+        input.focus();
+    }
+}
+
+function sendSuggestion(el) {
+    document.getElementById('chat-input').value = el.textContent;
+    sendMessage();
+}
+
+function handleKey(e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+}
+
+function autoResize(el) {
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+// ── Rich bubble with chart + link ─────────────────────────────
+let _chartCount = 0;
+function appendRichBubble(data) {
+    const messages = document.getElementById('chat-messages');
+    const wrapper  = document.createElement('div');
+    wrapper.className = 'flex gap-3';
+
+    const icon = `<div class="w-8 h-8 rounded-xl bg-[#1a2420] border border-[#28332e] flex items-center justify-center shrink-0 mt-1">
+        <i class="bi bi-stars text-[#60a5fa] text-sm"></i>
+    </div>`;
+
+    // Chart HTML
+    let chartHtml = '';
+    if (data.chart_type && data.chart_data) {
+        const cid = `chart-${++_chartCount}`;
+        chartHtml = `
+        <div style="background:#0a0f0d;border:1px solid #1a2420;border-radius:10px;padding:12px;margin-top:8px;">
+            <p style="font-size:10px;font-weight:700;color:#60a5fa;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;">
+                ${escHtml(data.chart_data.title || '')}
+            </p>
+            <canvas id="${cid}" style="max-height:200px;"></canvas>
+        </div>`;
+        // Render chart after DOM update
+        setTimeout(() => renderChart(cid, data.chart_type, data.chart_data), 50);
+    }
+
+    // Link button
+    let linkHtml = '';
+    if (data.link) {
+        linkHtml = `
+        <a href="${escHtml(data.link)}" target="_blank"
+           style="display:inline-flex;align-items:center;gap:6px;margin-top:8px;padding:6px 14px;
+                  background:rgba(96,165,250,0.1);border:1px solid rgba(96,165,250,0.3);
+                  border-radius:8px;font-size:11px;font-weight:700;color:#60a5fa;text-decoration:none;
+                  transition:all 0.2s;"
+           onmouseover="this.style.background='rgba(96,165,250,0.2)'"
+           onmouseout="this.style.background='rgba(96,165,250,0.1)'">
+            <i class="bi bi-arrow-up-right-square"></i>
+            Open ${escHtml(data.link_label || 'Report')}
+        </a>`;
+    }
+
+    const text = escHtml(data.response).replace(/\n/g, '<br>');
+    wrapper.innerHTML = `${icon}
+    <div style="max-width:75%;">
+        <div class="bubble ai">${text}${chartHtml}${linkHtml}</div>
+    </div>`;
+
+    messages.appendChild(wrapper);
+    messages.scrollTop = messages.scrollHeight;
+}
+
+function renderChart(canvasId, type, data) {
+    const ctx = document.getElementById(canvasId);
+    if (!ctx) return;
+
+    const COLORS = [
+        '#60a5fa','#2EC4A5','#a855f7','#f59e0b',
+        '#ef4444','#22c55e','#fb923c','#e879f9'
+    ];
+
+    if (type === 'pie') {
+        new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels:   data.labels,
+                datasets: [{ data: data.values, backgroundColor: COLORS, borderWidth: 2, borderColor: '#0a0f0d' }]
+            },
+            options: {
+                plugins: {
+                    legend: { position: 'right', labels: { color: '#94a3b8', font: { size: 11 }, padding: 10 } }
+                },
+                responsive: true, maintainAspectRatio: true,
+            }
+        });
+    } else if (type === 'bar') {
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels:   data.labels,
+                datasets: [{
+                    data:            data.values,
+                    backgroundColor: data.color || '#60a5fa',
+                    borderRadius:    4,
+                    borderSkipped:   false,
+                }]
+            },
+            options: {
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: '#1a2420' } },
+                    y: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: '#1a2420' } }
+                },
+                responsive: true, maintainAspectRatio: true,
+            }
+        });
+    }
+}
+
+// ── Chat bubble helpers ───────────────────────────────────────
+function appendBubble(type, text) {
+    const messages = document.getElementById('chat-messages');
+    const wrapper  = document.createElement('div');
+    wrapper.className = 'flex gap-3' + (type === 'user' ? ' flex-row-reverse' : '');
+
+    const icon = type !== 'user' ? `
+        <div class="w-8 h-8 rounded-xl bg-[#1a2420] border border-[#28332e] flex items-center justify-center shrink-0 mt-1">
+            <i class="bi bi-${type==='error'?'exclamation-triangle text-red-400':'stars text-[#60a5fa]'} text-sm"></i>
+        </div>` : '';
+
+    // Format text — preserve newlines
+    const formatted = escHtml(text).replace(/\n/g, '<br>');
+
+    wrapper.innerHTML = `${icon}<div class="bubble ${type}">${formatted}</div>`;
+    messages.appendChild(wrapper);
+    messages.scrollTop = messages.scrollHeight;
+    return wrapper;
+}
+
+function appendThinking() {
+    const messages = document.getElementById('chat-messages');
+    const id       = 'think-' + Date.now();
+    const wrapper  = document.createElement('div');
+    wrapper.className = 'flex gap-3';
+    wrapper.id        = id;
+    wrapper.innerHTML = `
+        <div class="w-8 h-8 rounded-xl bg-[#1a2420] border border-[#28332e] flex items-center justify-center shrink-0 mt-1">
+            <i class="bi bi-stars text-[#60a5fa] text-sm"></i>
+        </div>
+        <div class="bubble thinking flex items-center gap-1.5" style="padding:14px 18px;">
+            <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+            <span style="font-size:11px;margin-left:6px;color:#475569;">Thinking...</span>
+        </div>`;
+    messages.appendChild(wrapper);
+    messages.scrollTop = messages.scrollHeight;
+    return id;
+}
+
+function removeThinking(id) {
+    document.getElementById(id)?.remove();
+}
+
+function clearChat() {
+    const messages = document.getElementById('chat-messages');
+    messages.innerHTML = '';
+}
+
+function escHtml(s) {
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Boot
+checkHealth();
+document.getElementById('chat-input').focus();
+</script>
+</body>
+</html>
