@@ -65,6 +65,13 @@
                 <a href="{{ url_for('portal_admin.portal_users') }}" class="sidebar-item flex items-center gap-3 px-4 py-3 text-sm font-bold">
                     <i class="bi bi-person-vcard"></i> Patient Portal
                 </a>
+
+                <div class="pt-4 pb-2">
+                    <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-2">AI</p>
+                </div>
+                <a href="{{ url_for('bitnet.assistant_page') }}" class="sidebar-item flex items-center gap-3 px-4 py-3 text-sm font-bold">
+                    <i class="bi bi-stars"></i> AI Assistant
+                </a>
             </nav>
             <form method="POST" action="/auth/logout" class="mt-auto mb-3">
                 <button type="submit"

@@ -78,6 +78,23 @@
                 {% if current_user.role == 'admin' %}
                 <a href="{{ url_for('admin.admin_dashboard') }}" class="sidebar-item"><i class="bi bi-cpu"></i> ETL Control Room</a>
                 {% endif %}
+                <a href="{{ url_for('mapping.mapping_page') }}" class="sidebar-item"><i class="bi bi-calendar-week"></i> Live Week Matrix</a>
+                {% if current_user.role == 'admin' %}
+                <a href="{{ url_for('live_feed.live_page') }}" target="_blank" class="sidebar-item">
+                    <i class="bi bi-activity"></i> Live Modality Status
+                    <span style="font-size:8px;font-weight:900;padding:1px 6px;border-radius:4px;background:rgba(34,197,94,0.15);color:#22c55e;text-transform:uppercase;letter-spacing:0.08em;margin-left:auto;">LIVE</span>
+                </a>
+                {% endif %}
+
+                <div style="padding-top:12px;padding-bottom:6px;">
+                    <p style="font-size:10px;font-weight:900;color:#60a5fa;text-transform:uppercase;letter-spacing:0.15em;padding-left:8px;margin-bottom:6px;">RIS</p>
+                </div>
+                <a href="{{ url_for('hl7_orders.hl7_orders_page') }}" class="sidebar-item"><i class="bi bi-clipboard2-pulse"></i> HL7 Orders</a>
+                <a href="{{ url_for('portal_admin.portal_users') }}" class="sidebar-item"><i class="bi bi-person-vcard"></i> Patient Portal</a>
+
+                <div style="padding-top:12px;padding-bottom:6px;">
+                    <p style="font-size:10px;font-weight:900;color:#60a5fa;text-transform:uppercase;letter-spacing:0.15em;padding-left:8px;margin-bottom:6px;">AI</p>
+                </div>
                 <a href="{{ url_for('bitnet.assistant_page') }}" class="sidebar-item active"><i class="bi bi-stars"></i> AI Assistant</a>
             </nav>
 

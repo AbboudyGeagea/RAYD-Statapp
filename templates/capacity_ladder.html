@@ -29,10 +29,12 @@
         .badge-blue   { background:rgba(96,165,250,0.15); color:#60a5fa; }
         .strat-tab { flex:1; padding:9px 4px; text-align:center; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.07em; color:#64748b; cursor:pointer; border-bottom:2px solid transparent; transition:all 0.2s; white-space:nowrap; }
         .strat-tab:hover { color:#e2e8f0; }
-        .strat-tab.active-base     { color:#60a5fa; border-bottom-color:#60a5fa; }
-        .strat-tab.active-variety  { color:#f59e0b; border-bottom-color:#f59e0b; }
-        .strat-tab.active-volume   { color:#3b82f6; border-bottom-color:#3b82f6; }
-        .strat-tab.active-priority { color:#a855f7; border-bottom-color:#a855f7; }
+        .strat-tab.active-base      { color:#60a5fa; border-bottom-color:#60a5fa; }
+        .strat-tab.active-optimizer { color:#10b981; border-bottom-color:#10b981; }
+        /* Slider */
+        .opt-slider { -webkit-appearance:none; appearance:none; width:100%; height:5px; border-radius:4px; outline:none; cursor:pointer; }
+        .opt-slider::-webkit-slider-thumb { -webkit-appearance:none; width:16px; height:16px; border-radius:50%; background:#10b981; cursor:pointer; box-shadow:0 0 6px rgba(16,185,129,0.5); }
+        .opt-slider::-moz-range-thumb { width:16px; height:16px; border-radius:50%; background:#10b981; cursor:pointer; border:none; }
         .proc-block { position:absolute; left:2px; right:2px; border-radius:6px; padding:4px 8px; overflow:hidden; }
         .proc-block.scheduled { background:linear-gradient(135deg,#166534,#15803d); border:1px solid rgba(255,255,255,0.08); }
         .proc-block.gap-empty { background:rgba(96,165,250,0.03); border:1px dashed rgba(96,165,250,0.12); display:flex; align-items:center; justify-content:center; }
@@ -80,9 +82,15 @@
                 {% endif %}
                 <div class="pt-3 pb-1"><p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-2">RIS</p></div>
                 {% if current_user.role == 'admin' %}
-                <a href="{{ url_for('hl7_orders.hl7_orders_page') }}" class="sidebar-item"><i class="bi bi-activity"></i> HL7 Orders</a>
+                <a href="{{ url_for('live_feed.live_page') }}" target="_blank" class="sidebar-item">
+                    <i class="bi bi-activity"></i> Live Modality Status
+                    <span style="font-size:8px;font-weight:900;padding:1px 6px;border-radius:4px;background:rgba(34,197,94,0.15);color:#22c55e;text-transform:uppercase;letter-spacing:0.08em;margin-left:auto;">LIVE</span>
+                </a>
+                <a href="{{ url_for('hl7_orders.hl7_orders_page') }}" class="sidebar-item"><i class="bi bi-clipboard2-pulse"></i> HL7 Orders</a>
                 <a href="{{ url_for('portal_admin.portal_users') }}" target="_blank" class="sidebar-item"><i class="bi bi-person-vcard"></i> Patient Portal</a>
                 {% endif %}
+                <div class="pt-3 pb-1"><p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-2">AI</p></div>
+                <a href="{{ url_for('bitnet.assistant_page') }}" class="sidebar-item"><i class="bi bi-stars"></i> AI Assistant</a>
             </nav>
             <div class="mt-auto p-4 bg-[#181f1c] rounded-2xl border border-[#28332e]">
                 <p class="text-[10px] uppercase text-slate-500 font-bold mb-1">System Health</p>
@@ -107,9 +115,7 @@
                 <div class="ml-auto flex items-center gap-5 text-[9px] font-black uppercase tracking-widest">
                     <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded inline-block" style="background:#15803d;"></span>Scheduled</span>
                     <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded inline-block" style="border:1px dashed rgba(96,165,250,0.3);"></span>Gap</span>
-                    <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded inline-block" style="background:#b45309;"></span>Variety</span>
-                    <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded inline-block" style="background:#1d4ed8;"></span>Volume</span>
-                    <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded inline-block" style="background:#7e22ce;"></span>Priority</span>
+                    <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded inline-block" style="background:#10b981;"></span>Optimizer</span>
                 </div>
             </div>
 
@@ -168,23 +174,34 @@
 
                     <!-- Strategy tabs -->
                     <div class="flex border-b border-[#28332e] shrink-0">
-                        <div class="strat-tab active-base"    data-cls="base"     onclick="showStrat(0,this)">📅 Schedule</div>
-                        <div class="strat-tab"                data-cls="variety"  onclick="showStrat(1,this)" id="stab-1">🎨 Variety</div>
-                        <div class="strat-tab"                data-cls="volume"   onclick="showStrat(2,this)" id="stab-2">⚡ Volume</div>
-                        <div class="strat-tab"                data-cls="priority" onclick="showStrat(3,this)" id="stab-3">💎 Priority</div>
+                        <div class="strat-tab active-base"      data-cls="base"      onclick="showBase(this)">📅 Schedule</div>
+                        <div class="strat-tab"                  data-cls="optimizer" onclick="showOptimizer(this)" id="stab-optimizer">⚙️ Optimizer</div>
                     </div>
 
-                    <!-- Strategy summary bar (hidden for base) -->
-                    <div id="strat-bar" class="hidden px-4 py-3 border-b border-[#28332e] shrink-0">
-                        <p class="text-[10px] text-slate-400 mb-2" id="strat-desc"></p>
-                        <div id="strat-pills" class="flex flex-wrap mb-2"></div>
-                        <div class="flex items-center gap-3 mt-1">
-                            <span class="text-[11px] font-black" id="strat-fill-txt"></span>
-                            <div class="flex-1 h-1.5 bg-[#28332e] rounded-full overflow-hidden">
-                                <div id="strat-fill-bar" class="h-full rounded-full transition-all duration-500" style="width:0%"></div>
-                            </div>
-                            <span class="text-[11px] font-black" id="strat-fill-pct"></span>
+                    <!-- Optimizer bar (hidden for base) -->
+                    <div id="strat-bar" class="hidden px-4 pt-3 pb-2 border-b border-[#28332e] shrink-0 flex-col gap-2">
+                        <!-- Slider -->
+                        <div class="flex items-center gap-3">
+                            <span class="text-[10px] font-black text-blue-400 uppercase tracking-widest whitespace-nowrap">📊 Utilization</span>
+                            <input type="range" min="0" max="100" value="50" id="opt-slider"
+                                class="opt-slider flex-1"
+                                style="background:linear-gradient(to right,#3b82f6 0%,#10b981 50%,#f59e0b 100%);"
+                                oninput="onSlider(this.value)">
+                            <span class="text-[10px] font-black text-amber-400 uppercase tracking-widest whitespace-nowrap">💰 RVU</span>
                         </div>
+                        <!-- Slider label -->
+                        <p class="text-center text-[10px] font-black text-slate-400" id="opt-label">50% Utilization · 50% RVU</p>
+                        <!-- Stats -->
+                        <div class="flex items-center gap-3">
+                            <span class="text-[11px] font-black text-emerald-400" id="strat-fill-txt"></span>
+                            <div class="flex-1 h-1.5 bg-[#28332e] rounded-full overflow-hidden">
+                                <div id="strat-fill-bar" class="h-full rounded-full bg-emerald-500 transition-all duration-300" style="width:0%"></div>
+                            </div>
+                            <span class="text-[11px] font-black text-emerald-400" id="strat-fill-pct"></span>
+                            <span class="text-[11px] font-black text-amber-400" id="strat-rvu-txt"></span>
+                        </div>
+                        <!-- Pills -->
+                        <div id="strat-pills" class="flex flex-wrap gap-1 mt-1"></div>
                     </div>
 
                     <!-- Timeline scroll -->
@@ -205,14 +222,16 @@
     <div class="toast"   id="toast"></div>
 
 <script>
-let _date = '', _detail = null, _strats = [], _activeStrat = 0;
-const PX = 1.85;
+let _date       = '';
+let _detail     = null;
+let _candidates = [];   // procedures from /suggestions
+let _gaps       = [];   // gaps from /suggestions
+let _optActive  = false;
 
-const SC = {
-    1: { bg:'rgba(180,83,9,0.75)',   border:'#d97706', text:'#fcd34d', tab:'#f59e0b' },
-    2: { bg:'rgba(29,78,216,0.75)',  border:'#3b82f6', text:'#bfdbfe', tab:'#3b82f6' },
-    3: { bg:'rgba(109,40,217,0.75)', border:'#8b5cf6', text:'#e9d5ff', tab:'#a855f7' },
-};
+const PX     = 1.85;
+const OPT_BG = 'rgba(16,185,129,0.75)';
+const OPT_BD = '#10b981';
+const OPT_TX = '#6ee7b7';
 
 document.getElementById('ladder-date').value = new Date().toISOString().split('T')[0];
 
@@ -259,12 +278,11 @@ async function drillDown(aetitle) {
     document.getElementById('timeline-container').innerHTML =
         '<div class="flex items-center justify-center h-32"><div class="w-8 h-8 border-4 border-[#28332e] border-t-[#60a5fa] rounded-full animate-spin"></div></div>';
 
-    // Reset tabs
-    _activeStrat = 0; _strats = [];
-    document.querySelectorAll('.strat-tab').forEach((t,i) => {
-        t.classList.remove('active-base','active-variety','active-volume','active-priority');
-        if (i===0) t.classList.add('active-base');
-    });
+    // Reset to base tab
+    _optActive = false; _candidates = []; _gaps = [];
+    document.querySelectorAll('.strat-tab').forEach(t =>
+        t.classList.remove('active-base','active-optimizer'));
+    document.querySelector('[data-cls="base"]').classList.add('active-base');
     setVis('strat-bar', false);
 
     try {
@@ -274,9 +292,9 @@ async function drillDown(aetitle) {
         ]);
         _detail = await dr.json();
         const sg = await sr.json();
-        _strats  = sg.strategies || [];
+        _candidates = sg.procedures || [];
+        _gaps       = sg.gaps       || [];
 
-        // Header stats
         document.getElementById('d-aetitle').textContent   = _detail.aetitle;
         document.getElementById('d-modality').textContent  = _detail.modality;
         document.getElementById('d-opening').textContent   = hm(_detail.opening_min);
@@ -285,65 +303,120 @@ async function drillDown(aetitle) {
         const bc = _detail.utilization>=100?'badge-red':_detail.utilization>=85?'badge-yellow':'badge-green';
         document.getElementById('d-util-badge').innerHTML  = `<span class="badge ${bc}">${_detail.utilization}% utilized</span>`;
 
-        renderTimeline(null);
+        const gapTotal = _gaps.reduce((s,g)=>s+g.duration,0);
+        const hasGaps  = gapTotal >= 10;
+        document.getElementById('stab-optimizer').innerHTML =
+            `⚙️ Optimizer${hasGaps ? ` <span style="font-size:8px;opacity:0.6;">+${hm(gapTotal)}</span>` : ''}`;
 
-        // Update tab labels with fill %
-        _strats.forEach((s,i) => {
-            const el = document.getElementById(`stab-${i+1}`);
-            if (el) el.innerHTML = `${'🎨⚡💎'.split('')[i] || ''} ${s.name} <span style="font-size:8px;opacity:0.75;">${s.fill_pct}%</span>`;
-        });
+        renderTimeline(null);
 
     } catch(e) { toast('Error: '+e.message,'warn'); }
 }
 
-// ── Strategy switch ───────────────────────────────────────────────────
-function showStrat(idx, el) {
-    _activeStrat = idx;
-    const cls = el.dataset.cls;
+// ── Tab switching ─────────────────────────────────────────────────────
+function showBase(el) {
+    _optActive = false;
     document.querySelectorAll('.strat-tab').forEach(t =>
-        t.classList.remove('active-base','active-variety','active-volume','active-priority'));
-    el.classList.add(`active-${cls}`);
+        t.classList.remove('active-base','active-optimizer'));
+    el.classList.add('active-base');
+    setVis('strat-bar', false);
+    renderTimeline(null);
+}
 
-    if (idx === 0) { setVis('strat-bar',false); renderTimeline(null); return; }
-
-    const s = _strats[idx-1];
-    if (!s) { toast('No suggestions available','warn'); return; }
-    const c = SC[idx];
-
+function showOptimizer(el) {
+    if (!_candidates.length) { toast('No candidate procedures available','warn'); return; }
+    _optActive = true;
+    document.querySelectorAll('.strat-tab').forEach(t =>
+        t.classList.remove('active-base','active-optimizer'));
+    el.classList.add('active-optimizer');
     setVis('strat-bar', true);
-    document.getElementById('strat-desc').textContent = s.description;
+    onSlider(document.getElementById('opt-slider').value);
+}
 
-    // Grouped pills: "3× MRI Brain", "1× MRI Knee"
+// ── Slider handler ────────────────────────────────────────────────────
+function onSlider(val) {
+    const alpha = parseInt(val) / 100;   // 0 = pure utilization, 1 = pure RVU
+    const uPct  = Math.round((1 - alpha) * 100);
+    const rPct  = Math.round(alpha * 100);
+    document.getElementById('opt-label').textContent =
+        uPct === rPct ? '50% Utilization · 50% RVU'
+        : uPct > rPct ? `${uPct}% Utilization · ${rPct}% RVU`
+                      : `${uPct}% Utilization · ${rPct}% RVU`;
+
+    const placements = runOptimizer(alpha);
+    updateOptimizerBar(placements);
+    renderTimeline(placements);
+}
+
+// ── Core optimizer (pure client-side math) ────────────────────────────
+function runOptimizer(alpha) {
+    if (!_candidates.length || !_gaps.length) return [];
+
+    // Normalize RVU/min so both dimensions are [0,1]
+    const maxRvuPerMin = Math.max(..._candidates.map(p => (p.rvu || 0) / p.duration), 0.001);
+
+    const placements = [];
+    for (const gap of _gaps) {
+        let cursor = gap.start_min;
+        while (cursor < gap.end_min) {
+            const remaining = gap.end_min - cursor;
+            const fits = _candidates.filter(p => p.duration <= remaining);
+            if (!fits.length) break;
+
+            const best = fits.reduce((a, b) => {
+                const sa = alpha * ((a.rvu||0) / a.duration / maxRvuPerMin)
+                         + (1 - alpha) * (a.duration / remaining);
+                const sb = alpha * ((b.rvu||0) / b.duration / maxRvuPerMin)
+                         + (1 - alpha) * (b.duration / remaining);
+                return sa >= sb ? a : b;
+            });
+
+            placements.push({
+                start_min: cursor,
+                duration:  best.duration,
+                code:      best.code,
+                rvu:       best.rvu  || 0,
+                freq:      best.freq || 0,
+            });
+            cursor += best.duration;
+        }
+    }
+    return placements;
+}
+
+// ── Optimizer stats bar ───────────────────────────────────────────────
+function updateOptimizerBar(placements) {
+    const totalGap  = _gaps.reduce((s, g) => s + g.duration, 0);
+    const totalFill = placements.reduce((s, p) => s + p.duration, 0);
+    const totalRvu  = placements.reduce((s, p) => s + (p.rvu || 0), 0);
+    const fillPct   = totalGap ? Math.round(totalFill / totalGap * 100) : 0;
+
+    document.getElementById('strat-fill-txt').textContent = `+${hm(totalFill)} filled`;
+    document.getElementById('strat-fill-pct').textContent = fillPct + '%';
+    document.getElementById('strat-fill-bar').style.width = fillPct + '%';
+    document.getElementById('strat-rvu-txt').textContent  = `RVU +${totalRvu.toFixed(1)}`;
+
+    // Grouped pills
     const counts = {};
-    s.placements.forEach(p => { counts[p.code] = (counts[p.code]||0)+1; });
-    document.getElementById('strat-pills').innerHTML = Object.entries(counts).map(([code,n]) =>
-        `<span class="sug-pill" style="background:${c.bg};border:1px solid ${c.border};color:${c.text};">
-            ${n>1?`<strong>${n}×</strong> `:''} ${escHtml(code)}
+    placements.forEach(p => { counts[p.code] = (counts[p.code]||0) + 1; });
+    document.getElementById('strat-pills').innerHTML = Object.entries(counts).map(([code, n]) =>
+        `<span class="sug-pill" style="background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.25);color:#6ee7b7;">
+            ${n > 1 ? `<strong>${n}×</strong> ` : ''}${escHtml(code)}
         </span>`
     ).join('');
-
-    document.getElementById('strat-fill-txt').textContent = `+${hm(s.total_filled_min)} filled`;
-    document.getElementById('strat-fill-txt').style.color = c.tab;
-    document.getElementById('strat-fill-pct').textContent = s.fill_pct + '%';
-    document.getElementById('strat-fill-pct').style.color = c.tab;
-    document.getElementById('strat-fill-bar').style.width      = s.fill_pct + '%';
-    document.getElementById('strat-fill-bar').style.background = c.tab;
-
-    renderTimeline(s, idx);
 }
 
 // ── Timeline renderer ─────────────────────────────────────────────────
-function renderTimeline(strategy, stratIdx) {
+function renderTimeline(placements) {
     const d        = _detail;
     const startMin = d.start_min;
     const endMin   = d.end_min;
     const totalPx  = d.opening_min * PX;
-    const c        = stratIdx ? SC[stratIdx] : null;
 
     // Hour lines
     let hoursHtml = '';
     for (let h = Math.floor(startMin/60); h <= Math.ceil(endMin/60); h++) {
-        const top = Math.max(0, (h*60-startMin)*PX);
+        const top = Math.max(0, (h*60 - startMin) * PX);
         hoursHtml += `<div class="hour-line" style="top:${top}px;">
             <span class="hour-label">${String(h).padStart(2,'0')}:00</span>
         </div>`;
@@ -367,27 +440,26 @@ function renderTimeline(strategy, stratIdx) {
         const gapDur = g.duration;
         const gTop   = (g.start_min - startMin) * PX;
 
-        if (!strategy) {
+        if (!placements) {
             const gh = Math.max(gapDur * PX, 8);
             html += `<div class="proc-block gap-empty" style="top:${gTop}px;height:${gh}px;">
                 ${gh>18?`<span style="font-size:9px;font-weight:700;color:rgba(96,165,250,0.25);">+${hm(gapDur)}</span>`:''}
             </div>`;
         } else {
-            const inGap = strategy.placements.filter(
+            const inGap = placements.filter(
                 p => p.start_min >= g.start_min && p.start_min < g.start_min + gapDur
             );
             inGap.forEach(p => {
                 const pt = (p.start_min - startMin) * PX;
                 const ph = Math.max(p.duration * PX, 22);
                 html += `<div class="proc-block suggested"
-                     style="top:${pt}px;height:${ph}px;background:${c.bg};border-color:${c.border};"
-                     onmouseenter="showTip(event,'${escJs(p.code)}','${hm(p.duration)} · ${p.freq}× historical · RVU ${p.rvu}')"
+                     style="top:${pt}px;height:${ph}px;background:${OPT_BG};border-color:${OPT_BD};"
+                     onmouseenter="showTip(event,'${escJs(p.code)}','${hm(p.duration)} · ${p.freq}× historical · RVU ${p.rvu.toFixed(1)}')"
                      onmouseleave="hideTip()">
-                    <p class="text-[9px] font-black truncate leading-tight" style="color:${c.text};">${escHtml(p.code)}</p>
-                    ${ph>30?`<p class="text-[8px] font-mono" style="color:${c.text};opacity:0.7;">${hm(p.duration)}</p>`:''}
+                    <p class="text-[9px] font-black truncate leading-tight" style="color:${OPT_TX};">${escHtml(p.code)}</p>
+                    ${ph>30?`<p class="text-[8px] font-mono" style="color:${OPT_TX};opacity:0.7;">${hm(p.duration)}</p>`:''}
                 </div>`;
             });
-            // Remaining unfilled gap
             const lastEnd = inGap.length
                 ? inGap[inGap.length-1].start_min + inGap[inGap.length-1].duration
                 : g.start_min;
@@ -410,23 +482,23 @@ function renderTimeline(strategy, stratIdx) {
 }
 
 function closeDetail() {
-    setVis('detail-panel',false);
-    document.querySelectorAll('.ae-card').forEach(c=>c.classList.remove('selected'));
-    _detail=null; _strats=[]; _activeStrat=0;
+    setVis('detail-panel', false);
+    document.querySelectorAll('.ae-card').forEach(c => c.classList.remove('selected'));
+    _detail = null; _candidates = []; _gaps = []; _optActive = false;
 }
 
 // ── Tooltip / Toast / Helpers ─────────────────────────────────────────
-function showTip(e,title,sub){
-    const t=document.getElementById('tooltip');
-    t.innerHTML=`<strong style="color:white;">${title}</strong><br><span style="color:#94a3b8;">${sub}</span>`;
-    t.style.display='block'; t.style.left=(e.clientX+14)+'px'; t.style.top=(e.clientY-12)+'px';
+function showTip(e, title, sub) {
+    const t = document.getElementById('tooltip');
+    t.innerHTML = `<strong style="color:white;">${title}</strong><br><span style="color:#94a3b8;">${sub}</span>`;
+    t.style.display = 'block'; t.style.left = (e.clientX+14)+'px'; t.style.top = (e.clientY-12)+'px';
 }
-function hideTip(){ document.getElementById('tooltip').style.display='none'; }
+function hideTip() { document.getElementById('tooltip').style.display = 'none'; }
 
-function toast(msg,type='success'){
-    const t=document.getElementById('toast');
-    t.textContent=msg; t.className=`toast ${type} show`;
-    setTimeout(()=>t.classList.remove('show'),2800);
+function toast(msg, type='success') {
+    const t = document.getElementById('toast');
+    t.textContent = msg; t.className = `toast ${type} show`;
+    setTimeout(() => t.classList.remove('show'), 2800);
 }
 
 function setVis(id, on) {
@@ -435,9 +507,9 @@ function setVis(id, on) {
     if (on) { el.classList.remove('hidden'); el.classList.add('flex'); }
     else    { el.classList.add('hidden');    el.classList.remove('flex'); }
 }
-function hm(m){ m=parseInt(m||0); const h=Math.floor(m/60),mn=m%60; return h>0?`${h}h${mn>0?' '+mn+'m':''}`:`${mn}m`; }
-function escHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-function escJs(s){ return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+function hm(m) { m=parseInt(m||0); const h=Math.floor(m/60),mn=m%60; return h>0?`${h}h${mn>0?' '+mn+'m':''}`:`${mn}m`; }
+function escHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function escJs(s) { return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
 
 loadOverview();
 </script>

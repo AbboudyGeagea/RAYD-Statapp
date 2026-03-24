@@ -1,13 +1,21 @@
 """
 routes/live_feed.py
 ────────────────────────────────────────────────────────────────
-RAYD Live AE Status Feed
-Real-time map of which AEs are busy / free / delayed right now.
+RAYD Live Modality Status Feed  (admin only)
 
-Formula per AE:
-  now <= order.scheduled_datetime + procedure_duration  → BUSY
-  now > scheduled_datetime + duration                   → FINISHED (or FREE if no order)
-  now > scheduled_datetime (but within duration)        → check delay
+Data source : hl7_orders  (real-time, not etl_orders which arrives next-day)
+Grouped by  : modality    (AE assignment requires didb_studies — 1-day lag)
+
+Status per modality:
+  delayed  → any active order has passed its expected finish time
+  busy     → has active orders, none overrun
+  free     → no active orders right now
+  closed   → all AEs of this modality have 0 opening minutes today
+
+Refresh triggers:
+  1. New HL7 insert  → pg_notify 'hl7_new_order' → SSE push → immediate reload
+  2. Countdown       → earliest active-order finish time  → next_refresh_in
+  3. All overrun     → 2-minute fallback instead of 60-minute default
 
 Registered in registry.py:
     from routes.live_feed import live_feed_bp
@@ -15,178 +23,161 @@ Registered in registry.py:
 """
 
 import logging
-from datetime import datetime, timedelta, timezone
-from flask import Blueprint, jsonify, render_template, request
-from flask_login import login_required
+import select
+import psycopg2
+from datetime import datetime, timedelta
+from flask import (Blueprint, Response, jsonify, render_template,
+                   request, stream_with_context, abort, current_app)
+from flask_login import login_required, current_user
 from sqlalchemy import text
 from db import db
 
 logger       = logging.getLogger("LIVE_FEED")
 live_feed_bp = Blueprint("live_feed", __name__)
 
+
 # ── Page ──────────────────────────────────────────────────────────────────────
 @live_feed_bp.route("/viewer/live")
 @login_required
 def live_page():
+    if current_user.role != 'admin':
+        abort(403)
     return render_template("live_feed.html")
 
 
-# ── API — full AE status snapshot ────────────────────────────────────────────
+# ── API — full modality status snapshot ───────────────────────────────────────
 @live_feed_bp.route("/viewer/live/status")
 @login_required
 def live_status():
-    """
-    Returns current status for every AE.
-    Clients call this on load and whenever the next_refresh_in countdown hits 0.
-    """
+    if current_user.role != 'admin':
+        abort(403)
     try:
-        now     = datetime.now()
-        today   = now.date()
-        dow     = today.weekday()
-        now_str = now.strftime("%H:%M:%S")
+        now   = datetime.now()
+        today = now.date()
+        dow   = today.weekday()
 
-        # All AEs
-        aes = db.session.execute(text("""
-            SELECT aetitle, modality
+        # Distinct modalities from device map
+        mod_rows = db.session.execute(text("""
+            SELECT DISTINCT modality
             FROM aetitle_modality_map
-            ORDER BY modality, aetitle
+            ORDER BY modality
         """)).mappings().fetchall()
+        modalities = [r["modality"] for r in mod_rows]
 
-        # Today's orders with durations — all of them
-        orders = db.session.execute(text("""
-            SELECT
-                o.proc_id,
-                o.proc_text,
-                o.scheduled_datetime,
-                o.patient_dbid,
-                o.order_status,
-                COALESCE(pm.duration_minutes, 15)   AS duration,
-                COALESCE(m.aetitle, s.storing_ae)   AS aetitle
-            FROM etl_orders o
-            LEFT JOIN etl_didb_studies s
-                ON s.study_db_uid::TEXT = o.study_db_uid::TEXT
-            LEFT JOIN aetitle_modality_map m
-                ON m.aetitle = s.storing_ae
-            LEFT JOIN procedure_duration_map pm
-                ON pm.procedure_code = o.proc_id
-            WHERE o.scheduled_datetime::date = :today
-              AND o.has_study = TRUE
-            ORDER BY o.scheduled_datetime
-        """), {"today": today}).mappings().fetchall()
-
-        # Build a lookup: aetitle → list of orders today
-        ae_orders = {}
-        for o in orders:
-            ae = o["aetitle"]
-            if not ae:
-                continue
-            ae_orders.setdefault(ae, []).append(dict(o))
-
-        # Weekly schedule for opening hours check
+        # Opening hours per modality — any AE open means modality is open
         schedules = db.session.execute(text("""
-            SELECT aetitle, std_opening_minutes
-            FROM device_weekly_schedule
-            WHERE day_of_week = :dow
+            SELECT m.modality, SUM(s.std_opening_minutes) AS total_mins
+            FROM device_weekly_schedule s
+            JOIN aetitle_modality_map m ON m.aetitle = s.aetitle
+            WHERE s.day_of_week = :dow
+            GROUP BY m.modality
         """), {"dow": dow}).mappings().fetchall()
-        opening_map = {r["aetitle"]: r["std_opening_minutes"] for r in schedules}
+        opening_map = {r["modality"]: (r["total_mins"] or 0) for r in schedules}
 
-        # Exceptions today
+        # Override with today's exceptions
         exceptions = db.session.execute(text("""
-            SELECT aetitle, actual_opening_minutes
-            FROM device_exceptions
-            WHERE exception_date = :today
+            SELECT m.modality, SUM(e.actual_opening_minutes) AS total_mins
+            FROM device_exceptions e
+            JOIN aetitle_modality_map m ON m.aetitle = e.aetitle
+            WHERE e.exception_date = :today
+            GROUP BY m.modality
         """), {"today": today}).mappings().fetchall()
         for exc in exceptions:
-            opening_map[exc["aetitle"]] = exc["actual_opening_minutes"]
+            opening_map[exc["modality"]] = exc["total_mins"] or 0
+
+        # Orders from yesterday onwards — catches procedures that cross midnight.
+        # Python logic below determines which are truly active.
+        orders = db.session.execute(text("""
+            SELECT
+                o.patient_id,
+                o.scheduled_datetime,
+                o.procedure_text,
+                o.procedure_code,
+                o.modality,
+                COALESCE(pm.duration_minutes, 15) AS duration,
+                (pm.procedure_code IS NULL)        AS unknown_code
+            FROM hl7_orders o
+            LEFT JOIN procedure_duration_map pm
+                   ON pm.procedure_code = o.procedure_code
+            WHERE o.scheduled_datetime >= CURRENT_DATE - INTERVAL '1 day'
+              AND o.scheduled_datetime <  CURRENT_DATE + INTERVAL '1 day'
+              AND COALESCE(o.order_status, '') != 'CA'
+            ORDER BY o.scheduled_datetime
+        """)).mappings().fetchall()
+
+        # Group by modality
+        mod_orders = {}
+        for o in orders:
+            mod = (o["modality"] or "").upper() or "UNKNOWN"
+            mod_orders.setdefault(mod, []).append(dict(o))
 
         result         = []
-        next_event_min = None  # Earliest future state change (minutes from now)
+        next_event_min = None
 
-        for ae in aes:
-            aetitle  = ae["aetitle"]
-            modality = ae["modality"]
-            opening  = opening_map.get(aetitle, 0)
+        for mod in modalities:
+            opening = opening_map.get(mod, 0)
 
             if opening == 0:
-                result.append(_make_tile(aetitle, modality, "closed", None, None, None))
+                result.append(_make_tile(mod, "closed", [], None))
                 continue
 
-            ae_day_orders = ae_orders.get(aetitle, [])
+            day_orders    = mod_orders.get(mod, [])
+            active_orders = []
+            next_order    = None
 
-            # Find active order: scheduled_datetime <= now < scheduled_datetime + duration
-            active    = None
-            next_order = None
-            for o in ae_day_orders:
+            for o in day_orders:
                 sched = o["scheduled_datetime"]
                 if not isinstance(sched, datetime):
                     try:    sched = datetime.fromisoformat(str(sched))
                     except: continue
 
-                end_time = sched + timedelta(minutes=int(o["duration"]))
+                duration       = int(o["duration"])
+                end_time       = sched + timedelta(minutes=duration)
+                mins_remaining = int((end_time - now).total_seconds() / 60)
+                overrun        = mins_remaining < 0
 
-                if sched <= now < end_time:
-                    active = {**o, "sched": sched, "end_time": end_time}
-                    break
-                elif sched > now and next_order is None:
-                    next_order = {**o, "sched": sched, "end_time": sched + timedelta(minutes=int(o["duration"]))}
+                if sched <= now:
+                    active_orders.append({
+                        "patient_id":     _mask(o["patient_id"]),
+                        "procedure_text": o["procedure_text"] or o["procedure_code"] or "—",
+                        "procedure_code": o["procedure_code"] or "",
+                        "unknown_code":   bool(o["unknown_code"]),
+                        "end_time":       end_time.strftime("%H:%M"),
+                        "mins_remaining": mins_remaining,
+                        "overrun":        overrun,
+                    })
+                    # Countdown to next non-overrun finish
+                    if not overrun and mins_remaining > 0:
+                        if next_event_min is None or mins_remaining < next_event_min:
+                            next_event_min = mins_remaining
+                elif next_order is None:
+                    mins_until = int((sched - now).total_seconds() / 60)
+                    next_order = {
+                        "proc_name": o["procedure_text"] or o["procedure_code"] or "—",
+                        "at":        sched.strftime("%H:%M"),
+                    }
+                    if next_event_min is None or mins_until < next_event_min:
+                        next_event_min = max(mins_until, 1)
 
-            if active:
-                mins_remaining = int((active["end_time"] - now).total_seconds() / 60)
-                delay_mins     = int((now - active["sched"]).total_seconds() / 60) if now > active["sched"] else 0
-
-                # Update next refresh trigger
-                if next_event_min is None or mins_remaining < next_event_min:
-                    next_event_min = mins_remaining
-
-                status = "delayed" if delay_mins > 5 else "busy"
-                tile   = _make_tile(
-                    aetitle, modality, status,
-                    proc_code  = active["proc_id"],
-                    proc_name  = active["proc_text"] or active["proc_id"],
-                    patient_id = _mask(active["patient_dbid"]),
-                    mins_remaining = mins_remaining,
-                    delay_mins     = delay_mins if delay_mins > 0 else None,
-                    next_order     = _format_next(next_order),
-                )
+            if active_orders:
+                status = "delayed" if any(a["overrun"] for a in active_orders) else "busy"
             else:
-                # Check if the last order finished early (within last 15 min)
-                finished_early = None
-                for o in reversed(ae_day_orders):
-                    sched = o["scheduled_datetime"]
-                    if not isinstance(sched, datetime):
-                        try:    sched = datetime.fromisoformat(str(sched))
-                        except: continue
-                    end_time      = sched + timedelta(minutes=int(o["duration"]))
-                    expected_end  = sched + timedelta(minutes=int(o["duration"]))
-                    if end_time > now:
-                        # Order window hasn't expired yet but no active study → finished early
-                        early_by = int((expected_end - now).total_seconds() / 60)
-                        finished_early = {
-                            "proc_name": o["proc_text"] or o["proc_id"],
-                            "early_by":  early_by,
-                        }
-                        if next_event_min is None or early_by < next_event_min:
-                            next_event_min = early_by
-                        break
+                status = "free"
 
-                status = "early" if finished_early else "free"
-                tile   = _make_tile(
-                    aetitle, modality, status,
-                    next_order    = _format_next(next_order),
-                    finished_early= finished_early,
-                )
+            result.append(_make_tile(mod, status, active_orders, next_order))
 
-            result.append(tile)
-
-        # Sort: busy/delayed first, then early, then free, then closed
-        ORDER = {"delayed":0, "busy":1, "early":2, "free":3, "closed":4}
+        # Sort: delayed → busy → free → closed
+        ORDER = {"delayed": 0, "busy": 1, "free": 2, "closed": 3}
         result.sort(key=lambda t: ORDER.get(t["status"], 5))
+
+        # If every active order is overrun, fall back to 2-min refresh instead of 60
+        has_overrun = any(a["overrun"] for t in result for a in t.get("active_orders", []))
+        fallback    = 2 if has_overrun else 60
 
         return jsonify({
             "tiles":           result,
             "as_of":           now.strftime("%H:%M:%S"),
-            "next_refresh_in": max(next_event_min, 1) if next_event_min is not None else 60,
-            "version":         int(now.timestamp()),
+            "next_refresh_in": max(next_event_min, 1) if next_event_min is not None else fallback,
         })
 
     except Exception as e:
@@ -194,14 +185,16 @@ def live_status():
         return jsonify({"error": str(e)}), 500
 
 
-# ── API — lightweight version check for HL7-triggered refresh ─────────────────
+# ── API — lightweight version check (SSE fallback) ───────────────────────────
 @live_feed_bp.route("/viewer/live/version")
 @login_required
 def live_version():
     """
     Returns the timestamp of the latest HL7 order received today.
-    Client polls this every 15s — if version changes, triggers full refresh.
+    Used only when the SSE connection is unavailable (polled every 15 s).
     """
+    if current_user.role != 'admin':
+        abort(403)
     try:
         row = db.session.execute(text("""
             SELECT MAX(received_at) AS latest
@@ -214,37 +207,112 @@ def live_version():
         return jsonify({"version": "none", "error": str(e)})
 
 
+# ── API — SSE push on new HL7 insert ──────────────────────────────────────────
+@live_feed_bp.route("/viewer/live/events")
+@login_required
+def live_events():
+    """
+    Server-Sent Events endpoint.
+    Keeps a persistent psycopg2 connection listening on 'hl7_new_order'.
+    Sends 'data: new_order' whenever a new HL7 order is committed.
+    Sends a heartbeat comment every 25 s to keep proxies from closing the pipe.
+    """
+    if current_user.role != 'admin':
+        abort(403)
+
+    # Resolve DSN once — captured in the generator closure
+    raw_url = current_app.config['SQLALCHEMY_DATABASE_URI']
+    dsn     = raw_url.replace('postgresql+psycopg2://', 'postgresql://')
+
+    def event_stream():
+        conn = None
+        try:
+            conn = psycopg2.connect(dsn)
+            conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
+            cur = conn.cursor()
+            cur.execute("LISTEN hl7_new_order;")
+
+            while True:
+                # Wait up to 25 s for a notification; send heartbeat if nothing arrives
+                ready = select.select([conn], [], [], 25)[0]
+                if ready:
+                    conn.poll()
+                    while conn.notifies:
+                        conn.notifies.pop(0)
+                        yield "data: new_order\n\n"
+                else:
+                    yield ": heartbeat\n\n"
+
+        except GeneratorExit:
+            pass
+        except Exception as exc:
+            logger.warning(f"SSE stream error: {exc}")
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+    return Response(
+        stream_with_context(event_stream()),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control':    'no-cache',
+            'X-Accel-Buffering':'no',
+            'Connection':       'keep-alive',
+        },
+    )
+
+
+# ── API — add / update procedure duration ─────────────────────────────────────
+@live_feed_bp.route("/viewer/live/add_procedure", methods=["POST"])
+@login_required
+def add_procedure():
+    """
+    Insert or update a procedure code in procedure_duration_map.
+    Called from the unknown-code modal on the live feed page.
+    """
+    if current_user.role != 'admin':
+        abort(403)
+    try:
+        data     = request.get_json(force=True)
+        code     = (data.get("procedure_code") or "").strip()
+        duration = int(data.get("duration_minutes") or 15)
+        if not code:
+            return jsonify({"error": "procedure_code is required"}), 400
+        if duration < 1:
+            return jsonify({"error": "duration_minutes must be >= 1"}), 400
+
+        db.session.execute(text("""
+            INSERT INTO procedure_duration_map (procedure_code, duration_minutes)
+            VALUES (:code, :duration)
+            ON CONFLICT (procedure_code)
+            DO UPDATE SET duration_minutes = EXCLUDED.duration_minutes
+        """), {"code": code, "duration": duration})
+        db.session.commit()
+        logger.info(f"Procedure code added/updated: {code} → {duration} min")
+        return jsonify({"ok": True})
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"add_procedure error: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
-def _make_tile(aetitle, modality, status, proc_code=None, proc_name=None,
-               patient_id=None, mins_remaining=None, delay_mins=None,
-               next_order=None, finished_early=None):
+def _make_tile(modality, status, active_orders, next_order):
     return {
-        "aetitle":        aetitle,
-        "modality":       modality,
-        "status":         status,
-        "proc_code":      proc_code,
-        "proc_name":      proc_name,
-        "patient_id":     patient_id,
-        "mins_remaining": mins_remaining,
-        "delay_mins":     delay_mins,
-        "next_order":     next_order,
-        "finished_early": finished_early,
+        "modality":      modality,
+        "status":        status,
+        "active_orders": active_orders,
+        "next_order":    next_order,
     }
 
 
 def _mask(patient_id):
-    """Mask patient ID — show first 2 and last 2 chars only."""
+    """Show first 2 and last 2 chars only."""
     s = str(patient_id or "")
     if len(s) <= 4:
         return "*" * len(s)
     return s[:2] + "*" * (len(s) - 4) + s[-2:]
-
-
-def _format_next(order):
-    if not order:
-        return None
-    sched = order.get("sched")
-    return {
-        "proc_name": order.get("proc_text") or order.get("proc_id") or "—",
-        "at":        sched.strftime("%H:%M") if isinstance(sched, datetime) else "—",
-    }

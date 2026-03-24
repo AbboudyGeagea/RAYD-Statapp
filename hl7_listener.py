@@ -247,12 +247,20 @@ def _handle_client(conn, addr, app):
                     parsed = parse_orm_o01(raw_message)
 
                     if parsed:
-                        # ── Store in hl7_orders ───────────────────────────
+                        # ── Store in hl7_orders + notify live feed ────────
                         with app.app_context():
                             from sqlalchemy import text
                             from db import db
-                            db.session.execute(text(INSERT_SQL), parsed)
-                            db.session.commit()
+                            try:
+                                db.session.execute(text(INSERT_SQL), parsed)
+                                db.session.execute(
+                                    text("SELECT pg_notify('hl7_new_order', :mid)"),
+                                    {"mid": str(parsed.get("message_id") or "")}
+                                )
+                                db.session.commit()
+                            except Exception:
+                                db.session.rollback()
+                                raise
 
                         logger.info(
                             f"✅ HL7 stored | msg_id={parsed['message_id']} "

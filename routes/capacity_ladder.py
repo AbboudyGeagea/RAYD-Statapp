@@ -218,48 +218,33 @@ def _get_opening_minutes(aetitle, day, dow):
 
 
 def _get_scheduled(aetitle, day):
-    """Get scheduled orders for an AE on a date with durations."""
+    """Get scheduled orders for an AE's modality from hl7_orders (real-time)."""
+    ae_row = db.session.execute(text(
+        "SELECT modality FROM aetitle_modality_map WHERE aetitle = :ae"
+    ), {"ae": aetitle}).fetchone()
+
+    if not ae_row:
+        return []
+
     rows = db.session.execute(text("""
         SELECT
-            o.proc_id,
-            o.proc_text,
-            o.patient_dbid,
+            o.procedure_code,
+            o.procedure_text,
+            o.patient_id,
             COALESCE(pm.duration_minutes, 15) AS duration,
             o.scheduled_datetime
-        FROM etl_orders o
-        LEFT JOIN procedure_duration_map pm ON pm.procedure_code = o.proc_id
-        LEFT JOIN etl_didb_studies s ON s.study_db_uid = o.study_db_uid
-        LEFT JOIN aetitle_modality_map m ON m.aetitle = s.storing_ae
-        WHERE s.storing_ae = :ae
+        FROM hl7_orders o
+        LEFT JOIN procedure_duration_map pm ON pm.procedure_code = o.procedure_code
+        WHERE UPPER(o.modality) = UPPER(:mod)
           AND o.scheduled_datetime::date = :day
+          AND COALESCE(o.order_status, '') != 'CA'
         ORDER BY o.scheduled_datetime
-    """), {"ae": aetitle, "day": day}).mappings().fetchall()
-
-    # Fallback: query by modality if nothing found by AE
-    if not rows:
-        ae_mod = db.session.execute(text(
-            "SELECT modality FROM aetitle_modality_map WHERE aetitle = :ae"
-        ), {"ae": aetitle}).fetchone()
-
-        if ae_mod:
-            rows = db.session.execute(text("""
-                SELECT
-                    o.proc_id,
-                    o.proc_text,
-                    o.patient_dbid,
-                    COALESCE(pm.duration_minutes, 15) AS duration,
-                    o.scheduled_datetime
-                FROM etl_orders o
-                LEFT JOIN procedure_duration_map pm ON pm.procedure_code = o.proc_id
-                WHERE o.modality = :mod
-                  AND o.scheduled_datetime::date = :day
-                ORDER BY o.scheduled_datetime
-            """), {"mod": ae_mod[0], "day": day}).mappings().fetchall()
+    """), {"mod": ae_row[0], "day": day}).mappings().fetchall()
 
     return [{
-        "proc_code": r["proc_id"] or "—",
-        "label":     r["proc_text"] or r["proc_id"] or "Unknown Procedure",
-        "patient":   str(r["patient_dbid"] or ""),
+        "proc_code": r["procedure_code"] or "—",
+        "label":     r["procedure_text"] or r["procedure_code"] or "Unknown Procedure",
+        "patient":   str(r["patient_id"] or ""),
         "duration":  int(r["duration"] or 15),
     } for r in rows]
 
@@ -289,17 +274,16 @@ def _find_gaps(blocks, start_min, end_min):
 
 
 # ─────────────────────────────────────────────
-#  SUGGESTIONS — 3 AI strategies
+#  SUGGESTIONS — raw data for client-side optimizer
 # ─────────────────────────────────────────────
 
 @capacity_ladder_bp.route("/viewer/capacity-ladder/suggestions")
 @login_required
 def suggestions():
     """
-    Return 3 scheduling strategies for the gaps on a given AE + date.
-    Strategy 1 — Variety:  one unique historically-common procedure per gap
-    Strategy 2 — Volume:   pack in as many short procedures as possible
-    Strategy 3 — Priority: highest-frequency procedures repeated to fill each gap
+    Return gaps and candidate procedures so the browser can run the
+    combined Utilization/RVU optimizer with a live slider — no server
+    round-trip needed when the manager adjusts the weighting.
     """
     day_str = request.args.get("date")
     aetitle = request.args.get("aetitle")
@@ -310,22 +294,19 @@ def suggestions():
         day = datetime.strptime(day_str, "%Y-%m-%d").date()
         dow = day.weekday()
 
-        # Get modality
         ae_row = db.session.execute(text(
             "SELECT modality FROM aetitle_modality_map WHERE aetitle = :ae"
         ), {"ae": aetitle}).mappings().fetchone()
         modality = ae_row["modality"] if ae_row else None
 
-        # Opening & schedule
         opening_min = _get_opening_minutes(aetitle, day, dow)
         if not opening_min:
-            return jsonify({"strategies": []})
+            return jsonify({"gaps": [], "procedures": [], "modality": modality})
 
         scheduled    = _get_scheduled(aetitle, day)
         start_minute = 8 * 60
         end_minute   = start_minute + opening_min
 
-        # Build placed blocks to find gaps
         blocks = []
         cursor = start_minute
         for proc in scheduled:
@@ -340,9 +321,10 @@ def suggestions():
         gaps     = [g for g in raw_gaps if (g["end_min"] - g["start_min"]) >= 10]
 
         if not gaps:
-            return jsonify({"strategies": [], "message": "No gaps available"})
+            return jsonify({"gaps": [], "procedures": [], "modality": modality,
+                            "message": "No gaps available"})
 
-        # Get historically common procedures for this modality
+        # Historically common procedures for this modality with RVU + frequency
         mod_filter = "AND m.modality = :mod" if modality else ""
         mod_params = {"mod": modality} if modality else {}
 
@@ -353,7 +335,7 @@ def suggestions():
                 COALESCE(pm.rvu_value, 1.0)            AS rvu,
                 COUNT(*)                               AS freq
             FROM etl_didb_studies s
-            LEFT JOIN aetitle_modality_map m  ON m.aetitle = s.storing_ae
+            LEFT JOIN aetitle_modality_map m   ON m.aetitle = s.storing_ae
             LEFT JOIN procedure_duration_map pm ON pm.procedure_code = s.procedure_code
             WHERE s.procedure_code IS NOT NULL
               AND COALESCE(pm.duration_minutes, 15) > 0
@@ -363,10 +345,9 @@ def suggestions():
             LIMIT 60
         """), mod_params).mappings().fetchall()
 
-        procs = [dict(r) for r in hist_rows]
+        procedures = [dict(r) for r in hist_rows]
 
-        # Fallback if no history
-        if not procs:
+        if not procedures:
             fallback = db.session.execute(text("""
                 SELECT procedure_code AS code,
                        duration_minutes AS duration,
@@ -376,99 +357,20 @@ def suggestions():
                 WHERE duration_minutes > 0
                 ORDER BY duration_minutes LIMIT 60
             """)).mappings().fetchall()
-            procs = [dict(r) for r in fallback]
-
-        # ── Strategy builder ──────────────────────────────────────────
-        def build(name, description, placer_fn):
-            placements = placer_fn(gaps, procs)
-            total_gap  = sum(g["end_min"] - g["start_min"] for g in gaps)
-            total_fill = sum(p["duration"] for p in placements)
-            return {
-                "name":             name,
-                "description":      description,
-                "placements":       placements,
-                "total_filled_min": total_fill,
-                "fill_pct":         round(total_fill / total_gap * 100, 1) if total_gap else 0,
-            }
-
-        # Strategy 1 — Variety: one unique procedure per gap, most common first
-        def variety(gaps, procs):
-            placed    = []
-            used_codes = set()
-            for gap in sorted(gaps, key=lambda g: g["start_min"]):
-                gap_dur = gap["end_min"] - gap["start_min"]
-                for p in procs:
-                    if p["code"] not in used_codes and p["duration"] <= gap_dur:
-                        placed.append({
-                            "start_min": gap["start_min"],
-                            "duration":  p["duration"],
-                            "code":      p["code"],
-                            "freq":      int(p["freq"]),
-                            "rvu":       float(p["rvu"]),
-                        })
-                        used_codes.add(p["code"])
-                        break
-            return placed
-
-        # Strategy 2 — Volume: fill each gap with as many short procedures as possible
-        def volume(gaps, procs):
-            placed = []
-            # Sort procs by duration ascending (shortest first)
-            short_procs = sorted(procs, key=lambda p: p["duration"])
-            for gap in sorted(gaps, key=lambda g: g["start_min"]):
-                cursor   = gap["start_min"]
-                gap_end  = gap["end_min"]
-                slot_placed = []
-                while cursor < gap_end:
-                    remaining = gap_end - cursor
-                    best = next((p for p in short_procs if p["duration"] <= remaining), None)
-                    if not best:
-                        break
-                    slot_placed.append({
-                        "start_min": cursor,
-                        "duration":  best["duration"],
-                        "code":      best["code"],
-                        "freq":      int(best["freq"]),
-                        "rvu":       float(best["rvu"]),
-                    })
-                    cursor += best["duration"]
-                placed.extend(slot_placed)
-            return placed
-
-        # Strategy 3 — Priority: highest frequency procedure repeated across gaps
-        def priority(gaps, procs):
-            placed = []
-            # Sort by freq descending — most used first
-            top_procs = sorted(procs, key=lambda p: -int(p["freq"]))
-            for gap in sorted(gaps, key=lambda g: g["start_min"]):
-                cursor  = gap["start_min"]
-                gap_end = gap["end_min"]
-                while cursor < gap_end:
-                    remaining = gap_end - cursor
-                    best = next((p for p in top_procs if p["duration"] <= remaining), None)
-                    if not best:
-                        break
-                    placed.append({
-                        "start_min": cursor,
-                        "duration":  best["duration"],
-                        "code":      best["code"],
-                        "freq":      int(best["freq"]),
-                        "rvu":       float(best["rvu"]),
-                    })
-                    cursor += best["duration"]
-            return placed
-
-        strategies = [
-            build("Variety",  "One unique procedure per gap — diverse mix of the most common procedures", variety),
-            build("Volume",   "Pack as many procedures as possible — maximum throughput per gap",          volume),
-            build("Priority", "Most historically common procedures repeated — best utilization by demand", priority),
-        ]
+            procedures = [dict(r) for r in fallback]
 
         return jsonify({
-            "strategies": strategies,
-            "modality":   modality,
-            "gaps":       [{"start_min": g["start_min"], "end_min": g["end_min"],
-                            "duration": g["end_min"] - g["start_min"]} for g in gaps],
+            "gaps": [
+                {"start_min": g["start_min"], "end_min": g["end_min"],
+                 "duration":  g["end_min"] - g["start_min"]}
+                for g in gaps
+            ],
+            "procedures": [
+                {"code": p["code"], "duration": int(p["duration"]),
+                 "rvu": float(p["rvu"]), "freq": int(p["freq"])}
+                for p in procedures
+            ],
+            "modality": modality,
         })
 
     except Exception as e:

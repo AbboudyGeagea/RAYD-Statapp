@@ -390,6 +390,18 @@
                 <a href="{{ url_for('portal_admin.portal_users') }}" class="sidebar-item flex items-center gap-3 px-4 py-3 text-sm font-bold text-[#94a3b8]">
                     <i class="bi bi-person-vcard"></i> Patient Portal
                 </a>
+                {% if current_user.role == 'admin' %}
+                <a href="{{ url_for('live_feed.live_page') }}" target="_blank" class="sidebar-item flex items-center gap-3 px-4 py-3 text-sm font-bold text-[#94a3b8]">
+                    <i class="bi bi-activity"></i> Live Modality Status
+                    <span style="font-size:8px;font-weight:900;padding:1px 6px;border-radius:4px;background:rgba(34,197,94,0.15);color:#22c55e;text-transform:uppercase;letter-spacing:0.08em;margin-left:auto;">LIVE</span>
+                </a>
+                {% endif %}
+                <div class="pt-4 pb-2">
+                    <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-2">AI</p>
+                </div>
+                <a href="{{ url_for('bitnet.assistant_page') }}" class="sidebar-item flex items-center gap-3 px-4 py-3 text-sm font-bold text-[#94a3b8]">
+                    <i class="bi bi-stars"></i> AI Assistant
+                </a>
             </nav>
             <div class="mt-auto p-4 bg-[#181f1c] rounded-2xl border border-[#28332e]">
                 <p class="text-[10px] uppercase text-slate-500 font-bold mb-1">System Health</p>
