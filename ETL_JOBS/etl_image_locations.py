@@ -48,7 +48,10 @@ def run_images_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, stud
             cursor   = ora_conn.cursor()
             cursor.arraysize = ETL_GEAR["oracle_prefetch"]
 
-            max_workers = ETL_GEAR.get("num_workers", 4)
+            # Force single worker for image_locations to prevent deadlocks.
+            # Oracle can return the same raw_image_db_uid in multiple chunks
+            # when parallel threads collide on the same PK — deadlock guaranteed.
+            max_workers = 1
             batch_size  = ETL_GEAR.get("batch_size", 5000)
             chunk_size  = 1000
 
@@ -60,19 +63,28 @@ def run_images_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, stud
                     binds  = [f":id{j}" for j in range(len(chunk))]
                     params = {f"id{j}": v for j, v in enumerate(chunk)}
 
-                    # SELECT only the 4 columns that exist in pg etl_image_locations
-                    # raw_image_db_uid, file_system, image_size_kb (KB), last_update
+                    # Deduplicate by raw_image_db_uid — Oracle has duplicate rows
+                    # (one with file_system path, one NULL). Pick the row with
+                    # the largest image_size (most complete record) per UID.
                     query = f"""
-                        SELECT
-                            il.raw_image_db_uid,
-                            il.file_system,
-                            il.image_size AS image_size_kb
-                        FROM medistore.didb_image_locations il
-                        WHERE il.raw_image_db_uid IN (
-                            SELECT ri.raw_image_db_uid
-                            FROM medistore.DIDB_RAW_IMAGES_TABLE ri
-                            WHERE ri.study_db_uid IN ({','.join(binds)})
+                        SELECT raw_image_db_uid, file_system, image_size_kb
+                        FROM (
+                            SELECT
+                                il.raw_image_db_uid,
+                                il.file_system,
+                                il.image_size AS image_size_kb,
+                                ROW_NUMBER() OVER (
+                                    PARTITION BY il.raw_image_db_uid
+                                    ORDER BY il.image_size DESC NULLS LAST
+                                ) AS rn
+                            FROM medistore.didb_image_locations il
+                            WHERE il.raw_image_db_uid IN (
+                                SELECT ri.raw_image_db_uid
+                                FROM medistore.DIDB_RAW_IMAGES_TABLE ri
+                                WHERE ri.study_db_uid IN ({','.join(binds)})
+                            )
                         )
+                        WHERE rn = 1
                     """
 
                     cursor.execute(query, params)
