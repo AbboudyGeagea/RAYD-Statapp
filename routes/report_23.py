@@ -88,7 +88,7 @@ def report_23():
 
         agg_sql = text(f"""
             {cte_base}
-            SELECT modality, patient_class, age_at_exam, study_date
+            SELECT modality, patient_class, age_at_exam, study_date, patient_db_uid
             FROM base_data
             WHERE study_date BETWEEN :s AND :e{extra_where}
         """)
@@ -113,9 +113,27 @@ def report_23():
             GROUP BY 1, 2, 3
         """)
 
+        cube_sql = text(f"""
+            {cte_base}
+            SELECT
+                modality AS mod,
+                CASE
+                    WHEN age_at_exam < 18  THEN 'Under 18'
+                    WHEN age_at_exam <= 35 THEN '19-35'
+                    WHEN age_at_exam <= 64 THEN '36-64'
+                    ELSE '65+'
+                END AS age,
+                COALESCE(sex, 'U') AS sex,
+                COUNT(*) AS cnt
+            FROM base_data
+            WHERE study_date BETWEEN :s AND :e{extra_where}
+            GROUP BY 1, 2, 3
+        """)
+
         try:
             df_agg  = pd.DataFrame(db.session.execute(agg_sql,  params).fetchall())
             df_demo = pd.DataFrame(db.session.execute(demo_sql, params).fetchall())
+            df_cube = pd.DataFrame(db.session.execute(cube_sql, params).fetchall())
 
             if not df_agg.empty:
                 metrics["total_count"] = len(df_agg)
@@ -137,6 +155,40 @@ def report_23():
                         values='cnt', aggfunc='sum'
                     ).fillna(0).reindex(age_order).fillna(0)
 
+                    # ── Monthly volume trend ──────────────────────────
+                    df_agg['month'] = pd.to_datetime(df_agg['study_date']).dt.to_period('M').astype(str)
+                    monthly = df_agg.groupby('month').size().reset_index(name='cnt').sort_values('month')
+                    monthly_trend = {
+                        "labels": monthly['month'].tolist(),
+                        "values": monthly['cnt'].tolist(),
+                    }
+
+                    # ── Patient return rate (30 / 60 / 90 days) ───────
+                    repeat_rates = {"30d": 0, "60d": 0, "90d": 0}
+                    if 'patient_db_uid' in df_agg.columns:
+                        df_pt = df_agg[['patient_db_uid', 'study_date']].dropna().copy()
+                        df_pt['study_date'] = pd.to_datetime(df_pt['study_date'])
+                        first = df_pt.groupby('patient_db_uid')['study_date'].min().rename('first_date')
+                        df_pt = df_pt.join(first, on='patient_db_uid')
+                        df_pt['days'] = (df_pt['study_date'] - df_pt['first_date']).dt.days
+                        total_pts = df_pt['patient_db_uid'].nunique()
+                        if total_pts:
+                            for window, key in [(30, '30d'), (60, '60d'), (90, '90d')]:
+                                returned = df_pt[
+                                    (df_pt['days'] > 0) & (df_pt['days'] <= window)
+                                ]['patient_db_uid'].nunique()
+                                repeat_rates[key] = round(returned / total_pts * 100, 1)
+
+                    # ── Age × Gender × Modality cube ──────────────────
+                    cube_data = []
+                    if not df_cube.empty:
+                        top5_mods = df_agg['modality'].value_counts().nlargest(5).index.tolist()
+                        cube_data = (
+                            df_cube[df_cube['mod'].isin(top5_mods)]
+                            .rename(columns={"cnt": "cnt"})
+                            .to_dict('records')
+                        )
+
                     chart_json = {
                         "class":   {"labels": list(class_vol.keys()), "values": list(class_vol.values())},
                         "mod_age": {"labels": list(mod_avg.keys()),   "values": [round(v, 1) for v in mod_avg.values()]},
@@ -150,7 +202,10 @@ def report_23():
                                 {"name": col, "type": "bar", "stack": "total", "data": pivot[col].tolist()}
                                 for col in pivot.columns
                             ]
-                        }
+                        },
+                        "monthly_trend": monthly_trend,
+                        "repeat_rates":  repeat_rates,
+                        "cube_data":     cube_data,
                     }
         except Exception as e:
             print(f"Error executing report: {e}")

@@ -100,7 +100,7 @@ def refresh_storage_summary():
             agg_query,
         )
         upsert_stmt = insert_stmt.on_conflict_do_update(
-            constraint="_date_ae_mod_proc_uc",
+            index_elements=["study_date", "storing_ae", "modality", "procedure_code"],
             set_={
                 "total_gb":    insert_stmt.excluded.total_gb,
                 "study_count": insert_stmt.excluded.study_count,
