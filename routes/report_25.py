@@ -154,22 +154,33 @@ def report_25():
         tree_dict[mod].append({"name": ae})
     tree_json = json.dumps({"name": "FLEET", "children": [{"name": k, "children": v} for k, v in tree_dict.items()]})
 
-    data, start, end = get_gold_standard_data(request.form)
+    run_report = request.method == "POST"
     active_tab = request.form.get("active_tab", "ops")
 
-    journey_json = None
-    pid = request.form.get("fallback_id")
-    if pid:
-        res = db.session.execute(text("SELECT procedure_code, scheduled_datetime, insert_time, report_time, proc_duration FROM etl_didb_studies s JOIN etl_patient_view p ON s.fallback_id = p.fallback_id WHERE p.fallback_id = :pid ORDER BY s.insert_time ASC"), {"pid": pid}).mappings().all()
-        if res:
-            nodes = []
-            for r in res:
-                t_ent = (r['insert_time'] - pd.Timedelta(minutes=r['proc_duration'])) if r['insert_time'] and r['proc_duration'] else None
-                nodes.append({"name": r['procedure_code'], "children": [{"name": f"Sched: {r['scheduled_datetime'].strftime('%H:%M') if r['scheduled_datetime'] else 'N/A'}"}, {"name": f"True Entry: {t_ent.strftime('%H:%M') if t_ent else 'N/A'}"}]})
-            journey_json = json.dumps({"name": f"ID: {pid}", "children": nodes})
+    go_live = get_etl_cutoff_date()
+    display_start = go_live.strftime("%Y-%m-%d") if go_live else "2024-01-01"
+    display_end   = date.today().strftime("%Y-%m-%d")
 
-    template_data = {k: v for k, v in data.items() if k != 'raw_df'} if data else None
-    return render_template("report_25.html", data=template_data, display_start=start, display_end=end, classes=classes, locations=locations, modalities=modalities, aetitles=aetitles, tree_json=tree_json, journey_json=journey_json, run_report=bool(data), active_tab=active_tab)
+    data          = None
+    journey_json  = None
+    template_data = None
+
+    if run_report:
+        data, display_start, display_end = get_gold_standard_data(request.form)
+
+        pid = request.form.get("fallback_id")
+        if pid:
+            res = db.session.execute(text("SELECT procedure_code, scheduled_datetime, insert_time, report_time, proc_duration FROM etl_didb_studies s JOIN etl_patient_view p ON s.fallback_id = p.fallback_id WHERE p.fallback_id = :pid ORDER BY s.insert_time ASC"), {"pid": pid}).mappings().all()
+            if res:
+                nodes = []
+                for r in res:
+                    t_ent = (r['insert_time'] - pd.Timedelta(minutes=r['proc_duration'])) if r['insert_time'] and r['proc_duration'] else None
+                    nodes.append({"name": r['procedure_code'], "children": [{"name": f"Sched: {r['scheduled_datetime'].strftime('%H:%M') if r['scheduled_datetime'] else 'N/A'}"}, {"name": f"True Entry: {t_ent.strftime('%H:%M') if t_ent else 'N/A'}"}]})
+                journey_json = json.dumps({"name": f"ID: {pid}", "children": nodes})
+
+        template_data = {k: v for k, v in data.items() if k != 'raw_df'} if data else None
+
+    return render_template("report_25.html", data=template_data, display_start=display_start, display_end=display_end, classes=classes, locations=locations, modalities=modalities, aetitles=aetitles, tree_json=tree_json, journey_json=journey_json, run_report=run_report, active_tab=active_tab)
 
 @report_25_bp.route("/report/25/export", methods=["POST"])
 @login_required
