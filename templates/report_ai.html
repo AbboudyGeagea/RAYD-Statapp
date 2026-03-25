@@ -122,7 +122,7 @@
                 <div class="tab" style="color:var(--muted);cursor:default;">⚡ Utilization</div>
                 <div class="tab" style="color:var(--muted);cursor:default;">👨‍⚕️ Physicians</div>
                 {% endif %}
-                <div class="tab {% if not run_report %}active{% endif %}" onclick="switchTab('ladder', this)" id="tab-ladder">🪜 Capacity Ladder</div>
+
             </div>
 
             <div class="flex-1 overflow-y-auto p-6" style="background:var(--bg);" id="panels-wrap">
@@ -195,24 +195,14 @@
                     {% else %}<div class="flex items-center justify-center h-64" style="color:var(--muted);">No physician data available.</div>{% endif %}
                 </div>
 
-                {% endif %}
-
-                <!-- ══ CAPACITY LADDER PANEL ══ -->
-                <div id="panel-ladder" class="panel {% if not run_report %}active{% endif %}">
-                    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:24px;">
-                        <div class="card" style="padding:24px;display:flex;flex-direction:column;">
-                            <div style="padding:10px;background:rgba(34,197,94,0.1);border-radius:12px;color:#22c55e;width:fit-content;margin-bottom:16px;">
-                                <span style="font-size:24px;">🪜</span>
-                            </div>
-                            <h3 style="font-size:15px;font-weight:700;color:white;margin-bottom:8px;">Capacity Ladder</h3>
-                            <p style="font-size:12px;color:#94b8d8;line-height:1.6;flex:1;margin-bottom:20px;">Visual daily schedule for every modality. See utilisation bars, drill into any AE timeline, and get procedure suggestions for open gaps — based on your real device schedule.</p>
-                            <a href="{{ url_for('capacity_ladder.capacity_ladder_page') }}" target="_blank"
-                               style="display:block;width:100%;padding:12px;background:#22c55e;color:#021a10;text-align:center;font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:0.1em;border-radius:10px;text-decoration:none;">
-                                Open Capacity Ladder
-                            </a>
-                        </div>
-                    </div>
+                {% else %}
+                <!-- Empty state — shown before running the analysis -->
+                <div class="flex flex-col items-center justify-center h-full" style="color:var(--muted);gap:16px;padding-top:80px;">
+                    <div style="font-size:48px;">🤖</div>
+                    <p style="font-size:18px;font-weight:700;color:white;">Select a date range and run the analysis</p>
+                    <p style="font-size:13px;color:#94b8d8;">Storage forecasting, volume trends, utilization anomalies, and physician intelligence will appear here.</p>
                 </div>
+                {% endif %}
 
             </div><!-- /panels-wrap -->
         </div>
