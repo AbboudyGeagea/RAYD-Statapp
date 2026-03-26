@@ -36,7 +36,7 @@ from db import (
     ReportTemplate,
     ReportDimension,
     ReportAccessControl,
-    GoLiveDate
+    GoLiveDate,
 )
 from routes.registry import register_blueprints
 
@@ -164,7 +164,7 @@ def create_app():
             return redirect(url_for('admin.admin_dashboard'))
         return redirect(url_for('viewer.viewer_dashboard'))
 
-    # --- MIGRATE: add ui_theme + favorites columns if missing ---
+    # --- MIGRATE: add new columns / tables if missing ---
     with app.app_context():
         try:
             db.session.execute(text(
@@ -176,7 +176,7 @@ def create_app():
             db.session.commit()
         except Exception as e:
             db.session.rollback()
-            logger.warning(f"[Migration] users columns: {e}")
+            logger.warning(f"[Migration] columns: {e}")
 
     # --- STARTUP: AUTO-TRIGGER ETL IF DB IS EMPTY ---
     with app.app_context():
@@ -201,6 +201,7 @@ def create_app():
         name='Sync Data from Oracle',
         replace_existing=True
     )
+
     scheduler.start()
     start_mllp_listener(app, host='0.0.0.0', port=6661)
     return app

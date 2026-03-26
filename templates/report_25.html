@@ -47,10 +47,20 @@
             white-space: nowrap;
         }
         .export-png-btn:hover { color: #3b82f6; border-color: #3b82f6; }
+        @media print {
+            aside, header button, form button[type=submit], .card-desc, nav { display: none !important; }
+            body { overflow: visible !important; background: #fff !important; color: #000 !important; }
+            main { overflow: visible !important; padding: 0 !important; }
+            .card { border: 1px solid #ddd !important; break-inside: avoid; }
+            .chart-container, .tree-container { height: 320px !important; }
+        }
     </style>
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
     <header class="bg-[#232b28] border-b border-[#28332e] px-8 py-4 flex items-center justify-center shadow-md z-30 relative shrink-0">
+        <button onclick="window.print()" title="Export as PDF" class="p-2 rounded-lg transition-colors absolute left-4 top-1/2 -translate-y-1/2" style="color:#34d399;font-size:1.1rem;">
+            <i class="bi bi-printer-fill"></i>
+        </button>
         <button onclick="toggleTheme()" title="Toggle light/dark mode" class="p-2 rounded-lg transition-colors absolute right-4 top-1/2 -translate-y-1/2" style="color:#60a5fa;font-size:1.1rem;">
             <i id="theme-icon" class="bi bi-moon-fill"></i>
         </button>
