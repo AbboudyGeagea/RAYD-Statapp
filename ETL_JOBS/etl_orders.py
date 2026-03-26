@@ -42,7 +42,7 @@ def _clean_row(row):
       4  study_instance_uid
       5  proc_id
       6  proc_text
-      7  scheduled_datetime   ← corrupt dates live here
+      7  scheduled_datetime   ← COALESCE(SCHEDULED_DATETIME, ORDER_DATETIME)
       8  order_status
       9  modality
       10 has_study
@@ -110,9 +110,9 @@ def run_orders_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_l
             STUDY_INSTANCE_UID,
             PROC_ID,
             PROC_TEXT,
-            SCHEDULED_DATETIME,
+            COALESCE(SCHEDULED_DATETIME, ORDER_DATETIME),
             ORDER_STATUS,
-            MODALITY,
+            COALESCE(MODALITY, PLACER_FIELD2),
             CASE WHEN HAS_STUDY = 'Y' THEN 'true' ELSE 'false' END AS has_study,
             ORDER_CONTROL,
             CURRENT_TIMESTAMP
