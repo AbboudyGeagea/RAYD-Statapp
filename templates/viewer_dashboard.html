@@ -97,6 +97,9 @@
                     <button onclick="toggleTab('favorites')" id="tab-favorites-btn" class="tab-btn pb-3 uppercase tracking-widest flex items-center gap-2">
                         <i class="bi bi-star-fill text-amber-400"></i> Favorites
                     </button>
+                    <button onclick="toggleTab('yesterday')" id="tab-yesterday-btn" class="tab-btn pb-3 uppercase tracking-widest flex items-center gap-2">
+                        <i class="bi bi-calendar-check"></i> Yesterday
+                    </button>
                     <button onclick="toggleTab('clinical')" id="tab-clinical-btn" class="tab-btn active pb-3 uppercase tracking-widest">Clinical KPIs</button>
                     <button onclick="toggleTab('it')" id="tab-it-btn" class="tab-btn pb-3 uppercase tracking-widest">IT Systems</button>
                     <button onclick="toggleTab('ai')" id="tab-ai-btn" class="tab-btn pb-3 uppercase tracking-widest flex items-center gap-2">
@@ -105,6 +108,50 @@
                     <button onclick="toggleTab('super')" id="tab-super-btn" class="tab-btn pb-3 uppercase tracking-widest flex items-center gap-2">
                         <i class="bi bi-lightning-charge-fill"></i> Super Report
                     </button>
+                </div>
+
+                <!-- ── Yesterday Overview Tab ── -->
+                <div id="grid-yesterday" class="hidden space-y-6">
+                    <div id="yest-loading" class="flex flex-col items-center justify-center py-20">
+                        <div class="w-8 h-8 border-2 border-[#60a5fa] border-t-transparent rounded-full animate-spin mb-3"></div>
+                        <p class="text-slate-500 text-sm">Loading yesterday's data...</p>
+                    </div>
+                    <div id="yest-content" class="hidden space-y-6">
+
+                        <!-- KPI Row -->
+                        <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4" id="yest-kpis"></div>
+
+                        <!-- Middle row: Physicians + AE tabs -->
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+                            <!-- Top Referring Physicians -->
+                            <div class="card-custom p-5">
+                                <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest mb-4">Top Referring Physicians</p>
+                                <div id="yest-physicians" class="space-y-2"></div>
+                            </div>
+
+                            <!-- AE Performance (2 sub-tabs) -->
+                            <div class="card-custom p-5">
+                                <div class="flex items-center justify-between mb-4">
+                                    <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest">AE Performance</p>
+                                    <div class="flex gap-1">
+                                        <button onclick="switchAeTab('count')" id="ae-tab-count"
+                                            class="px-3 py-1 text-[10px] font-black uppercase rounded-lg bg-[#60a5fa] text-white transition-all">Procedures</button>
+                                        <button onclick="switchAeTab('util')" id="ae-tab-util"
+                                            class="px-3 py-1 text-[10px] font-black uppercase rounded-lg text-slate-500 hover:text-white transition-all">Utilization</button>
+                                    </div>
+                                </div>
+                                <div id="yest-ae-count" class="space-y-2"></div>
+                                <div id="yest-ae-util"  class="space-y-2 hidden"></div>
+                            </div>
+                        </div>
+
+                    </div>
+                    <div id="yest-error" class="hidden flex flex-col items-center justify-center py-20 text-center">
+                        <i class="bi bi-exclamation-triangle text-4xl text-red-400 mb-3"></i>
+                        <p class="text-red-400 font-bold">Could not load yesterday's data</p>
+                        <p id="yest-error-msg" class="text-slate-500 text-sm mt-1"></p>
+                    </div>
                 </div>
 
                 <!-- ── Favorites Tab ── -->
@@ -231,14 +278,105 @@
         }
 
         // ── Tabs ───────────────────────────────────────────────────────
+        let _yesterdayLoaded = false;
         function toggleTab(tabName) {
-            const grids = { favorites:'grid-favorites', clinical:'grid-clinical', it:'grid-it', ai:'grid-ai', super:'grid-super' };
-            const btns  = { favorites:'tab-favorites-btn', clinical:'tab-clinical-btn', it:'tab-it-btn', ai:'tab-ai-btn', super:'tab-super-btn' };
+            const grids = { favorites:'grid-favorites', yesterday:'grid-yesterday', clinical:'grid-clinical', it:'grid-it', ai:'grid-ai', super:'grid-super' };
+            const btns  = { favorites:'tab-favorites-btn', yesterday:'tab-yesterday-btn', clinical:'tab-clinical-btn', it:'tab-it-btn', ai:'tab-ai-btn', super:'tab-super-btn' };
             Object.keys(grids).forEach(k => {
                 document.getElementById(grids[k]).classList.toggle('hidden', k !== tabName);
                 document.getElementById(btns[k]).classList.toggle('active', k === tabName);
             });
             if (tabName === 'favorites') renderFavorites();
+            if (tabName === 'yesterday' && !_yesterdayLoaded) loadYesterday();
+        }
+
+        // ── Yesterday Overview ─────────────────────────────────────────
+        let _yd = null;
+
+        function loadYesterday() {
+            fetch('/viewer/yesterday')
+                .then(r => r.json())
+                .then(d => {
+                    if (d.error) throw new Error(d.error);
+                    _yd = d;
+                    _yesterdayLoaded = true;
+                    renderYesterday(d);
+                })
+                .catch(e => {
+                    document.getElementById('yest-loading').classList.add('hidden');
+                    document.getElementById('yest-error').classList.remove('hidden');
+                    document.getElementById('yest-error-msg').textContent = e.message;
+                });
+        }
+
+        function kpiCard(label, value, sub, color) {
+            const colors = { blue:'#60a5fa', green:'#22c55e', amber:'#f59e0b', red:'#ef4444', purple:'#a78bfa', cyan:'#22d3ee', orange:'#fb923c' };
+            const c = colors[color] || colors.blue;
+            return `<div class="card-custom p-4 flex flex-col gap-1" style="border-top:2px solid ${c};">
+                <p style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;">${label}</p>
+                <p style="font-size:22px;font-weight:900;color:white;font-family:monospace;line-height:1;">${value}</p>
+                ${sub ? `<p style="font-size:11px;color:#64748b;">${sub}</p>` : ''}
+            </div>`;
+        }
+
+        function bar(label, value, max, color, suffix='') {
+            const pct = max ? Math.min(100, Math.round(value/max*100)) : 0;
+            const barColor = pct >= 100 ? '#ef4444' : pct >= 85 ? '#f59e0b' : color;
+            return `<div>
+                <div class="flex justify-between items-center mb-1">
+                    <span style="font-size:12px;color:#cbd5e1;font-weight:600;">${label}</span>
+                    <span style="font-size:12px;color:white;font-weight:900;font-family:monospace;">${value}${suffix}</span>
+                </div>
+                <div style="background:#1e293b;border-radius:4px;height:6px;overflow:hidden;">
+                    <div style="width:${pct}%;height:100%;background:${barColor};border-radius:4px;transition:width .6s ease;"></div>
+                </div>
+            </div>`;
+        }
+
+        function renderYesterday(d) {
+            document.getElementById('yest-loading').classList.add('hidden');
+            document.getElementById('yest-content').classList.remove('hidden');
+
+            // KPIs
+            const vsAvg = d.vs_avg_pct !== null
+                ? `<span style="color:${d.vs_avg_pct >= 0 ? '#22c55e':'#ef4444'}">${d.vs_avg_pct >= 0 ? '▲':'▼'} ${Math.abs(d.vs_avg_pct)}% vs 7d avg</span>`
+                : '';
+            const peakTxt = d.peak_hour ? `Peak: ${String(d.peak_hour.hour).padStart(2,'0')}:00 (${d.peak_hour.count} orders)` : '';
+            const cancelTxt = d.orders_total ? `${d.cancel_rate}% cancel rate` : '';
+
+            document.getElementById('yest-kpis').innerHTML =
+                kpiCard('Orders',         d.orders_total,       cancelTxt,                               'blue')   +
+                kpiCard('Cancelled',      d.orders_cancelled,   'status CA',                             'red')    +
+                kpiCard('Studies',        d.studies_total,      vsAvg,                                   'cyan')   +
+                kpiCard('Unique Patients',d.unique_patients,    `${d.new_patients} new · ${d.returning_patients} returning`, 'green') +
+                kpiCard('ER Patients',    d.er_patients,        d.unique_patients ? `${Math.round(d.er_patients/d.unique_patients*100)}% of total` : '', 'orange') +
+                kpiCard('7d Avg Studies', d.avg_7d,             'daily average',                         'purple') +
+                kpiCard('Peak Hour',      d.peak_hour ? String(d.peak_hour.hour).padStart(2,'0')+':00' : '—', peakTxt, 'amber');
+
+            // Physicians
+            const maxPhys = d.physicians.length ? d.physicians[0].count : 1;
+            document.getElementById('yest-physicians').innerHTML =
+                d.physicians.length
+                    ? d.physicians.map(p => bar(p.name, p.count, maxPhys, '#60a5fa', ' studies')).join('')
+                    : '<p style="color:#64748b;font-size:13px;">No data</p>';
+
+            // AE by count
+            const maxAeCount = d.ae_by_count.length ? d.ae_by_count[0].count : 1;
+            document.getElementById('yest-ae-count').innerHTML =
+                d.ae_by_count.map(a => bar(a.ae, a.count, maxAeCount, '#22c55e', ' studies')).join('') || '<p style="color:#64748b;font-size:13px;">No data</p>';
+
+            // AE by utilization
+            document.getElementById('yest-ae-util').innerHTML =
+                d.ae_by_util.map(a => bar(a.ae, a.util_pct, 100, '#22c55e', '%')).join('') || '<p style="color:#64748b;font-size:13px;">No utilization data</p>';
+        }
+
+        function switchAeTab(tab) {
+            document.getElementById('yest-ae-count').classList.toggle('hidden', tab !== 'count');
+            document.getElementById('yest-ae-util').classList.toggle('hidden',  tab !== 'util');
+            document.getElementById('ae-tab-count').style.background = tab === 'count' ? '#60a5fa' : '';
+            document.getElementById('ae-tab-count').style.color      = tab === 'count' ? 'white'   : '';
+            document.getElementById('ae-tab-util').style.background  = tab === 'util'  ? '#60a5fa' : '';
+            document.getElementById('ae-tab-util').style.color       = tab === 'util'  ? 'white'   : '';
         }
 
         // ── Favorites ──────────────────────────────────────────────────
