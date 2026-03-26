@@ -335,23 +335,7 @@ class PortalConfig(db.Model):
         return f"<PortalConfig {self.config_key}>"
 
 # ----------------------------------------------------------------
-# 8. AI QUERY LIBRARY
-# ----------------------------------------------------------------
-
-class AIQueryLibrary(db.Model):
-    __tablename__ = 'ai_query_library'
-    id             = db.Column(Integer, primary_key=True)
-    label          = db.Column(Text, nullable=False)           # shown to the model as context label
-    keywords       = db.Column(Text, default='')               # comma-separated trigger words
-    sql_query      = db.Column(Text, nullable=False)           # SQL to run
-    result_prefix  = db.Column(Text, default='')               # e.g. "TAT last 30 days: "
-    row_template   = db.Column(Text, default='')               # e.g. "{modality}: {avg_tat_hours}h"
-    is_always      = db.Column(Boolean, default=False)         # run on every question
-    is_active      = db.Column(Boolean, default=True)
-    created_at     = db.Column(DateTime, server_default=func.now())
-
-# ----------------------------------------------------------------
-# 9. ALIASES (KEEPS CONTROLLERS HAPPY)
+# 8. ALIASES (KEEPS CONTROLLERS HAPPY)
 # ----------------------------------------------------------------
 ActiveSession        = active_sessions
 AETitleModalityMap   = aetitle_modality_map

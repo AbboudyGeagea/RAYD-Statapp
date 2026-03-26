@@ -46,6 +46,8 @@ import requests
 import logging
 import json
 import os
+import time
+import hashlib
 import psutil
 from flask import Blueprint, request, jsonify, render_template
 from flask_login import login_required
@@ -60,6 +62,12 @@ bitnet_bp = Blueprint("bitnet", __name__)
 BITNET_SERVER = os.environ.get("BITNET_SERVER", "http://172.17.0.1:8081")
 MAX_TOKENS    = int(os.environ.get("BITNET_TOKENS", "512"))
 TIMEOUT_SECS  = int(os.environ.get("BITNET_TIMEOUT", "120"))
+
+# ── Caches ────────────────────────────────────────────────────
+_context_cache   = {"data": None, "ts": 0}   # DB context, refreshed every 60s
+_response_cache  = {}                         # identical questions, max 100 entries
+CONTEXT_TTL      = 60    # seconds
+RESPONSE_TTL     = 300   # seconds (5 min)
 
 
 def _run_inference(system: str, user: str, max_tokens: int = None) -> str:
@@ -155,6 +163,19 @@ def chat():
     # Fetch live context from PG to ground the answer
     context = _build_db_context(message)
 
+    # Response cache — skip inference for identical questions
+    cache_key = hashlib.md5(message.lower().strip().encode()).hexdigest()
+    now = time.time()
+    if cache_key in _response_cache:
+        entry = _response_cache[cache_key]
+        if (now - entry["ts"]) < RESPONSE_TTL:
+            return jsonify({"response": entry["response"], "context_used": True, "cached": True})
+
+    # Evict oldest entries if cache too large
+    if len(_response_cache) > 100:
+        oldest = min(_response_cache, key=lambda k: _response_cache[k]["ts"])
+        del _response_cache[oldest]
+
     arabic_chars = sum(1 for c in message if '\u0600' <= c <= '\u06ff')
     lang_rule = "Reply in Arabic." if arabic_chars > 3 else "Reply in English."
 
@@ -167,7 +188,8 @@ def chat():
     )
     user = f"Data:\n{context}\n\nQuestion: {message}"
 
-    response = _run_inference(system, user, max_tokens=300)
+    response = _run_inference(system, user, max_tokens=150)
+    _response_cache[cache_key] = {"response": response, "ts": now}
     return jsonify({"response": response, "context_used": bool(context)})
 
 
@@ -265,20 +287,20 @@ PREDEFINED_QUERIES = [
         "label": "Turnaround time (TAT) by modality — last 30 days",
         "sql": """
             SELECT
-                s.study_modality AS modality,
-                ROUND(AVG(EXTRACT(EPOCH FROM (s.study_date::timestamp - o.scheduled_datetime)) / 3600)::numeric, 1) AS avg_tat_hours,
+                COALESCE(UPPER(m.modality), 'N/A') AS modality,
+                ROUND(AVG(EXTRACT(EPOCH FROM (s.rep_final_timestamp - s.study_date)) / 60)::numeric, 0) AS avg_tat_min,
+                ROUND(AVG(EXTRACT(EPOCH FROM (s.rep_final_timestamp - s.study_date)) / 3600)::numeric, 1) AS avg_tat_hours,
                 COUNT(*) AS studies
-            FROM etl_orders o
-            JOIN etl_didb_studies s ON s.study_db_uid = o.study_db_uid
-            WHERE o.scheduled_datetime >= CURRENT_DATE - INTERVAL '30 days'
-              AND s.study_date IS NOT NULL
-              AND o.scheduled_datetime IS NOT NULL
-              AND s.study_modality IS NOT NULL
-            GROUP BY s.study_modality
-            ORDER BY avg_tat_hours DESC
+            FROM etl_didb_studies s
+            LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
+            WHERE s.study_date >= CURRENT_DATE - INTERVAL '30 days'
+              AND s.rep_final_timestamp IS NOT NULL
+              AND s.rep_final_signed_by IS NOT NULL
+            GROUP BY m.modality
+            ORDER BY avg_tat_min DESC
         """,
         "format": lambda rows: "TAT last 30 days: " + ", ".join([
-            f"{r['modality']}: {r['avg_tat_hours']}h avg ({r['studies']} studies)" for r in rows
+            f"{r['modality']}: {r['avg_tat_min']} min avg ({r['studies']} studies)" for r in rows
         ]) if rows else None,
     },
     {
@@ -377,22 +399,37 @@ PREDEFINED_QUERIES = [
 def _build_db_context(question: str) -> str:
     """
     Runs matching predefined queries based on keywords in the question.
+    Always-on queries are cached for CONTEXT_TTL seconds.
     Add new queries to PREDEFINED_QUERIES above.
     """
     ctx_parts = []
     q = question.lower()
+    now = time.time()
 
     try:
         with db.engine.connect() as conn:
             for entry in PREDEFINED_QUERIES:
-                # Check if this query should run
-                always = entry.get("always", False)
+                always   = entry.get("always", False)
                 keywords = entry.get("keywords", [])
+
                 if not always and not any(w in q for w in keywords):
                     continue
 
-                rows = conn.execute(text(entry["sql"])).mappings().fetchall()
-                result = entry["format"](list(rows))
+                # Use cache for always-on queries
+                if always:
+                    cache_key = entry["label"]
+                    cached = _context_cache.get(cache_key)
+                    if cached and (now - cached["ts"]) < CONTEXT_TTL:
+                        if cached["result"]:
+                            ctx_parts.append(cached["result"])
+                        continue
+                    rows = conn.execute(text(entry["sql"])).mappings().fetchall()
+                    result = entry["format"](list(rows))
+                    _context_cache[cache_key] = {"result": result, "ts": now}
+                else:
+                    rows = conn.execute(text(entry["sql"])).mappings().fetchall()
+                    result = entry["format"](list(rows))
+
                 if result:
                     ctx_parts.append(result)
 
