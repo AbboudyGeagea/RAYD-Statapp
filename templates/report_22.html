@@ -143,6 +143,44 @@
             </div>
         </div>
 
+        <!-- Physician Modality + Avg Age row -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="card">
+                <div class="card-header">Physician → Modality Preference (Top 10)</div>
+                <div class="card-desc">Which modality each top referring physician sends most to. Stacked bars per physician, coloured by modality.</div>
+                <div id="c_phys_mod" class="chart-container"></div>
+            </div>
+            <div class="card">
+                <div class="card-header text-amber-400">Average Patient Age per Physician</div>
+                <div class="card-desc">Mean age of patients referred by each physician (top 15 by volume, min 5 studies). Helps identify physician specialisation profile.</div>
+                <div id="c_phys_age" class="chart-container"></div>
+            </div>
+        </div>
+
+        <!-- Avg Age per Procedure (searchable) -->
+        <div class="card">
+            <div class="card-header text-sky-400">Average Patient Age per Procedure Code (Top 20)</div>
+            <div class="card-desc">Mean patient age for the 20 most-performed procedure codes. Use the search box below to filter the full list.</div>
+            <div id="c_proc_age" class="chart-container"></div>
+            <div style="padding:16px 20px;border-top:1px solid #1e293b;">
+                <input id="proc-search" type="text" placeholder="Search procedure codes…"
+                    oninput="filterProcTable(this.value)"
+                    style="background:#0f172a;border:1px solid #1e293b;color:white;padding:8px 12px;border-radius:6px;width:100%;font-size:12px;outline:none;">
+                <div style="overflow-x:auto;margin-top:12px;">
+                    <table id="proc-table" style="width:100%;border-collapse:collapse;font-size:12px;">
+                        <thead>
+                            <tr style="border-bottom:1px solid #1e293b;">
+                                <th style="text-align:left;padding:8px 12px;color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.06em;">Procedure Code</th>
+                                <th style="text-align:right;padding:8px 12px;color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.06em;">Avg Age</th>
+                                <th style="text-align:right;padding:8px 12px;color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.06em;">Studies</th>
+                            </tr>
+                        </thead>
+                        <tbody id="proc-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
         <!-- Demographics row -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div class="card">
@@ -225,6 +263,67 @@
                     label: { show: true, position: 'right', color: '#10b981', fontSize: 10 }
                 }]
             });
+
+            // 5. Physician → Modality stacked bar
+            const modColors = ['#38ada9','#8b5cf6','#f59e0b','#10b981','#3b82f6','#ec4899','#f87171','#34d399','#a78bfa','#fb923c'];
+            echarts.init(document.getElementById('c_phys_mod')).setOption({
+                tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+                legend: { bottom: 0, textStyle: { color: '#94a3b8', fontSize: 10 } },
+                grid: { left: '3%', right: '4%', bottom: '15%', containLabel: true },
+                xAxis: { type: 'value', axisLabel: { show: false } },
+                yAxis: { type: 'category', data: d.phys_mod.physicians, axisLabel: { color: '#64748b', fontSize: 10 } },
+                series: d.phys_mod.series.map((s, i) => ({
+                    name: s.name, type: 'bar', stack: 'total',
+                    data: s.data,
+                    itemStyle: { color: modColors[i % modColors.length] },
+                    label: { show: false }
+                }))
+            });
+
+            // 6. Avg age per physician
+            const physAgeNames = d.phys_age.map(p => p.name).reverse();
+            const physAgeVals  = d.phys_age.map(p => p.avg_age).reverse();
+            echarts.init(document.getElementById('c_phys_age')).setOption({
+                tooltip: { trigger: 'item', formatter: p => `${p.name}<br/>Avg Age: <b>${p.value}</b>` },
+                xAxis: { type: 'value', splitLine: { lineStyle: { color: '#111827' } }, axisLabel: { color: '#64748b', fontSize: 10 } },
+                yAxis: { type: 'category', data: physAgeNames, axisLabel: { color: '#64748b', fontSize: 10 } },
+                series: [{
+                    type: 'bar', data: physAgeVals,
+                    itemStyle: { color: '#f59e0b', borderRadius: [0, 4, 4, 0] },
+                    label: { show: true, position: 'right', color: '#f59e0b', fontSize: 10, formatter: v => v.value + ' yrs' }
+                }]
+            });
+
+            // 7. Avg age per procedure code (top 20 chart)
+            const procCodes = d.proc_age.map(p => p.code).reverse();
+            const procAges  = d.proc_age.map(p => p.avg_age).reverse();
+            echarts.init(document.getElementById('c_proc_age')).setOption({
+                tooltip: { trigger: 'item', formatter: p => `${p.name}<br/>Avg Age: <b>${p.value} yrs</b>` },
+                grid: { left: '3%', right: '5%', top: '5%', bottom: '5%', containLabel: true },
+                xAxis: { type: 'value', splitLine: { lineStyle: { color: '#111827' } }, axisLabel: { color: '#64748b', fontSize: 10 } },
+                yAxis: { type: 'category', data: procCodes, axisLabel: { color: '#64748b', fontSize: 10 } },
+                series: [{
+                    type: 'bar', data: procAges,
+                    itemStyle: { color: '#38bdf8', borderRadius: [0, 4, 4, 0] },
+                    label: { show: true, position: 'right', color: '#38bdf8', fontSize: 10, formatter: v => v.value + ' yrs' }
+                }]
+            });
+
+            // Searchable proc table (full list)
+            const _allProcs = d.proc_age;
+            function renderProcTable(rows) {
+                document.getElementById('proc-tbody').innerHTML = rows.map(p =>
+                    `<tr style="border-bottom:1px solid #0f172a;" onmouseover="this.style.background='#0f172a'" onmouseout="this.style.background=''">
+                        <td style="padding:8px 12px;color:#e2e8f0;font-family:monospace;">${p.code}</td>
+                        <td style="padding:8px 12px;text-align:right;color:#f59e0b;font-weight:700;">${p.avg_age} yrs</td>
+                        <td style="padding:8px 12px;text-align:right;color:#64748b;">${p.cnt}</td>
+                    </tr>`
+                ).join('');
+            }
+            function filterProcTable(q) {
+                renderProcTable(_allProcs.filter(p => p.code.toLowerCase().includes(q.toLowerCase())));
+            }
+            renderProcTable(_allProcs);
 
             // 5. Gender Rose
             echarts.init(document.getElementById('c_gender')).setOption({

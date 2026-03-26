@@ -68,10 +68,11 @@ def report_22():
         where, params = get_where_params(request.form)
 
         base_sql = """
-            SELECT 
+            SELECT
                 s.study_db_uid, s.procedure_code, s.study_date, s.storing_ae, s.study_description,
                 m.modality, s.study_status, s.patient_db_uid, p.sex, p.age_group,
-                s.patient_class, 
+                s.patient_class,
+                s.age_at_exam,
                 COALESCE(NULLIF(TRIM(CONCAT_WS(' ', s.referring_physician_first_name, s.referring_physician_last_name)), ''), 'Unknown') as physician,
                 s.patient_location, p.fallback_id as patient_id
             FROM etl_didb_studies s
@@ -120,6 +121,40 @@ def report_22():
             ORDER BY pct_change ASC LIMIT 10
         """)).fetchall()
 
+        # 2d. Physician → modality breakdown (top 10 physicians, their modality split)
+        res_phys_mod = db.session.execute(text(f"""
+            {cte}
+            SELECT physician, COALESCE(modality, 'UNMAPPED') as mod, COUNT(*) as cnt
+            FROM base_data {where}
+            AND physician != 'Unknown'
+            GROUP BY 1, 2
+            ORDER BY 1, 3 DESC
+        """), params).fetchall()
+
+        # 2e. Average age per physician (top 10 by volume, exclude Unknown)
+        res_phys_age = db.session.execute(text(f"""
+            {cte}
+            SELECT physician, ROUND(AVG(age_at_exam)::numeric, 1) as avg_age, COUNT(*) as cnt
+            FROM base_data {where}
+            AND physician != 'Unknown'
+            AND age_at_exam IS NOT NULL
+            GROUP BY 1
+            HAVING COUNT(*) >= 5
+            ORDER BY cnt DESC LIMIT 15
+        """), params).fetchall()
+
+        # 2f. Average age per procedure code (top 20 by volume)
+        res_proc_age = db.session.execute(text(f"""
+            {cte}
+            SELECT procedure_code, ROUND(AVG(age_at_exam)::numeric, 1) as avg_age, COUNT(*) as cnt
+            FROM base_data {where}
+            AND procedure_code IS NOT NULL
+            AND age_at_exam IS NOT NULL
+            GROUP BY 1
+            HAVING COUNT(*) >= 5
+            ORDER BY cnt DESC LIMIT 20
+        """), params).fetchall()
+
         # 3. Demographics
         res_demo = db.session.execute(text(f"{cte} SELECT COALESCE(age_group, 'Unknown'), COALESCE(sex, 'U'), COUNT(*) FROM base_data {where} GROUP BY 1, 2"), params).fetchall()
         
@@ -153,6 +188,16 @@ def report_22():
                 m_node["children"].append(ae_node)
             final_tree["children"].append(m_node)
 
+        # Build physician → modality stacked bar data
+        phys_mod_map = {}
+        all_mods = set()
+        for phys, mod, cnt in res_phys_mod:
+            phys_mod_map.setdefault(phys, {})[mod] = cnt
+            all_mods.add(mod)
+        # Keep top 10 physicians by total volume
+        top10_phys = sorted(phys_mod_map, key=lambda p: sum(phys_mod_map[p].values()), reverse=True)[:10]
+        all_mods = sorted(all_mods)
+
         data = {
             "stat_c": {r[0]: r[1] for r in res_status},
             "phys_c": {r[0]: r[1] for r in res_phys},
@@ -161,7 +206,17 @@ def report_22():
             "tree_data": [final_tree],
             "gender_data": [{"name": k, "value": v} for k, v in gender_counts.items() if v > 0],
             "age_labels": sorted(age_map.keys()),
-            "age_values": [age_map[a] for a in sorted(age_map.keys())]
+            "age_values": [age_map[a] for a in sorted(age_map.keys())],
+            "phys_mod": {
+                "physicians": top10_phys,
+                "modalities": all_mods,
+                "series": [
+                    {"name": mod, "data": [phys_mod_map.get(p, {}).get(mod, 0) for p in top10_phys]}
+                    for mod in all_mods
+                ]
+            },
+            "phys_age": [{"name": r[0], "avg_age": float(r[1]) if r[1] else 0} for r in res_phys_age],
+            "proc_age": [{"code": r[0], "avg_age": float(r[1]) if r[1] else 0, "cnt": r[2]} for r in res_proc_age],
         }
 
     return render_template("report_22.html", data=data, filters=filters, run_report=run_report, display_start=start_date, display_end=end_date, status_list=status_list, mod_list=mod_list, ae_list=ae_list)
