@@ -181,6 +181,13 @@
             </div>
         </div>
 
+        <!-- Physician Status Breakdown -->
+        <div class="card">
+            <div class="card-header text-rose-400">Study Status per Top Physician</div>
+            <div class="card-desc">Status breakdown (Completed, Cancelled, etc.) for the top 10 referring physicians by volume. High cancellation or incomplete rates may indicate ordering behaviour issues.</div>
+            <div id="c_phys_status" class="chart-container" style="height:420px;"></div>
+        </div>
+
         <!-- Demographics row -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div class="card">
@@ -324,6 +331,23 @@
                 renderProcTable(_allProcs.filter(p => p.code.toLowerCase().includes(q.toLowerCase())));
             }
             renderProcTable(_allProcs);
+
+            // 8. Physician status stacked bar
+            const statusColors = ['#22c55e','#ef4444','#f59e0b','#3b82f6','#a78bfa','#ec4899','#64748b','#34d399','#fb923c','#38bdf8'];
+            if (d.phys_status && d.phys_status.physicians.length) {
+                echarts.init(document.getElementById('c_phys_status')).setOption({
+                    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+                    legend: { bottom: 0, textStyle: { color: '#94a3b8', fontSize: 10 }, type: 'scroll' },
+                    grid: { left: '3%', right: '4%', bottom: '20%', containLabel: true },
+                    xAxis: { type: 'value', axisLabel: { show: false } },
+                    yAxis: { type: 'category', data: d.phys_status.physicians, axisLabel: { color: '#64748b', fontSize: 10 } },
+                    series: d.phys_status.series.map((s, i) => ({
+                        name: s.name, type: 'bar', stack: 'total',
+                        data: s.data,
+                        itemStyle: { color: statusColors[i % statusColors.length] }
+                    }))
+                });
+            }
 
             // 5. Gender Rose
             echarts.init(document.getElementById('c_gender')).setOption({

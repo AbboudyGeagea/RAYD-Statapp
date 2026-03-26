@@ -189,6 +189,40 @@ def report_23():
                             .to_dict('records')
                         )
 
+                    # ── Modality × Patient Class heatmap ─────────────────────
+                    mod_class_heatmap = {}
+                    if 'patient_class' in df_agg.columns and 'modality' in df_agg.columns:
+                        hm = df_agg.dropna(subset=['modality', 'patient_class']).groupby(['modality', 'patient_class']).size().reset_index(name='cnt')
+                        mods_hm = sorted(hm['modality'].unique().tolist())
+                        classes_hm = sorted(hm['patient_class'].unique().tolist())
+                        hm_data = [
+                            [classes_hm.index(r['patient_class']), mods_hm.index(r['modality']), int(r['cnt'])]
+                            for _, r in hm.iterrows()
+                        ]
+                        mod_class_heatmap = {
+                            'mods': mods_hm, 'classes': classes_hm,
+                            'data': hm_data, 'max': int(hm['cnt'].max()) if not hm.empty else 1
+                        }
+
+                    # ── Age distribution per modality ─────────────────────────
+                    age_mod = {}
+                    if 'modality' in df_agg.columns:
+                        _age_order = ['[0-1 month]', '[1 month - 1 year]', '[1-12 years]', '[13-18]', '[19-35]', '[36-64]', '[65+]']
+                        df_agg['_am_bucket'] = pd.cut(
+                            df_agg['age_at_exam'],
+                            bins=[-0.001, 0.083, 1, 12, 18, 35, 64, 999],
+                            labels=_age_order
+                        )
+                        am_piv = df_agg.dropna(subset=['modality']).groupby(['modality', '_am_bucket']).size().unstack(fill_value=0)
+                        mods_am = sorted(am_piv.index.tolist())
+                        age_mod = {
+                            'mods': mods_am, 'ages': _age_order,
+                            'series': [
+                                {'name': age, 'data': [int(am_piv.loc[m, age]) if age in am_piv.columns else 0 for m in mods_am]}
+                                for age in _age_order
+                            ]
+                        }
+
                     chart_json = {
                         "class":   {"labels": list(class_vol.keys()), "values": list(class_vol.values())},
                         "mod_age": {"labels": list(mod_avg.keys()),   "values": [round(v, 1) for v in mod_avg.values()]},
@@ -206,6 +240,8 @@ def report_23():
                         "monthly_trend": monthly_trend,
                         "repeat_rates":  repeat_rates,
                         "cube_data":     cube_data,
+                        "mod_class_heatmap": mod_class_heatmap,
+                        "age_mod": age_mod,
                     }
         except Exception as e:
             print(f"Error executing report: {e}")

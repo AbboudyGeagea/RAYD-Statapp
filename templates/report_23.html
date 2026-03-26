@@ -261,6 +261,36 @@
                     <div id="monthlyChart" class="chart-container"></div>
                 </div>
 
+                <!-- Modality × Patient Class Heatmap -->
+                <div class="data-card lg:col-span-2">
+                    <div class="card-header">
+                        <span>Modality × Patient Class Heatmap</span>
+                        <button class="export-img-btn" onclick="exportChart('heatmapChart', 'modality_class_heatmap')">
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                            </svg>
+                            PNG
+                        </button>
+                    </div>
+                    <div class="card-desc">Cross-tabulation of imaging modality vs. patient class (Inpatient, Outpatient, Emergency…). Darker cells indicate higher study counts — reveals which care settings drive demand for each modality.</div>
+                    <div id="heatmapChart" class="chart-container" style="min-height: 420px;"></div>
+                </div>
+
+                <!-- Age Distribution per Modality -->
+                <div class="data-card lg:col-span-2">
+                    <div class="card-header">
+                        <span>Age Distribution per Modality</span>
+                        <button class="export-img-btn" onclick="exportChart('ageModChart', 'age_distribution_per_modality')">
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                            </svg>
+                            PNG
+                        </button>
+                    </div>
+                    <div class="card-desc">Study count per age group, stacked by modality. Shows which imaging types dominate each age demographic — useful for capacity planning and protocol review.</div>
+                    <div id="ageModChart" class="chart-container" style="min-height: 420px;"></div>
+                </div>
+
                 <!-- Age x Gender x Modality Cube -->
                 <div class="data-card lg:col-span-2">
                     <div class="card-header">
@@ -408,6 +438,42 @@
                     xAxis: { type: 'category', data: ages, axisLabel: { color: '#94a3b8', fontSize: 12 } },
                     yAxis: { type: 'value', splitLine, axisLabel },
                     series
+                });
+            }
+
+            // Modality × Patient Class heatmap
+            if (d.mod_class_heatmap && d.mod_class_heatmap.data && document.getElementById('heatmapChart')) {
+                const hm = d.mod_class_heatmap;
+                initChart('heatmapChart', {
+                    tooltip: { position: 'top', formatter: p => `${hm.mods[p.value[1]]}<br>${hm.classes[p.value[0]]}: <b>${p.value[2]}</b>` },
+                    grid: { top: '10%', bottom: '15%', left: '15%', right: '5%' },
+                    xAxis: { type: 'category', data: hm.classes, axisLabel: { color: '#94a3b8', fontSize: 11, rotate: 20 } },
+                    yAxis: { type: 'category', data: hm.mods, axisLabel: { color: '#94a3b8', fontSize: 11 } },
+                    visualMap: {
+                        min: 0, max: hm.max, calculable: true, orient: 'horizontal', left: 'center', bottom: 0,
+                        inRange: { color: ['#0d1210', '#818cf8', '#ec4899'] },
+                        textStyle: { color: '#64748b', fontSize: 10 }
+                    },
+                    series: [{ type: 'heatmap', data: hm.data, label: { show: true, color: '#fff', fontSize: 10 } }]
+                });
+            }
+
+            // Age distribution per modality
+            if (d.age_mod && d.age_mod.mods && document.getElementById('ageModChart')) {
+                const am = d.age_mod;
+                const amColors = ['#818cf8','#34d399','#f59e0b','#ec4899','#38bdf8','#a78bfa','#fb923c'];
+                initChart('ageModChart', {
+                    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+                    legend: { bottom: 0, textStyle: { color: '#94a3b8', fontSize: 10 }, type: 'scroll' },
+                    grid: { top: '10%', bottom: '15%', containLabel: true },
+                    xAxis: { type: 'category', data: am.mods, axisLabel: { color: '#94a3b8', fontSize: 11, rotate: 20 } },
+                    yAxis: { type: 'value', splitLine: { lineStyle: { color: '#2d3733' } }, axisLabel: { color: '#64748b', fontSize: 11 } },
+                    series: am.series.map((s, i) => ({
+                        name: s.name, type: 'bar', stack: 'total',
+                        data: s.data,
+                        itemStyle: { color: amColors[i % amColors.length] },
+                        emphasis: { focus: 'series' }
+                    }))
                 });
             }
         }

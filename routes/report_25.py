@@ -123,6 +123,38 @@ def get_gold_standard_data(form_data):
     print(f"STEP 4: Final Summary RVU: {df['rvu'].sum()}")
     print("--- [DIAGNOSTIC END] ---\n")
 
+    # ── New analytics ─────────────────────────────────────────────────
+    tat_hist, ae_tat, rvu_tat, outlier_studies, global_mean_tat = [], [], [], [], 0.0
+
+    if 'total_tat_min' in df.columns:
+        tat_vals = df[df['total_tat_min'] > 0]['total_tat_min']
+        global_mean_tat = round(float(tat_vals.mean()), 1) if len(tat_vals) > 0 else 0.0
+        bins   = [0, 30, 60, 90, 120, 180, 240, 360]
+        labels = ['0-30m', '31-60m', '61-90m', '91-120m', '121-180m', '181-240m', '241-360m', '360m+']
+        for i, label in enumerate(labels):
+            lo = bins[i]
+            hi = bins[i + 1] if i < len(bins) - 1 else float('inf')
+            tat_hist.append({'label': label, 'count': int(((tat_vals > lo) & (tat_vals <= hi)).sum())})
+
+        if 'aetitle' in df.columns:
+            ae_g = df[df['total_tat_min'] > 0].groupby('aetitle')['total_tat_min'].agg(['mean', 'count']).reset_index()
+            ae_g = ae_g[ae_g['count'] >= 5].sort_values('mean')
+            ae_tat = [{'ae': r['aetitle'], 'avg_tat': round(float(r['mean']), 1), 'cnt': int(r['count'])} for _, r in ae_g.iterrows()]
+
+        threshold = global_mean_tat * 2
+        out_cols = [c for c in ['aetitle', 'modality', 'reading_radiologist', 'patient_class', 'procedure_code', 'study_date', 'total_tat_min'] if c in df.columns]
+        out_df = df[df['total_tat_min'] > threshold][out_cols].sort_values('total_tat_min', ascending=False).head(50)
+        for row in out_df.to_dict('records'):
+            if 'study_date' in row and hasattr(row['study_date'], 'strftime'):
+                row['study_date'] = str(row['study_date'])[:10]
+            if 'total_tat_min' in row:
+                row['total_tat_min'] = round(float(row['total_tat_min']), 1)
+            outlier_studies.append(row)
+
+    if 'rvu' in df.columns and 'total_tat_min' in df.columns:
+        tmp = df[(df['rvu'] > 0) & (df['total_tat_min'] > 0)][['rvu', 'total_tat_min']]
+        rvu_tat = [[round(float(r[0]), 2), round(float(r[1]), 1)] for r in tmp.values.tolist()]
+
     return {
         "summary": {
             "total": len(df), "global_util": f"{(sum(r['avg'] for r in matrix_rows)/len(matrix_rows) if matrix_rows else 0):.1f}%", 
@@ -136,7 +168,12 @@ def get_gold_standard_data(form_data):
         "modality_split": [{"name": k, "value": int(v)} for k, v in df['modality'].value_counts().items()] if 'modality' in df.columns else [], 
         "hourly_patterns": {i: int(v) for i, v in pd.to_datetime(df['scheduled_datetime']).dt.hour.value_counts().sort_index().items()} if 'scheduled_datetime' in df.columns else {}, 
         "correlation": df[['proc_duration', 'total_tat_min']].values.tolist() if 'proc_duration' in df.columns and 'total_tat_min' in df.columns else [],
-        "raw_df": df
+        "raw_df": df,
+        "tat_hist": tat_hist,
+        "ae_tat": ae_tat,
+        "rvu_tat": rvu_tat,
+        "outlier_studies": outlier_studies,
+        "global_mean_tat": global_mean_tat,
     }, start, end
 
 @report_25_bp.route("/report/25", methods=["GET", "POST"])

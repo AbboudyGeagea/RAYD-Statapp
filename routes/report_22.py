@@ -155,6 +155,15 @@ def report_22():
             ORDER BY cnt DESC LIMIT 20
         """), params).fetchall()
 
+        # 2g. Study status breakdown per top physician
+        res_phys_status = db.session.execute(text(f"""
+            {cte}
+            SELECT physician, COALESCE(study_status, 'Unknown') as status, COUNT(*) as cnt
+            FROM base_data {where}
+            AND physician != 'Unknown'
+            GROUP BY 1, 2
+        """), params).fetchall()
+
         # 3. Demographics
         res_demo = db.session.execute(text(f"{cte} SELECT COALESCE(age_group, 'Unknown'), COALESCE(sex, 'U'), COUNT(*) FROM base_data {where} GROUP BY 1, 2"), params).fetchall()
         
@@ -198,6 +207,14 @@ def report_22():
         top10_phys = sorted(phys_mod_map, key=lambda p: sum(phys_mod_map[p].values()), reverse=True)[:10]
         all_mods = sorted(all_mods)
 
+        phys_status_map = {}
+        all_statuses_set = set()
+        for phys, status, cnt in res_phys_status:
+            phys_status_map.setdefault(phys, {})[status] = cnt
+            all_statuses_set.add(status)
+        top10_phys_st = sorted(phys_status_map, key=lambda p: sum(phys_status_map[p].values()), reverse=True)[:10]
+        all_statuses_list = sorted(all_statuses_set)
+
         data = {
             "stat_c": {r[0]: r[1] for r in res_status},
             "phys_c": {r[0]: r[1] for r in res_phys},
@@ -217,6 +234,14 @@ def report_22():
             },
             "phys_age": [{"name": r[0], "avg_age": float(r[1]) if r[1] else 0} for r in res_phys_age],
             "proc_age": [{"code": r[0], "avg_age": float(r[1]) if r[1] else 0, "cnt": r[2]} for r in res_proc_age],
+            "phys_status": {
+                "physicians": top10_phys_st,
+                "statuses": all_statuses_list,
+                "series": [
+                    {"name": s, "data": [phys_status_map.get(p, {}).get(s, 0) for p in top10_phys_st]}
+                    for s in all_statuses_list
+                ]
+            },
         }
 
     return render_template("report_22.html", data=data, filters=filters, run_report=run_report, display_start=start_date, display_end=end_date, status_list=status_list, mod_list=mod_list, ae_list=ae_list)

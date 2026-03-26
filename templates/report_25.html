@@ -318,6 +318,15 @@
                         </tbody>
                     </table>
                 </div>
+
+                <!-- Best vs Worst AE by Average TAT -->
+                <div class="glass-card">
+                    <div class="flex items-center justify-between mb-4">
+                        <p class="text-xs font-black text-blue-500 uppercase">Best vs Worst AE by Average TAT</p>
+                        <p class="text-[9px] text-zinc-500 uppercase">Min 5 studies · sorted fastest → slowest</p>
+                    </div>
+                    <div id="chart-ae-tat" class="w-full" style="height:320px;"></div>
+                </div>
             </div>
 
             <!-- ── RADIOLOGISTS TAB ───────────────────────────────────────── -->
@@ -406,20 +415,38 @@
                     </div>
                 </div>
 
-                <!-- Row 2: TAT Outlier Table -->
+                <!-- Row 2: TAT Histogram + RVU vs TAT scatter -->
+                <div class="grid grid-cols-2 gap-6">
+                    <div class="glass-card">
+                        <div class="flex items-center justify-between mb-4">
+                            <p class="text-xs font-black text-blue-500 uppercase">TAT Distribution</p>
+                            <p class="text-[9px] text-zinc-500 uppercase">Studies per TAT bucket</p>
+                        </div>
+                        <div id="chart-tat-hist" class="w-full" style="height:280px;"></div>
+                    </div>
+                    <div class="glass-card">
+                        <div class="flex items-center justify-between mb-4">
+                            <p class="text-xs font-black text-blue-500 uppercase">RVU vs TAT</p>
+                            <p class="text-[9px] text-zinc-500 uppercase">Revenue value vs turnaround time</p>
+                        </div>
+                        <div id="chart-rvu-tat" class="w-full" style="height:280px;"></div>
+                    </div>
+                </div>
+
+                <!-- Row 3: TAT Outlier Table -->
                 <div class="glass-card">
-                    <p class="text-xs font-black text-amber-500 uppercase mb-4">TAT Outlier Detection — Procedures >1.5× Median</p>
+                    <p class="text-xs font-black text-amber-500 uppercase mb-4">TAT Outlier Detection — Procedures >2× Mean TAT</p>
                     <div class="overflow-x-auto">
                         <table class="w-full text-xs">
                             <thead>
                                 <tr class="border-b border-white/5 text-zinc-500 uppercase text-[10px]">
                                     <th class="text-left py-3 px-4">Radiologist</th>
-                                    <th class="text-left py-3 px-4">Location</th>
+                                    <th class="text-left py-3 px-4">Patient Class</th>
                                     <th class="text-left py-3 px-4">Modality</th>
-                                    <th class="text-right py-3 px-4">Avg TAT</th>
-                                    <th class="text-right py-3 px-4">Median TAT</th>
+                                    <th class="text-right py-3 px-4">TAT</th>
+                                    <th class="text-right py-3 px-4">Mean TAT</th>
                                     <th class="text-right py-3 px-4">Ratio</th>
-                                    <th class="text-right py-3 px-4">Studies</th>
+                                    <th class="text-right py-3 px-4">Study Date</th>
                                 </tr>
                             </thead>
                             <tbody id="outlier-table-body" class="divide-y divide-white/5">
@@ -623,7 +650,61 @@
                     registerChart('chart-stress-scatter', cScatter);
                 }
 
-                // --- TAT Outlier Table ---
+                // TAT Histogram
+                if (document.getElementById('chart-tat-hist') && d.tat_hist) {
+                    const cTH = echarts.init(document.getElementById('chart-tat-hist'));
+                    cTH.setOption({
+                        tooltip: { trigger: 'axis' },
+                        xAxis: { type: 'category', data: d.tat_hist.map(r => r.label), ...axisStyle },
+                        yAxis: { type: 'value', name: 'Studies', nameTextStyle: { color: '#52525b', fontSize: 11 }, ...axisStyle },
+                        series: [{
+                            type: 'bar', data: d.tat_hist.map(r => r.count),
+                            itemStyle: { borderRadius: [5,5,0,0], color: p => {
+                                const colors = ['#22c55e','#22c55e','#3b82f6','#3b82f6','#f59e0b','#f59e0b','#ef4444','#ef4444'];
+                                return colors[p.dataIndex] || '#3b82f6';
+                            }},
+                            label: { show: true, position: 'top', color: '#71717a', fontSize: 10 }
+                        }]
+                    });
+                    registerChart('chart-tat-hist', cTH);
+                }
+
+                // RVU vs TAT scatter
+                if (document.getElementById('chart-rvu-tat') && d.rvu_tat) {
+                    const cRT = echarts.init(document.getElementById('chart-rvu-tat'));
+                    cRT.setOption({
+                        tooltip: { trigger: 'item', formatter: p => `RVU: ${p.value[0]}<br>TAT: ${p.value[1]}m` },
+                        xAxis: { name: 'RVU', nameTextStyle: { color: '#52525b', fontSize: 11 }, ...axisStyle },
+                        yAxis: { name: 'TAT (min)', nameTextStyle: { color: '#52525b', fontSize: 11 }, ...axisStyle },
+                        series: [{ type: 'scatter', data: d.rvu_tat, itemStyle: { color: '#f59e0b', opacity: 0.5 }, symbolSize: 5 }]
+                    });
+                    registerChart('chart-rvu-tat', cRT);
+                }
+
+                // Outlier table — server-side data
+                if (d.outlier_studies) {
+                    const body = document.getElementById('outlier-table-body');
+                    if (body) {
+                        if (d.outlier_studies.length === 0) {
+                            body.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-zinc-600">No outliers found (threshold: ${(d.global_mean_tat * 2).toFixed(0)}m)</td></tr>`;
+                        } else {
+                            const rows = d.outlier_studies.map(r => `
+                                <tr class="hover:bg-white/[0.02]">
+                                    <td class="py-3 px-4 text-zinc-300">${r.reading_radiologist || '—'}</td>
+                                    <td class="py-3 px-4 text-zinc-400">${r.patient_class || '—'}</td>
+                                    <td class="py-3 px-4 text-zinc-400">${r.modality || '—'}</td>
+                                    <td class="py-3 px-4 text-right text-amber-400 font-bold">${r.total_tat_min}m</td>
+                                    <td class="py-3 px-4 text-right text-zinc-500">${d.global_mean_tat}m</td>
+                                    <td class="py-3 px-4 text-right text-rose-400 font-black">${(r.total_tat_min / (d.global_mean_tat || 1)).toFixed(1)}×</td>
+                                    <td class="py-3 px-4 text-right text-zinc-600">${r.study_date || '—'}</td>
+                                </tr>`).join('');
+                            body.innerHTML = rows;
+                            document.getElementById('kpi-outlier-count').textContent = d.outlier_studies.length;
+                        }
+                    }
+                }
+
+                // --- TAT Outlier Table (legacy client-side) ---
                 const allTats = [];
                 (d.rad_cards || []).forEach(rad => {
                     (rad.drilldown || []).forEach(loc => {
@@ -677,6 +758,24 @@
                         </tr>
                     `).join('');
                 }
+            }
+
+            // AE by TAT (Infrastructure tab)
+            if (!$('#tab-infra').hasClass('hidden') && d.ae_tat && document.getElementById('chart-ae-tat')) {
+                const cAeTat = echarts.init(document.getElementById('chart-ae-tat'));
+                const midpoint = Math.floor(d.ae_tat.length / 2);
+                cAeTat.setOption({
+                    tooltip: { trigger: 'axis', formatter: p => `${p[0].name}<br>Avg TAT: <b>${p[0].value}m</b>` },
+                    grid: { left: 80, right: 60, top: 10, bottom: 30 },
+                    xAxis: { type: 'value', name: 'Avg TAT (min)', nameTextStyle: { color: '#52525b', fontSize: 11 }, ...axisStyle },
+                    yAxis: { type: 'category', data: d.ae_tat.map(r => r.ae), ...axisStyle },
+                    series: [{
+                        type: 'bar', data: d.ae_tat.map(r => r.avg_tat),
+                        itemStyle: { borderRadius: [0,5,5,0], color: (p) => p.dataIndex < midpoint ? '#22c55e' : p.dataIndex > d.ae_tat.length - midpoint - 1 ? '#ef4444' : '#3b82f6' },
+                        label: { show: true, position: 'right', color: '#71717a', fontSize: 10, formatter: p => p.value + 'm' }
+                    }]
+                });
+                registerChart('chart-ae-tat', cAeTat);
             }
         }
 
