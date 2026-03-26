@@ -86,12 +86,11 @@
                     <input type="date" name="start_date" class="input-field mb-2" value="{{ display_start }}">
                     <input type="date" name="end_date"   class="input-field"      value="{{ display_end }}">
                 </div>
-                <button type="submit" class="run-btn">Run AI Analysis</button>
+                <button type="submit" class="run-btn">Update Analysis</button>
             </form>
 
-            {% if run_report and data %}
             <div style="border-top:1px solid var(--border);padding-top:16px;">
-                <label class="mb-3">Modules Run</label>
+                <label class="mb-3">Modules</label>
                 <div class="flex flex-col gap-2">
                     {% for module, lbl, color in [('storage','Storage Forecast','#2f80ed'),('volume','Volume Forecast','#56ccf2'),('utilization','Utilization Anomalies','#f2994a'),('physician','Physician Intelligence','#9b51e0')] %}
                     <div class="flex items-center justify-between">
@@ -101,29 +100,18 @@
                     {% endfor %}
                 </div>
             </div>
-            {% endif %}
         </aside>
 
         <div class="flex-1 flex flex-col overflow-hidden">
 
             <div class="tab-bar">
-                {% if run_report and data %}
                 <div class="tab active" onclick="switchTab('storage',   this)">📦 Storage</div>
                 <div class="tab"        onclick="switchTab('volume',    this)">📈 Volume</div>
                 <div class="tab"        onclick="switchTab('util',      this)">⚡ Utilization</div>
                 <div class="tab"        onclick="switchTab('physician', this)">👨‍⚕️ Physicians</div>
-                {% else %}
-                <div class="tab" style="color:var(--muted);cursor:default;">📦 Storage</div>
-                <div class="tab" style="color:var(--muted);cursor:default;">📈 Volume</div>
-                <div class="tab" style="color:var(--muted);cursor:default;">⚡ Utilization</div>
-                <div class="tab" style="color:var(--muted);cursor:default;">👨‍⚕️ Physicians</div>
-                {% endif %}
-
             </div>
 
             <div class="flex-1 overflow-y-auto p-6" style="background:var(--bg);" id="panels-wrap">
-
-                {% if run_report and data %}
 
                 <!-- STORAGE -->
                 <div id="panel-storage" class="panel active space-y-6">
@@ -191,15 +179,6 @@
                     {% else %}<div class="flex items-center justify-center h-64" style="color:var(--muted);">No physician data available.</div>{% endif %}
                 </div>
 
-                {% else %}
-                <!-- Empty state — shown before running the analysis -->
-                <div class="flex flex-col items-center justify-center h-full" style="color:var(--muted);gap:16px;padding-top:80px;">
-                    <div style="font-size:48px;">🤖</div>
-                    <p style="font-size:18px;font-weight:700;color:white;">Select a date range and run the analysis</p>
-                    <p style="font-size:13px;color:#94b8d8;">Storage forecasting, volume trends, utilization anomalies, and physician intelligence will appear here.</p>
-                </div>
-                {% endif %}
-
             </div><!-- /panels-wrap -->
         </div>
     </div>
@@ -214,6 +193,15 @@
         const panel = document.getElementById('panel-' + name);
         if (panel) panel.classList.add('active');
     }
+
+    // Deep-link: jump to the tab requested via ?tab= param
+    (function() {
+        const t = '{{ active_tab }}';
+        if (t && t !== 'storage') {
+            const el = document.querySelector('[onclick*="\'' + t + '\'"]');
+            switchTab(t, el);
+        }
+    })();
 
     const charts = {};
     function mkChart(id) {

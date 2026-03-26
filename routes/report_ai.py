@@ -1,4 +1,5 @@
 import json
+import logging
 import numpy as np
 import pandas as pd
 from datetime import date, timedelta
@@ -7,6 +8,7 @@ from flask_login import login_required
 from sqlalchemy import text
 from db import db, get_go_live_date
 
+logger = logging.getLogger("REPORT_AI")
 report_ai_bp = Blueprint("report_ai", __name__)
 
 # ─────────────────────────────────────────────
@@ -415,29 +417,38 @@ def report_ai():
     go_live = get_go_live_date() or date(2025, 1, 1)
     today   = date.today()
 
-    start = request.form.get("start_date", go_live.strftime('%Y-%m-%d'))
-    end   = request.form.get("end_date",   today.strftime('%Y-%m-%d'))
+    start = request.values.get("start_date", go_live.strftime('%Y-%m-%d'))
+    end   = request.values.get("end_date",   today.strftime('%Y-%m-%d'))
+    active_tab = request.values.get("tab", "storage")
 
-    run_report = request.method == "POST"
-    data       = {}
+    def _safe(fn, *args):
+        try:
+            return fn(*args)
+        except Exception as exc:
+            logger.error(f"[report_ai] {fn.__name__} failed: {exc}", exc_info=True)
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+            return None
 
-    if run_report:
-        storage     = _get_storage_intelligence(start, end)
-        volume      = _get_volume_intelligence(start, end)
-        utilization = _get_utilization_intelligence(start, end)
-        physician   = _get_physician_intelligence(start, end)
+    storage     = _safe(_get_storage_intelligence,     start, end)
+    volume      = _safe(_get_volume_intelligence,      start, end)
+    utilization = _safe(_get_utilization_intelligence, start, end)
+    physician   = _safe(_get_physician_intelligence,   start, end)
 
-        data = {
-            "storage":     storage,
-            "volume":      volume,
-            "utilization": utilization,
-            "physician":   physician
-        }
+    data = {
+        "storage":     storage,
+        "volume":      volume,
+        "utilization": utilization,
+        "physician":   physician
+    }
 
     return render_template(
         "report_ai.html",
         data=data,
-        run_report=run_report,
+        run_report=True,
         display_start=start,
-        display_end=end
+        display_end=end,
+        active_tab=active_tab
     )

@@ -89,13 +89,88 @@
     <main class="flex-1 p-10 overflow-y-auto bg-[#020617] space-y-8">
         {% if run_report %}
         
-        <!-- Physician Churn Alerts -->
+        <!-- Predictive Churn: At-Risk Physicians -->
+        {% if data.at_risk %}
+        <section class="space-y-4">
+            <div class="flex items-center justify-between">
+                <h2 class="text-xs font-black text-amber-400 uppercase tracking-widest flex items-center gap-2">
+                    <span class="w-2 h-2 bg-amber-400 rounded-full animate-pulse"></span> Early Churn Warning — Physicians at Risk
+                </h2>
+                <span class="text-[9px] font-bold text-slate-600 uppercase tracking-widest">Based on referral trend within selected period</span>
+            </div>
+            <p class="text-[10px] text-slate-500 italic -mt-2">
+                These physicians are <strong class="text-slate-300">still active</strong> but show a statistically significant decline in referral volume across the selected period. The second half of the period averaged ≥25% fewer referrals than the first half — a leading indicator of disengagement before full churn occurs.
+            </p>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+                {% for doc in data.at_risk %}
+                <div class="relative rounded-2xl border p-5 space-y-4
+                    {% if doc.risk_level == 'high' %}border-red-500/30 bg-red-950/20{% else %}border-amber-500/25 bg-amber-950/10{% endif %}">
+
+                    <!-- Risk badge -->
+                    <div class="absolute top-4 right-4">
+                        <span class="text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-full
+                            {% if doc.risk_level == 'high' %}bg-red-500/20 text-red-400{% else %}bg-amber-500/15 text-amber-400{% endif %}">
+                            {{ "⚠ High Risk" if doc.risk_level == 'high' else "⚡ Watch" }}
+                        </span>
+                    </div>
+
+                    <!-- Name -->
+                    <div>
+                        <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-0.5">Referring Physician</p>
+                        <p class="text-sm font-black text-white leading-tight pr-16">{{ doc.name }}</p>
+                    </div>
+
+                    <!-- Trend arrow -->
+                    <div class="flex items-center gap-3 py-2 border-y {% if doc.risk_level == 'high' %}border-red-900/40{% else %}border-amber-900/30{% endif %}">
+                        <div class="text-center">
+                            <p class="text-[9px] text-slate-500 font-bold uppercase">1st Half Avg</p>
+                            <p class="text-lg font-black text-slate-200">{{ doc.first_half_avg }}</p>
+                            <p class="text-[9px] text-slate-600">refs/month</p>
+                        </div>
+                        <div class="flex-1 flex flex-col items-center">
+                            <div class="text-xl {% if doc.risk_level == 'high' %}text-red-400{% else %}text-amber-400{% endif %}">→</div>
+                            <span class="text-[10px] font-black {% if doc.risk_level == 'high' %}text-red-400{% else %}text-amber-400{% endif %}">
+                                {{ doc.trend_pct }}%
+                            </span>
+                        </div>
+                        <div class="text-center">
+                            <p class="text-[9px] text-slate-500 font-bold uppercase">2nd Half Avg</p>
+                            <p class="text-lg font-black {% if doc.risk_level == 'high' %}text-red-400{% else %}text-amber-400{% endif %}">{{ doc.second_half_avg }}</p>
+                            <p class="text-[9px] text-slate-600">refs/month</p>
+                        </div>
+                    </div>
+
+                    <!-- Stats row -->
+                    <div class="grid grid-cols-3 gap-2 text-center">
+                        <div>
+                            <p class="text-[9px] text-slate-500 font-bold uppercase">Total Refs</p>
+                            <p class="text-sm font-black text-slate-200">{{ doc.total_refs }}</p>
+                        </div>
+                        <div>
+                            <p class="text-[9px] text-slate-500 font-bold uppercase">Active Months</p>
+                            <p class="text-sm font-black text-slate-200">{{ doc.active_months }}</p>
+                        </div>
+                        <div>
+                            <p class="text-[9px] text-slate-500 font-bold uppercase">Days Silent</p>
+                            <p class="text-sm font-black {% if doc.days_since > 30 %}text-red-400{% else %}text-slate-200{% endif %}">{{ doc.days_since }}</p>
+                        </div>
+                    </div>
+
+                    <!-- Last ref date -->
+                    <p class="text-[9px] text-slate-600 font-mono">Last referral: {{ doc.last_ref_date }}</p>
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+        {% endif %}
+
+        <!-- Confirmed Churn: Month-over-Month Drop -->
         <section class="space-y-4">
             <h2 class="text-xs font-black text-rose-500 uppercase tracking-widest flex items-center gap-2">
-                <span class="w-2 h-2 bg-rose-500 rounded-full animate-pulse"></span> Physician Churn Alerts (Last 60 Days)
+                <span class="w-2 h-2 bg-rose-500 rounded-full animate-pulse"></span> Confirmed Churn — Month-over-Month Drop
             </h2>
             <p class="text-[10px] text-slate-500 italic -mt-2">
-                Physicians whose referral volume dropped month-over-month in the last 60 days. Each card shows their current month count vs. previous month, with the percentage decline. Only physicians with a confirmed drop are listed.
+                Physicians whose most recent month's referral count fell below the previous month, within the selected date range. Requires at least 5 referrals in the prior month to filter statistical noise.
             </p>
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 {% for doc in data.phys_churn %}
@@ -111,7 +186,7 @@
                 </div>
                 {% endfor %}
                 {% if not data.phys_churn %}
-                <div class="col-span-4 p-4 text-center border border-dashed border-slate-800 rounded-xl text-slate-600 text-[10px] font-bold uppercase">No significant referral drops detected</div>
+                <div class="col-span-4 p-4 text-center border border-dashed border-slate-800 rounded-xl text-slate-600 text-[10px] font-bold uppercase">No significant referral drops detected in selected period</div>
                 {% endif %}
             </div>
         </section>

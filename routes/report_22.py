@@ -91,35 +91,89 @@ def report_22():
         # 2b. Top Physicians (UNIQUE Patient Count)
         res_phys_unique = db.session.execute(text(f"{cte} SELECT physician, COUNT(DISTINCT patient_id) FROM base_data {where} GROUP BY 1 ORDER BY 2 DESC LIMIT 10"), params).fetchall()
         
-        # 2c. NEW: PHYSICIAN CHURN/TREND LOGIC
-        # This looks at the 60-day window to compare Last Month vs This Month
+        # 2c. PHYSICIAN CHURN — respects date filter, requires minimum volume
         res_phys_trend = db.session.execute(text(f"""
             {cte},
-            monthly_agg AS (
-                SELECT 
-                    physician,
-                    DATE_TRUNC('month', study_date) as month,
-                    COUNT(*) as vol
-                FROM base_data
-                WHERE study_date >= CURRENT_DATE - INTERVAL '60 days'
+            monthly AS (
+                SELECT physician,
+                       DATE_TRUNC('month', study_date) AS month,
+                       COUNT(*) AS vol
+                FROM base_data {where}
+                AND physician != 'Unknown'
                 GROUP BY 1, 2
             ),
-            comparison AS (
-                SELECT 
-                    physician,
-                    vol as current_vol,
-                    LAG(vol) OVER (PARTITION BY physician ORDER BY month) as prev_vol
-                FROM monthly_agg
+            with_lag AS (
+                SELECT physician, month, vol,
+                       LAG(vol) OVER (PARTITION BY physician ORDER BY month) AS prev_vol,
+                       ROW_NUMBER() OVER (PARTITION BY physician ORDER BY month DESC) AS rn
+                FROM monthly
             )
-            SELECT 
-                physician, 
-                current_vol, 
-                prev_vol,
-                ROUND(((current_vol - prev_vol)::numeric / NULLIF(prev_vol, 0)) * 100, 1) as pct_change
-            FROM comparison
-            WHERE prev_vol IS NOT NULL AND current_vol < prev_vol
+            SELECT physician, vol AS current_vol, prev_vol,
+                   ROUND(((vol - prev_vol)::numeric / NULLIF(prev_vol, 0)) * 100, 1) AS pct_change
+            FROM with_lag
+            WHERE rn = 1
+              AND prev_vol IS NOT NULL
+              AND prev_vol >= 5
+              AND vol < prev_vol
             ORDER BY pct_change ASC LIMIT 10
-        """)).fetchall()
+        """), params).fetchall()
+
+        # 2c2. PREDICTIVE CHURN — active physicians with a declining trend across the period
+        # Splits the selected date range into first and second half; flags those whose
+        # second-half average dropped ≥25% below their first-half average while still active.
+        try:
+            res_at_risk = db.session.execute(text(f"""
+                {cte},
+                monthly AS (
+                    SELECT physician,
+                           DATE_TRUNC('month', study_date) AS month,
+                           COUNT(*) AS vol
+                    FROM base_data {where}
+                    AND physician != 'Unknown'
+                    GROUP BY 1, 2
+                ),
+                ranked AS (
+                    SELECT *,
+                           ROW_NUMBER() OVER (PARTITION BY physician ORDER BY month) AS rn,
+                           COUNT(*) OVER (PARTITION BY physician) AS total_months
+                    FROM monthly
+                ),
+                split AS (
+                    SELECT physician,
+                           ROUND(AVG(CASE WHEN rn <= total_months / 2 THEN vol END)::numeric, 1) AS first_half_avg,
+                           ROUND(AVG(CASE WHEN rn >  total_months / 2 THEN vol END)::numeric, 1) AS second_half_avg,
+                           SUM(vol)            AS total_refs,
+                           COUNT(DISTINCT month) AS active_months,
+                           ROUND(AVG(vol)::numeric, 1) AS avg_monthly
+                    FROM ranked
+                    GROUP BY physician
+                    HAVING COUNT(*) >= 3 AND SUM(vol) >= 15
+                ),
+                last_ref AS (
+                    SELECT physician, MAX(study_date) AS last_ref_date
+                    FROM base_data {where}
+                    AND physician != 'Unknown'
+                    GROUP BY physician
+                )
+                SELECT s.physician,
+                       s.first_half_avg,
+                       s.second_half_avg,
+                       s.total_refs,
+                       s.active_months,
+                       s.avg_monthly,
+                       l.last_ref_date,
+                       (CURRENT_DATE - l.last_ref_date::date) AS days_since_last,
+                       ROUND(((s.second_half_avg - s.first_half_avg) / NULLIF(s.first_half_avg, 0)) * 100, 1) AS trend_pct
+                FROM split s
+                JOIN last_ref l ON l.physician = s.physician
+                WHERE s.second_half_avg < s.first_half_avg * 0.75
+                  AND l.last_ref_date >= CAST(:end AS date) - INTERVAL '90 days'
+                ORDER BY trend_pct ASC
+                LIMIT 3
+            """), params).fetchall()
+        except Exception:
+            db.session.rollback()
+            res_at_risk = []
 
         # 2d. Physician → modality breakdown (top 10 physicians, their modality split)
         res_phys_mod = db.session.execute(text(f"""
@@ -261,6 +315,21 @@ def report_22():
             "phys_c": {r[0]: r[1] for r in res_phys},
             "phys_unique": {r[0]: r[1] for r in res_phys_unique},
             "phys_churn": [{"name": r[0], "cur": r[1], "prev": r[2], "change": r[3]} for r in res_phys_trend],
+            "at_risk": [
+                {
+                    "name":           r[0],
+                    "first_half_avg": float(r[1] or 0),
+                    "second_half_avg":float(r[2] or 0),
+                    "total_refs":     int(r[3] or 0),
+                    "active_months":  int(r[4] or 0),
+                    "avg_monthly":    float(r[5] or 0),
+                    "last_ref_date":  str(r[6])[:10] if r[6] else "—",
+                    "days_since":     int(r[7] or 0),
+                    "trend_pct":      float(r[8] or 0),
+                    "risk_level":     "high" if float(r[8] or 0) <= -40 else "medium",
+                }
+                for r in res_at_risk
+            ],
             "tree_data": [final_tree],
             "gender_data": [{"name": k, "value": v} for k, v in gender_counts.items() if v > 0],
             "age_labels": sorted(age_map.keys()),
