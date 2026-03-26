@@ -106,9 +106,13 @@
                         <i class="bi bi-send-fill"></i>
                     </button>
                 </div>
-                <p class="text-[9px] text-slate-600 text-center mt-2 font-mono">
-                    BitNet b1.58 · 100% local · no internet · no data leaves your server
-                </p>
+                <div class="mt-3 max-w-4xl mx-auto">
+                    <div class="flex items-center justify-between mb-1">
+                        <p class="text-[9px] text-slate-600 font-mono">Llama 3.1 8B · 100% local · no internet · no data leaves your server</p>
+                        <p class="text-[9px] text-slate-600 font-mono" id="cpu-total"></p>
+                    </div>
+                    <div class="flex gap-1 items-end" id="cpu-bars" style="height:28px;"></div>
+                </div>
             </div>
 
         </main>
@@ -116,6 +120,37 @@
 
 <script>
 let _thinking = false;
+
+// ── CPU Monitor ───────────────────────────────────────────────
+let _cpuInterval = null;
+
+function startCPU() {
+    if (_cpuInterval) return;
+    _cpuInterval = setInterval(updateCPU, 1000);
+    updateCPU();
+}
+
+async function updateCPU() {
+    try {
+        const data = await fetch('/ai/cpu').then(r => r.json());
+        const bars = document.getElementById('cpu-bars');
+        const total = document.getElementById('cpu-total');
+        if (!bars) return;
+
+        total.textContent = `CPU: ${data.total.toFixed(0)}%`;
+
+        bars.innerHTML = data.cores.map((pct, i) => {
+            const h = Math.max(3, Math.round(pct * 0.26)); // max 26px
+            const color = pct > 80 ? '#ef4444' : pct > 50 ? '#f59e0b' : '#22c55e';
+            return `<div style="display:flex;flex-direction:column;align-items:center;gap:2px;flex:1;">
+                <div style="width:100%;height:${h}px;background:${color};border-radius:2px;transition:height 0.4s,background 0.4s;opacity:0.85;margin-top:auto;"></div>
+                <span style="font-size:7px;color:#475569;font-family:monospace;">${i}</span>
+            </div>`;
+        }).join('');
+    } catch(e) {}
+}
+
+startCPU();
 
 // ── Check model health on load ────────────────────────────────
 async function checkHealth() {

@@ -46,6 +46,7 @@ import requests
 import logging
 import json
 import os
+import psutil
 from flask import Blueprint, request, jsonify, render_template
 from flask_login import login_required
 from sqlalchemy import text
@@ -106,6 +107,14 @@ def context_debug():
     q = request.args.get("q", "how many modalities")
     ctx = _build_db_context(q)
     return jsonify({"question": q, "context": ctx})
+
+
+# ── CPU usage per core ────────────────────────────────────────
+@bitnet_bp.route("/ai/cpu")
+@login_required
+def cpu_usage():
+    cores = psutil.cpu_percent(interval=0.2, percpu=True)
+    return jsonify({"cores": cores, "total": psutil.cpu_percent()})
 
 
 # ── Health check ──────────────────────────────────────────────
@@ -221,93 +230,171 @@ def whatsapp_message():
     return jsonify({"message": message_text})
 
 
+# ── Predefined Queries ────────────────────────────────────────
+# Add your own queries here. Each entry:
+#   "keywords" : list of trigger words (question is lowercased before matching)
+#   "label"    : how the result is introduced to the model
+#   "sql"      : the query to run (must return rows via .mappings().fetchall())
+#   "always"   : if True, runs on every question regardless of keywords
+#
+PREDEFINED_QUERIES = [
+    {
+        "always": True,
+        "label": "Department overview",
+        "sql": """
+            SELECT COUNT(*) AS total_studies,
+                   COUNT(DISTINCT storing_ae) AS total_aes,
+                   MIN(study_date) AS earliest,
+                   MAX(study_date) AS latest
+            FROM etl_didb_studies
+        """,
+        "format": lambda rows: (
+            f"Total studies: {rows[0]['total_studies']}, "
+            f"{rows[0]['total_aes']} active AEs, "
+            f"data from {rows[0]['earliest']} to {rows[0]['latest']}."
+        ) if rows and rows[0]['total_studies'] else None,
+    },
+    {
+        "always": True,
+        "label": "AE titles",
+        "sql": "SELECT modality, aetitle FROM aetitle_modality_map ORDER BY modality, aetitle",
+        "format": lambda rows: "AE titles: " + ", ".join([f"{r['aetitle']} ({r['modality']})" for r in rows]) if rows else None,
+    },
+    {
+        "keywords": ["tat", "turnaround", "wait", "delay", "وقت", "انتظار", "تأخير"],
+        "label": "Turnaround time (TAT) by modality — last 30 days",
+        "sql": """
+            SELECT
+                s.study_modality AS modality,
+                ROUND(AVG(EXTRACT(EPOCH FROM (s.study_date::timestamp - o.scheduled_datetime)) / 3600)::numeric, 1) AS avg_tat_hours,
+                COUNT(*) AS studies
+            FROM etl_orders o
+            JOIN etl_didb_studies s ON s.study_db_uid = o.study_db_uid
+            WHERE o.scheduled_datetime >= CURRENT_DATE - INTERVAL '30 days'
+              AND s.study_date IS NOT NULL
+              AND o.scheduled_datetime IS NOT NULL
+              AND s.study_modality IS NOT NULL
+            GROUP BY s.study_modality
+            ORDER BY avg_tat_hours DESC
+        """,
+        "format": lambda rows: "TAT last 30 days: " + ", ".join([
+            f"{r['modality']}: {r['avg_tat_hours']}h avg ({r['studies']} studies)" for r in rows
+        ]) if rows else None,
+    },
+    {
+        "keywords": ["storage", "gb", "disk", "space", "تخزين", "مساحة"],
+        "label": "Storage last 7 days",
+        "sql": """
+            SELECT study_date, ROUND(SUM(total_gb)::numeric, 2) AS gb
+            FROM summary_storage_daily
+            GROUP BY study_date ORDER BY study_date DESC LIMIT 7
+        """,
+        "format": lambda rows: "Daily storage (GB): " + ", ".join([f"{r['study_date']}: {r['gb']}GB" for r in rows]) if rows else None,
+    },
+    {
+        "keywords": ["modality", "ct", "mr", "mri", "xray", "x-ray", "us", "ultrasound", "أشعة", "modalities"],
+        "label": "Studies by modality",
+        "sql": """
+            SELECT study_modality, COUNT(*) AS cnt
+            FROM etl_didb_studies
+            WHERE study_modality IS NOT NULL
+            GROUP BY study_modality ORDER BY cnt DESC LIMIT 10
+        """,
+        "format": lambda rows: "Studies by modality: " + ", ".join([f"{r['study_modality']}: {r['cnt']}" for r in rows]) if rows else None,
+    },
+    {
+        "keywords": ["today", "اليوم"],
+        "label": "Today's activity",
+        "sql": """
+            SELECT study_modality, COUNT(*) AS cnt
+            FROM etl_didb_studies
+            WHERE study_date = CURRENT_DATE
+            GROUP BY study_modality ORDER BY cnt DESC
+        """,
+        "format": lambda rows: "Today's studies: " + ", ".join([f"{r['study_modality']}: {r['cnt']}" for r in rows]) if rows else "No studies recorded today yet.",
+    },
+    {
+        "keywords": ["yesterday", "أمس"],
+        "label": "Yesterday's activity",
+        "sql": """
+            SELECT study_modality, COUNT(*) AS cnt
+            FROM etl_didb_studies
+            WHERE study_date = CURRENT_DATE - INTERVAL '1 day'
+            GROUP BY study_modality ORDER BY cnt DESC
+        """,
+        "format": lambda rows: "Yesterday's studies: " + ", ".join([f"{r['study_modality']}: {r['cnt']}" for r in rows]) if rows else None,
+    },
+    {
+        "keywords": ["order", "schedule", "pending", "orphan", "طلب", "جدول"],
+        "label": "Orders summary",
+        "sql": """
+            SELECT COUNT(*) AS total,
+                   COUNT(*) FILTER (WHERE has_study = true)  AS fulfilled,
+                   COUNT(*) FILTER (WHERE has_study = false) AS orphaned
+            FROM etl_orders
+        """,
+        "format": lambda rows: (
+            f"Orders: {rows[0]['total']} total, {rows[0]['fulfilled']} fulfilled, {rows[0]['orphaned']} orphaned."
+        ) if rows else None,
+    },
+    {
+        "keywords": ["busy", "peak", "volume", "most", "highest", "أكثر", "ازدحام"],
+        "label": "Busiest days this month",
+        "sql": """
+            SELECT study_date, COUNT(*) AS cnt
+            FROM etl_didb_studies
+            WHERE study_date >= DATE_TRUNC('month', CURRENT_DATE)
+            GROUP BY study_date ORDER BY cnt DESC LIMIT 5
+        """,
+        "format": lambda rows: "Busiest days this month: " + ", ".join([f"{r['study_date']}: {r['cnt']} studies" for r in rows]) if rows else None,
+    },
+    {
+        "keywords": ["week", "weekly", "this week", "أسبوع"],
+        "label": "This week by modality",
+        "sql": """
+            SELECT study_modality, COUNT(*) AS cnt
+            FROM etl_didb_studies
+            WHERE study_date >= DATE_TRUNC('week', CURRENT_DATE)
+            GROUP BY study_modality ORDER BY cnt DESC
+        """,
+        "format": lambda rows: "This week's studies: " + ", ".join([f"{r['study_modality']}: {r['cnt']}" for r in rows]) if rows else None,
+    },
+    {
+        "keywords": ["month", "monthly", "this month", "شهر"],
+        "label": "This month by modality",
+        "sql": """
+            SELECT study_modality, COUNT(*) AS cnt
+            FROM etl_didb_studies
+            WHERE study_date >= DATE_TRUNC('month', CURRENT_DATE)
+            GROUP BY study_modality ORDER BY cnt DESC
+        """,
+        "format": lambda rows: "This month's studies: " + ", ".join([f"{r['study_modality']}: {r['cnt']}" for r in rows]) if rows else None,
+    },
+]
+
+
 # ── DB Context Builder ────────────────────────────────────────
 def _build_db_context(question: str) -> str:
     """
-    Fetch relevant DB stats to ground BitNet's answer.
-    Uses engine.connect() for thread safety in Flask requests.
+    Runs matching predefined queries based on keywords in the question.
+    Add new queries to PREDEFINED_QUERIES above.
     """
     ctx_parts = []
     q = question.lower()
 
     try:
         with db.engine.connect() as conn:
-            # Always: basic volume summary
-            row = conn.execute(text("""
-                SELECT COUNT(*) AS total_studies,
-                       COUNT(DISTINCT storing_ae) AS total_aes,
-                       MIN(study_date) AS earliest,
-                       MAX(study_date) AS latest
-                FROM etl_didb_studies
-            """)).mappings().fetchone()
-            if row and int(row['total_studies'] or 0) > 0:
-                ctx_parts.append(
-                    f"Total studies: {row['total_studies']}, "
-                    f"{row['total_aes']} active AEs, "
-                    f"from {row['earliest']} to {row['latest']}."
-                )
+            for entry in PREDEFINED_QUERIES:
+                # Check if this query should run
+                always = entry.get("always", False)
+                keywords = entry.get("keywords", [])
+                if not always and not any(w in q for w in keywords):
+                    continue
 
-            # Always: AE + modality list
-            ae_rows = conn.execute(text("""
-                SELECT modality, aetitle
-                FROM aetitle_modality_map
-                ORDER BY modality, aetitle
-            """)).mappings().fetchall()
-            if ae_rows:
-                ae_lines = ", ".join([f"{r['aetitle']} ({r['modality']})" for r in ae_rows])
-                ctx_parts.append(f"Department AE titles: {ae_lines}")
-
-            # Storage
-            if any(w in q for w in ['storage', 'gb', 'disk', 'space', 'تخزين', 'مساحة']):
-                rows = conn.execute(text("""
-                    SELECT study_date, SUM(total_gb) AS gb
-                    FROM summary_storage_daily
-                    GROUP BY study_date ORDER BY study_date DESC LIMIT 7
-                """)).mappings().fetchall()
-                if rows:
-                    storage_lines = ", ".join([f"{r['study_date']}: {r['gb']}GB" for r in rows])
-                    ctx_parts.append(f"Recent daily storage: {storage_lines}")
-
-            # Modality breakdown
-            if any(w in q for w in ['modality', 'ct', 'mr', 'mri', 'xray', 'us', 'ultrasound', 'أشعة', 'modalities']):
-                rows = conn.execute(text("""
-                    SELECT study_modality, COUNT(*) AS cnt
-                    FROM etl_didb_studies
-                    WHERE study_modality IS NOT NULL
-                    GROUP BY study_modality ORDER BY cnt DESC LIMIT 8
-                """)).mappings().fetchall()
-                if rows:
-                    mod_lines = ", ".join([f"{r['study_modality']}: {r['cnt']}" for r in rows])
-                    ctx_parts.append(f"Studies by modality: {mod_lines}")
-
-            # Physicians
-            if any(w in q for w in ['physician', 'doctor', 'referring', 'طبيب', 'دكتور']):
-                rows = conn.execute(text("""
-                    SELECT TRIM(CONCAT_WS(' ',
-                        referring_physician_first_name,
-                        referring_physician_last_name)) AS physician,
-                        COUNT(*) AS cnt
-                    FROM etl_didb_studies
-                    WHERE referring_physician_last_name IS NOT NULL
-                    GROUP BY 1 ORDER BY cnt DESC LIMIT 5
-                """)).mappings().fetchall()
-                if rows:
-                    doc_lines = ", ".join([f"{r['physician']}: {r['cnt']}" for r in rows])
-                    ctx_parts.append(f"Top referring physicians: {doc_lines}")
-
-            # Orders
-            if any(w in q for w in ['order', 'schedule', 'pending', 'طلب', 'جدول']):
-                row = conn.execute(text("""
-                    SELECT COUNT(*) AS total,
-                           COUNT(*) FILTER (WHERE has_study = true)  AS fulfilled,
-                           COUNT(*) FILTER (WHERE has_study = false) AS orphaned
-                    FROM etl_orders
-                """)).mappings().fetchone()
-                if row:
-                    ctx_parts.append(
-                        f"Orders: {row['total']} total, "
-                        f"{row['fulfilled']} fulfilled, {row['orphaned']} orphaned."
-                    )
+                rows = conn.execute(text(entry["sql"])).mappings().fetchall()
+                result = entry["format"](list(rows))
+                if result:
+                    ctx_parts.append(result)
 
     except Exception as e:
         logger.error(f"[BitNet] Context build error: {e}", exc_info=True)
