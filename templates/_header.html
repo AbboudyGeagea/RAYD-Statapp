@@ -1,0 +1,16 @@
+<header class="bg-[#232b28] border-b border-[#28332e] px-6 py-4 flex items-center justify-between shadow-md z-30 relative flex-shrink-0">
+    <div class="flex items-center gap-3">
+        <img src="{{ url_for('static', filename='philips.jpg') }}" class="h-10 w-auto grayscale opacity-40">
+    </div>
+    <div class="flex flex-col items-center">
+        <img src="{{ url_for('static', filename='RAYD.png') }}" class="h-16 w-auto opacity-80">
+        <div class="h-1 w-12 bg-[#60a5fa] mt-2 rounded-full"></div>
+    </div>
+    <div class="flex items-center gap-3 justify-end">
+        <button onclick="toggleTheme()" title="Toggle light/dark mode"
+            class="p-2 rounded-lg hover:bg-[#2a3530] transition-colors text-[#60a5fa] text-lg">
+            <i id="theme-icon" class="bi bi-moon-fill"></i>
+        </button>
+        <img src="{{ url_for('static', filename='intermedic.jpeg') }}" class="h-10 w-auto grayscale opacity-40">
+    </div>
+</header>
