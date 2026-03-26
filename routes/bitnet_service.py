@@ -4,11 +4,19 @@ routes/bitnet_service.py
 RAYD × BitNet — Local AI Service
 Calls llama-server HTTP API (model kept warm in memory).
 
+Model: Meta-Llama-3.1-8B-Instruct-Q4_K_M (~5GB RAM, CPU-only)
+
+Initial setup (run once):
+  cd /home/stats/BitNet/models
+  wget https://huggingface.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF/resolve/main/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf
+
 Start llama-server on the host before using:
-  cd /home/stats/BitNet
-  nohup ./build/bin/llama-server \
-    -m models/BitNet-b1.58-2B-4T/ggml-model-i2_s.gguf \
-    -t 4 --host 0.0.0.0 --port 8081 -c 2048 &
+  /home/stats/BitNet/build/bin/llama-server \
+    -m /home/stats/BitNet/models/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf \
+    -t 4 --host 0.0.0.0 --port 8081 -c 4096 &
+
+Check it's running:
+  curl http://localhost:8081/health
 
 Register in registry.py:
     from routes.bitnet_service import bitnet_bp
@@ -34,29 +42,30 @@ MAX_TOKENS    = int(os.environ.get("BITNET_TOKENS", "512"))
 TIMEOUT_SECS  = int(os.environ.get("BITNET_TIMEOUT", "120"))
 
 
-def _run_inference(prompt: str, max_tokens: int = None) -> str:
+def _run_inference(system: str, user: str, max_tokens: int = None) -> str:
     """
-    Call llama-server /completion endpoint.
-    Model is already loaded — no cold start, 3-5s per response.
+    Call llama-server /v1/chat/completions endpoint.
+    Uses OpenAI-compatible API — chat template is applied automatically by llama.cpp.
     """
-    url = f"{BITNET_SERVER}/completion"
+    url = f"{BITNET_SERVER}/v1/chat/completions"
     payload = {
-        "prompt":           prompt,
-        "n_predict":        max_tokens or MAX_TOKENS,
-        "temperature":      0.6,
-        "top_p":            0.9,
-        "top_k":            40,
-        "repeat_penalty":   1.15,
-        "stop":             ["###", "[/INST]", "[INST]", "### Question", "### System", "User:"],
-        "stream":           False,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user},
+        ],
+        "max_tokens":     max_tokens or MAX_TOKENS,
+        "temperature":    0.4,
+        "top_p":          0.9,
+        "repeat_penalty": 1.1,
+        "stream":         False,
     }
     try:
         resp = requests.post(url, json=payload, timeout=TIMEOUT_SECS)
         resp.raise_for_status()
         data = resp.json()
-        return data.get("content", "").strip()
+        return data["choices"][0]["message"]["content"].strip()
     except requests.exceptions.ConnectionError:
-        return "ERROR: llama-server not running. Start it with: nohup ./build/bin/llama-server -m models/BitNet-b1.58-2B-4T/ggml-model-i2_s.gguf -t 4 --host 0.0.0.0 --port 8081 -c 2048 &"
+        return "ERROR: llama-server not running. Start it with: /home/stats/BitNet/build/bin/llama-server -m /home/stats/BitNet/models/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf -t 4 --host 0.0.0.0 --port 8081 -c 4096 &"
     except requests.exceptions.Timeout:
         return "ERROR: Inference timeout — query too complex, try simplifying."
     except Exception as e:
@@ -98,7 +107,7 @@ def health():
             "server": BITNET_SERVER,
             "ready":  False,
             "error":  str(e),
-            "hint":   "Run: nohup ./build/bin/llama-server -m models/BitNet-b1.58-2B-4T/ggml-model-i2_s.gguf -t 4 --host 0.0.0.0 --port 8081 -c 2048 &"
+            "hint":   "Run: /home/stats/BitNet/build/bin/llama-server -m /home/stats/BitNet/models/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf -t 4 --host 0.0.0.0 --port 8081 -c 4096 &"
         })
 
 
@@ -118,42 +127,19 @@ def chat():
     # Fetch live context from PG to ground the answer
     context = _build_db_context(message)
 
+    arabic_chars = sum(1 for c in message if '\u0600' <= c <= '\u06ff')
+    lang_rule = "Reply in Arabic." if arabic_chars > 3 else "Reply in English."
+
     system = (
         "You are RAYD AI, a radiology department analytics assistant. "
-        "You have access to live hospital data. "
-        "Be concise, factual, and professional. "
-        "Use the data in the context to give accurate answers. "
-        "Answer in the same language the user writes in. "
-        "Do not repeat the question. Do not make up numbers."
+        f"{lang_rule} "
+        "You have access to live hospital data provided below. "
+        "Give accurate, concise, professional answers based on that data. "
+        "Do not invent numbers. Do not repeat the question."
     )
+    user = f"Data:\n{context}\n\nQuestion: {message}"
 
-    prompt = (
-        f"### System:\n{system}\n\n"
-        f"### Data:\n{context}\n\n"
-        f"### Question:\n{message}\n\n"
-        f"### Answer:\n"
-    )
-
-    raw = _run_inference(prompt, max_tokens=300)
-
-    # Strip echoed prompt fragments and llama format artifacts
-    # Cut at the first sign of repetition or prompt echo
-    stop_markers = [
-        "### Answer:", "### Question:", "### Context:", "### System:",
-        "<</SYS>>", "[/INST]", "[INST]", "<<SYS>>",
-        "### المهمة", "How many studies", "How many AEs",
-    ]
-    output = raw.strip()
-    # Take only content before the first stop marker
-    for marker in stop_markers:
-        if marker in output:
-            output = output.split(marker)[0].strip()
-
-    # If output is empty after stripping, return a fallback
-    if not output:
-        output = "I found your department data but couldn't generate a clean response. Please try rephrasing."
-
-    response = output
+    response = _run_inference(system, user, max_tokens=300)
     return jsonify({"response": response, "context_used": bool(context)})
 
 
@@ -172,18 +158,14 @@ def narrative():
 
     stats_str = json.dumps(stats, indent=2)
 
-    prompt = (
-        f"### System:\nYou are a senior radiology department analyst. "
-        f"Write a concise 3-paragraph executive summary. "
-        f"Focus on key trends, anomalies, and actionable insights.\n\n"
-        f"### Statistics:\n{stats_str}\n\n"
-        f"### Executive Summary:\n"
+    system = (
+        "You are a senior radiology department analyst. "
+        "Write a concise 3-paragraph executive summary in English. "
+        "Focus on key trends, anomalies, and actionable insights."
     )
+    user = f"Statistics:\n{stats_str}"
 
-    narrative_text = _run_inference(prompt, max_tokens=400)
-    # Strip echoed markers
-    if "### Executive Summary:" in narrative_text:
-        narrative_text = narrative_text.split("### Executive Summary:")[-1].strip()
+    narrative_text = _run_inference(system, user, max_tokens=400)
     return jsonify({"narrative": narrative_text})
 
 
@@ -204,31 +186,19 @@ def whatsapp_message():
     proc     = body.get("procedure", "")
 
     if language == "ar":
-        prompt = (
-            f"### المهمة:\n"
-            f"اكتب رسالة واتساب قصيرة وودية باللغة العربية لإرسال بيانات دخول بوابة نتائج الأشعة.\n\n"
-            f"### المعلومات:\n"
-            f"اسم المريض: {patient}\n"
-            f"المستشفى: {hospital}\n"
-            f"الإجراء: {proc}\n"
-            f"اسم المستخدم: {username}\n"
-            f"كلمة المرور: {password}\n\n"
-            f"### الرسالة:\n"
+        system = "اكتب رسالة واتساب قصيرة وودية باللغة العربية فقط لإرسال بيانات دخول بوابة نتائج الأشعة."
+        user = (
+            f"اسم المريض: {patient}\nالمستشفى: {hospital}\n"
+            f"الإجراء: {proc}\nاسم المستخدم: {username}\nكلمة المرور: {password}"
         )
     else:
-        prompt = (
-            f"### Task:\n"
-            f"Write a short WhatsApp message to send radiology portal login credentials.\n\n"
-            f"### Details:\n"
+        system = "Write a short, friendly WhatsApp message in English to deliver radiology portal login credentials to a patient."
+        user = (
             f"Patient: {patient}\nHospital: {hospital}\n"
-            f"Procedure: {proc}\nUsername: {username}\nPassword: {password}\n\n"
-            f"### Message:\n"
+            f"Procedure: {proc}\nUsername: {username}\nPassword: {password}"
         )
 
-    message_text = _run_inference(prompt, max_tokens=200)
-    for marker in ["### Message:", "### الرسالة:"]:
-        if marker in message_text:
-            message_text = message_text.split(marker)[-1].strip()
+    message_text = _run_inference(system, user, max_tokens=200)
     return jsonify({"message": message_text})
 
 
