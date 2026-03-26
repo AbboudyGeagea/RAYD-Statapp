@@ -6,17 +6,36 @@ Calls llama-server HTTP API (model kept warm in memory).
 
 Model: Meta-Llama-3.1-8B-Instruct-Q4_K_M (~5GB RAM, CPU-only)
 
-Initial setup (run once):
-  cd /home/stats/BitNet/models
-  wget https://huggingface.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF/resolve/main/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf
+── PRODUCTION (/opt/bitnet) ───────────────────────────────────
+1. Download model (run once):
+     wget https://huggingface.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF/resolve/main/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf \
+       -P /opt/bitnet/models/
 
-Start llama-server on the host before using:
-  /home/stats/BitNet/build/bin/llama-server \
-    -m /home/stats/BitNet/models/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf \
-    -t 4 --host 0.0.0.0 --port 8081 -c 4096 &
+2. Install systemd service (auto-start on boot):
+     sudo cp llama-server.service /etc/systemd/system/
+     sudo systemctl daemon-reload
+     sudo systemctl enable llama-server
+     sudo systemctl start llama-server
 
-Check it's running:
-  curl http://localhost:8081/health
+3. Check status:
+     sudo systemctl status llama-server
+     curl http://127.0.0.1:8081/health
+
+4. docker-compose.yml env variable:
+     BITNET_SERVER=http://172.18.0.1:8081
+
+── TEST SERVER (/home/stats/BitNet) ──────────────────────────
+1. Download model (run once):
+     wget https://huggingface.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF/resolve/main/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf \
+       -P /home/stats/BitNet/models/
+
+2. Start manually:
+     nohup /home/stats/BitNet/build/bin/llama-server \
+       -m /home/stats/BitNet/models/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf \
+       -t 4 --host 0.0.0.0 --port 8081 -c 2048 > /tmp/llama-server.log 2>&1 &
+
+3. Check it's running:
+     curl http://127.0.0.1:8081/health
 
 Register in registry.py:
     from routes.bitnet_service import bitnet_bp
