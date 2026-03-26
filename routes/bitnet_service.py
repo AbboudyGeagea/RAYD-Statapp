@@ -30,7 +30,7 @@ bitnet_bp = Blueprint("bitnet", __name__)
 # ── Config ────────────────────────────────────────────────────
 # llama-server runs on the host; container reaches it via host IP
 BITNET_SERVER = os.environ.get("BITNET_SERVER", "http://172.17.0.1:8081")
-MAX_TOKENS    = int(os.environ.get("BITNET_TOKENS", "300"))
+MAX_TOKENS    = int(os.environ.get("BITNET_TOKENS", "512"))
 TIMEOUT_SECS  = int(os.environ.get("BITNET_TIMEOUT", "120"))
 
 
@@ -43,11 +43,12 @@ def _run_inference(prompt: str, max_tokens: int = None) -> str:
     payload = {
         "prompt":           prompt,
         "n_predict":        max_tokens or MAX_TOKENS,
-        "temperature":      0.3,
-        "repeat_penalty":   1.1,
-        "stop":             ["###", "[/INST]", "[INST]"],
+        "temperature":      0.6,
+        "top_p":            0.9,
+        "top_k":            40,
+        "repeat_penalty":   1.15,
+        "stop":             ["###", "[/INST]", "[INST]", "### Question", "### System", "User:"],
         "stream":           False,
-        "seed":             42,
     }
     try:
         resp = requests.post(url, json=payload, timeout=TIMEOUT_SECS)
@@ -118,24 +119,22 @@ def chat():
     context = _build_db_context(message)
 
     system = (
-        "You are RAYD AI, a radiology analytics assistant. "
-        "Rules: "
-        "1. Keep answers SHORT — 1-3 sentences maximum. "
-        "2. Give numbers and facts only, no explanations unless asked. "
-        "3. If the user wants more detail, they will ask. "
-        "4. Never repeat the question. "
-        "5. Answer in the same language as the question. "
-        "6. Use only the context provided."
+        "You are RAYD AI, a radiology department analytics assistant. "
+        "You have access to live hospital data. "
+        "Be concise, factual, and professional. "
+        "Use the data in the context to give accurate answers. "
+        "Answer in the same language the user writes in. "
+        "Do not repeat the question. Do not make up numbers."
     )
 
     prompt = (
         f"### System:\n{system}\n\n"
-        f"### Context:\n{context}\n\n"
+        f"### Data:\n{context}\n\n"
         f"### Question:\n{message}\n\n"
         f"### Answer:\n"
     )
 
-    raw = _run_inference(prompt, max_tokens=120)
+    raw = _run_inference(prompt, max_tokens=300)
 
     # Strip echoed prompt fragments and llama format artifacts
     # Cut at the first sign of repetition or prompt echo
