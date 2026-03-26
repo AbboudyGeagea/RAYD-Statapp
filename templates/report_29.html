@@ -67,15 +67,7 @@
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
 
-    <header class="banner-integrated px-12 py-5 flex items-center justify-center z-30 relative shadow-sm">
-        <button onclick="toggleTheme()" title="Toggle light/dark mode" class="p-2 rounded-lg transition-colors absolute right-4 top-1/2 -translate-y-1/2" style="color:#60a5fa;font-size:1.1rem;">
-            <i id="theme-icon" class="bi bi-moon-fill"></i>
-        </button>
-        <div class="flex flex-col items-center">
-            <img src="{{ url_for('static', filename='RAYD.png') }}" class="h-20 w-auto object-contain" alt="RAYD">
-            <div class="h-1 w-20 bg-[#38ada9] mt-2 rounded-full opacity-40"></div>
-        </div>
-    </header>
+    {% include '_header.html' %}
 
     <div class="flex flex-1 overflow-hidden">
 

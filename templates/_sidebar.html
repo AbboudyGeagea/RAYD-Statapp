@@ -1,3 +1,22 @@
+<style>
+    aside .sidebar-item {
+        border: 1px solid transparent;
+        transition: all 0.18s ease !important;
+    }
+    aside .sidebar-item:hover {
+        background: rgba(96,165,250,0.08) !important;
+        border-color: rgba(96,165,250,0.3) !important;
+        color: #60a5fa !important;
+        box-shadow: 0 0 12px rgba(96,165,250,0.08);
+    }
+    aside .sidebar-item.active {
+        background: rgba(96,165,250,0.13) !important;
+        border-color: rgba(96,165,250,0.45) !important;
+        color: #60a5fa !important;
+        border-left: 3px solid #60a5fa !important;
+        box-shadow: 0 0 16px rgba(96,165,250,0.1);
+    }
+</style>
 <aside class="w-72 bg-[#232b28] border-r border-[#28332e] flex flex-col p-4 shadow-xl z-20 overflow-y-auto flex-shrink-0">
     <div class="flex items-center gap-3 mb-8 px-2">
         <div class="bg-[#60a5fa] p-2.5 rounded-xl text-white shadow-lg shadow-blue-400/20 flex-shrink-0">
@@ -57,6 +76,14 @@
            class="sidebar-item {% if request.endpoint and request.endpoint.startswith('bitnet.') %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
            title="AI Assistant">
             <i class="bi bi-robot flex-shrink-0" style="color:#10b981;"></i> AI Assistant
+        </a>
+        <div class="pt-4 pb-2">
+            <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-2">Help</p>
+        </div>
+        <a href="{{ url_for('docs.docs_page') }}"
+           class="sidebar-item {% if request.endpoint and request.endpoint.startswith('docs.') %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
+           title="Documentation">
+            <i class="bi bi-journal-text flex-shrink-0" style="color:#94a3b8;"></i> Documentation
         </a>
         {% endif %}
     </nav>

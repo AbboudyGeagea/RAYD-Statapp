@@ -19,6 +19,7 @@ from routes.super_report     import super_report_bp
 from routes.capacity_ladder  import capacity_ladder_bp
 from routes.live_feed        import live_feed_bp
 from routes.preferences      import preferences_bp
+from routes.docs             import docs_bp
 
 
 def register_blueprints(app):
@@ -33,6 +34,7 @@ def register_blueprints(app):
     app.register_blueprint(super_report_bp)
     app.register_blueprint(capacity_ladder_bp)
     app.register_blueprint(preferences_bp)
+    app.register_blueprint(docs_bp)
 
     # ── Reports ───────────────────────────────────────────────
     app.register_blueprint(report_22_bp)

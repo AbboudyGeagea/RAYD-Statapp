@@ -66,18 +66,7 @@
 </head>
 <body class="flex flex-col">
 
-    <header class="h-12 bg-[#0f172a] border-b border-slate-800 flex items-center px-6 justify-between shrink-0">
-        <span class="font-black text-sm uppercase text-[#38ada9]">RAYD <span class="text-white">Audit Console</span></span>
-        <span class="text-[11px] text-slate-600 font-bold uppercase tracking-widest">Orders Audit &amp; Period Comparison</span>
-        <div class="flex items-center gap-1">
-            <button onclick="window.print()" title="Export as PDF" class="p-2 rounded-lg transition-colors" style="color:#34d399;font-size:1.1rem;">
-                <i class="bi bi-printer-fill"></i>
-            </button>
-            <button onclick="toggleTheme()" title="Toggle light/dark mode" class="p-2 rounded-lg transition-colors" style="color:#60a5fa;font-size:1.1rem;">
-                <i id="theme-icon" class="bi bi-moon-fill"></i>
-            </button>
-        </div>
-    </header>
+    {% include '_header.html' %}
 
     <div class="flex flex-1 overflow-hidden">
 

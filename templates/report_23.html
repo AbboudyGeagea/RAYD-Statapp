@@ -48,22 +48,7 @@
     </style>
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
-    <header class="bg-[#232b28] border-b border-[#28332e] px-8 py-4 flex items-center justify-center shadow-md z-30 relative shrink-0">
-        <button onclick="window.print()" title="Export as PDF" class="p-2 rounded-lg transition-colors absolute left-4 top-1/2 -translate-y-1/2" style="color:#34d399;font-size:1.1rem;">
-            <i class="bi bi-printer-fill"></i>
-        </button>
-        <button onclick="toggleTheme()" title="Toggle light/dark mode" class="p-2 rounded-lg transition-colors absolute right-4 top-1/2 -translate-y-1/2" style="color:#60a5fa;font-size:1.1rem;">
-            <i id="theme-icon" class="bi bi-moon-fill"></i>
-        </button>
-        <div class="flex items-center gap-5">
-            <img src="{{ url_for('static', filename='RAYD.png') }}" class="h-12 w-auto opacity-90">
-            <div class="flex flex-col items-center">
-                <div class="h-px w-52 bg-gradient-to-r from-transparent via-[#60a5fa] to-transparent mb-1.5"></div>
-                <p class="text-[9px] font-black text-[#60a5fa] uppercase tracking-[0.35em]">Reliable Analytics for Your Department</p>
-                <div class="h-px w-52 bg-gradient-to-r from-transparent via-[#60a5fa] to-transparent mt-1.5"></div>
-            </div>
-        </div>
-    </header>
+    {% include '_header.html' %}
 
     <div class="flex flex-1 overflow-hidden">
         <aside class="w-64 bg-[#141a18] border-r border-[#2d3733] flex flex-col p-6 overflow-y-auto shrink-0 gap-5">

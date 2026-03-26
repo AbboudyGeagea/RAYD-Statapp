@@ -1,0 +1,960 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | Documentation</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        :root { --accent: #60a5fa; }
+        body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; transition: background 0.2s, color 0.2s; }
+        body.light { background: #f0f4f8; color: #1a202c; }
+        body.light aside, body.light header { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        body.light .sidebar-item { color: #4a5568; }
+        body.light .sidebar-item:hover, body.light .sidebar-item.active { background: #e2e8f0; color: #2b6cb0 !important; }
+        body.light .doc-card { background: #ffffff; border-color: #e2e8f0; }
+        body.light .chart-item { background: #f8fafc; border-color: #e2e8f0; }
+        body.light .chart-item:hover { border-color: #60a5fa; }
+        body.light .section-header { background: #f1f5f9; border-color: #e2e8f0; }
+        body.light .tag { background: #e2e8f0; color: #475569; }
+        body.light h2, body.light h3 { color: #1a202c; }
+        body.light p, body.light li { color: #475569; }
+        body.light .value-box { background: #f0fdf4; border-color: #bbf7d0; }
+        body.light .value-box p { color: #166534; }
+        .sidebar-item { transition: all 0.2s; border-radius: 0.75rem; margin-bottom: 0.25rem; cursor: pointer; text-decoration: none !important; color: #94a3b8; }
+        .sidebar-item:hover { background: #1d2522; color: var(--accent) !important; }
+        .sidebar-item.active { background: #1d2522; color: var(--accent) !important; border-left: 4px solid var(--accent); }
+
+        /* Doc layout */
+        .doc-card { background: #232b28; border: 1px solid #28332e; border-radius: 1.5rem; overflow: hidden; }
+        .section-header { background: #1d2522; border-bottom: 1px solid #28332e; padding: 1.25rem 1.75rem; cursor: pointer; user-select: none; transition: background 0.2s; }
+        .section-header:hover { background: #232b28; }
+        .section-body { padding: 1.5rem 1.75rem; display: none; }
+        .section-body.open { display: block; }
+        .chart-item { background: #1a201e; border: 1px solid #28332e; border-radius: 1rem; padding: 1.25rem 1.5rem; margin-bottom: 1rem; transition: border-color 0.2s; }
+        .chart-item:last-child { margin-bottom: 0; }
+        .chart-item:hover { border-color: #60a5fa33; }
+        .tag { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 3px 8px; border-radius: 4px; background: #28332e; color: #94a3b8; }
+        .tag-bar    { background: rgba(96,165,250,0.12); color:#60a5fa; }
+        .tag-line   { background: rgba(34,197,94,0.12);  color:#22c55e; }
+        .tag-pie    { background: rgba(251,146,60,0.12); color:#fb923c; }
+        .tag-scatter{ background: rgba(167,139,250,0.12);color:#a78bfa; }
+        .tag-heat   { background: rgba(251,191,36,0.12); color:#fbbf24; }
+        .tag-table  { background: rgba(56,189,248,0.12); color:#38bdf8; }
+        .tag-kpi    { background: rgba(244,63,94,0.12);  color:#f43f5e; }
+        .tag-tree   { background: rgba(16,185,129,0.12); color:#10b981; }
+        .tag-text   { background: rgba(148,163,184,0.12);color:#94a3b8; }
+        .value-box  { background: rgba(16,185,129,0.07); border: 1px solid rgba(16,185,129,0.2); border-left: 3px solid #10b981; border-radius: 0 0.5rem 0.5rem 0; padding: 10px 14px; margin-top: 10px; }
+        .value-box p { color: #6ee7b7; font-size: 13px; line-height: 1.6; }
+        .report-badge { font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.1em; padding: 3px 10px; border-radius: 20px; }
+
+        /* TOC */
+        .toc-link { display: block; padding: 6px 12px; border-radius: 8px; font-size: 12px; font-weight: 600; color: #64748b; text-decoration: none; transition: all 0.15s; }
+        .toc-link:hover { background: #1d2522; color: #60a5fa; }
+        .toc-link.active { background: #1d2522; color: #60a5fa; border-left: 2px solid #60a5fa; }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+
+    {% include '_header.html' %}
+
+    <div class="flex flex-1 overflow-hidden">
+
+        {% include '_sidebar.html' %}
+
+        <main class="flex-1 overflow-y-auto bg-[#181f1c]">
+            <div class="flex gap-8 max-w-7xl mx-auto px-8 py-10">
+
+                <!-- Table of Contents -->
+                <aside class="w-56 flex-shrink-0 hidden lg:block">
+                    <div class="sticky top-0 pt-1">
+                        <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest mb-3">On this page</p>
+                        <nav class="space-y-1">
+                            <a href="#report22" class="toc-link">Report 22 — Flow & Churn</a>
+                            <a href="#report23" class="toc-link">Report 23 — Population Intel</a>
+                            <a href="#report25" class="toc-link">Report 25 — Operations</a>
+                            <a href="#report27" class="toc-link">Report 27 — Audit & Compare</a>
+                            <a href="#report29" class="toc-link">Report 29 — Storage Audit</a>
+                            <a href="#reportai" class="toc-link">Report AI — Predictive</a>
+                        </nav>
+                    </div>
+                </aside>
+
+                <!-- Main Content -->
+                <div class="flex-1 space-y-8 min-w-0">
+
+                    <!-- Page header -->
+                    <div>
+                        <div class="flex items-center gap-3 mb-2">
+                            <i class="bi bi-journal-text text-2xl" style="color:#60a5fa;"></i>
+                            <h1 class="text-2xl font-black text-white tracking-tight">Analytics Documentation</h1>
+                        </div>
+                        <p class="text-slate-400 text-sm leading-relaxed max-w-2xl">
+                            Complete reference for every chart, KPI, and table in the RAYD platform. Each entry explains what the visualization shows, how it is calculated, and what clinical or operational insight it provides.
+                        </p>
+                    </div>
+
+                    <!-- ══════════════════════════════════════════
+                         REPORT 22 — FLOW ANALYTICS & CHURN
+                    ══════════════════════════════════════════ -->
+                    <section id="report22">
+                        <div class="flex items-center gap-3 mb-4">
+                            <span class="report-badge" style="background:rgba(96,165,250,0.15);color:#60a5fa;">Report 22</span>
+                            <h2 class="text-lg font-black text-white">Flow Analytics &amp; Physician Churn</h2>
+                        </div>
+                        <p class="text-slate-400 text-sm mb-5 leading-relaxed">Tracks how studies flow from referring physicians through modalities to specific AE devices and procedures. Surfaces referral trends, demographic patterns, and physician churn signals.</p>
+
+                        <div class="doc-card">
+
+                            <!-- Tree -->
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-tree"><i class="bi bi-diagram-3"></i> Tree</span>
+                                    <span class="font-bold text-sm text-white">Modality → AE → Procedure Flow</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> A hierarchical tree that starts at the modality level (e.g. CT, MRI), branches into specific AE devices (e.g. CT_SCANNER_1), and terminates at the top 5 procedure codes performed on each device.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Groups studies by modality → storing_ae → procedure_code, counts occurrences, and limits each device branch to its top 5 procedures by volume.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Instantly reveals which devices are doing the most work and which procedures dominate each machine — critical for maintenance scheduling, protocol standardisation, and cross-device comparison.</p></div>
+                                </div>
+                            </div>
+
+                            <!-- Top Physicians by Volume -->
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-bar"><i class="bi bi-bar-chart"></i> Bar</span>
+                                    <span class="font-bold text-sm text-white">Top Referring Physicians — Study Volume</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Horizontal bar chart of the top 10 referring physicians ranked by total study count within the selected date range.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Counts studies grouped by physician name, excludes "Unknown", sorts descending, takes top 10.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Identifies your most productive referral relationships so business development can prioritise retention and relationship management.</p></div>
+                                </div>
+                            </div>
+
+                            <!-- Physician Loyalty -->
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-bar"><i class="bi bi-bar-chart"></i> Bar</span>
+                                    <span class="font-bold text-sm text-white">Physician Loyalty — Unique Patient Reach</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Top 10 physicians ranked by the number of <em>distinct</em> patients they referred — a breadth metric as opposed to raw volume.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Counts DISTINCT patient_db_uid per physician. A physician who sends the same 10 patients 100 times scores lower than one who sends 100 different patients once.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Distinguishes high-volume chronic-care physicians from broad-network community referrers — two very different business profiles requiring different engagement strategies.</p></div>
+                                </div>
+                            </div>
+
+                            <!-- Physician Modality Preference -->
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-bar"><i class="bi bi-bar-chart-stacked"></i> Stacked Bar</span>
+                                    <span class="font-bold text-sm text-white">Physician → Modality Preference</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Stacked bars for the top 10 physicians where each colour segment represents a modality (CT, MRI, X-Ray, etc.). Reveals each physician's imaging mix.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Pivots the physician × modality study count matrix. Each bar's total equals that physician's volume; segments show the modality split.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Helps predict equipment demand when specific physician volumes shift, and identifies cross-selling opportunities (e.g. a CT-heavy physician who rarely orders MRI).</p></div>
+                                </div>
+                            </div>
+
+                            <!-- Avg Age per Physician -->
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-bar"><i class="bi bi-bar-chart"></i> Bar</span>
+                                    <span class="font-bold text-sm text-white">Average Patient Age per Physician</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Average age of patients referred by each of the top 15 physicians (minimum 5 studies). A red reference line marks the global average across all studies.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Computes ROUND(AVG(age_at_exam)::numeric, 1) per physician, filters to those with ≥ 5 studies, sorts by volume and takes top 15. The global baseline is calculated across the entire filtered dataset.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Identifies physicians with unusually young or old patient panels — important for insurance billing mix, contrast protocol planning, and paediatric service capacity.</p></div>
+                                </div>
+                            </div>
+
+                            <!-- Avg Age per Procedure -->
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-bar"><i class="bi bi-bar-chart"></i> Bar</span>
+                                    <span class="tag tag-table"><i class="bi bi-table"></i> Table</span>
+                                    <span class="font-bold text-sm text-white">Average Patient Age per Procedure Code</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Average patient age for the top 20 procedure codes by volume (bar chart), plus a full searchable table covering all procedure codes.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Groups by procedure_code, computes AVG age and COUNT, sorts by count descending. The table is client-side searchable.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Reveals age targeting of specific procedures — e.g. screening mammography should cluster around 40–70 years. Outliers may indicate protocol misuse or miscoding.</p></div>
+                                </div>
+                            </div>
+
+                            <!-- Physician Status Breakdown -->
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-bar"><i class="bi bi-bar-chart-stacked"></i> Stacked Bar</span>
+                                    <span class="font-bold text-sm text-white">Study Status per Top Physician</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> For each of the top 10 physicians, a stacked bar breaks down their studies by workflow status (Completed, Cancelled, Pending, etc.).</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Groups by physician × study_status (COALESCE to "Unknown"), counts studies, pivots into stacked series. Limited to physicians with known names.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> High cancellation or pending rates for a specific physician may indicate scheduling friction, poor patient compliance, or order quality issues — all correctable with targeted outreach.</p></div>
+                                </div>
+                            </div>
+
+                            <!-- Case Status Distribution -->
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-bar"><i class="bi bi-bar-chart"></i> Bar</span>
+                                    <span class="font-bold text-sm text-white">Overall Case Status Distribution</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> A bar chart of all study statuses across the entire filtered dataset — Completed, Cancelled, In-Progress, etc.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Simple value_counts on study_status from the base CTE filtered by date range and user-selected filters.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Workflow health indicator. A rising cancellation bar or shrinking completion bar is an early warning of operational disruption.</p></div>
+                                </div>
+                            </div>
+
+                            <!-- Gender Rose -->
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-pie"><i class="bi bi-pie-chart"></i> Rose Pie</span>
+                                    <span class="font-bold text-sm text-white">Gender Distribution</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> A nightingale rose chart showing the proportion of studies by patient gender (Male / Female / Unknown).</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Counts studies per gender value from patient demographics, renders as ECharts rose-type pie where petal radius encodes count.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Gender-specific service utilisation patterns. A significant skew may indicate a service gap (e.g. low female mammography uptake) or demographic specialty.</p></div>
+                                </div>
+                            </div>
+
+                            <!-- Age Group Wave -->
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-line"><i class="bi bi-graph-up"></i> Area Line</span>
+                                    <span class="font-bold text-sm text-white">Age Group Distribution (Wave)</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> A smooth area line chart across 7 age bands: Neonate (0–1m), Infant (1m–1y), Child (1–12y), Adolescent (12–18y), Young Adult (18–35y), Adult (35–64y), Senior (65+y).</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Uses pandas pd.cut() with predefined bin edges to classify each patient's age_at_exam into a named bucket, then counts per bucket.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Population stratification for resource planning — paediatric suites, sedation protocols, and geriatric-friendly facilities all depend on knowing the age makeup of your patient base.</p></div>
+                                </div>
+                            </div>
+
+                            <!-- Churn KPI Cards -->
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-kpi"><i class="bi bi-speedometer2"></i> KPI Cards</span>
+                                    <span class="font-bold text-sm text-white">Physician Churn Alerts</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Alert cards for physicians whose referral volume declined month-over-month in the last 60 days. Shows current month vs prior month count and the percentage drop.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Compares two rolling 30-day windows (days 0–30 and days 30–60 before today). Any physician with a strictly lower current count triggers an alert card.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> This is the platform's proactive retention tool. Catching a physician's drift <em>before</em> they stop referring entirely gives you a window to re-engage before revenue is permanently lost.</p></div>
+                                </div>
+                            </div>
+
+                        </div><!-- end doc-card R22 -->
+                    </section>
+
+                    <!-- ══════════════════════════════════════════
+                         REPORT 23 — POPULATION INTEL
+                    ══════════════════════════════════════════ -->
+                    <section id="report23">
+                        <div class="flex items-center gap-3 mb-4">
+                            <span class="report-badge" style="background:rgba(34,197,94,0.15);color:#22c55e;">Report 23</span>
+                            <h2 class="text-lg font-black text-white">Population Intelligence</h2>
+                        </div>
+                        <p class="text-slate-400 text-sm mb-5 leading-relaxed">Deep demographic analysis of the patient population using age, gender, patient class, and modality as dimensions. Designed for capacity planning, service mix decisions, and population health strategy.</p>
+
+                        <div class="doc-card">
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-bar"><i class="bi bi-bar-chart"></i> Bar</span>
+                                    <span class="font-bold text-sm text-white">Patient Class Volume</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Study volume per patient class (Inpatient, Outpatient, Emergency, etc.).</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Counts studies per patient_class, sorted by volume.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Inpatient vs outpatient split directly drives staffing, contrast preparation, and porter logistics. An ER spike visible here correlates with patient arrival patterns and may justify extended-hours planning.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-bar"><i class="bi bi-bar-chart"></i> Bar</span>
+                                    <span class="font-bold text-sm text-white">Average Age by Modality</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Mean patient age per modality with a reference line for the global average.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> AVG(age_at_exam) grouped by modality, cast to numeric for rounding precision.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Bone density (DEXA) and echocardiography skew older; paediatric modalities skew younger. Mismatches between expected and actual age profiles may signal protocol or referral pathway issues.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-bar"><i class="bi bi-bar-chart-stacked"></i> Stacked Bar</span>
+                                    <span class="font-bold text-sm text-white">Age Group × Procedure Distribution</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> For each of the 7 age bands, a stacked bar shows volume split across the top 5 procedure codes.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Pivot table of age_bucket × procedure_code, limited to top-5 procedures globally to keep the chart readable.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Shows whether procedure demand is age-driven (e.g. head CTs dominate in seniors) — essential for protocol development and paediatric subspecialty justification.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-pie"><i class="bi bi-pie-chart"></i> Rose Pie</span>
+                                    <span class="font-bold text-sm text-white">Gender Ratio</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Nightingale rose of M/F/Unknown proportions across the entire patient population within the filter window.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Baseline gender split for equity reporting and specialty planning (e.g. breast imaging capacity relative to female population share).</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-line"><i class="bi bi-graph-up"></i> Area Line</span>
+                                    <span class="font-bold text-sm text-white">Monthly Volume Trend</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Total studies per calendar month as a smooth area line, revealing seasonal patterns.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> DATE_TRUNC('month', study_date) groupby with count, ordered chronologically.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Seasonal capacity planning — summer dips, Ramadan shifts, and post-holiday surges are all visible here. Allows proactive staffing adjustments months in advance.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-heat"><i class="bi bi-grid-3x3"></i> Heatmap</span>
+                                    <span class="font-bold text-sm text-white">Modality × Patient Class Heatmap</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> A grid where rows are modalities, columns are patient classes, and cell colour intensity encodes the study count at each intersection.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Pivot table of modality × patient_class study counts. Colour scale from 0 to max cell value using ECharts visualMap.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Reveals demand concentration — e.g. if ER patients overwhelmingly use one modality, that device is a critical bottleneck for emergency care. Guides equipment prioritisation during incidents.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-bar"><i class="bi bi-bar-chart-stacked"></i> Stacked Bar</span>
+                                    <span class="font-bold text-sm text-white">Age Distribution per Modality</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> For each modality, a stacked bar shows the breakdown across the 7 age bands (Neonate through Senior).</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> pd.cut() age bucketing followed by a modality × age_bucket pivot with fill_value=0. Each modality bar is normalised within itself via percentage mode.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Differentiates adult-centric vs paediatric-centric devices. A modality with 30% paediatric load needs different protocols, contrast doses, and staff training than one at 5%.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-bar"><i class="bi bi-bar-chart-stacked"></i> Multi-Axis Bar</span>
+                                    <span class="font-bold text-sm text-white">Age × Gender × Modality Cube</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Three-dimensional demographic breakdown: age groups on the X axis, study count on the Y axis, with stacked segments for gender and colour grouping by modality.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Three-level groupby (age_bucket × sex × modality) producing a nested structure rendered as multi-series stacked ECharts bars.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> The most information-dense chart in the report. It can answer questions like "What is the volume of CT studies in adult females?" in a single view — critical for targeted health programmes and grant reporting.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-kpi"><i class="bi bi-speedometer2"></i> KPI Cards</span>
+                                    <span class="font-bold text-sm text-white">Patient Return Rates (30 / 60 / 90 Days)</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Three KPI cards showing the percentage of patients who returned for a second visit within 30, 60, and 90 days of their first study in the period.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> For each window, counts patients with ≥ 2 distinct study dates within that interval divided by total unique patients. Computed in SQL with HAVING COUNT(*) ≥ 2 and date difference conditions.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Patient loyalty and chronic disease burden indicator. High 30-day return rates may suggest follow-up imaging protocols are working; very high rates may indicate incomplete studies or equipment quality issues.</p></div>
+                                </div>
+                            </div>
+
+                        </div>
+                    </section>
+
+                    <!-- ══════════════════════════════════════════
+                         REPORT 25 — OPERATIONS & PERFORMANCE
+                    ══════════════════════════════════════════ -->
+                    <section id="report25">
+                        <div class="flex items-center gap-3 mb-4">
+                            <span class="report-badge" style="background:rgba(251,146,60,0.15);color:#fb923c;">Report 25</span>
+                            <h2 class="text-lg font-black text-white">Operations &amp; Performance Excellence</h2>
+                        </div>
+                        <p class="text-slate-400 text-sm mb-5 leading-relaxed">The operational performance hub. Tracks turnaround time (TAT), equipment utilisation, RVU (revenue value units), and radiologist productivity. The most actionable report for radiology managers.</p>
+
+                        <div class="doc-card">
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-kpi"><i class="bi bi-speedometer2"></i> KPI Row</span>
+                                    <span class="font-bold text-sm text-white">Global Summary KPIs</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Five headline metrics: Global Utilisation %, Total RVU, High-Stress Devices, Active Scan Time, and ER Average TAT.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Each KPI is derived from the aggregated study dataset joined with the device schedule table. Utilisation = actual scan minutes ÷ scheduled capacity minutes × 100. RVU is summed from the procedure_duration_map rvu_value column. High-stress threshold is > 85% utilisation.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Gives the department head a 10-second read of operational health before drilling into detail. Red numbers demand attention; green numbers confirm normalcy.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-bar"><i class="bi bi-bar-chart"></i> Bar</span>
+                                    <span class="font-bold text-sm text-white">TAT per Patient Class</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Average total turnaround time (in minutes) broken down by patient class (ER, Inpatient, Outpatient, etc.).</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> TAT is calculated as the difference between study_date and report completion date in minutes. Grouped by patient_class, averaged, and sorted.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> ER patients demand sub-60-minute TAT; inpatients can tolerate longer. This chart immediately flags SLA breaches by care setting, enabling targeted workflow interventions.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-bar"><i class="bi bi-bar-chart"></i> Bar</span>
+                                    <span class="font-bold text-sm text-white">Hourly Arrival Pattern</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Study arrival count by hour of day (00:00 – 23:00), averaged across the selected date range.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> EXTRACT(HOUR FROM study_date) groupby with count, producing a 24-point histogram.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> The staffing chart. If your peak hour is 10:00–12:00 and your second radiologist starts at 12:00, you now have evidence to shift that schedule. Also reveals night-shift demand for on-call planning.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-pie"><i class="bi bi-pie-chart"></i> Pie</span>
+                                    <span class="font-bold text-sm text-white">Modality Volume Split</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Percentage of total studies attributed to each modality as a donut chart.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Equipment investment context. If CT is 60% of volume but only 20% of revenue (RVU), the resource allocation story needs revisiting.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-scatter"><i class="bi bi-diagram-2"></i> Scatter</span>
+                                    <span class="font-bold text-sm text-white">Duration vs TAT Correlation</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> A scatter plot where each dot is a procedure code. X axis = average scan duration (minutes), Y axis = average total TAT (minutes).</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Groups by procedure_code, computes mean(scan_duration) and mean(total_tat_min). Each point is labelled with the procedure code on hover.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Points far above the diagonal have long TATs relative to their scan time — the reporting bottleneck is <em>after</em> the scan. Points near the diagonal have proportionate TAT. Outliers are where to focus workflow improvement.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-table"><i class="bi bi-table"></i> Matrix Table</span>
+                                    <span class="font-bold text-sm text-white">Device Utilisation &amp; Revenue Matrix</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> A heat-coloured table with AE devices as rows and weekdays as columns. Each cell shows utilisation % for that device on that day of the week, plus a total RVU column.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Joins studies with device_weekly_schedule and device_exceptions for actual vs scheduled capacity. Colour coding: green (normal), amber (>75%), red (>85% = high stress), grey (closed/no schedule).</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> The most comprehensive equipment performance view. Identifies devices that are chronically overloaded on specific days (schedule redistribution target) and devices that are consistently idle (potential decommissioning or redeployment candidates).</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-bar"><i class="bi bi-bar-chart"></i> Bar</span>
+                                    <span class="font-bold text-sm text-white">Best vs Worst AE by Average TAT</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> All AE devices ranked by their average TAT from best (left) to worst (right), filtered to devices with ≥ 5 studies for statistical reliability.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Groups by aetitle, computes mean(total_tat_min), filters count ≥ 5, sorts ascending.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Surface-level anomaly detection for equipment or workflow issues. A device with a dramatically higher TAT might have a worklist configuration problem, network latency, or a staffing issue on its floor.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-bar"><i class="bi bi-bar-chart"></i> Bar</span>
+                                    <span class="font-bold text-sm text-white">TAT Distribution Histogram</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Frequency histogram of TAT values bucketed into 8 bands: 0–30 min, 31–60 min, 61–120 min, 121–180 min, 181–240 min, 241–300 min, 301–360 min, and 360+ min.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Filters studies with TAT > 0, bins using pandas pd.cut(), counts per bin. A reference line marks the global mean TAT.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Reveals TAT variability. A narrow tall distribution = consistent performance. A flat wide distribution = high variability needing standardisation. A bimodal shape = two distinct workflow streams (e.g. daytime vs overnight reads).</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-scatter"><i class="bi bi-diagram-2"></i> Scatter</span>
+                                    <span class="font-bold text-sm text-white">RVU vs TAT Correlation</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Each study as a dot: X = TAT in minutes, Y = RVU value. Reveals whether high-value procedures receive proportionately fast or slow turnaround.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Joins studies with procedure_duration_map for RVU values. Filters out zero-TAT and zero-RVU records. Samples up to 2,000 points for performance.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> High-RVU studies with long TATs represent the most critical improvement targets — revenue is being generated but delayed, potentially impacting referring physician satisfaction and repeat business.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-table"><i class="bi bi-table"></i> Table</span>
+                                    <span class="font-bold text-sm text-white">TAT Outlier Detection Table</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Studies whose TAT exceeded 2× the global mean TAT, shown in a sortable table with study date, modality, procedure, AE device, and actual TAT.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Filters df[df['total_tat_min'] > 2 × global_mean_tat], sorts by TAT descending, shows top 50.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> The action list. These are specific studies that experienced severe delays. Each row is a candidate for root-cause analysis — was the radiologist absent? Was the worklist stuck? Was it a holiday? This table turns a statistical observation into an auditable case file.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-kpi"><i class="bi bi-person-badge"></i> Cards + Table</span>
+                                    <span class="font-bold text-sm text-white">Radiologist Performance Cards</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Per-radiologist cards showing total studies read, average TAT, and total RVU. Clicking a card drills into a table breaking down their performance by location and modality.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Groups by reporting physician (radiologist), computes count, AVG(TAT), SUM(RVU). Drill-down table further groups by location × modality.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Individual productivity transparency for management reviews, balanced workload assignment, and identifying training needs. The modality breakdown reveals where each radiologist spends their time vs their subspecialty.</p></div>
+                                </div>
+                            </div>
+
+                        </div>
+                    </section>
+
+                    <!-- ══════════════════════════════════════════
+                         REPORT 27 — AUDIT & COMPARISON
+                    ══════════════════════════════════════════ -->
+                    <section id="report27">
+                        <div class="flex items-center gap-3 mb-4">
+                            <span class="report-badge" style="background:rgba(167,139,250,0.15);color:#a78bfa;">Report 27</span>
+                            <h2 class="text-lg font-black text-white">Audit &amp; Period Comparison</h2>
+                        </div>
+                        <p class="text-slate-400 text-sm mb-5 leading-relaxed">Validates data integrity between the RIS (Radiology Information System) and PACS, and enables side-by-side comparison of two time periods to measure growth or regression.</p>
+
+                        <div class="doc-card">
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-line"><i class="bi bi-graph-up"></i> Area Line</span>
+                                    <span class="font-bold text-sm text-white">Hourly Load — Volume Trend</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Order arrival volume grouped by hour of day, rendered as a gradient area line.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> EXTRACT(HOUR FROM scheduled_datetime) from the HL7 orders table, counted by hour.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> RIS-side order scheduling pattern — shows when orders are placed, not just when scans happen. Useful for identifying front-desk peak load and PACS worklist surge management.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-pie"><i class="bi bi-pie-chart"></i> Donut</span>
+                                    <span class="font-bold text-sm text-white">Procedure ID Reconciliation (RIS vs PACS)</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> A donut chart showing the percentage of orders where the procedure code in the RIS matches the procedure code recorded in PACS vs those that are mismatched or unlinked.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Joins hl7_orders with etl_orders on accession number, compares procedure_code fields. Matches = identical; mismatches = different codes; orphans = no join found.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Data quality audit. A low match rate indicates protocol naming inconsistencies between RIS and PACS, which corrupts billing accuracy, procedure statistics, and AI model training. Target: > 95% match rate.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-bar"><i class="bi bi-bar-chart-stacked"></i> Stacked Bar</span>
+                                    <span class="font-bold text-sm text-white">Demographics — Age × Gender</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Age group distribution (X axis) with male/female stacking — a classic population pyramid in bar form.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Demographic signature of the order population — useful for comparing period A vs period B to see if patient composition has shifted.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-bar"><i class="bi bi-bar-chart"></i> Horizontal Bar</span>
+                                    <span class="font-bold text-sm text-white">Order Status Mix</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Order lifecycle status (Active, Cancelled, Completed, etc.) from the RIS as a horizontal bar chart.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Monitors order pipeline health from the RIS perspective. High "cancelled" volume may indicate scheduling inefficiency or patient no-show problems requiring a dedicated intervention.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-bar"><i class="bi bi-bar-chart"></i> Bar</span>
+                                    <span class="font-bold text-sm text-white">Modality Distribution by AE</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Order count per AE device, colour-coded by modality, showing which devices received the most orders from the RIS.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Cross-validates RIS order routing against PACS actual device usage. Discrepancies between this chart and Report 25's device matrix may reveal orders being re-routed or performed on unscheduled devices.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-kpi"><i class="bi bi-speedometer2"></i> KPI Cards</span>
+                                    <span class="font-bold text-sm text-white">Audit KPIs: Match %, Orphans, Duration, Volume Delta</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Four headline numbers — RIS-PACS procedure code match rate (%), orphaned order count, average procedure duration, and the volume delta between period A and period B.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> The volume delta answers the single most common management question: "Are we doing more or less than this time last year?" Paired with the match rate, it confirms whether the growth is real or an artefact of data quality issues.</p></div>
+                                </div>
+                            </div>
+
+                        </div>
+                    </section>
+
+                    <!-- ══════════════════════════════════════════
+                         REPORT 29 — STORAGE AUDIT
+                    ══════════════════════════════════════════ -->
+                    <section id="report29">
+                        <div class="flex items-center gap-3 mb-4">
+                            <span class="report-badge" style="background:rgba(244,63,94,0.15);color:#f43f5e;">Report 29</span>
+                            <h2 class="text-lg font-black text-white">Infrastructure &amp; Storage Audit</h2>
+                        </div>
+                        <p class="text-slate-400 text-sm mb-5 leading-relaxed">PACS storage consumption analysis by modality, device, and procedure. Designed for IT infrastructure planning and protocol optimisation to control archive growth.</p>
+
+                        <div class="doc-card">
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-bar"><i class="bi bi-bar-chart"></i> Bar</span>
+                                    <span class="font-bold text-sm text-white">Storage Distribution by Modality (GB)</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Total archive storage in GB consumed by each modality (CT, MRI, X-Ray, etc.) within the selected period.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Aggregates image_size_kb from etl_image_locations joined with etl_didb_studies, grouped by modality, converted to GB.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> CT and MRI are disproportionate storage consumers due to multi-slice protocols. This chart quantifies the imbalance and informs tiered-storage decisions (e.g. moving old CT to cold storage first).</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-bar"><i class="bi bi-bar-chart"></i> Bar</span>
+                                    <span class="font-bold text-sm text-white">Device Storage Efficiency (Avg MB / Study)</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Average megabytes per study for each AE device. Bars above 500 MB are highlighted in red as storage hogs.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> SUM(image_size_kb) ÷ COUNT(studies) per storing_ae, converted to MB. The 500 MB threshold is configurable in the route.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Identifies devices acquiring far more data per study than clinically necessary — often a protocol configuration issue (e.g. unnecessarily thin CT slices, over-scanned sequences). Fixing one protocol on one device can save tens of TB annually.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-table"><i class="bi bi-table"></i> Table</span>
+                                    <span class="font-bold text-sm text-white">Protocol Density Inventory</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Full table of procedure_code × modality × storing_ae combinations with study count, average MB per study, and total GB. Sortable and exportable.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Three-level groupby from the storage summary table (summary_storage_daily), no row limit, paginated client-side.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> The most granular storage view in the platform. IT and radiology physics teams can use this to create a ranked list of protocol optimisation targets — combining high volume × high MB/study for maximum impact per intervention.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-kpi"><i class="bi bi-exclamation-triangle-fill"></i> Alert Cards</span>
+                                    <span class="font-bold text-sm text-white">Storage Hog Alerts</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Red alert cards for any procedure code averaging > 500 MB per study, showing the procedure code, average MB, and the AE device responsible.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Actionable alerts that turn a passive inventory into a to-do list for the PACS administrator. Each card is a physics meeting agenda item.</p></div>
+                                </div>
+                            </div>
+
+                        </div>
+                    </section>
+
+                    <!-- ══════════════════════════════════════════
+                         REPORT AI — PREDICTIVE INTELLIGENCE
+                    ══════════════════════════════════════════ -->
+                    <section id="reportai">
+                        <div class="flex items-center gap-3 mb-4">
+                            <span class="report-badge" style="background:rgba(16,185,129,0.15);color:#10b981;">Report AI</span>
+                            <h2 class="text-lg font-black text-white">Predictive Intelligence &amp; Anomaly Detection</h2>
+                        </div>
+                        <p class="text-slate-400 text-sm mb-5 leading-relaxed">Machine-learning forecasting applied to storage, study volume, equipment utilisation, and physician referral trends. Uses linear regression and standard deviation–based anomaly detection. All models run on your server — no external API calls.</p>
+
+                        <div class="doc-card">
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-line"><i class="bi bi-graph-up"></i> Line</span>
+                                    <span class="font-bold text-sm text-white">Storage Forecast — Days to Capacity</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Historical daily storage consumption (GB) as a solid line, with a 90-day linear regression forecast as a dashed projection. The KPI above the chart shows current total GB, daily growth rate, and estimated days until capacity is reached.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Aggregates daily archive growth from summary_storage_daily. Fits a linear regression model (numpy polyfit, degree 1) to the time series. Projects forward 90 days. Days-to-full = (capacity_gb − current_gb) ÷ daily_growth_gb.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Replaces gut-feel storage procurement with a data-driven runway estimate. Procurement cycles for NAS expansion are typically 8–12 weeks — this forecast ensures you never run out of storage unexpectedly.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-line"><i class="bi bi-graph-up"></i> Line + Anomaly Flags</span>
+                                    <span class="font-bold text-sm text-white">Volume Forecast &amp; Anomaly Detection</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Daily study count history as a line, with a 90-day volume forecast and red/orange markers on days that were anomalous (statistical outliers). A separate pie shows the modality split of total volume.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Linear regression on the daily study count time series. Anomalies are flagged where the actual count deviates more than ±2 standard deviations from the rolling trend. YoY comparison uses the same calendar period from the previous year.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Anomaly flags on specific dates give you starting points for investigation — a volume spike on a holiday could be a data duplication error; a sudden drop might be a worklist failure that went unnoticed. The forecast supports budget planning and staffing contracts.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-line"><i class="bi bi-graph-up"></i> Line + Forecast</span>
+                                    <span class="font-bold text-sm text-white">Per-Device Utilisation Forecast</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> For each AE device, a line chart of historical utilisation % (actual scan minutes ÷ scheduled capacity minutes) with a 30-day forecast. Devices are listed as selectable cards with stress classification (High / Normal / Low).</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Joins studies with device_weekly_schedule and device_exceptions to compute daily utilisation per AE. Linear regression per device produces the forecast slope. High-stress threshold: > 85%. Low utilisation threshold: < 30%.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Predicts which device will hit maximum capacity first and when. A device trending upward at 80% utilisation will breach 85% in a calculable number of weeks — enough lead time to negotiate a maintenance contract pause or add session capacity.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-scatter"><i class="bi bi-diagram-2"></i> Scatter</span>
+                                    <span class="font-bold text-sm text-white">Stress vs Output (Efficiency Frontier)</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Each AE device as a dot: X axis = utilisation %, Y axis = total RVU. The ideal device is in the top-right quadrant (high utilisation, high revenue).</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Classifies devices into four quadrants — Star (high util, high RVU), Workhorse (high util, low RVU), Underperformer (low util, low RVU), and Cash Cow (low util, high RVU). Each quadrant demands a different management response.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-line"><i class="bi bi-graph-up"></i> Line + Forecast</span>
+                                    <span class="tag tag-table"><i class="bi bi-table"></i> Table</span>
+                                    <span class="font-bold text-sm text-white">Physician Referral Trends &amp; Forecast</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Monthly referral count for each of the top 20 physicians as a selectable line chart, with a 3-month linear forecast. The accompanying table ranks physicians by volume and shows their YoY change %, trend slope (Growing / Stable / Declining), and forecast.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Monthly aggregation per physician. Linear regression on the monthly series produces the slope. Slope > 0.5 = Growing; slope &lt; −0.5 = Declining. YoY = (current period count − same period last year) ÷ last year × 100.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> The most strategically important module for business development. A physician classified as Declining with a negative YoY is a retention risk. A physician classified as Growing is a relationship to invest in. The 3-month forecast gives the business development team a quantified opportunity pipeline.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-text"><i class="bi bi-chat-text"></i> AI Narrative</span>
+                                    <span class="font-bold text-sm text-white">Automated Insight Summaries</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> For each module (Storage, Volume, Utilisation, Physician), a natural-language paragraph summarising the key finding, the trend direction, and any anomalies detected. Generated automatically every time the report runs.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Template-based text generation using Python f-strings populated with computed metrics (slope, anomaly count, days-to-full, churning physician names). No external LLM required — fully deterministic.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Translates statistical results into plain English suitable for clinical leadership who may not interpret charts intuitively. The summary can be copied directly into a weekly operational report or email briefing.</p></div>
+                                </div>
+                            </div>
+
+                        </div>
+                    </section>
+
+                    <!-- Footer note -->
+                    <div class="text-center py-6">
+                        <p class="text-slate-600 text-xs">RAYD Analytics Platform · Documentation · All calculations run on your server · No external data transmission</p>
+                    </div>
+
+                </div><!-- end main content -->
+            </div><!-- end flex -->
+        </main>
+    </div>
+
+<script>
+function toggleSection(header) {
+    const body = header.nextElementSibling;
+    const icon = header.querySelector('.bi-chevron-down, .bi-chevron-up');
+    const isOpen = body.classList.contains('open');
+    body.classList.toggle('open', !isOpen);
+    if (icon) {
+        icon.classList.toggle('bi-chevron-down', isOpen);
+        icon.classList.toggle('bi-chevron-up', !isOpen);
+        icon.style.transform = isOpen ? '' : 'rotate(180deg)';
+    }
+}
+
+// Open first section of each report by default
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('.doc-card .section-header:first-of-type').forEach(h => {
+        const body = h.nextElementSibling;
+        if (body) {
+            body.classList.add('open');
+            const icon = h.querySelector('i.bi-chevron-down');
+            if (icon) icon.style.transform = 'rotate(180deg)';
+        }
+    });
+
+    // TOC active highlight on scroll
+    const sections = document.querySelectorAll('section[id]');
+    const tocLinks = document.querySelectorAll('.toc-link');
+    const observer = new IntersectionObserver(entries => {
+        entries.forEach(e => {
+            if (e.isIntersecting) {
+                tocLinks.forEach(l => l.classList.remove('active'));
+                const active = document.querySelector(`.toc-link[href="#${e.target.id}"]`);
+                if (active) active.classList.add('active');
+            }
+        });
+    }, { threshold: 0.3 });
+    sections.forEach(s => observer.observe(s));
+});
+
+// Theme
+const saved = localStorage.getItem('theme') || 'dark';
+document.body.classList.toggle('light', saved === 'light');
+document.getElementById('theme-icon').className = saved === 'light' ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
+function toggleTheme() {
+    const isLight = document.body.classList.toggle('light');
+    const theme = isLight ? 'light' : 'dark';
+    localStorage.setItem('theme', theme);
+    document.getElementById('theme-icon').className = isLight ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
+    fetch('/user/theme', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ theme }) });
+}
+</script>
+</body>
+</html>
