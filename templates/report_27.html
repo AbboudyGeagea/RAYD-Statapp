@@ -9,6 +9,11 @@
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap');
         body { font-family: 'Plus Jakarta Sans', sans-serif; background: #020617; color: #f8fafc; height: 100vh; overflow: hidden; }
+        body { transition: background 0.2s, color 0.2s; }
+        body.light { background: #f0f4f8 !important; color: #1a202c !important; }
+        body.light aside, body.light header { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        body.light .sidebar-item { color: #4a5568 !important; }
+        body.light .sidebar-item:hover, body.light .sidebar-item.active { background: #e2e8f0 !important; color: #2b6cb0 !important; }
         .input-dark { background: #0f172a; border: 1px solid #334155; color: white; border-radius: 6px; padding: 8px; font-size: 12px; width: 100%; outline: none; transition: border 0.2s; }
         .input-dark:focus { border-color: #38ada9; }
         .data-card { background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; overflow: hidden; }
@@ -57,6 +62,9 @@
     <header class="h-12 bg-[#0f172a] border-b border-slate-800 flex items-center px-6 justify-between shrink-0">
         <span class="font-black text-sm uppercase text-[#38ada9]">RAYD <span class="text-white">Audit Console</span></span>
         <span class="text-[11px] text-slate-600 font-bold uppercase tracking-widest">Orders Audit &amp; Period Comparison</span>
+        <button onclick="toggleTheme()" title="Toggle light/dark mode" class="p-2 rounded-lg transition-colors" style="color:#60a5fa;font-size:1.1rem;">
+            <i id="theme-icon" class="bi bi-moon-fill"></i>
+        </button>
     </header>
 
     <div class="flex flex-1 overflow-hidden">
@@ -336,6 +344,18 @@
                 }]
             });
             registerChart('chart_ae', cAE);
+        }
+
+        function applyTheme(theme) {
+            document.body.classList.toggle('light', theme === 'light');
+            const icon = document.getElementById('theme-icon');
+            if (icon) icon.className = theme === 'light' ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
+        }
+        applyTheme("{{ ui_theme }}");
+        function toggleTheme() {
+            const next = document.body.classList.contains('light') ? 'dark' : 'light';
+            applyTheme(next);
+            fetch('/user/theme', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({theme: next}) });
         }
     </script>
 </body>

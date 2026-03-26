@@ -9,6 +9,13 @@
     <style>
         :root { --accent: #60a5fa; }
         body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; }
+        body.light { background: #f0f4f8; color: #1a202c; }
+        body.light .sidebar-item { color: #4a5568; }
+        body.light .sidebar-item:hover, body.light .sidebar-item.active { background: #e2e8f0; color: #2b6cb0 !important; }
+        body.light aside, body.light header { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        body.light .table-container { background: #ffffff; border-color: #e2e8f0; }
+        body.light .page-btn { background: #e2e8f0; border-color: #cbd5e0; color: #2d3748; }
+        body.light table td, body.light table th { color: #2d3748; border-color: #e2e8f0; }
         .sidebar-item { transition: all 0.2s; border-radius: 0.75rem; margin-bottom: 0.25rem; cursor: pointer; text-decoration: none !important; color: #94a3b8; }
         .sidebar-item:hover { background: #1d2522; color: var(--accent) !important; }
         .sidebar-item.active { background: #1d2522; color: var(--accent) !important; border-left: 4px solid var(--accent); }
@@ -22,64 +29,74 @@
     </style>
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
-    <header class="bg-[#232b28] border-b border-[#28332e] px-12 py-6 flex items-center justify-between shadow-md z-30 relative">
-        <div class="w-64"><img src="{{ url_for('static', filename='philips.jpg') }}" class="h-10 w-auto grayscale opacity-40"></div>
+    <header class="bg-[#232b28] border-b border-[#28332e] px-6 py-4 flex items-center justify-between shadow-md z-30 relative">
+        <div class="flex items-center gap-3">
+            <button onclick="toggleSidebar()" class="p-2 rounded-lg hover:bg-[#2a3530] transition-colors" title="Toggle sidebar">
+                <i class="bi bi-layout-sidebar text-[#60a5fa] text-lg"></i>
+            </button>
+            <img src="{{ url_for('static', filename='philips.jpg') }}" class="h-10 w-auto grayscale opacity-40">
+        </div>
         <div class="flex flex-col items-center">
             <img src="{{ url_for('static', filename='RAYD.png') }}" class="h-16 w-auto opacity-80">
             <div class="h-1 w-12 bg-[#60a5fa] mt-2 rounded-full"></div>
         </div>
-        <div class="w-64 flex justify-end"><img src="{{ url_for('static', filename='intermedic.jpeg') }}" class="h-10 w-auto grayscale opacity-40"></div>
+        <div class="flex items-center gap-3 justify-end w-64">
+            <button id="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode"
+                class="p-2 rounded-lg hover:bg-[#2a3530] transition-colors text-[#60a5fa] text-lg">
+                <i class="bi bi-moon-fill" id="theme-icon"></i>
+            </button>
+            <img src="{{ url_for('static', filename='intermedic.jpeg') }}" class="h-10 w-auto grayscale opacity-40">
+        </div>
     </header>
 
     <div class="flex flex-1 overflow-hidden">
-        <aside class="w-72 bg-[#232b28] border-r border-[#28332e] flex flex-col p-6 shadow-xl z-20">
-            <div class="flex items-center gap-3 mb-10 px-2">
-                <div class="bg-[#60a5fa] p-2.5 rounded-xl text-white shadow-lg shadow-blue-400/20"><i class="bi bi-cpu-fill text-xl"></i></div>
-                <div>
+        <aside id="sidebar" class="w-72 bg-[#232b28] border-r border-[#28332e] flex flex-col p-4 shadow-xl z-20 overflow-y-auto transition-all duration-200" style="min-width:56px;">
+            <div class="flex items-center gap-3 mb-8 px-2">
+                <div class="bg-[#60a5fa] p-2.5 rounded-xl text-white shadow-lg shadow-blue-400/20 flex-shrink-0"><i class="bi bi-cpu-fill text-xl"></i></div>
+                <div class="sidebar-label">
                     <h1 class="font-black text-[#e2e8f0] tracking-tighter uppercase leading-none text-xl">RAYD</h1>
                     <p class="text-[9px] font-black text-[#60a5fa] uppercase tracking-widest mt-1">Intelligence Hub</p>
                 </div>
             </div>
             <nav class="flex-1 space-y-1">
-                <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-4">Main Menu</p>
-                <a href="{{ url_for('viewer.viewer_dashboard') }}" class="sidebar-item flex items-center gap-3 px-4 py-3 text-sm font-bold">
-                    <i class="bi bi-speedometer2"></i> Viewer Dashboard
+                <p class="sidebar-label text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-4">Main Menu</p>
+                <a href="{{ url_for('viewer.viewer_dashboard') }}" class="sidebar-item flex items-center gap-3 px-3 py-3 text-sm font-bold" title="Viewer Dashboard">
+                    <i class="bi bi-speedometer2 flex-shrink-0"></i><span class="sidebar-label"> Viewer Dashboard</span>
                 </a>
-                <a href="{{ url_for('admin.admin_dashboard') }}" class="sidebar-item active flex items-center gap-3 px-4 py-3 text-sm font-bold">
-                    <i class="bi bi-cpu"></i> ETL Control Room
+                <a href="{{ url_for('admin.admin_dashboard') }}" class="sidebar-item active flex items-center gap-3 px-3 py-3 text-sm font-bold" title="ETL Control Room">
+                    <i class="bi bi-cpu flex-shrink-0"></i><span class="sidebar-label"> ETL Control Room</span>
                 </a>
-                <a href="{{ url_for('mapping.mapping_page') }}" class="sidebar-item flex items-center gap-3 px-4 py-3 text-sm font-bold">
-                    <i class="bi bi-calendar-week"></i> Live Week Matrix
+                <a href="{{ url_for('mapping.mapping_page') }}" class="sidebar-item flex items-center gap-3 px-3 py-3 text-sm font-bold" title="Live Week Matrix">
+                    <i class="bi bi-calendar-week flex-shrink-0"></i><span class="sidebar-label"> Live Week Matrix</span>
                 </a>
-                <a href="{{ url_for('live_feed.live_page') }}" target="_blank" class="sidebar-item flex items-center gap-3 px-4 py-3 text-sm font-bold">
-                    <i class="bi bi-activity"></i> Live AE Status
-                    <span style="font-size:8px;font-weight:900;padding:1px 6px;border-radius:4px;background:rgba(34,197,94,0.15);color:#22c55e;text-transform:uppercase;letter-spacing:0.08em;margin-left:auto;">LIVE</span>
-                </a>
-
-                <div class="pt-4 pb-2">
-                    <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-2">RIS</p>
-                </div>
-                <a href="{{ url_for('hl7_orders.hl7_orders_page') }}" class="sidebar-item flex items-center gap-3 px-4 py-3 text-sm font-bold">
-                    <i class="bi bi-activity"></i> HL7 Orders
-                </a>
-                <a href="{{ url_for('portal_admin.portal_users') }}" class="sidebar-item flex items-center gap-3 px-4 py-3 text-sm font-bold">
-                    <i class="bi bi-person-vcard"></i> Patient Portal
+                <a href="{{ url_for('live_feed.live_page') }}" target="_blank" class="sidebar-item flex items-center gap-3 px-3 py-3 text-sm font-bold" title="Live AE Status">
+                    <i class="bi bi-activity flex-shrink-0"></i><span class="sidebar-label"> Live AE Status <span style="font-size:8px;font-weight:900;padding:1px 6px;border-radius:4px;background:rgba(34,197,94,0.15);color:#22c55e;text-transform:uppercase;letter-spacing:0.08em;">LIVE</span></span>
                 </a>
 
                 <div class="pt-4 pb-2">
-                    <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-2">AI</p>
+                    <p class="sidebar-label text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-2">RIS</p>
                 </div>
-                <a href="{{ url_for('bitnet.assistant_page') }}" class="sidebar-item flex items-center gap-3 px-4 py-3 text-sm font-bold">
-                    <i class="bi bi-stars"></i> AI Assistant
+                <a href="{{ url_for('hl7_orders.hl7_orders_page') }}" class="sidebar-item flex items-center gap-3 px-3 py-3 text-sm font-bold" title="HL7 Orders">
+                    <i class="bi bi-clipboard2-pulse flex-shrink-0"></i><span class="sidebar-label"> HL7 Orders</span>
+                </a>
+                <a href="{{ url_for('portal_admin.portal_users') }}" class="sidebar-item flex items-center gap-3 px-3 py-3 text-sm font-bold" title="Patient Portal">
+                    <i class="bi bi-person-vcard flex-shrink-0"></i><span class="sidebar-label"> Patient Portal</span>
+                </a>
+
+                <div class="pt-4 pb-2">
+                    <p class="sidebar-label text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-2">AI</p>
+                </div>
+                <a href="{{ url_for('bitnet.assistant_page') }}" class="sidebar-item flex items-center gap-3 px-3 py-3 text-sm font-bold" title="AI Assistant">
+                    <i class="bi bi-stars flex-shrink-0"></i><span class="sidebar-label"> AI Assistant</span>
                 </a>
             </nav>
             <form method="POST" action="/auth/logout" class="mt-auto mb-3">
-                <button type="submit"
-                   class="w-full flex items-center gap-3 px-4 py-3 text-sm font-bold rounded-xl border border-[#28332e] text-slate-500 hover:text-red-400 hover:border-red-400/30 transition-all">
-                    <i class="bi bi-box-arrow-right"></i> Logout
+                <button type="submit" title="Logout"
+                   class="w-full flex items-center gap-3 px-3 py-3 text-sm font-bold rounded-xl border border-[#28332e] text-slate-500 hover:text-red-400 hover:border-red-400/30 transition-all">
+                    <i class="bi bi-box-arrow-right flex-shrink-0"></i><span class="sidebar-label"> Logout</span>
                 </button>
             </form>
-            <div class="p-4 bg-[#181f1c] rounded-2xl border border-[#28332e]">
+            <div class="sidebar-label p-4 bg-[#181f1c] rounded-2xl border border-[#28332e]">
                 <p class="text-[10px] uppercase text-slate-500 font-bold mb-1">System Health</p>
                 <p class="text-xs text-green-400 font-mono flex items-center gap-2">
                     <span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span> Last Sync: {{ last_sync_time }}
@@ -254,6 +271,40 @@
                     if(data.status === 'success') location.reload();
                     else alert('Error: ' + data.message);
                 });
+        }
+    </script>
+    <script>
+        // ── Theme ──────────────────────────────────────────────
+        const _savedTheme = "{{ ui_theme }}";
+        function applyTheme(theme) {
+            document.body.classList.toggle('light', theme === 'light');
+            document.getElementById('theme-icon').className = theme === 'light' ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
+        }
+        applyTheme(_savedTheme);
+
+        function toggleTheme() {
+            const next = document.body.classList.contains('light') ? 'dark' : 'light';
+            applyTheme(next);
+            fetch('/user/theme', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({theme: next})
+            });
+        }
+
+        // ── Sidebar ────────────────────────────────────────────
+        function toggleSidebar() {
+            const sb = document.getElementById('sidebar');
+            sb.classList.toggle('w-72');
+            sb.classList.toggle('w-14');
+            sb.querySelectorAll('.sidebar-label').forEach(el => el.classList.toggle('hidden'));
+        }
+        // Auto-collapse on small screens
+        if (window.innerWidth < 1024) {
+            const sb = document.getElementById('sidebar');
+            sb.classList.remove('w-72');
+            sb.classList.add('w-14');
+            sb.querySelectorAll('.sidebar-label').forEach(el => el.classList.add('hidden'));
         }
     </script>
 </body>

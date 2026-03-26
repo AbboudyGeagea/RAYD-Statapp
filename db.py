@@ -80,6 +80,8 @@ class User(db.Model, UserMixin):
     username = db.Column(String, unique=True, nullable=False)
     password_hash = db.Column(String, nullable=False)
     role = db.Column(String)
+    ui_theme = db.Column(String, server_default='dark')
+    favorites = db.Column(Text, server_default='[]')  # JSON array of report_ids
 
 class active_sessions(db.Model):
     __tablename__ = 'active_sessions'

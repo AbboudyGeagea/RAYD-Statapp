@@ -8,18 +8,33 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
         :root { --accent: #60a5fa; }
-        body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; }
+        body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; transition: background 0.2s, color 0.2s; }
         .sidebar-item { transition: all 0.2s; border-radius: 0.75rem; margin-bottom: 0.25rem; cursor: pointer; font-family: 'Inter', sans-serif !important; text-decoration: none !important; color: #94a3b8; }
         .sidebar-item:hover { background: #1d2522; color: var(--accent) !important; }
         .sidebar-item.active { background: #1d2522; color: var(--accent) !important; border-left: 4px solid var(--accent); }
         .sidebar-item i { font-size: 1.1rem; width: 1.5rem; text-align: center; }
-        .card-custom { background: #232b28; border-radius: 1.5rem; border: 1px solid #28332e; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.3); color: #e2e8f0; }
+        .card-custom { background: #232b28; border-radius: 1.5rem; border: 1px solid #28332e; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.3); color: #e2e8f0; transition: background 0.2s, border-color 0.2s; }
         .tab-btn { transition: all 0.3s ease; border-bottom: 3px solid transparent; color: #64748b; font-size: 0.85rem; font-weight: 700; }
         .tab-btn.active { border-bottom-color: var(--accent); color: var(--accent); font-weight: 900; }
+        .star-btn { background: none; border: none; cursor: pointer; font-size: 1.1rem; color: #64748b; transition: color 0.2s, transform 0.1s; padding: 0; line-height: 1; }
+        .star-btn:hover { transform: scale(1.2); }
+        .star-btn.starred { color: #f59e0b; }
+        /* Light mode */
+        body.light { background: #f0f4f8; color: #1a202c; }
+        body.light aside, body.light header { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        body.light .sidebar-item { color: #4a5568; }
+        body.light .sidebar-item:hover, body.light .sidebar-item.active { background: #e2e8f0; color: #2b6cb0 !important; }
+        body.light .card-custom { background: #ffffff; border-color: #e2e8f0; color: #1a202c; }
+        body.light main { background: #f0f4f8 !important; }
+        body.light .tab-btn { color: #718096; }
+        body.light .tab-btn.active { color: #2b6cb0; border-bottom-color: #2b6cb0; }
+        body.light h3 { color: #1a202c !important; }
+        body.light p.text-slate-400 { color: #718096 !important; }
     </style>
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
-    <header class="bg-[#232b28] border-b border-[#28332e] px-8 py-4 flex items-center justify-center shadow-md z-30 relative">
+    <header class="bg-[#232b28] border-b border-[#28332e] px-8 py-4 flex items-center justify-between shadow-md z-30 relative">
+        <div class="w-10"></div>
         <div class="flex items-center gap-5">
             <img src="{{ url_for('static', filename='RAYD.png') }}" class="h-12 w-auto opacity-90">
             <div class="flex flex-col items-center">
@@ -28,6 +43,9 @@
                 <div class="h-px w-52 bg-gradient-to-r from-transparent via-[#60a5fa] to-transparent mt-1.5"></div>
             </div>
         </div>
+        <button onclick="toggleTheme()" title="Toggle light/dark mode" class="p-2 rounded-lg hover:bg-[#2a3530] transition-colors text-[#60a5fa] text-lg">
+            <i id="theme-icon" class="bi bi-moon-fill"></i>
+        </button>
     </header>
 
     <div class="flex flex-1 overflow-hidden">
@@ -75,7 +93,10 @@
 
         <main class="flex-1 overflow-y-auto p-10 bg-[#181f1c]">
             <div class="max-w-5xl mx-auto">
-                <div class="flex items-center gap-8 border-b border-[#28332e] mb-8">
+                <div class="flex items-center gap-8 border-b border-[#28332e] mb-8 flex-wrap">
+                    <button onclick="toggleTab('favorites')" id="tab-favorites-btn" class="tab-btn pb-3 uppercase tracking-widest flex items-center gap-2">
+                        <i class="bi bi-star-fill text-amber-400"></i> Favorites
+                    </button>
                     <button onclick="toggleTab('clinical')" id="tab-clinical-btn" class="tab-btn active pb-3 uppercase tracking-widest">Clinical KPIs</button>
                     <button onclick="toggleTab('it')" id="tab-it-btn" class="tab-btn pb-3 uppercase tracking-widest">IT Systems</button>
                     <button onclick="toggleTab('ai')" id="tab-ai-btn" class="tab-btn pb-3 uppercase tracking-widest flex items-center gap-2">
@@ -86,10 +107,32 @@
                     </button>
                 </div>
 
+                <!-- ── Favorites Tab ── -->
+                <div id="grid-favorites" class="hidden">
+                    <div id="favorites-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
+                    <div id="favorites-empty" class="hidden flex flex-col items-center justify-center py-20 text-center">
+                        <i class="bi bi-star text-5xl text-slate-600 mb-4"></i>
+                        <p class="text-slate-400 font-bold">No favorites yet</p>
+                        <p class="text-slate-500 text-sm mt-1">Click the ★ on any report card to pin it here</p>
+                    </div>
+                </div>
+
                 <div id="grid-clinical" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {% for report in reports if report.report_id in [22,23,25,27,28] %}
-                    <div class="card-custom p-6 flex flex-col hover:border-[#60a5fa]/30 transition-colors">
-                        <div class="p-2.5 bg-blue-400/10 rounded-xl text-[#60a5fa] w-fit mb-4"><i class="bi bi-graph-up-arrow text-xl"></i></div>
+                    <div class="card-custom p-6 flex flex-col hover:border-[#60a5fa]/30 transition-colors"
+                         data-report-id="{{ report.report_id }}"
+                         data-report-name="{{ report.report_name }}"
+                         data-report-desc="{{ report.long_description }}"
+                         data-report-url="{{ url_for('viewer.viewer_report', report_id=report.report_id) }}"
+                         data-report-color="blue">
+                        <div class="flex items-start justify-between mb-4">
+                            <div class="p-2.5 bg-blue-400/10 rounded-xl text-[#60a5fa]"><i class="bi bi-graph-up-arrow text-xl"></i></div>
+                            <button class="star-btn {% if report.report_id in user_favorites %}starred{% endif %}"
+                                    onclick="toggleFavorite({{ report.report_id }}, this)"
+                                    title="Add to favorites">
+                                <i class="bi {% if report.report_id in user_favorites %}bi-star-fill{% else %}bi-star{% endif %}"></i>
+                            </button>
+                        </div>
                         <h3 class="text-base font-bold text-white mb-2">{{ report.report_name }}</h3>
                         <p class="text-slate-400 text-xs leading-relaxed mb-6 flex-1">{{ report.long_description }}</p>
                         <a href="{{ url_for('viewer.viewer_report', report_id=report.report_id) }}" target="_blank" class="w-full py-3 bg-[#60a5fa] text-white text-center text-xs font-black uppercase tracking-widest rounded-xl">Open Analysis</a>
@@ -99,8 +142,20 @@
 
                 <div id="grid-it" class="hidden grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {% for report in reports if report.report_id not in [22,23,25,27,28] %}
-                    <div class="card-custom p-6 flex flex-col hover:border-[#60a5fa]/30 transition-colors">
-                        <div class="p-2.5 bg-emerald-400/10 rounded-xl text-emerald-400 w-fit mb-4"><i class="bi bi-hdd-network text-xl"></i></div>
+                    <div class="card-custom p-6 flex flex-col hover:border-[#60a5fa]/30 transition-colors"
+                         data-report-id="{{ report.report_id }}"
+                         data-report-name="{{ report.report_name }}"
+                         data-report-desc="{{ report.long_description }}"
+                         data-report-url="{{ url_for('viewer.viewer_report', report_id=report.report_id) }}"
+                         data-report-color="emerald">
+                        <div class="flex items-start justify-between mb-4">
+                            <div class="p-2.5 bg-emerald-400/10 rounded-xl text-emerald-400"><i class="bi bi-hdd-network text-xl"></i></div>
+                            <button class="star-btn {% if report.report_id in user_favorites %}starred{% endif %}"
+                                    onclick="toggleFavorite({{ report.report_id }}, this)"
+                                    title="Add to favorites">
+                                <i class="bi {% if report.report_id in user_favorites %}bi-star-fill{% else %}bi-star{% endif %}"></i>
+                            </button>
+                        </div>
                         <h3 class="text-base font-bold text-white mb-2">{{ report.report_name }}</h3>
                         <p class="text-slate-400 text-xs leading-relaxed mb-6 flex-1">{{ report.long_description }}</p>
                         <a href="{{ url_for('viewer.viewer_report', report_id=report.report_id) }}" target="_blank" class="w-full py-3 bg-emerald-600 text-white text-center text-xs font-black uppercase tracking-widest rounded-xl">Monitor System</a>
@@ -163,12 +218,74 @@
     </div>
 
     <script>
+        // ── Theme ──────────────────────────────────────────────────────
+        function applyTheme(theme) {
+            document.body.classList.toggle('light', theme === 'light');
+            document.getElementById('theme-icon').className = theme === 'light' ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
+        }
+        applyTheme("{{ ui_theme }}");
+        function toggleTheme() {
+            const next = document.body.classList.contains('light') ? 'dark' : 'light';
+            applyTheme(next);
+            fetch('/user/theme', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({theme: next}) });
+        }
+
+        // ── Tabs ───────────────────────────────────────────────────────
         function toggleTab(tabName) {
-            const grids = { clinical:'grid-clinical', it:'grid-it', ai:'grid-ai', super:'grid-super' };
-            const btns  = { clinical:'tab-clinical-btn', it:'tab-it-btn', ai:'tab-ai-btn', super:'tab-super-btn' };
+            const grids = { favorites:'grid-favorites', clinical:'grid-clinical', it:'grid-it', ai:'grid-ai', super:'grid-super' };
+            const btns  = { favorites:'tab-favorites-btn', clinical:'tab-clinical-btn', it:'tab-it-btn', ai:'tab-ai-btn', super:'tab-super-btn' };
             Object.keys(grids).forEach(k => {
                 document.getElementById(grids[k]).classList.toggle('hidden', k !== tabName);
                 document.getElementById(btns[k]).classList.toggle('active', k === tabName);
+            });
+            if (tabName === 'favorites') renderFavorites();
+        }
+
+        // ── Favorites ──────────────────────────────────────────────────
+        let _favs = new Set({{ user_favorites | tojson }});
+
+        function toggleFavorite(reportId, btn) {
+            fetch('/user/favorite', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({report_id: reportId})
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.ok) {
+                    const starred = data.action === 'added';
+                    _favs = new Set(data.favorites);
+                    btn.classList.toggle('starred', starred);
+                    btn.querySelector('i').className = starred ? 'bi bi-star-fill' : 'bi bi-star';
+                    // sync any duplicate card (same report in another tab)
+                    document.querySelectorAll(`.star-btn[data-rid="${reportId}"]`).forEach(b => {
+                        b.classList.toggle('starred', starred);
+                        b.querySelector('i').className = starred ? 'bi bi-star-fill' : 'bi bi-star';
+                    });
+                }
+            });
+        }
+
+        function renderFavorites() {
+            const grid  = document.getElementById('favorites-grid');
+            const empty = document.getElementById('favorites-empty');
+            grid.innerHTML = '';
+            if (_favs.size === 0) {
+                grid.classList.add('hidden');
+                empty.classList.remove('hidden');
+                return;
+            }
+            empty.classList.add('hidden');
+            grid.classList.remove('hidden');
+            document.querySelectorAll('[data-report-id]').forEach(card => {
+                const rid = parseInt(card.dataset.reportId);
+                if (_favs.has(rid)) {
+                    const clone = card.cloneNode(true);
+                    // re-attach star handler on clone
+                    const starBtn = clone.querySelector('.star-btn');
+                    if (starBtn) starBtn.setAttribute('onclick', `toggleFavorite(${rid}, this)`);
+                    grid.appendChild(clone);
+                }
             });
         }
     </script>

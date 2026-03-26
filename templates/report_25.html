@@ -12,6 +12,11 @@
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap');
         body { background: #080a09; color: #d1d1d6; font-family: 'Plus Jakarta Sans', sans-serif; overflow: hidden; font-size: 14px; }
+        body { transition: background 0.2s, color 0.2s; }
+        body.light { background: #f0f4f8 !important; color: #1a202c !important; }
+        body.light aside, body.light header { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        body.light .sidebar-item { color: #4a5568 !important; }
+        body.light .sidebar-item:hover, body.light .sidebar-item.active { background: #e2e8f0 !important; color: #2b6cb0 !important; }
         .glass-card { background: #111413; border: 1px solid rgba(255,255,255,0.08); border-radius: 1.5rem; padding: 24px; }
         .tab-btn { font-size: 13px; font-weight: 800; text-transform: uppercase; color: #71717a; padding: 24px 0; border-bottom: 3px solid transparent; transition: 0.3s; cursor: pointer; }
         .tab-btn.active { color: #3b82f6; border-bottom: 3px solid #3b82f6; }
@@ -46,6 +51,9 @@
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
     <header class="bg-[#232b28] border-b border-[#28332e] px-8 py-4 flex items-center justify-center shadow-md z-30 relative shrink-0">
+        <button onclick="toggleTheme()" title="Toggle light/dark mode" class="p-2 rounded-lg transition-colors absolute right-4 top-1/2 -translate-y-1/2" style="color:#60a5fa;font-size:1.1rem;">
+            <i id="theme-icon" class="bi bi-moon-fill"></i>
+        </button>
         <div class="flex items-center gap-5">
             <img src="{{ url_for('static', filename='RAYD.png') }}" class="h-12 w-auto opacity-90">
             <div class="flex flex-col items-center">
@@ -670,6 +678,18 @@
                     `).join('');
                 }
             }
+        }
+
+        function applyTheme(theme) {
+            document.body.classList.toggle('light', theme === 'light');
+            const icon = document.getElementById('theme-icon');
+            if (icon) icon.className = theme === 'light' ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
+        }
+        applyTheme("{{ ui_theme }}");
+        function toggleTheme() {
+            const next = document.body.classList.contains('light') ? 'dark' : 'light';
+            applyTheme(next);
+            fetch('/user/theme', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({theme: next}) });
         }
     </script>
     </div>

@@ -112,7 +112,10 @@ def create_app():
     # --- EXPOSE CONFIG TO ALL JINJA TEMPLATES ---
     @app.context_processor
     def inject_config():
-        return {"config": app.config}
+        import json
+        theme     = getattr(current_user, 'ui_theme', 'dark') if current_user.is_authenticated else 'dark'
+        favorites = json.loads(getattr(current_user, 'favorites', '[]') or '[]') if current_user.is_authenticated else []
+        return {"config": app.config, "ui_theme": theme, "user_favorites": favorites}
 
     # --- DB CONFIG ---
     user     = os.environ.get('POSTGRES_USER',     'etl_user')
@@ -160,6 +163,20 @@ def create_app():
         if current_user.role == 'admin':
             return redirect(url_for('admin.admin_dashboard'))
         return redirect(url_for('viewer.viewer_dashboard'))
+
+    # --- MIGRATE: add ui_theme + favorites columns if missing ---
+    with app.app_context():
+        try:
+            db.session.execute(text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS ui_theme VARCHAR DEFAULT 'dark'"
+            ))
+            db.session.execute(text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS favorites TEXT DEFAULT '[]'"
+            ))
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            logger.warning(f"[Migration] users columns: {e}")
 
     # --- STARTUP: AUTO-TRIGGER ETL IF DB IS EMPTY ---
     with app.app_context():

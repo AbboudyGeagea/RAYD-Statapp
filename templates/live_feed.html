@@ -14,6 +14,11 @@
         }
         * { box-sizing:border-box; margin:0; padding:0; }
         body { font-family:'Inter',sans-serif; background:var(--bg); color:#e2e8f0; min-height:100vh; }
+        body { transition: background 0.2s, color 0.2s; }
+        body.light { background: #f0f4f8 !important; color: #1a202c !important; }
+        body.light aside, body.light header { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        body.light .sidebar-item { color: #4a5568 !important; }
+        body.light .sidebar-item:hover, body.light .sidebar-item.active { background: #e2e8f0 !important; color: #2b6cb0 !important; }
         ::-webkit-scrollbar { width:4px; } ::-webkit-scrollbar-thumb { background:#1a2420; border-radius:10px; }
 
         /* ── Tile ── */
@@ -140,6 +145,9 @@
 
         <!-- Clock, SSE indicator, refresh button, countdown ring -->
         <div class="flex items-center gap-4">
+            <button onclick="toggleTheme()" title="Toggle light/dark mode" class="p-2 rounded-lg transition-colors" style="color:#60a5fa;font-size:1.1rem;">
+                <i id="theme-icon" class="bi bi-moon-fill"></i>
+            </button>
             <!-- SSE status -->
             <div class="flex items-center gap-2" title="" id="sse-status-wrap">
                 <span class="sse-dot sse-off" id="sse-dot"></span>
@@ -422,6 +430,18 @@ function escHtml(s) {
 // ── Boot ──────────────────────────────────────────────────────────────
 loadStatus();
 startSSE();
+
+function applyTheme(theme) {
+    document.body.classList.toggle('light', theme === 'light');
+    const icon = document.getElementById('theme-icon');
+    if (icon) icon.className = theme === 'light' ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
+}
+applyTheme("{{ ui_theme }}");
+function toggleTheme() {
+    const next = document.body.classList.contains('light') ? 'dark' : 'light';
+    applyTheme(next);
+    fetch('/user/theme', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({theme: next}) });
+}
 </script>
 </body>
 </html>
