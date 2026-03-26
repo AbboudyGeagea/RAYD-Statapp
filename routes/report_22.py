@@ -131,29 +131,49 @@ def report_22():
             ORDER BY 1, 3 DESC
         """), params).fetchall()
 
-        # 2e. Average age per physician (top 10 by volume, exclude Unknown)
+        # 2e. Average age per physician (top 10 by volume, exclude Unknown, outliers removed)
         res_phys_age = db.session.execute(text(f"""
             {cte}
             SELECT physician, ROUND(AVG(age_at_exam)::numeric, 1) as avg_age, COUNT(*) as cnt
             FROM base_data {where}
             AND physician != 'Unknown'
-            AND age_at_exam IS NOT NULL
+            AND age_at_exam BETWEEN 0 AND 110
             GROUP BY 1
             HAVING COUNT(*) >= 5
             ORDER BY cnt DESC LIMIT 15
         """), params).fetchall()
 
-        # 2f. Average age per procedure code (top 20 by volume)
+        # Consolidated: both age outlier counts in a single query using FILTER
+        age_phys_counts = db.session.execute(text(f"""
+            {cte}
+            SELECT
+                COUNT(*) FILTER (WHERE physician != 'Unknown' AND age_at_exam IS NOT NULL)   AS total,
+                COUNT(*) FILTER (WHERE physician != 'Unknown' AND age_at_exam BETWEEN 0 AND 110) AS clean
+            FROM base_data {where}
+        """), params).fetchone()
+        age_phys_outliers = int(age_phys_counts[0] or 0) - int(age_phys_counts[1] or 0)
+
+        # 2f. Average age per procedure code (top 20 by volume, outliers removed)
         res_proc_age = db.session.execute(text(f"""
             {cte}
             SELECT procedure_code, ROUND(AVG(age_at_exam)::numeric, 1) as avg_age, COUNT(*) as cnt
             FROM base_data {where}
             AND procedure_code IS NOT NULL
-            AND age_at_exam IS NOT NULL
+            AND age_at_exam BETWEEN 0 AND 110
             GROUP BY 1
             HAVING COUNT(*) >= 5
             ORDER BY cnt DESC LIMIT 20
         """), params).fetchall()
+
+        # Consolidated: proc age outlier counts in a single query
+        age_proc_counts = db.session.execute(text(f"""
+            {cte}
+            SELECT
+                COUNT(*) FILTER (WHERE procedure_code IS NOT NULL AND age_at_exam IS NOT NULL)          AS total,
+                COUNT(*) FILTER (WHERE procedure_code IS NOT NULL AND age_at_exam BETWEEN 0 AND 110)    AS clean
+            FROM base_data {where}
+        """), params).fetchone()
+        age_proc_outliers = int(age_proc_counts[0] or 0) - int(age_proc_counts[1] or 0)
 
         # 2g. Study status breakdown per top physician
         res_phys_status = db.session.execute(text(f"""
@@ -234,6 +254,8 @@ def report_22():
             },
             "phys_age": [{"name": r[0], "avg_age": float(r[1]) if r[1] else 0} for r in res_phys_age],
             "proc_age": [{"code": r[0], "avg_age": float(r[1]) if r[1] else 0, "cnt": r[2]} for r in res_proc_age],
+            "age_phys_outliers": age_phys_outliers,
+            "age_proc_outliers": age_proc_outliers,
             "phys_status": {
                 "physicians": top10_phys_st,
                 "statuses": all_statuses_list,

@@ -6,10 +6,16 @@ from flask import Blueprint, render_template, request, send_file, url_for
 from flask_login import login_required
 from sqlalchemy import text
 from db import db, get_etl_cutoff_date
+from routes.report_cache import cache_get, cache_put
 
 report_25_bp = Blueprint("report_25", __name__)
 
 def get_gold_standard_data(form_data):
+    # Cache hit check — skip full DB scan for identical re-runs within 5 min
+    cached = cache_get(25, form_data)
+    if cached is not None:
+        return cached
+
     print("\n--- [DIAGNOSTIC START: REPORT 25] ---")
     
     go_live = get_etl_cutoff_date() 
@@ -105,6 +111,12 @@ def get_gold_standard_data(form_data):
                 "total_rvu": round(ae_df['rvu'].sum(), 1)
             })
 
+    # TAT percentiles for the whole dataset
+    tat_vals_all = df[df['total_tat_min'] > 0]['total_tat_min'] if 'total_tat_min' in df.columns else pd.Series([], dtype=float)
+    tat_median = round(float(tat_vals_all.median()), 1) if len(tat_vals_all) > 0 else 0.0
+    tat_p25    = round(float(tat_vals_all.quantile(0.25)), 1) if len(tat_vals_all) > 0 else 0.0
+    tat_p75    = round(float(tat_vals_all.quantile(0.75)), 1) if len(tat_vals_all) > 0 else 0.0
+
     # Rad Performance
     rad_cards = []
     if 'reading_radiologist' in df.columns:
@@ -114,11 +126,28 @@ def get_gold_standard_data(form_data):
             for loc, l_df in r_df.groupby(loc_col):
                 mods = [{"m": m, "avg": round(m_df['total_tat_min'].mean(), 1), "count": len(m_df), "rvu": round(m_df['rvu'].sum(), 1)} for m, m_df in l_df.groupby('modality')]
                 drill.append({"loc": loc, "mods": mods, "loc_rvu": round(l_df['rvu'].sum(), 1)})
-            
+
+            total_scan_hours = r_df['proc_duration'].sum() / 60
+            rvu_per_hour = round(r_df['rvu'].sum() / total_scan_hours, 2) if total_scan_hours > 0 else 0.0
+
             rad_cards.append({
-                "name": rad, "overall": round(r_df['total_tat_min'].mean(), 1), 
-                "total_rvu": round(r_df['rvu'].sum(), 1), "drilldown": drill
+                "name": rad,
+                "overall": round(r_df['total_tat_min'].mean(), 1),
+                "tat_median": round(float(r_df[r_df['total_tat_min'] > 0]['total_tat_min'].median()), 1) if (r_df['total_tat_min'] > 0).any() else 0.0,
+                "total_rvu": round(r_df['rvu'].sum(), 1),
+                "rvu_per_hour": rvu_per_hour,
+                "drilldown": drill
             })
+
+        # Add percentile rank among peers (lower TAT = better = lower percentile)
+        peer_tats = sorted([r['overall'] for r in rad_cards if r['overall'] > 0])
+        n = len(peer_tats)
+        for r in rad_cards:
+            if r['overall'] > 0 and n > 0:
+                rank = sum(1 for t in peer_tats if t <= r['overall'])
+                r['tat_percentile'] = round(rank / n * 100)
+            else:
+                r['tat_percentile'] = None
 
     print(f"STEP 4: Final Summary RVU: {df['rvu'].sum()}")
     print("--- [DIAGNOSTIC END] ---\n")
@@ -151,30 +180,53 @@ def get_gold_standard_data(form_data):
                 row['total_tat_min'] = round(float(row['total_tat_min']), 1)
             outlier_studies.append(row)
 
+    # IQR-based outlier filter for scatter plots
+    def _iqr_filter(series):
+        q1, q3 = series.quantile(0.25), series.quantile(0.75)
+        iqr = q3 - q1
+        return (series >= q1 - 1.5 * iqr) & (series <= q3 + 1.5 * iqr)
+
+    scatter_outliers_removed = 0
+    if 'proc_duration' in df.columns and 'total_tat_min' in df.columns:
+        raw = df[(df['proc_duration'] > 0) & (df['total_tat_min'] > 0)]
+        mask = _iqr_filter(raw['proc_duration']) & _iqr_filter(raw['total_tat_min'])
+        scatter_outliers_removed = int((~mask).sum())
+
+    rvu_outliers_removed = 0
     if 'rvu' in df.columns and 'total_tat_min' in df.columns:
-        tmp = df[(df['rvu'] > 0) & (df['total_tat_min'] > 0)][['rvu', 'total_tat_min']]
+        tmp_raw = df[(df['rvu'] > 0) & (df['total_tat_min'] > 0)]
+        mask_rvu = _iqr_filter(tmp_raw['rvu']) & _iqr_filter(tmp_raw['total_tat_min'])
+        rvu_outliers_removed = int((~mask_rvu).sum())
+        tmp = tmp_raw[mask_rvu][['rvu', 'total_tat_min']]
         rvu_tat = [[round(float(r[0]), 2), round(float(r[1]), 1)] for r in tmp.values.tolist()]
 
-    return {
+    result = ({
         "summary": {
-            "total": len(df), "global_util": f"{(sum(r['avg'] for r in matrix_rows)/len(matrix_rows) if matrix_rows else 0):.1f}%", 
+            "total": len(df), "global_util": f"{(sum(r['avg'] for r in matrix_rows)/len(matrix_rows) if matrix_rows else 0):.1f}%",
             "er_wait": f"{df[df['patient_class'].str.contains('ER|Emergency', case=False, na=False)]['total_tat_min'].mean():.1f}m" if 'patient_class' in df.columns else "0m",
             "high_stress_count": high_stress, "low_util_count": under_utilized,
-            "work_hours": round(total_active_mins / 60, 1), "total_rvu": round(df['rvu'].sum(), 1)
+            "work_hours": round(total_active_mins / 60, 1), "total_rvu": round(df['rvu'].sum(), 1),
+            "tat_median": tat_median, "tat_p25": tat_p25, "tat_p75": tat_p75,
         },
         "matrix": matrix_rows, 
         "class_tat": df.groupby('patient_class')['total_tat_min'].mean().round(1).to_dict() if 'patient_class' in df.columns else {}, 
         "rad_cards": rad_cards,
         "modality_split": [{"name": k, "value": int(v)} for k, v in df['modality'].value_counts().items()] if 'modality' in df.columns else [], 
         "hourly_patterns": {i: int(v) for i, v in pd.to_datetime(df['scheduled_datetime']).dt.hour.value_counts().sort_index().items()} if 'scheduled_datetime' in df.columns else {}, 
-        "correlation": df[['proc_duration', 'total_tat_min']].values.tolist() if 'proc_duration' in df.columns and 'total_tat_min' in df.columns else [],
+        "correlation": (lambda: (
+            lambda raw: raw[_iqr_filter(raw['proc_duration']) & _iqr_filter(raw['total_tat_min'])][['proc_duration','total_tat_min']].values.tolist()
+        )(df[(df['proc_duration']>0)&(df['total_tat_min']>0)]) if 'proc_duration' in df.columns and 'total_tat_min' in df.columns else [])(),
+        "scatter_outliers_removed": scatter_outliers_removed,
+        "rvu_outliers_removed": rvu_outliers_removed,
         "raw_df": df,
         "tat_hist": tat_hist,
         "ae_tat": ae_tat,
         "rvu_tat": rvu_tat,
         "outlier_studies": outlier_studies,
         "global_mean_tat": global_mean_tat,
-    }, start, end
+    }, start, end)
+    cache_put(25, form_data, result)
+    return result
 
 @report_25_bp.route("/report/25", methods=["GET", "POST"])
 @login_required

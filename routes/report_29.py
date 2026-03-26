@@ -69,7 +69,7 @@ def report_29():
                 }]
             }
 
-            # 2. Top AE titles by avg MB/study
+            # 2. Top AE titles by avg MB/study (IQR filter to exclude freak outliers)
             ae_agg = (
                 df.groupby("storing_ae")[["total_gb", "study_count"]]
                 .sum().reset_index()
@@ -77,13 +77,23 @@ def report_29():
             ae_agg["avg_mb"] = (
                 ae_agg["total_gb"] * 1024 / ae_agg["study_count"].replace(0, 1)
             ).round(1)
-            ae_agg = ae_agg.sort_values("avg_mb", ascending=False).head(15)
+            ae_mb = ae_agg["avg_mb"]
+            if len(ae_mb) > 4:
+                q1, q3 = ae_mb.quantile(0.25), ae_mb.quantile(0.75)
+                iqr = q3 - q1
+                ae_agg_filtered = ae_agg[ae_mb <= q3 + 1.5 * iqr]
+                tech_outliers_removed = int(len(ae_agg) - len(ae_agg_filtered))
+            else:
+                ae_agg_filtered = ae_agg
+                tech_outliers_removed = 0
+            ae_agg_filtered = ae_agg_filtered.sort_values("avg_mb", ascending=False).head(15)
             tech_bar_json = {
-                "labels": ae_agg["storing_ae"].tolist(),
-                "data":   ae_agg["avg_mb"].tolist()
+                "labels": ae_agg_filtered["storing_ae"].tolist(),
+                "data":   ae_agg_filtered["avg_mb"].tolist(),
+                "outliers_removed": tech_outliers_removed
             }
 
-            # 3. Alerts — procedure codes averaging > 500 MB/study
+            # 3. Alerts — procedure codes averaging > 500 MB/study (IQR filter first)
             proc_agg = (
                 df.groupby("procedure_code")[["total_gb", "study_count"]]
                 .sum().reset_index()
@@ -91,6 +101,11 @@ def report_29():
             proc_agg["avg_mb"] = (
                 proc_agg["total_gb"] * 1024 / proc_agg["study_count"].replace(0, 1)
             ).round(1)
+            proc_mb = proc_agg["avg_mb"]
+            if len(proc_mb) > 4:
+                q1p, q3p = proc_mb.quantile(0.25), proc_mb.quantile(0.75)
+                iqrp = q3p - q1p
+                proc_agg = proc_agg[proc_mb <= q3p + 1.5 * iqrp]
             for _, row in proc_agg[proc_agg["avg_mb"] > 500].sort_values("avg_mb", ascending=False).head(5).iterrows():
                 alerts.append({
                     "type": "critical",

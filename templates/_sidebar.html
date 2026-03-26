@@ -69,6 +69,7 @@
             <i class="bi bi-person-vcard flex-shrink-0" style="color:#fb923c;"></i> Patient Portal
         </a>
 
+        {% if config.BITNET_ENABLED %}
         <div class="pt-4 pb-2">
             <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-2">AI</p>
         </div>
@@ -77,6 +78,7 @@
            title="AI Assistant">
             <i class="bi bi-robot flex-shrink-0" style="color:#10b981;"></i> AI Assistant
         </a>
+        {% endif %}
         <div class="pt-4 pb-2">
             <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-2">Help</p>
         </div>

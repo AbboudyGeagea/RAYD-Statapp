@@ -14,6 +14,9 @@
         body.light aside, body.light header { background: #ffffff !important; border-color: #e2e8f0 !important; }
         body.light .sidebar-item { color: #4a5568 !important; }
         body.light .sidebar-item:hover, body.light .sidebar-item.active { background: #e2e8f0 !important; color: #2b6cb0 !important; }
+        body.light .card, body.light .data-card { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        body.light .input-dark { background: #ffffff !important; border-color: #e2e8f0 !important; color: #1a202c !important; }
+        body.light aside { background: #ffffff !important; border-color: #e2e8f0 !important; }
         .input-dark { background: #0f172a; border: 1px solid #1e293b; color: white; padding: 10px; border-radius: 6px; width: 100%; font-size: 11px; }
         .input-dark:disabled { opacity: 0.3; cursor: not-allowed; }
         .card { background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; margin-bottom: 24px; transition: all 0.3s ease; overflow: hidden; }
@@ -26,6 +29,7 @@
         label { font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase; margin-bottom: 4px; display: block; }
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 10px; }
+        .outlier-badge { font-size: 9px; font-weight: 800; padding: 2px 7px; border-radius: 4px; background: rgba(251,191,36,0.12); color: #fbbf24; border: 1px solid rgba(251,191,36,0.25); cursor: help; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
         @media print {
             aside, header button, form button[type=submit], .card-desc, nav { display: none !important; }
             body { overflow: visible !important; background: #fff !important; color: #000 !important; }
@@ -147,7 +151,14 @@
                 <div id="c_phys_mod" class="chart-container"></div>
             </div>
             <div class="card">
-                <div class="card-header text-amber-400">Average Patient Age per Physician</div>
+                <div class="card-header text-amber-400 flex items-center justify-between">
+                    Average Patient Age per Physician
+                    {% if data.age_phys_outliers and data.age_phys_outliers > 0 %}
+                    <span class="outlier-badge" title="Ages outside 0–110 years were excluded to prevent skewed averages">
+                        <i class="bi bi-funnel-fill"></i> {{ data.age_phys_outliers }} outlier{{ 's' if data.age_phys_outliers != 1 }} removed
+                    </span>
+                    {% endif %}
+                </div>
                 <div class="card-desc">Mean age of patients referred by each physician (top 15 by volume, min 5 studies). Helps identify physician specialisation profile.</div>
                 <div id="c_phys_age" class="chart-container"></div>
             </div>
@@ -155,7 +166,14 @@
 
         <!-- Avg Age per Procedure (searchable) -->
         <div class="card">
-            <div class="card-header text-sky-400">Average Patient Age per Procedure Code (Top 20)</div>
+            <div class="card-header text-sky-400 flex items-center justify-between">
+                Average Patient Age per Procedure Code (Top 20)
+                {% if data.age_proc_outliers and data.age_proc_outliers > 0 %}
+                <span class="outlier-badge" title="Ages outside 0–110 years were excluded to prevent skewed averages">
+                    <i class="bi bi-funnel-fill"></i> {{ data.age_proc_outliers }} outlier{{ 's' if data.age_proc_outliers != 1 }} removed
+                </span>
+                {% endif %}
+            </div>
             <div class="card-desc">Mean patient age for the 20 most-performed procedure codes. Use the search box below to filter the full list.</div>
             <div id="c_proc_age" class="chart-container"></div>
             <div style="padding:16px 20px;border-top:1px solid #1e293b;">

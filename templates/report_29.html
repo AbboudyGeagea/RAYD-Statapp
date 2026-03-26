@@ -9,58 +9,44 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
         :root { --accent: #38ada9; }
-        body { font-family: 'Inter', sans-serif; background: #f8fafc; color: #1e293b; }
-        body { transition: background 0.2s, color 0.2s; }
+        body { font-family: 'Inter', sans-serif; background: #0d1a18; color: #e2e8f0; transition: background 0.2s, color 0.2s; }
+        aside { background: #111f1c; border-color: #1e2e2a; }
+
+        /* Light mode overrides */
         body.light { background: #f0f4f8 !important; color: #1a202c !important; }
-        body.light aside, body.light header { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        body.light aside { background: #ffffff !important; border-color: #e2e8f0 !important; }
         body.light .sidebar-item { color: #4a5568 !important; }
         body.light .sidebar-item:hover, body.light .sidebar-item.active { background: #e2e8f0 !important; color: #2b6cb0 !important; }
+        body.light .card-custom { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        .outlier-badge { display:inline-flex; align-items:center; gap:4px; background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.4); color:#f59e0b; border-radius:999px; padding:2px 9px; font-size:10px; font-weight:700; cursor:pointer; position:relative; }
+        .outlier-badge .tooltip { display:none; position:absolute; top:calc(100% + 6px); right:0; background:#1c1917; border:1px solid rgba(245,158,11,0.4); color:#fde68a; font-size:10px; padding:6px 10px; border-radius:8px; white-space:nowrap; z-index:100; }
+        .outlier-badge:hover .tooltip { display:block; }
+        body.light .card-desc { color: #64748b !important; border-color: #f1f5f9 !important; }
+        body.light .section-desc { background: #f0fdfc !important; color: #64748b !important; }
+        body.light .export-png-btn { background: #f8fafc !important; border-color: #e2e8f0 !important; color: #64748b !important; }
+        body.light .btn-csv { background: #f0fdfc !important; border-color: #99f6e4 !important; color: #0d9488 !important; }
+        body.light .input-filter { background: #ffffff !important; border-color: #e2e8f0 !important; color: #1a202c !important; }
+
         .sidebar-item { transition: all 0.2s; border-radius: 0.75rem; margin-bottom: 0.25rem; cursor: pointer; }
-        .sidebar-item:hover { background: #f1f5f9; color: var(--accent); }
-        .card-custom { background: white; border-radius: 1.5rem; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05); overflow: hidden; }
+        .sidebar-item:hover { background: rgba(56,173,169,0.1); color: var(--accent); }
+
+        .card-custom { background: #111f1c; border-radius: 1.5rem; border: 1px solid #1e2e2a; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.3); overflow: hidden; }
         .chart-container { position: relative; height: 300px; width: 100%; padding: 0 16px 16px 16px; }
-        .banner-integrated { background: white; border-bottom: 1px solid #e2e8f0; }
         .status-pill { padding: 2px 8px; border-radius: 9999px; font-size: 10px; font-weight: 900; text-transform: uppercase; }
 
-        /* Chart card structure */
-        .card-header-row {
-            padding: 18px 24px 0 24px;
-            display: flex; align-items: center; justify-content: space-between;
-        }
+        .card-header-row { padding: 18px 24px 0 24px; display: flex; align-items: center; justify-content: space-between; }
         .card-title { font-size: 11px; font-weight: 900; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.08em; }
-        .card-desc {
-            padding: 8px 24px 14px 24px;
-            font-size: 13px; color: #94a3b8; font-style: italic; line-height: 1.55;
-            border-bottom: 1px solid #f1f5f9;
-        }
+        .card-desc { padding: 8px 24px 14px 24px; font-size: 13px; color: #64748b; font-style: italic; line-height: 1.55; border-bottom: 1px solid #1e2e2a; }
 
-        /* Section description */
-        .section-desc {
-            font-size: 13px; color: #64748b; font-style: italic; line-height: 1.6;
-            padding: 12px 16px; background: #f0fdfc;
-            border-left: 3px solid #38ada9; border-radius: 0 8px 8px 0;
-        }
+        .section-desc { font-size: 13px; color: #64748b; font-style: italic; line-height: 1.6; padding: 12px 16px; background: rgba(56,173,169,0.08); border-left: 3px solid #38ada9; border-radius: 0 8px 8px 0; }
 
-        /* PNG export button */
-        .export-png-btn {
-            display: inline-flex; align-items: center; gap: 4px;
-            font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em;
-            color: #cbd5e1; border: 1px solid #e2e8f0; border-radius: 5px;
-            padding: 4px 10px; background: #f8fafc; cursor: pointer; transition: all 0.15s;
-            white-space: nowrap;
-        }
+        .export-png-btn { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: #64748b; border: 1px solid #1e2e2a; border-radius: 5px; padding: 4px 10px; background: #0d1a18; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
         .export-png-btn:hover { color: #38ada9; border-color: #38ada9; }
 
-        /* CSV button */
-        .btn-csv {
-            width: 100%; padding: 10px; border-radius: 10px;
-            background: #f0fdfc; border: 1px solid #99f6e4;
-            color: #0d9488; font-size: 12px; font-weight: 900;
-            text-transform: uppercase; letter-spacing: 0.06em;
-            cursor: pointer; transition: all 0.15s;
-            display: flex; align-items: center; justify-content: center; gap: 6px;
-        }
-        .btn-csv:hover { background: #ccfbf1; border-color: #38ada9; }
+        .btn-csv { width: 100%; padding: 10px; border-radius: 10px; background: rgba(56,173,169,0.1); border: 1px solid #1e3a36; color: #38ada9; font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.06em; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; justify-content: center; gap: 6px; }
+        .btn-csv:hover { background: rgba(56,173,169,0.2); border-color: #38ada9; }
+
+        .input-filter { background: #111f1c; border: 1px solid #1e2e2a; color: #e2e8f0; border-radius: 8px; padding: 8px 10px; font-size: 12px; width: 100%; outline: none; }
 
         label { font-size: 11px; }
     </style>
@@ -72,7 +58,7 @@
     <div class="flex flex-1 overflow-hidden">
 
         <!-- Sidebar -->
-        <aside class="w-64 bg-white border-r border-slate-200 flex flex-col p-5 shadow-sm z-20 gap-5 overflow-y-auto">
+        <aside class="w-64 border-r flex flex-col p-5 shadow-sm z-20 gap-5 overflow-y-auto">
             <nav class="space-y-1">
                 <a href="{{ url_for('viewer.viewer_dashboard') }}"
                    class="sidebar-item flex items-center gap-3 px-4 py-3 text-xs font-black text-slate-500 uppercase tracking-widest border border-slate-100 mb-4 hover:border-teal-500/30">
@@ -187,7 +173,12 @@
                     <!-- Technician Storage Hogs -->
                     <div class="card-custom">
                         <div class="card-header-row">
-                            <span class="card-title">Technician Storage Hogs (Avg MB/Study)</span>
+                            <div class="flex items-center gap-2">
+                                <span class="card-title">Technician Storage Hogs (Avg MB/Study)</span>
+                                {% if tech_bar_json and tech_bar_json.outliers_removed %}
+                                <span class="outlier-badge">⚠ {{ tech_bar_json.outliers_removed }} outliers removed<span class="tooltip">IQR filter applied — extreme avg MB/study values excluded from this chart.</span></span>
+                                {% endif %}
+                            </div>
                             <button class="export-png-btn" onclick="exportChart('techChart', 'technician_storage_hogs')">
                                 <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
@@ -288,6 +279,7 @@
     }
 
     {% if run_report %}
+
     const sharedOptions = {
         indexAxis: 'y',
         responsive: true,

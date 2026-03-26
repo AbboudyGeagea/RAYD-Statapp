@@ -47,6 +47,20 @@
 
         /* Narrative */
         .narrative-box { background: rgba(251,191,36,0.05); border: 1px solid rgba(251,191,36,0.2); border-left: 3px solid #fbbf24; border-radius: 0 10px 10px 0; padding: 14px 18px; font-size: 13px; color: #cbd5e1; line-height: 1.75; }
+
+        /* Light mode */
+        body.light { background: #f0f4f8 !important; color: #1a202c !important; }
+        body.light .card { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        body.light .f-input, body.light .f-multi { background: #ffffff !important; border-color: #e2e8f0 !important; color: #1a202c !important; }
+        body.light .dropdown-list { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        body.light .dropdown-item { color: #1a202c !important; }
+        body.light .dropdown-item:hover { background: #f1f5f9 !important; }
+        body.light .row-stat .lbl { color: #64748b !important; }
+        body.light .row-stat .val { color: #1a202c !important; }
+        body.light .row-stat { border-color: #e2e8f0 !important; }
+        body.light .narrative-box { background: rgba(251,191,36,0.05) !important; color: #374151 !important; }
+        body.light .sidebar-item { color: #4a5568 !important; }
+        body.light .sidebar-item:hover, body.light .sidebar-item.active { background: #e2e8f0 !important; color: #2b6cb0 !important; }
     </style>
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
@@ -767,6 +781,18 @@
     // ── Init ──────────────────────────────────────────────────────────
     loadFilters();
     loadPresets();
+
+    // ── Theme toggle ───────────────────────────────────────────────────
+    function toggleTheme() {
+        document.body.classList.toggle('light');
+        const icon = document.getElementById('theme-icon');
+        if (icon) icon.className = document.body.classList.contains('light') ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
+        fetch('/user/theme', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({theme: document.body.classList.contains('light') ? 'light' : 'dark'}) });
+    }
+    // Apply saved theme on load
+    fetch('/user/theme').then(r => r.json()).then(d => {
+        if (d.theme === 'light') { document.body.classList.add('light'); const i = document.getElementById('theme-icon'); if(i) i.className = 'bi bi-sun-fill'; }
+    }).catch(() => {});
     </script>
 </body>
 </html>

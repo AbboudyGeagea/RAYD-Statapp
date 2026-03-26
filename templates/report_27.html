@@ -14,6 +14,13 @@
         body.light aside, body.light header { background: #ffffff !important; border-color: #e2e8f0 !important; }
         body.light .sidebar-item { color: #4a5568 !important; }
         body.light .sidebar-item:hover, body.light .sidebar-item.active { background: #e2e8f0 !important; color: #2b6cb0 !important; }
+        body.light .data-card { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        .outlier-badge { display:inline-flex; align-items:center; gap:4px; background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.4); color:#f59e0b; border-radius:999px; padding:2px 9px; font-size:10px; font-weight:700; cursor:pointer; position:relative; }
+        .outlier-badge .tooltip { display:none; position:absolute; top:calc(100% + 6px); left:0; background:#1c1917; border:1px solid rgba(245,158,11,0.4); color:#fde68a; font-size:10px; padding:6px 10px; border-radius:8px; white-space:nowrap; z-index:100; }
+        .outlier-badge:hover .tooltip { display:block; }
+        body.light .input-dark { background: #ffffff !important; border-color: #e2e8f0 !important; color: #1a202c !important; }
+        body.light .btn-csv { background: #f0fdf4 !important; border-color: #bbf7d0 !important; color: #16a34a !important; }
+        body.light aside { background: #ffffff !important; border-color: #e2e8f0 !important; }
         .input-dark { background: #0f172a; border: 1px solid #334155; color: white; border-radius: 6px; padding: 8px; font-size: 12px; width: 100%; outline: none; transition: border 0.2s; }
         .input-dark:focus { border-color: #38ada9; }
         .data-card { background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; overflow: hidden; }
@@ -137,15 +144,38 @@
                     <span class="text-[12px] text-slate-600 italic mt-1">Orders with no linked PACS study — scheduled but never performed or linked.</span>
                 </div>
                 <div class="data-card p-4 border-l-4 border-blue-500 flex flex-col justify-center">
-                    <span class="text-[11px] font-bold text-slate-500 uppercase">Avg Procedure Duration</span>
+                    <div class="flex items-center gap-2">
+                        <span class="text-[11px] font-bold text-slate-500 uppercase">Avg Procedure Duration</span>
+                        {% if data.audit.duration_outliers_removed %}
+                        <span class="outlier-badge">⚠ {{ data.audit.duration_outliers_removed }} outliers removed<span class="tooltip">IQR filter applied — zero and extreme duration values excluded.</span></span>
+                        {% endif %}
+                    </div>
                     <span class="text-2xl font-black text-white mt-1">{{ data.audit.avg_duration }}m</span>
                     <span class="text-[12px] text-slate-600 italic mt-1">Mean procedure duration in minutes, from the procedure duration map.</span>
                 </div>
                 <div class="data-card p-4 border-l-4 border-purple-500 flex flex-col justify-center">
                     <span class="text-[11px] font-bold text-slate-500 uppercase">Volume Delta</span>
                     {% set delta = data.growth.vol_a - data.growth.vol_b %}
-                    <span class="text-2xl font-black mt-1 {{ 'text-emerald-400' if delta >= 0 else 'text-red-400' }}">{{ "+" if delta > 0 }}{{ delta }}</span>
-                    <span class="text-[12px] text-slate-600 italic mt-1">Change in order volume vs. the Growth Baseline period.</span>
+                    <div class="flex items-center gap-2 mt-1">
+                        <span class="text-2xl font-black {{ 'text-emerald-400' if delta >= 0 else 'text-red-400' }}">{{ "+" if delta > 0 }}{{ delta }}</span>
+                        {% if data.growth.delta_pct is defined %}
+                        <span class="text-[11px] font-black px-2 py-0.5 rounded-full
+                            {% if data.growth.delta_significant %}
+                                {{ 'bg-emerald-500/15 text-emerald-400' if delta >= 0 else 'bg-red-500/15 text-red-400' }}
+                            {% else %}
+                                bg-zinc-800 text-zinc-500
+                            {% endif %}">
+                            {{ "+" if data.growth.delta_pct > 0 }}{{ data.growth.delta_pct }}%
+                            {% if data.growth.delta_significant %}
+                            <span title="Change ≥15% vs baseline — likely a real shift, not noise.">⚠</span>
+                            {% endif %}
+                        </span>
+                        {% endif %}
+                    </div>
+                    <span class="text-[12px] text-slate-600 italic mt-1">
+                        Change vs. baseline ({{ data.growth.vol_b }} orders).
+                        {% if data.growth.delta_significant %}A ≥15% shift flags a meaningful operational change.{% endif %}
+                    </span>
                 </div>
             </div>
 
