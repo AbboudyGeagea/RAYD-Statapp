@@ -38,7 +38,7 @@ services:
       - LIVE_FEED_ENABLED=true
 
       # ── BitNet AI Assistant ───────────────────────────────────
-      - BITNET_ENABLED=false
+      - BITNET_ENABLED=true
       # llama-server runs on the host, container reaches it via docker bridge IP
       - BITNET_SERVER=http://172.17.0.1:8081
       - BITNET_TOKENS=200

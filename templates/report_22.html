@@ -212,16 +212,32 @@
                 <div id="c2" class="chart-container"></div>
             </div>
             <div class="card">
-                <div class="card-header">Gender (Rose)</div>
+                <div class="card-header flex items-center justify-between">
+                    <span>Gender (Rose)</span>
+                    {% if data.gender_excluded and data.gender_excluded > 0 %}
+                    <span class="outlier-badge" title="Records with undefined or non-binary gender (not M/F) were excluded from this chart"
+                          onclick="showDQModal()" style="cursor:pointer;">
+                        <i class="bi bi-funnel-fill"></i> {{ data.gender_excluded }} excluded
+                    </span>
+                    {% endif %}
+                </div>
                 <div class="card-desc">
-                    Proportion of studies by patient gender (M / F / Unknown) in the selected period. Rose chart segments are sized by study count.
+                    Proportion of studies by patient gender (M / F) in the selected period. Records with undefined gender were excluded.
                 </div>
                 <div id="c_gender" class="chart-container"></div>
             </div>
             <div class="card">
-                <div class="card-header">Age Group (Wave)</div>
+                <div class="card-header flex items-center justify-between">
+                    <span>Age Group (Wave)</span>
+                    {% if data.age_excl_negative and data.age_excl_negative > 0 %}
+                    <span class="outlier-badge" title="Records with negative, zero, or implausible ages (>110 years) were excluded from this chart"
+                          onclick="showDQModal()" style="cursor:pointer;">
+                        <i class="bi bi-funnel-fill"></i> {{ data.age_excl_negative }} excluded
+                    </span>
+                    {% endif %}
+                </div>
                 <div class="card-desc">
-                    Distribution of studies across patient age groups. Each point on the wave represents the total study count for that age band, helping identify the most active patient demographics.
+                    Distribution of studies across patient age groups (0–110 years). Negative ages and implausible values were excluded.
                 </div>
                 <div id="c_age" class="chart-container"></div>
             </div>
@@ -231,6 +247,84 @@
         <div class="h-full flex items-center justify-center text-slate-900 font-black text-7xl uppercase tracking-tighter opacity-20">Enter Filter Criteria</div>
         {% endif %}
     </main>
+
+    <!-- Data Quality Modal -->
+    {% if run_report %}
+    <div id="dq-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);" onclick="if(event.target===this)hideDQModal()">
+        <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#1e293b;border:1px solid #334155;border-radius:16px;padding:28px 32px;min-width:420px;max-width:560px;box-shadow:0 24px 60px rgba(0,0,0,0.5);">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;">
+                <div style="display:flex;align-items:center;gap:10px;">
+                    <span style="background:rgba(251,191,36,0.15);border:1px solid rgba(251,191,36,0.3);border-radius:8px;padding:6px 10px;font-size:16px;">⚠</span>
+                    <div>
+                        <p style="font-size:13px;font-weight:900;color:#f1f5f9;text-transform:uppercase;letter-spacing:0.05em;">Data Quality Report</p>
+                        <p style="font-size:10px;color:#64748b;font-weight:600;">Records removed before charting</p>
+                    </div>
+                </div>
+                <button onclick="hideDQModal()" style="color:#64748b;font-size:20px;line-height:1;background:none;border:none;cursor:pointer;">&times;</button>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:10px;">
+                {% set issues = [] %}
+                {% if data.gender_excluded and data.gender_excluded > 0 %}{% set _ = issues.append(1) %}
+                <div style="background:rgba(251,191,36,0.06);border:1px solid rgba(251,191,36,0.18);border-radius:10px;padding:14px 16px;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+                        <span style="font-size:11px;font-weight:900;color:#fbbf24;text-transform:uppercase;letter-spacing:0.06em;">Undefined Gender</span>
+                        <span style="font-size:18px;font-weight:900;color:#fbbf24;">{{ data.gender_excluded }}</span>
+                    </div>
+                    <p style="font-size:11px;color:#94a3b8;line-height:1.5;">Records where sex is NULL, blank, or not classified as M/F were excluded from the Gender chart. These may indicate missing registration data.</p>
+                </div>
+                {% endif %}
+                {% if data.age_excl_negative and data.age_excl_negative > 0 %}{% set _ = issues.append(1) %}
+                <div style="background:rgba(251,191,36,0.06);border:1px solid rgba(251,191,36,0.18);border-radius:10px;padding:14px 16px;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+                        <span style="font-size:11px;font-weight:900;color:#fbbf24;text-transform:uppercase;letter-spacing:0.06em;">Implausible Age</span>
+                        <span style="font-size:18px;font-weight:900;color:#fbbf24;">{{ data.age_excl_negative }}</span>
+                    </div>
+                    <p style="font-size:11px;color:#94a3b8;line-height:1.5;">Records with negative ages or ages above 110 years were excluded from the Age Group chart. These are likely data entry errors or missing birth dates.</p>
+                </div>
+                {% endif %}
+                {% if data.age_phys_outliers and data.age_phys_outliers > 0 %}{% set _ = issues.append(1) %}
+                <div style="background:rgba(251,191,36,0.06);border:1px solid rgba(251,191,36,0.18);border-radius:10px;padding:14px 16px;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+                        <span style="font-size:11px;font-weight:900;color:#fbbf24;text-transform:uppercase;letter-spacing:0.06em;">Age Outliers — Physician Chart</span>
+                        <span style="font-size:18px;font-weight:900;color:#fbbf24;">{{ data.age_phys_outliers }}</span>
+                    </div>
+                    <p style="font-size:11px;color:#94a3b8;line-height:1.5;">Ages outside 0–110 years were excluded from the Avg Age per Physician chart to prevent skewed averages.</p>
+                </div>
+                {% endif %}
+                {% if data.age_proc_outliers and data.age_proc_outliers > 0 %}{% set _ = issues.append(1) %}
+                <div style="background:rgba(251,191,36,0.06);border:1px solid rgba(251,191,36,0.18);border-radius:10px;padding:14px 16px;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+                        <span style="font-size:11px;font-weight:900;color:#fbbf24;text-transform:uppercase;letter-spacing:0.06em;">Age Outliers — Procedure Chart</span>
+                        <span style="font-size:18px;font-weight:900;color:#fbbf24;">{{ data.age_proc_outliers }}</span>
+                    </div>
+                    <p style="font-size:11px;color:#94a3b8;line-height:1.5;">Ages outside 0–110 years were excluded from the Avg Age per Procedure chart to prevent skewed averages.</p>
+                </div>
+                {% endif %}
+                {% if issues|length == 0 %}
+                <div style="text-align:center;padding:20px 0;color:#22c55e;font-weight:700;font-size:12px;">
+                    <i class="bi bi-check-circle-fill" style="font-size:24px;display:block;margin-bottom:8px;"></i>
+                    No data quality issues detected.
+                </div>
+                {% endif %}
+            </div>
+            <div style="margin-top:18px;padding-top:14px;border-top:1px solid #334155;display:flex;justify-content:space-between;align-items:center;">
+                <p style="font-size:10px;color:#475569;">Excluded records are not deleted — they remain in raw exports.</p>
+                <button onclick="hideDQModal()" style="padding:6px 18px;background:#38ada9;color:#fff;border:none;border-radius:8px;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:0.06em;">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Floating DQ trigger (only shows when there are issues) -->
+    {% set total_dq = (data.gender_excluded or 0) + (data.age_excl_negative or 0) + (data.age_phys_outliers or 0) + (data.age_proc_outliers or 0) %}
+    {% if total_dq > 0 %}
+    <button onclick="showDQModal()" title="Data quality issues detected — click to review"
+        style="position:fixed;bottom:24px;right:24px;z-index:1000;background:#1e293b;border:1px solid rgba(251,191,36,0.4);border-radius:12px;padding:10px 16px;cursor:pointer;display:flex;align-items:center;gap:8px;box-shadow:0 4px 20px rgba(0,0,0,0.4);">
+        <span style="font-size:14px;">⚠</span>
+        <span style="font-size:10px;font-weight:900;color:#fbbf24;text-transform:uppercase;letter-spacing:0.06em;">{{ total_dq }} records excluded</span>
+        <span style="font-size:9px;color:#64748b;font-weight:600;">view details</span>
+    </button>
+    {% endif %}
+    {% endif %}
 
     <script>
         const d = {{ data | tojson | safe if data else 'null' }};
@@ -371,7 +465,7 @@
                     itemStyle: { borderRadius: 6 },
                     label: { show: false },
                     data: d.gender_data,
-                    color: ['#3b82f6', '#ec4899', '#64748b']
+                    color: ['#3b82f6', '#ec4899']
                 }]
             });
 
@@ -400,6 +494,8 @@
             applyTheme(next);
             fetch('/user/theme', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({theme: next}) });
         }
+        function showDQModal() { document.getElementById('dq-modal').style.display = 'block'; }
+        function hideDQModal() { document.getElementById('dq-modal').style.display = 'none'; }
     </script>
     </div>
 </body>

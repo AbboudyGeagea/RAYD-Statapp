@@ -184,10 +184,31 @@ def report_22():
             GROUP BY 1, 2
         """), params).fetchall()
 
-        # 3. Demographics
-        res_demo = db.session.execute(text(f"{cte} SELECT COALESCE(age_group, 'Unknown'), COALESCE(sex, 'U'), COUNT(*) FROM base_data {where} GROUP BY 1, 2"), params).fetchall()
-        
-        gender_counts = {"M": 0, "F": 0, "U": 0}
+        # 3. Demographics — count excluded records before filtering
+        dq_counts = db.session.execute(text(f"""
+            {cte}
+            SELECT
+                COUNT(*)                                                              AS total,
+                COUNT(*) FILTER (WHERE sex IN ('M', 'F'))                             AS valid_sex,
+                COUNT(*) FILTER (WHERE age_at_exam BETWEEN 0 AND 110)                 AS valid_age,
+                COUNT(*) FILTER (WHERE sex IN ('M', 'F')
+                                   AND age_at_exam BETWEEN 0 AND 110)                AS both_valid
+            FROM base_data {where}
+        """), params).fetchone()
+        gender_excluded   = int(dq_counts[0] or 0) - int(dq_counts[1] or 0)
+        age_excl_negative = int(dq_counts[0] or 0) - int(dq_counts[2] or 0)
+
+        # Only M/F and age 0–110 included in charts
+        res_demo = db.session.execute(text(f"""
+            {cte}
+            SELECT COALESCE(age_group, 'Unknown'), sex, COUNT(*)
+            FROM base_data {where}
+            AND sex IN ('M', 'F')
+            AND age_at_exam BETWEEN 0 AND 110
+            GROUP BY 1, 2
+        """), params).fetchall()
+
+        gender_counts = {"M": 0, "F": 0}
         age_map = {}
         for age, sex, count in res_demo:
             if sex in gender_counts: gender_counts[sex] += count
@@ -256,6 +277,8 @@ def report_22():
             "proc_age": [{"code": r[0], "avg_age": float(r[1]) if r[1] else 0, "cnt": r[2]} for r in res_proc_age],
             "age_phys_outliers": age_phys_outliers,
             "age_proc_outliers": age_proc_outliers,
+            "gender_excluded": gender_excluded,
+            "age_excl_negative": age_excl_negative,
             "phys_status": {
                 "physicians": top10_phys_st,
                 "statuses": all_statuses_list,
