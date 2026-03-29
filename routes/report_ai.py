@@ -3,10 +3,10 @@ import logging
 import numpy as np
 import pandas as pd
 from datetime import date, timedelta
-from flask import Blueprint, render_template, request
-from flask_login import login_required
+from flask import Blueprint, render_template, request, abort
+from flask_login import login_required, current_user
 from sqlalchemy import text
-from db import db, get_go_live_date
+from db import db, get_go_live_date, user_has_page
 
 logger = logging.getLogger("REPORT_AI")
 report_ai_bp = Blueprint("report_ai", __name__)
@@ -414,6 +414,8 @@ def _get_physician_intelligence(start, end):
 @report_ai_bp.route("/report/ai", methods=["GET", "POST"])
 @login_required
 def report_ai():
+    if not user_has_page(current_user, 'report_ai'):
+        abort(403)
     go_live = get_go_live_date() or date(2025, 1, 1)
     today   = date.today()
 

@@ -113,9 +113,48 @@ def create_app():
     @app.context_processor
     def inject_config():
         import json
+        from sqlalchemy import text as _text
         theme     = getattr(current_user, 'ui_theme', 'dark') if current_user.is_authenticated else 'dark'
         favorites = json.loads(getattr(current_user, 'favorites', '[]') or '[]') if current_user.is_authenticated else []
-        return {"config": app.config, "ui_theme": theme, "user_favorites": favorites}
+
+        # Demo mode settings
+        demo_mode = False
+        demo_start = ''
+        demo_end   = ''
+        try:
+            from db import db as _db
+            rows = _db.session.execute(
+                _text("SELECT key, value FROM settings WHERE key IN ('demo_mode','demo_start','demo_end')")
+            ).fetchall()
+            d = {r[0]: r[1] for r in rows}
+            demo_mode  = d.get('demo_mode', 'false').lower() == 'true'
+            demo_start = d.get('demo_start', '')
+            demo_end   = d.get('demo_end', '')
+        except Exception:
+            pass
+
+        # In demo mode override all feature flags to True
+        cfg = app.config
+        if demo_mode:
+            cfg = dict(app.config)
+            cfg['LIVE_FEED_ENABLED']       = True
+            cfg['BITNET_ENABLED']          = True
+            cfg['PATIENT_PORTAL_ENABLED']  = True
+
+        return {
+            "config":       cfg,
+            "ui_theme":     theme,
+            "user_favorites": favorites,
+            "demo_mode":    demo_mode,
+            "demo_start":   demo_start,
+            "demo_end":     demo_end,
+        }
+
+    # --- JINJA FILTER: user_has_page ---
+    from db import user_has_page as _user_has_page
+    @app.template_filter('user_has_page')
+    def jinja_user_has_page(user, page_key):
+        return _user_has_page(user, page_key)
 
     # --- DB CONFIG ---
     user     = os.environ.get('POSTGRES_USER',     'etl_user')

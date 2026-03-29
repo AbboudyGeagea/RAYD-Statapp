@@ -10,6 +10,22 @@ from routes.report_cache import cache_get, cache_put
 
 report_25_bp = Blueprint("report_25", __name__)
 
+def _load_shift_config():
+    defaults = {'morning_start': 7, 'morning_end': 15,
+                'afternoon_start': 15, 'afternoon_end': 23,
+                'night_start': 23, 'night_end': 7}
+    try:
+        rows = db.session.execute(text(
+            "SELECT key, value FROM settings WHERE key LIKE 'shift_%'"
+        )).fetchall()
+        for key, val in rows:
+            k = key.replace('shift_', '')
+            if k in defaults:
+                defaults[k] = int(val)
+    except Exception:
+        pass
+    return defaults
+
 def get_gold_standard_data(form_data):
     # Cache hit check — skip full DB scan for identical re-runs within 5 min
     cached = cache_get(25, form_data)
@@ -200,6 +216,105 @@ def get_gold_standard_data(form_data):
         tmp = tmp_raw[mask_rvu][['rvu', 'total_tat_min']]
         rvu_tat = [[round(float(r[0]), 2), round(float(r[1]), 1)] for r in tmp.values.tolist()]
 
+    # TAT by modality (from existing df)
+    modality_tat = []
+    try:
+        if 'modality' in df.columns and 'total_tat_min' in df.columns:
+            mod_g = df[df['total_tat_min'] > 0].groupby('modality')['total_tat_min'].agg(
+                ['mean', 'median', 'count']
+            ).reset_index()
+            mod_g = mod_g[mod_g['count'] >= 5].sort_values('mean')
+            modality_tat = [
+                {'mod': r['modality'], 'avg': round(float(r['mean']), 1),
+                 'median': round(float(r['median']), 1), 'cnt': int(r['count'])}
+                for _, r in mod_g.iterrows()
+            ]
+    except Exception:
+        pass
+
+    # Unread study aging buckets
+    unread_aging = []
+    try:
+        aging_rows = db.session.execute(text("""
+            SELECT
+                CASE
+                    WHEN EXTRACT(EPOCH FROM (NOW() - study_date::timestamp))/3600 <= 24 THEN '0-24h'
+                    WHEN EXTRACT(EPOCH FROM (NOW() - study_date::timestamp))/3600 <= 48 THEN '24-48h'
+                    WHEN EXTRACT(EPOCH FROM (NOW() - study_date::timestamp))/3600 <= 72 THEN '48-72h'
+                    ELSE '72h+'
+                END AS bucket,
+                COALESCE(UPPER(m.modality), 'N/A') AS modality,
+                COUNT(*) AS cnt
+            FROM etl_didb_studies s
+            LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
+            WHERE s.study_status ILIKE '%unread%'
+              AND s.study_date BETWEEN :start AND :end
+            GROUP BY 1, 2
+            ORDER BY
+                CASE bucket WHEN '0-24h' THEN 1 WHEN '24-48h' THEN 2 WHEN '48-72h' THEN 3 ELSE 4 END
+        """), {"start": start, "end": end}).fetchall()
+        for bucket, modality, cnt in aging_rows:
+            unread_aging.append({'bucket': bucket, 'modality': modality, 'cnt': int(cnt)})
+    except Exception:
+        pass
+
+    # Studies per shift
+    shift_breakdown = []
+    try:
+        sc = _load_shift_config()
+        shift_rows = db.session.execute(text("""
+            SELECT
+                CASE
+                    WHEN EXTRACT(HOUR FROM s.scheduled_datetime) >= :ms AND EXTRACT(HOUR FROM s.scheduled_datetime) < :me THEN 'Morning'
+                    WHEN EXTRACT(HOUR FROM s.scheduled_datetime) >= :as AND EXTRACT(HOUR FROM s.scheduled_datetime) < :ae THEN 'Afternoon'
+                    ELSE 'Night'
+                END AS shift,
+                COALESCE(UPPER(m.modality), 'N/A') AS modality,
+                COUNT(*) AS cnt
+            FROM etl_didb_studies s
+            LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
+            WHERE s.study_date BETWEEN :start AND :end
+              AND s.scheduled_datetime IS NOT NULL
+            GROUP BY 1, 2
+            ORDER BY 1, 2
+        """), {
+            "start": start, "end": end,
+            "ms": sc['morning_start'],   "me": sc['morning_end'],
+            "as": sc['afternoon_start'], "ae": sc['afternoon_end'],
+        }).fetchall()
+        for shift, modality, cnt in shift_rows:
+            shift_breakdown.append({'shift': shift, 'modality': modality, 'cnt': int(cnt)})
+    except Exception:
+        pass
+
+    # Addendum rate by radiologist
+    addendum_data = {'overall_pct': 0.0, 'by_rad': []}
+    try:
+        add_rows = db.session.execute(text("""
+            SELECT
+                COALESCE(rep_final_signed_by, 'Unknown') AS radiologist,
+                COUNT(*) AS total,
+                SUM(CASE WHEN rep_has_addendum THEN 1 ELSE 0 END) AS addendum_count,
+                ROUND(SUM(CASE WHEN rep_has_addendum THEN 1 ELSE 0 END)::numeric / NULLIF(COUNT(*),0) * 100, 1) AS addendum_pct
+            FROM etl_didb_studies
+            WHERE study_date BETWEEN :start AND :end
+              AND rep_final_signed_by IS NOT NULL
+              AND rep_final_timestamp IS NOT NULL
+            GROUP BY 1
+            HAVING COUNT(*) >= 5
+            ORDER BY addendum_pct DESC
+        """), {"start": start, "end": end}).fetchall()
+        by_rad = [
+            {'rad': r[0], 'total': int(r[1]), 'addendum_count': int(r[2]), 'pct': float(r[3] or 0)}
+            for r in add_rows
+        ]
+        total_studies = sum(r['total'] for r in by_rad)
+        total_addenda = sum(r['addendum_count'] for r in by_rad)
+        overall_pct = round(total_addenda / total_studies * 100, 1) if total_studies > 0 else 0.0
+        addendum_data = {'overall_pct': overall_pct, 'total_addenda': total_addenda, 'by_rad': by_rad}
+    except Exception:
+        pass
+
     result = ({
         "summary": {
             "total": len(df), "global_util": f"{(sum(r['avg'] for r in matrix_rows)/len(matrix_rows) if matrix_rows else 0):.1f}%",
@@ -224,6 +339,10 @@ def get_gold_standard_data(form_data):
         "rvu_tat": rvu_tat,
         "outlier_studies": outlier_studies,
         "global_mean_tat": global_mean_tat,
+        "modality_tat":    modality_tat,
+        "unread_aging":    unread_aging,
+        "shift_breakdown": shift_breakdown,
+        "addendum_data":   addendum_data,
     }, start, end)
     cache_put(25, form_data, result)
     return result
@@ -243,6 +362,7 @@ def report_25():
         tree_dict[mod].append({"name": ae})
     tree_json = json.dumps({"name": "FLEET", "children": [{"name": k, "children": v} for k, v in tree_dict.items()]})
 
+    shift_config = _load_shift_config()
     run_report = request.method == "POST"
     active_tab = request.form.get("active_tab", "ops")
 
@@ -269,7 +389,7 @@ def report_25():
 
         template_data = {k: v for k, v in data.items() if k != 'raw_df'} if data else None
 
-    return render_template("report_25.html", data=template_data, display_start=display_start, display_end=display_end, classes=classes, locations=locations, modalities=modalities, aetitles=aetitles, tree_json=tree_json, journey_json=journey_json, run_report=run_report, active_tab=active_tab)
+    return render_template("report_25.html", data=template_data, display_start=display_start, display_end=display_end, classes=classes, locations=locations, modalities=modalities, aetitles=aetitles, tree_json=tree_json, journey_json=journey_json, run_report=run_report, active_tab=active_tab, shift_config=shift_config)
 
 @report_25_bp.route("/report/25/export", methods=["POST"])
 @login_required
@@ -281,3 +401,27 @@ def export_report_25():
         data['raw_df'].drop(columns=['study_date_dt'], errors='ignore').to_excel(writer, index=False, sheet_name='RawData')
     output.seek(0)
     return send_file(output, as_attachment=True, download_name=f"RAYD_PRO_Export_{date.today()}.xlsx")
+
+@report_25_bp.route("/report/25/save-shifts", methods=["POST"])
+@login_required
+def save_shifts_25():
+    from flask import redirect
+    keys = ['morning_start', 'morning_end', 'afternoon_start', 'afternoon_end', 'night_start', 'night_end']
+    for k in keys:
+        val = request.form.get(k)
+        if val is not None:
+            existing = db.session.execute(
+                text("SELECT id FROM settings WHERE key = :k"), {"k": f"shift_{k}"}
+            ).fetchone()
+            if existing:
+                db.session.execute(
+                    text("UPDATE settings SET value = :v WHERE key = :k"),
+                    {"k": f"shift_{k}", "v": val}
+                )
+            else:
+                db.session.execute(
+                    text("INSERT INTO settings (key, value) VALUES (:k, :v)"),
+                    {"k": f"shift_{k}", "v": val}
+                )
+    db.session.commit()
+    return redirect(url_for('report_25.report_25'))

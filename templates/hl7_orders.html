@@ -393,6 +393,56 @@
 
   <div class="stats-chips">
     <div class="chip">Orders today <span id="totalCount">{{ total }}</span></div>
+    <button onclick="openHl7Parser()" style="background:rgba(0,180,216,0.08);border:1px solid rgba(0,180,216,0.25);color:var(--accent);font-family:var(--mono);font-size:10px;padding:4px 12px;border-radius:4px;cursor:pointer;letter-spacing:0.08em;text-transform:uppercase;" title="Paste and validate an HL7 message template">
+      <i class="bi bi-braces" style="margin-right:5px;"></i>HL7 Parser
+    </button>
+  </div>
+</div>
+
+<!-- ── HL7 Parser Modal ── -->
+<div id="hl7ParserOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:2000;align-items:center;justify-content:center;">
+  <div style="background:#13161e;border:1px solid #252a38;border-radius:10px;width:90%;max-width:900px;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;">
+    <!-- Header -->
+    <div style="padding:16px 20px;border-bottom:1px solid #1e2330;display:flex;align-items:center;justify-content:space-between;">
+      <div>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;color:#eef0f5;">HL7 Message Parser</span>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#5a6070;margin-left:12px;">Paste a raw ORM^O01 message to validate field mapping for this deployment</span>
+      </div>
+      <button onclick="closeHl7Parser()" style="background:none;border:none;color:#5a6070;font-size:18px;cursor:pointer;line-height:1;">&times;</button>
+    </div>
+    <!-- Body -->
+    <div style="display:flex;flex:1;overflow:hidden;">
+      <!-- Left: textarea -->
+      <div style="width:42%;border-right:1px solid #1e2330;padding:16px;display:flex;flex-direction:column;gap:10px;">
+        <label style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#5a6070;text-transform:uppercase;letter-spacing:0.1em;">Raw HL7 Message</label>
+        <textarea id="hl7RawInput" placeholder="MSH|^~\&|PHILIPS|DEPT||20240101120000||ORM^O01|MSG001|P|2.5&#10;PID|1||PAT001^^^MRN||DOE^JOHN||19800101|M&#10;ORC|NW|ORD001||||||||||DR. SMITH&#10;OBR|1|ORD001||CT001^CT HEAD W/WO CONTRAST|||||||||||DR. SMITH||||||||CT" style="flex:1;background:#0d0f14;border:1px solid #252a38;border-radius:4px;color:#c8cdd8;font-family:'IBM Plex Mono',monospace;font-size:11px;padding:10px;resize:none;outline:none;line-height:1.6;min-height:280px;"></textarea>
+        <button onclick="parseHl7()" style="background:#0077a8;color:#fff;border:none;padding:8px;border-radius:4px;font-family:'IBM Plex Mono',monospace;font-size:11px;cursor:pointer;letter-spacing:0.05em;">Parse Message</button>
+      </div>
+      <!-- Right: results -->
+      <div style="flex:1;padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:12px;">
+        <div id="hl7ParseStatus" style="display:none;"></div>
+        <div id="hl7ParseResults" style="display:none;">
+          <label style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#5a6070;text-transform:uppercase;letter-spacing:0.1em;">Field Mapping</label>
+          <table style="width:100%;border-collapse:collapse;margin-top:8px;font-size:11px;">
+            <thead>
+              <tr style="border-bottom:1px solid #252a38;">
+                <th style="text-align:left;padding:6px 8px;font-family:'IBM Plex Mono',monospace;font-size:9px;color:#5a6070;text-transform:uppercase;letter-spacing:0.1em;">HL7 Path</th>
+                <th style="text-align:left;padding:6px 8px;font-family:'IBM Plex Mono',monospace;font-size:9px;color:#5a6070;text-transform:uppercase;letter-spacing:0.1em;">DB Column</th>
+                <th style="text-align:left;padding:6px 8px;font-family:'IBM Plex Mono',monospace;font-size:9px;color:#5a6070;text-transform:uppercase;letter-spacing:0.1em;">Value</th>
+                <th style="text-align:center;padding:6px 8px;font-family:'IBM Plex Mono',monospace;font-size:9px;color:#5a6070;text-transform:uppercase;letter-spacing:0.1em;">Status</th>
+              </tr>
+            </thead>
+            <tbody id="hl7ParseBody"></tbody>
+          </table>
+          <div id="hl7SegmentsRaw" style="margin-top:16px;"></div>
+        </div>
+        <div id="hl7EmptyState" style="text-align:center;padding:60px 20px;color:#5a6070;">
+          <div style="font-size:32px;margin-bottom:12px;opacity:0.4;">⌗</div>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;">Paste an HL7 message and click Parse</div>
+          <div style="font-size:11px;margin-top:6px;opacity:0.6;">Segments: MSH · PID · ORC · OBR</div>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -546,6 +596,122 @@
 
   updateLastRefresh();
   setInterval(refreshOrders, 30000);
+
+  // ── HL7 Parser ──────────────────────────────────────────────────────────────
+  const HL7_FIELD_MAP = [
+    { seg:'MSH', fi:9,  ci:0, label:'Message Type',        db:'message_type' },
+    { seg:'MSH', fi:10, ci:-1,label:'Message Control ID',  db:'message_id' },
+    { seg:'PID', fi:3,  ci:0, label:'Patient ID',          db:'patient_id' },
+    { seg:'PID', fi:5,  ci:0, label:'Patient Family Name', db:'patient_name (last)' },
+    { seg:'PID', fi:5,  ci:1, label:'Patient Given Name',  db:'patient_name (first)' },
+    { seg:'PID', fi:7,  ci:-1,label:'Date of Birth',       db:'date_of_birth' },
+    { seg:'PID', fi:8,  ci:-1,label:'Gender',              db:'gender' },
+    { seg:'ORC', fi:1,  ci:-1,label:'Order Control',       db:'order_status' },
+    { seg:'ORC', fi:2,  ci:0, label:'Placer Order #',      db:'placer_order_number' },
+    { seg:'OBR', fi:2,  ci:0, label:'Accession Number',    db:'accession_number' },
+    { seg:'OBR', fi:4,  ci:0, label:'Procedure Code',      db:'procedure_code' },
+    { seg:'OBR', fi:4,  ci:1, label:'Procedure Text',      db:'procedure_text' },
+    { seg:'OBR', fi:16, ci:0, label:'Ordering Physician',  db:'ordering_physician' },
+    { seg:'OBR', fi:24, ci:-1,label:'Modality (Diag Svc)', db:'modality' },
+    { seg:'OBR', fi:36, ci:-1,label:'Scheduled DateTime',  db:'scheduled_datetime' },
+  ];
+
+  function openHl7Parser() {
+    const el = document.getElementById('hl7ParserOverlay');
+    el.style.display = 'flex';
+  }
+
+  function closeHl7Parser() {
+    document.getElementById('hl7ParserOverlay').style.display = 'none';
+  }
+
+  document.getElementById('hl7ParserOverlay').addEventListener('click', function(e) {
+    if (e.target === this) closeHl7Parser();
+  });
+
+  function parseHl7() {
+    const raw = document.getElementById('hl7RawInput').value.trim();
+    document.getElementById('hl7EmptyState').style.display = 'none';
+    document.getElementById('hl7ParseStatus').style.display = 'none';
+    document.getElementById('hl7ParseResults').style.display = 'none';
+
+    if (!raw) {
+      showParseStatus('error', 'No message pasted.');
+      return;
+    }
+
+    // Normalize line endings: HL7 uses \r, \n, or \r\n
+    const lines = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').filter(l => l.trim());
+    const segments = {};
+    for (const line of lines) {
+      const seg = line.slice(0, 3);
+      if (!segments[seg]) segments[seg] = [];
+      segments[seg].push(line.split('|'));
+    }
+
+    if (!segments['MSH']) {
+      showParseStatus('error', 'Invalid HL7 — MSH segment not found.');
+      return;
+    }
+
+    const msgType = getHl7Val(segments, 'MSH', 9, 0) || '—';
+    showParseStatus('ok', 'Parsed · Message type: <strong>' + msgType + '</strong> · Segments found: <strong>' + Object.keys(segments).join(', ') + '</strong>');
+
+    const tbody = document.getElementById('hl7ParseBody');
+    tbody.innerHTML = '';
+    let missing = 0;
+
+    for (const m of HL7_FIELD_MAP) {
+      const val = getHl7Val(segments, m.seg, m.fi, m.ci);
+      const hasSeg = !!segments[m.seg];
+      const hasVal = val !== null && val !== '' && val !== undefined;
+      const status = !hasSeg ? 'no-seg' : !hasVal ? 'empty' : 'ok';
+      if (status !== 'ok') missing++;
+
+      tbody.innerHTML += `
+        <tr style="border-bottom:1px solid #1e2330;">
+          <td style="padding:6px 8px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:#5a6070;">${m.seg}-${m.fi}${m.ci >= 0 ? '.'+m.ci : ''}<br><span style="color:#3a4050;font-size:9px;">${m.label}</span></td>
+          <td style="padding:6px 8px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:#00b4d8;">${m.db}</td>
+          <td style="padding:6px 8px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#eef0f5;max-width:200px;overflow:hidden;text-overflow:ellipsis;" title="${val||''}">${hasVal ? val : '<span style="color:#3a4050;">—</span>'}</td>
+          <td style="padding:6px 8px;text-align:center;">
+            ${status === 'ok'     ? '<span style="color:#00c896;font-size:14px;">✓</span>' : ''}
+            ${status === 'empty'  ? '<span style="color:#f4b942;font-size:11px;font-family:IBM Plex Mono,monospace;">empty</span>' : ''}
+            ${status === 'no-seg' ? '<span style="color:#e05c5c;font-size:11px;font-family:IBM Plex Mono,monospace;">no seg</span>' : ''}
+          </td>
+        </tr>`;
+    }
+
+    // Show raw segment dump
+    let segDump = '<div style="margin-top:4px;"><label style="font-family:IBM Plex Mono,monospace;font-size:9px;color:#3a4050;text-transform:uppercase;letter-spacing:0.1em;">All Segments</label>';
+    for (const [seg, rows] of Object.entries(segments)) {
+      segDump += `<div style="margin-top:8px;"><span style="font-family:IBM Plex Mono,monospace;font-size:9px;color:#5a6070;">${seg}</span><div style="font-family:IBM Plex Mono,monospace;font-size:10px;color:#3a4050;padding:4px 0 0 8px;">`;
+      rows[0].slice(1).forEach((f, i) => {
+        if (f) segDump += `<span style="color:#5a6070;">[${i+1}]</span><span style="color:#c8cdd8;margin-right:12px;">${f}</span>`;
+      });
+      segDump += '</div></div>';
+    }
+    segDump += '</div>';
+    document.getElementById('hl7SegmentsRaw').innerHTML = segDump;
+    document.getElementById('hl7ParseResults').style.display = 'block';
+  }
+
+  function getHl7Val(segments, seg, fieldIdx, compIdx) {
+    if (!segments[seg] || !segments[seg][0]) return null;
+    const fields = segments[seg][0];
+    // MSH is special: MSH.1 = field separator (index 1 in array), so fieldIdx maps directly
+    const f = fields[fieldIdx] || '';
+    if (compIdx < 0) return f || null;
+    const parts = f.split('^');
+    return parts[compIdx] || null;
+  }
+
+  function showParseStatus(type, msg) {
+    const el = document.getElementById('hl7ParseStatus');
+    const colors = { ok: '#00c896', error: '#e05c5c', warn: '#f4b942' };
+    const bg = { ok: 'rgba(0,200,150,0.08)', error: 'rgba(224,92,92,0.08)', warn: 'rgba(244,185,66,0.08)' };
+    el.style.cssText = `display:block;padding:8px 12px;border-radius:4px;border:1px solid ${colors[type]}40;background:${bg[type]};font-family:'IBM Plex Mono',monospace;font-size:11px;color:${colors[type]};`;
+    el.innerHTML = msg;
+  }
 
   function applyTheme(theme) {
     document.body.classList.toggle('light', theme === 'light');

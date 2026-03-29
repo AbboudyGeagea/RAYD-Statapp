@@ -174,6 +174,20 @@ class ReportAccessControl(db.Model):
     is_enabled = db.Column(Boolean, default=True)
     report_template_id = db.Column(Integer, ForeignKey('report_template.report_id'))
 
+class UserPagePermission(db.Model):
+    __tablename__ = 'user_page_permissions'
+    id = db.Column(Integer, primary_key=True)
+    user_id = db.Column(Integer, ForeignKey('users.id'), nullable=False)
+    page_key = db.Column(String(50), nullable=False)   # e.g. 'live_feed', 'hl7_orders'
+    is_enabled = db.Column(Boolean, default=True)
+
+def user_has_page(user, page_key):
+    """Returns True if the user can access the given page. Admins always can."""
+    if user.role == 'admin':
+        return True
+    perm = UserPagePermission.query.filter_by(user_id=user.id, page_key=page_key).first()
+    return perm is not None and perm.is_enabled
+
 class SavedReport(db.Model):
     __tablename__ = 'saved_reports'
     id = db.Column(Integer, primary_key=True)

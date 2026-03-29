@@ -30,7 +30,7 @@ from flask import (Blueprint, Response, jsonify, render_template,
                    request, stream_with_context, abort, current_app)
 from flask_login import login_required, current_user
 from sqlalchemy import text
-from db import db
+from db import db, user_has_page
 
 logger       = logging.getLogger("LIVE_FEED")
 live_feed_bp = Blueprint("live_feed", __name__)
@@ -40,7 +40,7 @@ live_feed_bp = Blueprint("live_feed", __name__)
 @live_feed_bp.route("/viewer/live")
 @login_required
 def live_page():
-    if current_user.role != 'admin':
+    if not user_has_page(current_user, 'live_feed'):
         abort(403)
     return render_template("live_feed.html")
 
@@ -49,7 +49,7 @@ def live_page():
 @live_feed_bp.route("/viewer/live/status")
 @login_required
 def live_status():
-    if current_user.role != 'admin':
+    if not user_has_page(current_user, 'live_feed'):
         abort(403)
     try:
         now   = datetime.now()
@@ -193,7 +193,7 @@ def live_version():
     Returns the timestamp of the latest HL7 order received today.
     Used only when the SSE connection is unavailable (polled every 15 s).
     """
-    if current_user.role != 'admin':
+    if not user_has_page(current_user, 'live_feed'):
         abort(403)
     try:
         row = db.session.execute(text("""
@@ -217,7 +217,7 @@ def live_events():
     Sends 'data: new_order' whenever a new HL7 order is committed.
     Sends a heartbeat comment every 25 s to keep proxies from closing the pipe.
     """
-    if current_user.role != 'admin':
+    if not user_has_page(current_user, 'live_feed'):
         abort(403)
 
     # Resolve DSN once — captured in the generator closure
@@ -273,7 +273,7 @@ def add_procedure():
     Insert or update a procedure code in procedure_duration_map.
     Called from the unknown-code modal on the live feed page.
     """
-    if current_user.role != 'admin':
+    if not user_has_page(current_user, 'live_feed'):
         abort(403)
     try:
         data     = request.get_json(force=True)

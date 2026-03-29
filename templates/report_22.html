@@ -284,7 +284,8 @@
                 <div class="card-desc">
                     Count of studies grouped by their current DICOM study status (e.g. Read, Unread, Dictated). Helps identify backlogs or workflow bottlenecks.
                 </div>
-                <div id="c2" class="chart-container"></div>
+                <div id="c2" class="chart-container" style="cursor:pointer;"></div>
+                <p class="text-[9px] text-slate-600 font-bold uppercase tracking-widest text-center pb-3">Click any bar to view studies</p>
             </div>
             <div class="card">
                 <div class="card-header flex items-center justify-between">
@@ -322,6 +323,46 @@
         <div class="h-full flex items-center justify-center text-slate-900 font-black text-7xl uppercase tracking-tighter opacity-20">Enter Filter Criteria</div>
         {% endif %}
     </main>
+
+    <!-- Status Drilldown Panel -->
+    <div id="status-drilldown-overlay" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.65);backdrop-filter:blur(4px);" onclick="if(event.target===this)closeDrilldown()">
+        <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#0f172a;border:1px solid #1e293b;border-radius:16px;width:90%;max-width:1000px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,0.6);">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 24px;border-bottom:1px solid #1e293b;flex-shrink:0;">
+                <div>
+                    <p id="drilldown-title" style="font-size:13px;font-weight:900;color:#f1f5f9;text-transform:uppercase;letter-spacing:0.08em;"></p>
+                    <p id="drilldown-sub" style="font-size:11px;color:#475569;margin-top:2px;"></p>
+                </div>
+                <div style="display:flex;gap:10px;align-items:center;">
+                    <button id="drilldown-export-btn" onclick="exportDrilldown()" style="font-size:10px;font-weight:800;padding:6px 14px;border-radius:8px;background:rgba(56,173,169,0.15);border:1px solid rgba(56,173,169,0.3);color:#38ada9;cursor:pointer;text-transform:uppercase;letter-spacing:0.06em;">
+                        Export CSV
+                    </button>
+                    <button onclick="closeDrilldown()" style="font-size:18px;color:#475569;background:none;border:none;cursor:pointer;line-height:1;">&times;</button>
+                </div>
+            </div>
+            <div style="padding:12px 24px;border-bottom:1px solid #0f172a;flex-shrink:0;">
+                <input id="drilldown-search" type="text" placeholder="Search patient ID, physician, procedure..." oninput="filterDrilldown(this.value)"
+                    style="width:100%;background:#020617;border:1px solid #1e293b;border-radius:8px;padding:8px 12px;color:#f1f5f9;font-size:12px;outline:none;">
+            </div>
+            <div style="overflow-y:auto;flex:1;">
+                <table style="width:100%;border-collapse:collapse;font-size:12px;">
+                    <thead style="position:sticky;top:0;background:#0f172a;z-index:1;">
+                        <tr>
+                            <th style="text-align:left;padding:10px 14px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:#475569;border-bottom:1px solid #1e293b;">Study UID</th>
+                            <th style="text-align:left;padding:10px 14px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:#475569;border-bottom:1px solid #1e293b;">Patient ID</th>
+                            <th style="text-align:left;padding:10px 14px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:#475569;border-bottom:1px solid #1e293b;">Date</th>
+                            <th style="text-align:left;padding:10px 14px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:#475569;border-bottom:1px solid #1e293b;">Modality</th>
+                            <th style="text-align:left;padding:10px 14px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:#475569;border-bottom:1px solid #1e293b;">Procedure</th>
+                            <th style="text-align:left;padding:10px 14px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:#475569;border-bottom:1px solid #1e293b;">AE</th>
+                            <th style="text-align:left;padding:10px 14px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:#475569;border-bottom:1px solid #1e293b;">Physician</th>
+                        </tr>
+                    </thead>
+                    <tbody id="drilldown-tbody"></tbody>
+                </table>
+                <div id="drilldown-empty" style="display:none;padding:40px;text-align:center;color:#475569;font-size:13px;font-weight:700;">No studies found.</div>
+                <div id="drilldown-loading" style="display:none;padding:40px;text-align:center;color:#475569;font-size:13px;">Loading...</div>
+            </div>
+        </div>
+    </div>
 
     <!-- Data Quality Modal -->
     {% if run_report %}
@@ -420,13 +461,15 @@
                 }]
             });
 
-            // 2. Study Status
-            echarts.init(document.getElementById('c2')).setOption({
+            // 2. Study Status (clickable)
+            const statusChart = echarts.init(document.getElementById('c2'));
+            statusChart.setOption({
                 tooltip: { trigger: 'axis' },
                 xAxis: { type: 'category', data: Object.keys(d.stat_c), axisLabel: style },
                 yAxis: { type: 'value', splitLine: { lineStyle: { color: '#111827' } }, axisLabel: style },
                 series: [{ data: Object.values(d.stat_c), type: 'bar', itemStyle: { color: '#f59e0b', borderRadius: [4, 4, 0, 0] } }]
             });
+            statusChart.on('click', params => openDrilldown(params.name));
 
             // 3. Physician Volume (Purple)
             echarts.init(document.getElementById('c3')).setOption({
@@ -571,6 +614,89 @@
         }
         function showDQModal() { document.getElementById('dq-modal').style.display = 'block'; }
         function hideDQModal() { document.getElementById('dq-modal').style.display = 'none'; }
+
+        // ── Status Drilldown ──────────────────────────────────────────
+        let _drilldownAllRows = [];
+        let _drilldownStatus  = '';
+
+        async function openDrilldown(status) {
+            _drilldownStatus = status;
+            const start = document.querySelector('input[name="start_date"]').value;
+            const end   = document.querySelector('input[name="end_date"]').value;
+
+            document.getElementById('drilldown-title').textContent = status + ' Studies';
+            document.getElementById('drilldown-sub').textContent   = 'Loading...';
+            document.getElementById('drilldown-tbody').innerHTML   = '';
+            document.getElementById('drilldown-empty').style.display   = 'none';
+            document.getElementById('drilldown-loading').style.display = 'block';
+            document.getElementById('status-drilldown-overlay').style.display = 'block';
+            document.getElementById('drilldown-search').value = '';
+
+            const form = new FormData();
+            form.append('status', status);
+            form.append('start_date', start);
+            form.append('end_date', end);
+
+            try {
+                const res  = await fetch('/report/22/status-drilldown', { method: 'POST', body: form });
+                const data = await res.json();
+                _drilldownAllRows = data.studies || [];
+                document.getElementById('drilldown-sub').textContent =
+                    `${data.count} stud${data.count === 1 ? 'y' : 'ies'} · ${start} → ${end}` +
+                    (data.count === 500 ? ' (limited to 500)' : '');
+                renderDrilldownRows(_drilldownAllRows);
+            } catch(e) {
+                document.getElementById('drilldown-sub').textContent = 'Error loading data.';
+            } finally {
+                document.getElementById('drilldown-loading').style.display = 'none';
+            }
+        }
+
+        function renderDrilldownRows(rows) {
+            const tbody = document.getElementById('drilldown-tbody');
+            const empty = document.getElementById('drilldown-empty');
+            if (!rows.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
+            empty.style.display = 'none';
+            tbody.innerHTML = rows.map(r => `
+                <tr style="border-bottom:1px solid #0f172a;">
+                    <td style="padding:9px 14px;font-family:monospace;font-size:11px;color:#64748b;">${r.uid || '—'}</td>
+                    <td style="padding:9px 14px;font-weight:700;color:#f1f5f9;">${r.patient_id || '—'}</td>
+                    <td style="padding:9px 14px;color:#94a3b8;">${r.date}</td>
+                    <td style="padding:9px 14px;"><span style="background:rgba(56,173,169,0.15);color:#38ada9;font-size:10px;font-weight:800;padding:2px 8px;border-radius:4px;">${r.modality}</span></td>
+                    <td style="padding:9px 14px;color:#cbd5e1;font-size:11px;">${r.procedure}</td>
+                    <td style="padding:9px 14px;color:#64748b;font-size:11px;">${r.ae}</td>
+                    <td style="padding:9px 14px;color:#94a3b8;font-size:11px;">${r.physician}</td>
+                </tr>`).join('');
+        }
+
+        function filterDrilldown(q) {
+            q = q.toLowerCase();
+            const filtered = _drilldownAllRows.filter(r =>
+                (r.patient_id || '').toLowerCase().includes(q) ||
+                (r.physician  || '').toLowerCase().includes(q) ||
+                (r.procedure  || '').toLowerCase().includes(q) ||
+                (r.modality   || '').toLowerCase().includes(q) ||
+                (r.ae         || '').toLowerCase().includes(q)
+            );
+            renderDrilldownRows(filtered);
+        }
+
+        function closeDrilldown() {
+            document.getElementById('status-drilldown-overlay').style.display = 'none';
+        }
+
+        function exportDrilldown() {
+            const start = document.querySelector('input[name="start_date"]').value;
+            const end   = document.querySelector('input[name="end_date"]').value;
+            const form  = document.createElement('form');
+            form.method = 'POST';
+            form.action = '/report/22/status-drilldown';
+            [['status', _drilldownStatus], ['start_date', start], ['end_date', end], ['export', '1']]
+                .forEach(([k, v]) => { const i = document.createElement('input'); i.type='hidden'; i.name=k; i.value=v; form.appendChild(i); });
+            document.body.appendChild(form);
+            form.submit();
+            document.body.removeChild(form);
+        }
     </script>
     </div>
 </body>

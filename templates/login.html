@@ -7,16 +7,17 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
-        body { 
-            font-family: 'Inter', sans-serif; 
+        body {
+            font-family: 'Inter', sans-serif;
             margin: 0;
             padding: 0;
             height: 100vh;
             display: flex;
             flex-direction: column;
             overflow: hidden;
-            background-color: #ffffff;
+            background-color: #181f1c;
         }
+
 
         /* FULL SCREEN WATERMARK */
         .rayd-watermark {
@@ -26,93 +27,104 @@
             transform: translate(-50%, -50%);
             width: 65vw;
             height: auto;
-            opacity: 0.06;
+            opacity: 0.03;
             z-index: 0;
             pointer-events: none;
+            filter: invert(1);
         }
 
-        /* Float inputs with glass effect borders */
         .floating-input {
-            background: rgba(255, 255, 255, 0.6);
+            background: rgba(255, 255, 255, 0.04);
             backdrop-filter: blur(4px);
-            border: 1px solid rgba(0, 0, 0, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            color: #e2e8f0;
             transition: all 0.3s ease;
         }
-        
+
+        .floating-input::placeholder { color: #475569; }
+
         .floating-input:focus {
-            background: rgba(255, 255, 255, 0.9);
-            border-color: #38ada9;
-            box-shadow: 0 10px 25px -5px rgba(56, 173, 169, 0.1);
+            background: rgba(255, 255, 255, 0.07);
+            border-color: rgba(96, 165, 250, 0.5);
+            box-shadow: 0 10px 25px -5px rgba(96, 165, 250, 0.1);
+            outline: none;
         }
 
-        .label-shadow {
-            text-shadow: 0 1px 2px rgba(255,255,255,1);
+        .label-text {
+            color: #475569;
         }
     </style>
 </head>
-<body class="bg-white">
+<body>
 
     <img src="{{ url_for('static', filename='RAYD.png') }}" class="rayd-watermark" alt="">
 
-    <header class="w-full bg-white border-b border-slate-100 py-8 flex justify-center items-center z-10">
-        <img src="{{ url_for('static', filename='intermedic.jpeg') }}" class="h-20 w-auto object-contain">
-    </header>
-
     <main class="flex-1 flex items-center justify-center p-6 z-10">
         <div class="w-full max-w-sm">
-            
+
             <div class="text-center mb-12">
-                <h2 class="text-5xl font-black text-slate-800 uppercase tracking-tighter mb-2">RAYD</h2>
-                <div class="h-1 w-12 bg-[#38ada9] mx-auto rounded-full mb-4"></div>
-                <p class="text-slate-500 font-bold uppercase tracking-[0.3em] text-[11px] label-shadow">Secure Analytics Gateway</p>
+                <h2 class="text-5xl font-black text-[#e2e8f0] uppercase tracking-tighter mb-2">RAYD</h2>
+                <div class="h-1 w-12 bg-[#60a5fa] mx-auto rounded-full mb-4"></div>
+                <p class="font-bold uppercase tracking-[0.3em] text-[11px] text-[#475569]">Secure Analytics Gateway</p>
             </div>
+
+            {% with messages = get_flashed_messages(with_categories=true) %}
+            {% for category, message in messages %}
+            <div class="mb-6 px-4 py-3 rounded-xl text-xs font-bold flex items-center gap-2
+                {% if category == 'danger' %}bg-red-500/10 border border-red-500/20 text-red-400
+                {% elif category == 'success' %}bg-green-500/10 border border-green-500/20 text-green-400
+                {% else %}bg-yellow-500/10 border border-yellow-500/20 text-yellow-400{% endif %}">
+                <i class="bi bi-{{ 'exclamation-circle' if category == 'danger' else 'check-circle' if category == 'success' else 'info-circle' }}"></i>
+                {{ message }}
+            </div>
+            {% endfor %}
+            {% endwith %}
 
             <form method="POST" action="{{ url_for('auth.login') }}" id="loginForm" class="space-y-8">
                 <input type="hidden" name="override" id="overrideInput" value="false">
-                
+
                 <div class="relative">
-                    <label class="block text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-3 ml-1 label-shadow">Identity</label>
-                    <input type="text" name="username" placeholder="Username" required 
-                           class="w-full px-6 py-5 rounded-2xl floating-input outline-none font-bold text-slate-700 text-lg">
+                    <label class="block text-[10px] font-black uppercase tracking-[0.2em] mb-3 ml-1 label-text">Identity</label>
+                    <input type="text" name="username" placeholder="Username" required
+                           class="w-full px-6 py-5 rounded-2xl floating-input font-bold text-lg">
                 </div>
 
                 <div class="relative">
-                    <label class="block text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-3 ml-1 label-shadow">Credential</label>
-                    <input type="password" name="password" placeholder="Password" required 
-                           class="w-full px-6 py-5 rounded-2xl floating-input outline-none font-bold text-slate-700 text-lg">
+                    <label class="block text-[10px] font-black uppercase tracking-[0.2em] mb-3 ml-1 label-text">Credential</label>
+                    <input type="password" name="password" placeholder="Password" required
+                           class="w-full px-6 py-5 rounded-2xl floating-input font-bold text-lg">
                 </div>
 
                 <div class="space-y-6">
-                    <button type="submit" class="w-full py-5 bg-slate-900 text-white font-black rounded-2xl shadow-2xl hover:bg-[#38ada9] transition-all duration-500 uppercase tracking-[0.25em] text-xs mt-2">
-                       Sign In to RAYD
+                    <button type="submit" class="w-full py-5 bg-[#60a5fa] text-[#0f172a] font-black rounded-2xl shadow-lg hover:bg-[#93c5fd] transition-all duration-300 uppercase tracking-[0.25em] text-xs mt-2">
+                        Sign In to RAYD
                     </button>
 
                     <div class="text-center">
-                        <a href="{{ url_for('auth.register') }}" class="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] hover:text-[#38ada9] transition-colors border-b border-transparent hover:border-[#38ada9] pb-1">
+                        <a href="{{ url_for('auth.register') }}" class="text-[10px] font-black text-[#334155] uppercase tracking-[0.2em] hover:text-[#60a5fa] transition-colors">
                             New Identity? Register Access
                         </a>
                     </div>
                 </div>
             </form>
+
+            <div class="text-center mt-16">
+                <p class="text-[10px] font-bold text-[#1e293b] uppercase tracking-[0.2em]">Turn every insight into maximum impact</p>
+            </div>
         </div>
     </main>
 
-    <footer class="w-full bg-white py-10 flex flex-col items-center gap-3 z-10">
-        <div class="h-px w-24 bg-slate-100 mb-2"></div>
-        <span class="text-[9px] font-black text-slate-400 uppercase tracking-[0.5em]">Global Technology Partner</span>
-        <img src="{{ url_for('static', filename='philips.jpg') }}" class="h-12 w-auto object-contain grayscale opacity-40 hover:opacity-100 transition duration-700">
-    </footer>
-
-    <div id="conflictModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/40 backdrop-blur-sm">
-        <div class="bg-white rounded-[2.5rem] p-12 w-full max-w-md shadow-2xl border border-slate-100 text-center">
-            <div class="w-20 h-20 bg-amber-50 text-amber-500 rounded-3xl flex items-center justify-center mb-8 mx-auto text-4xl">
+    <!-- Session conflict modal -->
+    <div id="conflictModal" class="fixed inset-0 z-50 hidden items-center justify-center" style="background:rgba(0,0,0,0.7);backdrop-filter:blur(4px);">
+        <div class="rounded-2xl p-10 w-full max-w-md text-center" style="background:#232b28;border:1px solid #28332e;box-shadow:0 24px 64px rgba(0,0,0,0.6);">
+            <div class="w-16 h-16 rounded-2xl flex items-center justify-center mb-6 mx-auto text-3xl" style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.2);color:#fbbf24;">
                 <i class="bi bi-shield-fill-exclamation"></i>
             </div>
-            <h3 class="text-2xl font-black text-slate-800 mb-3">Session Active</h3>
-            <p class="text-slate-500 mb-10 text-sm font-medium leading-relaxed">This account is currently active in another browser. Terminate existing session?</p>
+            <h3 class="text-xl font-black text-[#e2e8f0] mb-3">Session Active</h3>
+            <p class="text-sm font-medium leading-relaxed mb-8 text-[#475569]">This account is currently active in another browser. Terminate existing session?</p>
             <div class="space-y-3">
-                <button id="doOverride" class="w-full py-4 rounded-xl bg-[#38ada9] text-white font-bold shadow-lg shadow-teal-500/20">Confirm & Override</button>
-                <button id="cancelOverride" class="w-full py-4 rounded-xl text-slate-400 font-bold hover:text-slate-600 transition">Go Back</button>
+                <button id="doOverride" class="w-full py-4 rounded-xl font-bold text-sm" style="background:#f59e0b;color:#1a1a1a;">Confirm &amp; Override</button>
+                <button id="cancelOverride" class="w-full py-4 rounded-xl font-bold text-sm text-[#475569] hover:text-[#e2e8f0] transition-colors" style="border:1px solid #28332e;background:transparent;">Go Back</button>
             </div>
         </div>
     </div>
@@ -130,6 +142,7 @@
             });
             document.getElementById('cancelOverride')?.addEventListener('click', () => {
                 document.getElementById('conflictModal').classList.add('hidden');
+                document.getElementById('conflictModal').classList.remove('flex');
             });
         });
     </script>

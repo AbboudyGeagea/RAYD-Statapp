@@ -612,6 +612,78 @@
                                 </div>
                             </div>
 
+                            <!-- Modality TAT -->
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-bar"><i class="bi bi-bar-chart-horizontal"></i> Horizontal Bar</span>
+                                    <span class="tag tag-scatter"><i class="bi bi-diagram-2"></i> Scatter Overlay</span>
+                                    <span class="font-bold text-sm text-white">Modality TAT</span>
+                                    <span class="tag" style="background:rgba(96,165,250,0.1);color:#60a5fa;">Infra tab</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Average and median turnaround time (in minutes) per imaging modality, displayed as horizontal bars with a scatter overlay, sorted fastest to slowest. Only modalities with ≥ 5 signed studies are included.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Groups signed studies by modality, computes both mean and median TAT per group, excludes modalities below the minimum study threshold, and sorts ascending by average TAT.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Reveals which modalities (CT, MRI, etc.) have structurally longer reporting delays rather than isolated incidents. When mean and median diverge significantly for a modality, a small number of extreme outliers are pulling the average — a distinct problem from systematic slowness. Essential for staffing decisions and SLA target-setting per modality type.</p></div>
+                                </div>
+                            </div>
+
+                            <!-- Unread Study Aging -->
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-kpi"><i class="bi bi-speedometer2"></i> KPI Cards</span>
+                                    <span class="tag tag-bar"><i class="bi bi-bar-chart-stacked"></i> Stacked Bar</span>
+                                    <span class="font-bold text-sm text-white">Unread Study Aging</span>
+                                    <span class="tag" style="background:rgba(96,165,250,0.1);color:#60a5fa;">Workflow tab</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Unread studies bucketed by how long they have been waiting — 0–24 h, 24–48 h, 48–72 h, and 72 h+. KPI cards summarise each bucket's total count, and a stacked bar breaks the same buckets down by modality.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Filters to studies without a signed report, calculates elapsed time from study date to now, classifies each into an aging bucket, and pivots by modality for the stacked bar series.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> The 72 h+ bucket is a red flag — studies waiting more than three days without a read represent a direct clinical risk and a potential SLA breach. The modality breakdown pinpoints which imaging types are accumulating a backlog, enabling targeted radiologist reassignment before the situation becomes a patient safety issue.</p></div>
+                                </div>
+                            </div>
+
+                            <!-- Studies per Shift -->
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-kpi"><i class="bi bi-speedometer2"></i> KPI Cards</span>
+                                    <span class="tag tag-pie"><i class="bi bi-pie-chart"></i> Donut</span>
+                                    <span class="font-bold text-sm text-white">Studies per Shift</span>
+                                    <span class="tag" style="background:rgba(96,165,250,0.1);color:#60a5fa;">Workflow tab</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Study volume distributed across Morning, Afternoon, and Night shifts, displayed as KPI cards with totals and a donut chart showing the proportional split. Shift hours are configurable per hospital via the "Configure Shifts" button — these settings are stored permanently.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Study arrival times are classified into shifts using the hour boundaries defined in the hospital's shift configuration. Studies are then counted per shift and the results are normalised as percentages for the donut chart. Click "Configure Shifts" to set your hospital's actual shift boundaries.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Identifies load imbalance between shifts. If the Night shift is consistently absorbing disproportionate volume while Morning is underutilised, staffing rosters can be adjusted with data to back the decision. The configurable shift boundaries ensure the analysis reflects each hospital's real operational structure rather than a generic template.</p></div>
+                                </div>
+                            </div>
+
+                            <!-- Addendum Rate by Radiologist -->
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-kpi"><i class="bi bi-percent"></i> KPI</span>
+                                    <span class="tag tag-bar"><i class="bi bi-bar-chart-horizontal"></i> Horizontal Bar</span>
+                                    <span class="font-bold text-sm text-white">Addendum Rate by Radiologist</span>
+                                    <span class="tag" style="background:rgba(96,165,250,0.1);color:#60a5fa;">Workflow tab</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> The overall percentage of finalized reports that received an addendum (KPI), plus a horizontal bar chart breaking the addendum rate down per radiologist. Only radiologists with ≥ 5 finalized reports are included for statistical reliability.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Counts reports flagged as addended divided by total finalized reports, both globally and per radiologist. Radiologists below the minimum volume threshold are excluded. Results are sorted by addendum rate descending.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> A high addendum rate for a specific radiologist may indicate errors, incomplete initial reads, or a consistently complex case mix. It is a quality indicator, not automatically a performance problem — context matters. Used alongside case volume and case complexity data, it supports constructive peer review conversations and helps distinguish systematic issues from individual case circumstances.</p></div>
+                                </div>
+                            </div>
+
                         </div>
                     </section>
 

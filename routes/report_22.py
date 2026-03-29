@@ -15,15 +15,15 @@ def get_where_params(form):
     params = {"start": start_date, "end": end_date}
     
     if form.get("f_class_active") == "on" and form.get("f_class"):
-        where += " AND patient_class = :p_class"
+        where += " AND UPPER(patient_class) = UPPER(:p_class)"
         params["p_class"] = form.get("f_class")
-    
+
     if form.get("f_sex_active") == "on" and form.get("f_sex"):
-        where += " AND sex = :sex"
+        where += " AND UPPER(sex) = UPPER(:sex)"
         params["sex"] = form.get("f_sex")
-        
+
     if form.get("f_status_active") == "on" and form.get("f_status"):
-        where += " AND study_status = :status"
+        where += " AND UPPER(study_status) = UPPER(:status)"
         params["status"] = form.get("f_status")
         
     if form.get("f_mod_active") == "on" and form.get("f_mod"):
@@ -99,7 +99,7 @@ def report_22():
                        DATE_TRUNC('month', study_date) AS month,
                        COUNT(*) AS vol
                 FROM base_data {where}
-                AND physician != 'Unknown'
+                AND UPPER(physician) != 'UNKNOWN'
                 GROUP BY 1, 2
             ),
             with_lag AS (
@@ -129,7 +129,7 @@ def report_22():
                            DATE_TRUNC('month', study_date) AS month,
                            COUNT(*) AS vol
                     FROM base_data {where}
-                    AND physician != 'Unknown'
+                    AND UPPER(physician) != 'UNKNOWN'
                     GROUP BY 1, 2
                 ),
                 ranked AS (
@@ -152,7 +152,7 @@ def report_22():
                 last_ref AS (
                     SELECT physician, MAX(study_date) AS last_ref_date
                     FROM base_data {where}
-                    AND physician != 'Unknown'
+                    AND UPPER(physician) != 'UNKNOWN'
                     GROUP BY physician
                 )
                 SELECT s.physician,
@@ -180,7 +180,7 @@ def report_22():
             {cte}
             SELECT physician, COALESCE(modality, 'UNMAPPED') as mod, COUNT(*) as cnt
             FROM base_data {where}
-            AND physician != 'Unknown'
+            AND UPPER(physician) != 'UNKNOWN'
             GROUP BY 1, 2
             ORDER BY 1, 3 DESC
         """), params).fetchall()
@@ -190,7 +190,7 @@ def report_22():
             {cte}
             SELECT physician, ROUND(AVG(age_at_exam)::numeric, 1) as avg_age, COUNT(*) as cnt
             FROM base_data {where}
-            AND physician != 'Unknown'
+            AND UPPER(physician) != 'UNKNOWN'
             AND age_at_exam BETWEEN 0 AND 110
             GROUP BY 1
             HAVING COUNT(*) >= 5
@@ -201,8 +201,8 @@ def report_22():
         age_phys_counts = db.session.execute(text(f"""
             {cte}
             SELECT
-                COUNT(*) FILTER (WHERE physician != 'Unknown' AND age_at_exam IS NOT NULL)   AS total,
-                COUNT(*) FILTER (WHERE physician != 'Unknown' AND age_at_exam BETWEEN 0 AND 110) AS clean
+                COUNT(*) FILTER (WHERE UPPER(physician) != 'UNKNOWN' AND age_at_exam IS NOT NULL)   AS total,
+                COUNT(*) FILTER (WHERE UPPER(physician) != 'UNKNOWN' AND age_at_exam BETWEEN 0 AND 110) AS clean
             FROM base_data {where}
         """), params).fetchone()
         age_phys_outliers = int(age_phys_counts[0] or 0) - int(age_phys_counts[1] or 0)
@@ -234,7 +234,7 @@ def report_22():
             {cte}
             SELECT physician, COALESCE(study_status, 'Unknown') as status, COUNT(*) as cnt
             FROM base_data {where}
-            AND physician != 'Unknown'
+            AND UPPER(physician) != 'UNKNOWN'
             GROUP BY 1, 2
         """), params).fetchall()
 
@@ -360,6 +360,58 @@ def report_22():
 
     return render_template("report_22.html", data=data, filters=filters, run_report=run_report, display_start=start_date, display_end=end_date, status_list=status_list, mod_list=mod_list, ae_list=ae_list)
 
+
+
+@report_22_bp.route("/report/22/status-drilldown", methods=["POST"])
+@login_required
+def status_drilldown_22():
+    """Return studies for a given status as JSON (for click-through on the status chart)."""
+    from flask import jsonify
+    status = request.form.get("status", "")
+    start  = request.form.get("start_date", "")
+    end    = request.form.get("end_date", "")
+    export = request.form.get("export") == "1"
+
+    rows = db.session.execute(text("""
+        SELECT
+            s.study_db_uid,
+            COALESCE(p.fallback_id, '') AS patient_id,
+            s.study_date,
+            COALESCE(m.modality, 'N/A') AS modality,
+            COALESCE(s.procedure_code, 'N/A') AS procedure_code,
+            COALESCE(s.study_description, '') AS description,
+            COALESCE(s.storing_ae, 'N/A') AS ae,
+            COALESCE(NULLIF(TRIM(CONCAT_WS(' ',
+                s.referring_physician_first_name,
+                s.referring_physician_last_name)), ''), 'Unknown') AS physician
+        FROM etl_didb_studies s
+        LEFT JOIN aetitle_modality_map m ON s.storing_ae = m.aetitle
+        LEFT JOIN etl_patient_view p ON p.patient_db_uid::TEXT = s.patient_db_uid::TEXT
+        WHERE UPPER(s.study_status) = UPPER(:status)
+          AND s.study_date BETWEEN :start AND :end
+        ORDER BY s.study_date DESC
+        LIMIT 500
+    """), {"status": status, "start": start, "end": end}).fetchall()
+
+    if export:
+        def generate():
+            out = io.StringIO()
+            w = csv.writer(out)
+            w.writerow(["Study UID", "Patient ID", "Date", "Modality", "Procedure", "Description", "AE", "Physician"])
+            yield out.getvalue(); out.seek(0); out.truncate(0)
+            for r in rows:
+                w.writerow(r)
+                yield out.getvalue(); out.seek(0); out.truncate(0)
+        filename = f"{status}_studies_{start}_to_{end}.csv"
+        return Response(generate(), mimetype="text/csv",
+                        headers={"Content-Disposition": f"attachment; filename={filename}"})
+
+    studies = [
+        {"uid": r[0], "patient_id": r[1], "date": str(r[2]), "modality": r[3],
+         "procedure": r[4], "description": r[5], "ae": r[6], "physician": r[7]}
+        for r in rows
+    ]
+    return jsonify({"status": status, "count": len(studies), "studies": studies})
 
 
 @report_22_bp.route("/report/22/export", methods=["POST"])

@@ -1,7 +1,7 @@
-from flask import Blueprint, render_template, jsonify, request
-from flask_login import login_required
+from flask import Blueprint, render_template, jsonify, request, abort
+from flask_login import login_required, current_user
 from sqlalchemy import text
-from db import db
+from db import db, user_has_page
 from datetime import date
 
 hl7_orders_bp = Blueprint('hl7_orders', __name__)
@@ -65,6 +65,8 @@ def _fetch_filter_options():
 @hl7_orders_bp.route('/hl7-orders')
 @login_required
 def hl7_orders_page():
+    if not user_has_page(current_user, 'hl7_orders'):
+        abort(403)
     date_str = request.args.get('date', date.today().isoformat())
     modality = request.args.get('modality', '')
     status   = request.args.get('status', '')
@@ -84,9 +86,23 @@ def hl7_orders_page():
     )
 
 
+@hl7_orders_bp.route('/hl7-orders/count')
+@login_required
+def hl7_orders_count():
+    """Lightweight endpoint — today's order count only, used by sidebar badge."""
+    today = date.today().isoformat()
+    row = db.session.execute(
+        text("SELECT COUNT(*) FROM hl7_orders WHERE DATE(scheduled_datetime) = :d OR DATE(received_at) = :d"),
+        {"d": today}
+    ).scalar()
+    return jsonify({"count": int(row or 0)})
+
+
 @hl7_orders_bp.route('/hl7-orders/data')
 @login_required
 def hl7_orders_data():
+    if not user_has_page(current_user, 'hl7_orders'):
+        abort(403)
     """JSON endpoint for live auto-refresh."""
     date_str = request.args.get('date', date.today().isoformat())
     modality = request.args.get('modality', '')

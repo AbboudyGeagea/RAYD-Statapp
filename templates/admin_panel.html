@@ -35,6 +35,53 @@
         {% include '_sidebar.html' %}
 
         <main class="flex-1 overflow-y-auto p-10 bg-[#181f1c]">
+
+            <!-- Quick Actions + Demo Mode -->
+            <div class="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+
+                <!-- Quick Sync -->
+                <div class="table-container" style="padding:1.5rem;">
+                    <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest mb-1">Quick Sync</p>
+                    <p class="text-slate-500 text-xs mb-4">Populate lookup tables from existing ETL data. Safe to run anytime — never overwrites manual configs.</p>
+                    <div class="flex gap-3 flex-wrap">
+                        <button onclick="syncMappings()" id="btn-sync-mappings"
+                            class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all"
+                            style="background:rgba(96,165,250,0.1);border:1px solid rgba(96,165,250,0.25);color:#60a5fa;">
+                            <i class="bi bi-arrow-repeat"></i> Sync AE Mappings &amp; Procedures
+                        </button>
+                    </div>
+                    <p id="sync-status" class="text-xs mt-3 hidden"></p>
+                </div>
+
+                <!-- Demo Mode -->
+                <div class="table-container" style="padding:1.5rem;">
+                    <div class="flex items-center justify-between mb-1">
+                        <p class="text-[10px] font-black text-[#f59e0b] uppercase tracking-widest">Demo Mode</p>
+                        <button onclick="toggleDemoMode(this)"
+                            data-enabled="{{ 'true' if demo_mode else 'false' }}"
+                            class="w-10 h-6 rounded-full border transition-all relative flex-shrink-0
+                                   {{ 'bg-[#f59e0b] border-[#f59e0b]' if demo_mode else 'bg-transparent border-[#334155]' }}">
+                            <span class="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all
+                                         {{ 'left-4' if demo_mode else 'left-0.5' }}"></span>
+                        </button>
+                    </div>
+                    <p class="text-slate-500 text-xs mb-4">Enables all features and displays a banner. Select a date range to scope report data.</p>
+                    <div class="flex gap-3 flex-wrap items-center">
+                        <div class="flex items-center gap-2">
+                            <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest">From</label>
+                            <input type="date" id="demo-start" value="{{ demo_start }}"
+                                class="bg-[#181f1c] border border-[#28332e] text-xs font-bold text-white px-3 py-1.5 rounded-lg focus:outline-none focus:border-[#f59e0b] transition-colors">
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest">To</label>
+                            <input type="date" id="demo-end" value="{{ demo_end }}"
+                                class="bg-[#181f1c] border border-[#28332e] text-xs font-bold text-white px-3 py-1.5 rounded-lg focus:outline-none focus:border-[#f59e0b] transition-colors">
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
             <div class="table-container max-w-7xl mx-auto">
                 <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-10">
                     <div>
@@ -189,10 +236,111 @@
                     </div>
                 </div>
             </div>
+
         </main>
     </div>
 
     <script>
+        async function togglePerm(userId, pageKey, btn) {
+            const current = btn.dataset.enabled === 'true';
+            const next = !current;
+            const res = await fetch('{{ url_for("admin.update_user_permissions") }}', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({user_id: userId, page_key: pageKey, enabled: next})
+            });
+            if ((await res.json()).status === 'ok') {
+                btn.dataset.enabled = next ? 'true' : 'false';
+                btn.className = 'perm-toggle w-10 h-6 rounded-full border transition-all relative ' +
+                    (next ? 'bg-[#60a5fa] border-[#60a5fa]' : 'bg-transparent border-[#334155]');
+                btn.querySelector('span').className = 'absolute top-0.5 transition-all w-5 h-5 rounded-full bg-white shadow ' +
+                    (next ? 'left-4' : 'left-0.5');
+            }
+        }
+
+        async function changeRole(userId, newRole) {
+            await fetch('{{ url_for("admin.update_user_role") }}', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({user_id: userId, role: newRole})
+            });
+        }
+
+        async function deleteUser(userId, username) {
+            if (!confirm(`Delete user "${username}"? This cannot be undone.`)) return;
+            const res = await fetch('{{ url_for("admin.delete_user") }}', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({user_id: userId})
+            });
+            if ((await res.json()).status === 'ok') {
+                document.getElementById('user-row-' + userId)?.remove();
+            }
+        }
+
+        // ── Quick Sync ──────────────────────────────────────────
+        async function syncMappings() {
+            const btn = document.getElementById('btn-sync-mappings');
+            const status = document.getElementById('sync-status');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="bi bi-arrow-repeat animate-spin"></i> Syncing…';
+            status.className = 'text-xs mt-3';
+            status.textContent = '';
+            try {
+                const res = await fetch('{{ url_for("admin.sync_mappings") }}', { method: 'POST' });
+                const d = await res.json();
+                if (d.status === 'ok') {
+                    status.style.color = '#4ade80';
+                    status.textContent = '✓ AE mappings and procedure codes synced successfully.';
+                } else {
+                    status.style.color = '#f87171';
+                    status.textContent = 'Error: ' + d.message;
+                }
+            } catch(e) {
+                status.style.color = '#f87171';
+                status.textContent = 'Request failed.';
+            }
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Sync AE Mappings & Procedures';
+        }
+
+        // ── Demo Mode ───────────────────────────────────────────
+        async function toggleDemoMode(btn) {
+            const next = btn.dataset.enabled !== 'true';
+            const start = document.getElementById('demo-start').value;
+            const end   = document.getElementById('demo-end').value;
+            const res = await fetch('{{ url_for("admin.set_demo_mode") }}', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ enabled: next, start, end })
+            });
+            if ((await res.json()).status === 'ok') {
+                btn.dataset.enabled = next ? 'true' : 'false';
+                btn.className = 'w-10 h-6 rounded-full border transition-all relative flex-shrink-0 ' +
+                    (next ? 'bg-[#f59e0b] border-[#f59e0b]' : 'bg-transparent border-[#334155]');
+                btn.querySelector('span').className = 'absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ' +
+                    (next ? 'left-4' : 'left-0.5');
+                location.reload();   // reload to show/hide the header banner
+            }
+        }
+
+        // Save demo dates when changed without toggling
+        ['demo-start','demo-end'].forEach(id => {
+            document.getElementById(id)?.addEventListener('change', async () => {
+                const btn = document.querySelector('[data-enabled]');
+                if (!btn || btn.dataset.enabled !== 'true') return;
+                await fetch('{{ url_for("admin.set_demo_mode") }}', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        enabled: true,
+                        start: document.getElementById('demo-start').value,
+                        end:   document.getElementById('demo-end').value
+                    })
+                });
+            });
+        });
+
         function triggerJob(jobName) {
             if(!confirm(`Force start ${jobName}?`)) return;
             fetch("{{ url_for('admin.trigger_etl') }}", { method: 'POST' })

@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template, redirect, url_for, flash, jsonify, request, abort
 from flask_login import login_required, current_user
-from db import User, ReportTemplate, ETLJobLog, db
-from sqlalchemy import func
+from db import User, ReportTemplate, ETLJobLog, ReportAccessControl, UserPagePermission, db
+from sqlalchemy import func, text
 from datetime import datetime
 import sys, os
 _etl_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'ETL_JOBS')
@@ -48,6 +48,23 @@ def admin_dashboard():
         else "Never"
     )
 
+    # Demo mode settings
+    demo_rows = db.session.execute(
+        text("SELECT key, value FROM settings WHERE key IN ('demo_mode','demo_start','demo_end')")
+    ).fetchall()
+    demo = {r[0]: r[1] for r in demo_rows}
+    demo_mode  = demo.get('demo_mode', 'false').lower() == 'true'
+    demo_start = demo.get('demo_start', '')
+    demo_end   = demo.get('demo_end', '')
+
+    # Build page permissions map: {user_id: {page_key: is_enabled}}
+    all_perms = UserPagePermission.query.all()
+    page_perms = {}
+    for p in all_perms:
+        page_perms.setdefault(p.user_id, {})[p.page_key] = p.is_enabled
+
+    page_keys = ['live_feed', 'hl7_orders', 'report_ai', 'bitnet']
+
     return render_template(
         'admin_panel.html',
         users          = users,
@@ -57,7 +74,127 @@ def admin_dashboard():
         last_sync_time = last_sync_time,
         selected_date  = selected_date,
         etl_gear       = ETL_GEAR,
+        page_perms     = page_perms,
+        page_keys      = page_keys,
+        demo_mode      = demo_mode,
+        demo_start     = demo_start,
+        demo_end       = demo_end,
     )
+
+
+@admin_bp.route('/users')
+@login_required
+def user_management():
+    if current_user.role != 'admin':
+        return abort(403)
+
+    users = User.query.order_by(User.username).all()
+    all_perms = UserPagePermission.query.all()
+    page_perms = {}
+    for p in all_perms:
+        page_perms.setdefault(p.user_id, {})[p.page_key] = p.is_enabled
+
+    page_keys = ['live_feed', 'hl7_orders', 'report_ai', 'bitnet']
+
+    return render_template('user_management.html',
+        users=users, page_perms=page_perms, page_keys=page_keys)
+
+
+@admin_bp.route('/users/permissions', methods=['POST'])
+@login_required
+def update_user_permissions():
+    if current_user.role != 'admin':
+        return abort(403)
+
+    data    = request.get_json()
+    user_id = data.get('user_id')
+    page_key = data.get('page_key')
+    enabled  = bool(data.get('enabled'))
+
+    if not user_id or not page_key:
+        return jsonify({'status': 'error', 'message': 'Missing fields'}), 400
+
+    perm = UserPagePermission.query.filter_by(user_id=user_id, page_key=page_key).first()
+    if perm:
+        perm.is_enabled = enabled
+    else:
+        db.session.add(UserPagePermission(user_id=user_id, page_key=page_key, is_enabled=enabled))
+    db.session.commit()
+    return jsonify({'status': 'ok'})
+
+
+@admin_bp.route('/users/role', methods=['POST'])
+@login_required
+def update_user_role():
+    if current_user.role != 'admin':
+        return abort(403)
+
+    data    = request.get_json()
+    user_id = data.get('user_id')
+    new_role = data.get('role')
+
+    if new_role not in ('viewer', 'tec'):
+        return jsonify({'status': 'error', 'message': 'Invalid role'}), 400
+
+    user = User.query.get(user_id)
+    if not user or user.role == 'admin':
+        return jsonify({'status': 'error', 'message': 'User not found or protected'}), 400
+
+    user.role = new_role
+    db.session.commit()
+    return jsonify({'status': 'ok'})
+
+
+@admin_bp.route('/users/delete', methods=['POST'])
+@login_required
+def delete_user():
+    if current_user.role != 'admin':
+        return abort(403)
+
+    data    = request.get_json()
+    user_id = data.get('user_id')
+
+    user = User.query.get(user_id)
+    if not user or user.role == 'admin':
+        return jsonify({'status': 'error', 'message': 'User not found or protected'}), 400
+
+    UserPagePermission.query.filter_by(user_id=user_id).delete()
+    ReportAccessControl.query.filter_by(user_id=user_id).delete()
+    db.session.delete(user)
+    db.session.commit()
+    return jsonify({'status': 'ok'})
+
+
+@admin_bp.route('/sync-mappings', methods=['POST'])
+@login_required
+def sync_mappings():
+    if current_user.role != 'admin':
+        return abort(403)
+    try:
+        from ETL_JOBS.etl_runner import _sync_lookup_tables
+        _sync_lookup_tables(db.engine)
+        return jsonify({'status': 'ok'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@admin_bp.route('/demo-mode', methods=['POST'])
+@login_required
+def set_demo_mode():
+    if current_user.role != 'admin':
+        return abort(403)
+    data    = request.get_json()
+    enabled = 'true' if data.get('enabled') else 'false'
+    start   = data.get('start', '')
+    end     = data.get('end', '')
+    for key, val in [('demo_mode', enabled), ('demo_start', start), ('demo_end', end)]:
+        exists = db.session.execute(text("SELECT 1 FROM settings WHERE key = :k"), {'k': key}).fetchone()
+        if exists:
+            db.session.execute(text("UPDATE settings SET value = :v WHERE key = :k"), {'k': key, 'v': val})
+        else:
+            db.session.execute(text("INSERT INTO settings (key, value) VALUES (:k, :v)"), {'k': key, 'v': val})
+    db.session.commit()
+    return jsonify({'status': 'ok'})
 
 
 @admin_bp.route('/etl/trigger', methods=['POST'])

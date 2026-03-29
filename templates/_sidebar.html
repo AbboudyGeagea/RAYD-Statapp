@@ -39,22 +39,34 @@
 
         {% if current_user.role == 'admin' %}
         <a href="{{ url_for('admin.admin_dashboard') }}"
-           class="sidebar-item {% if request.endpoint and request.endpoint.startswith('admin.') %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
+           class="sidebar-item {% if request.endpoint == 'admin.admin_dashboard' %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
            title="ETL Control Room">
             <i class="bi bi-cpu flex-shrink-0" style="color:#f59e0b;"></i> ETL Control Room
+        </a>
+        <a href="{{ url_for('admin.user_management') }}"
+           class="sidebar-item {% if request.endpoint == 'admin.user_management' %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
+           title="User Management">
+            <i class="bi bi-people-fill flex-shrink-0" style="color:#60a5fa;"></i> User Management
         </a>
         <a href="{{ url_for('mapping.mapping_page') }}"
            class="sidebar-item {% if request.endpoint and request.endpoint.startswith('mapping.') %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
            title="Live Week Matrix">
             <i class="bi bi-calendar-week flex-shrink-0" style="color:#a78bfa;"></i> Live Week Matrix
         </a>
+        {% endif %}
+
+        {% if current_user.role == 'admin' or current_user|user_has_page('live_feed') %}
+        {% if config.LIVE_FEED_ENABLED %}
         <a href="{{ url_for('live_feed.live_page') }}" target="_blank"
            class="sidebar-item {% if request.endpoint and request.endpoint.startswith('live_feed.') %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
            title="Live AE Status">
             <i class="bi bi-activity flex-shrink-0" style="color:#22c55e;"></i> Live AE Status
             <span style="font-size:8px;font-weight:900;padding:1px 6px;border-radius:4px;background:rgba(34,197,94,0.15);color:#22c55e;text-transform:uppercase;letter-spacing:0.08em;">LIVE</span>
         </a>
+        {% endif %}
+        {% endif %}
 
+        {% if current_user.role == 'admin' or current_user|user_has_page('hl7_orders') %}
         <div class="pt-4 pb-2">
             <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-2">RIS</p>
         </div>
@@ -62,14 +74,20 @@
            class="sidebar-item {% if request.endpoint and request.endpoint.startswith('hl7_orders.') %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
            title="HL7 Orders">
             <i class="bi bi-clipboard2-pulse flex-shrink-0" style="color:#f43f5e;"></i> HL7 Orders
+            <span id="hl7-sidebar-badge" style="display:none;font-size:9px;font-weight:900;padding:1px 7px;border-radius:10px;background:rgba(244,63,94,0.18);color:#f43f5e;border:1px solid rgba(244,63,94,0.3);margin-left:auto;"></span>
         </a>
+        {% endif %}
+
+        {% if current_user.role == 'admin' %}
         <a href="{{ url_for('portal_admin.portal_users') }}"
            class="sidebar-item {% if request.endpoint and request.endpoint.startswith('portal_admin.') %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
            title="Patient Portal">
             <i class="bi bi-person-vcard flex-shrink-0" style="color:#fb923c;"></i> Patient Portal
         </a>
+        {% endif %}
 
         {% if config.BITNET_ENABLED %}
+        {% if current_user.role == 'admin' or current_user|user_has_page('bitnet') %}
         <div class="pt-4 pb-2">
             <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-2">AI</p>
         </div>
@@ -79,6 +97,9 @@
             <i class="bi bi-robot flex-shrink-0" style="color:#10b981;"></i> AI Assistant
         </a>
         {% endif %}
+        {% endif %}
+
+        {% if current_user.role != 'tec' %}
         <div class="pt-4 pb-2">
             <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-2">Help</p>
         </div>
@@ -105,3 +126,36 @@
         </p>
     </div>
 </aside>
+
+<script>
+(function() {
+    let _hl7Prev = parseInt(sessionStorage.getItem('hl7_count') || '-1');
+
+    function _hl7Toast(n) {
+        const t = document.createElement('div');
+        t.style.cssText = 'position:fixed;bottom:24px;right:24px;background:#1a2035;border:1px solid rgba(244,63,94,0.45);color:#f43f5e;padding:10px 18px;border-radius:8px;font-size:12px;font-weight:700;z-index:9999;box-shadow:0 4px 24px rgba(0,0,0,0.5);display:flex;align-items:center;gap:8px;';
+        t.innerHTML = '<i class="bi bi-clipboard2-pulse"></i> +' + n + ' new HL7 order' + (n > 1 ? 's' : '') + ' received';
+        document.body.appendChild(t);
+        setTimeout(() => { t.style.transition='opacity 0.4s'; t.style.opacity='0'; setTimeout(()=>t.remove(),400); }, 4000);
+    }
+
+    async function _hl7Poll() {
+        try {
+            const r = await fetch('/hl7-orders/count');
+            const d = await r.json();
+            const count = d.count || 0;
+            const badge = document.getElementById('hl7-sidebar-badge');
+            if (badge) {
+                badge.textContent = count;
+                badge.style.display = count > 0 ? 'inline' : 'none';
+            }
+            if (_hl7Prev >= 0 && count > _hl7Prev) _hl7Toast(count - _hl7Prev);
+            _hl7Prev = count;
+            sessionStorage.setItem('hl7_count', count);
+        } catch(e) {}
+    }
+
+    _hl7Poll();
+    setInterval(_hl7Poll, 30000);
+})();
+</script>

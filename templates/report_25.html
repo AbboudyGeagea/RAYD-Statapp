@@ -154,6 +154,7 @@
                 <div onclick="switchTab('infra')"    class="tab-btn" id="btn-infra">Infrastructure</div>
                 <div onclick="switchTab('clinical')" class="tab-btn" id="btn-clinical">Radiologists</div>
                 <div onclick="switchTab('efficiency')"  class="tab-btn" id="btn-efficiency">Efficiency Intel</div>
+                <div onclick="switchTab('workflow')" class="tab-btn" id="btn-workflow">Workflow</div>
 
             </nav>
 
@@ -359,6 +360,19 @@
                     </div>
                     <div id="chart-ae-tat" class="w-full" style="height:320px;"></div>
                 </div>
+
+                <!-- Modality TAT -->
+                {% if data.modality_tat %}
+                <div class="chart-card">
+                    <div class="chart-card-header">
+                        <span class="chart-card-title">Avg TAT by Modality</span>
+                    </div>
+                    <div class="chart-card-desc">Average and median turnaround time per modality. Sorted fastest to slowest.</div>
+                    <div class="chart-card-body">
+                        <div id="chart-mod-tat" style="height:280px;"></div>
+                    </div>
+                </div>
+                {% endif %}
             </div>
 
             <!-- ── RADIOLOGISTS TAB ───────────────────────────────────────── -->
@@ -508,6 +522,164 @@
                     </div>
                 </div>
 
+            </div>
+
+            <!-- ── WORKFLOW TAB ───────────────────────────────────────────── -->
+            <div id="tab-workflow" class="tab-content hidden space-y-8">
+
+                <p class="section-desc">
+                    Workflow intelligence: unread study aging across time buckets, volume by shift, and addendum rates per radiologist. Use this tab to identify reporting backlogs, shift imbalances, and quality correction patterns.
+                </p>
+
+                <!-- Unread Study Aging -->
+                <div class="space-y-4">
+                    <p class="text-xs font-black text-blue-500 uppercase tracking-widest">Unread Study Aging</p>
+                    {% if data and data.unread_aging %}
+                    {% set bucket_totals = {} %}
+                    {% for row in data.unread_aging %}
+                        {% if row.bucket not in bucket_totals %}
+                            {% set _ = bucket_totals.update({row.bucket: 0}) %}
+                        {% endif %}
+                        {% set _ = bucket_totals.update({row.bucket: bucket_totals[row.bucket] + row.cnt}) %}
+                    {% endfor %}
+                    <div class="grid grid-cols-4 gap-4">
+                        {% set buckets = [('0-24h', '#22c55e', 'bg-emerald-500/10 border-emerald-500/20', 'text-emerald-400'),
+                                          ('24-48h', '#f59e0b', 'bg-amber-500/10 border-amber-500/20', 'text-amber-400'),
+                                          ('48-72h', '#f97316', 'bg-orange-500/10 border-orange-500/20', 'text-orange-400'),
+                                          ('72h+', '#ef4444', 'bg-rose-500/10 border-rose-500/20', 'text-rose-400')] %}
+                        {% for bname, bcolor, bgcls, txtcls in buckets %}
+                        <div class="glass-card flex flex-col items-center border {{ bgcls.split(' ')[1] }}">
+                            <p class="text-[11px] font-black text-zinc-500 uppercase mb-1">{{ bname }}</p>
+                            <p class="text-3xl font-black {{ txtcls }}">{{ bucket_totals.get(bname, 0) }}</p>
+                            <p class="text-[11px] text-zinc-600 italic mt-1">unread studies</p>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <div class="chart-card">
+                        <div class="chart-card-header">
+                            <span class="chart-card-title">Unread Aging by Modality</span>
+                        </div>
+                        <div class="chart-card-desc">Stacked bar showing unread study count per time bucket, broken down by modality.</div>
+                        <div class="chart-card-body">
+                            <div id="chart-unread-aging" style="height:300px;"></div>
+                        </div>
+                    </div>
+                    {% else %}
+                    <div class="glass-card text-center py-8 text-zinc-600 italic">No unread aging data available for the selected period.</div>
+                    {% endif %}
+                </div>
+
+                <!-- Studies per Shift -->
+                <div class="space-y-4">
+                    <div class="flex items-center justify-between">
+                        <p class="text-xs font-black text-blue-500 uppercase tracking-widest">Studies per Shift</p>
+                        <button onclick="openShiftConfig()" class="px-4 py-2 bg-zinc-900 border border-white/10 rounded-xl text-[11px] font-black text-zinc-400 hover:text-white hover:border-blue-500/40 transition-all uppercase">
+                            Configure Shifts
+                        </button>
+                    </div>
+                    {% if data and data.shift_breakdown %}
+                    {% set shift_totals = {'Morning': 0, 'Afternoon': 0, 'Night': 0} %}
+                    {% for row in data.shift_breakdown %}
+                        {% set _ = shift_totals.update({row.shift: shift_totals.get(row.shift, 0) + row.cnt}) %}
+                    {% endfor %}
+                    <div class="grid grid-cols-3 gap-4">
+                        <div class="glass-card flex flex-col items-center border border-blue-500/20">
+                            <p class="text-[11px] font-black text-zinc-500 uppercase mb-1">Morning</p>
+                            <p class="text-3xl font-black text-blue-400">{{ shift_totals.get('Morning', 0) }}</p>
+                            <p class="text-[11px] text-zinc-600 italic mt-1">studies</p>
+                        </div>
+                        <div class="glass-card flex flex-col items-center border border-amber-500/20">
+                            <p class="text-[11px] font-black text-zinc-500 uppercase mb-1">Afternoon</p>
+                            <p class="text-3xl font-black text-amber-400">{{ shift_totals.get('Afternoon', 0) }}</p>
+                            <p class="text-[11px] text-zinc-600 italic mt-1">studies</p>
+                        </div>
+                        <div class="glass-card flex flex-col items-center border border-indigo-500/20">
+                            <p class="text-[11px] font-black text-zinc-500 uppercase mb-1">Night</p>
+                            <p class="text-3xl font-black text-indigo-400">{{ shift_totals.get('Night', 0) }}</p>
+                            <p class="text-[11px] text-zinc-600 italic mt-1">studies</p>
+                        </div>
+                    </div>
+                    <div class="chart-card">
+                        <div class="chart-card-header">
+                            <span class="chart-card-title">Shift Distribution</span>
+                        </div>
+                        <div class="chart-card-desc">Proportion of studies by shift. Morning = blue, Afternoon = amber, Night = indigo.</div>
+                        <div class="chart-card-body flex justify-center">
+                            <div id="chart-shift-donut" style="height:280px; width:100%;"></div>
+                        </div>
+                    </div>
+                    {% else %}
+                    <div class="glass-card text-center py-8 text-zinc-600 italic">No shift breakdown data available. Ensure studies have scheduled_datetime populated.</div>
+                    {% endif %}
+                </div>
+
+                <!-- Addendum Rate -->
+                <div class="space-y-4">
+                    <p class="text-xs font-black text-blue-500 uppercase tracking-widest">Addendum Rate by Radiologist</p>
+                    {% if data and data.addendum_data and data.addendum_data.by_rad %}
+                    <div class="grid grid-cols-3 gap-4">
+                        <div class="glass-card flex flex-col items-center col-span-1">
+                            <p class="text-[11px] font-black text-zinc-500 uppercase mb-1">Overall Addendum Rate</p>
+                            <p class="text-4xl font-black text-white">{{ data.addendum_data.overall_pct }}%</p>
+                            <p class="text-[11px] text-zinc-600 italic mt-1">{{ data.addendum_data.total_addenda }} total addenda</p>
+                        </div>
+                        <div class="chart-card col-span-2">
+                            <div class="chart-card-header">
+                                <span class="chart-card-title">Addendum % per Radiologist</span>
+                            </div>
+                            <div class="chart-card-desc">Radiologists with ≥5 signed reports. Higher % may indicate quality review opportunities.</div>
+                            <div class="chart-card-body">
+                                <div id="chart-addendum" style="height:280px;"></div>
+                            </div>
+                        </div>
+                    </div>
+                    {% else %}
+                    <div class="glass-card text-center py-8 text-zinc-600 italic">No addendum data available. Requires rep_has_addendum and rep_final_signed_by fields.</div>
+                    {% endif %}
+                </div>
+
+            </div>
+
+            <!-- ── SHIFT CONFIG MODAL ─────────────────────────────────────── -->
+            <div id="shift-config-modal" style="display:none; position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,0.7); backdrop-filter:blur(4px);" class="flex items-center justify-center">
+                <div class="glass-card w-full max-w-md" style="border:1px solid rgba(255,255,255,0.12);">
+                    <div class="flex items-center justify-between mb-6">
+                        <p class="text-sm font-black text-white uppercase tracking-wide">Configure Shift Hours</p>
+                        <button onclick="closeShiftConfig()" class="text-zinc-500 hover:text-white text-xl font-black leading-none">&times;</button>
+                    </div>
+                    <form method="POST" action="/report/25/save-shifts" class="space-y-4">
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="sidebar-label">Morning Start (0-23)</label>
+                                <input type="number" name="morning_start" min="0" max="23" value="{{ shift_config.morning_start }}" class="input-dark">
+                            </div>
+                            <div>
+                                <label class="sidebar-label">Morning End (0-23)</label>
+                                <input type="number" name="morning_end" min="0" max="23" value="{{ shift_config.morning_end }}" class="input-dark">
+                            </div>
+                            <div>
+                                <label class="sidebar-label">Afternoon Start (0-23)</label>
+                                <input type="number" name="afternoon_start" min="0" max="23" value="{{ shift_config.afternoon_start }}" class="input-dark">
+                            </div>
+                            <div>
+                                <label class="sidebar-label">Afternoon End (0-23)</label>
+                                <input type="number" name="afternoon_end" min="0" max="23" value="{{ shift_config.afternoon_end }}" class="input-dark">
+                            </div>
+                            <div>
+                                <label class="sidebar-label">Night Start (0-23)</label>
+                                <input type="number" name="night_start" min="0" max="23" value="{{ shift_config.night_start }}" class="input-dark">
+                            </div>
+                            <div>
+                                <label class="sidebar-label">Night End (0-23)</label>
+                                <input type="number" name="night_end" min="0" max="23" value="{{ shift_config.night_end }}" class="input-dark">
+                            </div>
+                        </div>
+                        <div class="flex gap-3 pt-2">
+                            <button type="submit" class="flex-1 bg-blue-600 hover:bg-blue-500 py-3 rounded-xl font-black text-xs uppercase text-white transition-all">Save</button>
+                            <button type="button" onclick="closeShiftConfig()" class="flex-1 bg-zinc-900 border border-white/10 py-3 rounded-xl font-black text-xs uppercase text-zinc-400 hover:text-white transition-all">Cancel</button>
+                        </div>
+                    </form>
+                </div>
             </div>
 
             {% else %}
@@ -812,6 +984,37 @@
                 }
             }
 
+            // Modality TAT (Infrastructure tab)
+            if (!$('#tab-infra').hasClass('hidden') && d.modality_tat && d.modality_tat.length > 0 && document.getElementById('chart-mod-tat')) {
+                const cModTat = echarts.init(document.getElementById('chart-mod-tat'));
+                cModTat.setOption({
+                    tooltip: { trigger: 'axis', formatter: p => {
+                        let s = `<b>${p[0].name}</b>`;
+                        p.forEach(i => { s += `<br>${i.seriesName}: ${i.value}m`; });
+                        return s;
+                    }},
+                    legend: { data: ['Avg TAT', 'Median TAT'], textStyle: { color: '#71717a', fontSize: 11 }, bottom: 0 },
+                    grid: { left: 60, right: 60, top: 10, bottom: 40 },
+                    xAxis: { type: 'value', name: 'Minutes', nameTextStyle: { color: '#52525b', fontSize: 11 }, ...axisStyle },
+                    yAxis: { type: 'category', data: d.modality_tat.map(r => r.mod), ...axisStyle },
+                    series: [
+                        {
+                            name: 'Avg TAT', type: 'bar',
+                            data: d.modality_tat.map(r => r.avg),
+                            itemStyle: { borderRadius: [0,5,5,0], color: '#3b82f6' },
+                            label: { show: true, position: 'right', color: '#71717a', fontSize: 10, formatter: p => p.value + 'm' }
+                        },
+                        {
+                            name: 'Median TAT', type: 'scatter',
+                            data: d.modality_tat.map(r => r.median),
+                            symbolSize: 8,
+                            itemStyle: { color: '#f59e0b' }
+                        }
+                    ]
+                });
+                registerChart('chart-mod-tat', cModTat);
+            }
+
             // AE by TAT (Infrastructure tab)
             if (!$('#tab-infra').hasClass('hidden') && d.ae_tat && document.getElementById('chart-ae-tat')) {
                 const cAeTat = echarts.init(document.getElementById('chart-ae-tat'));
@@ -829,6 +1032,93 @@
                 });
                 registerChart('chart-ae-tat', cAeTat);
             }
+
+            // ── WORKFLOW TAB CHARTS ─────────────────────────────────────────
+            if (!$('#tab-workflow').hasClass('hidden')) {
+
+                // Unread Aging stacked bar
+                if (d.unread_aging && d.unread_aging.length > 0 && document.getElementById('chart-unread-aging')) {
+                    const agingBuckets = ['0-24h', '24-48h', '48-72h', '72h+'];
+                    const agingColors  = ['#22c55e', '#f59e0b', '#f97316', '#ef4444'];
+                    const modSet = [...new Set(d.unread_aging.map(r => r.modality))];
+                    const agingSeries = agingBuckets.map((bkt, bi) => ({
+                        name: bkt,
+                        type: 'bar',
+                        stack: 'aging',
+                        itemStyle: { color: agingColors[bi] },
+                        data: modSet.map(mod => {
+                            const row = d.unread_aging.find(r => r.bucket === bkt && r.modality === mod);
+                            return row ? row.cnt : 0;
+                        })
+                    }));
+                    const cAging = echarts.init(document.getElementById('chart-unread-aging'));
+                    cAging.setOption({
+                        tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+                        legend: { data: agingBuckets, textStyle: { color: '#71717a', fontSize: 11 }, bottom: 0 },
+                        grid: { left: 50, right: 20, top: 10, bottom: 50 },
+                        xAxis: { type: 'category', data: modSet, ...axisStyle },
+                        yAxis: { type: 'value', name: 'Studies', nameTextStyle: { color: '#52525b', fontSize: 11 }, ...axisStyle },
+                        series: agingSeries
+                    });
+                    registerChart('chart-unread-aging', cAging);
+                }
+
+                // Shift donut
+                if (d.shift_breakdown && d.shift_breakdown.length > 0 && document.getElementById('chart-shift-donut')) {
+                    const shiftTotals = { Morning: 0, Afternoon: 0, Night: 0 };
+                    d.shift_breakdown.forEach(r => { shiftTotals[r.shift] = (shiftTotals[r.shift] || 0) + r.cnt; });
+                    const shiftColors = { Morning: '#3b82f6', Afternoon: '#f59e0b', Night: '#6366f1' };
+                    const shiftData = Object.entries(shiftTotals)
+                        .filter(([, v]) => v > 0)
+                        .map(([k, v]) => ({ name: k, value: v, itemStyle: { color: shiftColors[k] } }));
+                    const cShift = echarts.init(document.getElementById('chart-shift-donut'));
+                    cShift.setOption({
+                        tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+                        legend: { textStyle: { color: '#71717a', fontSize: 12 }, bottom: 0 },
+                        series: [{
+                            type: 'pie', radius: ['40%', '68%'],
+                            data: shiftData,
+                            label: { color: '#d1d1d6', fontSize: 12 }
+                        }]
+                    });
+                    registerChart('chart-shift-donut', cShift);
+                }
+
+                // Addendum bar
+                if (d.addendum_data && d.addendum_data.by_rad && d.addendum_data.by_rad.length > 0 && document.getElementById('chart-addendum')) {
+                    const addRads = d.addendum_data.by_rad;
+                    const maxPct  = Math.max(...addRads.map(r => r.pct), 1);
+                    const cAdd = echarts.init(document.getElementById('chart-addendum'));
+                    cAdd.setOption({
+                        tooltip: { trigger: 'axis', formatter: p => `${p[0].name}<br>Addendum: <b>${p[0].value}%</b>` },
+                        grid: { left: 140, right: 60, top: 10, bottom: 20 },
+                        xAxis: { type: 'value', name: 'Addendum %', max: Math.ceil(maxPct) + 1, nameTextStyle: { color: '#52525b', fontSize: 11 }, ...axisStyle },
+                        yAxis: { type: 'category', data: addRads.map(r => r.rad), ...axisStyle },
+                        series: [{
+                            type: 'bar',
+                            data: addRads.map(r => r.pct),
+                            itemStyle: {
+                                borderRadius: [0,5,5,0],
+                                color: p => {
+                                    const ratio = p.value / maxPct;
+                                    if (ratio > 0.66) return '#ef4444';
+                                    if (ratio > 0.33) return '#f59e0b';
+                                    return '#22c55e';
+                                }
+                            },
+                            label: { show: true, position: 'right', color: '#71717a', fontSize: 10, formatter: p => p.value + '%' }
+                        }]
+                    });
+                    registerChart('chart-addendum', cAdd);
+                }
+            }
+        }
+
+        function openShiftConfig() {
+            document.getElementById('shift-config-modal').style.display = 'flex';
+        }
+        function closeShiftConfig() {
+            document.getElementById('shift-config-modal').style.display = 'none';
         }
 
         function applyTheme(theme) {

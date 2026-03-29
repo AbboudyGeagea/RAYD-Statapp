@@ -35,15 +35,15 @@ def get_report_config(form):
     params = {"s": start, "e": end}
 
     if form.get("f_mod_active") == "on" and form.get("f_mod"):
-        extra.append("modality = :mod")
+        extra.append("UPPER(modality) = UPPER(:mod)")
         params["mod"] = form.get("f_mod")
 
     if form.get("f_class_active") == "on" and form.get("f_class"):
-        extra.append("patient_class = :p_class")
+        extra.append("UPPER(patient_class) = UPPER(:p_class)")
         params["p_class"] = form.get("f_class")
 
     if form.get("f_sex_active") == "on" and form.get("f_sex"):
-        extra.append("sex = :sex")
+        extra.append("UPPER(sex) = UPPER(:sex)")
         params["sex"] = form.get("f_sex")
 
     if form.get("f_age_min"):

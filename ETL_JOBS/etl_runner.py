@@ -97,6 +97,11 @@ def _perform_migration(engine):
         refresh_storage_summary()
         logger.info("✅ Phase 7 done")
 
+        # ── PHASE 8: Auto-sync lookup tables ─────────────────────────────
+        logger.info("📋 Phase 8: Syncing AE mappings & procedure codes")
+        _sync_lookup_tables(engine)
+        logger.info("✅ Phase 8 done")
+
         # ── Mark overall sync SUCCESS ─────────────────────────────────────
         with engine.begin() as conn:
             conn.execute(text(
@@ -117,6 +122,54 @@ def _perform_migration(engine):
 
     finally:
         gc.collect()
+
+
+def _sync_lookup_tables(engine):
+    """Auto-populate aetitle_modality_map and procedure_duration_map from ETL data.
+    Uses ON CONFLICT DO NOTHING — never overwrites manually configured values."""
+    with engine.begin() as conn:
+
+        # 1. AE → Modality: pick the most frequent modality per AE from series data
+        conn.execute(text("""
+            INSERT INTO aetitle_modality_map (aetitle, modality, daily_capacity_minutes)
+            SELECT storing_ae, modality, 480
+            FROM (
+                SELECT
+                    s.storing_ae,
+                    ser.modality,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY s.storing_ae
+                        ORDER BY COUNT(*) DESC
+                    ) AS rn
+                FROM etl_didb_studies s
+                JOIN etl_didb_serieses ser ON ser.study_db_uid = s.study_db_uid
+                WHERE s.storing_ae IS NOT NULL
+                  AND TRIM(s.storing_ae) != ''
+                  AND ser.modality IS NOT NULL
+                  AND TRIM(ser.modality) != ''
+                GROUP BY s.storing_ae, ser.modality
+            ) ranked
+            WHERE rn = 1
+            ON CONFLICT (aetitle) DO NOTHING
+        """))
+
+        # 2. Default weekly schedule for any new AEs (720 min/day, all 7 days)
+        conn.execute(text("""
+            INSERT INTO device_weekly_schedule (aetitle, day_of_week, std_opening_minutes)
+            SELECT m.aetitle, d.day_of_week, 720
+            FROM aetitle_modality_map m
+            CROSS JOIN generate_series(0, 6) AS d(day_of_week)
+            ON CONFLICT (aetitle, day_of_week) DO NOTHING
+        """))
+
+        # 3. Procedure codes: distinct from orders, default 15 min / 1.0 RVU
+        conn.execute(text("""
+            INSERT INTO procedure_duration_map (procedure_code, duration_minutes, rvu_value)
+            SELECT DISTINCT TRIM(proc_id), 15, 1.0
+            FROM etl_orders
+            WHERE proc_id IS NOT NULL AND TRIM(proc_id) != ''
+            ON CONFLICT (procedure_code) DO NOTHING
+        """))
 
 
 if __name__ == "__main__":

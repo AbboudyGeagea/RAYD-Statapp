@@ -1,3 +1,9 @@
+{% if demo_mode %}
+<div style="background:rgba(245,158,11,0.12);border-bottom:1px solid rgba(245,158,11,0.3);padding:5px 24px;display:flex;align-items:center;justify-content:center;gap:10px;z-index:40;position:relative;">
+    <span style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.2em;color:#f59e0b;background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.3);padding:2px 8px;border-radius:4px;">DEMO</span>
+    <span style="font-size:11px;font-weight:700;color:#fbbf24;">Showing data from <strong>{{ demo_start }}</strong> to <strong>{{ demo_end }}</strong> — All features enabled</span>
+</div>
+{% endif %}
 <header class="bg-[#232b28] border-b border-[#28332e] px-6 py-3 flex items-center justify-between shadow-md z-30 relative flex-shrink-0">
     <!-- Left: Logo -->
     <div class="flex items-center gap-3">
