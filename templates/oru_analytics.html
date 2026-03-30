@@ -94,6 +94,21 @@
   @keyframes spin { to { transform:rotate(360deg); } }
 
   .empty-state { text-align:center;padding:40px;color:#4b7a63;font-size:13px;font-weight:600; }
+
+  /* Export button */
+  .export-btn {
+    font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;
+    padding:5px 12px;border-radius:7px;border:1px solid #334155;
+    background:#1e293b;color:#94a3b8;cursor:pointer;transition:all .15s;
+  }
+  .export-btn:hover { border-color:#60a5fa;color:#60a5fa; }
+
+  /* Gap physician table */
+  .gap-table { width:100%;border-collapse:collapse;font-size:12px; }
+  .gap-table th { font-size:9px;font-weight:800;letter-spacing:.15em;text-transform:uppercase;color:#475569;padding:6px 10px;border-bottom:1px solid #1e293b;text-align:left; }
+  .gap-table td { padding:7px 10px;border-bottom:1px solid #0f172a;color:#cbd5e1;font-weight:600; }
+  .gap-table tr:hover td { background:#1e293b; }
+  .gap-count-badge { display:inline-block;background:#7f1d1d;color:#fca5a5;font-size:10px;font-weight:800;padding:2px 8px;border-radius:20px;min-width:30px;text-align:center; }
 </style>
 </head>
 <body>
@@ -165,6 +180,67 @@
         <div class="kpi amber"><div class="kpi-label">Critical Findings</div><div class="kpi-val" id="kpi-critical">—</div></div>
       </div>
 
+      <!-- ── Section Gap Alert ── -->
+      <div id="gap-section" style="display:none;margin-bottom:20px;">
+
+        <!-- Red summary cards -->
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px;">
+          <div class="kpi" style="background:#2d1414;border:1px solid #7f1d1d;cursor:pointer;" onclick="toggleGapList('gap-tech-wrap')">
+            <div class="kpi-label" style="color:#fca5a5;">Empty Technique</div>
+            <div class="kpi-val" id="gap-tech-count" style="color:#f87171;">—</div>
+            <div style="font-size:9px;color:#7f1d1d;margin-top:4px;font-weight:700;">Click to view · Export ↓</div>
+          </div>
+          <div class="kpi" style="background:#2d1414;border:1px solid #7f1d1d;cursor:pointer;" onclick="toggleGapList('gap-find-wrap')">
+            <div class="kpi-label" style="color:#fca5a5;">Empty Résultats</div>
+            <div class="kpi-val" id="gap-find-count" style="color:#f87171;">—</div>
+            <div style="font-size:9px;color:#7f1d1d;margin-top:4px;font-weight:700;">Click to view · Export ↓</div>
+          </div>
+          <div class="kpi" style="background:#2d1414;border:1px solid #7f1d1d;cursor:pointer;" onclick="toggleGapList('gap-concl-wrap')">
+            <div class="kpi-label" style="color:#fca5a5;">Empty Conclusion</div>
+            <div class="kpi-val" id="gap-concl-count" style="color:#f87171;">—</div>
+            <div style="font-size:9px;color:#7f1d1d;margin-top:4px;font-weight:700;">Click to view · Export ↓</div>
+          </div>
+        </div>
+
+        <!-- Gap lists — one per section, hidden by default, toggled by card click -->
+        <div id="gap-tech-wrap"  style="display:none;margin-bottom:12px;">
+          <div class="table-container" style="padding:1rem;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+              <span style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:#fca5a5;"><i class="bi bi-gear-fill"></i> Radiologists with Empty Technique Section</span>
+              <button onclick="exportGap('gap-tech-table','technique')" class="export-btn"><i class="bi bi-download"></i> Export CSV</button>
+            </div>
+            <div id="gap-tech-table"></div>
+          </div>
+        </div>
+
+        <div id="gap-find-wrap"  style="display:none;margin-bottom:12px;">
+          <div class="table-container" style="padding:1rem;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+              <span style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:#fca5a5;"><i class="bi bi-file-text-fill"></i> Radiologists with Empty Résultats Section</span>
+              <button onclick="exportGap('gap-find-table','resultats')" class="export-btn"><i class="bi bi-download"></i> Export CSV</button>
+            </div>
+            <div id="gap-find-table"></div>
+          </div>
+        </div>
+
+        <div id="gap-concl-wrap" style="display:none;margin-bottom:12px;">
+          <div class="table-container" style="padding:1rem;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+              <span style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:#fca5a5;"><i class="bi bi-check-circle-fill"></i> Radiologists with Empty Conclusion Section</span>
+              <button onclick="exportGap('gap-concl-table','conclusion')" class="export-btn"><i class="bi bi-download"></i> Export CSV</button>
+            </div>
+            <div id="gap-concl-table"></div>
+          </div>
+        </div>
+
+        <!-- Export all in one shot -->
+        <div style="text-align:right;margin-bottom:4px;">
+          <button onclick="exportAllGaps()" class="export-btn" style="background:#7f1d1d;border-color:#991b1b;color:#fca5a5;">
+            <i class="bi bi-file-earmark-spreadsheet"></i> Export All Gaps (CSV)
+          </button>
+        </div>
+      </div>
+
       <!-- Main grid -->
       <div class="main-grid">
 
@@ -221,7 +297,9 @@
                   <th>Procedure</th>
                   <th>Modality</th>
                   <th>Diagnoses</th>
-                  <th>Report Snippet</th>
+                  <th>Technique</th>
+                  <th>Résultats</th>
+                  <th>Conclusion</th>
                 </tr>
               </thead>
               <tbody id="critical-body"></tbody>
@@ -230,6 +308,47 @@
         </div>
 
       </div><!-- /main-grid -->
+
+      <!-- ── Section Frequency Treemaps ── -->
+      <div style="margin:28px 0 14px;padding-bottom:10px;border-bottom:1px solid #1e2d27;">
+        <span style="font-size:9px;font-weight:800;letter-spacing:0.25em;text-transform:uppercase;color:#60a5fa;">
+          <i class="bi bi-layout-three-columns"></i> Section Frequency Analysis
+        </span>
+        <span style="font-size:10px;color:#4b7a63;margin-left:10px;font-weight:600;">Most common terms per report section</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:28px;">
+
+        <div class="card" style="padding:1rem;">
+          <div class="card-title"><i class="bi bi-gear-fill" style="color:#60a5fa;"></i>Technique</div>
+          <div style="position:relative;height:280px;">
+            <canvas id="sec-tech-canvas"></canvas>
+            <div id="sec-tech-spinner" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#1a211e;border-radius:8px;">
+              <span style="color:#475569;font-size:12px;">Loading…</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="padding:1rem;">
+          <div class="card-title"><i class="bi bi-file-text-fill" style="color:#34d399;"></i>Résultats</div>
+          <div style="position:relative;height:280px;">
+            <canvas id="sec-find-canvas"></canvas>
+            <div id="sec-find-spinner" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#1a211e;border-radius:8px;">
+              <span style="color:#475569;font-size:12px;">Loading…</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="padding:1rem;">
+          <div class="card-title"><i class="bi bi-check-circle-fill" style="color:#f59e0b;"></i>Conclusion</div>
+          <div style="position:relative;height:280px;">
+            <canvas id="sec-concl-canvas"></canvas>
+            <div id="sec-concl-spinner" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#1a211e;border-radius:8px;">
+              <span style="color:#475569;font-size:12px;">Loading…</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
 
       <!-- ── NLP Results (shown after processing) ── -->
       <div id="nlp-section" style="display:none;">
@@ -293,6 +412,7 @@
 
 <script>
 let donutChart = null;
+const esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 const MODALITY_COLORS = {
   CT:'#60a5fa', MR:'#a78bfa', CR:'#34d399', DX:'#67e8f9',
   US:'#fbbf24', NM:'#fb7185', PT:'#f472b6', XA:'#2dd4bf',
@@ -375,6 +495,206 @@ function buildCloud(words) {
   });
 }
 
+// ── Section gap audit ────────────────────────────────────────────────────────
+let _gapData = {};   // stored for export-all
+
+function loadSectionGaps() {
+  const proc = document.getElementById('proc-filter').value;
+  const days = document.getElementById('days-filter').value;
+
+  fetch(`/oru/section-gaps?proc=${encodeURIComponent(proc)}&days=${days}`)
+    .then(r => r.json())
+    .then(d => {
+      _gapData = d;
+      const total = d.total || 1;
+
+      // Update red cards
+      document.getElementById('gap-tech-count').textContent  = fmt(d.empty_technique)  + ' / ' + fmt(total);
+      document.getElementById('gap-find-count').textContent  = fmt(d.empty_findings)   + ' / ' + fmt(total);
+      document.getElementById('gap-concl-count').textContent = fmt(d.empty_conclusion) + ' / ' + fmt(total);
+
+      // Show the gap section only if there's at least one issue
+      const hasGaps = d.empty_technique > 0 || d.empty_findings > 0 || d.empty_conclusion > 0;
+      document.getElementById('gap-section').style.display = hasGaps ? 'block' : 'none';
+
+      // Render tables
+      renderGapTable('gap-tech-table',  d.docs_empty_technique,  'Technique');
+      renderGapTable('gap-find-table',  d.docs_empty_findings,   'Résultats');
+      renderGapTable('gap-concl-table', d.docs_empty_conclusion, 'Conclusion');
+    })
+    .catch(e => console.warn('section-gaps', e));
+}
+
+function renderGapTable(containerId, rows, sectionLabel) {
+  const el = document.getElementById(containerId);
+  if (!rows || !rows.length) {
+    el.innerHTML = `<div class="empty-state" style="padding:20px;">No gaps found for ${sectionLabel}.</div>`;
+    return;
+  }
+  const total = rows.reduce((s, r) => s + r.count, 0);
+  el.innerHTML = `
+    <table class="gap-table">
+      <thead><tr>
+        <th>#</th>
+        <th>Radiologist ID</th>
+        <th>Reports Missing ${sectionLabel}</th>
+        <th>% of Their Reports</th>
+      </tr></thead>
+      <tbody>
+        ${rows.map((r, i) => {
+          const physTotal = (_gapData.total || 0);   // approximation — all reports in window
+          return `<tr>
+            <td style="color:#475569;">${i + 1}</td>
+            <td style="font-weight:800;color:#e2e8f0;">${esc(r.physician)}</td>
+            <td><span class="gap-count-badge">${r.count}</span></td>
+            <td style="color:#94a3b8;">${physTotal ? Math.round(r.count / physTotal * 100) + '%' : '—'}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+    <div style="font-size:10px;color:#475569;margin-top:8px;font-weight:600;">
+      Total affected reports: <span style="color:#f87171;">${total}</span>
+    </div>`;
+}
+
+function toggleGapList(wrapperId) {
+  const el = document.getElementById(wrapperId);
+  if (!el) return;
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+function _csvFromRows(rows, sectionLabel) {
+  if (!rows || !rows.length) return '';
+  const header = `Radiologist ID,Missing ${sectionLabel} Count\n`;
+  const body   = rows.map(r => `"${r.physician}",${r.count}`).join('\n');
+  return header + body;
+}
+
+function _downloadCsv(content, filename) {
+  const blob = new Blob(['\uFEFF' + content, ], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportGap(tableId, sectionLabel) {
+  // Map tableId to the correct data array
+  const map = {
+    'gap-tech-table':  { data: () => _gapData.docs_empty_technique,  label: 'Technique'  },
+    'gap-find-table':  { data: () => _gapData.docs_empty_findings,   label: 'Resultats'  },
+    'gap-concl-table': { data: () => _gapData.docs_empty_conclusion, label: 'Conclusion' },
+  };
+  const entry = map[tableId];
+  if (!entry) return;
+  const days = document.getElementById('days-filter').value;
+  _downloadCsv(_csvFromRows(entry.data(), entry.label),
+    `section_gaps_${entry.label.toLowerCase()}_${days}d.csv`);
+}
+
+function exportAllGaps() {
+  const days = document.getElementById('days-filter').value;
+  const sections = [
+    { data: _gapData.docs_empty_technique,  label: 'Technique'  },
+    { data: _gapData.docs_empty_findings,   label: 'Resultats'  },
+    { data: _gapData.docs_empty_conclusion, label: 'Conclusion' },
+  ];
+  let csv  = `Section Gap Audit — Last ${days} days\n`;
+  csv     += `Generated: ${new Date().toLocaleString()}\n`;
+  csv     += `Total reports in window: ${_gapData.total || 0}\n\n`;
+
+  sections.forEach(s => {
+    csv += `\nSection: ${s.label}\n`;
+    csv += _csvFromRows(s.data, s.label) + '\n';
+  });
+
+  _downloadCsv(csv, `section_gap_audit_${days}d.csv`);
+}
+
+// ── Section treemaps ─────────────────────────────────────────────────────────
+const _secCharts = {};
+const _secColors = {
+  'sec-tech-canvas':  (r) => `hsl(213,${40 + r*50}%,${28 + r*22}%)`,
+  'sec-find-canvas':  (r) => `hsl(158,${35 + r*45}%,${22 + r*26}%)`,
+  'sec-concl-canvas': (r) => `hsl(38, ${40 + r*50}%,${24 + r*28}%)`,
+};
+
+function _buildSectionTreemap(canvasId, spinnerId, words) {
+  const spinner = document.getElementById(spinnerId);
+  const canvas  = document.getElementById(canvasId);
+  if (!words || !words.length) {
+    spinner.innerHTML = '<span style="color:#475569;font-size:12px;">No data</span>';
+    return;
+  }
+  spinner.style.display = 'none';
+  const maxC    = words[0].count;
+  const colorFn = _secColors[canvasId] || (() => '#334155');
+  if (_secCharts[canvasId]) _secCharts[canvasId].destroy();
+  _secCharts[canvasId] = new Chart(canvas.getContext('2d'), {
+    type: 'treemap',
+    data: {
+      datasets: [{
+        tree:  words.map(w => ({ v: w.count, l: w.word })),
+        key:   'v',
+        labels: {
+          display:    true,
+          formatter:  (c) => c.raw && c.raw._data ? c.raw._data.l : '',
+          color:      '#e2e8f0',
+          font:       { family: 'Inter, system-ui, sans-serif', weight: '800', size: 11 },
+          hoverColor: '#ffffff',
+        },
+        backgroundColor: (c) => {
+          if (!c.raw || !c.raw._data) return '#1e293b';
+          return colorFn(c.raw._data.v / maxC);
+        },
+        borderColor: '#0f172a',
+        borderWidth: 2,
+        spacing:     1,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            title: () => '',
+            label: (c) => c.raw && c.raw._data
+              ? ` ${c.raw._data.l}  ·  ${c.raw._data.v.toLocaleString()} occurrences` : '',
+          },
+          bodyFont: { size: 12, weight: 'bold' },
+          bodyColor: '#e2e8f0',
+          backgroundColor: '#1e293b',
+          borderColor: '#334155',
+          borderWidth: 1,
+        },
+      },
+    },
+  });
+}
+
+function loadSections() {
+  const proc = document.getElementById('proc-filter').value;
+  const days = document.getElementById('days-filter').value;
+  fetch(`/oru/sections?proc=${encodeURIComponent(proc)}&days=${days}`)
+    .then(r => r.json())
+    .then(d => {
+      setTimeout(() => {
+        try { _buildSectionTreemap('sec-tech-canvas',  'sec-tech-spinner',  d.technique);  } catch(e) { console.warn('sec-tech', e); }
+        try { _buildSectionTreemap('sec-find-canvas',  'sec-find-spinner',  d.findings);   } catch(e) { console.warn('sec-find', e); }
+        try { _buildSectionTreemap('sec-concl-canvas', 'sec-concl-spinner', d.conclusion); } catch(e) { console.warn('sec-concl', e); }
+      }, 120);
+    })
+    .catch(() => {
+      ['sec-tech-spinner','sec-find-spinner','sec-concl-spinner'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = '<span style="color:#f87171;font-size:12px;">Error</span>';
+      });
+    });
+}
+
 // ── Bar list helper ──────────────────────────────────────────────────────────
 function buildBars(containerId, items, labelKey, countKey, colorFn) {
   const el = document.getElementById(containerId);
@@ -440,14 +760,16 @@ function buildCritical(log) {
   empty.style.display = 'none';
   table.style.display = 'table';
 
-  const esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const cell = s => esc(s) ? `<span class="snippet">${esc(s)}</span>` : `<em style="color:#475569">—</em>`;
   tbody.innerHTML = log.map(r => `
     <tr>
       <td style="color:#64748b;white-space:nowrap;">${esc(r.received_at)}</td>
       <td><span class="proc-tag">${esc(r.procedure || '—')}</span></td>
       <td style="color:${modColor(r.modality)};font-weight:800;font-size:11px;">${esc(r.modality)}</td>
       <td>${(r.keywords||[]).map(k => `<span class="keyword-badge">${esc(k)}</span>`).join('')}</td>
-      <td><span class="snippet">${esc(r.snippet) || '<em style="color:#475569">—</em>'}</span></td>
+      <td style="max-width:160px;">${cell(r.technique)}</td>
+      <td style="max-width:260px;">${cell(r.findings)}</td>
+      <td style="max-width:200px;">${cell(r.conclusion)}</td>
     </tr>`).join('');
 }
 
@@ -472,6 +794,8 @@ function loadData() {
       try { buildBars('proc-list', d.top_procs,  'name',     'count', () => '#f59e0b'); }           catch(e) { console.warn('proc', e); }
       try { buildBars('phys-list', d.physicians, 'id',       'count', () => '#a78bfa'); }           catch(e) { console.warn('phys', e); }
       try { buildCritical(d.critical_log); }           catch(e) { console.warn('critical', e); }
+      try { loadSections(); }                          catch(e) { console.warn('sections', e); }
+      try { loadSectionGaps(); }                       catch(e) { console.warn('section-gaps', e); }
 
       // Word cloud last — deferred so layout is complete before measuring canvas
       setTimeout(() => {

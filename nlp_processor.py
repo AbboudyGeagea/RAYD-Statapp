@@ -100,9 +100,10 @@ _CRITICAL_SCORE_OVERRIDE = {
 
 # ── Tokeniser ─────────────────────────────────────────────────────────────────
 def _tokenize(text: str) -> list[str]:
+    """Unicode-aware tokenizer — preserves French accented chars (é, è, ç, œ …)."""
     if not text:
         return []
-    words = re.findall(r"[a-zA-Z']+", text.lower())
+    words = re.findall(r"[^\W\d_]+", text.lower(), re.UNICODE)
     return [w for w in words if len(w) >= 3 and w not in _STOP]
 
 

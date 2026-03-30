@@ -207,11 +207,54 @@ def _count_diagnoses(rows, top_n=50):
 
 
 def _tokenize(text):
-    """Lowercase, extract alpha words ≥ 3 chars, remove stop words."""
+    """Lowercase, extract Unicode letter sequences ≥ 3 chars, remove stop words.
+    Supports French accented characters (é, è, ê, à, â, ç, œ, etc.)."""
     if not text:
         return []
-    words = re.findall(r"[a-zA-Z']+", text.lower())
+    words = re.findall(r"[^\W\d_]+", text.lower(), re.UNICODE)
     return [w for w in words if len(w) >= 3 and w not in STOP]
+
+
+# ── Section parser ─────────────────────────────────────────────────────────────
+_SEC_PATTERNS = [
+    ('technique',   re.compile(r'(?im)^\s*(technique[s]?|protocole|acquisition)\s*:?[ \t]*$')),
+    ('findings',    re.compile(r'(?im)^\s*(r[eé]sultat[s]?|description|findings?|compte[- ]rendu|constatations?|analyse)\s*:?[ \t]*$')),
+    ('conclusion',  re.compile(r'(?im)^\s*(conclusion[s]?|impression[s]?|avis|synth[eè]se|diagnostic|interpr[eé]tation)\s*:?[ \t]*$')),
+    # Inline headers: "TECHNIQUE: blah blah"
+    ('technique',   re.compile(r'(?im)^\s*(technique[s]?|protocole)\s*:\s*(?=\S)')),
+    ('findings',    re.compile(r'(?im)^\s*(r[eé]sultat[s]?|description|findings?|compte[- ]rendu)\s*:\s*(?=\S)')),
+    ('conclusion',  re.compile(r'(?im)^\s*(conclusion[s]?|impression[s]?|avis|diagnostic)\s*:\s*(?=\S)')),
+]
+
+def _parse_sections(text):
+    """
+    Split a radiology report into technique / findings / conclusion.
+    Falls back to putting everything in 'findings' when no headers are found.
+    Returns dict with keys: technique, findings, conclusion (all stripped strings).
+    """
+    if not text:
+        return {'technique': '', 'findings': '', 'conclusion': ''}
+
+    markers = []  # (char_pos, content_start, section_key)
+    for key, pat in _SEC_PATTERNS:
+        for m in pat.finditer(text):
+            markers.append((m.start(), m.end(), key))
+
+    if not markers:
+        return {'technique': '', 'findings': text.strip(), 'conclusion': ''}
+
+    markers.sort(key=lambda x: x[0])
+    result = {'technique': '', 'findings': '', 'conclusion': ''}
+    for i, (_, content_start, key) in enumerate(markers):
+        next_pos = markers[i + 1][0] if i + 1 < len(markers) else len(text)
+        chunk = text[content_start:next_pos].strip()
+        if chunk and not result[key]:   # first match wins
+            result[key] = chunk
+
+    # If nothing landed in findings, fall back to full text
+    if not result['findings'] and not result['technique'] and not result['conclusion']:
+        result['findings'] = text.strip()
+    return result
 
 
 def _is_normal(text):
@@ -322,12 +365,15 @@ def oru_data():
         txt = _best_text(r)
         hits = _matched_diagnoses(txt)
         if hits:
+            sec = _parse_sections(txt)
             critical_log.append({
                 'procedure':   (r.procedure_name or r.procedure_code or '—').strip(),
                 'modality':    (r.modality or '—').upper(),
                 'keywords':    hits[:5],
                 'received_at': r.received_at.strftime('%Y-%m-%d %H:%M') if r.received_at else '—',
-                'snippet':     txt[:220],
+                'technique':   sec['technique'][:180],
+                'findings':    sec['findings'][:300],
+                'conclusion':  sec['conclusion'][:220],
             })
     critical_log = critical_log[:20]
 
@@ -350,6 +396,119 @@ def oru_data():
         'critical_log':   critical_log,
         'physicians':     physicians,
         'days':           days,
+    })
+
+
+# ── Section gap audit ─────────────────────────────────────────────────────────
+
+@oru_bp.route('/section-gaps')
+@login_required
+def oru_section_gaps():
+    """
+    For each report, parse sections and flag which are empty.
+    Returns per-section counts and a per-physician breakdown for manager export.
+    """
+    from db import user_has_page
+    if current_user.role != 'admin' and not user_has_page(current_user, 'oru'):
+        from flask import abort
+        abort(403)
+
+    days   = min(int(request.args.get('days', 30)), 365)
+    proc   = request.args.get('proc', '').strip()
+
+    where  = ["received_at >= NOW() - INTERVAL :interval"]
+    params = {'interval': f'{days} days'}
+    if proc:
+        where.append("UPPER(TRIM(procedure_code)) = UPPER(:proc)")
+        params['proc'] = proc
+
+    rows = db.session.execute(text(
+        f"""SELECT physician_id, procedure_code, procedure_name,
+                   report_text, impression_text,
+                   to_char(received_at, 'YYYY-MM-DD HH24:MI') AS received_at
+            FROM hl7_oru_reports WHERE {' AND '.join(where)}
+            ORDER BY received_at DESC"""
+    ), params).fetchall()
+
+    total = len(rows)
+
+    # {physician: count} per missing section
+    empty_tech  = Counter()
+    empty_find  = Counter()
+    empty_concl = Counter()
+
+    for r in rows:
+        txt  = _best_text(r)
+        sec  = _parse_sections(txt)
+        phys = (r.physician_id or 'UNKNOWN').strip()
+        if not sec['technique']:
+            empty_tech[phys]  += 1
+        if not sec['findings']:
+            empty_find[phys]  += 1
+        if not sec['conclusion']:
+            empty_concl[phys] += 1
+
+    def _list(counter):
+        return [{'physician': p, 'count': c} for p, c in counter.most_common()]
+
+    return jsonify({
+        'total':              total,
+        'empty_technique':    sum(empty_tech.values()),
+        'empty_findings':     sum(empty_find.values()),
+        'empty_conclusion':   sum(empty_concl.values()),
+        'docs_empty_technique':  _list(empty_tech),
+        'docs_empty_findings':   _list(empty_find),
+        'docs_empty_conclusion': _list(empty_concl),
+        'days': days,
+    })
+
+
+# ── Section frequency ─────────────────────────────────────────────────────────
+
+@oru_bp.route('/sections')
+@login_required
+def oru_sections():
+    """
+    Parse every report into technique / findings / conclusion sections,
+    then return the top token frequencies for each section as treemap data.
+    """
+    from db import user_has_page
+    if current_user.role != 'admin' and not user_has_page(current_user, 'oru'):
+        from flask import abort
+        abort(403)
+
+    days   = min(int(request.args.get('days', 30)), 365)
+    proc   = request.args.get('proc', '').strip()
+    top_n  = 40
+
+    where  = ["received_at >= NOW() - INTERVAL :interval"]
+    params = {'interval': f'{days} days'}
+    if proc:
+        where.append("UPPER(TRIM(procedure_code)) = UPPER(:proc)")
+        params['proc'] = proc
+
+    rows = db.session.execute(text(
+        f"SELECT report_text, impression_text FROM hl7_oru_reports WHERE {' AND '.join(where)}"
+    ), params).fetchall()
+
+    tech_counter   = Counter()
+    find_counter   = Counter()
+    concl_counter  = Counter()
+
+    for r in rows:
+        txt = _best_text(r)
+        sec = _parse_sections(txt)
+        tech_counter.update(_tokenize(sec['technique']))
+        find_counter.update(_tokenize(sec['findings']))
+        concl_counter.update(_tokenize(sec['conclusion']))
+
+    def _top(counter):
+        return [{'word': w, 'count': c} for w, c in counter.most_common(top_n)]
+
+    return jsonify({
+        'technique':   _top(tech_counter),
+        'findings':    _top(find_counter),
+        'conclusion':  _top(concl_counter),
     })
 
 
