@@ -50,12 +50,13 @@ def admin_dashboard():
 
     # Demo mode settings
     demo_rows = db.session.execute(
-        text("SELECT key, value FROM settings WHERE key IN ('demo_mode','demo_start','demo_end')")
+        text("SELECT key, value FROM settings WHERE key IN ('demo_mode','demo_start','demo_end','demo_user')")
     ).fetchall()
     demo = {r[0]: r[1] for r in demo_rows}
     demo_mode  = demo.get('demo_mode', 'false').lower() == 'true'
     demo_start = demo.get('demo_start', '')
     demo_end   = demo.get('demo_end', '')
+    demo_user  = demo.get('demo_user', '')
 
     # Build page permissions map: {user_id: {page_key: is_enabled}}
     all_perms = UserPagePermission.query.all()
@@ -183,11 +184,12 @@ def sync_mappings():
 def set_demo_mode():
     if current_user.role != 'admin':
         return abort(403)
-    data    = request.get_json()
-    enabled = 'true' if data.get('enabled') else 'false'
-    start   = data.get('start', '')
-    end     = data.get('end', '')
-    for key, val in [('demo_mode', enabled), ('demo_start', start), ('demo_end', end)]:
+    data      = request.get_json()
+    enabled   = 'true' if data.get('enabled') else 'false'
+    start     = data.get('start', '')
+    end       = data.get('end', '')
+    demo_user = data.get('demo_user', '')
+    for key, val in [('demo_mode', enabled), ('demo_start', start), ('demo_end', end), ('demo_user', demo_user)]:
         exists = db.session.execute(text("SELECT 1 FROM settings WHERE key = :k"), {'k': key}).fetchone()
         if exists:
             db.session.execute(text("UPDATE settings SET value = :v WHERE key = :k"), {'k': key, 'v': val})
@@ -202,6 +204,13 @@ def set_demo_mode():
 def trigger_etl():
     if current_user.role != 'admin':
         return abort(403)
+
+    # Block ETL when demo mode is active
+    demo_row = db.session.execute(
+        text("SELECT value FROM settings WHERE key = 'demo_mode'")
+    ).fetchone()
+    if demo_row and demo_row[0].lower() == 'true':
+        return jsonify({"status": "error", "message": "ETL is locked during demo mode."}), 403
 
     try:
         from flask import current_app

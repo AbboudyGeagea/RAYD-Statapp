@@ -121,15 +121,17 @@ def create_app():
         demo_mode = False
         demo_start = ''
         demo_end   = ''
+        demo_user  = ''
         try:
             from db import db as _db
             rows = _db.session.execute(
-                _text("SELECT key, value FROM settings WHERE key IN ('demo_mode','demo_start','demo_end')")
+                _text("SELECT key, value FROM settings WHERE key IN ('demo_mode','demo_start','demo_end','demo_user')")
             ).fetchall()
             d = {r[0]: r[1] for r in rows}
             demo_mode  = d.get('demo_mode', 'false').lower() == 'true'
             demo_start = d.get('demo_start', '')
             demo_end   = d.get('demo_end', '')
+            demo_user  = d.get('demo_user', '')
         except Exception:
             pass
 
@@ -148,12 +150,27 @@ def create_app():
             "demo_mode":    demo_mode,
             "demo_start":   demo_start,
             "demo_end":     demo_end,
+            "demo_user":    demo_user,
         }
 
     # --- JINJA FILTER: user_has_page ---
     from db import user_has_page as _user_has_page
     @app.template_filter('user_has_page')
     def jinja_user_has_page(user, page_key):
+        # During demo mode, the designated demo user gets full access
+        try:
+            from sqlalchemy.sql import text as _t
+            from db import db as _db
+            rows = _db.session.execute(
+                _t("SELECT key, value FROM settings WHERE key IN ('demo_mode','demo_user')")
+            ).fetchall()
+            d = {r[0]: r[1] for r in rows}
+            if d.get('demo_mode', 'false').lower() == 'true':
+                demo_u = d.get('demo_user', '')
+                if demo_u and getattr(user, 'username', '') == demo_u:
+                    return True
+        except Exception:
+            pass
         return _user_has_page(user, page_key)
 
     # --- DB CONFIG ---
@@ -279,6 +296,16 @@ def create_app():
 
     def scheduled_etl():
         with app.app_context():
+            # Skip ETL when demo mode is active
+            try:
+                demo_row = db.session.execute(
+                    text("SELECT value FROM settings WHERE key = 'demo_mode'")
+                ).fetchone()
+                if demo_row and demo_row[0].lower() == 'true':
+                    logger.info("⏸  [Scheduled ETL] Skipped — demo mode is active.")
+                    return
+            except Exception:
+                pass
             from ETL_JOBS.etl_runner import execute_sync
             logger.info(f"⏰ [5:00 AM] Scheduled ETL Start: {datetime.now()}")
             execute_sync(app)

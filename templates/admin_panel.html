@@ -65,8 +65,8 @@
                                          {{ 'left-4' if demo_mode else 'left-0.5' }}"></span>
                         </button>
                     </div>
-                    <p class="text-slate-500 text-xs mb-4">Enables all features and displays a banner. Select a date range to scope report data.</p>
-                    <div class="flex gap-3 flex-wrap items-center">
+                    <p class="text-slate-500 text-xs mb-4">Enables all features and displays a banner. Select a date range to scope report data. Only the admin and the demo user may log in while active.</p>
+                    <div class="flex gap-3 flex-wrap items-center mb-3">
                         <div class="flex items-center gap-2">
                             <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest">From</label>
                             <input type="date" id="demo-start" value="{{ demo_start }}"
@@ -77,6 +77,12 @@
                             <input type="date" id="demo-end" value="{{ demo_end }}"
                                 class="bg-[#181f1c] border border-[#28332e] text-xs font-bold text-white px-3 py-1.5 rounded-lg focus:outline-none focus:border-[#f59e0b] transition-colors">
                         </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Demo User</label>
+                        <input type="text" id="demo-user" value="{{ demo_user }}" placeholder="username"
+                            class="bg-[#181f1c] border border-[#28332e] text-xs font-bold text-white px-3 py-1.5 rounded-lg focus:outline-none focus:border-[#f59e0b] transition-colors w-40">
+                        <span class="text-[10px] text-slate-600">Only this user + admin can log in during demo</span>
                     </div>
                 </div>
 
@@ -305,14 +311,21 @@
         }
 
         // ── Demo Mode ───────────────────────────────────────────
+        function _demoPayload(enabled) {
+            return {
+                enabled,
+                start:     document.getElementById('demo-start').value,
+                end:       document.getElementById('demo-end').value,
+                demo_user: document.getElementById('demo-user').value.trim(),
+            };
+        }
+
         async function toggleDemoMode(btn) {
             const next = btn.dataset.enabled !== 'true';
-            const start = document.getElementById('demo-start').value;
-            const end   = document.getElementById('demo-end').value;
             const res = await fetch('{{ url_for("admin.set_demo_mode") }}', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ enabled: next, start, end })
+                body: JSON.stringify(_demoPayload(next))
             });
             if ((await res.json()).status === 'ok') {
                 btn.dataset.enabled = next ? 'true' : 'false';
@@ -324,19 +337,15 @@
             }
         }
 
-        // Save demo dates when changed without toggling
-        ['demo-start','demo-end'].forEach(id => {
+        // Save demo settings when any field changes (while demo mode is on)
+        ['demo-start', 'demo-end', 'demo-user'].forEach(id => {
             document.getElementById(id)?.addEventListener('change', async () => {
                 const btn = document.querySelector('[data-enabled]');
                 if (!btn || btn.dataset.enabled !== 'true') return;
                 await fetch('{{ url_for("admin.set_demo_mode") }}', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        enabled: true,
-                        start: document.getElementById('demo-start').value,
-                        end:   document.getElementById('demo-end').value
-                    })
+                    body: JSON.stringify(_demoPayload(true))
                 });
             });
         });

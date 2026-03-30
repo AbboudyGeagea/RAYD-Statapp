@@ -7,8 +7,25 @@ from db import User, UserPagePermission, db
 
 auth_bp = Blueprint('auth', __name__)
 
+def _get_demo_settings():
+    """Returns (demo_mode: bool, demo_user: str)."""
+    try:
+        rows = db.session.execute(text(
+            "SELECT key, value FROM settings WHERE key IN ('demo_mode','demo_user')"
+        )).fetchall()
+        d = {r[0]: r[1] for r in rows}
+        return d.get('demo_mode', 'false').lower() == 'true', d.get('demo_user', '')
+    except Exception:
+        return False, ''
+
+
 @auth_bp.route('/register', methods=['GET', 'POST'])
 def register():
+    demo_mode, _ = _get_demo_settings()
+    if demo_mode:
+        flash('Registration is disabled during demo mode.', 'warning')
+        return redirect(url_for('auth.login'))
+
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
@@ -79,6 +96,12 @@ def login():
         user = User.query.filter_by(username=username).first()
 
         if user and check_password_hash(user.password_hash, password):
+            # Demo mode: only admin and the designated demo user may log in
+            demo_mode, demo_user = _get_demo_settings()
+            if demo_mode and user.role != 'admin' and user.username != demo_user:
+                flash('Access is restricted during demo mode.', 'warning')
+                return redirect(url_for('auth.login'))
+
             login_user(user)
             session.permanent = True
             flash('Login successful!', 'success')
@@ -88,7 +111,7 @@ def login():
             else:
                 dest = url_for('viewer.viewer_dashboard')
             return redirect(dest)
-        
+
         flash('Invalid username or password.', 'danger')
 
     return render_template('login.html')
