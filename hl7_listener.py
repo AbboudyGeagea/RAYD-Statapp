@@ -194,8 +194,8 @@ def parse_oru_r01(raw_message):
         'procedure_name':  procedure_name,
         'modality':        modality,
         'physician_id':    physician_id,
-        'report_text':     ' '.join(report_parts) or None,
-        'impression_text': ' '.join(impression_parts) or None,
+        'report_text':     '\n'.join(report_parts) or None,
+        'impression_text': '\n'.join(impression_parts) or None,
         'result_datetime': result_dt,
         'received_at':     datetime.now(),
     }
