@@ -561,15 +561,29 @@ function loadData() {
   fetch('/liveview/data')
     .then(r => r.json())
     .then(data => {
-      render(data);
+      if (data.error) {
+        console.error('LiveView data error:', data.error);
+        showError(data.error);
+      } else {
+        render(data);
+      }
       document.getElementById('loading').style.display = 'none';
       document.getElementById('app').style.opacity = '1';
       startCountdown();
     })
     .catch(err => {
       console.error('LiveView fetch error:', err);
+      showError('Could not reach server. Retrying...');
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('app').style.opacity = '1';
       startCountdown();
     });
+}
+
+function showError(msg) {
+  // Show error inline in topbar without crashing the layout
+  const el = document.getElementById('countdown-text');
+  if (el) { el.textContent = '⚠ ' + msg; el.style.color = '#f87171'; }
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────
