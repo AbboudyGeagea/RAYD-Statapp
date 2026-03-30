@@ -312,27 +312,51 @@ function buildTile(t) {
     // Active order rows
     let ordersHtml = '';
     if (t.active_orders && t.active_orders.length > 0) {
-        ordersHtml = t.active_orders.map(o => {
+        const overruns  = t.active_orders.filter(o => o.overrun);
+        const ontime    = t.active_orders.filter(o => !o.overrun);
+        const COLLAPSE  = 2; // show only first N overruns inline; rest in toggle
+
+        const buildRow  = (o, hidden = false) => {
             const rowCls    = o.overrun ? 'order-row overrun' : 'order-row';
             const timeBadge = o.overrun
                 ? `<span class="badge badge-overrun"><i class="bi bi-clock-history"></i> ${Math.abs(o.mins_remaining)}m overdue</span>`
                 : `<span class="badge badge-mins">${o.mins_remaining}m · ends ${escHtml(o.end_time)}</span>`;
             const unknownBadge = o.unknown_code
-                ? `<span class="badge badge-unknown" onclick="openAddProc('${escHtml(o.procedure_code)}')"
-                       title="Unknown procedure code — click to add duration">
-                       <i class="bi bi-info-circle"></i>
-                   </span>`
+                ? `<span class="badge badge-unknown" onclick="openAddProc('${escHtml(o.procedure_code)}')" title="Unknown code — click to set duration"><i class="bi bi-info-circle"></i></span>`
                 : '';
-            return `
-            <div class="${rowCls}">
+            const doneBtn = `<button onclick="dismissOrder('${escHtml(o.message_id)}')" title="Mark exam as done"
+                style="margin-left:auto;flex-shrink:0;background:rgba(74,222,128,0.08);border:1px solid rgba(74,222,128,0.2);
+                color:#4ade80;border-radius:6px;padding:2px 8px;font-size:10px;font-weight:800;cursor:pointer;
+                transition:all .15s;" onmouseover="this.style.background='rgba(74,222,128,0.2)'"
+                onmouseout="this.style.background='rgba(74,222,128,0.08)'">
+                <i class="bi bi-check-lg"></i> Done
+            </button>`;
+            return `<div class="${rowCls}"${hidden ? ' style="display:none;" class="overrun-extra"' : ''}>
                 <i class="bi bi-person" style="color:#64748b;flex-shrink:0;"></i>
                 <span class="font-mono font-bold text-slate-300" style="min-width:64px;">${escHtml(o.patient_id)}</span>
                 <span class="truncate text-slate-400 flex-1" title="${escHtml(o.procedure_text)}">${escHtml(o.procedure_text)}</span>
-                ${unknownBadge}
-                ${timeBadge}
+                ${unknownBadge}${timeBadge}${doneBtn}
             </div>`;
-        }).join('');
-        ordersHtml = `<div class="flex flex-col gap-2">${ordersHtml}</div>`;
+        };
+
+        let rows = ontime.map(o => buildRow(o)).join('');
+
+        if (overruns.length > 0) {
+            const visible = overruns.slice(0, COLLAPSE);
+            const hidden  = overruns.slice(COLLAPSE);
+            rows += visible.map(o => buildRow(o)).join('');
+            if (hidden.length > 0) {
+                const uid = 'ov_' + Math.random().toString(36).slice(2, 7);
+                rows += hidden.map(o => buildRow(o, true).replace('style="display:none;"', `id="${uid}" style="display:none;"`)).join('');
+                rows += `<button onclick="toggleOverruns('${uid}', this)"
+                    style="font-size:10px;font-weight:800;color:#f59e0b;background:rgba(245,158,11,0.06);
+                    border:1px solid rgba(245,158,11,0.2);border-radius:6px;padding:3px 10px;cursor:pointer;width:100%;text-align:center;">
+                    <i class="bi bi-chevron-down"></i> ${hidden.length} more overdue
+                </button>`;
+            }
+        }
+
+        ordersHtml = `<div class="flex flex-col gap-2">${rows}</div>`;
     }
 
     let stateHtml = '';
@@ -420,6 +444,31 @@ async function saveProcedure() {
     } catch(e) {
         alert('Save failed: ' + e);
     }
+}
+
+// ── Dismiss exam ──────────────────────────────────────────────────────
+async function dismissOrder(messageId) {
+    try {
+        const res  = await fetch('/viewer/live/dismiss', {
+            method:  'POST',
+            headers: {'Content-Type': 'application/json'},
+            body:    JSON.stringify({ message_id: messageId }),
+        });
+        const data = await res.json();
+        if (data.ok) loadStatus();
+        else console.error('Dismiss error:', data.error);
+    } catch(e) { console.error('Dismiss failed:', e); }
+}
+
+// ── Toggle collapsed overruns ─────────────────────────────────────────
+function toggleOverruns(uid, btn) {
+    const rows = document.querySelectorAll(`#${uid}`);
+    const open = btn.dataset.open === '1';
+    rows.forEach(r => r.style.display = open ? 'none' : 'flex');
+    btn.dataset.open = open ? '0' : '1';
+    btn.innerHTML = open
+        ? `<i class="bi bi-chevron-down"></i> ${rows.length} more overdue`
+        : `<i class="bi bi-chevron-up"></i> hide`;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────

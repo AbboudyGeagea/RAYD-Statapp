@@ -85,10 +85,10 @@ def live_status():
         for exc in exceptions:
             opening_map[exc["modality"]] = exc["total_mins"] or 0
 
-        # Orders from yesterday onwards — catches procedures that cross midnight.
-        # Python logic below determines which are truly active.
+        # Today's orders only — yesterday's overdue are excluded intentionally.
         orders = db.session.execute(text("""
             SELECT
+                o.message_id,
                 o.patient_id,
                 o.scheduled_datetime,
                 o.procedure_text,
@@ -99,9 +99,9 @@ def live_status():
             FROM hl7_orders o
             LEFT JOIN procedure_duration_map pm
                    ON pm.procedure_code = o.procedure_code
-            WHERE o.scheduled_datetime >= CURRENT_DATE - INTERVAL '1 day'
+            WHERE o.scheduled_datetime >= CURRENT_DATE
               AND o.scheduled_datetime <  CURRENT_DATE + INTERVAL '1 day'
-              AND COALESCE(o.order_status, '') != 'CA'
+              AND COALESCE(o.order_status, '') NOT IN ('CA', 'CM')
             ORDER BY o.scheduled_datetime
         """)).mappings().fetchall()
 
@@ -138,6 +138,7 @@ def live_status():
 
                 if sched <= now:
                     active_orders.append({
+                        "message_id":     o["message_id"],
                         "patient_id":     _mask(o["patient_id"]),
                         "procedure_text": o["procedure_text"] or o["procedure_code"] or "—",
                         "procedure_code": o["procedure_code"] or "",
@@ -263,6 +264,28 @@ def live_events():
             'Connection':       'keep-alive',
         },
     )
+
+
+# ── API — mark exam as done ───────────────────────────────────────────────────
+@live_feed_bp.route("/viewer/live/dismiss", methods=["POST"])
+@login_required
+def dismiss_order():
+    if not user_has_page(current_user, 'live_feed'):
+        abort(403)
+    data       = request.get_json(force=True)
+    message_id = data.get("message_id")
+    if not message_id:
+        return jsonify({"error": "message_id required"}), 400
+    try:
+        db.session.execute(text("""
+            UPDATE hl7_orders SET order_status = 'CM'
+            WHERE message_id = :mid
+        """), {"mid": message_id})
+        db.session.commit()
+        return jsonify({"ok": True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
 
 
 # ── API — add / update procedure duration ─────────────────────────────────────
