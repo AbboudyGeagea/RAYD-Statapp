@@ -61,6 +61,150 @@ NORMAL_PHRASES = [
     'no pathological','no active disease','normal limits',
 ]
 
+# ── Diagnosis vocabulary: (match_phrase, canonical_label)
+# Multiple phrases can share the same label — counted per-report (not per-word)
+DIAGNOSES = [
+    # Pulmonary / Chest
+    ('pneumothorax',         'Pneumothorax'),
+    ('pulmonary embolism',   'Pulmonary Embolism'),
+    ('pleural effusion',     'Pleural Effusion'),
+    ('épanchement pleural',  'Pleural Effusion'),
+    ('consolidation',        'Consolidation'),
+    ('pneumonia',            'Pneumonia'),
+    ('pneumonie',            'Pneumonia'),
+    ('atelectasis',          'Atelectasis'),
+    ('atélectasie',          'Atelectasis'),
+    ('emphysema',            'Emphysema'),
+    ('pulmonary edema',      'Pulmonary Edema'),
+    ('pulmonary oedema',     'Pulmonary Edema'),
+    ('oedème pulmonaire',    'Pulmonary Edema'),
+    ('hemothorax',           'Hemothorax'),
+    ('haemothorax',          'Hemothorax'),
+    ('cardiomegaly',         'Cardiomegaly'),
+    ('pericardial effusion', 'Pericardial Effusion'),
+    ('aortic dissection',    'Aortic Dissection'),
+    ('aortic aneurysm',      'Aortic Aneurysm'),
+    # Neuro / Brain
+    ('intracranial hemorrhage', 'Intracranial Hemorrhage'),
+    ('intracranial haemorrhage','Intracranial Hemorrhage'),
+    ('subdural hematoma',    'Subdural Hematoma'),
+    ('subdural haematoma',   'Subdural Hematoma'),
+    ('epidural hematoma',    'Epidural Hematoma'),
+    ('subarachnoid hemorrhage','Subarachnoid Hemorrhage'),
+    ('hemorrhage',           'Hemorrhage'),
+    ('haemorrhage',          'Hemorrhage'),
+    ('hematoma',             'Hematoma'),
+    ('haematoma',            'Hematoma'),
+    ('stroke',               'Stroke'),
+    ('infarction',           'Infarction'),
+    ('infarct',              'Infarction'),
+    ('ischemia',             'Ischemia'),
+    ('ischaemia',            'Ischemia'),
+    ('aneurysm',             'Aneurysm'),
+    ('hydrocephalus',        'Hydrocephalus'),
+    ('midline shift',        'Midline Shift'),
+    # Abdomen / GI
+    ('appendicitis',         'Appendicitis'),
+    ('cholecystitis',        'Cholecystitis'),
+    ('cholelithiasis',       'Cholelithiasis'),
+    ('gallstone',            'Gallstone'),
+    ('bowel obstruction',    'Bowel Obstruction'),
+    ('obstruction',          'Obstruction'),
+    ('perforation',          'Perforation'),
+    ('abscess',              'Abscess'),
+    ('hepatomegaly',         'Hepatomegaly'),
+    ('splenomegaly',         'Splenomegaly'),
+    ('ascites',              'Ascites'),
+    ('pancreatitis',         'Pancreatitis'),
+    ('diverticulitis',       'Diverticulitis'),
+    ('hernia',               'Hernia'),
+    # Vascular
+    ('deep vein thrombosis', 'DVT'),
+    ('dvt',                  'DVT'),
+    ('thrombosis',           'Thrombosis'),
+    ('thrombose',            'Thrombosis'),
+    ('occlusion',            'Occlusion'),
+    ('stenosis',             'Stenosis'),
+    ('sténose',              'Stenosis'),
+    ('dissection',           'Dissection'),
+    ('embolism',             'Embolism'),
+    ('embolus',              'Embolism'),
+    # MSK / Trauma
+    ('fracture',             'Fracture'),
+    ('dislocation',          'Dislocation'),
+    ('luxation',             'Dislocation'),
+    ('osteoporosis',         'Osteoporosis'),
+    ('arthritis',            'Arthritis'),
+    ('arthrose',             'Arthritis'),
+    ('osteomyelitis',        'Osteomyelitis'),
+    ('spondylosis',          'Spondylosis'),
+    ('disc herniation',      'Disc Herniation'),
+    ('disk herniation',      'Disc Herniation'),
+    ('herniated disc',       'Disc Herniation'),
+    ('spinal stenosis',      'Spinal Stenosis'),
+    # Oncology
+    ('metastasis',           'Metastasis'),
+    ('metastases',           'Metastasis'),
+    ('métastase',            'Metastasis'),
+    ('malignancy',           'Malignancy'),
+    ('malignant',            'Malignancy'),
+    ('carcinoma',            'Carcinoma'),
+    ('carcinome',            'Carcinoma'),
+    ('lymphoma',             'Lymphoma'),
+    ('lymphome',             'Lymphoma'),
+    ('adenoma',              'Adenoma'),
+    ('adénome',              'Adenoma'),
+    ('neoplasm',             'Neoplasm'),
+    ('tumor',                'Tumor / Mass'),
+    ('tumour',               'Tumor / Mass'),
+    ('tumeur',               'Tumor / Mass'),
+    ('mass',                 'Tumor / Mass'),
+    ('nodule',               'Nodule'),
+    ('lesion',               'Lesion'),
+    ('lésion',               'Lesion'),
+    ('cyst',                 'Cyst'),
+    ('kyste',                'Cyst'),
+    # Kidney / Urinary
+    ('hydronephrosis',       'Hydronephrosis'),
+    ('nephrolithiasis',      'Nephrolithiasis'),
+    ('urolithiasis',         'Nephrolithiasis'),
+    ('renal calculus',       'Renal Calculus'),
+    ('kidney stone',         'Renal Calculus'),
+    # Infection / Inflammation
+    ('empyema',              'Empyema'),
+    ('cellulitis',           'Cellulitis'),
+    ('osteomyelitis',        'Osteomyelitis'),
+    # Normal / Benign
+    ('no acute',             'No Acute Finding'),
+    ('unremarkable',         'Unremarkable'),
+    ('within normal limits', 'Normal'),
+    ('sans particularité',   'Normal'),
+    ('normal study',         'Normal'),
+]
+
+# Deduplicate: for each canonical label keep count of reports mentioning it
+# (multiple phrases mapping to same label are OR'd per report, not summed)
+def _count_diagnoses(rows, top_n=50):
+    """
+    For each row scan impression_text (fallback: report_text).
+    Returns [{label, count}] sorted descending, limited to top_n.
+    Labels with count == 0 are excluded.
+    """
+    label_counts = Counter()
+    for r in rows:
+        text = (r.impression_text or r.report_text or '').lower()
+        if not text:
+            continue
+        seen_labels = set()
+        for phrase, label in DIAGNOSES:
+            if label not in seen_labels and phrase in text:
+                seen_labels.add(label)
+                label_counts[label] += 1
+    return [
+        {'word': label, 'count': cnt}
+        for label, cnt in label_counts.most_common(top_n)
+    ]
+
 
 def _tokenize(text):
     """Lowercase, extract alpha words ≥ 3 chars, remove stop words."""
@@ -109,7 +253,7 @@ def oru_page():
 def oru_data():
     proc    = request.args.get('proc', '').strip()
     days    = min(int(request.args.get('days', 30)), 365)
-    top_n   = int(request.args.get('top', 120))
+    top_n   = int(request.args.get('top', 40))
 
     where = ["received_at >= NOW() - INTERVAL :interval"]
     params = {'interval': f'{days} days'}
@@ -131,11 +275,8 @@ def oru_data():
     normal_count = sum(1 for r in rows if _is_normal(r.impression_text or r.report_text))
     abnormal_count = total - normal_count
 
-    # ── Word cloud from report text ───────────────────────────────────────────
-    counter = Counter()
-    for r in rows:
-        counter.update(_tokenize(r.report_text or ''))
-    cloud_words = [{'word': w, 'count': c} for w, c in counter.most_common(top_n)]
+    # ── Diagnosis frequency (reports per finding) ────────────────────────────
+    cloud_words = _count_diagnoses(rows, top_n=top_n)
 
     # ── Modality breakdown ────────────────────────────────────────────────────
     mod_counter = Counter(
