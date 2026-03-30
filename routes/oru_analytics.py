@@ -319,15 +319,15 @@ def oru_data():
     # ── Critical findings (most recent 20) ───────────────────────────────────
     critical_log = []
     for r in rows:
-        text = _best_text(r)
-        hits = _matched_diagnoses(text)
+        txt = _best_text(r)
+        hits = _matched_diagnoses(txt)
         if hits:
             critical_log.append({
                 'procedure':   (r.procedure_name or r.procedure_code or '—').strip(),
                 'modality':    (r.modality or '—').upper(),
                 'keywords':    hits[:5],
                 'received_at': r.received_at.strftime('%Y-%m-%d %H:%M') if r.received_at else '—',
-                'snippet':     text[:220],
+                'snippet':     txt[:220],
             })
     critical_log = critical_log[:20]
 
