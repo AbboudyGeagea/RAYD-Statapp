@@ -63,7 +63,7 @@ def admin_dashboard():
     for p in all_perms:
         page_perms.setdefault(p.user_id, {})[p.page_key] = p.is_enabled
 
-    page_keys = ['live_feed', 'hl7_orders', 'report_ai', 'bitnet']
+    page_keys = ['live_feed', 'hl7_orders', 'report_ai', 'bitnet', 'oru']
 
     return render_template(
         'admin_panel.html',
@@ -94,7 +94,7 @@ def user_management():
     for p in all_perms:
         page_perms.setdefault(p.user_id, {})[p.page_key] = p.is_enabled
 
-    page_keys = ['live_feed', 'hl7_orders', 'report_ai', 'bitnet']
+    page_keys = ['live_feed', 'hl7_orders', 'report_ai', 'bitnet', 'oru']
 
     return render_template('user_management.html',
         users=users, page_perms=page_perms, page_keys=page_keys)

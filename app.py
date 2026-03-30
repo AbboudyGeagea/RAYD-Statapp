@@ -186,6 +186,7 @@ def create_app():
         if request.path.startswith('/static/') or (
             request.endpoint and (
                 request.endpoint.startswith('auth.') or
+                request.endpoint.startswith('liveview.') or
                 request.endpoint == 'static'
             )
         ):
@@ -216,6 +217,55 @@ def create_app():
         except Exception as e:
             db.session.rollback()
             logger.warning(f"[Migration] columns: {e}")
+
+    with app.app_context():
+        try:
+            db.session.execute(text("""
+                CREATE TABLE IF NOT EXISTS ai_nlp_cache (
+                    id              SERIAL PRIMARY KEY,
+                    source_id       INTEGER NOT NULL REFERENCES hl7_oru_reports(id) ON DELETE CASCADE,
+                    classification  VARCHAR(20),
+                    keywords        JSONB,
+                    cluster_id      INTEGER,
+                    cluster_label   TEXT,
+                    severity_score  NUMERIC(3,1),
+                    processed_at    TIMESTAMP DEFAULT NOW(),
+                    UNIQUE (source_id)
+                )
+            """))
+            db.session.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_nlp_classification ON ai_nlp_cache (classification)"
+            ))
+            db.session.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_nlp_cluster ON ai_nlp_cache (cluster_id)"
+            ))
+            db.session.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_oru_received ON hl7_oru_reports (received_at DESC)"
+            ))
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            logger.warning(f"[Migration] ai_nlp_cache: {e}")
+
+    with app.app_context():
+        try:
+            db.session.execute(text("""
+                CREATE TABLE IF NOT EXISTS hl7_oru_reports (
+                    id               SERIAL PRIMARY KEY,
+                    procedure_code   VARCHAR(100),
+                    procedure_name   TEXT,
+                    modality         VARCHAR(20),
+                    physician_id     VARCHAR(100),
+                    report_text      TEXT,
+                    impression_text  TEXT,
+                    result_datetime  TIMESTAMP,
+                    received_at      TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            logger.warning(f"[Migration] hl7_oru_reports: {e}")
 
     # --- STARTUP: AUTO-TRIGGER ETL IF DB IS EMPTY ---
     with app.app_context():

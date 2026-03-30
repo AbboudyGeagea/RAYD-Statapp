@@ -188,6 +188,18 @@ def user_has_page(user, page_key):
     perm = UserPagePermission.query.filter_by(user_id=user.id, page_key=page_key).first()
     return perm is not None and perm.is_enabled
 
+class OruReport(db.Model):
+    __tablename__ = 'hl7_oru_reports'
+    id               = db.Column(Integer, primary_key=True)
+    procedure_code   = db.Column(String(100))
+    procedure_name   = db.Column(Text)
+    modality         = db.Column(String(20))
+    physician_id     = db.Column(String(100))   # anonymised — ID only, no name
+    report_text      = db.Column(Text)           # all OBX text concatenated
+    impression_text  = db.Column(Text)           # OBX segments tagged as impression
+    result_datetime  = db.Column(DateTime)
+    received_at      = db.Column(DateTime, server_default=func.now())
+
 class SavedReport(db.Model):
     __tablename__ = 'saved_reports'
     id = db.Column(Integer, primary_key=True)

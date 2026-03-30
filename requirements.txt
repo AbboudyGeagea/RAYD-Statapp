@@ -11,3 +11,4 @@ gunicorn==21.2.0
 requests
 psutil
 xlsxwriter
+scikit-learn==1.4.2

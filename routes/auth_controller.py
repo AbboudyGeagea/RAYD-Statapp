@@ -45,8 +45,9 @@ def register():
                     INSERT INTO report_access_control (user_id, is_enabled, report_template_id)
                     SELECT :uid, true, unnest(ARRAY[22, 23, 25, 27, 29])
                 """), {'uid': new_user.id})
-                # Grant report_ai page access by default for viewers
+                # Grant page access by default for viewers
                 db.session.add(UserPagePermission(user_id=new_user.id, page_key='report_ai', is_enabled=True))
+                db.session.add(UserPagePermission(user_id=new_user.id, page_key='oru', is_enabled=True))
 
             elif role == 'tec':
                 # Tec users only get HL7 Orders page access

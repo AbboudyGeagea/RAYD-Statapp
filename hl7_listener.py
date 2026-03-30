@@ -117,6 +117,90 @@ def _component(field_val, index, default=None):
     except IndexError:
         return default
 
+ORU_INSERT_SQL = """
+    INSERT INTO hl7_oru_reports
+        (procedure_code, procedure_name, modality, physician_id,
+         report_text, impression_text, result_datetime, received_at)
+    VALUES
+        (:procedure_code, :procedure_name, :modality, :physician_id,
+         :report_text, :impression_text, :result_datetime, :received_at)
+"""
+
+# HL7 escape sequence cleaner
+_HL7_ESC = re.compile(r'\\[A-Za-z.]+\\')
+
+def _clean_obx_text(val):
+    """Strip HL7 escape sequences and tidy whitespace."""
+    val = _HL7_ESC.sub(' ', val)
+    val = val.replace('\.br\\', ' ').replace('\\.br\\', ' ')
+    return ' '.join(val.split())
+
+
+def parse_oru_r01(raw_message):
+    """
+    Parse an ORU^R01 radiology result message.
+    Stores procedure + report text only — no patient identifiers.
+    Returns None if message is not ORU^R01.
+    """
+    text     = raw_message.replace('\r\n', '\r').replace('\n', '\r')
+    segments = [s.strip() for s in text.split('\r') if s.strip()]
+
+    msh = _seg(segments, 'MSH')
+    obr = _seg(segments, 'OBR')
+
+    msg_type = _field(msh, 8, '')
+    if 'ORU' not in msg_type:
+        return None
+
+    # ── OBR: procedure & timing ───────────────────────────────────────────────
+    proc_raw       = _field(obr, 4, '')
+    procedure_code = _component(proc_raw, 0)
+    procedure_name = _component(proc_raw, 1) or _component(proc_raw, 2)
+    modality       = _field(obr, 24) or _field(obr, 19) or _field(obr, 17)
+    result_dt      = _parse_hl7_datetime(_field(obr, 22) or _field(obr, 7))
+
+    # Physician: OBR-32 (principal result interpreter) — ID component only
+    phys_raw     = _field(obr, 32, '')
+    physician_id = _component(phys_raw, 0) or _component(phys_raw, 2)
+
+    # ── OBX: collect report text ──────────────────────────────────────────────
+    report_parts     = []
+    impression_parts = []
+
+    for seg in segments:
+        if not seg.startswith('OBX|'):
+            continue
+        f = seg.split('|')
+        obs_type  = f[2]  if len(f) > 2  else ''   # TX / FT / ST
+        obs_id    = f[3]  if len(f) > 3  else ''    # observation identifier
+        obs_value = f[5]  if len(f) > 5  else ''    # the text
+        obs_status= f[11] if len(f) > 11 else ''    # F = final
+
+        # Only capture text-type observations
+        if obs_type not in ('TX', 'FT', 'ST', ''):
+            continue
+        cleaned = _clean_obx_text(obs_value)
+        if not cleaned:
+            continue
+
+        report_parts.append(cleaned)
+
+        obs_upper = obs_id.upper()
+        if any(k in obs_upper for k in ('IMP', 'IMPRESSION', 'CONCLUSION', 'CONCL')):
+            impression_parts.append(cleaned)
+
+    return {
+        'procedure_code':  procedure_code,
+        'procedure_name':  procedure_name,
+        'modality':        modality,
+        'physician_id':    physician_id,
+        'report_text':     ' '.join(report_parts) or None,
+        'impression_text': ' '.join(impression_parts) or None,
+        'result_datetime': result_dt,
+        'received_at':     datetime.now(),
+    }
+
+
 def parse_orm_o01(raw_message):
     """
     Parse an ORM^O01 HL7 message into a flat dict.
@@ -244,46 +328,64 @@ def _handle_client(conn, addr, app):
                 msh         = _seg(segments, 'MSH')
 
                 try:
-                    parsed = parse_orm_o01(raw_message)
+                    msg_type_raw = _field(msh, 8, '')
 
-                    if parsed:
-                        # ── Store in hl7_orders + notify live feed ────────
-                        with app.app_context():
-                            from sqlalchemy import text
-                            from db import db
-                            try:
-                                db.session.execute(text(INSERT_SQL), parsed)
-                                db.session.execute(
-                                    text("SELECT pg_notify('hl7_new_order', :mid)"),
-                                    {"mid": str(parsed.get("message_id") or "")}
-                                )
-                                db.session.commit()
-                            except Exception:
-                                db.session.rollback()
-                                raise
-
-                        logger.info(
-                            f"✅ HL7 stored | msg_id={parsed['message_id']} "
-                            f"| patient={parsed['patient_id']} "
-                            f"| accession={parsed['accession_number']}"
-                        )
-
-                        # ── Trigger patient portal user creation + WhatsApp ─
-                        # This is wrapped in its own try/except so that portal
-                        # errors never break the HL7 ACK response to the RIS.
-                        try:
-                            from routes.portal_bp import process_orm_for_portal
+                    if 'ORU' in msg_type_raw:
+                        # ── ORU^R01: radiology result ─────────────────────
+                        parsed_oru = parse_oru_r01(raw_message)
+                        if parsed_oru and parsed_oru.get('report_text'):
                             with app.app_context():
-                                process_orm_for_portal(
-                                    raw_message,
-                                    parsed.get('accession_number', '')
-                                )
+                                from sqlalchemy import text
+                                from db import db
+                                try:
+                                    db.session.execute(text(ORU_INSERT_SQL), parsed_oru)
+                                    db.session.commit()
+                                except Exception:
+                                    db.session.rollback()
+                                    raise
                             logger.info(
-                                f"✅ Portal hook fired | "
-                                f"accession={parsed.get('accession_number')}"
+                                f"✅ ORU stored | proc={parsed_oru['procedure_code']} "
+                                f"| physician={parsed_oru['physician_id']}"
                             )
-                        except Exception as portal_err:
-                            logger.warning(f"⚠ Portal hook error: {portal_err}")
+
+                    else:
+                        # ── ORM^O01: radiology order ──────────────────────
+                        parsed = parse_orm_o01(raw_message)
+
+                        if parsed:
+                            with app.app_context():
+                                from sqlalchemy import text
+                                from db import db
+                                try:
+                                    db.session.execute(text(INSERT_SQL), parsed)
+                                    db.session.execute(
+                                        text("SELECT pg_notify('hl7_new_order', :mid)"),
+                                        {"mid": str(parsed.get("message_id") or "")}
+                                    )
+                                    db.session.commit()
+                                except Exception:
+                                    db.session.rollback()
+                                    raise
+
+                            logger.info(
+                                f"✅ HL7 stored | msg_id={parsed['message_id']} "
+                                f"| patient={parsed['patient_id']} "
+                                f"| accession={parsed['accession_number']}"
+                            )
+
+                            try:
+                                from routes.portal_bp import process_orm_for_portal
+                                with app.app_context():
+                                    process_orm_for_portal(
+                                        raw_message,
+                                        parsed.get('accession_number', '')
+                                    )
+                                logger.info(
+                                    f"✅ Portal hook fired | "
+                                    f"accession={parsed.get('accession_number')}"
+                                )
+                            except Exception as portal_err:
+                                logger.warning(f"⚠ Portal hook error: {portal_err}")
 
                     ack = _build_ack(msh, ACK_AA)
 

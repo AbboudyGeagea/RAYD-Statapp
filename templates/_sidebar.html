@@ -79,10 +79,27 @@
         {% endif %}
 
         {% if current_user.role == 'admin' %}
+        <a href="{{ url_for('liveview.liveview') }}" target="_blank"
+           class="sidebar-item flex items-center gap-3 px-3 py-3 text-sm font-bold"
+           title="Live Operations Center">
+            <i class="bi bi-tv-fill flex-shrink-0" style="color:#34d399;"></i> Live Operations
+            <span style="font-size:8px;font-weight:900;padding:1px 6px;border-radius:4px;background:rgba(52,211,153,0.15);color:#34d399;text-transform:uppercase;letter-spacing:0.08em;">TV</span>
+        </a>
+        {% endif %}
+
+        {% if current_user.role == 'admin' %}
         <a href="{{ url_for('portal_admin.portal_users') }}"
            class="sidebar-item {% if request.endpoint and request.endpoint.startswith('portal_admin.') %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
            title="Patient Portal">
             <i class="bi bi-person-vcard flex-shrink-0" style="color:#fb923c;"></i> Patient Portal
+        </a>
+        {% endif %}
+
+        {% if current_user.role == 'admin' or current_user|user_has_page('oru') %}
+        <a href="{{ url_for('oru.oru_page') }}"
+           class="sidebar-item {% if request.endpoint and request.endpoint.startswith('oru.') %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
+           title="Report Intelligence">
+            <i class="bi bi-cloud-fill flex-shrink-0" style="color:#a78bfa;"></i> Report Intelligence
         </a>
         {% endif %}
 

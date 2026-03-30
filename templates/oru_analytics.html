@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>RAYD · Report Intelligence</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/wordcloud2.js@1.2.2/src/wordcloud2.js"></script>
+<style>
+  :root { --bg:#181f1c; --card:#1a211e; --border:#1e2d27; --text:#e2e8f0; --muted:#64748b; }
+  body { background:var(--bg); color:var(--text); margin:0; font-family:'Inter',system-ui,sans-serif; }
+  .page-wrap { display:flex; height:100vh; overflow:hidden; }
+  .main-area { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+  .content   { flex:1; overflow-y:auto; padding:20px 24px; }
+
+  .card {
+    background:var(--card);
+    border:1px solid var(--border);
+    border-radius:12px;
+    padding:18px 20px;
+  }
+  .card-title {
+    font-size:9px;
+    font-weight:800;
+    letter-spacing:0.22em;
+    text-transform:uppercase;
+    color:#4b7a63;
+    margin-bottom:14px;
+    display:flex;
+    align-items:center;
+    gap:7px;
+  }
+
+  /* KPI strip */
+  .kpi-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:16px; }
+  .kpi { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:14px 18px; position:relative; overflow:hidden; }
+  .kpi::before { content:''; position:absolute; top:0;left:0;right:0;height:2px; }
+  .kpi.green::before  { background:#34d399; }
+  .kpi.blue::before   { background:#60a5fa; }
+  .kpi.amber::before  { background:#f59e0b; }
+  .kpi.rose::before   { background:#f87171; }
+  .kpi-label { font-size:9px;font-weight:800;letter-spacing:0.18em;text-transform:uppercase;color:#4b7a63; }
+  .kpi-val   { font-size:34px;font-weight:900;line-height:1.1;letter-spacing:-0.02em; }
+  .kpi.green .kpi-val  { color:#34d399; }
+  .kpi.blue  .kpi-val  { color:#60a5fa; }
+  .kpi.amber .kpi-val  { color:#f59e0b; }
+  .kpi.rose  .kpi-val  { color:#f87171; }
+
+  /* Filters */
+  .filter-bar { display:flex; align-items:center; gap:10px; margin-bottom:16px; flex-wrap:wrap; }
+  .filter-bar select, .filter-bar button {
+    background:#1a211e; border:1px solid #1e2d27; color:#e2e8f0;
+    padding:7px 14px; border-radius:8px; font-size:12px; font-weight:600;
+    cursor:pointer; outline:none;
+  }
+  .filter-bar select:focus, .filter-bar button:hover {
+    border-color:#34d399; color:#34d399;
+  }
+  .btn-active { border-color:#34d399!important; color:#34d399!important; }
+
+  /* Main grid */
+  .main-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:14px; }
+  .full-width { grid-column:1/-1; }
+
+  /* Word cloud canvas */
+  #cloud-canvas { width:100%; height:340px; display:block; }
+
+  /* Bar rows */
+  .bar-row { display:grid; grid-template-columns:130px 1fr 46px; align-items:center; gap:10px; margin-bottom:7px; }
+  .bar-label { font-size:11px;font-weight:700;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+  .bar-track { background:#0f1512;border-radius:4px;height:14px;overflow:hidden; }
+  .bar-fill  { height:100%;border-radius:4px;transition:width .5s ease; }
+  .bar-count { font-size:11px;font-weight:800;color:#e2e8f0;text-align:right; }
+
+  /* Critical table */
+  .crit-table { width:100%;border-collapse:collapse;font-size:12px; }
+  .crit-table th { font-size:9px;font-weight:800;letter-spacing:0.15em;text-transform:uppercase;color:#4b7a63;padding:6px 10px;border-bottom:1px solid #1e2d27;text-align:left; }
+  .crit-table td { padding:8px 10px;border-bottom:1px solid #1a211e;vertical-align:top; }
+  .crit-table tr:last-child td { border-bottom:none; }
+  .keyword-badge { display:inline-block;font-size:9px;font-weight:800;padding:2px 7px;border-radius:4px;background:rgba(248,113,113,0.12);color:#f87171;border:1px solid rgba(248,113,113,0.25);margin:1px; }
+  .proc-tag { font-size:10px;font-weight:700;color:#a78bfa; }
+  .snippet { color:#64748b;font-size:11px;line-height:1.5; }
+
+  /* Normal/Abnormal donut */
+  #donut-wrap { display:flex;align-items:center;justify-content:center;gap:24px;height:200px; }
+  #donutChart { max-width:160px; }
+  .donut-legend { display:flex;flex-direction:column;gap:8px; }
+  .legend-item { display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700; }
+  .legend-dot  { width:10px;height:10px;border-radius:50%;flex-shrink:0; }
+
+  /* Spinner */
+  .spinner { width:32px;height:32px;border:3px solid #1e2d27;border-top-color:#34d399;border-radius:50%;animation:spin .7s linear infinite;margin:auto; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  .empty-state { text-align:center;padding:40px;color:#4b7a63;font-size:13px;font-weight:600; }
+</style>
+</head>
+<body>
+<div class="page-wrap">
+  {% include '_sidebar.html' %}
+  <div class="main-area">
+    {% include '_header.html' %}
+    <div class="content">
+
+      <!-- Page title -->
+      <div style="margin-bottom:18px;display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+        <div>
+          <h1 style="font-size:20px;font-weight:900;letter-spacing:-0.02em;color:#e2e8f0;margin:0;">
+            <i class="bi bi-cloud-fill" style="color:#a78bfa;margin-right:8px;"></i>Report Intelligence
+          </h1>
+          <p style="font-size:11px;color:#4b7a63;font-weight:600;margin-top:3px;">
+            Anonymous analysis of ORU^R01 radiology reports — OBR &amp; OBX segments only
+          </p>
+        </div>
+        <!-- NLP control strip -->
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <div style="font-size:10px;font-weight:700;color:#4b7a63;" id="nlp-status-text">Checking NLP status...</div>
+          <button id="run-nlp-btn" onclick="runNLP()"
+            style="background:#1a211e;border:1px solid #34d399;color:#34d399;padding:7px 16px;border-radius:8px;font-size:11px;font-weight:800;cursor:pointer;letter-spacing:0.1em;text-transform:uppercase;transition:all .2s;">
+            <i class="bi bi-cpu"></i> Run NLP Analysis
+          </button>
+          <button id="load-nlp-btn" onclick="loadNLPResults()"
+            style="background:#1a211e;border:1px solid #1e2d27;color:#94a3b8;padding:7px 16px;border-radius:8px;font-size:11px;font-weight:800;cursor:pointer;letter-spacing:0.1em;text-transform:uppercase;transition:all .2s;">
+            <i class="bi bi-graph-up"></i> Show NLP Results
+          </button>
+        </div>
+      </div>
+
+      <!-- NLP progress toast -->
+      <div id="nlp-toast" style="display:none;background:rgba(52,211,153,0.08);border:1px solid rgba(52,211,153,0.25);border-radius:10px;padding:12px 18px;margin-bottom:14px;font-size:12px;font-weight:700;color:#34d399;display:none;align-items:center;gap:10px;">
+        <div class="spinner" style="width:16px;height:16px;border-width:2px;flex-shrink:0;"></div>
+        <span id="nlp-toast-text">Processing reports...</span>
+      </div>
+
+      <!-- Filters -->
+      <div class="filter-bar">
+        <select id="proc-filter">
+          <option value="">All Procedures</option>
+          {% for p in procedures %}
+          <option value="{{ p.code }}">{{ p.name or p.code }}</option>
+          {% endfor %}
+        </select>
+
+        <select id="days-filter">
+          <option value="7">Last 7 days</option>
+          <option value="30" selected>Last 30 days</option>
+          <option value="90">Last 90 days</option>
+          <option value="180">Last 6 months</option>
+          <option value="365">Last year</option>
+        </select>
+
+        <button id="refresh-btn" onclick="loadData()">
+          <i class="bi bi-arrow-clockwise"></i> Refresh
+        </button>
+
+        <span id="last-refresh" style="font-size:10px;color:#4b7a63;margin-left:auto;font-weight:600;"></span>
+      </div>
+
+      <!-- KPI strip -->
+      <div class="kpi-grid" id="kpi-strip">
+        <div class="kpi green"><div class="kpi-label">Total Reports</div><div class="kpi-val" id="kpi-total">—</div></div>
+        <div class="kpi blue"><div class="kpi-label">Normal</div><div class="kpi-val" id="kpi-normal">—</div></div>
+        <div class="kpi rose"><div class="kpi-label">Abnormal / Flagged</div><div class="kpi-val" id="kpi-abnormal">—</div></div>
+        <div class="kpi amber"><div class="kpi-label">Critical Findings</div><div class="kpi-val" id="kpi-critical">—</div></div>
+      </div>
+
+      <!-- Main grid -->
+      <div class="main-grid">
+
+        <!-- Word Cloud -->
+        <div class="card full-width">
+          <div class="card-title"><i class="bi bi-cloud-fill" style="color:#a78bfa;"></i>Report Word Cloud</div>
+          <div id="cloud-wrap" style="position:relative;height:340px;background:#0f1512;border-radius:8px;overflow:hidden;">
+            <canvas id="cloud-canvas"></canvas>
+            <div id="cloud-spinner" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#0f1512;">
+              <div class="spinner"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Normal vs Abnormal donut -->
+        <div class="card">
+          <div class="card-title"><i class="bi bi-pie-chart-fill" style="color:#34d399;"></i>Normal vs Abnormal Rate</div>
+          <div id="donut-wrap">
+            <canvas id="donutChart"></canvas>
+            <div class="donut-legend">
+              <div class="legend-item"><div class="legend-dot" style="background:#34d399;"></div><span id="normal-pct" style="color:#34d399;">—</span> Normal</div>
+              <div class="legend-item"><div class="legend-dot" style="background:#f87171;"></div><span id="abnormal-pct" style="color:#f87171;">—</span> Abnormal</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Modality breakdown -->
+        <div class="card">
+          <div class="card-title"><i class="bi bi-bar-chart-fill" style="color:#60a5fa;"></i>Reports by Modality</div>
+          <div id="mod-list"></div>
+        </div>
+
+        <!-- Top procedures -->
+        <div class="card">
+          <div class="card-title"><i class="bi bi-list-ol" style="color:#f59e0b;"></i>Top Procedures by Volume</div>
+          <div id="proc-list"></div>
+        </div>
+
+        <!-- Physician activity -->
+        <div class="card">
+          <div class="card-title"><i class="bi bi-person-badge-fill" style="color:#a78bfa;"></i>Reporting Physician Activity <span style="font-weight:400;color:#4b7a63;">(ID only)</span></div>
+          <div id="phys-list"></div>
+        </div>
+
+        <!-- Critical findings log -->
+        <div class="card full-width">
+          <div class="card-title"><i class="bi bi-exclamation-triangle-fill" style="color:#f87171;"></i>Critical Findings Log <span style="font-weight:400;color:#4b7a63;">(most recent 20)</span></div>
+          <div id="critical-wrap" style="overflow-x:auto;">
+            <div class="empty-state" id="critical-empty">No critical findings in selected period.</div>
+            <table class="crit-table" id="critical-table" style="display:none;">
+              <thead>
+                <tr>
+                  <th>Received</th>
+                  <th>Procedure</th>
+                  <th>Modality</th>
+                  <th>Keywords</th>
+                  <th>Impression Snippet</th>
+                </tr>
+              </thead>
+              <tbody id="critical-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+      </div><!-- /main-grid -->
+
+      <!-- ── NLP Results (shown after processing) ── -->
+      <div id="nlp-section" style="display:none;">
+        <div style="margin:8px 0 14px;padding-bottom:10px;border-bottom:1px solid #1e2d27;">
+          <span style="font-size:9px;font-weight:800;letter-spacing:0.25em;text-transform:uppercase;color:#34d399;">
+            <i class="bi bi-cpu"></i> NLP Analysis Results
+          </span>
+          <span style="font-size:10px;color:#4b7a63;margin-left:10px;font-weight:600;" id="nlp-result-meta"></span>
+        </div>
+
+        <div class="main-grid">
+
+          <!-- AI Classification (replaces keyword-based) -->
+          <div class="card">
+            <div class="card-title"><i class="bi bi-pie-chart-fill" style="color:#34d399;"></i>NLP Classification</div>
+            <div id="nlp-donut-wrap" style="display:flex;align-items:center;justify-content:center;gap:24px;height:200px;">
+              <canvas id="nlpDonutChart" style="max-width:160px;"></canvas>
+              <div class="donut-legend">
+                <div class="legend-item"><div class="legend-dot" style="background:#34d399;"></div><span id="nlp-normal-pct" style="color:#34d399;">—</span> Normal</div>
+                <div class="legend-item"><div class="legend-dot" style="background:#f59e0b;"></div><span id="nlp-borderline-pct" style="color:#f59e0b;">—</span> Borderline</div>
+                <div class="legend-item"><div class="legend-dot" style="background:#f87171;"></div><span id="nlp-critical-pct" style="color:#f87171;">—</span> Critical</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Severity histogram -->
+          <div class="card">
+            <div class="card-title"><i class="bi bi-bar-chart-steps" style="color:#f59e0b;"></i>Severity Distribution (1–5 scale)</div>
+            <canvas id="sevChart" style="max-height:180px;"></canvas>
+            <p style="font-size:10px;color:#4b7a63;margin-top:8px;font-weight:600;">
+              1 = Normal &nbsp;·&nbsp; 3 = Borderline &nbsp;·&nbsp; 5 = Critical
+            </p>
+          </div>
+
+          <!-- Cluster map -->
+          <div class="card full-width">
+            <div class="card-title"><i class="bi bi-diagram-3-fill" style="color:#60a5fa;"></i>Diagnostic Clusters
+              <span style="font-weight:400;color:#4b7a63;font-size:9px;margin-left:6px;">auto-labeled by TF-IDF · K-means</span>
+            </div>
+            <div id="cluster-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;"></div>
+          </div>
+
+          <!-- NLP keyword cloud -->
+          <div class="card full-width">
+            <div class="card-title"><i class="bi bi-tags-fill" style="color:#a78bfa;"></i>Extracted Medical Terms
+              <span style="font-weight:400;color:#4b7a63;font-size:9px;margin-left:6px;">from NLP keyword extraction · not raw word count</span>
+            </div>
+            <div id="nlp-kw-bars"></div>
+          </div>
+
+        </div>
+
+        <p style="font-size:10px;color:#334155;margin-top:6px;font-weight:600;">
+          ⚠ Negation is not resolved — "no fracture" may still surface the token "fracture" in borderline scores. Use as a trend signal, not a clinical classifier.
+        </p>
+      </div><!-- /nlp-section -->
+
+    </div><!-- /content -->
+  </div><!-- /main-area -->
+</div><!-- /page-wrap -->
+
+<script>
+let donutChart = null;
+const MODALITY_COLORS = {
+  CT:'#60a5fa', MR:'#a78bfa', CR:'#34d399', DX:'#67e8f9',
+  US:'#fbbf24', NM:'#fb7185', PT:'#f472b6', XA:'#2dd4bf',
+  RF:'#a3e635', MG:'#fdba74', UNK:'#64748b'
+};
+function modColor(m) { return MODALITY_COLORS[m] || '#64748b'; }
+
+function fmt(n) { return Number(n).toLocaleString(); }
+
+// ── Word cloud ───────────────────────────────────────────────────────────────
+function buildCloud(words) {
+  document.getElementById('cloud-spinner').style.display = 'flex';
+  const canvas = document.getElementById('cloud-canvas');
+  const wrap   = document.getElementById('cloud-wrap');
+  canvas.width  = wrap.clientWidth;
+  canvas.height = wrap.clientHeight;
+
+  if (!words || !words.length) {
+    document.getElementById('cloud-spinner').style.display = 'none';
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#4b7a63';
+    ctx.font = 'bold 14px Inter';
+    ctx.textAlign = 'center';
+    ctx.fillText('No report data in selected period', canvas.width / 2, canvas.height / 2);
+    return;
+  }
+
+  const maxCount = words[0].count;
+  const list = words.map(w => [w.word, Math.max(12, Math.round(w.count / maxCount * 72))]);
+
+  const palette = ['#a78bfa','#60a5fa','#34d399','#f59e0b','#f87171','#67e8f9','#fbbf24','#2dd4bf'];
+  let pi = 0;
+
+  WordCloud(canvas, {
+    list,
+    gridSize:     8,
+    weightFactor: 1,
+    fontFamily:   'Inter, system-ui, sans-serif',
+    fontWeight:   '800',
+    color:        () => palette[(pi++) % palette.length],
+    rotateRatio:  0.25,
+    rotationSteps:2,
+    backgroundColor: '#0f1512',
+    drawOutOfBound:  false,
+    shuffle:      true,
+    wait:         0,
+  });
+  document.getElementById('cloud-spinner').style.display = 'none';
+}
+
+// ── Bar list helper ──────────────────────────────────────────────────────────
+function buildBars(containerId, items, labelKey, countKey, colorFn) {
+  const el = document.getElementById(containerId);
+  if (!items || !items.length) {
+    el.innerHTML = '<div class="empty-state">No data</div>';
+    return;
+  }
+  const max = Math.max(...items.map(i => i[countKey]));
+  el.innerHTML = items.map(item => {
+    const pct   = Math.round(item[countKey] / max * 100);
+    const color = colorFn ? colorFn(item) : '#34d399';
+    const label = String(item[labelKey] || '—').substring(0, 22);
+    return `
+      <div class="bar-row">
+        <div class="bar-label" title="${item[labelKey]}">${label}</div>
+        <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${color};"></div></div>
+        <div class="bar-count">${fmt(item[countKey])}</div>
+      </div>`;
+  }).join('');
+}
+
+// ── Donut ────────────────────────────────────────────────────────────────────
+function buildDonut(normal, abnormal) {
+  const total = normal + abnormal || 1;
+  const nPct = Math.round(normal / total * 100);
+  const aPct = 100 - nPct;
+  document.getElementById('normal-pct').textContent   = nPct + '%';
+  document.getElementById('abnormal-pct').textContent = aPct + '%';
+
+  const ctx = document.getElementById('donutChart').getContext('2d');
+  if (donutChart) donutChart.destroy();
+  donutChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: ['Normal','Abnormal'],
+      datasets: [{
+        data:            [normal, abnormal],
+        backgroundColor: ['#34d399','#f87171'],
+        borderColor:     ['#0f1512'],
+        borderWidth:     3,
+        hoverOffset:     4,
+      }]
+    },
+    options: {
+      plugins: { legend: { display: false } },
+      cutout: '70%',
+      animation: { animateRotate: true }
+    }
+  });
+}
+
+// ── Critical table ───────────────────────────────────────────────────────────
+function buildCritical(log) {
+  const empty = document.getElementById('critical-empty');
+  const table = document.getElementById('critical-table');
+  const tbody = document.getElementById('critical-body');
+
+  if (!log || !log.length) {
+    empty.style.display = 'block';
+    table.style.display = 'none';
+    return;
+  }
+  empty.style.display = 'none';
+  table.style.display = 'table';
+
+  tbody.innerHTML = log.map(r => `
+    <tr>
+      <td style="color:#64748b;white-space:nowrap;">${r.received_at}</td>
+      <td><span class="proc-tag">${r.procedure || '—'}</span></td>
+      <td style="color:${modColor(r.modality)};font-weight:800;font-size:11px;">${r.modality}</td>
+      <td>${r.keywords.map(k => `<span class="keyword-badge">${k}</span>`).join('')}</td>
+      <td><span class="snippet">${r.snippet}</span></td>
+    </tr>`).join('');
+}
+
+// ── Main loader ──────────────────────────────────────────────────────────────
+function loadData() {
+  const proc = document.getElementById('proc-filter').value;
+  const days = document.getElementById('days-filter').value;
+  document.getElementById('cloud-spinner').style.display = 'flex';
+  document.getElementById('last-refresh').textContent = '';
+
+  fetch(`/oru/data?proc=${encodeURIComponent(proc)}&days=${days}`)
+    .then(r => r.json())
+    .then(d => {
+      // KPIs
+      document.getElementById('kpi-total').textContent    = fmt(d.total);
+      document.getElementById('kpi-normal').textContent   = fmt(d.normal);
+      document.getElementById('kpi-abnormal').textContent = fmt(d.abnormal);
+      document.getElementById('kpi-critical').textContent = fmt(d.critical_log.length);
+
+      buildCloud(d.cloud);
+      buildDonut(d.normal, d.abnormal);
+
+      buildBars('mod-list',  d.modalities, 'modality', 'count', i => modColor(i.modality));
+      buildBars('proc-list', d.top_procs,  'name',     'count', () => '#f59e0b');
+      buildBars('phys-list', d.physicians, 'id',       'count', () => '#a78bfa');
+
+      buildCritical(d.critical_log);
+
+      const now = new Date();
+      document.getElementById('last-refresh').textContent =
+        `Last refresh: ${now.toLocaleTimeString()}`;
+    })
+    .catch(err => {
+      console.error('ORU data error:', err);
+      document.getElementById('cloud-spinner').style.display = 'none';
+    });
+}
+
+// ── NLP status check ────────────────────────────────────────────────────────
+function checkNLPStatus() {
+  fetch('/oru/nlp/status')
+    .then(r => r.json())
+    .then(d => {
+      const el = document.getElementById('nlp-status-text');
+      if (d.processed === 0) {
+        el.textContent = `${d.total} reports · NLP not yet run`;
+        el.style.color = '#64748b';
+      } else if (d.pending > 0) {
+        el.textContent = `${d.processed} processed · ${d.pending} pending`;
+        el.style.color = '#f59e0b';
+      } else {
+        el.textContent = `${d.processed} reports fully processed`;
+        el.style.color = '#34d399';
+      }
+    }).catch(() => {});
+}
+
+// ── Run NLP ──────────────────────────────────────────────────────────────────
+let nlpDonutChart = null, sevChart = null;
+
+function runNLP() {
+  const days = document.getElementById('days-filter').value;
+  const btn  = document.getElementById('run-nlp-btn');
+  const toast = document.getElementById('nlp-toast');
+
+  btn.disabled = true;
+  btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Processing...';
+  toast.style.display = 'flex';
+  document.getElementById('nlp-toast-text').textContent = 'Running TF-IDF + K-means — this may take a few seconds...';
+
+  fetch('/oru/nlp/process', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({days: parseInt(days)})
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.error) {
+      document.getElementById('nlp-toast-text').textContent = 'Error: ' + d.error;
+      toast.style.background = 'rgba(248,113,113,0.08)';
+      toast.style.borderColor = 'rgba(248,113,113,0.25)';
+      toast.style.color = '#f87171';
+    } else {
+      document.getElementById('nlp-toast-text').textContent =
+        `✓ ${d.message}`;
+      setTimeout(() => { toast.style.display = 'none'; }, 3000);
+      checkNLPStatus();
+      loadNLPResults();
+    }
+  })
+  .catch(err => {
+    document.getElementById('nlp-toast-text').textContent = 'Request failed: ' + err;
+  })
+  .finally(() => {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-cpu"></i> Run NLP Analysis';
+  });
+}
+
+// ── Load NLP results ─────────────────────────────────────────────────────────
+function loadNLPResults() {
+  const proc = document.getElementById('proc-filter').value;
+  const days = document.getElementById('days-filter').value;
+
+  fetch(`/oru/nlp/results?proc=${encodeURIComponent(proc)}&days=${days}`)
+    .then(r => r.json())
+    .then(d => {
+      if (!d.has_data) {
+        document.getElementById('nlp-section').style.display = 'none';
+        return;
+      }
+      document.getElementById('nlp-section').style.display = 'block';
+      document.getElementById('nlp-result-meta').textContent =
+        `${d.total.toLocaleString()} classified reports · ${d.clusters.length} clusters`;
+
+      renderNLPDonut(d.classification);
+      renderSeverity(d.severity_histogram);
+      renderClusters(d.clusters);
+      renderNLPKeywords(d.top_keywords);
+    });
+}
+
+function renderNLPDonut(cls) {
+  const total = (cls.normal + cls.borderline + cls.critical) || 1;
+  document.getElementById('nlp-normal-pct').textContent    = Math.round(cls.normal    / total * 100) + '%';
+  document.getElementById('nlp-borderline-pct').textContent= Math.round(cls.borderline/ total * 100) + '%';
+  document.getElementById('nlp-critical-pct').textContent  = Math.round(cls.critical  / total * 100) + '%';
+
+  const ctx = document.getElementById('nlpDonutChart').getContext('2d');
+  if (nlpDonutChart) nlpDonutChart.destroy();
+  nlpDonutChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: ['Normal','Borderline','Critical'],
+      datasets: [{
+        data: [cls.normal, cls.borderline, cls.critical],
+        backgroundColor: ['#34d399','#f59e0b','#f87171'],
+        borderColor: ['#0f1512'], borderWidth: 3, hoverOffset: 4,
+      }]
+    },
+    options: { plugins: { legend: { display: false } }, cutout: '70%' }
+  });
+}
+
+function renderSeverity(buckets) {
+  const ctx = document.getElementById('sevChart').getContext('2d');
+  if (sevChart) sevChart.destroy();
+  sevChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: ['1 — Normal','2','3 — Borderline','4','5 — Critical'],
+      datasets: [{
+        data: buckets,
+        backgroundColor: ['#34d399','#84cc16','#f59e0b','#fb923c','#f87171'],
+        borderRadius: 6,
+      }]
+    },
+    options: {
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { color: '#1e2d27' }, ticks: { color: '#64748b', font: { size: 10 } } },
+        y: { grid: { color: '#1e2d27' }, ticks: { color: '#64748b', font: { size: 10 } } },
+      }
+    }
+  });
+}
+
+function renderClusters(clusters) {
+  const el = document.getElementById('cluster-list');
+  const maxCount = Math.max(...clusters.map(c => c.count), 1);
+  const palette = ['#60a5fa','#a78bfa','#34d399','#f59e0b','#f87171','#67e8f9','#fbbf24','#2dd4bf'];
+
+  el.innerHTML = clusters.map((c, i) => {
+    const color = palette[i % palette.length];
+    const pct   = Math.round(c.count / maxCount * 100);
+    const sevColor = c.avg_sev >= 4 ? '#f87171' : c.avg_sev >= 2.5 ? '#f59e0b' : '#34d399';
+    return `
+      <div style="background:#0f1512;border:1px solid #1e2d27;border-radius:10px;padding:14px 16px;border-left:3px solid ${color};">
+        <div style="font-size:11px;font-weight:800;color:${color};margin-bottom:6px;">${c.label || 'Cluster ' + c.id}</div>
+        <div style="background:#151e1a;border-radius:4px;height:6px;overflow:hidden;margin-bottom:8px;">
+          <div style="width:${pct}%;height:100%;background:${color};border-radius:4px;"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:10px;font-weight:700;">
+          <span style="color:#64748b;">${c.count.toLocaleString()} reports</span>
+          <span style="color:${sevColor};">avg severity ${c.avg_sev}</span>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function renderNLPKeywords(words) {
+  const el = document.getElementById('nlp-kw-bars');
+  if (!words || !words.length) { el.innerHTML = '<div class="empty-state">No keywords extracted</div>'; return; }
+  const max = words[0].count;
+  const palette = ['#a78bfa','#60a5fa','#34d399','#f59e0b','#f87171'];
+  el.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:6px;">` +
+    words.slice(0, 40).map((w, i) => {
+      const pct   = Math.round(w.count / max * 100);
+      const color = palette[i % palette.length];
+      return `
+        <div class="bar-row">
+          <div class="bar-label">${w.word}</div>
+          <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${color};"></div></div>
+          <div class="bar-count">${w.count}</div>
+        </div>`;
+    }).join('') + '</div>';
+}
+
+// ── Boot ─────────────────────────────────────────────────────────────────────
+document.getElementById('proc-filter').addEventListener('change', loadData);
+document.getElementById('days-filter').addEventListener('change', loadData);
+loadData();
+checkNLPStatus();
+</script>
+</body>
+</html>
