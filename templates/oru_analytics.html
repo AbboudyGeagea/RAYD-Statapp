@@ -220,8 +220,8 @@
                   <th>Received</th>
                   <th>Procedure</th>
                   <th>Modality</th>
-                  <th>Keywords</th>
-                  <th>Impression Snippet</th>
+                  <th>Diagnoses</th>
+                  <th>Report Snippet</th>
                 </tr>
               </thead>
               <tbody id="critical-body"></tbody>
@@ -440,13 +440,14 @@ function buildCritical(log) {
   empty.style.display = 'none';
   table.style.display = 'table';
 
+  const esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   tbody.innerHTML = log.map(r => `
     <tr>
-      <td style="color:#64748b;white-space:nowrap;">${r.received_at}</td>
-      <td><span class="proc-tag">${r.procedure || '—'}</span></td>
-      <td style="color:${modColor(r.modality)};font-weight:800;font-size:11px;">${r.modality}</td>
-      <td>${r.keywords.map(k => `<span class="keyword-badge">${k}</span>`).join('')}</td>
-      <td><span class="snippet">${r.snippet}</span></td>
+      <td style="color:#64748b;white-space:nowrap;">${esc(r.received_at)}</td>
+      <td><span class="proc-tag">${esc(r.procedure || '—')}</span></td>
+      <td style="color:${modColor(r.modality)};font-weight:800;font-size:11px;">${esc(r.modality)}</td>
+      <td>${(r.keywords||[]).map(k => `<span class="keyword-badge">${esc(k)}</span>`).join('')}</td>
+      <td><span class="snippet">${esc(r.snippet) || '<em style="color:#475569">—</em>'}</span></td>
     </tr>`).join('');
 }
 

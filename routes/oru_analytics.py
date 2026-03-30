@@ -221,11 +221,31 @@ def _is_normal(text):
     return any(p in t for p in NORMAL_PHRASES)
 
 
-def _has_critical(text):
+# Labels considered benign — excluded from the critical findings log
+_BENIGN_LABELS = {'No Acute Finding', 'Unremarkable', 'Normal'}
+
+def _best_text(row):
+    """Return the most meaningful text from a report row, stripping whitespace."""
+    imp = (row.impression_text or '').strip()
+    rep = (row.report_text or '').strip()
+    return imp or rep
+
+def _matched_diagnoses(text):
+    """
+    Return list of canonical diagnosis labels found in text, excluding benign ones.
+    Uses the same DIAGNOSES vocabulary as the treemap so both panels are consistent.
+    """
     if not text:
         return []
     t = text.lower()
-    return [k for k in CRITICAL if k in t]
+    seen, found = set(), []
+    for phrase, label in DIAGNOSES:
+        if label in _BENIGN_LABELS:
+            continue
+        if label not in seen and phrase in t:
+            seen.add(label)
+            found.append(label)
+    return found
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
@@ -299,14 +319,15 @@ def oru_data():
     # ── Critical findings (most recent 20) ───────────────────────────────────
     critical_log = []
     for r in rows:
-        hits = _has_critical(r.impression_text or r.report_text)
+        text = _best_text(r)
+        hits = _matched_diagnoses(text)
         if hits:
             critical_log.append({
-                'procedure':  (r.procedure_name or r.procedure_code or '—').strip(),
-                'modality':   (r.modality or '—').upper(),
-                'keywords':   hits[:5],
+                'procedure':   (r.procedure_name or r.procedure_code or '—').strip(),
+                'modality':    (r.modality or '—').upper(),
+                'keywords':    hits[:5],
                 'received_at': r.received_at.strftime('%Y-%m-%d %H:%M') if r.received_at else '—',
-                'snippet':    (r.impression_text or r.report_text or '')[:200],
+                'snippet':     text[:220],
             })
     critical_log = critical_log[:20]
 
