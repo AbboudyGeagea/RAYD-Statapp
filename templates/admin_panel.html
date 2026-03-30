@@ -78,11 +78,21 @@
                                 class="bg-[#181f1c] border border-[#28332e] text-xs font-bold text-white px-3 py-1.5 rounded-lg focus:outline-none focus:border-[#f59e0b] transition-colors">
                         </div>
                     </div>
-                    <div class="flex items-center gap-2">
-                        <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Demo User</label>
-                        <input type="text" id="demo-user" value="{{ demo_user }}" placeholder="username"
-                            class="bg-[#181f1c] border border-[#28332e] text-xs font-bold text-white px-3 py-1.5 rounded-lg focus:outline-none focus:border-[#f59e0b] transition-colors w-40">
-                        <span class="text-[10px] text-slate-600">Only this user + admin can log in during demo</span>
+                    <div class="flex items-center gap-3 flex-wrap">
+                        <div class="flex items-center gap-2">
+                            <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Demo User</label>
+                            <input type="text" id="demo-user" value="{{ demo_user }}" placeholder="username"
+                                class="bg-[#181f1c] border border-[#28332e] text-xs font-bold text-white px-3 py-1.5 rounded-lg focus:outline-none focus:border-[#f59e0b] transition-colors w-36">
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Password</label>
+                            <input type="password" id="demo-password" placeholder="set / reset password"
+                                class="bg-[#181f1c] border border-[#28332e] text-xs font-bold text-white px-3 py-1.5 rounded-lg focus:outline-none focus:border-[#f59e0b] transition-colors w-44">
+                        </div>
+                        <button onclick="saveDemoUser()" class="text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg bg-[#1e293b] border border-[#334155] text-slate-300 hover:border-[#f59e0b] hover:text-[#f59e0b] transition-colors">
+                            Save User
+                        </button>
+                        <span class="text-[10px] text-slate-600">Account is created automatically if it doesn't exist</span>
                     </div>
                 </div>
 
@@ -314,10 +324,28 @@
         function _demoPayload(enabled) {
             return {
                 enabled,
-                start:     document.getElementById('demo-start').value,
-                end:       document.getElementById('demo-end').value,
-                demo_user: document.getElementById('demo-user').value.trim(),
+                start:         document.getElementById('demo-start').value,
+                end:           document.getElementById('demo-end').value,
+                demo_user:     document.getElementById('demo-user').value.trim(),
+                demo_password: document.getElementById('demo-password').value,
             };
+        }
+
+        async function saveDemoUser() {
+            const btn = document.querySelector('[data-enabled]');
+            const enabled = btn ? btn.dataset.enabled === 'true' : false;
+            const res = await fetch('{{ url_for("admin.set_demo_mode") }}', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(_demoPayload(enabled))
+            });
+            const data = await res.json();
+            if (data.status === 'ok') {
+                document.getElementById('demo-password').value = '';
+                alert('Demo user saved.');
+            } else {
+                alert('Error: ' + (data.message || 'unknown'));
+            }
         }
 
         async function toggleDemoMode(btn) {

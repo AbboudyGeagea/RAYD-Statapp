@@ -184,17 +184,40 @@ def sync_mappings():
 def set_demo_mode():
     if current_user.role != 'admin':
         return abort(403)
-    data      = request.get_json()
-    enabled   = 'true' if data.get('enabled') else 'false'
-    start     = data.get('start', '')
-    end       = data.get('end', '')
-    demo_user = data.get('demo_user', '')
-    for key, val in [('demo_mode', enabled), ('demo_start', start), ('demo_end', end), ('demo_user', demo_user)]:
+    data           = request.get_json()
+    enabled        = 'true' if data.get('enabled') else 'false'
+    start          = data.get('start', '')
+    end            = data.get('end', '')
+    demo_username  = (data.get('demo_user') or '').strip()
+    demo_password  = (data.get('demo_password') or '').strip()
+
+    for key, val in [('demo_mode', enabled), ('demo_start', start), ('demo_end', end), ('demo_user', demo_username)]:
         exists = db.session.execute(text("SELECT 1 FROM settings WHERE key = :k"), {'k': key}).fetchone()
         if exists:
             db.session.execute(text("UPDATE settings SET value = :v WHERE key = :k"), {'k': key, 'v': val})
         else:
             db.session.execute(text("INSERT INTO settings (key, value) VALUES (:k, :v)"), {'k': key, 'v': val})
+
+    # If a password was provided, update (or create) the demo user account
+    if demo_username and demo_password:
+        from werkzeug.security import generate_password_hash
+        from db import UserPagePermission
+        user = User.query.filter_by(username=demo_username).first()
+        if user:
+            user.password_hash = generate_password_hash(demo_password, method='pbkdf2:sha256')
+        else:
+            # Create the demo user as a viewer if they don't exist yet
+            user = User(
+                username=demo_username,
+                password_hash=generate_password_hash(demo_password, method='pbkdf2:sha256'),
+                role='viewer'
+            )
+            db.session.add(user)
+            db.session.flush()
+            # Grant all page permissions to the new demo account
+            for page_key in ['live_feed', 'hl7_orders', 'report_ai', 'bitnet', 'oru']:
+                db.session.add(UserPagePermission(user_id=user.id, page_key=page_key, is_enabled=True))
+
     db.session.commit()
     return jsonify({'status': 'ok'})
 

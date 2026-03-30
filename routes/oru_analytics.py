@@ -20,6 +20,18 @@ STOP = {
     'there','their','they','from','by','about','into','through','during',
     'above','below','between','out','off','over','under','again','further',
     'all','any','both','each','own','same','than','s','t','re','ll','ve',
+    # French
+    'le','la','les','un','une','des','du','de','en','et','ou','mais','donc',
+    'or','ni','car','que','qui','quoi','dont','où','ce','cet','cette','ces',
+    'mon','ton','son','ma','ta','sa','nos','vos','leur','leurs','mes','tes','ses',
+    'je','tu','il','elle','nous','vous','ils','elles','me','te','se','lui',
+    'sur','sous','dans','par','pour','avec','sans','entre','vers','chez',
+    'plus','moins','très','bien','pas','peu','trop','tout','tous','toute','toutes',
+    'est','sont','être','avoir','faire','dit','ainsi','lors','puis',
+    'aux','au','aucun','aucune','autre','autres','même','comme',
+    'cela','ceci','celui','celle','ceux','celles','ici','là',
+    'après','avant','pendant','depuis','quand','comment','pourquoi',
+    'aussi','encore','toujours','jamais','rien','chaque','chacun',
     # Radiology boilerplate
     'findings','finding','noted','note','seen','identified','demonstrated',
     'shows','shown','appear','appears','within','without','normal','limits',
