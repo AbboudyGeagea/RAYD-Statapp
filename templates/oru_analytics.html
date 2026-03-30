@@ -6,7 +6,7 @@
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/wordcloud2.js@1.2.2/src/wordcloud2.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-chart-treemap@2.3.0/dist/chartjs-chart-treemap.min.js"></script>
 <style>
   :root { --bg:#181f1c; --card:#1a211e; --border:#1e2d27; --text:#e2e8f0; --muted:#64748b; }
   body { background:var(--bg); color:var(--text); margin:0; font-family:'Inter',system-ui,sans-serif; }
@@ -168,12 +168,12 @@
       <!-- Main grid -->
       <div class="main-grid">
 
-        <!-- Word Cloud -->
+        <!-- Term Treemap -->
         <div class="card full-width">
-          <div class="card-title"><i class="bi bi-cloud-fill" style="color:#a78bfa;"></i>Report Word Cloud</div>
-          <div id="cloud-wrap" style="position:relative;height:340px;background:#0f1512;border-radius:8px;overflow:hidden;">
+          <div class="card-title"><i class="bi bi-grid-fill" style="color:#a78bfa;"></i>Report Term Treemap <span style="font-weight:400;color:#4b7a63;font-size:9px;margin-left:6px;">sized by frequency · top 60 terms</span></div>
+          <div style="position:relative;height:340px;">
             <canvas id="cloud-canvas"></canvas>
-            <div id="cloud-spinner" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#0f1512;">
+            <div id="cloud-spinner" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#1a211e;border-radius:8px;">
               <div class="spinner"></div>
             </div>
           </div>
@@ -302,45 +302,77 @@ function modColor(m) { return MODALITY_COLORS[m] || '#64748b'; }
 
 function fmt(n) { return Number(n).toLocaleString(); }
 
-// ── Word cloud ───────────────────────────────────────────────────────────────
+// ── Term Treemap ─────────────────────────────────────────────────────────────
+let cloudChart = null;
+const TREEMAP_PALETTE = ['#a78bfa','#818cf8','#60a5fa','#38bdf8','#34d399','#2dd4bf','#f59e0b','#fb923c','#f87171','#f472b6'];
+
+function termColor(ratio) {
+  if (ratio > 0.8) return '#a78bfa';
+  if (ratio > 0.6) return '#60a5fa';
+  if (ratio > 0.4) return '#34d399';
+  if (ratio > 0.2) return '#f59e0b';
+  return '#4b7a63';
+}
+
 function buildCloud(words) {
-  document.getElementById('cloud-spinner').style.display = 'flex';
-  const canvas = document.getElementById('cloud-canvas');
-  const wrap   = document.getElementById('cloud-wrap');
-  canvas.width  = wrap.clientWidth;
-  canvas.height = wrap.clientHeight;
+  document.getElementById('cloud-spinner').style.display = 'none';
 
   if (!words || !words.length) {
-    document.getElementById('cloud-spinner').style.display = 'none';
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#4b7a63';
-    ctx.font = 'bold 14px Inter';
-    ctx.textAlign = 'center';
-    ctx.fillText('No report data in selected period', canvas.width / 2, canvas.height / 2);
+    document.getElementById('cloud-spinner').innerHTML =
+      '<span style="color:#4b7a63;font-size:12px;font-weight:700;">No report data in selected period</span>';
+    document.getElementById('cloud-spinner').style.display = 'flex';
     return;
   }
 
-  const maxCount = words[0].count;
-  const list = words.map(w => [w.word, Math.max(12, Math.round(w.count / maxCount * 72))]);
+  const top      = words.slice(0, 60);
+  const maxCount = top[0].count;
+  const ctx      = document.getElementById('cloud-canvas').getContext('2d');
 
-  const palette = ['#a78bfa','#60a5fa','#34d399','#f59e0b','#f87171','#67e8f9','#fbbf24','#2dd4bf'];
-  let pi = 0;
+  if (cloudChart) cloudChart.destroy();
 
-  WordCloud(canvas, {
-    list,
-    gridSize:     8,
-    weightFactor: 1,
-    fontFamily:   'Inter, system-ui, sans-serif',
-    fontWeight:   '800',
-    color:        () => palette[(pi++) % palette.length],
-    rotateRatio:  0.25,
-    rotationSteps:2,
-    backgroundColor: '#0f1512',
-    drawOutOfBound:  false,
-    shuffle:      true,
-    wait:         0,
+  cloudChart = new Chart(ctx, {
+    type: 'treemap',
+    data: {
+      datasets: [{
+        tree:  top.map(w => ({ v: w.count, l: w.word })),
+        key:   'v',
+        labels: {
+          display:   true,
+          formatter: (c) => c.raw && c.raw._data ? c.raw._data.l : '',
+          color:     '#e2e8f0',
+          font:      { family: 'Inter, system-ui, sans-serif', weight: '800', size: 11 },
+          hoverColor:'#ffffff',
+        },
+        backgroundColor: (c) => {
+          if (!c.raw || !c.raw._data) return '#1e2d27';
+          return termColor(c.raw._data.v / maxCount);
+        },
+        borderColor:  '#0f1512',
+        borderWidth:  2,
+        spacing:      1,
+      }]
+    },
+    options: {
+      responsive:          true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            title: () => '',
+            label: (c) => c.raw && c.raw._data
+              ? ` ${c.raw._data.l}  ·  ${c.raw._data.v.toLocaleString()} occurrences`
+              : '',
+          },
+          bodyFont:  { size: 12, weight: 'bold' },
+          bodyColor: '#e2e8f0',
+          backgroundColor: '#232b28',
+          borderColor: '#1e2d27',
+          borderWidth: 1,
+        },
+      },
+    },
   });
-  document.getElementById('cloud-spinner').style.display = 'none';
 }
 
 // ── Bar list helper ──────────────────────────────────────────────────────────
@@ -422,7 +454,6 @@ function buildCritical(log) {
 function loadData() {
   const proc = document.getElementById('proc-filter').value;
   const days = document.getElementById('days-filter').value;
-  document.getElementById('cloud-spinner').style.display = 'flex';
   document.getElementById('last-refresh').textContent = '';
 
   fetch(`/oru/data?proc=${encodeURIComponent(proc)}&days=${days}`)
@@ -455,7 +486,6 @@ function loadData() {
     })
     .catch(err => {
       console.error('ORU data error:', err);
-      document.getElementById('cloud-spinner').style.display = 'none';
     });
 }
 
