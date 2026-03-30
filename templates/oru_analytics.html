@@ -428,20 +428,26 @@ function loadData() {
   fetch(`/oru/data?proc=${encodeURIComponent(proc)}&days=${days}`)
     .then(r => r.json())
     .then(d => {
-      // KPIs
+      // KPIs — plain DOM, always runs
       document.getElementById('kpi-total').textContent    = fmt(d.total);
       document.getElementById('kpi-normal').textContent   = fmt(d.normal);
       document.getElementById('kpi-abnormal').textContent = fmt(d.abnormal);
       document.getElementById('kpi-critical').textContent = fmt(d.critical_log.length);
 
-      buildCloud(d.cloud);
-      buildDonut(d.normal, d.abnormal);
+      // Each panel isolated — one failure won't block the others
+      try { buildDonut(d.normal, d.abnormal); }        catch(e) { console.warn('donut', e); }
+      try { buildBars('mod-list',  d.modalities, 'modality', 'count', i => modColor(i.modality)); } catch(e) { console.warn('mod', e); }
+      try { buildBars('proc-list', d.top_procs,  'name',     'count', () => '#f59e0b'); }           catch(e) { console.warn('proc', e); }
+      try { buildBars('phys-list', d.physicians, 'id',       'count', () => '#a78bfa'); }           catch(e) { console.warn('phys', e); }
+      try { buildCritical(d.critical_log); }           catch(e) { console.warn('critical', e); }
 
-      buildBars('mod-list',  d.modalities, 'modality', 'count', i => modColor(i.modality));
-      buildBars('proc-list', d.top_procs,  'name',     'count', () => '#f59e0b');
-      buildBars('phys-list', d.physicians, 'id',       'count', () => '#a78bfa');
-
-      buildCritical(d.critical_log);
+      // Word cloud last — deferred so layout is complete before measuring canvas
+      setTimeout(() => {
+        try { buildCloud(d.cloud); } catch(e) {
+          console.warn('cloud', e);
+          document.getElementById('cloud-spinner').style.display = 'none';
+        }
+      }, 100);
 
       const now = new Date();
       document.getElementById('last-refresh').textContent =
