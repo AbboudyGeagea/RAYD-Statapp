@@ -27,7 +27,7 @@ COPY . .
 # LD_LIBRARY_PATH must point to the folder we map in docker-compose.yml
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
-ENV LD_LIBRARY_PATH=/opt/oracle/instantclient_19_19
+ENV LD_LIBRARY_PATH=/opt/oracle/instantclient_21_13
 
 # 6. Expose the internal port (Nginx will handle 443 externally)
 EXPOSE 8080

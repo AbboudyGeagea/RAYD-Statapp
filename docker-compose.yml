@@ -20,33 +20,35 @@ services:
     restart: always
     ports:
       - "6661:6661"
+    env_file:
+      - .env
     environment:
       # ── Core ─────────────────────────────────────────────────
-      - TZ=Asia/Beirut
-      - SECRET_KEY=P@ssw0rd123!
+      - TZ=${TZ:-Asia/Beirut}
+      - SECRET_KEY=${SECRET_KEY}
       - LD_LIBRARY_PATH=/opt/oracle/instantclient_21_13
 
       # ── Database ─────────────────────────────────────────────
-      - POSTGRES_USER=etl_user
-      - POSTGRES_PASSWORD=SecureCrynBabe
-      - POSTGRES_HOST=db
-      - POSTGRES_PORT=5432
-      - POSTGRES_DB=etl_db
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_HOST=${POSTGRES_HOST:-db}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_DB=${POSTGRES_DB}
+
+      # ── Master Admin ──────────────────────────────────────────
+      - MASTER_ADMIN_KEY=${MASTER_ADMIN_KEY}
 
       # ── Feature Flags ─────────────────────────────────────────
-      - PATIENT_PORTAL_ENABLED=true
-      - LIVE_FEED_ENABLED=true
+      - PATIENT_PORTAL_ENABLED=${PATIENT_PORTAL_ENABLED:-true}
+      - LIVE_FEED_ENABLED=${LIVE_FEED_ENABLED:-true}
 
       # ── BitNet AI Assistant ───────────────────────────────────
-      - BITNET_ENABLED=true
-      # llama-server runs on the host, container reaches it via docker bridge IP
-      - BITNET_SERVER=http://172.17.0.1:8081
-      - BITNET_TOKENS=200
-      - BITNET_TIMEOUT=120
+      - BITNET_ENABLED=${BITNET_ENABLED:-true}
+      - BITNET_SERVER=${BITNET_SERVER:-http://172.17.0.1:8081}
+      - BITNET_TOKENS=${BITNET_TOKENS:-200}
+      - BITNET_TIMEOUT=${BITNET_TIMEOUT:-120}
 
     volumes:
-      # No longer needed for inference (llama-server runs on host)
-      # Kept in case health check or fallback needs it
       - /home/stats/BitNet:/home/stats/BitNet:ro
 
     depends_on:
@@ -58,14 +60,14 @@ services:
     container_name: rayd_db
     restart: always
     environment:
-      - POSTGRES_USER=etl_user
-      - POSTGRES_PASSWORD=SecureCrynBabe
-      - POSTGRES_DB=etl_db
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init-db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U etl_user -d etl_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
