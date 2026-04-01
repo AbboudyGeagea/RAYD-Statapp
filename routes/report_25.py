@@ -265,16 +265,17 @@ def get_gold_standard_data(form_data):
         shift_rows = db.session.execute(text("""
             SELECT
                 CASE
-                    WHEN EXTRACT(HOUR FROM s.scheduled_datetime) >= :ms AND EXTRACT(HOUR FROM s.scheduled_datetime) < :me THEN 'Morning'
-                    WHEN EXTRACT(HOUR FROM s.scheduled_datetime) >= :as AND EXTRACT(HOUR FROM s.scheduled_datetime) < :ae THEN 'Afternoon'
+                    WHEN EXTRACT(HOUR FROM o.scheduled_datetime) >= :ms AND EXTRACT(HOUR FROM o.scheduled_datetime) < :me THEN 'Morning'
+                    WHEN EXTRACT(HOUR FROM o.scheduled_datetime) >= :as AND EXTRACT(HOUR FROM o.scheduled_datetime) < :ae THEN 'Afternoon'
                     ELSE 'Night'
                 END AS shift,
                 COALESCE(UPPER(m.modality), 'N/A') AS modality,
                 COUNT(*) AS cnt
-            FROM etl_didb_studies s
+            FROM etl_orders o
+            JOIN etl_didb_studies s ON s.study_db_uid = o.study_db_uid
             LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
             WHERE s.study_date BETWEEN :start AND :end
-              AND s.scheduled_datetime IS NOT NULL
+              AND o.scheduled_datetime IS NOT NULL
             GROUP BY 1, 2
             ORDER BY 1, 2
         """), {

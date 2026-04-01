@@ -109,6 +109,28 @@
   .gap-table td { padding:7px 10px;border-bottom:1px solid #0f172a;color:#cbd5e1;font-weight:600; }
   .gap-table tr:hover td { background:#1e293b; }
   .gap-count-badge { display:inline-block;background:#7f1d1d;color:#fca5a5;font-size:10px;font-weight:800;padding:2px 8px;border-radius:20px;min-width:30px;text-align:center; }
+
+  /* ── Light mode ─────────────────────────────────────────── */
+  body.light { --bg:#f0f4f8; --card:#ffffff; --border:#e2e8f0; --text:#1a202c; --muted:#718096; }
+  body.light aside, body.light header { background:#ffffff !important; border-color:#e2e8f0 !important; }
+  body.light aside .sidebar-item { color:#4a5568; }
+  body.light aside .sidebar-item:hover, body.light aside .sidebar-item.active { background:#e2e8f0 !important; border-color:#cbd5e1 !important; color:#2b6cb0 !important; box-shadow:none; }
+  body.light .card-title { color:#4a5568; }
+  body.light .filter-bar select, body.light .filter-bar button { background:#f8fafc; border-color:#e2e8f0; color:#1a202c; }
+  body.light .filter-bar select:focus, body.light .filter-bar button:hover { border-color:#34d399; color:#16a34a; }
+  body.light .bar-label { color:#4a5568; }
+  body.light .bar-track { background:#e2e8f0; }
+  body.light .bar-count { color:#1a202c; }
+  body.light .crit-table th { color:#4a5568; border-bottom-color:#e2e8f0; }
+  body.light .crit-table td { border-bottom-color:#f0f4f8; }
+  body.light .snippet { color:#718096; }
+  body.light .export-btn { background:#f8fafc; border-color:#e2e8f0; color:#4a5568; }
+  body.light .export-btn:hover { border-color:#60a5fa; color:#2563eb; }
+  body.light .gap-table th { color:#4a5568; border-bottom-color:#e2e8f0; }
+  body.light .gap-table td { color:#1a202c; border-bottom-color:#f0f4f8; }
+  body.light .gap-table tr:hover td { background:#f0f4f8; }
+  body.light .spinner { border-color:#e2e8f0; border-top-color:#34d399; }
+  body.light .empty-state { color:#718096; }
 </style>
 </head>
 <body>
@@ -989,6 +1011,19 @@ document.getElementById('proc-filter').addEventListener('change', loadData);
 document.getElementById('days-filter').addEventListener('change', loadData);
 loadData();
 checkNLPStatus();
+
+// ── Theme ─────────────────────────────────────────────────────────────────────
+function applyTheme(theme) {
+    document.body.classList.toggle('light', theme === 'light');
+    const icon = document.getElementById('theme-icon');
+    if (icon) icon.className = theme === 'light' ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
+}
+applyTheme("{{ ui_theme }}");
+function toggleTheme() {
+    const next = document.body.classList.contains('light') ? 'dark' : 'light';
+    applyTheme(next);
+    fetch('/user/theme', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({theme: next}) });
+}
 </script>
 </body>
 </html>
