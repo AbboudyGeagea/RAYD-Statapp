@@ -77,6 +77,14 @@
                             <a href="#report27" class="toc-link">Report 27 — Audit & Compare</a>
                             <a href="#report29" class="toc-link">Report 29 — Storage Audit</a>
                             <a href="#reportai" class="toc-link">Report AI — Predictive</a>
+                            <a href="#reportnlp" class="toc-link">Report Intelligence — NLP</a>
+                            <a href="#livefeed" class="toc-link">Live Feed</a>
+                            <a href="#hl7orders" class="toc-link">HL7 Orders</a>
+                            <a href="#capacityladder" class="toc-link">Capacity Ladder</a>
+                            <a href="#mappingconsole" class="toc-link">Mapping Console</a>
+                            <a href="#etlstatus" class="toc-link">ETL Status</a>
+                            <a href="#aiassistant" class="toc-link">AI Assistant</a>
+                            <a href="#patientportal" class="toc-link">Patient Portal</a>
                         </nav>
                     </div>
                 </aside>
@@ -961,6 +969,359 @@
                                     <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> For each module (Storage, Volume, Utilisation, Physician), a natural-language paragraph summarising the key finding, the trend direction, and any anomalies detected. Generated automatically every time the report runs.</p>
                                     <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Template-based text generation using Python f-strings populated with computed metrics (slope, anomaly count, days-to-full, churning physician names). No external LLM required — fully deterministic.</p>
                                     <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Translates statistical results into plain English suitable for clinical leadership who may not interpret charts intuitively. The summary can be copied directly into a weekly operational report or email briefing.</p></div>
+                                </div>
+                            </div>
+
+                        </div>
+                    </section>
+
+                    <!-- ══════════════════════════════════════════
+                         REPORT INTELLIGENCE — NLP / oru_analytics
+                    ══════════════════════════════════════════ -->
+                    <section id="reportnlp">
+                        <div class="flex items-center gap-3 mb-4">
+                            <span class="report-badge" style="background:rgba(16,185,129,0.12);color:#10b981;border:1px solid rgba(16,185,129,0.25);">Report Intelligence</span>
+                            <h2 class="text-lg font-black text-white tracking-tight">Report Intelligence — NLP Analysis</h2>
+                        </div>
+                        <p class="text-slate-400 text-sm mb-5 leading-relaxed">Natural-language processing of radiology reports stored in the RIS. Analyses report text to extract clinical language patterns, classify outcomes, flag critical findings, and surface quality gaps — all without sending data outside your server.</p>
+
+                        <div class="doc-card">
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-pie"><i class="bi bi-pie-chart"></i> Donut</span>
+                                    <span class="tag tag-tree"><i class="bi bi-grid"></i> Treemap</span>
+                                    <span class="font-bold text-sm text-white">Normal / Abnormal Classification</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> A donut chart splitting all analysed reports into Normal, Abnormal, and Critical categories. The treemap breaks down the same classification by modality, so you can immediately see which imaging type produces the highest abnormality rate.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Keyword-matching on report conclusion sections using curated term lists (e.g. "no acute", "unremarkable", "within normal limits" → Normal; "lesion", "mass", "fracture", "obstruction" → Abnormal; "critical", "urgent", "immediate" → Critical). Each report gets a single highest-severity classification.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> A radiology department with a 40% abnormal rate in chest X-rays versus 15% in MSK is capturing a very different patient population. This baseline helps benchmark report quality and flag unexpected classification shifts that may indicate transcription shortcuts.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-kpi"><i class="bi bi-exclamation-triangle"></i> KPI</span>
+                                    <span class="tag tag-table"><i class="bi bi-table"></i> Table</span>
+                                    <span class="font-bold text-sm text-white">Critical Findings Log</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> A filterable table of every report flagged as Critical, showing accession number, patient ID, modality, radiologist, date, and the triggering phrase extracted from the report text.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Reports are scanned for a configurable list of critical-finding keywords. The exact sentence containing the trigger phrase is extracted and displayed. The list is exportable.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Provides an auditable critical-findings register without requiring any change to RIS workflow. Useful for accreditation evidence and for verifying that critical findings are being communicated in a timely manner.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-bar"><i class="bi bi-bar-chart"></i> Bar</span>
+                                    <span class="font-bold text-sm text-white">Section-Level Term Frequency</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Top N most frequent clinical terms broken down by report section: Technique, Findings (Résultats), and Conclusion. Each section is analysed independently, revealing vocabulary used at each stage of the reporting process.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Reports are parsed using section delimiters. Stop-words, conjunctions, and generic radiology boilerplate are removed. The remaining tokens are counted and ranked. Bigrams (two-word phrases) are also detected where frequency exceeds a threshold.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Identifies over-used phrases that may indicate template copying ("clinical correlation is suggested" appearing in 90% of conclusions) and helps standardise reporting language across the department.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-tree"><i class="bi bi-grid"></i> Treemap</span>
+                                    <span class="font-bold text-sm text-white">Report Term Treemap</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> A proportional treemap where each rectangle is a clinical term, sized by frequency and coloured by section origin (Technique / Findings / Conclusion). Hovering shows the exact count and percentage of reports containing that term.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Provides an immediate visual vocabulary fingerprint of the department. A department specialising in neuro will have a visually distinct treemap from one focused on MSK — deviations from the expected pattern may indicate data quality issues or unexpected case-mix shifts.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-table"><i class="bi bi-table"></i> Table</span>
+                                    <span class="tag tag-bar"><i class="bi bi-bar-chart"></i> Bar</span>
+                                    <span class="font-bold text-sm text-white">Gap Analysis — Empty Sections per Radiologist</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> For each radiologist, the percentage of reports where one or more structured sections (Technique, Findings, Conclusion) were left empty or contained fewer than a minimum character count. Presented as a ranked bar chart and sortable table.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Each report section is extracted and tested against a minimum-length threshold (configurable, default 20 characters). A report fails the gap check if any mandatory section is below the threshold. Rate = failed reports ÷ total reports for that radiologist.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Structural completeness is a core accreditation requirement. This module provides an objective, data-driven audit that can be used in radiologist performance reviews and for identifying training needs without manual report review.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-bar"><i class="bi bi-bar-chart"></i> Bar</span>
+                                    <span class="font-bold text-sm text-white">Physician Activity &amp; Report Volume</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Report count per radiologist over the selected period, with breakdown by classification (Normal / Abnormal / Critical) shown as a stacked bar. A separate panel shows each radiologist's average word count and average report completion time (draft to final).</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Combines productivity (volume) with quality indicators (word count, classification rate, gap rate from the adjacent module). A radiologist with high volume but low word count and high gap rate is a different risk profile than one with lower volume and complete structured reports.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-scatter"><i class="bi bi-diagram-2"></i> Cluster</span>
+                                    <span class="font-bold text-sm text-white">Severity Scoring &amp; Cluster Analysis</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Each report is assigned a numeric severity score (0 = normal, 1 = minor finding, 2 = significant, 3 = critical). Reports are then grouped into clusters using keyword co-occurrence, revealing natural diagnostic groupings within the case mix.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Severity score derived from weighted keyword hits per classification tier. Clustering uses a simple frequency-based co-occurrence matrix — terms appearing together in more than a threshold number of reports are grouped. No external ML library required.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Helps identify emerging diagnostic patterns — for example, a sudden cluster of pulmonary embolism-related reports over a two-week window that is not reflected in referral patterns could indicate a local outbreak or a shared environmental risk factor worth escalating.</p></div>
+                                </div>
+                            </div>
+
+                        </div>
+                    </section>
+
+                    <!-- ══════════════════════════════════════════
+                         LIVE FEED
+                    ══════════════════════════════════════════ -->
+                    <section id="livefeed">
+                        <div class="flex items-center gap-3 mb-4">
+                            <span class="report-badge" style="background:rgba(34,197,94,0.12);color:#22c55e;border:1px solid rgba(34,197,94,0.25);">Live</span>
+                            <h2 class="text-lg font-black text-white tracking-tight">Live Feed — Real-Time AE Activity</h2>
+                        </div>
+                        <p class="text-slate-400 text-sm mb-5 leading-relaxed">A streaming, real-time dashboard showing studies arriving from PACS AE titles as they happen. Requires no manual refresh — the page updates automatically as new data flows in from the ETL pipeline.</p>
+
+                        <div class="doc-card">
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-kpi"><i class="bi bi-broadcast"></i> Live KPIs</span>
+                                    <span class="font-bold text-sm text-white">Real-Time AE Title Activity Feed</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> A live-updating table of the most recent studies received from each AE title (modality device), showing accession number, patient name, modality, study description, and time of arrival. A KPI strip at the top shows total studies received today, studies in the last hour, and active devices.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> The page polls the backend on a short interval (default 15 seconds). The backend queries the ETL tables for studies with a received timestamp newer than the last poll. Only new rows are appended to the feed — existing rows are not reloaded.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Allows front-desk or tech staff to confirm that a study has been successfully received in PACS without logging into the RIS. Silently absent AE titles (devices that have stopped sending) are immediately visible as gaps in the feed — an early-warning signal for connectivity failures.</p></div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- ══════════════════════════════════════════
+                         HL7 ORDERS
+                    ══════════════════════════════════════════ -->
+                    <section id="hl7orders">
+                        <div class="flex items-center gap-3 mb-4">
+                            <span class="report-badge" style="background:rgba(56,189,248,0.12);color:#38bdf8;border:1px solid rgba(56,189,248,0.25);">HL7</span>
+                            <h2 class="text-lg font-black text-white tracking-tight">HL7 Orders — Message Viewer &amp; Parser</h2>
+                        </div>
+                        <p class="text-slate-400 text-sm mb-5 leading-relaxed">Displays inbound HL7 ORU and ORM messages received from the HIS/RIS order feed. Provides a human-readable view of structured order data alongside the raw HL7 message for troubleshooting.</p>
+
+                        <div class="doc-card">
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-table"><i class="bi bi-table"></i> Table</span>
+                                    <span class="tag tag-text"><i class="bi bi-code"></i> Raw Message</span>
+                                    <span class="font-bold text-sm text-white">Order List &amp; HL7 Message Inspector</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> A searchable, paginated table of HL7 messages received within the selected date range. Columns include message type (ORM/ORU), patient ID, accession, order status, ordering physician, and receive timestamp. Clicking any row expands the full parsed HL7 segments (MSH, PID, ORC, OBR, OBX) in a readable format alongside the raw pipe-delimited message.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> HL7 messages are stored in the <code class="text-blue-400 bg-blue-400/10 px-1 rounded">etl_hl7_messages</code> table by the ETL listener. The parser splits on segment delimiters and maps field positions to human-readable labels per HL7 v2.x specification.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Eliminates the need to SSH into the integration engine to inspect message traffic. Interface analysts and radiographers can self-service order lookups and identify message failures (missing OBR, wrong patient ID format) without technical access.</p></div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- ══════════════════════════════════════════
+                         CAPACITY LADDER
+                    ══════════════════════════════════════════ -->
+                    <section id="capacityladder">
+                        <div class="flex items-center gap-3 mb-4">
+                            <span class="report-badge" style="background:rgba(251,146,60,0.12);color:#fb923c;border:1px solid rgba(251,146,60,0.25);">Capacity</span>
+                            <h2 class="text-lg font-black text-white tracking-tight">Capacity Ladder — Device Load Visualisation</h2>
+                        </div>
+                        <p class="text-slate-400 text-sm mb-5 leading-relaxed">Displays current and projected load across all imaging devices as a ranked ladder. Each step of the ladder represents one device, ordered from most-loaded to least-loaded, updating dynamically as the day progresses.</p>
+
+                        <div class="doc-card">
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-bar"><i class="bi bi-bar-chart-steps"></i> Ranked Bar</span>
+                                    <span class="tag tag-kpi"><i class="bi bi-speedometer2"></i> Gauges</span>
+                                    <span class="font-bold text-sm text-white">Device Load Ladder</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Each imaging device displayed as a horizontal bar, ordered from highest to lowest utilisation percentage. Colour coding: green (&lt;60%), amber (60–85%), red (&gt;85%). A gauge below each bar shows the actual number of completed studies vs. the scheduled capacity for the current day.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Utilisation % = studies completed today ÷ daily capacity (from <code class="text-blue-400 bg-blue-400/10 px-1 rounded">device_weekly_schedule</code> minus any exceptions from <code class="text-blue-400 bg-blue-400/10 px-1 rounded">device_exceptions</code>). Laddering rank updates on each page load.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Operational supervisors can redirect incoming walk-in patients or adjust same-day bookings based on live device availability. A device near the top of the red zone can trigger a reallocation decision before it causes delays.</p></div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- ══════════════════════════════════════════
+                         MAPPING CONSOLE
+                    ══════════════════════════════════════════ -->
+                    <section id="mappingconsole">
+                        <div class="flex items-center gap-3 mb-4">
+                            <span class="report-badge" style="background:rgba(167,139,250,0.12);color:#a78bfa;border:1px solid rgba(167,139,250,0.25);">Config</span>
+                            <h2 class="text-lg font-black text-white tracking-tight">Mapping Console — AE Title to Modality</h2>
+                        </div>
+                        <p class="text-slate-400 text-sm mb-5 leading-relaxed">An administrative interface for managing the mapping between PACS AE titles and human-readable modality names. Correct mappings are essential for accurate modality-level reporting throughout the platform.</p>
+
+                        <div class="doc-card">
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-table"><i class="bi bi-table"></i> Table</span>
+                                    <span class="tag tag-text"><i class="bi bi-pencil"></i> Editor</span>
+                                    <span class="font-bold text-sm text-white">AE Title Mapping Table</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> A table listing all known AE titles with their currently assigned modality label, device name, and location. New mappings can be added inline; existing mappings can be edited or deleted without leaving the page.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Reads and writes the <code class="text-blue-400 bg-blue-400/10 px-1 rounded">aetitle_modality_map</code> table. RAYD auto-discovers new AE titles from incoming PACS data and flags any that are unmapped (shown in amber). Unmapped AE titles fall back to the raw AE string in all reports.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> A single misconfigured AE title can silently corrupt modality breakdowns across every report. This console makes the mapping state visible and editable by non-technical administrators, removing dependence on a developer for routine configuration changes.</p></div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- ══════════════════════════════════════════
+                         ETL STATUS
+                    ══════════════════════════════════════════ -->
+                    <section id="etlstatus">
+                        <div class="flex items-center gap-3 mb-4">
+                            <span class="report-badge" style="background:rgba(251,191,36,0.12);color:#fbbf24;border:1px solid rgba(251,191,36,0.25);">ETL</span>
+                            <h2 class="text-lg font-black text-white tracking-tight">ETL Status — Pipeline Monitoring</h2>
+                        </div>
+                        <p class="text-slate-400 text-sm mb-5 leading-relaxed">Monitors the health and progress of the Oracle-to-PostgreSQL ETL pipeline. Shows the last successful run, rows transferred, any errors encountered, and a historical run log.</p>
+
+                        <div class="doc-card">
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-kpi"><i class="bi bi-activity"></i> Status KPIs</span>
+                                    <span class="tag tag-table"><i class="bi bi-table"></i> Run Log</span>
+                                    <span class="font-bold text-sm text-white">Pipeline Health Dashboard</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> KPI tiles for: last run timestamp, duration of last run, rows inserted/updated in the last run, and current status (Running / Success / Failed). A run history table shows the last 30 ETL executions with start time, end time, row counts, and any error message captured.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> The ETL script writes a record to <code class="text-blue-400 bg-blue-400/10 px-1 rounded">etl_run_log</code> at the start and end of each run, including row counts per table and any exception message. The status page reads this table directly.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Data freshness is invisible unless explicitly monitored. If the ETL fails silently overnight, reports the next morning will show yesterday's data without any obvious indication. This page makes pipeline failures immediately visible to any authorised user, not just the technical team.</p></div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- ══════════════════════════════════════════
+                         AI ASSISTANT
+                    ══════════════════════════════════════════ -->
+                    <section id="aiassistant">
+                        <div class="flex items-center gap-3 mb-4">
+                            <span class="report-badge" style="background:rgba(244,63,94,0.12);color:#f43f5e;border:1px solid rgba(244,63,94,0.25);">AI</span>
+                            <h2 class="text-lg font-black text-white tracking-tight">AI Assistant — Conversational Analytics</h2>
+                        </div>
+                        <p class="text-slate-400 text-sm mb-5 leading-relaxed">An on-premise large-language model (LLM) chat interface powered by a locally-hosted llama-server instance. All conversations remain entirely within your infrastructure — no data leaves the server.</p>
+
+                        <div class="doc-card">
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-text"><i class="bi bi-chat-dots"></i> Chat</span>
+                                    <span class="font-bold text-sm text-white">Conversational AI Interface</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> A full-screen chat interface with conversation history, message threading, and a streaming response display. The assistant is pre-prompted with radiology operational context to answer questions about RAYD data, help interpret reports, and support clinical decision-making discussions.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Messages are sent to the local <code class="text-blue-400 bg-blue-400/10 px-1 rounded">llama-server</code> instance running on port 8081 (configurable via <code class="text-blue-400 bg-blue-400/10 px-1 rounded">BITNET_SERVER</code> environment variable). The server runs a quantised Meta-Llama 3.1 8B Instruct model. Responses are streamed back token-by-token. Conversation history is kept client-side and sent with each request for context continuity.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Provides a natural-language interface for non-technical clinical staff to query operational data without learning chart navigation. Questions like "why did our MRI throughput drop last week?" or "which radiologist had the most addenda this month?" can be answered in plain language. Because the model runs locally, sensitive patient-adjacent data never leaves the facility.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-text"><i class="bi bi-gear"></i> Config</span>
+                                    <span class="font-bold text-sm text-white">Setup Requirements</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">Requirements:</strong> The AI Assistant is an optional module, enabled via <code class="text-blue-400 bg-blue-400/10 px-1 rounded">BITNET_ENABLED=true</code> in the <code class="text-blue-400 bg-blue-400/10 px-1 rounded">.env</code> file. It requires the <code class="text-blue-400 bg-blue-400/10 px-1 rounded">llama-server</code> binary (part of the llama.cpp / BitNet distribution) and a compatible GGUF model file. The installation script handles service setup automatically.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2">Minimum hardware: 8 GB RAM for the 8B Q4 quantised model. The server runs as a systemd service (<code class="text-blue-400 bg-blue-400/10 px-1 rounded">llama-server.service</code>) and starts automatically on boot. Access to the AI Assistant menu item is controlled per-user via the User Management panel.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Unlike cloud-based AI services, this assistant operates entirely air-gapped. There are no API costs, no data-sharing agreements required, and no dependency on external internet connectivity — making it suitable for healthcare environments with strict data-sovereignty requirements.</p></div>
+                                </div>
+                            </div>
+
+                        </div>
+                    </section>
+
+                    <!-- ══════════════════════════════════════════
+                         PATIENT PORTAL
+                    ══════════════════════════════════════════ -->
+                    <section id="patientportal">
+                        <div class="flex items-center gap-3 mb-4">
+                            <span class="report-badge" style="background:rgba(96,165,250,0.12);color:#60a5fa;border:1px solid rgba(96,165,250,0.25);">Portal</span>
+                            <h2 class="text-lg font-black text-white tracking-tight">Patient Portal &amp; Portal Admin</h2>
+                        </div>
+                        <p class="text-slate-400 text-sm mb-5 leading-relaxed">A patient-facing web interface that allows individuals to view their own imaging history, access report summaries, and track examination status — without requiring access to the full RAYD platform. The Portal Admin panel gives staff control over patient access and content visibility.</p>
+
+                        <div class="doc-card">
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-table"><i class="bi bi-person"></i> Patient View</span>
+                                    <span class="font-bold text-sm text-white">Patient Self-Service Portal</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Authenticated patients see a timeline of their own imaging examinations, including study date, modality, body part, requesting physician, and current status (Ordered / Completed / Reported). Where enabled, a plain-language summary of the report conclusion is shown.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Patients authenticate with a token or PIN distributed by the radiology department. The portal queries <code class="text-blue-400 bg-blue-400/10 px-1 rounded">etl_didb_studies</code> and <code class="text-blue-400 bg-blue-400/10 px-1 rounded">etl_didb_patients</code> filtered strictly to the authenticated patient's ID. No cross-patient data access is possible by design.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Reduces patient enquiry calls to the radiology reception. Patients can self-serve on study status at any time, reducing the administrative burden during peak hours. The portal operates entirely within your infrastructure — no third-party patient data processor is involved.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-table"><i class="bi bi-shield-lock"></i> Admin</span>
+                                    <span class="font-bold text-sm text-white">Portal Admin — Access Management</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> A staff-facing admin panel listing all patients who have been granted portal access, their last login, and the access token status (Active / Revoked / Expired). New access tokens can be generated, sent, or revoked from this panel. Bulk access grants and revocations are supported.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Access tokens are stored in the <code class="text-blue-400 bg-blue-400/10 px-1 rounded">portal_access</code> table with a configurable expiry. The admin panel reads this table and provides CRUD operations. Token generation uses a cryptographically secure random string of configurable length.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Provides a full audit trail of who has access to what, and when that access was granted or revoked — a compliance requirement in most healthcare data governance frameworks. The ability to revoke a specific patient's access instantly is essential for handling patient requests under data protection legislation.</p></div>
                                 </div>
                             </div>
 
