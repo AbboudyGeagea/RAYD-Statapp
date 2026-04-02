@@ -85,6 +85,8 @@
                             <a href="#etlstatus" class="toc-link">ETL Status</a>
                             <a href="#aiassistant" class="toc-link">AI Assistant</a>
                             <a href="#patientportal" class="toc-link">Patient Portal</a>
+                            <a href="#liveview" class="toc-link">Live Dashboard (Today)</a>
+                            <a href="#superreport" class="toc-link">Super Report</a>
                         </nav>
                     </div>
                 </aside>
@@ -1322,6 +1324,126 @@
                                     <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> A staff-facing admin panel listing all patients who have been granted portal access, their last login, and the access token status (Active / Revoked / Expired). New access tokens can be generated, sent, or revoked from this panel. Bulk access grants and revocations are supported.</p>
                                     <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Access tokens are stored in the <code class="text-blue-400 bg-blue-400/10 px-1 rounded">portal_access</code> table with a configurable expiry. The admin panel reads this table and provides CRUD operations. Token generation uses a cryptographically secure random string of configurable length.</p>
                                     <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Provides a full audit trail of who has access to what, and when that access was granted or revoked — a compliance requirement in most healthcare data governance frameworks. The ability to revoke a specific patient's access instantly is essential for handling patient requests under data protection legislation.</p></div>
+                                </div>
+                            </div>
+
+                        </div>
+                    </section>
+
+                    <!-- ══════════════════════════════════════════
+                         LIVEVIEW — TODAY'S LIVE DASHBOARD
+                    ══════════════════════════════════════════ -->
+                    <section id="liveview">
+                        <div class="flex items-center gap-3 mb-4">
+                            <span class="report-badge" style="background:rgba(34,197,94,0.12);color:#22c55e;border:1px solid rgba(34,197,94,0.25);">Live Today</span>
+                            <h2 class="text-lg font-black text-white tracking-tight">Live Dashboard — Today's Operations</h2>
+                        </div>
+                        <p class="text-slate-400 text-sm mb-5 leading-relaxed">A real-time operational snapshot scoped exclusively to today's date. Refreshes automatically to reflect the current state of all studies, devices, and reports without any date filter interaction. Distinct from the Live Feed (which shows arriving PACS events as a stream) — this is a structured KPI dashboard for today's shift.</p>
+
+                        <div class="doc-card">
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-kpi"><i class="bi bi-speedometer2"></i> KPI Strip</span>
+                                    <span class="font-bold text-sm text-white">Today's Core KPIs</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Five counters refreshed on every page load: total studies today, distinct patients seen, reports signed, inpatient count, and outpatient count.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Single aggregation query against <code class="text-blue-400 bg-blue-400/10 px-1 rounded">etl_didb_studies</code> filtered to <code class="text-blue-400 bg-blue-400/10 px-1 rounded">study_date = today</code>. Inpatient/outpatient are classified by <code class="text-blue-400 bg-blue-400/10 px-1 rounded">patient_class</code> ILIKE patterns.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Gives the duty manager an instant read of the day's workload without navigating any date filters. The reports-signed count vs total studies gives a real-time reporting completion rate — if those two numbers diverge significantly by mid-afternoon, a backlog is forming.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-bar"><i class="bi bi-bar-chart"></i> Bar</span>
+                                    <span class="font-bold text-sm text-white">Today's Modality Breakdown</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Study count per modality for today, showing up to 12 modalities ranked by volume.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Groups <code class="text-blue-400 bg-blue-400/10 px-1 rounded">UPPER(TRIM(study_modality))</code> for today's studies, ordered descending, limited to top 12.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Instantly identifies which modalities are carrying the day's load. An unusually high CT count by 10 AM may indicate emergency overflow or a scheduled list running ahead — both useful signals for resource reallocation.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-kpi"><i class="bi bi-hdd-stack"></i> Device Cards</span>
+                                    <span class="font-bold text-sm text-white">Live Device Utilisation</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> A card per active AE device showing: modality label, minutes used vs scheduled capacity for today, and a colour-coded utilisation percentage (green &lt;60%, amber 60–85%, red &gt;85%). An overall site utilisation percentage is shown at the top.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Joins today's studies with <code class="text-blue-400 bg-blue-400/10 px-1 rounded">procedure_duration_map</code> to sum used minutes per device (defaulting to 15 min if unmapped). Capacity comes from <code class="text-blue-400 bg-blue-400/10 px-1 rounded">device_weekly_schedule</code> for today's day-of-week (defaulting to 720 min if no schedule exists). Utilisation % = used ÷ capacity × 100, capped at 100%.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Provides a live capacity gauge without requiring a call to the modality room. A device sitting at 20% utilisation at noon is either running behind schedule, has had cancellations, or has a technical problem — all warranting investigation. A device at 95% before lunch is a candidate for evening overtime or next-day compensation.</p></div>
+                                </div>
+                            </div>
+
+                        </div>
+                    </section>
+
+                    <!-- ══════════════════════════════════════════
+                         SUPER REPORT — CUSTOM REPORT BUILDER
+                    ══════════════════════════════════════════ -->
+                    <section id="superreport">
+                        <div class="flex items-center gap-3 mb-4">
+                            <span class="report-badge" style="background:rgba(251,191,36,0.12);color:#fbbf24;border:1px solid rgba(251,191,36,0.25);">Super Report</span>
+                            <h2 class="text-lg font-black text-white tracking-tight">Super Report — Custom Report Builder</h2>
+                        </div>
+                        <p class="text-slate-400 text-sm mb-5 leading-relaxed">A flexible, multi-dimension report builder that queries across all ETL tables simultaneously. Supports any date range and any combination of modality, patient class, AE title, and order filters. Reports can be saved by name and re-run instantly — no configuration required each time.</p>
+
+                        <div class="doc-card">
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-kpi"><i class="bi bi-speedometer2"></i> KPI Grid</span>
+                                    <span class="font-bold text-sm text-white">Cross-Domain KPI Summary</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> For the selected period and filters: total studies, distinct patients, total images, active AE devices, studies with a signed report, total orders, fulfilled orders, order fulfillment %, total storage GB, average GB/day, and storage by top 5 modalities.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Runs three parallel queries — one against <code class="text-blue-400 bg-blue-400/10 px-1 rounded">etl_didb_studies</code> for imaging KPIs, one against <code class="text-blue-400 bg-blue-400/10 px-1 rounded">etl_orders</code> for order metrics, and one against <code class="text-blue-400 bg-blue-400/10 px-1 rounded">summary_storage_daily</code> for storage metrics. Each query respects its own independent filter set.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> The only view in RAYD that combines imaging volume, order fulfillment, and storage in a single query. Ideal for monthly performance summaries and board-level reporting where all three dimensions need to appear together.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-bar"><i class="bi bi-bar-chart"></i> Bar</span>
+                                    <span class="tag tag-pie"><i class="bi bi-pie-chart"></i> Donut</span>
+                                    <span class="font-bold text-sm text-white">Volume, Demographics &amp; Physician Breakdown</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Top 5 modalities by study count, top 10 referring physicians by volume, peak day (busiest single date in the period), average studies per day, and a demographics panel: male/female split, inpatient/outpatient split, average patient age, and age range (min–max).</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Produces a complete narrative of any time period in one pass — volume, who's referring, who's being scanned, and what the peak demand looked like. This is the report most useful for writing monthly management letters or preparing for accreditation visits.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-text"><i class="bi bi-bookmark-star"></i> Saved Reports</span>
+                                    <span class="font-bold text-sm text-white">Save &amp; Re-run Report Configurations</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> A list of previously saved report configurations (name, filters, date range type). Each saved report can be re-run with one click, applying the same filter set to the current date context. Saved reports can be deleted individually.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Filter sets are serialised as JSON and stored in the database against the user's account. Re-running a saved report injects the stored filters into the same query engine as a fresh run. Date ranges are stored as relative types (e.g. "last 30 days") so they remain meaningful when re-run in the future.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Eliminates the need to re-configure the same filters every month for recurring reports. A "Monthly CT Performance" saved report configured once will produce fresh results every time it is run — reducing report preparation time from minutes to seconds.</p></div>
                                 </div>
                             </div>
 
