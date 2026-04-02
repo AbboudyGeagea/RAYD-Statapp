@@ -85,12 +85,12 @@ def live_status():
         for exc in exceptions:
             opening_map[exc["modality"]] = exc["total_mins"] or 0
 
-        # Today's orders only — yesterday's overdue are excluded intentionally.
+        # Today's orders — use scheduled_datetime when available, fall back to received_at.
         orders = db.session.execute(text("""
             SELECT
                 o.message_id,
                 o.patient_id,
-                o.scheduled_datetime,
+                COALESCE(o.scheduled_datetime, o.received_at) AS scheduled_datetime,
                 o.procedure_text,
                 o.procedure_code,
                 o.modality,
@@ -99,10 +99,13 @@ def live_status():
             FROM hl7_orders o
             LEFT JOIN procedure_duration_map pm
                    ON pm.procedure_code = o.procedure_code
-            WHERE o.scheduled_datetime >= CURRENT_DATE
-              AND o.scheduled_datetime <  CURRENT_DATE + INTERVAL '1 day'
+            WHERE (
+                (o.scheduled_datetime >= CURRENT_DATE AND o.scheduled_datetime < CURRENT_DATE + INTERVAL '1 day')
+                OR
+                (o.scheduled_datetime IS NULL AND o.received_at >= CURRENT_DATE AND o.received_at < CURRENT_DATE + INTERVAL '1 day')
+            )
               AND COALESCE(o.order_status, '') NOT IN ('CA', 'CM')
-            ORDER BY o.scheduled_datetime
+            ORDER BY COALESCE(o.scheduled_datetime, o.received_at)
         """)).mappings().fetchall()
 
         # Group by modality
