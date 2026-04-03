@@ -476,6 +476,7 @@
                     };
 
                     const cards = [];  // store references for re-render
+                    window._spCharts = window._spCharts || [];
 
                     Object.entries(SP).forEach(([rad, info], idx) => {
                         const card = document.createElement('div');
@@ -484,6 +485,7 @@
                         container.appendChild(card);
 
                         const hm = (() => {
+                            let _chart = null;
                             // build inner HTML, draw chart, populate table
                             function render(evil) {
                                 const breakStatColor = evil
@@ -493,28 +495,14 @@
                                 card.style.borderTopColor = evil ? '#f43f5e' : '#2563eb';
 
                                 card.innerHTML = `
-                                    <div class="flex flex-wrap items-center justify-between gap-4 mb-5">
-                                        <div>
-                                            <h3 class="text-base font-black text-white uppercase tracking-wide">${rad}</h3>
-                                            <p class="text-[10px] text-zinc-500 mt-0.5">${info.working_days} working day${info.working_days!==1?'s':''} in period</p>
-                                        </div>
-                                        <div class="flex gap-3 flex-wrap">
-                                            <div class="text-center px-4 py-2 rounded-xl bg-white/5 border border-white/5">
-                                                <p class="text-[9px] font-black text-zinc-500 uppercase">${L.arrival[evil?1:0]}</p>
-                                                <p class="text-lg font-black text-emerald-400">${info.avg_arrival}</p>
-                                            </div>
-                                            <div class="text-center px-4 py-2 rounded-xl bg-white/5 border border-white/5">
-                                                <p class="text-[9px] font-black text-zinc-500 uppercase">${L.departure[evil?1:0]}</p>
-                                                <p class="text-lg font-black text-blue-400">${info.avg_departure}</p>
-                                            </div>
-                                            <div class="text-center px-4 py-2 rounded-xl bg-white/5 border border-white/5">
-                                                <p class="text-[9px] font-black text-zinc-500 uppercase">${L.gap_label[evil?1:0]}</p>
-                                                <p class="text-lg font-black" style="color:${breakStatColor}">${info.avg_breaks_day}</p>
-                                            </div>
-                                            <div class="text-center px-4 py-2 rounded-xl bg-white/5 border border-white/5">
-                                                <p class="text-[9px] font-black text-zinc-500 uppercase">${L.gap_dur[evil?1:0]}</p>
-                                                <p class="text-lg font-black text-amber-400">${info.avg_break_dur ? info.avg_break_dur+'m' : '—'}</p>
-                                            </div>
+                                    <div class="flex items-baseline justify-between gap-4 mb-4 flex-wrap">
+                                        <h3 class="text-sm font-black text-white uppercase tracking-wide">${rad}</h3>
+                                        <div class="flex flex-wrap gap-x-5 gap-y-1 text-[11px]">
+                                            <span><span class="text-zinc-500">${L.arrival[evil?1:0]}</span> <span class="font-black text-emerald-400">${info.avg_arrival}</span></span>
+                                            <span><span class="text-zinc-500">${L.departure[evil?1:0]}</span> <span class="font-black text-blue-400">${info.avg_departure}</span></span>
+                                            <span><span class="text-zinc-500">${L.gap_label[evil?1:0]}</span> <span class="font-black" style="color:${breakStatColor}">${info.avg_breaks_day}</span></span>
+                                            <span><span class="text-zinc-500">${L.gap_dur[evil?1:0]}</span> <span class="font-black text-amber-400">${info.avg_break_dur ? info.avg_break_dur+'m' : '—'}</span></span>
+                                            <span class="text-zinc-600">${info.working_days} days</span>
                                         </div>
                                     </div>
                                     <div id="hm-${idx}" style="height:280px;width:100%;"></div>
@@ -543,8 +531,11 @@
 
                                 // chart
                                 const hmEl = document.getElementById(`hm-${idx}`);
-                                const chart = echarts.init(hmEl);
-                                chart.setOption({
+                                if (_chart) { try { _chart.dispose(); } catch(e){} }
+                                _chart = echarts.init(hmEl);
+                                if (!window._spCharts[idx]) window._spCharts[idx] = _chart;
+                                else window._spCharts[idx] = _chart;
+                                _chart.setOption({
                                     animation: false,
                                     grid: { top:10, bottom:30, left:50, right:20 },
                                     xAxis: { type:'category', data: HOURS, axisLabel:{fontSize:9, color:'#52525b'}, axisTick:{show:false}, axisLine:{lineStyle:{color:'#27272a'}} },
@@ -907,6 +898,9 @@
             $(`#btn-${t}`).addClass('active');
             $('#active_tab_input').val(t);
             initCharts();
+            if (t === 'clinical' && window._spCharts) {
+                window._spCharts.forEach(function(c) { try { c.resize(); } catch(e){} });
+            }
         }
 
         // ── Chart rendering ──────────────────────────────────────────────────
