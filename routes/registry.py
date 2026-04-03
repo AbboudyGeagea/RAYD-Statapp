@@ -20,6 +20,7 @@ from routes.capacity_ladder  import capacity_ladder_bp
 from routes.live_feed        import live_feed_bp
 from routes.preferences      import preferences_bp
 from routes.docs             import docs_bp
+from routes.er_dashboard     import er_bp
 from routes.liveview         import liveview_bp
 from routes.oru_analytics    import oru_bp
 
@@ -37,6 +38,7 @@ def register_blueprints(app):
     app.register_blueprint(capacity_ladder_bp)
     app.register_blueprint(preferences_bp)
     app.register_blueprint(docs_bp)
+    app.register_blueprint(er_bp)
     app.register_blueprint(liveview_bp)
     app.register_blueprint(oru_bp)
 

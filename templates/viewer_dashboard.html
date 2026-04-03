@@ -136,6 +136,25 @@
                         <a href="{{ url_for('viewer.viewer_report', report_id=report.report_id) }}" target="_blank" class="w-full py-3 bg-[#60a5fa] text-white text-center text-xs font-black uppercase tracking-widest rounded-xl">Open Analysis</a>
                     </div>
                     {% endfor %}
+
+                    <!-- ER Dashboard card -->
+                    {% if current_user.role != 'tec' %}
+                    <div class="card-custom p-6 flex flex-col hover:border-[#f43f5e]/30 transition-colors" style="border-top:2px solid #f43f5e;">
+                        <div class="flex items-start justify-between mb-4">
+                            <div class="p-2.5 rounded-xl" style="background:rgba(244,63,94,0.1);">
+                                <i class="bi bi-heart-pulse-fill text-xl" style="color:#f43f5e;"></i>
+                            </div>
+                            <span style="font-size:9px;font-weight:900;padding:2px 8px;border-radius:4px;background:rgba(244,63,94,0.15);color:#f43f5e;text-transform:uppercase;letter-spacing:0.08em;">Emergency</span>
+                        </div>
+                        <h3 class="text-base font-bold text-white mb-2">ER Analytics Dashboard</h3>
+                        <p class="text-slate-400 text-xs leading-relaxed mb-6 flex-1">Real-time TAT tracking, SLA compliance, breach log, and unread study alerts scoped exclusively to emergency patients. Configurable SLA threshold.</p>
+                        <a href="{{ url_for('er.er_page') }}" target="_blank"
+                           class="w-full py-3 text-white text-center text-xs font-black uppercase tracking-widest rounded-xl transition-colors"
+                           style="background:#f43f5e;">
+                            Open ER Dashboard
+                        </a>
+                    </div>
+                    {% endif %}
                 </div>
 
                 <div id="grid-it" class="hidden grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | ER Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        :root { --accent:#f43f5e; }
+        body  { font-family:'Inter',sans-serif; background:#181f1c; color:#e2e8f0; }
+        .card { background:#232b28; border:1px solid #28332e; border-radius:1.25rem; }
+        .kpi-card { background:#232b28; border:1px solid #28332e; border-radius:1rem; padding:1.25rem 1.5rem; }
+        .kpi-card.red   { border-color:rgba(244,63,94,0.35);  background:rgba(244,63,94,0.06); }
+        .kpi-card.green { border-color:rgba(34,197,94,0.35);  background:rgba(34,197,94,0.06); }
+        .kpi-card.amber { border-color:rgba(251,191,36,0.35); background:rgba(251,191,36,0.06); }
+        .kpi-card.blue  { border-color:rgba(96,165,250,0.35); background:rgba(96,165,250,0.06); }
+        .sidebar-item { transition:all 0.2s; border-radius:0.75rem; margin-bottom:0.25rem; cursor:pointer; text-decoration:none!important; color:#94a3b8; }
+        .sidebar-item:hover { background:#1d2522; color:var(--accent)!important; }
+        .sidebar-item.active { background:#1d2522; color:var(--accent)!important; border-left:4px solid var(--accent); }
+        .section-title { font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:0.15em; color:#f43f5e; margin-bottom:0.75rem; }
+        .badge-er { background:rgba(244,63,94,0.15); color:#f43f5e; border:1px solid rgba(244,63,94,0.3); font-size:9px; font-weight:900; padding:2px 8px; border-radius:4px; text-transform:uppercase; letter-spacing:0.08em; }
+        .tat-ok   { color:#22c55e; }
+        .tat-warn { color:#fbbf24; }
+        .tat-bad  { color:#f43f5e; }
+        .dot { width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:6px; }
+        .dot-green { background:#22c55e; }
+        .dot-amber { background:#fbbf24; }
+        .dot-red   { background:#f43f5e; animation:pulse 1.5s infinite; }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+        /* Light mode */
+        body.light { background:#f0f4f8; color:#1a202c; }
+        body.light aside, body.light header { background:#ffffff!important; border-color:#e2e8f0!important; }
+        body.light .sidebar-item { color:#4a5568; }
+        body.light .sidebar-item:hover, body.light .sidebar-item.active { background:#e2e8f0!important; color:#c0392b!important; }
+        body.light .card, body.light .kpi-card { background:#ffffff; border-color:#e2e8f0; }
+        body.light .kpi-card.red   { background:#fff5f5; border-color:#fca5a5; }
+        body.light .kpi-card.green { background:#f0fdf4; border-color:#86efac; }
+        body.light .kpi-card.amber { background:#fffbeb; border-color:#fcd34d; }
+        body.light .kpi-card.blue  { background:#eff6ff; border-color:#93c5fd; }
+        body.light table thead tr { border-color:#e2e8f0; }
+        body.light table tbody tr { border-color:#e2e8f0; }
+        body.light table tbody tr:hover { background:rgba(0,0,0,0.03)!important; }
+        body.light .text-slate-400 { color:#4a5568!important; }
+        body.light .text-slate-500 { color:#718096!important; }
+        body.light .text-white { color:#1a202c!important; }
+        body.light input, body.light select { background:#f8fafc!important; border-color:#e2e8f0!important; color:#1a202c!important; }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+
+{% include '_header.html' %}
+
+<div class="flex flex-1 overflow-hidden">
+    {% include '_sidebar.html' %}
+
+    <main class="flex-1 overflow-y-auto bg-[#181f1c] p-8">
+
+        <!-- Header -->
+        <div class="flex items-center justify-between mb-8">
+            <div>
+                <div class="flex items-center gap-3 mb-1">
+                    <span class="badge-er">Emergency</span>
+                    <h1 class="text-2xl font-black text-white tracking-tight">ER Analytics Dashboard</h1>
+                </div>
+                <p class="text-slate-400 text-sm">Turnaround time, SLA compliance, and workload for emergency patients.</p>
+            </div>
+            <!-- Filters -->
+            <div class="flex items-center gap-3">
+                <div class="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase tracking-widest">
+                    <i class="bi bi-clock"></i> SLA
+                </div>
+                <input id="sla-input" type="number" value="60" min="10" max="480"
+                    class="w-16 bg-[#1d2522] border border-[#28332e] rounded-lg px-2 py-1.5 text-xs font-bold text-white text-center focus:outline-none focus:border-[#f43f5e]">
+                <span class="text-xs text-slate-500">min</span>
+                <input id="start-input" type="date" value="{{ default_start }}"
+                    class="bg-[#1d2522] border border-[#28332e] rounded-lg px-3 py-1.5 text-xs font-bold text-white focus:outline-none focus:border-[#f43f5e]">
+                <span class="text-xs text-slate-500">→</span>
+                <input id="end-input" type="date" value="{{ default_end }}"
+                    class="bg-[#1d2522] border border-[#28332e] rounded-lg px-3 py-1.5 text-xs font-bold text-white focus:outline-none focus:border-[#f43f5e]">
+                <button onclick="loadData()"
+                    class="px-4 py-1.5 bg-[#f43f5e] text-white text-xs font-black uppercase tracking-widest rounded-lg hover:bg-[#fb7185] transition-colors">
+                    Apply
+                </button>
+            </div>
+        </div>
+
+        <!-- Loading state -->
+        <div id="loading" class="text-center py-20 text-slate-500 text-sm font-bold uppercase tracking-widest">
+            <i class="bi bi-hourglass-split animate-spin text-2xl block mb-3"></i>Loading ER data…
+        </div>
+
+        <div id="content" class="hidden space-y-6">
+
+            <!-- KPI Row -->
+            <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-4" id="kpi-row"></div>
+
+            <!-- Unread Today Alert -->
+            <div id="unread-section" class="hidden">
+                <p class="section-title"><i class="bi bi-exclamation-triangle-fill mr-1"></i> Currently Unread ER Studies — Today</p>
+                <div class="card overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left">
+                            <thead>
+                                <tr class="border-b border-[#28332e] text-[#f43f5e] text-[10px] uppercase tracking-widest font-black">
+                                    <th class="pb-3 px-4 pt-3">Accession</th>
+                                    <th class="pb-3 px-4 pt-3">Modality</th>
+                                    <th class="pb-3 px-4 pt-3">Waiting</th>
+                                    <th class="pb-3 px-4 pt-3">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="unread-body" class="divide-y divide-[#28332e] text-sm"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charts row 1: Trend + Histogram -->
+            <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                <div class="card p-5">
+                    <p class="section-title"><i class="bi bi-graph-up mr-1"></i> Daily Average TAT (minutes)</p>
+                    <div id="chart-trend" style="height:260px;"></div>
+                </div>
+                <div class="card p-5">
+                    <p class="section-title"><i class="bi bi-bar-chart mr-1"></i> TAT Distribution</p>
+                    <div id="chart-histogram" style="height:260px;"></div>
+                </div>
+            </div>
+
+            <!-- Charts row 2: Modality + Hour -->
+            <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                <div class="card p-5">
+                    <p class="section-title"><i class="bi bi-bar-chart-horizontal mr-1"></i> Average TAT by Modality</p>
+                    <div id="chart-modality" style="height:260px;"></div>
+                </div>
+                <div class="card p-5">
+                    <p class="section-title"><i class="bi bi-clock-history mr-1"></i> ER Volume by Hour of Day</p>
+                    <div id="chart-hour" style="height:260px;"></div>
+                </div>
+            </div>
+
+            <!-- Radiologist TAT -->
+            <div class="card p-5">
+                <p class="section-title"><i class="bi bi-person-badge mr-1"></i> Average TAT by Radiologist</p>
+                <div id="chart-radiologist" style="height:280px;"></div>
+            </div>
+
+            <!-- SLA Breach Table -->
+            <div id="breach-section" class="hidden">
+                <p class="section-title"><i class="bi bi-shield-exclamation mr-1"></i> SLA Breach Log</p>
+                <div class="card overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left">
+                            <thead>
+                                <tr class="border-b border-[#28332e] text-[#f43f5e] text-[10px] uppercase tracking-widest font-black">
+                                    <th class="pb-3 px-4 pt-3">Accession</th>
+                                    <th class="pb-3 px-4 pt-3">Date</th>
+                                    <th class="pb-3 px-4 pt-3">Modality</th>
+                                    <th class="pb-3 px-4 pt-3">Radiologist</th>
+                                    <th class="pb-3 px-4 pt-3">TAT</th>
+                                    <th class="pb-3 px-4 pt-3">Over SLA by</th>
+                                </tr>
+                            </thead>
+                            <tbody id="breach-body" class="divide-y divide-[#28332e] text-sm"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+        </div><!-- #content -->
+    </main>
+</div>
+
+<script>
+const CHART_BG   = '#181f1c';
+const CHART_TEXT = '#94a3b8';
+const CHART_LINE = '#28332e';
+const RED        = '#f43f5e';
+const GREEN      = '#22c55e';
+const AMBER      = '#fbbf24';
+const BLUE       = '#60a5fa';
+
+let charts = {};
+
+function ec(id) {
+    if (charts[id]) charts[id].dispose();
+    charts[id] = echarts.init(document.getElementById(id), null, {renderer:'canvas'});
+    return charts[id];
+}
+
+function fmtMin(m) {
+    m = Math.round(m);
+    if (m < 60) return m + ' min';
+    return Math.floor(m/60) + 'h ' + (m%60) + 'm';
+}
+
+function tatColor(min, sla) {
+    if (min <= sla * 0.75) return GREEN;
+    if (min <= sla)        return AMBER;
+    return RED;
+}
+
+async function loadData() {
+    const start = document.getElementById('start-input').value;
+    const end   = document.getElementById('end-input').value;
+    const sla   = document.getElementById('sla-input').value;
+
+    document.getElementById('loading').classList.remove('hidden');
+    document.getElementById('content').classList.add('hidden');
+
+    const r = await fetch(`/er/data?start=${start}&end=${end}&sla=${sla}`);
+    const d = await r.json();
+
+    if (d.error) {
+        document.getElementById('loading').innerHTML =
+            `<i class="bi bi-exclamation-triangle text-red-400 text-2xl block mb-3"></i><span class="text-red-400">${d.error}</span>`;
+        return;
+    }
+
+    document.getElementById('loading').classList.add('hidden');
+    document.getElementById('content').classList.remove('hidden');
+
+    renderKPIs(d.kpi);
+    renderUnread(d.unread, d.kpi.sla_limit);
+    renderTrend(d.trend, d.kpi.sla_limit);
+    renderHistogram(d.histogram, d.kpi.sla_limit);
+    renderModality(d.by_modality, d.kpi.sla_limit);
+    renderHour(d.by_hour);
+    renderRadiologist(d.by_radiologist, d.kpi.sla_limit);
+    renderBreaches(d.breaches, d.kpi.sla_limit);
+}
+
+function renderKPIs(k) {
+    const slaColor = k.sla_pct >= 90 ? 'green' : k.sla_pct >= 75 ? 'amber' : 'red';
+    const tatColor = k.avg_tat <= k.sla_limit ? 'green' : k.avg_tat <= k.sla_limit * 1.5 ? 'amber' : 'red';
+    document.getElementById('kpi-row').innerHTML = `
+        <div class="kpi-card col-span-1">
+            <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">ER Studies</p>
+            <p class="text-2xl font-black text-white">${k.total.toLocaleString()}</p>
+            <p class="text-[10px] text-slate-500 mt-1">${k.reported} reported</p>
+        </div>
+        <div class="kpi-card ${tatColor} col-span-1">
+            <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Avg TAT</p>
+            <p class="text-2xl font-black text-white">${fmtMin(k.avg_tat)}</p>
+            <p class="text-[10px] text-slate-500 mt-1">SLA: ${k.sla_limit} min</p>
+        </div>
+        <div class="kpi-card ${slaColor} col-span-1">
+            <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">SLA Compliance</p>
+            <p class="text-2xl font-black text-white">${k.sla_pct}%</p>
+            <p class="text-[10px] text-slate-500 mt-1">${k.within_sla} within ${k.sla_limit} min</p>
+        </div>
+        <div class="kpi-card red col-span-1">
+            <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">SLA Breaches</p>
+            <p class="text-2xl font-black text-white">${k.breached.toLocaleString()}</p>
+            <p class="text-[10px] text-slate-500 mt-1">exceeded ${k.sla_limit} min</p>
+        </div>
+        <div class="kpi-card ${k.unread_today > 0 ? 'red' : 'green'} col-span-1 xl:col-span-3">
+            <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">
+                <span class="dot ${k.unread_today > 0 ? 'dot-red' : 'dot-green'}"></span>Unread ER — Right Now
+            </p>
+            <p class="text-2xl font-black text-white">${k.unread_today}</p>
+            <p class="text-[10px] text-slate-500 mt-1">${k.unread_today === 0 ? 'All ER studies reported ✓' : 'studies awaiting a radiologist today'}</p>
+        </div>
+    `;
+}
+
+function renderUnread(rows, sla) {
+    const sec = document.getElementById('unread-section');
+    if (!rows.length) { sec.classList.add('hidden'); return; }
+    sec.classList.remove('hidden');
+    document.getElementById('unread-body').innerHTML = rows.map(r => {
+        const w = Math.round(r.waiting_min);
+        const cls = w > sla * 2 ? 'text-red-400 font-black' : w > sla ? 'text-amber-400 font-bold' : 'text-slate-300';
+        return `<tr class="hover:bg-[#1d2522]/50">
+            <td class="py-3 px-4 font-mono text-xs text-slate-300">${r.accession_number || '—'}</td>
+            <td class="py-3 px-4 text-xs font-bold text-white">${r.modality}</td>
+            <td class="py-3 px-4 text-xs font-bold ${cls}">${fmtMin(w)}</td>
+            <td class="py-3 px-4 text-xs">
+                ${w > sla ? `<span style="background:rgba(244,63,94,0.15);color:#f43f5e;padding:2px 8px;border-radius:4px;font-size:9px;font-weight:900;text-transform:uppercase;">SLA BREACH</span>` :
+                            `<span style="background:rgba(251,191,36,0.15);color:#fbbf24;padding:2px 8px;border-radius:4px;font-size:9px;font-weight:900;text-transform:uppercase;">Pending</span>`}
+            </td>
+        </tr>`;
+    }).join('');
+}
+
+function renderTrend(rows, sla) {
+    const c = ec('chart-trend');
+    const days = rows.map(r => r.day);
+    const tats = rows.map(r => r.avg_tat || null);
+    const vols = rows.map(r => r.total);
+    c.setOption({
+        backgroundColor: 'transparent',
+        tooltip: { trigger:'axis', formatter: p => `${p[0].axisValue}<br>Avg TAT: <b>${p[0].data ? fmtMin(p[0].data) : '—'}</b><br>Studies: <b>${p[1]?.data || 0}</b>` },
+        legend: { data:['Avg TAT','Volume'], textStyle:{color:CHART_TEXT,fontSize:10}, bottom:0 },
+        grid: { top:10, right:60, bottom:40, left:60 },
+        xAxis: { type:'category', data:days, axisLabel:{color:CHART_TEXT,fontSize:10,rotate:30}, axisLine:{lineStyle:{color:CHART_LINE}} },
+        yAxis: [
+            { type:'value', name:'min', nameTextStyle:{color:CHART_TEXT,fontSize:9}, axisLabel:{color:CHART_TEXT,fontSize:10}, splitLine:{lineStyle:{color:CHART_LINE,type:'dashed'}} },
+            { type:'value', name:'studies', nameTextStyle:{color:CHART_TEXT,fontSize:9}, axisLabel:{color:CHART_TEXT,fontSize:10}, splitLine:{show:false} },
+        ],
+        series: [
+            { name:'Avg TAT', type:'line', data:tats, smooth:true, symbol:'circle', symbolSize:4,
+              lineStyle:{color:RED,width:2}, itemStyle:{color:RED},
+              areaStyle:{color:{type:'linear',x:0,y:0,x2:0,y2:1,colorStops:[{offset:0,color:'rgba(244,63,94,0.25)'},{offset:1,color:'rgba(244,63,94,0)'}]}},
+              markLine:{silent:true,symbol:'none',data:[{yAxis:sla,label:{formatter:`SLA ${sla}m`,color:AMBER,fontSize:9},lineStyle:{color:AMBER,type:'dashed',width:1}}]}
+            },
+            { name:'Volume', type:'bar', yAxisIndex:1, data:vols, barMaxWidth:12,
+              itemStyle:{color:'rgba(96,165,250,0.25)',borderColor:BLUE,borderWidth:1,borderRadius:2} },
+        ]
+    });
+}
+
+function renderHistogram(rows, sla) {
+    const c = ec('chart-histogram');
+    const labels = rows.map(r => r.bucket);
+    const counts = rows.map(r => r.cnt);
+    const colors = labels.map(l => {
+        if (l === '0-30 min') return GREEN;
+        if (l === '30-60 min') return BLUE;
+        if (l === '60-90 min') return AMBER;
+        return RED;
+    });
+    c.setOption({
+        backgroundColor:'transparent',
+        tooltip:{trigger:'axis'},
+        grid:{top:10,right:20,bottom:40,left:60},
+        xAxis:{type:'category',data:labels,axisLabel:{color:CHART_TEXT,fontSize:10},axisLine:{lineStyle:{color:CHART_LINE}}},
+        yAxis:{type:'value',axisLabel:{color:CHART_TEXT,fontSize:10},splitLine:{lineStyle:{color:CHART_LINE,type:'dashed'}}},
+        series:[{
+            type:'bar', data:counts.map((v,i)=>({value:v,itemStyle:{color:colors[i],borderRadius:4}})),
+            label:{show:true,position:'top',color:CHART_TEXT,fontSize:10}
+        }]
+    });
+}
+
+function renderModality(rows, sla) {
+    const c = ec('chart-modality');
+    const mods = rows.map(r => r.modality);
+    const tats = rows.map(r => r.avg_tat);
+    c.setOption({
+        backgroundColor:'transparent',
+        tooltip:{trigger:'axis',formatter:p=>`${p[0].axisValue}: <b>${fmtMin(p[0].data)}</b>`},
+        grid:{top:10,right:80,bottom:10,left:80,containLabel:true},
+        xAxis:{type:'value',axisLabel:{color:CHART_TEXT,fontSize:10},splitLine:{lineStyle:{color:CHART_LINE,type:'dashed'}}},
+        yAxis:{type:'category',data:mods,axisLabel:{color:CHART_TEXT,fontSize:11,fontWeight:'bold'},axisLine:{lineStyle:{color:CHART_LINE}}},
+        series:[{
+            type:'bar', data:tats.map(v=>({value:v,itemStyle:{color:v<=sla?GREEN:v<=sla*1.5?AMBER:RED,borderRadius:3}})),
+            barMaxWidth:18,
+            label:{show:true,position:'right',formatter:p=>fmtMin(p.value),color:CHART_TEXT,fontSize:10},
+            markLine:{silent:true,symbol:'none',data:[{xAxis:sla,label:{formatter:`SLA`,color:AMBER,fontSize:9},lineStyle:{color:AMBER,type:'dashed',width:1}}]}
+        }]
+    });
+}
+
+function renderHour(rows) {
+    const c = ec('chart-hour');
+    const hours = Array.from({length:24},(_,i)=>i);
+    const lookup = Object.fromEntries(rows.map(r=>[r.hour,r.cnt]));
+    const counts = hours.map(h=>lookup[h]||0);
+    const maxVal = Math.max(...counts);
+    c.setOption({
+        backgroundColor:'transparent',
+        tooltip:{trigger:'axis'},
+        grid:{top:10,right:20,bottom:30,left:40},
+        xAxis:{type:'category',data:hours.map(h=>h.toString().padStart(2,'0')+':00'),axisLabel:{color:CHART_TEXT,fontSize:9,rotate:45},axisLine:{lineStyle:{color:CHART_LINE}}},
+        yAxis:{type:'value',axisLabel:{color:CHART_TEXT,fontSize:10},splitLine:{lineStyle:{color:CHART_LINE,type:'dashed'}}},
+        series:[{
+            type:'bar', data:counts.map(v=>({value:v,itemStyle:{color:v===maxVal?RED:'rgba(96,165,250,0.5)',borderRadius:2}})), barMaxWidth:20
+        }]
+    });
+}
+
+function renderRadiologist(rows, sla) {
+    const c = ec('chart-radiologist');
+    const names = rows.map(r => r.radiologist);
+    const tats  = rows.map(r => r.avg_tat);
+    c.setOption({
+        backgroundColor:'transparent',
+        tooltip:{trigger:'axis',formatter:p=>`${p[0].axisValue}<br>Avg TAT: <b>${fmtMin(p[0].data)}</b>`},
+        grid:{top:10,right:80,bottom:10,left:10,containLabel:true},
+        xAxis:{type:'value',axisLabel:{color:CHART_TEXT,fontSize:10},splitLine:{lineStyle:{color:CHART_LINE,type:'dashed'}}},
+        yAxis:{type:'category',data:names,axisLabel:{color:CHART_TEXT,fontSize:11},axisLine:{lineStyle:{color:CHART_LINE}}},
+        series:[{
+            type:'bar', data:tats.map(v=>({value:v,itemStyle:{color:v<=sla?GREEN:v<=sla*1.5?AMBER:RED,borderRadius:3}})),
+            barMaxWidth:16,
+            label:{show:true,position:'right',formatter:p=>fmtMin(p.value),color:CHART_TEXT,fontSize:10},
+            markLine:{silent:true,symbol:'none',data:[{xAxis:sla,label:{formatter:`SLA`,color:AMBER,fontSize:9},lineStyle:{color:AMBER,type:'dashed',width:1}}]}
+        }]
+    });
+}
+
+function renderBreaches(rows, sla) {
+    const sec = document.getElementById('breach-section');
+    if (!rows.length) { sec.classList.add('hidden'); return; }
+    sec.classList.remove('hidden');
+    document.getElementById('breach-body').innerHTML = rows.map(r => {
+        const over = Math.round(r.tat_min - sla);
+        return `<tr class="hover:bg-[#1d2522]/50">
+            <td class="py-3 px-4 font-mono text-xs text-slate-300">${r.accession_number || '—'}</td>
+            <td class="py-3 px-4 text-xs text-slate-400">${r.study_date}</td>
+            <td class="py-3 px-4 text-xs font-bold text-white">${r.modality}</td>
+            <td class="py-3 px-4 text-xs text-slate-300">${r.radiologist}</td>
+            <td class="py-3 px-4 text-xs font-black text-red-400">${fmtMin(r.tat_min)}</td>
+            <td class="py-3 px-4 text-xs font-bold text-amber-400">+${fmtMin(over)}</td>
+        </tr>`;
+    }).join('');
+}
+
+function applyTheme(theme) {
+    document.body.classList.toggle('light', theme === 'light');
+    const icon = document.getElementById('theme-icon');
+    if (icon) icon.className = theme === 'light' ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
+}
+applyTheme("{{ ui_theme }}");
+function toggleTheme() {
+    const next = document.body.classList.contains('light') ? 'dark' : 'light';
+    applyTheme(next);
+    fetch('/user/theme', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({theme:next})});
+}
+
+loadData();
+</script>
+</body>
+</html>
