@@ -5,6 +5,7 @@
     <title>RAYD PRO | v2.5 Executive</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
     <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
@@ -495,15 +496,22 @@
                                 card.style.borderTopColor = evil ? '#f43f5e' : '#2563eb';
 
                                 card.innerHTML = `
-                                    <div class="flex items-baseline justify-between gap-4 mb-4 flex-wrap">
-                                        <h3 class="text-sm font-black text-white uppercase tracking-wide">${rad}</h3>
-                                        <div class="flex flex-wrap gap-x-5 gap-y-1 text-[11px]">
-                                            <span><span class="text-zinc-500">${L.arrival[evil?1:0]}</span> <span class="font-black text-emerald-400">${info.avg_arrival}</span></span>
-                                            <span><span class="text-zinc-500">${L.departure[evil?1:0]}</span> <span class="font-black text-blue-400">${info.avg_departure}</span></span>
-                                            <span><span class="text-zinc-500">${L.gap_label[evil?1:0]}</span> <span class="font-black" style="color:${breakStatColor}">${info.avg_breaks_day}</span></span>
-                                            <span><span class="text-zinc-500">${L.gap_dur[evil?1:0]}</span> <span class="font-black text-amber-400">${info.avg_break_dur ? info.avg_break_dur+'m' : '—'}</span></span>
-                                            <span class="text-zinc-600">${info.working_days} days</span>
+                                    <div class="flex items-start justify-between gap-4 mb-4 flex-wrap">
+                                        <div>
+                                            <h3 class="text-sm font-black text-white uppercase tracking-wide">${rad}</h3>
+                                            <div class="flex flex-wrap gap-x-5 gap-y-1 text-[11px] mt-1">
+                                                <span><span class="text-zinc-500">${L.arrival[evil?1:0]}</span> <span class="font-black text-emerald-400">${info.avg_arrival}</span></span>
+                                                <span><span class="text-zinc-500">${L.departure[evil?1:0]}</span> <span class="font-black text-blue-400">${info.avg_departure}</span></span>
+                                                <span><span class="text-zinc-500">${L.gap_label[evil?1:0]}</span> <span class="font-black" style="color:${breakStatColor}">${info.avg_breaks_day}</span></span>
+                                                <span><span class="text-zinc-500">${L.gap_dur[evil?1:0]}</span> <span class="font-black text-amber-400">${info.avg_break_dur ? info.avg_break_dur+'m' : '—'}</span></span>
+                                                <span class="text-zinc-600">${info.working_days} days</span>
+                                            </div>
                                         </div>
+                                        <button onclick="exportCardPng(${idx}, '${rad.replace(/'/g,"\\'")}')"
+                                            class="shrink-0 flex items-center gap-1 text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg border border-white/10 text-zinc-500 hover:text-blue-400 hover:border-blue-400/40 transition-all"
+                                            title="Export as PNG">
+                                            <i class="bi bi-image"></i> PNG
+                                        </button>
                                     </div>
                                     <div id="hm-${idx}" style="height:280px;width:100%;"></div>
                                     <div class="mt-4">
@@ -590,6 +598,54 @@
                         const arrow = document.getElementById(`log-arrow-${idx}`);
                         el.classList.toggle('hidden');
                         arrow.textContent = el.classList.contains('hidden') ? '▶' : '▼';
+                    };
+
+                    window.exportCardPng = function(idx, radName) {
+                        const card = container.children[idx];
+                        if (!card) return;
+
+                        // Expand the daily log temporarily if hidden
+                        const log   = document.getElementById(`log-${idx}`);
+                        const arrow = document.getElementById(`log-arrow-${idx}`);
+                        const wasHidden = log && log.classList.contains('hidden');
+                        if (wasHidden) {
+                            log.classList.remove('hidden');
+                            if (arrow) arrow.textContent = '▼';
+                            log.style.maxHeight = 'none';  // remove scroll cap so full table is captured
+                        }
+
+                        // Add a watermark/context label temporarily
+                        const label = document.createElement('p');
+                        label.style.cssText = 'font-size:10px;color:#52525b;margin-bottom:10px;font-family:monospace;';
+                        label.textContent = `RAYD · Reporting Cadence · ${radName} · Exported ${new Date().toLocaleDateString()}`;
+                        card.insertBefore(label, card.firstChild);
+
+                        html2canvas(card, {
+                            backgroundColor: '#111413',
+                            scale: 2,
+                            useCORS: true,
+                            logging: false,
+                        }).then(function(canvas) {
+                            // Restore state
+                            card.removeChild(label);
+                            if (wasHidden) {
+                                log.classList.add('hidden');
+                                log.style.maxHeight = '';
+                                if (arrow) arrow.textContent = '▶';
+                            }
+                            // Download
+                            const a = document.createElement('a');
+                            a.download = `rayd_cadence_${radName.replace(/\s+/g,'_')}.png`;
+                            a.href = canvas.toDataURL('image/png');
+                            a.click();
+                        }).catch(function() {
+                            card.removeChild(label);
+                            if (wasHidden) {
+                                log.classList.add('hidden');
+                                log.style.maxHeight = '';
+                                if (arrow) arrow.textContent = '▶';
+                            }
+                        });
                     };
 
                     window.toggleSpMode = function() {
