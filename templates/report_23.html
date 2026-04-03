@@ -150,6 +150,54 @@
         </aside>
 
         <main class="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar bg-[#0b0f0e]">
+
+            <!-- ── Conflict Patients Card ─────────────────────────────────── -->
+            <div class="data-card !h-auto border-l-4 border-l-amber-500">
+                <div class="card-header" style="color:#f59e0b;">
+                    <div class="flex items-center gap-2">
+                        <i class="bi bi-person-exclamation"></i>
+                        Conflict Patients
+                        <span id="conflict-count-badge"
+                              style="font-size:9px;font-weight:900;padding:2px 10px;border-radius:999px;background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.3);">
+                            Loading…
+                        </span>
+                    </div>
+                    <a href="/patients/conflicts/export"
+                       style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.08em;display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:5px;background:rgba(245,158,11,0.1);color:#f59e0b;border:1px solid rgba(245,158,11,0.3);text-decoration:none;transition:all 0.15s;"
+                       onmouseover="this.style.background='rgba(245,158,11,0.2)'" onmouseout="this.style.background='rgba(245,158,11,0.1)'">
+                        <i class="bi bi-download"></i> Export CSV
+                    </a>
+                </div>
+                <div class="card-desc">
+                    Patients whose <code style="color:#fbbf24;background:rgba(251,191,36,0.1);padding:1px 5px;border-radius:3px;">fallback_id</code>
+                    contains <code style="color:#fbbf24;background:rgba(251,191,36,0.1);padding:1px 5px;border-radius:3px;">$$$</code> —
+                    indicating a merge conflict or unresolved identity in the PACS/RIS. These records may affect patient matching accuracy across studies.
+                </div>
+                <div class="p-4">
+                    <div id="conflict-table-wrap" class="hidden overflow-x-auto">
+                        <table class="w-full text-left text-xs">
+                            <thead>
+                                <tr style="border-bottom:1px solid #2d3733;color:#f59e0b;font-size:9px;text-transform:uppercase;letter-spacing:0.12em;font-weight:900;">
+                                    <th class="pb-2 pr-4">Patient ID</th>
+                                    <th class="pb-2 pr-4">Fallback ID</th>
+                                    <th class="pb-2 pr-4">DOB</th>
+                                    <th class="pb-2 pr-4">Sex</th>
+                                    <th class="pb-2 pr-4">Studies</th>
+                                    <th class="pb-2">Last Update</th>
+                                </tr>
+                            </thead>
+                            <tbody id="conflict-tbody" class="divide-y divide-[#2d3733] text-slate-300"></tbody>
+                        </table>
+                    </div>
+                    <div id="conflict-empty" class="hidden text-center py-4 text-slate-500 text-xs font-bold uppercase tracking-widest">
+                        <i class="bi bi-check-circle-fill text-green-400 mr-1"></i> No conflict patients found
+                    </div>
+                    <div id="conflict-error" class="hidden text-center py-4 text-red-400 text-xs font-bold"></div>
+                    <div id="conflict-loading" class="text-center py-4 text-slate-500 text-xs">Loading…</div>
+                </div>
+            </div>
+            <!-- ── End Conflict Patients Card ─────────────────────────────── -->
+
             {% if run_report %}
 
             <!-- KPI -->
@@ -487,6 +535,49 @@
                 });
             }
         }
+
+        // ── Conflict patients ──────────────────────────────────────────
+        (async function() {
+            const badge   = document.getElementById('conflict-count-badge');
+            const tbody   = document.getElementById('conflict-tbody');
+            const wrap    = document.getElementById('conflict-table-wrap');
+            const empty   = document.getElementById('conflict-empty');
+            const errEl   = document.getElementById('conflict-error');
+            const loading = document.getElementById('conflict-loading');
+            try {
+                const d = await fetch('/patients/conflicts').then(r => r.json());
+                loading.classList.add('hidden');
+                if (d.error) {
+                    errEl.textContent = d.error;
+                    errEl.classList.remove('hidden');
+                    badge.textContent = 'Error';
+                    return;
+                }
+                badge.textContent = d.count.toLocaleString() + ' conflict' + (d.count !== 1 ? 's' : '');
+                badge.style.background = d.count > 0 ? 'rgba(244,63,94,0.15)' : 'rgba(34,197,94,0.15)';
+                badge.style.color      = d.count > 0 ? '#f43f5e' : '#22c55e';
+                badge.style.borderColor= d.count > 0 ? 'rgba(244,63,94,0.3)' : 'rgba(34,197,94,0.3)';
+                if (d.preview.length) {
+                    tbody.innerHTML = d.preview.map(r => `
+                        <tr style="border-bottom:1px solid #1e2724;">
+                            <td class="py-2 pr-4 font-mono" style="color:#e2e8f0;">${r.patient_id || '—'}</td>
+                            <td class="py-2 pr-4 font-mono" style="color:#fbbf24;">${r.fallback_id || '—'}</td>
+                            <td class="py-2 pr-4" style="color:#94a3b8;">${r.birth_date || '—'}</td>
+                            <td class="py-2 pr-4" style="color:#94a3b8;">${r.sex || '—'}</td>
+                            <td class="py-2 pr-4" style="color:#e2e8f0;font-weight:700;">${r.studies ?? '—'}</td>
+                            <td class="py-2" style="color:#64748b;font-size:10px;">${(r.last_update || '—').slice(0,16)}</td>
+                        </tr>`).join('');
+                    wrap.classList.remove('hidden');
+                } else {
+                    empty.classList.remove('hidden');
+                }
+            } catch(e) {
+                loading.classList.add('hidden');
+                errEl.textContent = 'Could not load conflict data.';
+                errEl.classList.remove('hidden');
+                badge.textContent = 'Error';
+            }
+        })();
 
         function applyTheme(theme) {
             document.body.classList.toggle('light', theme === 'light');

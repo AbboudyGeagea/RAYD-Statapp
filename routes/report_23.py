@@ -315,3 +315,61 @@ def export_report_23():
         mimetype="text/csv",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
+
+
+_CONFLICT_SQL = """
+    SELECT
+        patient_db_uid,
+        id              AS patient_id,
+        fallback_id,
+        birth_date::text,
+        sex,
+        number_of_patient_studies AS studies,
+        last_update::text
+    FROM etl_patient_view
+    WHERE fallback_id LIKE '%$$$%'
+    ORDER BY last_update DESC NULLS LAST
+"""
+
+
+@report_23_bp.route('/patients/conflicts')
+@login_required
+def conflict_count():
+    try:
+        count = db.session.execute(text(
+            "SELECT COUNT(*) FROM etl_patient_view WHERE fallback_id LIKE '%$$$%'"
+        )).scalar() or 0
+
+        preview = db.session.execute(
+            text(_CONFLICT_SQL + " LIMIT 50")
+        ).mappings().fetchall()
+
+        from flask import jsonify
+        return jsonify({'count': int(count), 'preview': [dict(r) for r in preview], 'error': None})
+    except Exception as e:
+        db.session.rollback()
+        from flask import jsonify
+        return jsonify({'count': 0, 'preview': [], 'error': str(e)})
+
+
+@report_23_bp.route('/patients/conflicts/export')
+@login_required
+def conflict_export():
+    rows = db.session.execute(text(_CONFLICT_SQL)).mappings().fetchall()
+
+    def generate():
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(['patient_db_uid', 'patient_id', 'fallback_id',
+                         'birth_date', 'sex', 'studies', 'last_update'])
+        buf.seek(0); yield buf.getvalue(); buf.seek(0); buf.truncate(0)
+        for r in rows:
+            writer.writerow([r['patient_db_uid'], r['patient_id'], r['fallback_id'],
+                             r['birth_date'], r['sex'], r['studies'], r['last_update']])
+            buf.seek(0); yield buf.getvalue(); buf.seek(0); buf.truncate(0)
+
+    return Response(
+        generate(),
+        mimetype='text/csv',
+        headers={'Content-Disposition': 'attachment; filename="conflict_patients.csv"'}
+    )

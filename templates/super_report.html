@@ -184,7 +184,51 @@
         </aside>
 
         <!-- Main content -->
-        <main class="flex-1 overflow-y-auto p-6 bg-[#181f1c]">
+        <main class="flex-1 overflow-y-auto p-6 bg-[#181f1c] space-y-5">
+
+            <!-- Conflict Patients Card -->
+            <div class="card" style="border-left:3px solid #f59e0b;">
+                <div style="padding:12px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <i class="bi bi-person-exclamation" style="color:#f59e0b;"></i>
+                        <span style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:0.12em;color:#f59e0b;">Conflict Patients</span>
+                        <span id="sr-conflict-badge"
+                              style="font-size:9px;font-weight:900;padding:2px 10px;border-radius:999px;background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.3);">
+                            Loading…
+                        </span>
+                    </div>
+                    <a href="/patients/conflicts/export"
+                       style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.08em;display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:5px;background:rgba(245,158,11,0.1);color:#f59e0b;border:1px solid rgba(245,158,11,0.3);text-decoration:none;">
+                        <i class="bi bi-download"></i> Export CSV
+                    </a>
+                </div>
+                <div style="padding:12px 18px;font-size:12px;color:#64748b;font-style:italic;background:rgba(245,158,11,0.03);border-bottom:1px solid var(--border);">
+                    Patients whose <code style="color:#fbbf24;background:rgba(251,191,36,0.1);padding:1px 5px;border-radius:3px;">fallback_id</code>
+                    contains <code style="color:#fbbf24;background:rgba(251,191,36,0.1);padding:1px 5px;border-radius:3px;">$$$</code> —
+                    unresolved identity or merge conflict in PACS/RIS.
+                </div>
+                <div style="padding:12px 18px;">
+                    <div id="sr-conflict-wrap" class="hidden" style="overflow-x:auto;">
+                        <table style="width:100%;text-align:left;font-size:11px;border-collapse:collapse;">
+                            <thead>
+                                <tr style="border-bottom:1px solid var(--border);color:#f59e0b;font-size:9px;text-transform:uppercase;letter-spacing:0.12em;font-weight:900;">
+                                    <th style="padding-bottom:8px;padding-right:16px;">Patient ID</th>
+                                    <th style="padding-bottom:8px;padding-right:16px;">Fallback ID</th>
+                                    <th style="padding-bottom:8px;padding-right:16px;">DOB</th>
+                                    <th style="padding-bottom:8px;padding-right:16px;">Sex</th>
+                                    <th style="padding-bottom:8px;padding-right:16px;">Studies</th>
+                                    <th style="padding-bottom:8px;">Last Update</th>
+                                </tr>
+                            </thead>
+                            <tbody id="sr-conflict-tbody"></tbody>
+                        </table>
+                    </div>
+                    <div id="sr-conflict-empty" class="hidden" style="text-align:center;padding:12px 0;color:#22c55e;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;">
+                        <i class="bi bi-check-circle-fill"></i> No conflict patients found
+                    </div>
+                    <div id="sr-conflict-loading" style="text-align:center;padding:8px 0;color:#64748b;font-size:11px;">Loading…</div>
+                </div>
+            </div>
 
             <!-- Loading -->
             <div id="super-loading" class="hidden flex flex-col items-center justify-center h-full gap-4">
@@ -793,6 +837,41 @@
     fetch('/user/theme').then(r => r.json()).then(d => {
         if (d.theme === 'light') { document.body.classList.add('light'); const i = document.getElementById('theme-icon'); if(i) i.className = 'bi bi-sun-fill'; }
     }).catch(() => {});
+
+    // Auto-load conflict patients card
+    (async function() {
+        const badge   = document.getElementById('sr-conflict-badge');
+        const wrap    = document.getElementById('sr-conflict-wrap');
+        const tbody   = document.getElementById('sr-conflict-tbody');
+        const empty   = document.getElementById('sr-conflict-empty');
+        const loading = document.getElementById('sr-conflict-loading');
+        try {
+            const res  = await fetch('/patients/conflicts');
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+            badge.textContent = data.count + ' conflict' + (data.count !== 1 ? 's' : '');
+            loading.classList.add('hidden');
+            if (data.count === 0) {
+                empty.classList.remove('hidden');
+            } else {
+                wrap.classList.remove('hidden');
+                (data.preview || []).forEach(function(r) {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML =
+                        '<td style="padding:4px 8px;border-bottom:1px solid var(--border);">' + (r.patient_id  || '') + '</td>' +
+                        '<td style="padding:4px 8px;border-bottom:1px solid var(--border);">' + (r.fallback_id || '') + '</td>' +
+                        '<td style="padding:4px 8px;border-bottom:1px solid var(--border);">' + (r.birth_date  || '') + '</td>' +
+                        '<td style="padding:4px 8px;border-bottom:1px solid var(--border);">' + (r.sex         || '') + '</td>' +
+                        '<td style="padding:4px 8px;border-bottom:1px solid var(--border);text-align:right;">' + (r.studies   || 0) + '</td>' +
+                        '<td style="padding:4px 8px;border-bottom:1px solid var(--border);">' + (r.last_update || '') + '</td>';
+                    tbody.appendChild(tr);
+                });
+            }
+        } catch(e) {
+            badge.textContent = 'Error';
+            loading.textContent = 'Failed to load conflict data.';
+        }
+    })();
     </script>
 </body>
 </html>
