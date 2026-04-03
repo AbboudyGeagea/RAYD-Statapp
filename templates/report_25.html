@@ -435,13 +435,21 @@
                     {% endfor %}
                 </div>
 
-                <!-- ── Signing Pattern & Shift Activity ───────────────────── -->
+                <!-- ── Reporting Cadence Analysis ─────────────────────────── -->
                 {% if data.shift_patterns %}
                 <div class="mt-8">
-                    <p class="text-xs font-black text-rose-500 uppercase tracking-widest mb-1">Signing Pattern & Shift Activity</p>
+                    <div class="flex items-center justify-between mb-1">
+                        <p class="text-xs font-black text-blue-500 uppercase tracking-widest">Reporting Cadence Analysis</p>
+                        <button id="sp-mode-btn" onclick="toggleSpMode()"
+                            title="Enhanced view"
+                            class="text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full border transition-all"
+                            style="border-color:#27272a;color:#3f3f46;background:transparent;">
+                            &#9673; Enhanced View
+                        </button>
+                    </div>
                     <p class="text-[11px] text-zinc-500 mb-5">
-                        Derived from <code class="text-rose-400 bg-rose-500/10 px-1 rounded">rep_final_timestamp</code>.
-                        Heatmap shows signing density by hour × day-of-week. Gaps ≥ 20 min between consecutive signatures are flagged as breaks.
+                        Derived from <code class="text-blue-400 bg-blue-500/10 px-1 rounded">rep_final_timestamp</code>.
+                        Shows each physician's signing density by hour and day of week. Inactive intervals ≥ 20 min are noted in the daily log.
                     </p>
                     <div class="space-y-6" id="shift-patterns-container"></div>
                 </div>
@@ -451,98 +459,139 @@
                     const DOW = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
                     const HOURS = Array.from({length:24}, (_,i) => String(i).padStart(2,'0')+'h');
                     const container = document.getElementById('shift-patterns-container');
+                    let evilMode = false;
+
+                    // ── Labels: neutral vs enhanced ──────────────────────────
+                    const L = {
+                        gap_label:   ['Inactive Intervals / Day', 'Breaks / Day'],
+                        gap_dur:     ['Avg Interval Duration',    'Avg Break Duration'],
+                        arrival:     ['First Signature',          'Arrival'],
+                        departure:   ['Last Signature',           'Departure'],
+                        col_gap:     ['Intervals',                'Breaks'],
+                        icon_map: {
+                            '☕': ['·',  '☕'],
+                            '🚬': ['··', '🚬'],
+                            '🏃': ['···','🏃'],
+                        },
+                    };
+
+                    const cards = [];  // store references for re-render
 
                     Object.entries(SP).forEach(([rad, info], idx) => {
-                        // ── Card HTML ────────────────────────────────────────
                         const card = document.createElement('div');
-                        card.className = 'glass-card border-t-4 border-rose-600';
-
-                        const breakColor = info.avg_breaks_day >= 3 ? '#f43f5e' : info.avg_breaks_day >= 1.5 ? '#f59e0b' : '#34d399';
-
-                        card.innerHTML = `
-                            <div class="flex flex-wrap items-center justify-between gap-4 mb-5">
-                                <div>
-                                    <h3 class="text-base font-black text-white uppercase tracking-wide">${rad}</h3>
-                                    <p class="text-[10px] text-zinc-500 mt-0.5">${info.working_days} working day${info.working_days!==1?'s':''} in period</p>
-                                </div>
-                                <div class="flex gap-3 flex-wrap">
-                                    <div class="text-center px-4 py-2 rounded-xl bg-white/5 border border-white/5">
-                                        <p class="text-[9px] font-black text-zinc-500 uppercase">Avg Arrival</p>
-                                        <p class="text-lg font-black text-emerald-400">${info.avg_arrival}</p>
-                                    </div>
-                                    <div class="text-center px-4 py-2 rounded-xl bg-white/5 border border-white/5">
-                                        <p class="text-[9px] font-black text-zinc-500 uppercase">Avg Departure</p>
-                                        <p class="text-lg font-black text-blue-400">${info.avg_departure}</p>
-                                    </div>
-                                    <div class="text-center px-4 py-2 rounded-xl bg-white/5 border border-white/5">
-                                        <p class="text-[9px] font-black text-zinc-500 uppercase">Breaks / Day</p>
-                                        <p class="text-lg font-black" style="color:${breakColor}">${info.avg_breaks_day}</p>
-                                    </div>
-                                    <div class="text-center px-4 py-2 rounded-xl bg-white/5 border border-white/5">
-                                        <p class="text-[9px] font-black text-zinc-500 uppercase">Avg Break</p>
-                                        <p class="text-lg font-black text-amber-400">${info.avg_break_dur ? info.avg_break_dur+'m' : '—'}</p>
-                                    </div>
-                                </div>
-                            </div>
-                            <div id="hm-${idx}" style="height:180px;width:100%;"></div>
-                            <div class="mt-4">
-                                <button onclick="toggleLog(${idx})"
-                                    class="text-[10px] font-black text-zinc-500 hover:text-rose-400 uppercase tracking-widest transition-colors flex items-center gap-1">
-                                    <span id="log-arrow-${idx}">▶</span> Daily Log
-                                </button>
-                                <div id="log-${idx}" class="hidden mt-3 overflow-y-auto" style="max-height:260px;">
-                                    <table class="w-full text-[11px]">
-                                        <thead class="sticky top-0 bg-[#111413]">
-                                            <tr class="border-b border-white/5 text-zinc-500 uppercase text-[9px]">
-                                                <th class="text-left py-2 pr-4">Date</th>
-                                                <th class="text-left py-2 pr-4">Day</th>
-                                                <th class="text-left py-2 pr-4">Arrival</th>
-                                                <th class="text-left py-2 pr-4">Departure</th>
-                                                <th class="text-right py-2 pr-4">Studies</th>
-                                                <th class="text-right py-2 pr-4">Span</th>
-                                                <th class="text-left py-2">Breaks</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="log-body-${idx}" class="divide-y divide-white/5 text-zinc-300"></tbody>
-                                    </table>
-                                </div>
-                            </div>`;
+                        card.className = 'glass-card border-t-4 border-blue-600';
+                        card.dataset.idx = idx;
                         container.appendChild(card);
 
-                        // ── Heatmap ──────────────────────────────────────────
-                        const hm = echarts.init(document.getElementById(`hm-${idx}`));
-                        hm.setOption({
-                            animation: false,
-                            grid: { top:10, bottom:30, left:50, right:20 },
-                            xAxis: { type:'category', data: HOURS, axisLabel:{fontSize:9, color:'#52525b'}, axisTick:{show:false}, axisLine:{lineStyle:{color:'#27272a'}} },
-                            yAxis: { type:'category', data: DOW,   axisLabel:{fontSize:9, color:'#52525b'}, axisTick:{show:false}, axisLine:{lineStyle:{color:'#27272a'}} },
-                            visualMap: { show:false, min:0, max:info.hm_max, inRange:{ color:['#0f172a','#1d4ed8','#f43f5e'] } },
-                            tooltip: {
-                                formatter: p => `${DOW[p.data[1]]} ${HOURS[p.data[0]]}: <b>${p.data[2]}</b> sign${p.data[2]!==1?'s':''}`,
-                                backgroundColor:'#1c1917', borderColor:'#27272a', textStyle:{color:'#e2e8f0',fontSize:11}
-                            },
-                            series:[{ type:'heatmap', data: info.heatmap, itemStyle:{borderRadius:2, borderWidth:1, borderColor:'#080a09'} }]
-                        });
+                        const hm = (() => {
+                            // build inner HTML, draw chart, populate table
+                            function render(evil) {
+                                const breakStatColor = evil
+                                    ? (info.avg_breaks_day >= 3 ? '#f43f5e' : info.avg_breaks_day >= 1.5 ? '#f59e0b' : '#34d399')
+                                    : '#a1a1aa';
 
-                        // ── Daily log rows ───────────────────────────────────
-                        const tbody = document.getElementById(`log-body-${idx}`);
-                        [...info.daily_log].reverse().forEach(day => {
-                            const breakStr = day.breaks.length
-                                ? day.breaks.map(b => `<span title="${b.kind} – ${b.duration}m (${b.start}–${b.end})" style="cursor:default">${b.icon}</span>`).join(' ')
-                                : '<span class="text-zinc-600">—</span>';
-                            const arrColor = parseInt(day.arrival) >= 10 ? 'color:#f59e0b' : 'color:#34d399';
-                            const tr = document.createElement('tr');
-                            tr.className = 'hover:bg-white/[0.02]';
-                            tr.innerHTML = `
-                                <td class="py-2 pr-4 font-mono text-zinc-400">${day.date}</td>
-                                <td class="py-2 pr-4 text-zinc-500">${day.dow}</td>
-                                <td class="py-2 pr-4 font-mono font-bold" style="${arrColor}">${day.arrival}</td>
-                                <td class="py-2 pr-4 font-mono text-blue-400">${day.departure}</td>
-                                <td class="py-2 pr-4 text-right text-zinc-300 font-bold">${day.studies}</td>
-                                <td class="py-2 pr-4 text-right text-zinc-500">${day.span_h}h</td>
-                                <td class="py-2 text-base">${breakStr}</td>`;
-                            tbody.appendChild(tr);
-                        });
+                                card.style.borderTopColor = evil ? '#f43f5e' : '#2563eb';
+
+                                card.innerHTML = `
+                                    <div class="flex flex-wrap items-center justify-between gap-4 mb-5">
+                                        <div>
+                                            <h3 class="text-base font-black text-white uppercase tracking-wide">${rad}</h3>
+                                            <p class="text-[10px] text-zinc-500 mt-0.5">${info.working_days} working day${info.working_days!==1?'s':''} in period</p>
+                                        </div>
+                                        <div class="flex gap-3 flex-wrap">
+                                            <div class="text-center px-4 py-2 rounded-xl bg-white/5 border border-white/5">
+                                                <p class="text-[9px] font-black text-zinc-500 uppercase">${L.arrival[evil?1:0]}</p>
+                                                <p class="text-lg font-black text-emerald-400">${info.avg_arrival}</p>
+                                            </div>
+                                            <div class="text-center px-4 py-2 rounded-xl bg-white/5 border border-white/5">
+                                                <p class="text-[9px] font-black text-zinc-500 uppercase">${L.departure[evil?1:0]}</p>
+                                                <p class="text-lg font-black text-blue-400">${info.avg_departure}</p>
+                                            </div>
+                                            <div class="text-center px-4 py-2 rounded-xl bg-white/5 border border-white/5">
+                                                <p class="text-[9px] font-black text-zinc-500 uppercase">${L.gap_label[evil?1:0]}</p>
+                                                <p class="text-lg font-black" style="color:${breakStatColor}">${info.avg_breaks_day}</p>
+                                            </div>
+                                            <div class="text-center px-4 py-2 rounded-xl bg-white/5 border border-white/5">
+                                                <p class="text-[9px] font-black text-zinc-500 uppercase">${L.gap_dur[evil?1:0]}</p>
+                                                <p class="text-lg font-black text-amber-400">${info.avg_break_dur ? info.avg_break_dur+'m' : '—'}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div id="hm-${idx}" style="height:280px;width:100%;"></div>
+                                    <div class="mt-4">
+                                        <button onclick="toggleLog(${idx})"
+                                            class="text-[10px] font-black text-zinc-500 hover:text-blue-400 uppercase tracking-widest transition-colors flex items-center gap-1">
+                                            <span id="log-arrow-${idx}">▶</span> Daily Log
+                                        </button>
+                                        <div id="log-${idx}" class="hidden mt-3 overflow-y-auto" style="max-height:260px;">
+                                            <table class="w-full text-[11px]">
+                                                <thead class="sticky top-0 bg-[#111413]">
+                                                    <tr class="border-b border-white/5 text-zinc-500 uppercase text-[9px]">
+                                                        <th class="text-left py-2 pr-4">Date</th>
+                                                        <th class="text-left py-2 pr-4">Day</th>
+                                                        <th class="text-left py-2 pr-4">${L.arrival[evil?1:0]}</th>
+                                                        <th class="text-left py-2 pr-4">${L.departure[evil?1:0]}</th>
+                                                        <th class="text-right py-2 pr-4">Studies</th>
+                                                        <th class="text-right py-2 pr-4">Span</th>
+                                                        <th class="text-left py-2">${L.col_gap[evil?1:0]}</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody id="log-body-${idx}" class="divide-y divide-white/5 text-zinc-300"></tbody>
+                                            </table>
+                                        </div>
+                                    </div>`;
+
+                                // chart
+                                const hmEl = document.getElementById(`hm-${idx}`);
+                                const chart = echarts.init(hmEl);
+                                chart.setOption({
+                                    animation: false,
+                                    grid: { top:10, bottom:30, left:50, right:20 },
+                                    xAxis: { type:'category', data: HOURS, axisLabel:{fontSize:9, color:'#52525b'}, axisTick:{show:false}, axisLine:{lineStyle:{color:'#27272a'}} },
+                                    yAxis: { type:'category', data: DOW,   axisLabel:{fontSize:9, color:'#52525b'}, axisTick:{show:false}, axisLine:{lineStyle:{color:'#27272a'}} },
+                                    visualMap: { show:false, min:0, max:info.hm_max, inRange:{ color: evil ? ['#0f172a','#1d4ed8','#f43f5e'] : ['#0f172a','#1d4ed8','#38bdf8'] } },
+                                    tooltip: {
+                                        formatter: p => `${DOW[p.data[1]]} ${HOURS[p.data[0]]}: <b>${p.data[2]}</b> signature${p.data[2]!==1?'s':''}`,
+                                        backgroundColor:'#1c1917', borderColor:'#27272a', textStyle:{color:'#e2e8f0',fontSize:11}
+                                    },
+                                    series:[{ type:'heatmap', data: info.heatmap, itemStyle:{borderRadius:2, borderWidth:1, borderColor:'#080a09'} }]
+                                });
+
+                                // table rows
+                                const tbody = document.getElementById(`log-body-${idx}`);
+                                tbody.innerHTML = '';
+                                [...info.daily_log].reverse().forEach(day => {
+                                    let breakStr;
+                                    if (!day.breaks.length) {
+                                        breakStr = '<span class="text-zinc-600">—</span>';
+                                    } else if (evil) {
+                                        breakStr = day.breaks.map(b =>
+                                            `<span title="${b.kind} – ${b.duration}m (${b.start}–${b.end})" style="cursor:default;font-size:1rem">${b.icon}</span>`
+                                        ).join(' ');
+                                    } else {
+                                        breakStr = `<span class="text-zinc-400">${day.breaks.length} interval${day.breaks.length!==1?'s':''}</span>`;
+                                    }
+                                    const arrStyle = evil && parseInt(day.arrival) >= 10
+                                        ? 'color:#f59e0b'
+                                        : 'color:#34d399';
+                                    const tr = document.createElement('tr');
+                                    tr.className = 'hover:bg-white/[0.02]';
+                                    tr.innerHTML = `
+                                        <td class="py-2 pr-4 font-mono text-zinc-400">${day.date}</td>
+                                        <td class="py-2 pr-4 text-zinc-500">${day.dow}</td>
+                                        <td class="py-2 pr-4 font-mono font-bold" style="${arrStyle}">${day.arrival}</td>
+                                        <td class="py-2 pr-4 font-mono text-blue-400">${day.departure}</td>
+                                        <td class="py-2 pr-4 text-right text-zinc-300 font-bold">${day.studies}</td>
+                                        <td class="py-2 pr-4 text-right text-zinc-500">${day.span_h}h</td>
+                                        <td class="py-2">${breakStr}</td>`;
+                                    tbody.appendChild(tr);
+                                });
+                            }
+                            return { render };
+                        })();
+
+                        cards.push(hm);
+                        hm.render(false);
                     });
 
                     window.toggleLog = function(idx) {
@@ -550,6 +599,21 @@
                         const arrow = document.getElementById(`log-arrow-${idx}`);
                         el.classList.toggle('hidden');
                         arrow.textContent = el.classList.contains('hidden') ? '▶' : '▼';
+                    };
+
+                    window.toggleSpMode = function() {
+                        evilMode = !evilMode;
+                        const btn = document.getElementById('sp-mode-btn');
+                        if (evilMode) {
+                            btn.style.borderColor = '#f43f5e';
+                            btn.style.color = '#f43f5e';
+                            btn.style.background = 'rgba(244,63,94,0.08)';
+                        } else {
+                            btn.style.borderColor = '#27272a';
+                            btn.style.color = '#3f3f46';
+                            btn.style.background = 'transparent';
+                        }
+                        cards.forEach(c => c.render(evilMode));
                     };
                 })();
                 </script>
