@@ -434,6 +434,126 @@
                     </div>
                     {% endfor %}
                 </div>
+
+                <!-- ── Signing Pattern & Shift Activity ───────────────────── -->
+                {% if data.shift_patterns %}
+                <div class="mt-8">
+                    <p class="text-xs font-black text-rose-500 uppercase tracking-widest mb-1">Signing Pattern & Shift Activity</p>
+                    <p class="text-[11px] text-zinc-500 mb-5">
+                        Derived from <code class="text-rose-400 bg-rose-500/10 px-1 rounded">rep_final_timestamp</code>.
+                        Heatmap shows signing density by hour × day-of-week. Gaps ≥ 20 min between consecutive signatures are flagged as breaks.
+                    </p>
+                    <div class="space-y-6" id="shift-patterns-container"></div>
+                </div>
+                <script>
+                (function() {
+                    const SP = {{ data.shift_patterns | tojson }};
+                    const DOW = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+                    const HOURS = Array.from({length:24}, (_,i) => String(i).padStart(2,'0')+'h');
+                    const container = document.getElementById('shift-patterns-container');
+
+                    Object.entries(SP).forEach(([rad, info], idx) => {
+                        // ── Card HTML ────────────────────────────────────────
+                        const card = document.createElement('div');
+                        card.className = 'glass-card border-t-4 border-rose-600';
+
+                        const breakColor = info.avg_breaks_day >= 3 ? '#f43f5e' : info.avg_breaks_day >= 1.5 ? '#f59e0b' : '#34d399';
+
+                        card.innerHTML = `
+                            <div class="flex flex-wrap items-center justify-between gap-4 mb-5">
+                                <div>
+                                    <h3 class="text-base font-black text-white uppercase tracking-wide">${rad}</h3>
+                                    <p class="text-[10px] text-zinc-500 mt-0.5">${info.working_days} working day${info.working_days!==1?'s':''} in period</p>
+                                </div>
+                                <div class="flex gap-3 flex-wrap">
+                                    <div class="text-center px-4 py-2 rounded-xl bg-white/5 border border-white/5">
+                                        <p class="text-[9px] font-black text-zinc-500 uppercase">Avg Arrival</p>
+                                        <p class="text-lg font-black text-emerald-400">${info.avg_arrival}</p>
+                                    </div>
+                                    <div class="text-center px-4 py-2 rounded-xl bg-white/5 border border-white/5">
+                                        <p class="text-[9px] font-black text-zinc-500 uppercase">Avg Departure</p>
+                                        <p class="text-lg font-black text-blue-400">${info.avg_departure}</p>
+                                    </div>
+                                    <div class="text-center px-4 py-2 rounded-xl bg-white/5 border border-white/5">
+                                        <p class="text-[9px] font-black text-zinc-500 uppercase">Breaks / Day</p>
+                                        <p class="text-lg font-black" style="color:${breakColor}">${info.avg_breaks_day}</p>
+                                    </div>
+                                    <div class="text-center px-4 py-2 rounded-xl bg-white/5 border border-white/5">
+                                        <p class="text-[9px] font-black text-zinc-500 uppercase">Avg Break</p>
+                                        <p class="text-lg font-black text-amber-400">${info.avg_break_dur ? info.avg_break_dur+'m' : '—'}</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="hm-${idx}" style="height:180px;width:100%;"></div>
+                            <div class="mt-4">
+                                <button onclick="toggleLog(${idx})"
+                                    class="text-[10px] font-black text-zinc-500 hover:text-rose-400 uppercase tracking-widest transition-colors flex items-center gap-1">
+                                    <span id="log-arrow-${idx}">▶</span> Daily Log
+                                </button>
+                                <div id="log-${idx}" class="hidden mt-3 overflow-y-auto" style="max-height:260px;">
+                                    <table class="w-full text-[11px]">
+                                        <thead class="sticky top-0 bg-[#111413]">
+                                            <tr class="border-b border-white/5 text-zinc-500 uppercase text-[9px]">
+                                                <th class="text-left py-2 pr-4">Date</th>
+                                                <th class="text-left py-2 pr-4">Day</th>
+                                                <th class="text-left py-2 pr-4">Arrival</th>
+                                                <th class="text-left py-2 pr-4">Departure</th>
+                                                <th class="text-right py-2 pr-4">Studies</th>
+                                                <th class="text-right py-2 pr-4">Span</th>
+                                                <th class="text-left py-2">Breaks</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="log-body-${idx}" class="divide-y divide-white/5 text-zinc-300"></tbody>
+                                    </table>
+                                </div>
+                            </div>`;
+                        container.appendChild(card);
+
+                        // ── Heatmap ──────────────────────────────────────────
+                        const hm = echarts.init(document.getElementById(`hm-${idx}`));
+                        hm.setOption({
+                            animation: false,
+                            grid: { top:10, bottom:30, left:50, right:20 },
+                            xAxis: { type:'category', data: HOURS, axisLabel:{fontSize:9, color:'#52525b'}, axisTick:{show:false}, axisLine:{lineStyle:{color:'#27272a'}} },
+                            yAxis: { type:'category', data: DOW,   axisLabel:{fontSize:9, color:'#52525b'}, axisTick:{show:false}, axisLine:{lineStyle:{color:'#27272a'}} },
+                            visualMap: { show:false, min:0, max:info.hm_max, inRange:{ color:['#0f172a','#1d4ed8','#f43f5e'] } },
+                            tooltip: {
+                                formatter: p => `${DOW[p.data[1]]} ${HOURS[p.data[0]]}: <b>${p.data[2]}</b> sign${p.data[2]!==1?'s':''}`,
+                                backgroundColor:'#1c1917', borderColor:'#27272a', textStyle:{color:'#e2e8f0',fontSize:11}
+                            },
+                            series:[{ type:'heatmap', data: info.heatmap, itemStyle:{borderRadius:2, borderWidth:1, borderColor:'#080a09'} }]
+                        });
+
+                        // ── Daily log rows ───────────────────────────────────
+                        const tbody = document.getElementById(`log-body-${idx}`);
+                        [...info.daily_log].reverse().forEach(day => {
+                            const breakStr = day.breaks.length
+                                ? day.breaks.map(b => `<span title="${b.kind} – ${b.duration}m (${b.start}–${b.end})" style="cursor:default">${b.icon}</span>`).join(' ')
+                                : '<span class="text-zinc-600">—</span>';
+                            const arrColor = parseInt(day.arrival) >= 10 ? 'color:#f59e0b' : 'color:#34d399';
+                            const tr = document.createElement('tr');
+                            tr.className = 'hover:bg-white/[0.02]';
+                            tr.innerHTML = `
+                                <td class="py-2 pr-4 font-mono text-zinc-400">${day.date}</td>
+                                <td class="py-2 pr-4 text-zinc-500">${day.dow}</td>
+                                <td class="py-2 pr-4 font-mono font-bold" style="${arrColor}">${day.arrival}</td>
+                                <td class="py-2 pr-4 font-mono text-blue-400">${day.departure}</td>
+                                <td class="py-2 pr-4 text-right text-zinc-300 font-bold">${day.studies}</td>
+                                <td class="py-2 pr-4 text-right text-zinc-500">${day.span_h}h</td>
+                                <td class="py-2 text-base">${breakStr}</td>`;
+                            tbody.appendChild(tr);
+                        });
+                    });
+
+                    window.toggleLog = function(idx) {
+                        const el = document.getElementById(`log-${idx}`);
+                        const arrow = document.getElementById(`log-arrow-${idx}`);
+                        el.classList.toggle('hidden');
+                        arrow.textContent = el.classList.contains('hidden') ? '▶' : '▼';
+                    };
+                })();
+                </script>
+                {% endif %}
             </div>
 
             <!-- ── EFFICIENCY INTEL TAB ──────────────────────────────────── -->

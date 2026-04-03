@@ -340,16 +340,12 @@ def conflict_count():
             "SELECT COUNT(*) FROM etl_patient_view WHERE fallback_id LIKE '%$$$%'"
         )).scalar() or 0
 
-        preview = db.session.execute(
-            text(_CONFLICT_SQL + " LIMIT 50")
-        ).mappings().fetchall()
-
         from flask import jsonify
-        return jsonify({'count': int(count), 'preview': [dict(r) for r in preview], 'error': None})
+        return jsonify({'count': int(count), 'error': None})
     except Exception as e:
         db.session.rollback()
         from flask import jsonify
-        return jsonify({'count': 0, 'preview': [], 'error': str(e)})
+        return jsonify({'count': 0, 'error': str(e)})
 
 
 @report_23_bp.route('/patients/conflicts/export')

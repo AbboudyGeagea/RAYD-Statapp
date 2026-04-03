@@ -168,6 +168,92 @@ def get_gold_standard_data(form_data):
     print(f"STEP 4: Final Summary RVU: {df['rvu'].sum()}")
     print("--- [DIAGNOSTIC END] ---\n")
 
+    # ── Signing pattern per radiologist ───────────────────────────────
+    shift_patterns = {}
+    try:
+        _BREAK_MIN = 20
+        ts_rows = db.session.execute(text("""
+            SELECT
+                COALESCE(
+                    NULLIF(TRIM(CONCAT(
+                        COALESCE(signing_physician_first_name, ''), ' ',
+                        COALESCE(signing_physician_last_name,  '')
+                    )), ''),
+                    rep_final_signed_by,
+                    'Unknown'
+                ) AS radiologist,
+                rep_final_timestamp
+            FROM etl_didb_studies
+            WHERE rep_final_timestamp IS NOT NULL
+              AND rep_final_timestamp::date BETWEEN :start AND :end
+            ORDER BY 1, 2
+        """), {"start": start, "end": end}).fetchall()
+
+        if ts_rows:
+            ts_df = pd.DataFrame(ts_rows, columns=['radiologist', 'ts'])
+            ts_df['ts']        = pd.to_datetime(ts_df['ts'])
+            ts_df['work_date'] = ts_df['ts'].dt.date
+            ts_df['hour']      = ts_df['ts'].dt.hour
+            ts_df['dow']       = ts_df['ts'].dt.dayofweek  # 0=Mon
+
+            def _h_to_hhmm(h):
+                hh = int(h); mm = int(round((h - hh) * 60))
+                return f"{hh:02d}:{mm:02d}"
+
+            for rad, rdf in ts_df.groupby('radiologist'):
+                if rad.strip() in ('Unknown', ''):
+                    continue
+                rdf = rdf.sort_values('ts')
+
+                hm = rdf.groupby(['dow', 'hour']).size().reset_index(name='cnt')
+                heatmap = [[int(r['hour']), int(r['dow']), int(r['cnt'])] for _, r in hm.iterrows()]
+                hm_max  = int(hm['cnt'].max()) if not hm.empty else 1
+
+                arrivals, departures, break_cnts, break_durs = [], [], [], []
+                daily_log = []
+
+                for work_date, ddf in rdf.groupby('work_date'):
+                    times = ddf['ts'].sort_values().tolist()
+                    first, last = times[0], times[-1]
+                    arr_h = first.hour + first.minute / 60
+                    dep_h = last.hour  + last.minute  / 60
+                    arrivals.append(arr_h)
+                    departures.append(dep_h)
+
+                    breaks = []
+                    for i in range(1, len(times)):
+                        gap = (times[i] - times[i - 1]).total_seconds() / 60
+                        if gap >= _BREAK_MIN:
+                            dur = round(gap)
+                            icon = '☕' if dur <= 35 else ('🚬' if dur <= 70 else '🏃')
+                            kind = 'Coffee' if dur <= 35 else ('Long break' if dur <= 70 else 'Disappeared')
+                            breaks.append({'start': times[i-1].strftime('%H:%M'),
+                                           'end':   times[i].strftime('%H:%M'),
+                                           'duration': dur, 'icon': icon, 'kind': kind})
+                    break_cnts.append(len(breaks))
+                    break_durs.extend([b['duration'] for b in breaks])
+                    daily_log.append({
+                        'date': str(work_date), 'dow': first.strftime('%a'),
+                        'arrival': first.strftime('%H:%M'), 'departure': last.strftime('%H:%M'),
+                        'studies': len(times),
+                        'span_h': round(dep_h - arr_h, 1),
+                        'breaks': breaks,
+                    })
+
+                wd = len(daily_log)
+                shift_patterns[rad] = {
+                    'avg_arrival':    _h_to_hhmm(sum(arrivals)   / len(arrivals))   if arrivals   else '—',
+                    'avg_departure':  _h_to_hhmm(sum(departures) / len(departures)) if departures else '—',
+                    'avg_breaks_day': round(sum(break_cnts) / wd, 1)                if wd         else 0,
+                    'avg_break_dur':  int(round(sum(break_durs) / len(break_durs))) if break_durs else 0,
+                    'working_days':   wd,
+                    'heatmap':        heatmap,
+                    'hm_max':         hm_max,
+                    'daily_log':      daily_log[-60:],   # cap at 60 most recent days
+                }
+    except Exception as _e:
+        print(f"Shift pattern error: {_e}")
+
     # ── New analytics ─────────────────────────────────────────────────
     tat_hist, ae_tat, rvu_tat, outlier_studies, global_mean_tat = [], [], [], [], 0.0
 
@@ -344,6 +430,7 @@ def get_gold_standard_data(form_data):
         "unread_aging":    unread_aging,
         "shift_breakdown": shift_breakdown,
         "addendum_data":   addendum_data,
+        "shift_patterns":  shift_patterns,
     }, start, end)
     cache_put(25, form_data, result)
     return result

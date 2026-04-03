@@ -207,27 +207,7 @@
                     contains <code style="color:#fbbf24;background:rgba(251,191,36,0.1);padding:1px 5px;border-radius:3px;">$$$</code> —
                     unresolved identity or merge conflict in PACS/RIS.
                 </div>
-                <div style="padding:12px 18px;">
-                    <div id="sr-conflict-wrap" class="hidden" style="overflow-x:auto;">
-                        <table style="width:100%;text-align:left;font-size:11px;border-collapse:collapse;">
-                            <thead>
-                                <tr style="border-bottom:1px solid var(--border);color:#f59e0b;font-size:9px;text-transform:uppercase;letter-spacing:0.12em;font-weight:900;">
-                                    <th style="padding-bottom:8px;padding-right:16px;">Patient ID</th>
-                                    <th style="padding-bottom:8px;padding-right:16px;">Fallback ID</th>
-                                    <th style="padding-bottom:8px;padding-right:16px;">DOB</th>
-                                    <th style="padding-bottom:8px;padding-right:16px;">Sex</th>
-                                    <th style="padding-bottom:8px;padding-right:16px;">Studies</th>
-                                    <th style="padding-bottom:8px;">Last Update</th>
-                                </tr>
-                            </thead>
-                            <tbody id="sr-conflict-tbody"></tbody>
-                        </table>
-                    </div>
-                    <div id="sr-conflict-empty" class="hidden" style="text-align:center;padding:12px 0;color:#22c55e;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;">
-                        <i class="bi bi-check-circle-fill"></i> No conflict patients found
-                    </div>
-                    <div id="sr-conflict-loading" style="text-align:center;padding:8px 0;color:#64748b;font-size:11px;">Loading…</div>
-                </div>
+                <div id="sr-conflict-error" style="display:none;padding:8px 18px;color:#f87171;font-size:11px;font-weight:700;"></div>
             </div>
 
             <!-- Loading -->
@@ -840,36 +820,19 @@
 
     // Auto-load conflict patients card
     (async function() {
-        const badge   = document.getElementById('sr-conflict-badge');
-        const wrap    = document.getElementById('sr-conflict-wrap');
-        const tbody   = document.getElementById('sr-conflict-tbody');
-        const empty   = document.getElementById('sr-conflict-empty');
-        const loading = document.getElementById('sr-conflict-loading');
+        const badge = document.getElementById('sr-conflict-badge');
+        const errEl = document.getElementById('sr-conflict-error');
         try {
-            const res  = await fetch('/patients/conflicts');
-            const data = await res.json();
-            if (data.error) throw new Error(data.error);
-            badge.textContent = data.count + ' conflict' + (data.count !== 1 ? 's' : '');
-            loading.classList.add('hidden');
-            if (data.count === 0) {
-                empty.classList.remove('hidden');
-            } else {
-                wrap.classList.remove('hidden');
-                (data.preview || []).forEach(function(r) {
-                    const tr = document.createElement('tr');
-                    tr.innerHTML =
-                        '<td style="padding:4px 8px;border-bottom:1px solid var(--border);">' + (r.patient_id  || '') + '</td>' +
-                        '<td style="padding:4px 8px;border-bottom:1px solid var(--border);">' + (r.fallback_id || '') + '</td>' +
-                        '<td style="padding:4px 8px;border-bottom:1px solid var(--border);">' + (r.birth_date  || '') + '</td>' +
-                        '<td style="padding:4px 8px;border-bottom:1px solid var(--border);">' + (r.sex         || '') + '</td>' +
-                        '<td style="padding:4px 8px;border-bottom:1px solid var(--border);text-align:right;">' + (r.studies   || 0) + '</td>' +
-                        '<td style="padding:4px 8px;border-bottom:1px solid var(--border);">' + (r.last_update || '') + '</td>';
-                    tbody.appendChild(tr);
-                });
-            }
+            const d = await fetch('/patients/conflicts').then(r => r.json());
+            if (d.error) throw new Error(d.error);
+            badge.textContent = d.count.toLocaleString() + ' conflict' + (d.count !== 1 ? 's' : '');
+            badge.style.background  = d.count > 0 ? 'rgba(244,63,94,0.15)'  : 'rgba(34,197,94,0.15)';
+            badge.style.color       = d.count > 0 ? '#f43f5e'               : '#22c55e';
+            badge.style.borderColor = d.count > 0 ? 'rgba(244,63,94,0.3)'  : 'rgba(34,197,94,0.3)';
         } catch(e) {
             badge.textContent = 'Error';
-            loading.textContent = 'Failed to load conflict data.';
+            errEl.textContent = 'Could not load conflict data.';
+            errEl.style.display = 'block';
         }
     })();
     </script>
