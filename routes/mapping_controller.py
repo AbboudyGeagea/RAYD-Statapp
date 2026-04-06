@@ -1,10 +1,12 @@
-from flask import Blueprint, request, render_template, flash, redirect, url_for, jsonify, abort
+from flask import Blueprint, request, render_template, flash, redirect, url_for, jsonify, abort, Response
 from flask_login import login_required, current_user
 # Import the CLASS names from your db file
 from db import db, AETitleModalityMap, ProcedureDurationMap, DeviceException, DeviceWeeklySchedule
 import pandas as pd
 from datetime import datetime, timedelta
 import json
+import csv
+import io
 import logging
 
 mapping_bp = Blueprint('mapping', __name__, url_prefix='/mapping')
@@ -18,6 +20,44 @@ def get_or_create(model, **kwargs):
         instance = model(**kwargs)
         db.session.add(instance)
         return instance, True
+
+@mapping_bp.route('/export/modality')
+@login_required
+def export_modality_csv():
+    if current_user.role != 'admin': return abort(403)
+    rows = AETitleModalityMap.query.order_by(AETitleModalityMap.aetitle).all()
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(['aetitle', 'modality', 'daily_capacity_minutes'])
+    for r in rows:
+        sched = next((s for s in r.weekly_schedules if s.day_of_week == 0), None)
+        cap = sched.std_opening_minutes if sched else 720
+        w.writerow([r.aetitle, r.modality, cap])
+    buf.seek(0)
+    return Response(
+        buf.getvalue(),
+        mimetype='text/csv',
+        headers={'Content-Disposition': 'attachment; filename=modality_map.csv'}
+    )
+
+
+@mapping_bp.route('/export/procedure')
+@login_required
+def export_procedure_csv():
+    if current_user.role != 'admin': return abort(403)
+    rows = ProcedureDurationMap.query.order_by(ProcedureDurationMap.procedure_code).all()
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(['procedure_code', 'duration_minutes', 'rvu_value'])
+    for r in rows:
+        w.writerow([r.procedure_code, r.duration_minutes, r.rvu_value])
+    buf.seek(0)
+    return Response(
+        buf.getvalue(),
+        mimetype='text/csv',
+        headers={'Content-Disposition': 'attachment; filename=procedure_map.csv'}
+    )
+
 
 @mapping_bp.route('', methods=['GET'])
 @login_required

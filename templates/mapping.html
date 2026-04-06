@@ -55,7 +55,13 @@
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div class="card-custom p-6">
-                        <h4 class="text-[10px] font-black text-[#60a5fa] uppercase tracking-[0.2em] mb-4">Modality & Capacity Map</h4>
+                        <div class="flex items-center justify-between mb-4">
+                            <h4 class="text-[10px] font-black text-[#60a5fa] uppercase tracking-[0.2em]">Modality & Capacity Map</h4>
+                            <a href="{{ url_for('mapping.export_modality_csv') }}"
+                               class="flex items-center gap-1.5 px-3 py-1.5 bg-[#1d2522] border border-[#28332e] rounded-lg text-[9px] font-black text-slate-400 hover:text-[#60a5fa] hover:border-[#60a5fa] transition uppercase tracking-widest">
+                                <i class="bi bi-download"></i> Export CSV
+                            </a>
+                        </div>
                         <form action="{{ url_for('mapping.upload_modality_map') }}" method="POST" enctype="multipart/form-data" id="modalityForm">
                             <input type="file" name="file" id="modalityFile" class="hidden" onchange="document.getElementById('modalityForm').submit()">
                             <div onclick="document.getElementById('modalityFile').click()" class="upload-zone p-6 flex flex-col items-center justify-center text-center">
@@ -67,7 +73,13 @@
                     </div>
 
                     <div class="card-custom p-6">
-                        <h4 class="text-[10px] font-black text-[#60a5fa] uppercase tracking-[0.2em] mb-4">Procedure & RVU Map</h4>
+                        <div class="flex items-center justify-between mb-4">
+                            <h4 class="text-[10px] font-black text-[#60a5fa] uppercase tracking-[0.2em]">Procedure & RVU Map</h4>
+                            <a href="{{ url_for('mapping.export_procedure_csv') }}"
+                               class="flex items-center gap-1.5 px-3 py-1.5 bg-[#1d2522] border border-[#28332e] rounded-lg text-[9px] font-black text-slate-400 hover:text-[#60a5fa] hover:border-[#60a5fa] transition uppercase tracking-widest">
+                                <i class="bi bi-download"></i> Export CSV
+                            </a>
+                        </div>
                         <form action="{{ url_for('mapping.upload_procedure_map') }}" method="POST" enctype="multipart/form-data" id="procForm">
                             <input type="file" name="file" id="procFile" class="hidden" onchange="document.getElementById('procForm').submit()">
                             <div onclick="document.getElementById('procFile').click()" class="upload-zone p-6 flex flex-col items-center justify-center text-center">
