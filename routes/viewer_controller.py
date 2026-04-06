@@ -57,22 +57,22 @@ def daily_briefing():
     parts = []
     meta  = {}
 
-    # ── Today's volume vs 30-day average ─────────────────────────────
+    # ── Latest day volume vs 30-day average ──────────────────────────
     try:
-        today_count = int(one(
-            "SELECT COUNT(*) FROM etl_didb_studies WHERE study_date = CURRENT_DATE"
-        ) or 0)
-        avg_daily = float(one("""
-            SELECT COALESCE(COUNT(*)::float / NULLIF(COUNT(DISTINCT study_date), 0), 0)
-            FROM etl_didb_studies
-            WHERE study_date BETWEEN CURRENT_DATE - 30 AND CURRENT_DATE - 1
-        """) or 0)
-        pct = round((today_count - avg_daily) / avg_daily * 100) if avg_daily else 0
-        meta['today'] = today_count
-        meta['pct_vs_avg'] = pct
-        if today_count == 0:
-            parts.append("No studies recorded yet today.")
-        else:
+        latest_date = one("SELECT MAX(study_date) FROM etl_didb_studies")
+        if latest_date:
+            today_count = int(one(
+                "SELECT COUNT(*) FROM etl_didb_studies WHERE study_date = :d",
+                {'d': latest_date}
+            ) or 0)
+            avg_daily = float(one("""
+                SELECT COALESCE(COUNT(*)::float / NULLIF(COUNT(DISTINCT study_date), 0), 0)
+                FROM etl_didb_studies
+                WHERE study_date BETWEEN :d::date - 30 AND :d::date - 1
+            """, {'d': latest_date}) or 0)
+            pct = round((today_count - avg_daily) / avg_daily * 100) if avg_daily else 0
+            meta['today'] = today_count
+            meta['pct_vs_avg'] = pct
             direction = "above" if pct >= 0 else "below"
             parts.append(
                 f"Today: {today_count:,} {'study' if today_count == 1 else 'studies'}, "
@@ -91,7 +91,7 @@ def daily_briefing():
                 EXTRACT(EPOCH FROM (rep_final_timestamp - study_date::timestamp)) / 60
             )::numeric, 1)
             FROM etl_didb_studies
-            WHERE study_date = CURRENT_DATE
+            WHERE study_date = (SELECT MAX(study_date) FROM etl_didb_studies)
               AND rep_final_timestamp IS NOT NULL
               AND {er_filter}
         """)
@@ -100,7 +100,7 @@ def daily_briefing():
                 EXTRACT(EPOCH FROM (rep_final_timestamp - study_date::timestamp)) / 60
             )::numeric, 1)
             FROM etl_didb_studies
-            WHERE study_date = CURRENT_DATE - 7
+            WHERE study_date = (SELECT MAX(study_date) FROM etl_didb_studies) - 7
               AND rep_final_timestamp IS NOT NULL
               AND {er_filter}
         """)
@@ -123,7 +123,7 @@ def daily_briefing():
         active_rads = int(one("""
             SELECT COUNT(DISTINCT rep_final_signed_by)
             FROM etl_didb_studies
-            WHERE DATE(rep_final_timestamp) = CURRENT_DATE
+            WHERE DATE(rep_final_timestamp) = (SELECT MAX(study_date) FROM etl_didb_studies)
               AND rep_final_signed_by IS NOT NULL
         """) or 0)
         meta['active_rads'] = active_rads
@@ -136,7 +136,7 @@ def daily_briefing():
     try:
         unread = int(one("""
             SELECT COUNT(*) FROM etl_didb_studies
-            WHERE study_date = CURRENT_DATE
+            WHERE study_date = (SELECT MAX(study_date) FROM etl_didb_studies)
               AND study_status ILIKE '%unread%'
         """) or 0)
         meta['unread'] = unread
