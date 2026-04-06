@@ -40,6 +40,24 @@
 
         <main class="flex-1 overflow-y-auto p-10 bg-[#181f1c]">
             <div class="max-w-5xl mx-auto">
+
+                <!-- ── Daily Briefing ─────────────────────────────────────── -->
+                <div id="briefing-card" class="card-custom px-5 py-4 mb-6 flex items-start gap-4" style="border-left:3px solid #60a5fa;">
+                    <div class="shrink-0 mt-0.5">
+                        <i class="bi bi-stars" style="font-size:1.2rem;color:#60a5fa;"></i>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <p style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.12em;color:#60a5fa;margin-bottom:4px;">
+                            Daily Briefing
+                        </p>
+                        <p id="briefing-text" style="font-size:13px;font-weight:600;color:#e2e8f0;line-height:1.6;">
+                            Loading…
+                        </p>
+                    </div>
+                    <p id="briefing-time" style="font-size:10px;color:#475569;white-space:nowrap;margin-top:2px;"></p>
+                </div>
+                <!-- ── End Daily Briefing ─────────────────────────────────── -->
+
                 <div class="flex items-center gap-8 border-b border-[#28332e] mb-8 flex-wrap">
                     <button onclick="toggleTab('favorites')" id="tab-favorites-btn" class="tab-btn pb-3 uppercase tracking-widest flex items-center gap-2">
                         <i class="bi bi-star-fill" style="color:#f59e0b;"></i> Favorites
@@ -396,5 +414,35 @@
                 }
             });
         }
+
+        // ── Daily Briefing ────────────────────────────────────────────────
+        (async function() {
+            try {
+                const d = await fetch('/viewer/briefing').then(r => r.json());
+                const el = document.getElementById('briefing-text');
+                const timeEl = document.getElementById('briefing-time');
+                if (el) {
+                    el.textContent = d.text || 'No data available.';
+
+                    // Colour the card accent based on volume trend
+                    const card = document.getElementById('briefing-card');
+                    if (card && d.pct_vs_avg !== undefined) {
+                        const color = d.pct_vs_avg >= 10 ? '#f43f5e'
+                                    : d.pct_vs_avg >= 0  ? '#60a5fa'
+                                    : '#f59e0b';
+                        card.style.borderLeftColor = color;
+                        card.querySelector('i').style.color = color;
+                        card.querySelector('p').style.color = color;
+                    }
+                }
+                if (timeEl) {
+                    const now = new Date();
+                    timeEl.textContent = now.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+                }
+            } catch(e) {
+                const el = document.getElementById('briefing-text');
+                if (el) el.textContent = 'Briefing unavailable.';
+            }
+        })();
     </script>
 </body>
