@@ -53,79 +53,59 @@ def viewer_dashboard():
 @viewer_bp.route('/briefing')
 @login_required
 def daily_briefing():
-    try:
-        one = lambda q, p={}: db.session.execute(text(q), p).scalar()
+    one = lambda q, p={}: db.session.execute(text(q), p).scalar()
+    parts = []
+    meta  = {}
 
-        # Today's study count
+    # ── Today's volume vs 30-day average ─────────────────────────────
+    try:
         today_count = int(one(
             "SELECT COUNT(*) FROM etl_didb_studies WHERE study_date = CURRENT_DATE"
         ) or 0)
-
-        # 30-day daily average (exclude today)
         avg_daily = float(one("""
             SELECT COALESCE(COUNT(*)::float / NULLIF(COUNT(DISTINCT study_date), 0), 0)
             FROM etl_didb_studies
             WHERE study_date BETWEEN CURRENT_DATE - 30 AND CURRENT_DATE - 1
         """) or 0)
+        pct = round((today_count - avg_daily) / avg_daily * 100) if avg_daily else 0
+        meta['today'] = today_count
+        meta['pct_vs_avg'] = pct
+        if today_count == 0:
+            parts.append("No studies recorded yet today.")
+        else:
+            direction = "above" if pct >= 0 else "below"
+            parts.append(
+                f"Today: {today_count:,} {'study' if today_count == 1 else 'studies'}, "
+                f"{abs(pct)}% {direction} the 30-day average."
+            )
+    except Exception:
+        db.session.rollback()
 
-        pct_vs_avg = round((today_count - avg_daily) / avg_daily * 100) if avg_daily else 0
-
-        # ER TAT today vs 7 days ago
+    # ── ER TAT today vs same day last week ───────────────────────────
+    try:
         er_filter = """(UPPER(COALESCE(patient_location,'')) = 'ER'
                         OR patient_class ILIKE '%ER%'
                         OR patient_class ILIKE '%Emergency%')"""
-
         er_tat_today = one(f"""
-            SELECT ROUND(AVG(EXTRACT(EPOCH FROM (rep_final_timestamp - study_datetime)) / 60)::numeric, 1)
+            SELECT ROUND(AVG(
+                EXTRACT(EPOCH FROM (rep_final_timestamp - study_date::timestamp)) / 60
+            )::numeric, 1)
             FROM etl_didb_studies
             WHERE study_date = CURRENT_DATE
               AND rep_final_timestamp IS NOT NULL
               AND {er_filter}
         """)
-
-        er_tat_week_ago = one(f"""
-            SELECT ROUND(AVG(EXTRACT(EPOCH FROM (rep_final_timestamp - study_datetime)) / 60)::numeric, 1)
+        er_tat_prev = one(f"""
+            SELECT ROUND(AVG(
+                EXTRACT(EPOCH FROM (rep_final_timestamp - study_date::timestamp)) / 60
+            )::numeric, 1)
             FROM etl_didb_studies
             WHERE study_date = CURRENT_DATE - 7
               AND rep_final_timestamp IS NOT NULL
               AND {er_filter}
         """)
-
-        # Active radiologists today
-        active_rads = int(one("""
-            SELECT COUNT(DISTINCT COALESCE(
-                NULLIF(TRIM(CONCAT(
-                    COALESCE(signing_physician_first_name,''), ' ',
-                    COALESCE(signing_physician_last_name,'')
-                )), ''),
-                rep_final_signed_by
-            ))
-            FROM etl_didb_studies
-            WHERE DATE(rep_final_timestamp) = CURRENT_DATE
-              AND rep_final_timestamp IS NOT NULL
-        """) or 0)
-
-        # Unread studies
-        unread = int(one("""
-            SELECT COUNT(*) FROM etl_didb_studies
-            WHERE study_date = CURRENT_DATE
-              AND study_status ILIKE '%unread%'
-        """) or 0)
-
-        # ── Build sentence ────────────────────────────────────────────
-        parts = []
-
-        if today_count == 0:
-            parts.append("No studies recorded yet today.")
-        else:
-            direction = "above" if pct_vs_avg >= 0 else "below"
-            parts.append(
-                f"Today: {today_count:,} {'study' if today_count == 1 else 'studies'}, "
-                f"{abs(pct_vs_avg)}% {direction} the 30-day average."
-            )
-
-        if er_tat_today is not None and er_tat_week_ago is not None:
-            diff = round(float(er_tat_week_ago) - float(er_tat_today), 1)
+        if er_tat_today is not None and er_tat_prev is not None:
+            diff = round(float(er_tat_prev) - float(er_tat_today), 1)
             if diff > 0:
                 parts.append(f"ER turnaround improved by {diff} min vs last week ({er_tat_today} min avg).")
             elif diff < 0:
@@ -134,23 +114,39 @@ def daily_briefing():
                 parts.append(f"ER turnaround unchanged at {er_tat_today} min avg.")
         elif er_tat_today is not None:
             parts.append(f"ER turnaround averaging {er_tat_today} min today.")
+        meta['er_tat_today'] = float(er_tat_today) if er_tat_today else None
+    except Exception:
+        db.session.rollback()
 
+    # ── Active radiologists today ─────────────────────────────────────
+    try:
+        active_rads = int(one("""
+            SELECT COUNT(DISTINCT rep_final_signed_by)
+            FROM etl_didb_studies
+            WHERE DATE(rep_final_timestamp) = CURRENT_DATE
+              AND rep_final_signed_by IS NOT NULL
+        """) or 0)
+        meta['active_rads'] = active_rads
         if active_rads:
             parts.append(f"{active_rads} radiologist{'s' if active_rads != 1 else ''} active.")
+    except Exception:
+        db.session.rollback()
 
+    # ── Unread studies ────────────────────────────────────────────────
+    try:
+        unread = int(one("""
+            SELECT COUNT(*) FROM etl_didb_studies
+            WHERE study_date = CURRENT_DATE
+              AND study_status ILIKE '%unread%'
+        """) or 0)
+        meta['unread'] = unread
         if unread:
             parts.append(f"{unread:,} {'study' if unread == 1 else 'studies'} pending report.")
+    except Exception:
+        db.session.rollback()
 
-        return jsonify({
-            'text':         ' '.join(parts),
-            'today':        today_count,
-            'pct_vs_avg':   pct_vs_avg,
-            'er_tat_today': float(er_tat_today) if er_tat_today else None,
-            'active_rads':  active_rads,
-            'unread':       unread,
-        })
-    except Exception as e:
-        return jsonify({'text': 'Briefing unavailable.', 'error': str(e)})
+    text_out = ' '.join(parts) if parts else 'No data available for today.'
+    return jsonify({'text': text_out, **meta})
 
 
 @viewer_bp.route('/yesterday')
