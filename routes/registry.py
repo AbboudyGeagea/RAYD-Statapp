@@ -23,6 +23,7 @@ from routes.docs             import docs_bp
 from routes.er_dashboard     import er_bp
 from routes.liveview         import liveview_bp
 from routes.oru_analytics    import oru_bp
+from routes.adapter_mapper   import adapter_mapper_bp
 
 
 def register_blueprints(app):
@@ -41,6 +42,7 @@ def register_blueprints(app):
     app.register_blueprint(er_bp)
     app.register_blueprint(liveview_bp)
     app.register_blueprint(oru_bp)
+    app.register_blueprint(adapter_mapper_bp)
 
     # ── Reports ───────────────────────────────────────────────
     app.register_blueprint(report_22_bp)

@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | Adapter Mapper</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        body { font-family: 'Inter', sans-serif; background: #0b0f0e; color: #e2e8f0; overflow: hidden; }
+        aside { background: #111413; border-right: 1px solid #1e2724; }
+        .card { background: #141a18; border: 1px solid #1e2724; border-radius: 14px; }
+        .badge-draft     { background: rgba(100,116,139,0.15); color: #64748b; border: 1px solid rgba(100,116,139,0.3); }
+        .badge-confirmed { background: rgba(34,197,94,0.15);  color: #22c55e; border: 1px solid rgba(34,197,94,0.3); }
+        .input-dark { background: #0b0f0e; border: 1px solid #1e2724; color: #e2e8f0; border-radius: 8px; padding: 8px 12px; font-size: 12px; width: 100%; outline: none; font-family: monospace; }
+        .input-dark:focus { border-color: #60a5fa; }
+        .btn-primary { background: #1d4ed8; color: #fff; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.08em; padding: 8px 16px; border-radius: 8px; border: none; cursor: pointer; transition: background 0.15s; }
+        .btn-primary:hover { background: #2563eb; }
+        .btn-primary:disabled { background: #1e2724; color: #475569; cursor: not-allowed; }
+        .btn-ghost { background: transparent; color: #64748b; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; padding: 6px 12px; border-radius: 8px; border: 1px solid #1e2724; cursor: pointer; transition: all 0.15s; }
+        .btn-ghost:hover { border-color: #60a5fa; color: #60a5fa; }
+        .btn-green { background: rgba(34,197,94,0.1); color: #22c55e; border: 1px solid rgba(34,197,94,0.3); font-size: 11px; font-weight: 900; text-transform: uppercase; padding: 6px 14px; border-radius: 8px; cursor: pointer; transition: all 0.15s; }
+        .btn-green:hover { background: rgba(34,197,94,0.2); }
+        .btn-red { background: rgba(244,63,94,0.1); color: #f43f5e; border: 1px solid rgba(244,63,94,0.3); font-size: 11px; font-weight: 900; text-transform: uppercase; padding: 6px 14px; border-radius: 8px; cursor: pointer; transition: all 0.15s; }
+        .btn-red:hover { background: rgba(244,63,94,0.2); }
+        .section-label { font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.14em; color: #475569; margin-bottom: 10px; }
+        .table-row { border-bottom: 1px solid #1e2724; }
+        .table-row:last-child { border-bottom: none; }
+        .conn-card { border: 1px solid #1e2724; border-radius: 10px; padding: 14px 16px; background: #0b0f0e; transition: border-color 0.15s; }
+        .conn-card:hover { border-color: #60a5fa44; }
+        .mono { font-family: monospace; font-size: 11px; }
+        .scroll-area { overflow-y: auto; }
+        .scroll-area::-webkit-scrollbar { width: 3px; }
+        .scroll-area::-webkit-scrollbar-thumb { background: #1e2724; border-radius: 10px; }
+        pre { white-space: pre-wrap; word-break: break-word; }
+    </style>
+</head>
+<body class="flex flex-col h-screen">
+    {% include '_header.html' %}
+    <div class="flex flex-1 overflow-hidden">
+        {% include '_sidebar.html' %}
+
+        <main class="flex-1 overflow-y-auto p-8 bg-[#0b0f0e]">
+            <div class="max-w-6xl mx-auto space-y-8">
+
+                <!-- Header -->
+                <div>
+                    <p class="section-label">Admin · Schema Intelligence</p>
+                    <h1 class="text-xl font-black text-white">Adapter Mapper</h1>
+                    <p class="text-xs text-slate-500 mt-1">
+                        Discover foreign PACS/RIS database schemas and store column mappings.
+                        Claude Code reads the dump and produces the mapping JSON — paste it here to save.
+                    </p>
+                </div>
+
+                <!-- ── Step 1: Connections ─────────────────────────────────── -->
+                <div class="card p-6">
+                    <p class="section-label" style="color:#60a5fa;">Step 1 — Select Oracle Connection &amp; Run Discovery</p>
+
+                    {% if connections %}
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                        {% for c in connections %}
+                        <div class="conn-card">
+                            <div class="flex items-center justify-between mb-3">
+                                <div>
+                                    <p class="text-sm font-black text-white">{{ c.name }}</p>
+                                    <p class="text-xs text-slate-500 mono">{{ c.username }}@{{ c.host }} / {{ c.sid }}</p>
+                                </div>
+                                <span class="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full"
+                                      style="background:rgba(251,146,60,0.15);color:#fb923c;border:1px solid rgba(251,146,60,0.3);">
+                                    {{ c.db_type }}
+                                </span>
+                            </div>
+                            <div class="flex gap-2 items-center">
+                                <input type="text" placeholder="Schema owner (e.g. MEDISTORE)"
+                                       id="owner-{{ loop.index }}"
+                                       class="input-dark flex-1"
+                                       style="padding:6px 10px;">
+                                <button class="btn-primary" onclick="runDiscovery('{{ c.name }}', 'owner-{{ loop.index }}', this)">
+                                    <i class="bi bi-search"></i> Discover
+                                </button>
+                            </div>
+                            <p id="disc-status-{{ loop.index }}" class="text-[10px] text-slate-600 mt-2 mono hidden"></p>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="text-center py-8 text-slate-600 text-sm">
+                        No Oracle connections found in <code class="text-slate-400">db_params</code>.
+                        Add one via the admin panel first.
+                    </div>
+                    {% endif %}
+                </div>
+
+                <!-- ── Step 2: View Schema Dump ───────────────────────────── -->
+                <div class="card p-6">
+                    <p class="section-label" style="color:#a78bfa;">Step 2 — Review Schema Dump</p>
+                    <p class="text-xs text-slate-500 mb-4">
+                        After discovery completes, select the dump file below.
+                        Share the contents with Claude Code — it will analyse the tables and produce a mapping JSON.
+                    </p>
+
+                    {% if dump_files %}
+                    <div class="flex gap-3 items-center mb-4 flex-wrap">
+                        <select id="dump-select" class="input-dark" style="width:auto;min-width:320px;" onchange="loadDump(this.value)">
+                            <option value="">— Select a dump file —</option>
+                            {% for f in dump_files %}
+                            <option value="{{ f }}">{{ f }}</option>
+                            {% endfor %}
+                        </select>
+                        <button class="btn-ghost" onclick="copyDump()"><i class="bi bi-clipboard"></i> Copy to clipboard</button>
+                        <button class="btn-ghost" onclick="downloadDump()"><i class="bi bi-download"></i> Download</button>
+                    </div>
+                    <div id="dump-summary" class="hidden mb-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div class="text-center p-3 rounded-lg" style="background:#0b0f0e;border:1px solid #1e2724;">
+                            <p class="text-[9px] text-slate-500 uppercase font-black">Connection</p>
+                            <p class="text-sm font-black text-white" id="ds-conn">—</p>
+                        </div>
+                        <div class="text-center p-3 rounded-lg" style="background:#0b0f0e;border:1px solid #1e2724;">
+                            <p class="text-[9px] text-slate-500 uppercase font-black">Schema</p>
+                            <p class="text-sm font-black text-white" id="ds-owner">—</p>
+                        </div>
+                        <div class="text-center p-3 rounded-lg" style="background:#0b0f0e;border:1px solid #1e2724;">
+                            <p class="text-[9px] text-slate-500 uppercase font-black">Tables</p>
+                            <p class="text-sm font-black text-amber-400" id="ds-tables">—</p>
+                        </div>
+                        <div class="text-center p-3 rounded-lg" style="background:#0b0f0e;border:1px solid #1e2724;">
+                            <p class="text-[9px] text-slate-500 uppercase font-black">Columns</p>
+                            <p class="text-sm font-black text-blue-400" id="ds-cols">—</p>
+                        </div>
+                    </div>
+
+                    <!-- Table list -->
+                    <div id="dump-tables" class="hidden scroll-area" style="max-height:300px;">
+                        <table class="w-full text-xs">
+                            <thead class="sticky top-0" style="background:#141a18;">
+                                <tr class="border-b border-[#1e2724] text-slate-500 uppercase text-[9px]">
+                                    <th class="text-left py-2 pr-6">Table</th>
+                                    <th class="text-right py-2 pr-6">Columns</th>
+                                    <th class="text-right py-2">Row estimate</th>
+                                </tr>
+                            </thead>
+                            <tbody id="dump-table-body" class="text-slate-300"></tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="text-slate-600 text-sm">No dump files yet. Run a discovery first.</p>
+                    {% endif %}
+                </div>
+
+                <!-- ── Step 3: Paste Mapping JSON ─────────────────────────── -->
+                <div class="card p-6">
+                    <p class="section-label" style="color:#34d399;">Step 3 — Paste Claude's Mapping JSON &amp; Save</p>
+                    <p class="text-xs text-slate-500 mb-4">
+                        After sharing the dump with Claude Code, paste the returned mapping JSON here.
+                        The expected format is shown below.
+                    </p>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <!-- Input form -->
+                        <div class="space-y-3">
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="section-label">Connection name</label>
+                                    <input type="text" id="map-conn" class="input-dark" placeholder="oracle_PACS">
+                                </div>
+                                <div>
+                                    <label class="section-label">Schema owner</label>
+                                    <input type="text" id="map-owner" class="input-dark" placeholder="MEDISTORE">
+                                </div>
+                            </div>
+                            <div>
+                                <label class="section-label">Dump file (optional)</label>
+                                <input type="text" id="map-dump" class="input-dark" placeholder="oracle_PACS_MEDISTORE_20260406_103000.json">
+                            </div>
+                            <div>
+                                <label class="section-label">Notes</label>
+                                <input type="text" id="map-notes" class="input-dark" placeholder="Agfa PACS v6.3, hospital X">
+                            </div>
+                            <div>
+                                <label class="section-label">Mapping JSON</label>
+                                <textarea id="map-json" class="input-dark" rows="12"
+                                    placeholder='{
+  "tables": [
+    {
+      "source_table": "DIDB_STUDIES",
+      "target_table": "etl_didb_studies",
+      "incremental_key": "INSERT_TIME",
+      "columns": [
+        { "source": "STUDY_DB_UID",  "target": "study_db_uid",  "confidence": 0.99, "transform": "direct" },
+        { "source": "STUDY_DT",      "target": "study_date",    "confidence": 0.95, "transform": "date"   },
+        { "source": "PAT_ID",        "target": "patient_db_uid","confidence": 0.80, "transform": "direct" }
+      ],
+      "unmapped_targets": ["study_body_part"]
+    }
+  ]
+}'></textarea>
+                            </div>
+                            <div class="flex gap-3">
+                                <button class="btn-primary" onclick="saveMapping()">
+                                    <i class="bi bi-floppy"></i> Save Mapping
+                                </button>
+                                <button class="btn-ghost" onclick="validateJson()">
+                                    <i class="bi bi-check-circle"></i> Validate JSON
+                                </button>
+                            </div>
+                            <p id="save-status" class="text-[11px] mono hidden"></p>
+                        </div>
+
+                        <!-- Format reference -->
+                        <div>
+                            <p class="section-label">Expected format</p>
+                            <pre class="text-[10px] text-slate-400 p-4 rounded-lg scroll-area"
+                                 style="background:#0b0f0e;border:1px solid #1e2724;max-height:380px;line-height:1.6;">{
+  "tables": [
+    {
+      "source_table":    "AGF_STUDIES",
+      "target_table":    "etl_didb_studies",
+      "incremental_key": "STU_INSERT_DT",
+      "columns": [
+        {
+          "source":     "STU_DB_UID",
+          "target":     "study_db_uid",
+          "confidence": 0.99,
+          "transform":  "direct",
+          "notes":      ""
+        },
+        {
+          "source":     "STU_DT",
+          "target":     "study_date",
+          "confidence": 0.95,
+          "transform":  "date",
+          "notes":      "Oracle DATE type"
+        },
+        {
+          "source":     "REP_SIGN_BY",
+          "target":     "rep_final_signed_by",
+          "confidence": 0.75,
+          "transform":  "direct",
+          "notes":      "verify this is final not prelim"
+        }
+      ],
+      "unmapped_targets": ["study_body_part"],
+      "unmapped_sources": ["STU_PRIORITY"]
+    }
+  ],
+  "notes": "Agfa PACS v6.3"
+}</pre>
+                            <p class="text-[10px] text-slate-600 mt-2">
+                                <strong class="text-slate-500">transform</strong> values:
+                                <code class="text-slate-400">direct</code> · <code class="text-slate-400">date</code> ·
+                                <code class="text-slate-400">timestamp</code> · <code class="text-slate-400">boolean_yn</code> ·
+                                <code class="text-slate-400">string_truncate</code>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ── Saved Mappings ─────────────────────────────────────── -->
+                {% if mappings %}
+                <div class="card p-6">
+                    <p class="section-label" style="color:#f59e0b;">Saved Mappings</p>
+                    <table class="w-full text-xs">
+                        <thead>
+                            <tr class="border-b border-[#1e2724] text-slate-500 uppercase text-[9px]">
+                                <th class="text-left py-2 pr-6">Connection</th>
+                                <th class="text-left py-2 pr-6">Schema</th>
+                                <th class="text-left py-2 pr-6">Status</th>
+                                <th class="text-left py-2 pr-6">Updated</th>
+                                <th class="text-left py-2">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for m in mappings %}
+                            <tr class="table-row hover:bg-white/[0.01]">
+                                <td class="py-3 pr-6 font-bold text-white">{{ m.connection_name }}</td>
+                                <td class="py-3 pr-6 mono text-slate-400">{{ m.schema_owner or '—' }}</td>
+                                <td class="py-3 pr-6">
+                                    <span class="text-[9px] font-black uppercase px-2 py-0.5 rounded-full
+                                        {% if m.status == 'confirmed' %}badge-confirmed{% else %}badge-draft{% endif %}">
+                                        {{ m.status }}
+                                    </span>
+                                </td>
+                                <td class="py-3 pr-6 text-slate-500 mono">{{ str(m.updated_at)[:16] }}</td>
+                                <td class="py-3 flex gap-2 flex-wrap">
+                                    <button class="btn-ghost" style="padding:3px 10px;font-size:9px;"
+                                            onclick="loadMapping({{ m.id }})">
+                                        <i class="bi bi-pencil"></i> Edit
+                                    </button>
+                                    {% if m.status != 'confirmed' %}
+                                    <button class="btn-green" style="padding:3px 10px;font-size:9px;"
+                                            onclick="confirmMapping({{ m.id }})">
+                                        <i class="bi bi-check-lg"></i> Confirm
+                                    </button>
+                                    {% endif %}
+                                    <button class="btn-red" style="padding:3px 10px;font-size:9px;"
+                                            onclick="deleteMapping({{ m.id }})">
+                                        <i class="bi bi-trash3"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% endif %}
+
+            </div><!-- /max-w -->
+        </main>
+    </div>
+
+    <script>
+    let _currentDumpData = null;
+    let _editingId = null;
+
+    // ── Discovery ──────────────────────────────────────────────────────────
+    async function runDiscovery(connName, ownerId, btn) {
+        const owner = document.getElementById(ownerId).value.trim();
+        const statusEl = document.getElementById('disc-status-' + ownerId.split('-').pop());
+        if (!owner) { alert('Enter schema owner first (e.g. MEDISTORE)'); return; }
+
+        btn.disabled = true;
+        btn.textContent = 'Discovering…';
+        if (statusEl) { statusEl.textContent = 'Connecting to Oracle…'; statusEl.classList.remove('hidden'); statusEl.style.color = '#60a5fa'; }
+
+        try {
+            const r = await fetch('/admin/adapters/discover', {
+                method: 'POST',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({connection_name: connName, schema_owner: owner})
+            });
+            const d = await r.json();
+            if (d.error) throw new Error(d.error);
+
+            if (statusEl) {
+                statusEl.textContent = `✓ Done — ${d.table_count} tables, ${d.column_count} columns → ${d.file}`;
+                statusEl.style.color = '#22c55e';
+            }
+            // Auto-populate dump file in step 3
+            document.getElementById('map-conn').value  = connName;
+            document.getElementById('map-owner').value = owner;
+            document.getElementById('map-dump').value  = d.file;
+
+            // Reload page to show new dump in list
+            setTimeout(() => location.reload(), 1500);
+        } catch(e) {
+            if (statusEl) { statusEl.textContent = '✗ ' + e.message; statusEl.style.color = '#f43f5e'; }
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-search"></i> Discover';
+        }
+    }
+
+    // ── Dump viewer ────────────────────────────────────────────────────────
+    async function loadDump(filename) {
+        if (!filename) return;
+        const r = await fetch('/admin/adapters/dump/' + encodeURIComponent(filename));
+        const d = await r.json();
+        _currentDumpData = d;
+
+        document.getElementById('ds-conn').textContent   = d.connection_name  || '—';
+        document.getElementById('ds-owner').textContent  = d.schema_owner     || '—';
+        document.getElementById('ds-tables').textContent = d.table_count      || '—';
+        document.getElementById('ds-cols').textContent   = d.column_count     || '—';
+        document.getElementById('dump-summary').classList.remove('hidden');
+
+        const tbody = document.getElementById('dump-table-body');
+        tbody.innerHTML = '';
+        (d.tables || []).forEach(t => {
+            const tr = document.createElement('tr');
+            tr.className = 'table-row';
+            tr.innerHTML = `
+                <td class="py-2 pr-6 font-mono text-slate-300">${t.name}</td>
+                <td class="py-2 pr-6 text-right text-slate-500">${t.columns.length}</td>
+                <td class="py-2 text-right text-slate-600">${t.row_count !== null ? t.row_count.toLocaleString() : 'n/a'}</td>`;
+            tbody.appendChild(tr);
+        });
+        document.getElementById('dump-tables').classList.remove('hidden');
+
+        // Pre-fill step 3
+        document.getElementById('map-dump').value = filename;
+        if (d.connection_name) document.getElementById('map-conn').value  = d.connection_name;
+        if (d.schema_owner)    document.getElementById('map-owner').value = d.schema_owner;
+    }
+
+    function copyDump() {
+        if (!_currentDumpData) { alert('Load a dump first'); return; }
+        navigator.clipboard.writeText(JSON.stringify(_currentDumpData, null, 2));
+        alert('Dump copied to clipboard. Share with Claude Code.');
+    }
+
+    function downloadDump() {
+        const sel = document.getElementById('dump-select');
+        if (!sel || !sel.value) { alert('Select a dump first'); return; }
+        const a = document.createElement('a');
+        a.href = '/admin/adapters/dump/' + encodeURIComponent(sel.value);
+        a.download = sel.value;
+        a.click();
+    }
+
+    // ── Mapping save/load ──────────────────────────────────────────────────
+    function validateJson() {
+        const raw = document.getElementById('map-json').value.trim();
+        const statusEl = document.getElementById('save-status');
+        try {
+            JSON.parse(raw);
+            statusEl.textContent = '✓ Valid JSON';
+            statusEl.style.color = '#22c55e';
+            statusEl.classList.remove('hidden');
+        } catch(e) {
+            statusEl.textContent = '✗ Invalid JSON: ' + e.message;
+            statusEl.style.color = '#f43f5e';
+            statusEl.classList.remove('hidden');
+        }
+    }
+
+    async function saveMapping() {
+        const statusEl = document.getElementById('save-status');
+        const payload = {
+            id:              _editingId,
+            connection_name: document.getElementById('map-conn').value.trim(),
+            schema_owner:    document.getElementById('map-owner').value.trim(),
+            dump_file:       document.getElementById('map-dump').value.trim(),
+            notes:           document.getElementById('map-notes').value.trim(),
+            mapping_json:    document.getElementById('map-json').value.trim(),
+        };
+        if (!payload.connection_name || !payload.mapping_json) {
+            alert('Connection name and mapping JSON are required.');
+            return;
+        }
+        try {
+            const r = await fetch('/admin/adapters/mapping/save', {
+                method: 'POST',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify(payload)
+            });
+            const d = await r.json();
+            if (d.error) throw new Error(d.error);
+            statusEl.textContent = '✓ Saved. Reloading…';
+            statusEl.style.color = '#22c55e';
+            statusEl.classList.remove('hidden');
+            setTimeout(() => location.reload(), 1000);
+        } catch(e) {
+            statusEl.textContent = '✗ ' + e.message;
+            statusEl.style.color = '#f43f5e';
+            statusEl.classList.remove('hidden');
+        }
+    }
+
+    async function loadMapping(id) {
+        const r = await fetch('/admin/adapters/mapping/' + id);
+        const d = await r.json();
+        _editingId = id;
+        document.getElementById('map-conn').value  = d.connection_name || '';
+        document.getElementById('map-owner').value = d.schema_owner    || '';
+        document.getElementById('map-dump').value  = d.dump_file       || '';
+        document.getElementById('map-notes').value = d.notes           || '';
+        document.getElementById('map-json').value  = JSON.stringify(d.mapping_json, null, 2);
+        document.getElementById('map-json').scrollIntoView({behavior:'smooth', block:'center'});
+    }
+
+    async function confirmMapping(id) {
+        if (!confirm('Mark this mapping as confirmed?')) return;
+        await fetch('/admin/adapters/mapping/' + id + '/confirm', {method:'POST'});
+        location.reload();
+    }
+
+    async function deleteMapping(id) {
+        if (!confirm('Delete this mapping?')) return;
+        await fetch('/admin/adapters/mapping/' + id + '/delete', {method:'POST'});
+        location.reload();
+    }
+
+    // Apply saved theme
+    fetch('/user/theme').then(r=>r.json()).then(d=>{
+        if(d.theme==='light') document.body.classList.add('light');
+    }).catch(()=>{});
+    </script>
+</body>
+</html>

@@ -53,6 +53,11 @@
            title="Live Week Matrix">
             <i class="bi bi-calendar-week flex-shrink-0" style="color:#a78bfa;"></i> Live Week Matrix
         </a>
+        <a href="{{ url_for('adapter_mapper.adapter_mapper_page') }}"
+           class="sidebar-item {% if request.endpoint and request.endpoint.startswith('adapter_mapper.') %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
+           title="Adapter Mapper">
+            <i class="bi bi-diagram-3-fill flex-shrink-0" style="color:#34d399;"></i> Adapter Mapper
+        </a>
         {% endif %}
 
         {% if current_user.role == 'admin' or current_user|user_has_page('live_feed') %}
