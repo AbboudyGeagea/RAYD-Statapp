@@ -32,7 +32,7 @@ Model: Meta-Llama-3.1-8B-Instruct-Q4_K_M (~5GB RAM, CPU-only)
 2. Start manually:
      nohup /home/stats/BitNet/build/bin/llama-server \
        -m /home/stats/BitNet/models/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf \
-       -t 4 --host 0.0.0.0 --port 8081 -c 2048 > /tmp/llama-server.log 2>&1 &
+       -t 4 --host 0.0.0.0 --port 8081 -c 8192 > /tmp/llama-server.log 2>&1 &
 
 3. Check it's running:
      curl http://127.0.0.1:8081/health
@@ -188,7 +188,7 @@ def chat():
     )
     user = f"Data:\n{context}\n\nQuestion: {message}"
 
-    response = _run_inference(system, user, max_tokens=150)
+    response = _run_inference(system, user, max_tokens=MAX_TOKENS)
     _response_cache[cache_key] = {"response": response, "ts": now}
     return jsonify({"response": response, "context_used": bool(context)})
 
