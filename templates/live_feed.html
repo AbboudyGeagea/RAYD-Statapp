@@ -334,6 +334,7 @@ function buildTile(t) {
             return `<div class="${rowCls}"${hidden ? ' style="display:none;" class="overrun-extra"' : ''}>
                 <i class="bi bi-person" style="color:#64748b;flex-shrink:0;"></i>
                 <span class="font-mono font-bold text-slate-300" style="min-width:64px;">${escHtml(o.patient_id)}</span>
+                <span class="font-mono text-slate-500" style="min-width:80px;font-size:10px;">${escHtml(o.accession_number)}</span>
                 <span class="truncate text-slate-400 flex-1" title="${escHtml(o.procedure_text)}">${escHtml(o.procedure_text)}</span>
                 ${unknownBadge}${timeBadge}${doneBtn}
             </div>`;

@@ -90,6 +90,7 @@ def live_status():
             SELECT
                 o.message_id,
                 o.patient_id,
+                o.accession_number,
                 COALESCE(o.scheduled_datetime, o.received_at) AS scheduled_datetime,
                 o.procedure_text,
                 o.procedure_code,
@@ -141,14 +142,15 @@ def live_status():
 
                 if sched <= now:
                     active_orders.append({
-                        "message_id":     o["message_id"],
-                        "patient_id":     _mask(o["patient_id"]),
-                        "procedure_text": o["procedure_text"] or o["procedure_code"] or "—",
-                        "procedure_code": o["procedure_code"] or "",
-                        "unknown_code":   bool(o["unknown_code"]),
-                        "end_time":       end_time.strftime("%H:%M"),
-                        "mins_remaining": mins_remaining,
-                        "overrun":        overrun,
+                        "message_id":       o["message_id"],
+                        "patient_id":       o["patient_id"] or "—",
+                        "accession_number": o["accession_number"] or "—",
+                        "procedure_text":   o["procedure_text"] or o["procedure_code"] or "—",
+                        "procedure_code":   o["procedure_code"] or "",
+                        "unknown_code":     bool(o["unknown_code"]),
+                        "end_time":         end_time.strftime("%H:%M"),
+                        "mins_remaining":   mins_remaining,
+                        "overrun":          overrun,
                     })
                     # Countdown to next non-overrun finish
                     if not overrun and mins_remaining > 0:
@@ -336,9 +338,3 @@ def _make_tile(modality, status, active_orders, next_order):
     }
 
 
-def _mask(patient_id):
-    """Show first 2 and last 2 chars only."""
-    s = str(patient_id or "")
-    if len(s) <= 4:
-        return "*" * len(s)
-    return s[:2] + "*" * (len(s) - 4) + s[-2:]
