@@ -282,10 +282,19 @@ def dismiss_order():
     if not message_id:
         return jsonify({"error": "message_id required"}), 400
     try:
+        # Ensure columns exist (safe to run every time)
         db.session.execute(text("""
-            UPDATE hl7_orders SET order_status = 'CM'
+            ALTER TABLE hl7_orders
+                ADD COLUMN IF NOT EXISTS done_at  TIMESTAMP,
+                ADD COLUMN IF NOT EXISTS done_by  VARCHAR(100)
+        """))
+        db.session.execute(text("""
+            UPDATE hl7_orders
+            SET order_status = 'CM',
+                done_at  = NOW(),
+                done_by  = :user
             WHERE message_id = :mid
-        """), {"mid": message_id})
+        """), {"mid": message_id, "user": current_user.username})
         db.session.commit()
         return jsonify({"ok": True})
     except Exception as e:
