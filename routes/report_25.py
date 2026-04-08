@@ -457,19 +457,24 @@ def get_gold_standard_data(form_data):
 
             tech_df['flag'] = tech_df.apply(_flag, axis=1)
 
+            def _safe(val, default=0):
+                """Convert pandas numeric to Python float, replacing NaN/inf."""
+                v = float(val)
+                return default if (v != v or v == float('inf') or v == float('-inf')) else round(v, 1)
+
             # Per-technician cards
             for tech, tdf in tech_df.groupby('done_by'):
                 valid = tdf[tdf['actual_min'] > 0]
                 tech_data['technicians'].append({
-                    'name': tech,
+                    'name': str(tech),
                     'total_exams': len(tdf),
-                    'avg_min': round(float(valid['actual_min'].mean()), 1) if len(valid) > 0 else 0,
-                    'median_min': round(float(valid['actual_min'].median()), 1) if len(valid) > 0 else 0,
+                    'avg_min': _safe(valid['actual_min'].mean()) if len(valid) > 0 else 0,
+                    'median_min': _safe(valid['actual_min'].median()) if len(valid) > 0 else 0,
                     'too_short': int((tdf['flag'] == 'too_short').sum()),
                     'too_long': int((tdf['flag'] == 'too_long').sum()),
                     'normal': int((tdf['flag'] == 'normal').sum()),
                     'by_modality': [
-                        {'mod': m, 'cnt': len(mdf), 'avg': round(float(mdf[mdf['actual_min'] > 0]['actual_min'].mean()), 1) if (mdf['actual_min'] > 0).any() else 0}
+                        {'mod': str(m), 'cnt': len(mdf), 'avg': _safe(mdf[mdf['actual_min'] > 0]['actual_min'].mean()) if (mdf['actual_min'] > 0).any() else 0}
                         for m, mdf in tdf.groupby('modality')
                     ],
                 })
@@ -478,35 +483,35 @@ def get_gold_standard_data(form_data):
             flagged = tech_df[tech_df['flag'].isin(['too_short', 'too_long'])].head(100)
             for _, r in flagged.iterrows():
                 tech_data['flagged'].append({
-                    'accession': r.get('accession_number', ''),
-                    'patient_id': r.get('patient_id', ''),
-                    'procedure': r.get('procedure_text') or r.get('procedure_code', ''),
-                    'modality': r.get('modality', ''),
-                    'technician': r.get('done_by', ''),
-                    'actual_min': round(float(r['actual_min']), 1),
+                    'accession': str(r.get('accession_number') or ''),
+                    'patient_id': str(r.get('patient_id') or ''),
+                    'procedure': str(r.get('procedure_text') or r.get('procedure_code') or ''),
+                    'modality': str(r.get('modality') or ''),
+                    'technician': str(r.get('done_by') or ''),
+                    'actual_min': _safe(r['actual_min']),
                     'expected_min': int(r['expected_min']),
-                    'flag': r['flag'],
-                    'done_at': str(r['done_at'])[:16] if r.get('done_at') else '',
+                    'flag': str(r['flag']),
+                    'done_at': str(r['done_at'])[:16] if r.get('done_at') is not None else '',
                 })
 
             # By procedure code — avg actual vs expected
             for proc, pdf in tech_df[tech_df['actual_min'] > 0].groupby('procedure_code'):
                 tech_data['by_procedure'].append({
-                    'code': proc,
-                    'text': pdf.iloc[0].get('procedure_text', '') or proc,
+                    'code': str(proc),
+                    'text': str(pdf.iloc[0].get('procedure_text') or proc),
                     'count': len(pdf),
-                    'avg_actual': round(float(pdf['actual_min'].mean()), 1),
+                    'avg_actual': _safe(pdf['actual_min'].mean()),
                     'expected': int(pdf.iloc[0]['expected_min']),
-                    'modality': pdf.iloc[0].get('modality', ''),
+                    'modality': str(pdf.iloc[0].get('modality') or ''),
                 })
 
             # Summary stats
             valid_all = tech_df[tech_df['actual_min'] > 0]
             tech_data['summary'] = {
-                'total_completed': len(tech_df),
-                'total_technicians': tech_df['done_by'].nunique(),
-                'avg_tat': round(float(valid_all['actual_min'].mean()), 1) if len(valid_all) > 0 else 0,
-                'median_tat': round(float(valid_all['actual_min'].median()), 1) if len(valid_all) > 0 else 0,
+                'total_completed': int(len(tech_df)),
+                'total_technicians': int(tech_df['done_by'].nunique()),
+                'avg_tat': _safe(valid_all['actual_min'].mean()) if len(valid_all) > 0 else 0,
+                'median_tat': _safe(valid_all['actual_min'].median()) if len(valid_all) > 0 else 0,
                 'flagged_count': int((tech_df['flag'].isin(['too_short', 'too_long'])).sum()),
                 'too_short_count': int((tech_df['flag'] == 'too_short').sum()),
                 'too_long_count': int((tech_df['flag'] == 'too_long').sum()),
