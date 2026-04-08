@@ -50,6 +50,15 @@
         .status-ready  { background:rgba(34,197,94,0.15);  color:#22c55e; }
         .status-loading{ background:rgba(96,165,250,0.15); color:#60a5fa; }
         .status-error  { background:rgba(239,68,68,0.15);  color:#ef4444; }
+
+        /* Feedback buttons */
+        .feedback-bar { display:flex; gap:6px; margin-top:8px; }
+        .fb-btn { background:none; border:1px solid #28332e; border-radius:6px; padding:2px 10px;
+                   font-size:12px; cursor:pointer; transition:all 0.2s; color:#64748b; display:flex; align-items:center; gap:4px; }
+        .fb-btn:hover { border-color:#60a5fa; color:#e2e8f0; }
+        .fb-btn.voted-up   { border-color:#22c55e; color:#22c55e; background:rgba(34,197,94,0.1); pointer-events:none; }
+        .fb-btn.voted-down { border-color:#ef4444; color:#ef4444; background:rgba(239,68,68,0.1); pointer-events:none; }
+        .fb-btn.voted-dim  { opacity:0.3; pointer-events:none; }
     </style>
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
@@ -231,7 +240,7 @@ async function sendMessage() {
         if (data.error) {
             appendBubble('error', '⚠ ' + data.error);
         } else {
-            appendRichBubble(data);
+            appendRichBubble(data, msg);
         }
     } catch(e) {
         removeThinking(thinkId);
@@ -257,9 +266,10 @@ function autoResize(el) {
     el.style.height = Math.min(el.scrollHeight, 120) + 'px';
 }
 
-// ── Rich bubble with chart + link ─────────────────────────────
+// ── Rich bubble with chart + link + feedback ─────────────────
 let _chartCount = 0;
-function appendRichBubble(data) {
+let _fbCount = 0;
+function appendRichBubble(data, question) {
     const messages = document.getElementById('chat-messages');
     const wrapper  = document.createElement('div');
     wrapper.className = 'flex gap-3';
@@ -279,7 +289,6 @@ function appendRichBubble(data) {
             </p>
             <canvas id="${cid}" style="max-height:200px;"></canvas>
         </div>`;
-        // Render chart after DOM update
         setTimeout(() => renderChart(cid, data.chart_type, data.chart_data), 50);
     }
 
@@ -299,11 +308,27 @@ function appendRichBubble(data) {
         </a>`;
     }
 
+    // Feedback buttons
+    const fbId = `fb-${++_fbCount}`;
+    const feedbackHtml = !data.response.startsWith('ERROR:') ? `
+        <div class="feedback-bar" id="${fbId}">
+            <button class="fb-btn" onclick="sendFeedback('${fbId}','up',this)" title="Good answer">
+                <i class="bi bi-hand-thumbs-up"></i>
+            </button>
+            <button class="fb-btn" onclick="sendFeedback('${fbId}','down',this)" title="Bad answer">
+                <i class="bi bi-hand-thumbs-down"></i>
+            </button>
+        </div>` : '';
+
     const text = escHtml(data.response).replace(/\n/g, '<br>');
     wrapper.innerHTML = `${icon}
     <div style="max-width:75%;">
-        <div class="bubble ai">${text}${chartHtml}${linkHtml}</div>
+        <div class="bubble ai">${text}${chartHtml}${linkHtml}${feedbackHtml}</div>
     </div>`;
+
+    // Store question/response on the wrapper for feedback lookup
+    wrapper.dataset.question = question || '';
+    wrapper.dataset.response = data.response || '';
 
     messages.appendChild(wrapper);
     messages.scrollTop = messages.scrollHeight;
@@ -406,6 +431,34 @@ function clearChat() {
 
 function escHtml(s) {
     return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Send feedback ────────────────────────────────────────────
+async function sendFeedback(fbId, vote, btn) {
+    const bar     = document.getElementById(fbId);
+    const wrapper = bar.closest('.flex.gap-3');
+    const question = wrapper?.dataset.question || '';
+    const response = wrapper?.dataset.response || '';
+
+    // Visual feedback immediately
+    const buttons = bar.querySelectorAll('.fb-btn');
+    buttons.forEach(b => {
+        if (b === btn) {
+            b.classList.add(vote === 'up' ? 'voted-up' : 'voted-down');
+        } else {
+            b.classList.add('voted-dim');
+        }
+    });
+
+    try {
+        await fetch('/ai/feedback', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ question, response, vote }),
+        });
+    } catch(e) {
+        console.error('Feedback failed:', e);
+    }
 }
 
 // Boot

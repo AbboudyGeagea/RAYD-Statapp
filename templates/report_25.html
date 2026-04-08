@@ -156,6 +156,7 @@
                 <div onclick="switchTab('clinical')" class="tab-btn" id="btn-clinical">Radiologists</div>
                 <div onclick="switchTab('efficiency')"  class="tab-btn" id="btn-efficiency">Efficiency Intel</div>
                 <div onclick="switchTab('workflow')" class="tab-btn" id="btn-workflow">Workflow</div>
+                <div onclick="switchTab('technicians')" class="tab-btn" id="btn-technicians">Technicians</div>
 
             </nav>
 
@@ -871,6 +872,191 @@
 
             </div>
 
+            <!-- ═══════════════════════════════════════════════════════════════ -->
+            <!-- TAB: TECHNICIANS                                                -->
+            <!-- ═══════════════════════════════════════════════════════════════ -->
+            <div id="tab-technicians" class="tab-content hidden space-y-8">
+
+                <p class="section-desc">
+                    Technician performance based on the Live AE Status "Done" workflow. Measures time from scheduled start
+                    (fallback: order received time) to when the technician marked the exam complete. Flagged rows indicate
+                    durations significantly shorter or longer than the procedure's expected time.
+                </p>
+
+                {% if data and data.tech_data and data.tech_data.summary and data.tech_data.summary.total_completed > 0 %}
+                {% set ts = data.tech_data.summary %}
+                {% set techs = data.tech_data.technicians %}
+                {% set flagged = data.tech_data.flagged %}
+                {% set by_proc = data.tech_data.by_procedure %}
+
+                <!-- Summary KPIs -->
+                <div class="grid grid-cols-5 gap-4">
+                    <div class="glass-card flex flex-col items-center">
+                        <p class="text-[10px] font-black text-zinc-500 uppercase">Completed</p>
+                        <p class="text-3xl font-black text-white">{{ ts.total_completed }}</p>
+                        <p class="text-[10px] text-zinc-600">exams marked done</p>
+                    </div>
+                    <div class="glass-card flex flex-col items-center">
+                        <p class="text-[10px] font-black text-zinc-500 uppercase">Technicians</p>
+                        <p class="text-3xl font-black text-blue-400">{{ ts.total_technicians }}</p>
+                        <p class="text-[10px] text-zinc-600">active in period</p>
+                    </div>
+                    <div class="glass-card flex flex-col items-center">
+                        <p class="text-[10px] font-black text-zinc-500 uppercase">Avg TAT</p>
+                        <p class="text-3xl font-black text-emerald-400">{{ ts.avg_tat }}<span class="text-sm">m</span></p>
+                        <p class="text-[10px] text-zinc-600">median {{ ts.median_tat }}m</p>
+                    </div>
+                    <div class="glass-card flex flex-col items-center border border-amber-500/20">
+                        <p class="text-[10px] font-black text-zinc-500 uppercase">Too Short</p>
+                        <p class="text-3xl font-black text-amber-400">{{ ts.too_short_count }}</p>
+                        <p class="text-[10px] text-zinc-600">&lt; 50% expected</p>
+                    </div>
+                    <div class="glass-card flex flex-col items-center border border-rose-500/20">
+                        <p class="text-[10px] font-black text-zinc-500 uppercase">Too Long</p>
+                        <p class="text-3xl font-black text-rose-400">{{ ts.too_long_count }}</p>
+                        <p class="text-[10px] text-zinc-600">&gt; 200% expected</p>
+                    </div>
+                </div>
+
+                <!-- Per-Technician Cards -->
+                <div class="space-y-4">
+                    <p class="text-xs font-black text-blue-500 uppercase tracking-widest">Per-Technician Performance</p>
+                    <div class="grid grid-cols-2 gap-4">
+                        {% for t in techs|sort(attribute='total_exams', reverse=True) %}
+                        <div class="glass-card">
+                            <div class="flex items-center justify-between mb-3">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-9 h-9 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
+                                        <i class="bi bi-person-badge text-blue-400"></i>
+                                    </div>
+                                    <div>
+                                        <p class="text-sm font-black text-white">{{ t.name }}</p>
+                                        <p class="text-[10px] text-zinc-500">{{ t.total_exams }} exams</p>
+                                    </div>
+                                </div>
+                                <div class="text-right">
+                                    <p class="text-lg font-black text-emerald-400">{{ t.avg_min }}<span class="text-[10px] text-zinc-500">m avg</span></p>
+                                    <p class="text-[10px] text-zinc-500">{{ t.median_min }}m median</p>
+                                </div>
+                            </div>
+                            <!-- Modality breakdown -->
+                            <div class="flex flex-wrap gap-2 mb-3">
+                                {% for m in t.by_modality %}
+                                <span class="px-2 py-1 rounded-lg text-[10px] font-bold bg-zinc-900 border border-white/5 text-zinc-400">
+                                    {{ m.mod }}: {{ m.cnt }} <span class="text-zinc-600">({{ m.avg }}m)</span>
+                                </span>
+                                {% endfor %}
+                            </div>
+                            <!-- Flag bar -->
+                            {% set total = t.normal + t.too_short + t.too_long %}
+                            {% if total > 0 %}
+                            <div class="flex rounded-lg overflow-hidden h-2">
+                                {% if t.normal > 0 %}
+                                <div style="width:{{ (t.normal / total * 100)|round(1) }}%" class="bg-emerald-500/60" title="{{ t.normal }} normal"></div>
+                                {% endif %}
+                                {% if t.too_short > 0 %}
+                                <div style="width:{{ (t.too_short / total * 100)|round(1) }}%" class="bg-amber-500/60" title="{{ t.too_short }} too short"></div>
+                                {% endif %}
+                                {% if t.too_long > 0 %}
+                                <div style="width:{{ (t.too_long / total * 100)|round(1) }}%" class="bg-rose-500/60" title="{{ t.too_long }} too long"></div>
+                                {% endif %}
+                            </div>
+                            <div class="flex gap-4 mt-1">
+                                <span class="text-[9px] text-emerald-500/70 font-bold">{{ t.normal }} normal</span>
+                                {% if t.too_short > 0 %}<span class="text-[9px] text-amber-500/70 font-bold">{{ t.too_short }} short</span>{% endif %}
+                                {% if t.too_long > 0 %}<span class="text-[9px] text-rose-500/70 font-bold">{{ t.too_long }} long</span>{% endif %}
+                            </div>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <!-- Procedure: Actual vs Expected -->
+                <div class="space-y-4">
+                    <p class="text-xs font-black text-blue-500 uppercase tracking-widest">Procedure Duration: Actual vs Expected</p>
+                    <div class="chart-card">
+                        <div class="chart-card-header">
+                            <span class="chart-card-title">Avg Actual vs Expected Duration by Procedure</span>
+                            <button onclick="exportChart('chart-tech-proc','TechProcDuration')" class="chart-export-btn"><i class="bi bi-download"></i></button>
+                        </div>
+                        <div class="chart-card-desc">Bars show average actual completion time vs expected duration per procedure code. Hover for details.</div>
+                        <div class="chart-card-body">
+                            <div id="chart-tech-proc" style="height:350px;"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Technician TAT Distribution -->
+                <div class="space-y-4">
+                    <p class="text-xs font-black text-blue-500 uppercase tracking-widest">Technician Comparison</p>
+                    <div class="chart-card">
+                        <div class="chart-card-header">
+                            <span class="chart-card-title">Average TAT per Technician</span>
+                            <button onclick="exportChart('chart-tech-compare','TechCompare')" class="chart-export-btn"><i class="bi bi-download"></i></button>
+                        </div>
+                        <div class="chart-card-body">
+                            <div id="chart-tech-compare" style="height:300px;"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Flagged Studies Table -->
+                {% if flagged %}
+                <div class="space-y-4">
+                    <p class="text-xs font-black text-blue-500 uppercase tracking-widest">
+                        Flagged Exams
+                        <span class="ml-2 px-2 py-0.5 rounded bg-rose-500/10 border border-rose-500/20 text-rose-400 text-[10px]">{{ flagged|length }}</span>
+                    </p>
+                    <div class="glass-card overflow-x-auto" style="max-height:400px; overflow-y:auto;">
+                        <table class="w-full text-left" style="border-collapse:separate; border-spacing:0;">
+                            <thead>
+                                <tr class="text-[10px] font-black text-zinc-500 uppercase tracking-wider">
+                                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Flag</th>
+                                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Accession</th>
+                                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Procedure</th>
+                                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Modality</th>
+                                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Technician</th>
+                                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right">Actual</th>
+                                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right">Expected</th>
+                                    <th class="pb-3 sticky top-0 bg-[#111413] z-10">Done At</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for f in flagged %}
+                                <tr class="border-t border-white/5 {{ 'bg-amber-500/5' if f.flag == 'too_short' else 'bg-rose-500/5' }}">
+                                    <td class="py-2 pr-4">
+                                        {% if f.flag == 'too_short' %}
+                                        <span class="px-2 py-0.5 rounded text-[10px] font-black bg-amber-500/10 border border-amber-500/20 text-amber-400">SHORT</span>
+                                        {% else %}
+                                        <span class="px-2 py-0.5 rounded text-[10px] font-black bg-rose-500/10 border border-rose-500/20 text-rose-400">LONG</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="py-2 pr-4 text-xs font-mono text-zinc-400">{{ f.accession }}</td>
+                                    <td class="py-2 pr-4 text-xs text-zinc-300" title="{{ f.procedure }}">{{ f.procedure[:40] }}</td>
+                                    <td class="py-2 pr-4 text-xs text-zinc-400">{{ f.modality }}</td>
+                                    <td class="py-2 pr-4 text-xs font-bold text-blue-400">{{ f.technician }}</td>
+                                    <td class="py-2 pr-4 text-xs text-right font-mono {{ 'text-amber-400' if f.flag == 'too_short' else 'text-rose-400' }}">{{ f.actual_min }}m</td>
+                                    <td class="py-2 pr-4 text-xs text-right font-mono text-zinc-500">{{ f.expected_min }}m</td>
+                                    <td class="py-2 text-xs text-zinc-500">{{ f.done_at }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                {% endif %}
+
+                {% else %}
+                <div class="glass-card text-center py-12 text-zinc-600">
+                    <i class="bi bi-person-badge text-4xl mb-3 block opacity-40"></i>
+                    <p class="italic">No technician completion data available for this period.</p>
+                    <p class="text-[11px] mt-2">Technicians mark exams as "Done" on the <a href="/viewer/live" class="text-blue-400 hover:underline">Live AE Status</a> page.</p>
+                </div>
+                {% endif %}
+
+            </div>
+
             <!-- ── SHIFT CONFIG MODAL ─────────────────────────────────────── -->
             <div id="shift-config-modal" style="display:none; position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,0.7); backdrop-filter:blur(4px);" class="flex items-center justify-center">
                 <div class="glass-card w-full max-w-md" style="border:1px solid rgba(255,255,255,0.12);">
@@ -1344,6 +1530,115 @@
                         }]
                     });
                     registerChart('chart-addendum', cAdd);
+                }
+            }
+
+            // ── Technician Charts ────────────────────────────────────────────
+            if (d.tech_data && d.tech_data.summary && d.tech_data.summary.total_completed > 0) {
+
+                // Procedure: Actual vs Expected
+                const procEl = document.getElementById('chart-tech-proc');
+                if (procEl && d.tech_data.by_procedure && d.tech_data.by_procedure.length > 0) {
+                    const procs = d.tech_data.by_procedure.sort((a,b) => b.count - a.count).slice(0, 20);
+                    const cProc = echarts.init(procEl, 'dark');
+                    cProc.setOption({
+                        backgroundColor: 'transparent',
+                        tooltip: {
+                            trigger: 'axis',
+                            axisPointer: { type: 'shadow' },
+                            formatter: function(ps) {
+                                let s = '<b>' + ps[0].name + '</b><br/>';
+                                ps.forEach(p => s += p.marker + ' ' + p.seriesName + ': ' + p.value + 'm<br/>');
+                                const proc = procs[ps[0].dataIndex];
+                                if (proc) s += '<span style="color:#71717a">' + proc.count + ' exams · ' + proc.modality + '</span>';
+                                return s;
+                            }
+                        },
+                        legend: { data: ['Actual Avg', 'Expected'], textStyle: { color: '#71717a' }, top: 0 },
+                        grid: { left: 10, right: 30, bottom: 0, top: 40, containLabel: true },
+                        yAxis: {
+                            type: 'category',
+                            data: procs.map(p => p.text ? p.text.substring(0, 30) : p.code),
+                            axisLabel: { color: '#52525b', fontSize: 10 },
+                            axisTick: { show: false },
+                            axisLine: { show: false }
+                        },
+                        xAxis: {
+                            type: 'value',
+                            name: 'Minutes',
+                            axisLabel: axisStyle.axisLabel,
+                            splitLine: axisStyle.splitLine
+                        },
+                        series: [
+                            {
+                                name: 'Actual Avg', type: 'bar',
+                                data: procs.map(p => p.avg_actual),
+                                itemStyle: {
+                                    borderRadius: [0, 4, 4, 0],
+                                    color: function(params) {
+                                        const proc = procs[params.dataIndex];
+                                        if (!proc) return '#3b82f6';
+                                        const ratio = proc.avg_actual / (proc.expected || 15);
+                                        if (ratio < 0.5) return '#f59e0b';
+                                        if (ratio > 2.0) return '#ef4444';
+                                        return '#22c55e';
+                                    }
+                                }
+                            },
+                            {
+                                name: 'Expected', type: 'bar',
+                                data: procs.map(p => p.expected),
+                                itemStyle: { borderRadius: [0, 4, 4, 0], color: 'rgba(255,255,255,0.08)' },
+                                barGap: '-100%', z: 0
+                            }
+                        ]
+                    });
+                    registerChart('chart-tech-proc', cProc);
+                }
+
+                // Technician Comparison Bar
+                const techEl = document.getElementById('chart-tech-compare');
+                if (techEl && d.tech_data.technicians && d.tech_data.technicians.length > 0) {
+                    const sorted = [...d.tech_data.technicians].sort((a,b) => a.avg_min - b.avg_min);
+                    const cTech = echarts.init(techEl, 'dark');
+                    cTech.setOption({
+                        backgroundColor: 'transparent',
+                        tooltip: {
+                            trigger: 'axis',
+                            formatter: function(ps) {
+                                const t = sorted[ps[0].dataIndex];
+                                return '<b>' + t.name + '</b><br/>' +
+                                    'Avg: ' + t.avg_min + 'm · Median: ' + t.median_min + 'm<br/>' +
+                                    t.total_exams + ' exams · ' + t.too_short + ' short · ' + t.too_long + ' long';
+                            }
+                        },
+                        grid: { left: 10, right: 30, bottom: 0, top: 10, containLabel: true },
+                        yAxis: {
+                            type: 'category',
+                            data: sorted.map(t => t.name),
+                            axisLabel: { color: '#52525b', fontSize: 11, fontWeight: 700 },
+                            axisTick: { show: false },
+                            axisLine: { show: false }
+                        },
+                        xAxis: {
+                            type: 'value', name: 'Avg Minutes',
+                            axisLabel: axisStyle.axisLabel,
+                            splitLine: axisStyle.splitLine
+                        },
+                        series: [{
+                            type: 'bar',
+                            data: sorted.map(t => ({
+                                value: t.avg_min,
+                                itemStyle: {
+                                    borderRadius: [0, 6, 6, 0],
+                                    color: t.too_long > t.total_exams * 0.2 ? '#ef4444' :
+                                           t.too_short > t.total_exams * 0.2 ? '#f59e0b' : '#3b82f6'
+                                }
+                            })),
+                            label: { show: true, position: 'right', color: '#71717a', fontSize: 10, formatter: p => p.value + 'm' }
+                        }]
+                    });
+                    registerChart('chart-tech-compare', cTech);
                 }
             }
         }

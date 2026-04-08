@@ -402,6 +402,111 @@ def get_gold_standard_data(form_data):
     except Exception:
         pass
 
+    # ── Technician TAT (from hl7_orders "Done" workflow) ────────────────
+    tech_data = {'technicians': [], 'flagged': [], 'by_procedure': [], 'summary': {}}
+    try:
+        tech_rows = db.session.execute(text("""
+            SELECT
+                ho.accession_number,
+                ho.patient_id,
+                ho.procedure_code,
+                ho.procedure_text,
+                ho.modality,
+                ho.done_by,
+                ho.done_at,
+                COALESCE(ho.scheduled_datetime, ho.received_at) AS start_time,
+                ho.scheduled_datetime,
+                ho.received_at,
+                ROUND(EXTRACT(EPOCH FROM (
+                    ho.done_at - COALESCE(ho.scheduled_datetime, ho.received_at)
+                )) / 60.0, 1) AS actual_min,
+                COALESCE(pm.duration_minutes, 15) AS expected_min
+            FROM hl7_orders ho
+            LEFT JOIN procedure_duration_map pm
+                ON UPPER(TRIM(ho.procedure_code)) = UPPER(TRIM(pm.procedure_code))
+            WHERE ho.order_status = 'CM'
+              AND ho.done_at IS NOT NULL
+              AND ho.done_by IS NOT NULL
+              AND ho.done_at::date BETWEEN :start AND :end
+            ORDER BY ho.done_at DESC
+        """), {"start": start, "end": end}).mappings().fetchall()
+
+        if tech_rows:
+            tech_df = pd.DataFrame(tech_rows)
+            tech_df['actual_min']   = pd.to_numeric(tech_df['actual_min'], errors='coerce').fillna(0)
+            tech_df['expected_min'] = pd.to_numeric(tech_df['expected_min'], errors='coerce').fillna(15)
+
+            # Flag abnormal: < 50% expected = too short, > 200% expected = too long
+            def _flag(row):
+                if row['actual_min'] <= 0:
+                    return 'invalid'
+                ratio = row['actual_min'] / row['expected_min'] if row['expected_min'] > 0 else 1
+                if ratio < 0.5:
+                    return 'too_short'
+                elif ratio > 2.0:
+                    return 'too_long'
+                return 'normal'
+
+            tech_df['flag'] = tech_df.apply(_flag, axis=1)
+
+            # Per-technician cards
+            for tech, tdf in tech_df.groupby('done_by'):
+                valid = tdf[tdf['actual_min'] > 0]
+                tech_data['technicians'].append({
+                    'name': tech,
+                    'total_exams': len(tdf),
+                    'avg_min': round(float(valid['actual_min'].mean()), 1) if len(valid) > 0 else 0,
+                    'median_min': round(float(valid['actual_min'].median()), 1) if len(valid) > 0 else 0,
+                    'too_short': int((tdf['flag'] == 'too_short').sum()),
+                    'too_long': int((tdf['flag'] == 'too_long').sum()),
+                    'normal': int((tdf['flag'] == 'normal').sum()),
+                    'by_modality': [
+                        {'mod': m, 'cnt': len(mdf), 'avg': round(float(mdf[mdf['actual_min'] > 0]['actual_min'].mean()), 1) if (mdf['actual_min'] > 0).any() else 0}
+                        for m, mdf in tdf.groupby('modality')
+                    ],
+                })
+
+            # Flagged studies (abnormal only)
+            flagged = tech_df[tech_df['flag'].isin(['too_short', 'too_long'])].head(100)
+            for _, r in flagged.iterrows():
+                tech_data['flagged'].append({
+                    'accession': r.get('accession_number', ''),
+                    'patient_id': r.get('patient_id', ''),
+                    'procedure': r.get('procedure_text') or r.get('procedure_code', ''),
+                    'modality': r.get('modality', ''),
+                    'technician': r.get('done_by', ''),
+                    'actual_min': round(float(r['actual_min']), 1),
+                    'expected_min': int(r['expected_min']),
+                    'flag': r['flag'],
+                    'done_at': str(r['done_at'])[:16] if r.get('done_at') else '',
+                })
+
+            # By procedure code — avg actual vs expected
+            for proc, pdf in tech_df[tech_df['actual_min'] > 0].groupby('procedure_code'):
+                tech_data['by_procedure'].append({
+                    'code': proc,
+                    'text': pdf.iloc[0].get('procedure_text', '') or proc,
+                    'count': len(pdf),
+                    'avg_actual': round(float(pdf['actual_min'].mean()), 1),
+                    'expected': int(pdf.iloc[0]['expected_min']),
+                    'modality': pdf.iloc[0].get('modality', ''),
+                })
+
+            # Summary stats
+            valid_all = tech_df[tech_df['actual_min'] > 0]
+            tech_data['summary'] = {
+                'total_completed': len(tech_df),
+                'total_technicians': tech_df['done_by'].nunique(),
+                'avg_tat': round(float(valid_all['actual_min'].mean()), 1) if len(valid_all) > 0 else 0,
+                'median_tat': round(float(valid_all['actual_min'].median()), 1) if len(valid_all) > 0 else 0,
+                'flagged_count': int((tech_df['flag'].isin(['too_short', 'too_long'])).sum()),
+                'too_short_count': int((tech_df['flag'] == 'too_short').sum()),
+                'too_long_count': int((tech_df['flag'] == 'too_long').sum()),
+            }
+
+    except Exception as _e:
+        print(f"Technician TAT error: {_e}")
+
     result = ({
         "summary": {
             "total": len(df), "global_util": f"{(sum(r['avg'] for r in matrix_rows)/len(matrix_rows) if matrix_rows else 0):.1f}%",
@@ -431,6 +536,7 @@ def get_gold_standard_data(form_data):
         "shift_breakdown": shift_breakdown,
         "addendum_data":   addendum_data,
         "shift_patterns":  shift_patterns,
+        "tech_data":       tech_data,
     }, start, end)
     cache_put(25, form_data, result)
     return result

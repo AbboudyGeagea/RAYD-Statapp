@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | AI Admin — Teach & Review</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        :root { --bg:#0a0f0d; --surface:#111714; --border:#1a2420; --accent:#60a5fa; }
+        * { box-sizing:border-box; margin:0; padding:0; }
+        body { font-family:'Inter',sans-serif; background:var(--bg); color:#e2e8f0; min-height:100vh; }
+        ::-webkit-scrollbar { width:4px; } ::-webkit-scrollbar-thumb { background:#1a2420; border-radius:10px; }
+
+        .card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:20px; }
+        .badge-down { background:rgba(239,68,68,0.12); color:#f87171; font-size:9px; font-weight:900;
+                      padding:2px 8px; border-radius:4px; text-transform:uppercase; letter-spacing:0.08em; }
+        .badge-active { background:rgba(34,197,94,0.12); color:#22c55e; font-size:9px; font-weight:900;
+                        padding:2px 8px; border-radius:4px; text-transform:uppercase; }
+        .badge-inactive { background:rgba(100,116,139,0.12); color:#64748b; font-size:9px; font-weight:900;
+                          padding:2px 8px; border-radius:4px; text-transform:uppercase; }
+
+        .btn { padding:6px 14px; border-radius:8px; font-size:12px; font-weight:700; border:none;
+               cursor:pointer; transition:all 0.2s; display:inline-flex; align-items:center; gap:6px; }
+        .btn-primary { background:#60a5fa; color:#0a1020; }
+        .btn-primary:hover { filter:brightness(1.1); }
+        .btn-ghost { background:rgba(96,165,250,0.08); color:#60a5fa; border:1px solid rgba(96,165,250,0.2); }
+        .btn-ghost:hover { background:rgba(96,165,250,0.15); }
+        .btn-danger { background:rgba(239,68,68,0.08); color:#f87171; border:1px solid rgba(239,68,68,0.2); }
+        .btn-danger:hover { background:rgba(239,68,68,0.15); }
+        .btn-success { background:rgba(34,197,94,0.08); color:#22c55e; border:1px solid rgba(34,197,94,0.2); }
+        .btn-success:hover { background:rgba(34,197,94,0.15); }
+
+        input, textarea { background:#0a0f0d; border:1px solid var(--border); color:#e2e8f0; border-radius:8px;
+                          padding:8px 12px; font-size:13px; font-family:'Inter',sans-serif; outline:none;
+                          transition:border 0.2s; width:100%; }
+        input:focus, textarea:focus { border-color:#60a5fa; }
+
+        .tab { padding:8px 18px; font-size:13px; font-weight:700; border:none; background:none;
+               color:#64748b; cursor:pointer; border-bottom:2px solid transparent; transition:all 0.2s; }
+        .tab:hover { color:#e2e8f0; }
+        .tab.active { color:#60a5fa; border-bottom-color:#60a5fa; }
+
+        .fb-row { border-bottom:1px solid var(--border); padding:16px 0; }
+        .fb-row:last-child { border-bottom:none; }
+        .q-text { color:#94a3b8; font-size:12px; }
+        .r-text { color:#e2e8f0; font-size:13px; margin-top:4px; }
+        .meta { color:#475569; font-size:10px; font-family:'JetBrains Mono',monospace; }
+
+        .teach-form { display:none; margin-top:12px; padding:12px; background:#0a0f0d;
+                      border:1px solid var(--border); border-radius:10px; }
+        .teach-form.open { display:block; }
+
+        .empty-state { text-align:center; padding:40px; color:#475569; }
+        .empty-state i { font-size:32px; margin-bottom:12px; display:block; }
+    </style>
+</head>
+<body>
+    {% include '_header.html' %}
+
+    <div class="flex">
+        {% include '_sidebar.html' %}
+
+        <main class="flex-1 p-6 overflow-y-auto" style="max-height:calc(100vh - 70px);">
+            <!-- Title -->
+            <div class="flex items-center justify-between mb-6">
+                <div>
+                    <h1 class="text-xl font-black text-white flex items-center gap-3">
+                        <i class="bi bi-mortarboard text-[#60a5fa]"></i>
+                        AI Teaching Center
+                    </h1>
+                    <p class="text-xs text-slate-500 mt-1">Review bad answers, teach corrections, make the AI smarter</p>
+                </div>
+                <a href="/ai/assistant" class="btn btn-ghost"><i class="bi bi-chat-dots"></i> Back to Chat</a>
+            </div>
+
+            <!-- Tabs -->
+            <div class="flex gap-1 border-b border-[#1a2420] mb-6">
+                <button class="tab active" onclick="switchTab('feedback', this)">
+                    <i class="bi bi-hand-thumbs-down"></i> Feedback
+                    <span id="feedback-count" class="badge-down" style="margin-left:6px;"></span>
+                </button>
+                <button class="tab" onclick="switchTab('corrections', this)">
+                    <i class="bi bi-lightbulb"></i> Corrections
+                    <span id="corrections-count" class="badge-active" style="margin-left:6px;"></span>
+                </button>
+            </div>
+
+            <!-- Feedback tab -->
+            <div id="tab-feedback">
+                <div class="card" id="feedback-list">
+                    <div class="empty-state"><i class="bi bi-emoji-smile"></i>Loading...</div>
+                </div>
+            </div>
+
+            <!-- Corrections tab -->
+            <div id="tab-corrections" style="display:none;">
+                <!-- Add new correction -->
+                <div class="card mb-4">
+                    <h3 class="text-sm font-black text-white mb-3"><i class="bi bi-plus-circle text-[#60a5fa]"></i> Add New Correction</h3>
+                    <div class="grid grid-cols-1 gap-3">
+                        <div>
+                            <label class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Keywords (comma-separated triggers)</label>
+                            <input id="new-keywords" placeholder="e.g. ct, computed tomography, CT scan">
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Example Question (optional)</label>
+                            <input id="new-example" placeholder="e.g. How many CT scans this month?">
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Correct Answer</label>
+                            <textarea id="new-answer" rows="2" placeholder="The correct response the AI should give"></textarea>
+                        </div>
+                        <div class="flex justify-end">
+                            <button class="btn btn-primary" onclick="addCorrection()">
+                                <i class="bi bi-check-lg"></i> Save Correction
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Existing corrections -->
+                <div class="card" id="corrections-list">
+                    <div class="empty-state"><i class="bi bi-lightbulb"></i>Loading...</div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+<script>
+// ── Tab switching ────────────────────────────────────────────
+function switchTab(name, btn) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-feedback').style.display    = name === 'feedback'    ? 'block' : 'none';
+    document.getElementById('tab-corrections').style.display = name === 'corrections' ? 'block' : 'none';
+}
+
+// ── Load feedback ────────────────────────────────────────────
+async function loadFeedback() {
+    try {
+        const rows = await fetch('/ai/admin/feedback').then(r => r.json());
+        const el   = document.getElementById('feedback-list');
+        document.getElementById('feedback-count').textContent = rows.length || '';
+
+        if (!rows.length) {
+            el.innerHTML = '<div class="empty-state"><i class="bi bi-emoji-smile"></i><p class="text-sm">No thumbs-down feedback yet. Your AI is doing well!</p></div>';
+            return;
+        }
+
+        el.innerHTML = rows.map(r => `
+            <div class="fb-row" id="fb-${r.id}">
+                <div class="flex items-start justify-between gap-4">
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2 mb-1">
+                            <span class="badge-down"><i class="bi bi-hand-thumbs-down"></i> Thumbs Down</span>
+                            <span class="meta">${r.created_at ? new Date(r.created_at).toLocaleDateString() : ''}</span>
+                        </div>
+                        <p class="q-text"><strong>Question:</strong> ${escHtml(r.question)}</p>
+                        <p class="r-text"><strong>AI said:</strong> ${escHtml(r.response)}</p>
+                    </div>
+                    <div class="flex gap-2 shrink-0">
+                        <button class="btn btn-primary" onclick="toggleTeach(${r.id}, '${escAttr(r.question)}', '${escAttr(r.response)}')">
+                            <i class="bi bi-mortarboard"></i> Teach
+                        </button>
+                        <button class="btn btn-success" onclick="markReviewed(${r.id})">
+                            <i class="bi bi-check-lg"></i> Dismiss
+                        </button>
+                    </div>
+                </div>
+                <div class="teach-form" id="teach-${r.id}">
+                    <div class="grid grid-cols-1 gap-3">
+                        <div>
+                            <label class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Keywords (comma-separated)</label>
+                            <input id="kw-${r.id}" value="${escAttr(extractKeywords(r.question))}">
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Correct Answer</label>
+                            <textarea id="ans-${r.id}" rows="2" placeholder="What should the AI have said?"></textarea>
+                        </div>
+                        <div class="flex justify-end gap-2">
+                            <button class="btn btn-ghost" onclick="toggleTeach(${r.id})">Cancel</button>
+                            <button class="btn btn-primary" onclick="submitTeach(${r.id}, '${escAttr(r.question)}')">
+                                <i class="bi bi-check-lg"></i> Save & Dismiss
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+    } catch(e) {
+        console.error('Load feedback error:', e);
+    }
+}
+
+function toggleTeach(id) {
+    const el = document.getElementById('teach-' + id);
+    el.classList.toggle('open');
+}
+
+async function markReviewed(id) {
+    await fetch(`/ai/admin/feedback/${id}/reviewed`, { method: 'POST' });
+    document.getElementById('fb-' + id)?.remove();
+    const cnt = document.getElementById('feedback-list').querySelectorAll('.fb-row').length;
+    document.getElementById('feedback-count').textContent = cnt || '';
+    if (!cnt) loadFeedback();
+}
+
+async function submitTeach(feedbackId, question) {
+    const keywords = document.getElementById('kw-' + feedbackId).value.trim();
+    const answer   = document.getElementById('ans-' + feedbackId).value.trim();
+    if (!keywords || !answer) { alert('Keywords and answer are required'); return; }
+
+    const res = await fetch('/ai/teach', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            keywords, correct_answer: answer,
+            example_question: question,
+            feedback_id: feedbackId,
+        }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+        document.getElementById('fb-' + feedbackId)?.remove();
+        const cnt = document.getElementById('feedback-list').querySelectorAll('.fb-row').length;
+        document.getElementById('feedback-count').textContent = cnt || '';
+        if (!cnt) loadFeedback();
+        loadCorrections();
+    } else {
+        alert('Error: ' + (data.error || 'Unknown'));
+    }
+}
+
+// ── Load corrections ─────────────────────────────────────────
+async function loadCorrections() {
+    try {
+        const rows = await fetch('/ai/admin/corrections').then(r => r.json());
+        const el   = document.getElementById('corrections-list');
+        const active = rows.filter(r => r.is_active);
+        document.getElementById('corrections-count').textContent = active.length || '';
+
+        if (!rows.length) {
+            el.innerHTML = '<div class="empty-state"><i class="bi bi-lightbulb"></i><p class="text-sm">No corrections yet. Teach the AI by reviewing feedback or adding corrections manually.</p></div>';
+            return;
+        }
+
+        el.innerHTML = '<h3 class="text-sm font-black text-white mb-3"><i class="bi bi-list-check text-[#60a5fa]"></i> Active Corrections</h3>' +
+            rows.map(r => `
+            <div class="fb-row flex items-start justify-between gap-4">
+                <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2 mb-1">
+                        <span class="${r.is_active ? 'badge-active' : 'badge-inactive'}">${r.is_active ? 'Active' : 'Disabled'}</span>
+                        <span class="meta">by ${escHtml(r.created_by || '?')} · ${r.created_at ? new Date(r.created_at).toLocaleDateString() : ''}</span>
+                    </div>
+                    <p class="q-text"><strong>Keywords:</strong> <code style="color:#60a5fa;font-size:12px;">${escHtml(r.keywords)}</code></p>
+                    ${r.example_question ? `<p class="q-text"><strong>Example:</strong> ${escHtml(r.example_question)}</p>` : ''}
+                    <p class="r-text">${escHtml(r.correct_answer)}</p>
+                </div>
+                ${r.is_active ? `<button class="btn btn-danger shrink-0" onclick="deleteCorrection(${r.id})">
+                    <i class="bi bi-trash"></i>
+                </button>` : ''}
+            </div>
+        `).join('');
+    } catch(e) {
+        console.error('Load corrections error:', e);
+    }
+}
+
+async function addCorrection() {
+    const keywords = document.getElementById('new-keywords').value.trim();
+    const example  = document.getElementById('new-example').value.trim();
+    const answer   = document.getElementById('new-answer').value.trim();
+    if (!keywords || !answer) { alert('Keywords and correct answer are required'); return; }
+
+    const res = await fetch('/ai/teach', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ keywords, correct_answer: answer, example_question: example }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+        document.getElementById('new-keywords').value = '';
+        document.getElementById('new-example').value  = '';
+        document.getElementById('new-answer').value   = '';
+        loadCorrections();
+    } else {
+        alert('Error: ' + (data.error || 'Unknown'));
+    }
+}
+
+async function deleteCorrection(id) {
+    if (!confirm('Disable this correction?')) return;
+    await fetch(`/ai/admin/corrections/${id}`, { method: 'DELETE' });
+    loadCorrections();
+}
+
+// ── Helpers ──────────────────────────────────────────────────
+function escHtml(s) {
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function escAttr(s) {
+    return String(s||'').replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/\n/g, ' ');
+}
+function extractKeywords(question) {
+    // Pull meaningful words from the question as suggested keywords
+    const stops = new Set(['what','how','many','much','the','is','are','do','does','a','an','in','on','for',
+        'to','of','and','or','this','that','من','هل','كم','ما','في','على','هذا','هذه']);
+    return question.toLowerCase().split(/\s+/)
+        .filter(w => w.length > 2 && !stops.has(w))
+        .slice(0, 5)
+        .join(', ');
+}
+
+// ── Theme ────────────────────────────────────────────────────
+function applyTheme(theme) {
+    document.body.classList.toggle('light', theme === 'light');
+    const icon = document.getElementById('theme-icon');
+    if (icon) icon.className = theme === 'light' ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
+}
+applyTheme("{{ ui_theme }}");
+function toggleTheme() {
+    const next = document.body.classList.contains('light') ? 'dark' : 'light';
+    applyTheme(next);
+    fetch('/user/theme', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({theme: next}) });
+}
+
+// ── Boot ─────────────────────────────────────────────────────
+loadFeedback();
+loadCorrections();
+</script>
+</body>
+</html>

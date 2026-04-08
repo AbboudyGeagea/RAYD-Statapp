@@ -23,13 +23,51 @@ import logging
 import json
 import os
 import psutil
-from flask import Blueprint, request, jsonify, render_template
-from flask_login import login_required
+from flask import Blueprint, request, jsonify, render_template, abort
+from flask_login import login_required, current_user
 from sqlalchemy import text
-from db import db
+from db import db, AiFeedback, AiCorrection
 
 logger    = logging.getLogger("BITNET")
 bitnet_bp = Blueprint("bitnet", __name__)
+
+# ── Ensure AI tables exist (runs once) ────────────────────────
+_tables_checked = False
+
+def _ensure_ai_tables():
+    global _tables_checked
+    if _tables_checked:
+        return
+    try:
+        db.session.execute(text("""
+            CREATE TABLE IF NOT EXISTS ai_feedback (
+                id          SERIAL PRIMARY KEY,
+                question    TEXT NOT NULL,
+                response    TEXT NOT NULL,
+                vote        VARCHAR(10) NOT NULL,
+                user_id     INTEGER REFERENCES users(id),
+                reviewed    BOOLEAN DEFAULT FALSE,
+                created_at  TIMESTAMP DEFAULT NOW()
+            )
+        """))
+        db.session.execute(text("""
+            CREATE TABLE IF NOT EXISTS ai_corrections (
+                id               SERIAL PRIMARY KEY,
+                keywords         TEXT NOT NULL,
+                correct_answer   TEXT NOT NULL,
+                example_question TEXT,
+                created_by       VARCHAR(100),
+                is_active        BOOLEAN DEFAULT TRUE,
+                created_at       TIMESTAMP DEFAULT NOW()
+            )
+        """))
+        db.session.commit()
+        _tables_checked = True
+        logger.info("[BitNet] AI tables verified")
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"[BitNet] Table creation error: {e}")
+        _tables_checked = True  # don't retry every request
 
 # ── Config ────────────────────────────────────────────────────
 BITNET_SERVER = os.environ.get("BITNET_SERVER", "http://172.17.0.1:8081")
@@ -160,6 +198,7 @@ def health():
 @bitnet_bp.route("/ai/chat", methods=["POST"])
 @login_required
 def chat():
+    _ensure_ai_tables()
     body    = request.get_json(force=True)
     message = (body.get("message") or "").strip()
     if not message:
@@ -188,6 +227,9 @@ def chat():
         }
         return jsonify(payload)
 
+    # ── Fetch matching corrections (few-shot from admin teaching) ─
+    corrections_block = _get_corrections(message)
+
     # ── System prompt ─────────────────────────────────────────
     system = (
         "You are RAYD AI, a radiology analytics assistant. "
@@ -205,6 +247,8 @@ def chat():
         "Question: how many studies do we have?\n"
         "Answer: The department has performed 45,230 studies across 12 imaging devices since January 2023."
     )
+    if corrections_block:
+        system += "\n\n" + corrections_block
 
     user_prompt = f"Facts:\n{context_facts}\n\nQuestion: {message}"
 
@@ -300,6 +344,174 @@ def whatsapp_message():
         msg = FALLBACK_AR if language == "ar" else FALLBACK_EN
 
     return jsonify({"message": msg})
+
+
+# ── Correction lookup (few-shot injection) ────────────────────
+def _get_corrections(question: str) -> str:
+    """
+    Find active corrections whose keywords match the question.
+    Returns a formatted block to append to the system prompt,
+    or empty string if no matches.
+    """
+    try:
+        corrections = AiCorrection.query.filter_by(is_active=True).all()
+        if not corrections:
+            return ""
+
+        q = question.lower()
+        matches = []
+        for c in corrections:
+            kws = [k.strip().lower() for k in c.keywords.split(",") if k.strip()]
+            if any(k in q for k in kws):
+                matches.append(c)
+
+        if not matches:
+            return ""
+
+        lines = ["LEARNED CORRECTIONS (use these as reference for similar questions):"]
+        for c in matches[:3]:  # max 3 to keep prompt short
+            if c.example_question:
+                lines.append(f"Q: {c.example_question}")
+            lines.append(f"Correct answer: {c.correct_answer}")
+            lines.append("")
+
+        return "\n".join(lines)
+    except Exception as e:
+        logger.error(f"[BitNet] Corrections lookup error: {e}")
+        return ""
+
+
+# ── Feedback endpoint (thumbs up/down) ────────────────────────
+@bitnet_bp.route("/ai/feedback", methods=["POST"])
+@login_required
+def feedback():
+    body     = request.get_json(force=True)
+    question = (body.get("question") or "").strip()
+    response = (body.get("response") or "").strip()
+    vote     = body.get("vote", "").strip()
+
+    if vote not in ("up", "down") or not question:
+        return jsonify({"error": "Invalid feedback"}), 400
+
+    try:
+        entry = AiFeedback(
+            question=question,
+            response=response,
+            vote=vote,
+            user_id=current_user.id,
+        )
+        db.session.add(entry)
+        db.session.commit()
+        return jsonify({"ok": True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+
+# ── Admin: review feedback ────────────────────────────────────
+@bitnet_bp.route("/ai/admin")
+@login_required
+def ai_admin():
+    if current_user.role != "admin":
+        abort(403)
+    return render_template("ai_admin.html")
+
+
+@bitnet_bp.route("/ai/admin/feedback")
+@login_required
+def admin_feedback_list():
+    """JSON list of thumbs-down feedback for admin review."""
+    if current_user.role != "admin":
+        abort(403)
+    show_all = request.args.get("all", "0") == "1"
+    query = AiFeedback.query.filter_by(vote="down")
+    if not show_all:
+        query = query.filter_by(reviewed=False)
+    rows = query.order_by(AiFeedback.created_at.desc()).limit(100).all()
+    return jsonify([{
+        "id": r.id,
+        "question": r.question,
+        "response": r.response,
+        "reviewed": r.reviewed,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+    } for r in rows])
+
+
+@bitnet_bp.route("/ai/admin/feedback/<int:fid>/reviewed", methods=["POST"])
+@login_required
+def mark_reviewed(fid):
+    if current_user.role != "admin":
+        abort(403)
+    entry = AiFeedback.query.get_or_404(fid)
+    entry.reviewed = True
+    db.session.commit()
+    return jsonify({"ok": True})
+
+
+# ── Admin: teach corrections ──────────────────────────────────
+@bitnet_bp.route("/ai/teach", methods=["POST"])
+@login_required
+def teach():
+    if current_user.role != "admin":
+        abort(403)
+    body     = request.get_json(force=True)
+    keywords = (body.get("keywords") or "").strip()
+    answer   = (body.get("correct_answer") or "").strip()
+    example  = (body.get("example_question") or "").strip()
+
+    if not keywords or not answer:
+        return jsonify({"error": "keywords and correct_answer required"}), 400
+
+    try:
+        correction = AiCorrection(
+            keywords=keywords,
+            correct_answer=answer,
+            example_question=example or None,
+            created_by=current_user.username,
+        )
+        db.session.add(correction)
+        db.session.commit()
+
+        # Mark related feedback as reviewed
+        feedback_id = body.get("feedback_id")
+        if feedback_id:
+            entry = AiFeedback.query.get(feedback_id)
+            if entry:
+                entry.reviewed = True
+                db.session.commit()
+
+        return jsonify({"ok": True, "id": correction.id})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+
+@bitnet_bp.route("/ai/admin/corrections")
+@login_required
+def list_corrections():
+    if current_user.role != "admin":
+        abort(403)
+    rows = AiCorrection.query.order_by(AiCorrection.created_at.desc()).all()
+    return jsonify([{
+        "id": r.id,
+        "keywords": r.keywords,
+        "correct_answer": r.correct_answer,
+        "example_question": r.example_question,
+        "is_active": r.is_active,
+        "created_by": r.created_by,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+    } for r in rows])
+
+
+@bitnet_bp.route("/ai/admin/corrections/<int:cid>", methods=["DELETE"])
+@login_required
+def delete_correction(cid):
+    if current_user.role != "admin":
+        abort(403)
+    c = AiCorrection.query.get_or_404(cid)
+    c.is_active = False
+    db.session.commit()
+    return jsonify({"ok": True})
 
 
 # ── Proactive Anomaly Alerts ──────────────────────────────────

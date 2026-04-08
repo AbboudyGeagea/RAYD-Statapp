@@ -320,6 +320,29 @@ class summary_storage_daily(db.Model):
 # 7. PATIENT PORTAL TABLES  ← NEW
 # ----------------------------------------------------------------
 
+class AiFeedback(db.Model):
+    """Thumbs up/down on AI chat responses — reviewed weekly by admin."""
+    __tablename__ = 'ai_feedback'
+    id           = db.Column(Integer, primary_key=True)
+    question     = db.Column(Text, nullable=False)
+    response     = db.Column(Text, nullable=False)
+    vote         = db.Column(String(10), nullable=False)   # 'up' or 'down'
+    user_id      = db.Column(Integer, ForeignKey('users.id'))
+    reviewed     = db.Column(Boolean, default=False)
+    created_at   = db.Column(DateTime, server_default=func.now())
+
+class AiCorrection(db.Model):
+    """Admin-taught corrections — injected as few-shot examples in AI prompts."""
+    __tablename__ = 'ai_corrections'
+    id               = db.Column(Integer, primary_key=True)
+    keywords         = db.Column(Text, nullable=False)         # comma-separated trigger words
+    correct_answer   = db.Column(Text, nullable=False)
+    example_question = db.Column(Text)                         # optional: the original bad question
+    created_by       = db.Column(String(100))
+    is_active        = db.Column(Boolean, default=True)
+    created_at       = db.Column(DateTime, server_default=func.now())
+
+
 class PatientPortalUser(db.Model):
     """
     One record per patient MRN.
