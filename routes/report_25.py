@@ -405,6 +405,14 @@ def get_gold_standard_data(form_data):
     # ── Technician TAT (from hl7_orders "Done" workflow) ────────────────
     tech_data = {'technicians': [], 'flagged': [], 'by_procedure': [], 'summary': {}}
     try:
+        # Ensure done_at/done_by columns exist (added dynamically by live_feed dismiss)
+        db.session.execute(text("""
+            ALTER TABLE hl7_orders
+                ADD COLUMN IF NOT EXISTS done_at  TIMESTAMP,
+                ADD COLUMN IF NOT EXISTS done_by  VARCHAR(100)
+        """))
+        db.session.commit()
+
         tech_rows = db.session.execute(text("""
             SELECT
                 ho.accession_number,
