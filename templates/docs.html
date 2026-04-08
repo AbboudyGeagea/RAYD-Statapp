@@ -84,6 +84,7 @@
                             <a href="#mappingconsole" class="toc-link">Mapping Console</a>
                             <a href="#etlstatus" class="toc-link">ETL Status</a>
                             <a href="#aiassistant" class="toc-link">AI Assistant</a>
+                            <a href="#aiteaching" class="toc-link">AI Teaching Center</a>
                             <a href="#patientportal" class="toc-link">Patient Portal</a>
                             <a href="#liveview" class="toc-link">Live Dashboard (Today)</a>
                             <a href="#superreport" class="toc-link">Super Report</a>
@@ -694,6 +695,33 @@
                                 </div>
                             </div>
 
+                            <!-- Technicians Tab -->
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-kpi"><i class="bi bi-person-badge"></i> KPI Cards</span>
+                                    <span class="tag tag-bar"><i class="bi bi-bar-chart"></i> Bar Charts</span>
+                                    <span class="tag tag-table"><i class="bi bi-table"></i> Flagged Table</span>
+                                    <span class="font-bold text-sm text-white">Technician Performance &amp; TAT</span>
+                                    <span class="tag" style="background:rgba(96,165,250,0.1);color:#60a5fa;">Technicians tab</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> End-to-end technician turnaround time — the duration from when a patient exam is scheduled (or received via HL7) to when the technician marks it as "Done" on the Live AE Status page. Includes per-technician cards, procedure-level actual vs expected comparison, and a flagged exams table.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Joins <code class="text-blue-400 bg-blue-400/10 px-1 rounded">hl7_orders</code> (where <code class="text-blue-400 bg-blue-400/10 px-1 rounded">done_at</code> and <code class="text-blue-400 bg-blue-400/10 px-1 rounded">done_by</code> are set by the Live Feed "Done" button) with <code class="text-blue-400 bg-blue-400/10 px-1 rounded">procedure_duration_map</code> for expected durations. Start time uses <code class="text-blue-400 bg-blue-400/10 px-1 rounded">scheduled_datetime</code> with a fallback to <code class="text-blue-400 bg-blue-400/10 px-1 rounded">received_at</code> when no schedule exists. Each exam is flagged: <strong>too short</strong> (&lt; 50% of expected duration) or <strong>too long</strong> (&gt; 200% of expected duration).</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">Components:</strong></p>
+                                    <ul class="text-slate-400 text-sm ml-4 mt-1 space-y-1 list-disc">
+                                        <li><strong class="text-slate-200">Summary KPIs</strong> — total completed exams, active technicians, average &amp; median TAT, too-short and too-long counts</li>
+                                        <li><strong class="text-slate-200">Per-Technician Cards</strong> — name, exam count, avg/median TAT, modality breakdown, colour-coded flag bar (green = normal, amber = too short, red = too long)</li>
+                                        <li><strong class="text-slate-200">Procedure Duration Chart</strong> — horizontal bar comparing average actual completion time vs expected duration per procedure code, colour-coded by deviation</li>
+                                        <li><strong class="text-slate-200">Technician Comparison Chart</strong> — horizontal bar ranking all technicians by average TAT, colour-coded by flag ratio</li>
+                                        <li><strong class="text-slate-200">Flagged Exams Table</strong> — scrollable table of abnormal exams with accession, procedure, modality, technician, actual vs expected time, and timestamp</li>
+                                    </ul>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> The first objective measurement of technician efficiency in the department. "Too short" flags may indicate skipped protocol steps or premature completion clicks. "Too long" flags surface bottlenecks — patient delays, equipment issues, or training needs. The per-procedure comparison reveals which exam types consistently deviate from expectations, enabling targeted procedure duration recalibration or workflow review. Combined with radiologist TAT from the same report, provides a complete study lifecycle view.</p></div>
+                                </div>
+                            </div>
+
                         </div>
                     </section>
 
@@ -1250,7 +1278,7 @@
                             <span class="report-badge" style="background:rgba(244,63,94,0.12);color:#f43f5e;border:1px solid rgba(244,63,94,0.25);">AI</span>
                             <h2 class="text-lg font-black text-white tracking-tight">AI Assistant — Conversational Analytics</h2>
                         </div>
-                        <p class="text-slate-400 text-sm mb-5 leading-relaxed">An on-premise large-language model (LLM) chat interface powered by a locally-hosted llama-server instance. All conversations remain entirely within your infrastructure — no data leaves the server.</p>
+                        <p class="text-slate-400 text-sm mb-5 leading-relaxed">An on-premise anti-hallucination AI assistant powered by Llama 3.1 8B. Python fetches all facts from the database first; the model only converts structured facts into natural language. If no data is found, the model is skipped entirely. All conversations remain within your infrastructure — no data leaves the server.</p>
 
                         <div class="doc-card">
                             <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
@@ -1262,9 +1290,61 @@
                             </div>
                             <div class="section-body">
                                 <div class="chart-item">
-                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> A full-screen chat interface with conversation history, message threading, and a streaming response display. The assistant is pre-prompted with radiology operational context to answer questions about RAYD data, help interpret reports, and support clinical decision-making discussions.</p>
-                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Messages are sent to the local <code class="text-blue-400 bg-blue-400/10 px-1 rounded">llama-server</code> instance running on port 8081 (configurable via <code class="text-blue-400 bg-blue-400/10 px-1 rounded">BITNET_SERVER</code> environment variable). The server runs a quantised Meta-Llama 3.1 8B Instruct model. Responses are streamed back token-by-token. Conversation history is kept client-side and sent with each request for context continuity.</p>
-                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Provides a natural-language interface for non-technical clinical staff to query operational data without learning chart navigation. Questions like "why did our MRI throughput drop last week?" or "which radiologist had the most addenda this month?" can be answered in plain language. Because the model runs locally, sensitive patient-adjacent data never leaves the facility.</p></div>
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> A full-screen chat interface supporting Arabic and English. Responses include inline charts (pie, bar) and contextual links to relevant reports. A per-core CPU monitor shows model load in real time.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> A five-stage anti-hallucination pipeline:</p>
+                                    <ol class="text-slate-400 text-sm ml-4 mt-1 space-y-1 list-decimal">
+                                        <li><strong class="text-slate-200">Intent detection</strong> — Python matches question keywords against 12+ intent categories (modality, storage, TAT, physicians, orders, today, yesterday, weekly, monthly, trends, patient class, device utilisation)</li>
+                                        <li><strong class="text-slate-200">Fact retrieval</strong> — matched intents trigger SQL queries against PostgreSQL; results are formatted as plain-text facts with no table/column names exposed</li>
+                                        <li><strong class="text-slate-200">No-data guard</strong> — if no facts are found, the model is skipped entirely and a fixed message is returned</li>
+                                        <li><strong class="text-slate-200">Constrained inference</strong> — the model receives only the facts and a strict system prompt; temperature is set to 0.1 with a fixed seed for deterministic output</li>
+                                        <li><strong class="text-slate-200">Hallucination scan</strong> — a compiled regex checks the output for SQL keywords, table names, column names, and code blocks; any match triggers a fallback message</li>
+                                    </ol>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">Performance:</strong> Base context (department overview + AE list) is cached for 60 seconds. Identical questions are served from a response cache (5-minute TTL, up to 200 entries) — zero inference cost on repeats.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> The model never invents numbers, names, or dates. Every fact in the response is traceable to a specific SQL query. Non-technical staff get natural-language answers with charts and report links, while the anti-hallucination architecture ensures clinical data integrity. Because the model runs locally on CPU, there are no API costs and no data leaves the facility.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-kpi"><i class="bi bi-hand-thumbs-down"></i> Feedback</span>
+                                    <span class="tag tag-text"><i class="bi bi-mortarboard"></i> Teaching</span>
+                                    <span class="font-bold text-sm text-white">Feedback &amp; Learning System</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Every AI response includes thumbs-up / thumbs-down buttons. End-users rate responses with a single click. Administrators access the AI Teaching Center (<code class="text-blue-400 bg-blue-400/10 px-1 rounded">/ai/admin</code>) to review thumbs-down feedback and teach corrections.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Feedback is stored in the <code class="text-blue-400 bg-blue-400/10 px-1 rounded">ai_feedback</code> table with the original question, response, vote, and user ID. Corrections are stored in <code class="text-blue-400 bg-blue-400/10 px-1 rounded">ai_corrections</code> with keyword triggers and the correct answer. When a new question matches a correction's keywords, the correction is injected as a few-shot example in the model's system prompt — the model learns without retraining.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">Admin workflow:</strong></p>
+                                    <ul class="text-slate-400 text-sm ml-4 mt-1 space-y-1 list-disc">
+                                        <li>Review thumbs-down entries in the Feedback tab</li>
+                                        <li>Click "Teach" to expand an inline form with auto-extracted keywords</li>
+                                        <li>Type the correct answer and save — the AI uses it immediately</li>
+                                        <li>Or click "Dismiss" to mark as reviewed without teaching</li>
+                                        <li>Manage all active corrections in the Corrections tab</li>
+                                    </ul>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> The AI improves continuously without model retraining, GPU resources, or technical expertise. End-users contribute effortlessly (one click), and administrators make targeted corrections weekly. Each correction costs only ~50 extra tokens in the prompt — negligible overhead for significantly better answers over time.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-kpi"><i class="bi bi-exclamation-triangle"></i> Alerts</span>
+                                    <span class="font-bold text-sm text-white">Proactive Anomaly Detection</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Automated alerts for TAT spikes, storage growth anomalies, and device volume outliers — computed entirely via SQL with no AI inference.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Three detection methods run on each call to <code class="text-blue-400 bg-blue-400/10 px-1 rounded">/ai/alerts</code>:</p>
+                                    <ul class="text-slate-400 text-sm ml-4 mt-1 space-y-1 list-disc">
+                                        <li><strong class="text-slate-200">TAT spike</strong> — compares this week's average TAT against a 4-week rolling baseline; alerts at ≥ 20% deviation</li>
+                                        <li><strong class="text-slate-200">Storage growth</strong> — compares this week's storage ingestion (GB) against the prior week; alerts at ≥ 25% increase</li>
+                                        <li><strong class="text-slate-200">Device outliers</strong> — flags AE devices whose this-week study count exceeds the prior 5-week average by more than 2 standard deviations</li>
+                                    </ul>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Pure data-driven alerting with zero hallucination risk — no model involved. Surfaces operational anomalies before they become visible in weekly review meetings.</p></div>
                                 </div>
                             </div>
 
@@ -1277,9 +1357,53 @@
                             </div>
                             <div class="section-body">
                                 <div class="chart-item">
-                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">Requirements:</strong> The AI Assistant is an optional module, enabled via <code class="text-blue-400 bg-blue-400/10 px-1 rounded">BITNET_ENABLED=true</code> in the <code class="text-blue-400 bg-blue-400/10 px-1 rounded">.env</code> file. It requires the <code class="text-blue-400 bg-blue-400/10 px-1 rounded">llama-server</code> binary (part of the llama.cpp / BitNet distribution) and a compatible GGUF model file. The installation script handles service setup automatically.</p>
-                                    <p class="text-slate-300 text-sm leading-relaxed mt-2">Minimum hardware: 8 GB RAM for the 8B Q4 quantised model. The server runs as a systemd service (<code class="text-blue-400 bg-blue-400/10 px-1 rounded">llama-server.service</code>) and starts automatically on boot. Access to the AI Assistant menu item is controlled per-user via the User Management panel.</p>
-                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Unlike cloud-based AI services, this assistant operates entirely air-gapped. There are no API costs, no data-sharing agreements required, and no dependency on external internet connectivity — making it suitable for healthcare environments with strict data-sovereignty requirements.</p></div>
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">Requirements:</strong> Enabled via <code class="text-blue-400 bg-blue-400/10 px-1 rounded">BITNET_ENABLED=true</code>. Requires <code class="text-blue-400 bg-blue-400/10 px-1 rounded">llama-server</code> binary and a Llama 3.1 8B Q4_K_M GGUF model file (~5 GB). Runs as a systemd service on the host; the container reaches it via the host IP on port 8081.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2">Minimum hardware: 8 GB RAM, 4 CPU cores. Inference takes 5–15 seconds per question on CPU. The response cache eliminates repeated inference for identical questions within 5 minutes.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Entirely air-gapped — no API costs, no data-sharing agreements, no internet dependency. Suitable for healthcare environments with strict data-sovereignty requirements.</p></div>
+                                </div>
+                            </div>
+
+                        </div>
+                    </section>
+
+                    <!-- ══════════════════════════════════════════
+                         AI TEACHING CENTER
+                    ══════════════════════════════════════════ -->
+                    <section id="aiteaching">
+                        <div class="flex items-center gap-3 mb-4">
+                            <span class="report-badge" style="background:rgba(244,63,94,0.12);color:#f43f5e;border:1px solid rgba(244,63,94,0.25);">AI</span>
+                            <h2 class="text-lg font-black text-white tracking-tight">AI Teaching Center — Admin Review &amp; Corrections</h2>
+                        </div>
+                        <p class="text-slate-400 text-sm mb-5 leading-relaxed">Admin-only page at <code class="text-blue-400 bg-blue-400/10 px-1 rounded">/ai/admin</code> for reviewing user feedback and teaching the AI correct answers. The AI improves weekly without model retraining.</p>
+
+                        <div class="doc-card">
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-table"><i class="bi bi-hand-thumbs-down"></i> Table</span>
+                                    <span class="font-bold text-sm text-white">Feedback Review</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> All thumbs-down feedback from end-users, sorted by most recent. Each entry shows the original question, the AI's response, and the date. Entries can be taught (add a correction) or dismissed (mark as reviewed).</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Queries the <code class="text-blue-400 bg-blue-400/10 px-1 rounded">ai_feedback</code> table filtered to <code class="text-blue-400 bg-blue-400/10 px-1 rounded">vote='down'</code> and <code class="text-blue-400 bg-blue-400/10 px-1 rounded">reviewed=false</code>. The "Teach" button expands an inline form with auto-extracted keywords from the question and a field for the correct answer.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> End-users do the easy part (one click). The admin does the smart part (weekly review, targeted corrections). The system gets better every week without any technical work.</p></div>
+                                </div>
+                            </div>
+
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-table"><i class="bi bi-lightbulb"></i> Table</span>
+                                    <span class="font-bold text-sm text-white">Corrections Management</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> All active corrections with their keyword triggers, example questions, and correct answers. New corrections can be added manually via the form at the top. Existing corrections can be disabled.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Corrections are stored in the <code class="text-blue-400 bg-blue-400/10 px-1 rounded">ai_corrections</code> table. When a new chat question matches any correction's keywords, up to 3 matching corrections are injected as few-shot examples in the model's system prompt. The model sees the correct answer as a reference and follows the pattern — no retraining required.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Each correction costs ~50 extra tokens in the prompt — negligible overhead for dramatically better answers. Corrections are immediately effective: save the correction, and the next matching question uses it. The keyword system ensures corrections apply broadly to similar questions, not just exact repeats.</p></div>
                                 </div>
                             </div>
 
