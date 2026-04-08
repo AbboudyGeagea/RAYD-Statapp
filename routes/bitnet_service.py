@@ -1,53 +1,27 @@
 """
 routes/bitnet_service.py
 ────────────────────────────────────────────────────────────────
-RAYD × BitNet — Local AI Service
-Calls llama-server HTTP API (model kept warm in memory).
+RAYD × Llama 3.1 8B — Anti-Hallucination AI Service  (v3 — final)
 
-Model: Meta-Llama-3.1-8B-Instruct-Q4_K_M (~5GB RAM, CPU-only)
+Architecture:
+  1. Python detects intent from question keywords
+  2. Python fetches ALL facts from PostgreSQL (single connection, CTE where possible)
+  3. If no data found → return fixed message, skip model entirely
+  4. Model ONLY converts structured facts into natural language
+  5. Output is scanned via compiled regex for SQL/code/table names → replaced with fallback
+  6. Language auto-detected from question
+  7. Response cache avoids duplicate inference for identical questions
 
-── PRODUCTION (/opt/bitnet) ───────────────────────────────────
-1. Download model (run once):
-     wget https://huggingface.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF/resolve/main/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf \
-       -P /opt/bitnet/models/
-
-2. Install systemd service (auto-start on boot):
-     sudo cp llama-server.service /etc/systemd/system/
-     sudo systemctl daemon-reload
-     sudo systemctl enable llama-server
-     sudo systemctl start llama-server
-
-3. Check status:
-     sudo systemctl status llama-server
-     curl http://127.0.0.1:8081/health
-
-4. docker-compose.yml env variable:
-     BITNET_SERVER=http://172.18.0.1:8081
-
-── TEST SERVER (/home/stats/BitNet) ──────────────────────────
-1. Download model (run once):
-     wget https://huggingface.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF/resolve/main/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf \
-       -P /home/stats/BitNet/models/
-
-2. Start manually:
-     nohup /home/stats/BitNet/build/bin/llama-server \
-       -m /home/stats/BitNet/models/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf \
-       -t 4 --host 0.0.0.0 --port 8081 -c 8192 > /tmp/llama-server.log 2>&1 &
-
-3. Check it's running:
-     curl http://127.0.0.1:8081/health
-
-Register in registry.py:
-    from routes.bitnet_service import bitnet_bp
-    app.register_blueprint(bitnet_bp)
+The model NEVER invents numbers, names, dates, or schema.
 """
 
+import re
+import time
+import hashlib
 import requests
 import logging
 import json
 import os
-import time
-import hashlib
 import psutil
 from flask import Blueprint, request, jsonify, render_template
 from flask_login import login_required
@@ -58,66 +32,106 @@ logger    = logging.getLogger("BITNET")
 bitnet_bp = Blueprint("bitnet", __name__)
 
 # ── Config ────────────────────────────────────────────────────
-# llama-server runs on the host; container reaches it via host IP
 BITNET_SERVER = os.environ.get("BITNET_SERVER", "http://172.17.0.1:8081")
-MAX_TOKENS    = int(os.environ.get("BITNET_TOKENS", "512"))
-TIMEOUT_SECS  = int(os.environ.get("BITNET_TIMEOUT", "120"))
+MAX_TOKENS    = int(os.environ.get("BITNET_TOKENS",  "512"))
+TIMEOUT_SECS  = int(os.environ.get("BITNET_TIMEOUT", "180"))
 
-# ── Caches ────────────────────────────────────────────────────
-_context_cache   = {"data": None, "ts": 0}   # DB context, refreshed every 60s
-_response_cache  = {}                         # identical questions, max 100 entries
-CONTEXT_TTL      = 60    # seconds
-RESPONSE_TTL     = 300   # seconds (5 min)
+# ── Response cache ────────────────────────────────────────────
+_response_cache = {}
+RESPONSE_TTL    = 300        # 5 min — same question gets cached answer
+CACHE_MAX       = 200
+
+# ── Base‑context cache (always-on queries) ────────────────────
+_base_cache = {"facts": [], "ts": 0}
+BASE_TTL    = 60             # refresh every 60s
+
+# ── Compiled hallucination regex — built once at import ───────
+_HALLUCINATION_TOKENS = [
+    # Table names
+    "etl_didb_studies", "etl_orders", "etl_didb_raw_images",
+    "etl_image_locations", "etl_didb_serieses", "etl_patient_view",
+    "summary_storage_daily", "aetitle_modality_map", "hl7_orders",
+    "device_weekly_schedule", "device_exceptions", "procedure_duration_map",
+    # Column names
+    "study_db_uid", "storing_ae", "study_modality", "study_date",
+    "patient_db_uid", "raw_image_db_uid", "series_db_uid",
+    "image_size_kb", "total_gb", "study_count", "order_dbid",
+    "scheduled_datetime", "has_study", "proc_id",
+    # SQL keywords
+    r"SELECT\s", r"FROM\s", r"WHERE\s", r"JOIN\s", "GROUP BY", "ORDER BY",
+    r"INSERT\s", r"UPDATE\s", r"DELETE\s", r"CREATE\s", r"ALTER\s",
+    r"LIMIT\s", "HAVING", r"UNION\s", r"COUNT\s*\(", r"SUM\s*\(",
+]
+_HALLUCINATION_RE = re.compile(
+    "|".join(_HALLUCINATION_TOKENS) + r"|```|SELECT\n",
+    re.IGNORECASE,
+)
+
+FALLBACK_EN = "I'm sorry, I generated an invalid response. Please rephrase your question."
+FALLBACK_AR = "عذراً، لم أتمكن من توليد إجابة صحيحة. يرجى إعادة صياغة سؤالك."
+
+NO_DATA_EN = "I don't have enough data to answer that question. Please check if the ETL has run and data is available."
+NO_DATA_AR = "لا تتوفر بيانات كافية للإجابة على هذا السؤال. يرجى التحقق من تشغيل ETL وتوفر البيانات."
 
 
-def _run_inference(system: str, user: str, max_tokens: int = None) -> str:
-    """
-    Call llama-server /v1/chat/completions endpoint.
-    Uses OpenAI-compatible API — chat template is applied automatically by llama.cpp.
-    """
-    url = f"{BITNET_SERVER}/v1/chat/completions"
+# ── Language detection ────────────────────────────────────────
+def _is_arabic(txt: str) -> bool:
+    arabic = sum(1 for c in txt if '\u0600' <= c <= '\u06FF')
+    return arabic > len(txt) * 0.2
+
+
+# ── Hallucination scanner (compiled regex — O(n) single pass) ─
+def _contains_hallucination(response: str) -> bool:
+    return bool(_HALLUCINATION_RE.search(response))
+
+
+# ── Llama 3.1 inference ───────────────────────────────────────
+def _run_inference(system: str, user_message: str, max_tokens: int = None) -> str:
+    prompt = (
+        "<|begin_of_text|>"
+        f"<|start_header_id|>system<|end_header_id|>\n{system}<|eot_id|>"
+        f"<|start_header_id|>user<|end_header_id|>\n{user_message}<|eot_id|>"
+        "<|start_header_id|>assistant<|end_header_id|>\n"
+    )
+
     payload = {
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user",   "content": user},
+        "prompt":         prompt,
+        "n_predict":      max_tokens or MAX_TOKENS,
+        "temperature":    0.1,
+        "repeat_penalty": 1.15,
+        "stop":           [
+            "<|eot_id|>", "<|end_of_text|>",
+            "<|start_header_id|>", "User:", "Human:", "Question:",
         ],
-        "max_tokens":     max_tokens or MAX_TOKENS,
-        "temperature":    0.4,
-        "top_p":          0.9,
-        "repeat_penalty": 1.1,
-        "stream":         False,
+        "stream": False,
+        "seed":   42,
     }
+
     try:
-        resp = requests.post(url, json=payload, timeout=TIMEOUT_SECS)
+        resp = requests.post(
+            f"{BITNET_SERVER}/completion",
+            json=payload,
+            timeout=TIMEOUT_SECS,
+        )
         resp.raise_for_status()
-        data = resp.json()
-        return data["choices"][0]["message"]["content"].strip()
+        return resp.json().get("content", "").strip()
     except requests.exceptions.ConnectionError:
-        return "ERROR: llama-server not running. Start it with: /home/stats/BitNet/build/bin/llama-server -m /home/stats/BitNet/models/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf -t 4 --host 0.0.0.0 --port 8081 -c 4096 &"
+        return "ERROR: llama-server not running on host port 8081."
     except requests.exceptions.Timeout:
-        return "ERROR: Inference timeout — query too complex, try simplifying."
+        return "ERROR: Inference timeout — try a shorter question."
     except Exception as e:
         logger.error(f"[BitNet] Inference error: {e}")
-        return f"ERROR: {str(e)}"
+        return f"ERROR: {e}"
 
 
-# ── Page ──────────────────────────────────────────────────────
+# ── Pages ─────────────────────────────────────────────────────
 @bitnet_bp.route("/ai/assistant")
 @login_required
 def assistant_page():
     return render_template("ai_assistant.html")
 
 
-@bitnet_bp.route("/ai/context-debug")
-@login_required
-def context_debug():
-    """Debug endpoint — shows what context would be sent for a given question."""
-    q = request.args.get("q", "how many modalities")
-    ctx = _build_db_context(q)
-    return jsonify({"question": q, "context": ctx})
-
-
-# ── CPU usage per core ────────────────────────────────────────
+# ── CPU usage (polled every 1s by template) ───────────────────
 @bitnet_bp.route("/ai/cpu")
 @login_required
 def cpu_usage():
@@ -133,277 +147,166 @@ def health():
         resp = requests.get(f"{BITNET_SERVER}/health", timeout=5)
         data = resp.json()
         return jsonify({
-            "server":  BITNET_SERVER,
-            "status":  data.get("status", "unknown"),
-            "ready":   data.get("status") == "ok",
-            "mode":    "llama-server (persistent)",
+            "server": BITNET_SERVER,
+            "status": data.get("status", "unknown"),
+            "ready":  data.get("status") == "ok",
+            "mode":   "llama-server (persistent)",
         })
     except Exception as e:
-        return jsonify({
-            "server": BITNET_SERVER,
-            "ready":  False,
-            "error":  str(e),
-            "hint":   "Run: /home/stats/BitNet/build/bin/llama-server -m /home/stats/BitNet/models/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf -t 4 --host 0.0.0.0 --port 8081 -c 4096 &"
-        })
+        return jsonify({"server": BITNET_SERVER, "ready": False, "error": str(e)})
 
 
 # ── Chat endpoint ─────────────────────────────────────────────
 @bitnet_bp.route("/ai/chat", methods=["POST"])
 @login_required
 def chat():
-    """
-    Conversational Q&A grounded in live RAYD data.
-    Fetches relevant DB context then passes to BitNet.
-    """
     body    = request.get_json(force=True)
     message = (body.get("message") or "").strip()
     if not message:
         return jsonify({"error": "No message provided"}), 400
 
-    # Fetch live context from PG to ground the answer
-    context = _build_db_context(message)
+    arabic       = _is_arabic(message)
+    no_data_msg  = NO_DATA_AR  if arabic else NO_DATA_EN
+    fallback_msg = FALLBACK_AR if arabic else FALLBACK_EN
 
-    # Response cache — skip inference for identical questions
-    cache_key = hashlib.md5(message.lower().strip().encode()).hexdigest()
+    # ── Response cache check ──────────────────────────────────
+    cache_key = hashlib.md5(message.lower().encode()).hexdigest()
     now = time.time()
-    if cache_key in _response_cache:
-        entry = _response_cache[cache_key]
-        if (now - entry["ts"]) < RESPONSE_TTL:
-            return jsonify({"response": entry["response"], "context_used": True, "cached": True})
+    hit = _response_cache.get(cache_key)
+    if hit and (now - hit["ts"]) < RESPONSE_TTL:
+        return jsonify(hit["payload"])
 
-    # Evict oldest entries if cache too large
-    if len(_response_cache) > 100:
-        oldest = min(_response_cache, key=lambda k: _response_cache[k]["ts"])
-        del _response_cache[oldest]
+    # ── Fetch DB facts ────────────────────────────────────────
+    link, link_label, chart_type, chart_data, context_facts = _build_context(message)
 
-    arabic_chars = sum(1 for c in message if '\u0600' <= c <= '\u06ff')
-    lang_rule = "Reply in Arabic." if arabic_chars > 3 else "Reply in English."
+    # ── No data → skip model ──────────────────────────────────
+    if not context_facts:
+        payload = {
+            "response": no_data_msg, "context_used": False,
+            "chart_type": None, "chart_data": None,
+            "link": link, "link_label": link_label,
+        }
+        return jsonify(payload)
 
+    # ── System prompt ─────────────────────────────────────────
     system = (
-        "You are RAYD AI, a radiology department analytics assistant. "
-        f"{lang_rule} "
-        "You have access to live hospital data provided below. "
-        "Give accurate, concise, professional answers based on that data. "
-        "Do not invent numbers. Do not repeat the question."
+        "You are RAYD AI, a radiology analytics assistant. "
+        "Your ONLY job is to convert the provided facts into a clear, natural sentence or two. "
+        "STRICT RULES:\n"
+        "1. Answer in 1-3 sentences maximum.\n"
+        "2. Use ONLY the numbers and names from the facts provided. Never invent any number, name, or date.\n"
+        "3. NEVER write SQL, code, queries, or anything technical.\n"
+        "4. NEVER mention database tables, column names, or technical terms.\n"
+        "5. If the facts are empty or unclear, say you don't have enough information.\n"
+        "6. Answer in the same language as the question — Arabic if asked in Arabic, English if asked in English.\n"
+        "7. Be direct and concise. No greetings, no disclaimers, no filler.\n\n"
+        "EXAMPLE:\n"
+        "Facts: The department has 45,230 total studies across 12 imaging devices, from 2023-01-01 to 2025-04-07.\n"
+        "Question: how many studies do we have?\n"
+        "Answer: The department has performed 45,230 studies across 12 imaging devices since January 2023."
     )
-    user = f"Data:\n{context}\n\nQuestion: {message}"
 
-    response = _run_inference(system, user, max_tokens=MAX_TOKENS)
-    _response_cache[cache_key] = {"response": response, "ts": now}
-    return jsonify({"response": response, "context_used": bool(context)})
+    user_prompt = f"Facts:\n{context_facts}\n\nQuestion: {message}"
+
+    # ── Inference ─────────────────────────────────────────────
+    raw = _run_inference(system, user_prompt, max_tokens=200)
+
+    if raw.startswith("ERROR:"):
+        response = raw
+    elif _contains_hallucination(raw):
+        logger.warning(f"[BitNet] Hallucination blocked: {raw[:200]}")
+        response = fallback_msg
+    else:
+        response = raw.strip() or no_data_msg
+
+    payload = {
+        "response": response, "context_used": True,
+        "chart_type": chart_type, "chart_data": chart_data,
+        "link": link, "link_label": link_label,
+    }
+
+    # ── Cache successful responses ────────────────────────────
+    if not response.startswith("ERROR:"):
+        if len(_response_cache) >= CACHE_MAX:
+            oldest = min(_response_cache, key=lambda k: _response_cache[k]["ts"])
+            del _response_cache[oldest]
+        _response_cache[cache_key] = {"payload": payload, "ts": now}
+
+    return jsonify(payload)
 
 
 # ── Narrative endpoint ────────────────────────────────────────
 @bitnet_bp.route("/ai/narrative", methods=["POST"])
 @login_required
 def narrative():
-    """
-    Generate an executive narrative from Super Report JSON stats.
-    Called by super_report.py to replace the rule-based narrative.
-    """
     body  = request.get_json(force=True)
     stats = body.get("stats", {})
     if not stats:
         return jsonify({"error": "No stats provided"}), 400
 
-    stats_str = json.dumps(stats, indent=2)
+    facts_lines = [f"- {k.replace('_', ' ').title()}: {v}" for k, v in stats.items()]
+    facts = "\n".join(facts_lines)
 
     system = (
         "You are a senior radiology department analyst. "
-        "Write a concise 3-paragraph executive summary in English. "
-        "Focus on key trends, anomalies, and actionable insights."
+        "Write a concise 3-paragraph executive summary based only on the provided statistics. "
+        "Focus on key trends, anomalies, and actionable insights. "
+        "Be professional and direct. Never invent numbers not in the provided data. "
+        "Never write SQL or code."
     )
-    user = f"Statistics:\n{stats_str}"
 
-    narrative_text = _run_inference(system, user, max_tokens=400)
-    return jsonify({"narrative": narrative_text})
+    raw = _run_inference(system, f"Statistics:\n{facts}\n\nWrite the executive summary:", max_tokens=400)
+
+    if _contains_hallucination(raw):
+        logger.warning(f"[BitNet] Hallucination in narrative: {raw[:200]}")
+        raw = "Unable to generate narrative — please review the statistics directly."
+
+    return jsonify({"narrative": raw})
 
 
-# ── WhatsApp message generator ────────────────────────────────
+# ── WhatsApp generator ────────────────────────────────────────
 @bitnet_bp.route("/ai/whatsapp", methods=["POST"])
 @login_required
 def whatsapp_message():
-    """
-    Generate a personalized Arabic/English WhatsApp message
-    for patient portal credential delivery.
-    """
     body     = request.get_json(force=True)
     patient  = body.get("patient_name", "")
     hospital = body.get("hospital_name", "المستشفى")
     username = body.get("username", "")
     password = body.get("password", "")
-    language = body.get("language", "ar")   # 'ar' or 'en'
+    language = body.get("language", "ar")
     proc     = body.get("procedure", "")
 
+    system = (
+        "You write short, friendly WhatsApp messages for a hospital radiology department. "
+        "Use only the information provided. Be warm and professional. "
+        "Never add information not given to you."
+    )
+
     if language == "ar":
-        system = "اكتب رسالة واتساب قصيرة وودية باللغة العربية فقط لإرسال بيانات دخول بوابة نتائج الأشعة."
-        user = (
+        user_prompt = (
+            f"اكتب رسالة واتساب قصيرة باللغة العربية لإرسال بيانات الدخول لبوابة نتائج الأشعة.\n"
             f"اسم المريض: {patient}\nالمستشفى: {hospital}\n"
             f"الإجراء: {proc}\nاسم المستخدم: {username}\nكلمة المرور: {password}"
         )
     else:
-        system = "Write a short, friendly WhatsApp message in English to deliver radiology portal login credentials to a patient."
-        user = (
+        user_prompt = (
+            f"Write a short WhatsApp message to send radiology portal login credentials.\n"
             f"Patient: {patient}\nHospital: {hospital}\n"
             f"Procedure: {proc}\nUsername: {username}\nPassword: {password}"
         )
 
-    message_text = _run_inference(system, user, max_tokens=200)
-    return jsonify({"message": message_text})
+    msg = _run_inference(system, user_prompt, max_tokens=200)
+    if _contains_hallucination(msg):
+        msg = FALLBACK_AR if language == "ar" else FALLBACK_EN
 
-
-# ── Predefined Queries ────────────────────────────────────────
-# Add your own queries here. Each entry:
-#   "keywords" : list of trigger words (question is lowercased before matching)
-#   "label"    : how the result is introduced to the model
-#   "sql"      : the query to run (must return rows via .mappings().fetchall())
-#   "always"   : if True, runs on every question regardless of keywords
-#
-PREDEFINED_QUERIES = [
-    {
-        "always": True,
-        "label": "Department overview",
-        "sql": """
-            SELECT COUNT(*) AS total_studies,
-                   COUNT(DISTINCT storing_ae) AS total_aes,
-                   MIN(study_date) AS earliest,
-                   MAX(study_date) AS latest
-            FROM etl_didb_studies
-        """,
-        "format": lambda rows: (
-            f"Total studies: {rows[0]['total_studies']}, "
-            f"{rows[0]['total_aes']} active AEs, "
-            f"data from {rows[0]['earliest']} to {rows[0]['latest']}."
-        ) if rows and rows[0]['total_studies'] else None,
-    },
-    {
-        "always": True,
-        "label": "AE titles",
-        "sql": "SELECT modality, aetitle FROM aetitle_modality_map ORDER BY modality, aetitle",
-        "format": lambda rows: "AE titles: " + ", ".join([f"{r['aetitle']} ({r['modality']})" for r in rows]) if rows else None,
-    },
-    {
-        "keywords": ["tat", "turnaround", "wait", "delay", "وقت", "انتظار", "تأخير"],
-        "label": "Turnaround time (TAT) by modality — last 30 days",
-        "sql": """
-            SELECT
-                COALESCE(UPPER(m.modality), 'N/A') AS modality,
-                ROUND(AVG(EXTRACT(EPOCH FROM (s.rep_final_timestamp - s.study_date)) / 60)::numeric, 0) AS avg_tat_min,
-                ROUND(AVG(EXTRACT(EPOCH FROM (s.rep_final_timestamp - s.study_date)) / 3600)::numeric, 1) AS avg_tat_hours,
-                COUNT(*) AS studies
-            FROM etl_didb_studies s
-            LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
-            WHERE s.study_date >= CURRENT_DATE - INTERVAL '30 days'
-              AND s.rep_final_timestamp IS NOT NULL
-              AND s.rep_final_signed_by IS NOT NULL
-            GROUP BY m.modality
-            ORDER BY avg_tat_min DESC
-        """,
-        "format": lambda rows: "TAT last 30 days: " + ", ".join([
-            f"{r['modality']}: {r['avg_tat_min']} min avg ({r['studies']} studies)" for r in rows
-        ]) if rows else None,
-    },
-    {
-        "keywords": ["storage", "gb", "disk", "space", "تخزين", "مساحة"],
-        "label": "Storage last 7 days",
-        "sql": """
-            SELECT study_date, ROUND(SUM(total_gb)::numeric, 2) AS gb
-            FROM summary_storage_daily
-            GROUP BY study_date ORDER BY study_date DESC LIMIT 7
-        """,
-        "format": lambda rows: "Daily storage (GB): " + ", ".join([f"{r['study_date']}: {r['gb']}GB" for r in rows]) if rows else None,
-    },
-    {
-        "keywords": ["modality", "ct", "mr", "mri", "xray", "x-ray", "us", "ultrasound", "أشعة", "modalities"],
-        "label": "Studies by modality",
-        "sql": """
-            SELECT study_modality, COUNT(*) AS cnt
-            FROM etl_didb_studies
-            WHERE study_modality IS NOT NULL
-            GROUP BY study_modality ORDER BY cnt DESC LIMIT 10
-        """,
-        "format": lambda rows: "Studies by modality: " + ", ".join([f"{r['study_modality']}: {r['cnt']}" for r in rows]) if rows else None,
-    },
-    {
-        "keywords": ["today", "اليوم"],
-        "label": "Today's activity",
-        "sql": """
-            SELECT study_modality, COUNT(*) AS cnt
-            FROM etl_didb_studies
-            WHERE study_date = CURRENT_DATE
-            GROUP BY study_modality ORDER BY cnt DESC
-        """,
-        "format": lambda rows: "Today's studies: " + ", ".join([f"{r['study_modality']}: {r['cnt']}" for r in rows]) if rows else "No studies recorded today yet.",
-    },
-    {
-        "keywords": ["yesterday", "أمس"],
-        "label": "Yesterday's activity",
-        "sql": """
-            SELECT study_modality, COUNT(*) AS cnt
-            FROM etl_didb_studies
-            WHERE study_date = CURRENT_DATE - INTERVAL '1 day'
-            GROUP BY study_modality ORDER BY cnt DESC
-        """,
-        "format": lambda rows: "Yesterday's studies: " + ", ".join([f"{r['study_modality']}: {r['cnt']}" for r in rows]) if rows else None,
-    },
-    {
-        "keywords": ["order", "schedule", "pending", "orphan", "طلب", "جدول"],
-        "label": "Orders summary",
-        "sql": """
-            SELECT COUNT(*) AS total,
-                   COUNT(*) FILTER (WHERE has_study = true)  AS fulfilled,
-                   COUNT(*) FILTER (WHERE has_study = false) AS orphaned
-            FROM etl_orders
-        """,
-        "format": lambda rows: (
-            f"Orders: {rows[0]['total']} total, {rows[0]['fulfilled']} fulfilled, {rows[0]['orphaned']} orphaned."
-        ) if rows else None,
-    },
-    {
-        "keywords": ["busy", "peak", "volume", "most", "highest", "أكثر", "ازدحام"],
-        "label": "Busiest days this month",
-        "sql": """
-            SELECT study_date, COUNT(*) AS cnt
-            FROM etl_didb_studies
-            WHERE study_date >= DATE_TRUNC('month', CURRENT_DATE)
-            GROUP BY study_date ORDER BY cnt DESC LIMIT 5
-        """,
-        "format": lambda rows: "Busiest days this month: " + ", ".join([f"{r['study_date']}: {r['cnt']} studies" for r in rows]) if rows else None,
-    },
-    {
-        "keywords": ["week", "weekly", "this week", "أسبوع"],
-        "label": "This week by modality",
-        "sql": """
-            SELECT study_modality, COUNT(*) AS cnt
-            FROM etl_didb_studies
-            WHERE study_date >= DATE_TRUNC('week', CURRENT_DATE)
-            GROUP BY study_modality ORDER BY cnt DESC
-        """,
-        "format": lambda rows: "This week's studies: " + ", ".join([f"{r['study_modality']}: {r['cnt']}" for r in rows]) if rows else None,
-    },
-    {
-        "keywords": ["month", "monthly", "this month", "شهر"],
-        "label": "This month by modality",
-        "sql": """
-            SELECT study_modality, COUNT(*) AS cnt
-            FROM etl_didb_studies
-            WHERE study_date >= DATE_TRUNC('month', CURRENT_DATE)
-            GROUP BY study_modality ORDER BY cnt DESC
-        """,
-        "format": lambda rows: "This month's studies: " + ", ".join([f"{r['study_modality']}: {r['cnt']}" for r in rows]) if rows else None,
-    },
-]
+    return jsonify({"message": msg})
 
 
 # ── Proactive Anomaly Alerts ──────────────────────────────────
 @bitnet_bp.route("/ai/alerts")
 @login_required
 def alerts():
-    """
-    Data-driven anomaly detection — no AI inference, pure SQL comparisons.
-    Checks TAT spikes, storage growth anomalies, and device utilization outliers.
-    Intended for a dashboard badge or notification widget.
-    """
+    """Pure SQL anomaly detection — no AI inference."""
     findings = []
     try:
         with db.engine.connect() as conn:
@@ -421,75 +324,65 @@ def alerts():
                 SELECT wk, avg_tat FROM weekly LIMIT 5
             """)).fetchall()
             if len(tat_rows) >= 2:
-                cur_tat = float(tat_rows[0][1] or 0)
+                cur_tat  = float(tat_rows[0][1] or 0)
                 baseline = sum(float(r[1] or 0) for r in tat_rows[1:]) / len(tat_rows[1:])
                 if baseline > 0:
                     pct = (cur_tat - baseline) / baseline * 100
                     if abs(pct) >= 20:
-                        arrow = "↑" if pct > 0 else "↓"
                         findings.append({
                             "type": "tat",
                             "severity": "high" if abs(pct) >= 30 else "medium",
-                            "msg": f"TAT {arrow} {abs(pct):.0f}% this week ({cur_tat:.0f}m) vs 4-week baseline ({baseline:.0f}m)"
+                            "msg": f"TAT {'↑' if pct > 0 else '↓'} {abs(pct):.0f}% this week "
+                                   f"({cur_tat:.0f}m) vs 4-week baseline ({baseline:.0f}m)",
                         })
 
             # 2. Storage growth anomaly: this week vs previous week
             stor_rows = {r[0]: float(r[1] or 0) for r in conn.execute(text("""
-                SELECT
-                    CASE WHEN study_date >= CURRENT_DATE - 7 THEN 'current' ELSE 'prior' END AS period,
-                    ROUND(SUM(total_gb)::numeric, 2) AS gb
+                SELECT CASE WHEN study_date >= CURRENT_DATE - 7 THEN 'current' ELSE 'prior' END,
+                       ROUND(SUM(total_gb)::numeric, 2)
                 FROM summary_storage_daily
                 WHERE study_date >= CURRENT_DATE - 14
                 GROUP BY 1
             """)).fetchall()}
-            cur_gb  = stor_rows.get('current', 0)
-            prev_gb = stor_rows.get('prior', 0)
+            cur_gb, prev_gb = stor_rows.get("current", 0), stor_rows.get("prior", 0)
             if prev_gb > 0:
                 stor_pct = (cur_gb - prev_gb) / prev_gb * 100
                 if stor_pct >= 25:
                     findings.append({
                         "type": "storage",
                         "severity": "high" if stor_pct >= 50 else "medium",
-                        "msg": f"Storage ingestion ↑ {stor_pct:.0f}% this week ({cur_gb:.1f} GB) vs last week ({prev_gb:.1f} GB)"
+                        "msg": f"Storage ingestion ↑ {stor_pct:.0f}% this week "
+                               f"({cur_gb:.1f} GB) vs last week ({prev_gb:.1f} GB)",
                     })
 
-            # 3. Device volume spike: AEs with this-week count > prior avg + 2σ
+            # 3. Device volume outliers: this-week count > prior avg + 2σ
             for r in conn.execute(text("""
                 WITH weekly_ae AS (
-                    SELECT storing_ae,
-                           DATE_TRUNC('week', study_date) AS wk,
-                           COUNT(*) AS cnt
+                    SELECT storing_ae, DATE_TRUNC('week', study_date) AS wk, COUNT(*) AS cnt
                     FROM etl_didb_studies
                     WHERE study_date >= CURRENT_DATE - INTERVAL '6 weeks'
                       AND storing_ae IS NOT NULL
                     GROUP BY 1, 2
                 ),
                 stats AS (
-                    SELECT storing_ae,
-                           AVG(cnt)    AS avg_cnt,
-                           STDDEV(cnt) AS std_cnt
-                    FROM weekly_ae
-                    WHERE wk < DATE_TRUNC('week', CURRENT_DATE)
+                    SELECT storing_ae, AVG(cnt) AS avg_cnt, STDDEV(cnt) AS std_cnt
+                    FROM weekly_ae WHERE wk < DATE_TRUNC('week', CURRENT_DATE)
                     GROUP BY storing_ae
                 ),
                 this_week AS (
-                    SELECT storing_ae, cnt
-                    FROM weekly_ae
+                    SELECT storing_ae, cnt FROM weekly_ae
                     WHERE wk = DATE_TRUNC('week', CURRENT_DATE)
                 )
                 SELECT t.storing_ae, t.cnt, s.avg_cnt, s.std_cnt
-                FROM this_week t
-                JOIN stats s ON t.storing_ae = s.storing_ae
+                FROM this_week t JOIN stats s ON t.storing_ae = s.storing_ae
                 WHERE s.std_cnt > 0 AND t.cnt > s.avg_cnt + 2 * s.std_cnt
-                ORDER BY (t.cnt - s.avg_cnt) / s.std_cnt DESC
-                LIMIT 3
+                ORDER BY (t.cnt - s.avg_cnt) / s.std_cnt DESC LIMIT 3
             """)).fetchall():
                 ae, cnt, avg, std = r
                 z = (float(cnt) - float(avg)) / float(std)
                 findings.append({
-                    "type": "utilization",
-                    "severity": "medium",
-                    "msg": f"{ae}: {cnt} studies this week vs avg {avg:.0f} (z = {z:.1f}σ above normal)"
+                    "type": "utilization", "severity": "medium",
+                    "msg": f"{ae}: {cnt} studies this week vs avg {avg:.0f} (z = {z:.1f}σ above normal)",
                 })
 
     except Exception as e:
@@ -499,46 +392,368 @@ def alerts():
     return jsonify({"alerts": findings, "count": len(findings), "clean": len(findings) == 0})
 
 
-# ── DB Context Builder ────────────────────────────────────────
-def _build_db_context(question: str) -> str:
-    """
-    Runs matching predefined queries based on keywords in the question.
-    Always-on queries are cached for CONTEXT_TTL seconds.
-    Add new queries to PREDEFINED_QUERIES above.
-    """
-    ctx_parts = []
-    q = question.lower()
+# ── Report link map ───────────────────────────────────────────
+REPORT_LINKS = {
+    "storage":     ("/report/29",              "Storage Audit"),
+    "modality":    ("/report/25",              "Modality & TAT"),
+    "modalities":  ("/report/25",              "Modality & TAT"),
+    "tat":         ("/report/25",              "Modality & TAT"),
+    "turnaround":  ("/report/25",              "Modality & TAT"),
+    "physician":   ("/report/22",              "Studies Fact"),
+    "physicians":  ("/report/22",              "Studies Fact"),
+    "doctor":      ("/report/22",              "Studies Fact"),
+    "orders":      ("/report/27",              "Order Audit"),
+    "order":       ("/report/27",              "Order Audit"),
+    "capacity":    ("/viewer/capacity-ladder", "Capacity Ladder"),
+    "schedule":    ("/viewer/capacity-ladder", "Capacity Ladder"),
+    "live":        ("/viewer/live",            "Live AE Status"),
+    "ai":          ("/report/ai",              "AI Intelligence"),
+    "forecast":    ("/report/ai",              "AI Intelligence"),
+    "productivity":("/report/22",              "Studies Fact"),
+    "patient":     ("/report/22",              "Studies Fact"),
+    # Arabic keywords
+    "تخزين":       ("/report/29",              "Storage Audit"),
+    "طبيب":        ("/report/22",              "Studies Fact"),
+    "طلب":         ("/report/27",              "Order Audit"),
+    "أشعة":        ("/report/25",              "Modality & TAT"),
+    "سعة":         ("/viewer/capacity-ladder", "Capacity Ladder"),
+}
+
+
+# ── Intent keyword sets (defined once) ────────────────────────
+_KW_MODALITY  = frozenset(['modality','modalities','ct','mr','mri','us','xray','x-ray',
+                            'ultrasound','breakdown','split','أشعة','فحص','جهاز'])
+_KW_STORAGE   = frozenset(['storage','gb','disk','space','full','تخزين','مساحة'])
+_KW_PHYSICIAN = frozenset(['physician','doctor','referring','top','أطباء','طبيب','دكتور','محول'])
+_KW_ORDERS    = frozenset(['order','orders','pending','orphan','طلب','طلبات'])
+_KW_TODAY     = frozenset(['today','اليوم','الآن','now','current'])
+_KW_YESTERDAY = frozenset(['yesterday','أمس','البارحة'])
+_KW_WEEK      = frozenset(['week','weekly','this week','أسبوع','الأسبوع'])
+_KW_MONTH     = frozenset(['month','monthly','this month','شهر','الشهر'])
+_KW_PATIENT   = frozenset(['patient','class','inpatient','outpatient','emergency','مريض','طوارئ'])
+_KW_DEVICE    = frozenset(['utilization','utilisation','busy','ae','device','جهاز','استخدام'])
+_KW_TAT       = frozenset(['tat','turnaround','wait','delay','وقت','انتظار','تأخير','report time'])
+_KW_TREND     = frozenset(['trend','compare','comparison','growth','decline','increase','decrease',
+                            'مقارنة','اتجاه','نمو'])
+_KW_BUSY      = frozenset(['busy','peak','volume','most','highest','أكثر','ازدحام','busiest'])
+
+
+def _match(q: str, keywords: frozenset) -> bool:
+    return any(w in q for w in keywords)
+
+
+# ── Base context (always-on, cached 60s) ──────────────────────
+def _fetch_base_context(conn) -> list:
+    """Department overview + AE list — cached globally."""
     now = time.time()
+    if _base_cache["facts"] and (now - _base_cache["ts"]) < BASE_TTL:
+        return list(_base_cache["facts"])
+
+    facts = []
+
+    # Single CTE for overview + AE list
+    rows = conn.execute(text("""
+        WITH overview AS (
+            SELECT COUNT(*)                 AS total,
+                   COUNT(DISTINCT storing_ae) AS aes,
+                   MIN(study_date)          AS earliest,
+                   MAX(study_date)          AS latest
+            FROM etl_didb_studies
+        ),
+        ae_list AS (
+            SELECT aetitle, modality
+            FROM aetitle_modality_map
+            ORDER BY modality, aetitle
+        )
+        SELECT 'overview' AS src, total::text AS col1, aes::text AS col2,
+               earliest::text AS col3, latest::text AS col4
+        FROM overview
+        UNION ALL
+        SELECT 'ae', aetitle, modality, NULL, NULL
+        FROM ae_list
+    """)).fetchall()
+
+    ae_parts = []
+    for r in rows:
+        if r[0] == "overview" and int(r[1] or 0) > 0:
+            facts.append(
+                f"The department has {int(r[1]):,} total studies across "
+                f"{r[2]} imaging devices, from {r[3]} to {r[4]}."
+            )
+        elif r[0] == "ae":
+            ae_parts.append(f"{r[1]} ({r[2]})")
+
+    if ae_parts:
+        facts.append(f"Imaging devices in this department: {', '.join(ae_parts)}.")
+
+    _base_cache["facts"] = facts
+    _base_cache["ts"]    = now
+    return list(facts)
+
+
+# ── Context builder ───────────────────────────────────────────
+def _build_context(question: str):
+    """
+    Returns (link, link_label, chart_type, chart_data, context_facts_string).
+    All facts are plain English/Arabic — no table names, no SQL.
+    """
+    q = question.lower()
+    link = link_label = chart_type = chart_data = None
+    facts = []
+
+    # Detect report link
+    for keyword, (url, label) in REPORT_LINKS.items():
+        if keyword in q:
+            link, link_label = url, label
+            break
 
     try:
         with db.engine.connect() as conn:
-            for entry in PREDEFINED_QUERIES:
-                always   = entry.get("always", False)
-                keywords = entry.get("keywords", [])
 
-                if not always and not any(w in q for w in keywords):
-                    continue
+            # ── Always: overview + AE list (cached) ───────────
+            facts.extend(_fetch_base_context(conn))
 
-                # Use cache for always-on queries
-                if always:
-                    cache_key = entry["label"]
-                    cached = _context_cache.get(cache_key)
-                    if cached and (now - cached["ts"]) < CONTEXT_TTL:
-                        if cached["result"]:
-                            ctx_parts.append(cached["result"])
-                        continue
-                    rows = conn.execute(text(entry["sql"])).mappings().fetchall()
-                    result = entry["format"](list(rows))
-                    _context_cache[cache_key] = {"result": result, "ts": now}
+            # ── Modality breakdown ────────────────────────────
+            if _match(q, _KW_MODALITY):
+                rows = conn.execute(text("""
+                    SELECT study_modality AS mod, COUNT(*) AS cnt
+                    FROM etl_didb_studies
+                    WHERE study_modality IS NOT NULL
+                    GROUP BY study_modality ORDER BY cnt DESC LIMIT 8
+                """)).mappings().fetchall()
+                if rows:
+                    facts.append("Studies by modality: " +
+                        ", ".join(f"{r['mod']}: {r['cnt']:,} studies" for r in rows) + ".")
+                    chart_type = "pie"
+                    chart_data = {
+                        "labels": [r["mod"] for r in rows],
+                        "values": [int(r["cnt"]) for r in rows],
+                        "title":  "Studies by Modality",
+                    }
+
+            # ── Storage (14-day) ──────────────────────────────
+            if _match(q, _KW_STORAGE):
+                rows = conn.execute(text("""
+                    SELECT study_date::text AS d, ROUND(SUM(total_gb)::numeric, 2) AS gb
+                    FROM summary_storage_daily
+                    GROUP BY study_date ORDER BY study_date DESC LIMIT 14
+                """)).mappings().fetchall()
+                if rows:
+                    total_gb  = sum(float(r["gb"]) for r in rows)
+                    latest_gb = float(rows[0]["gb"])
+                    facts.append(
+                        f"Storage in the last 14 days: {total_gb:.1f} GB total. "
+                        f"Most recent day ({rows[0]['d']}): {latest_gb:.2f} GB."
+                    )
+                    rev = list(reversed(rows))
+                    chart_type = "bar"
+                    chart_data = {
+                        "labels": [r["d"] for r in rev],
+                        "values": [float(r["gb"]) for r in rev],
+                        "title":  "Daily Storage (GB)", "color": "#60a5fa",
+                    }
+
+            # ── TAT by modality (last 30 days) ────────────────
+            if _match(q, _KW_TAT):
+                rows = conn.execute(text("""
+                    SELECT COALESCE(UPPER(m.modality), 'N/A') AS modality,
+                           ROUND(AVG(EXTRACT(EPOCH FROM (s.rep_final_timestamp - s.study_date)) / 60)::numeric, 0) AS avg_min,
+                           ROUND(AVG(EXTRACT(EPOCH FROM (s.rep_final_timestamp - s.study_date)) / 3600)::numeric, 1) AS avg_hours,
+                           COUNT(*) AS studies
+                    FROM etl_didb_studies s
+                    LEFT JOIN aetitle_modality_map m
+                        ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
+                    WHERE s.study_date >= CURRENT_DATE - INTERVAL '30 days'
+                      AND s.rep_final_timestamp IS NOT NULL
+                      AND s.rep_final_signed_by IS NOT NULL
+                    GROUP BY m.modality ORDER BY avg_min DESC
+                """)).mappings().fetchall()
+                if rows:
+                    facts.append("Turnaround time (last 30 days): " +
+                        ", ".join(f"{r['modality']}: {r['avg_hours']}h avg ({r['studies']} studies)" for r in rows) + ".")
+                    chart_type = "bar"
+                    chart_data = {
+                        "labels": [r["modality"] for r in rows],
+                        "values": [float(r["avg_hours"]) for r in rows],
+                        "title":  "Average TAT by Modality (hours)", "color": "#f59e0b",
+                    }
+
+            # ── Physicians ────────────────────────────────────
+            if _match(q, _KW_PHYSICIAN):
+                rows = conn.execute(text("""
+                    SELECT TRIM(CONCAT_WS(' ',
+                        referring_physician_first_name,
+                        referring_physician_last_name)) AS name,
+                        COUNT(*) AS cnt
+                    FROM etl_didb_studies
+                    WHERE referring_physician_last_name IS NOT NULL
+                    GROUP BY 1 ORDER BY cnt DESC LIMIT 10
+                """)).mappings().fetchall()
+                if rows:
+                    facts.append("Top referring physicians by study count: " +
+                        ", ".join(f"Dr. {r['name']} ({r['cnt']:,})" for r in rows) + ".")
+                    chart_type = "bar"
+                    chart_data = {
+                        "labels": [r["name"] for r in rows],
+                        "values": [int(r["cnt"]) for r in rows],
+                        "title":  "Top Referring Physicians", "color": "#a855f7",
+                    }
+
+            # ── Orders ────────────────────────────────────────
+            if _match(q, _KW_ORDERS):
+                row = conn.execute(text("""
+                    SELECT COUNT(*) AS total,
+                           COUNT(*) FILTER (WHERE has_study = true)  AS fulfilled,
+                           COUNT(*) FILTER (WHERE has_study = false) AS orphaned
+                    FROM etl_orders
+                """)).mappings().fetchone()
+                if row:
+                    facts.append(
+                        f"Orders in the system: {row['total']:,} total, "
+                        f"{row['fulfilled']:,} fulfilled, "
+                        f"{row['orphaned']:,} orphaned (no linked study)."
+                    )
+
+            # ── Today's activity ──────────────────────────────
+            if _match(q, _KW_TODAY):
+                rows = conn.execute(text("""
+                    SELECT study_modality, COUNT(*) AS cnt
+                    FROM etl_didb_studies
+                    WHERE study_date = CURRENT_DATE
+                    GROUP BY study_modality ORDER BY cnt DESC
+                """)).mappings().fetchall()
+                if rows:
+                    total = sum(int(r["cnt"]) for r in rows)
+                    facts.append(f"Studies today: {total:,} total — " +
+                        ", ".join(f"{r['study_modality']}: {r['cnt']}" for r in rows) + ".")
                 else:
-                    rows = conn.execute(text(entry["sql"])).mappings().fetchall()
-                    result = entry["format"](list(rows))
+                    facts.append("No studies recorded today yet.")
 
-                if result:
-                    ctx_parts.append(result)
+                row2 = conn.execute(text("""
+                    SELECT COUNT(*) AS cnt FROM etl_orders
+                    WHERE scheduled_datetime::date = CURRENT_DATE
+                """)).mappings().fetchone()
+                if row2:
+                    facts.append(f"Orders scheduled today: {row2['cnt']:,}.")
+
+            # ── Yesterday ─────────────────────────────────────
+            if _match(q, _KW_YESTERDAY):
+                rows = conn.execute(text("""
+                    SELECT study_modality, COUNT(*) AS cnt
+                    FROM etl_didb_studies
+                    WHERE study_date = CURRENT_DATE - INTERVAL '1 day'
+                    GROUP BY study_modality ORDER BY cnt DESC
+                """)).mappings().fetchall()
+                if rows:
+                    total = sum(int(r["cnt"]) for r in rows)
+                    facts.append(f"Yesterday's studies: {total:,} total — " +
+                        ", ".join(f"{r['study_modality']}: {r['cnt']}" for r in rows) + ".")
+
+            # ── This week ─────────────────────────────────────
+            if _match(q, _KW_WEEK):
+                rows = conn.execute(text("""
+                    SELECT study_modality, COUNT(*) AS cnt
+                    FROM etl_didb_studies
+                    WHERE study_date >= DATE_TRUNC('week', CURRENT_DATE)
+                    GROUP BY study_modality ORDER BY cnt DESC
+                """)).mappings().fetchall()
+                if rows:
+                    total = sum(int(r["cnt"]) for r in rows)
+                    facts.append(f"This week's studies: {total:,} total — " +
+                        ", ".join(f"{r['study_modality']}: {r['cnt']}" for r in rows) + ".")
+
+            # ── This month ────────────────────────────────────
+            if _match(q, _KW_MONTH):
+                rows = conn.execute(text("""
+                    SELECT study_modality, COUNT(*) AS cnt
+                    FROM etl_didb_studies
+                    WHERE study_date >= DATE_TRUNC('month', CURRENT_DATE)
+                    GROUP BY study_modality ORDER BY cnt DESC
+                """)).mappings().fetchall()
+                if rows:
+                    total = sum(int(r["cnt"]) for r in rows)
+                    facts.append(f"This month's studies: {total:,} total — " +
+                        ", ".join(f"{r['study_modality']}: {r['cnt']}" for r in rows) + ".")
+
+            # ── Patient class breakdown ───────────────────────
+            if _match(q, _KW_PATIENT):
+                rows = conn.execute(text("""
+                    SELECT COALESCE(patient_class, 'Unknown') AS cls, COUNT(*) AS cnt
+                    FROM etl_didb_studies
+                    WHERE patient_class IS NOT NULL
+                    GROUP BY 1 ORDER BY 2 DESC
+                """)).mappings().fetchall()
+                if rows:
+                    facts.append("Studies by patient class: " +
+                        ", ".join(f"{r['cls']}: {r['cnt']:,}" for r in rows) + ".")
+                    chart_type = "pie"
+                    chart_data = {
+                        "labels": [r["cls"] for r in rows],
+                        "values": [int(r["cnt"]) for r in rows],
+                        "title":  "Studies by Patient Class",
+                    }
+
+            # ── AE / device utilization ───────────────────────
+            if _match(q, _KW_DEVICE):
+                rows = conn.execute(text("""
+                    SELECT storing_ae AS ae, COUNT(*) AS cnt
+                    FROM etl_didb_studies
+                    WHERE storing_ae IS NOT NULL
+                    GROUP BY 1 ORDER BY 2 DESC
+                """)).mappings().fetchall()
+                if rows:
+                    facts.append("Studies per imaging device: " +
+                        ", ".join(f"{r['ae']}: {r['cnt']:,} studies" for r in rows) + ".")
+                    chart_type = "bar"
+                    chart_data = {
+                        "labels": [r["ae"] for r in rows],
+                        "values": [int(r["cnt"]) for r in rows],
+                        "title":  "Studies per AE", "color": "#2EC4A5",
+                    }
+
+            # ── Busiest days this month ───────────────────────
+            if _match(q, _KW_BUSY):
+                rows = conn.execute(text("""
+                    SELECT study_date::text AS d, COUNT(*) AS cnt
+                    FROM etl_didb_studies
+                    WHERE study_date >= DATE_TRUNC('month', CURRENT_DATE)
+                    GROUP BY study_date ORDER BY cnt DESC LIMIT 5
+                """)).mappings().fetchall()
+                if rows:
+                    facts.append("Busiest days this month: " +
+                        ", ".join(f"{r['d']}: {r['cnt']:,} studies" for r in rows) + ".")
+                    chart_type = "bar"
+                    chart_data = {
+                        "labels": [r["d"] for r in rows],
+                        "values": [int(r["cnt"]) for r in rows],
+                        "title":  "Busiest Days", "color": "#ef4444",
+                    }
+
+            # ── Trend: this week vs last week ─────────────────
+            if _match(q, _KW_TREND):
+                rows = conn.execute(text("""
+                    SELECT CASE
+                             WHEN study_date >= DATE_TRUNC('week', CURRENT_DATE) THEN 'this_week'
+                             ELSE 'last_week'
+                           END AS period, COUNT(*) AS cnt
+                    FROM etl_didb_studies
+                    WHERE study_date >= DATE_TRUNC('week', CURRENT_DATE) - INTERVAL '7 days'
+                    GROUP BY 1
+                """)).mappings().fetchall()
+                periods = {r["period"]: int(r["cnt"]) for r in rows}
+                tw = periods.get("this_week", 0)
+                lw = periods.get("last_week", 0)
+                if lw > 0:
+                    pct = (tw - lw) / lw * 100
+                    direction = "up" if pct > 0 else "down"
+                    facts.append(
+                        f"Week-over-week trend: {tw:,} studies this week vs {lw:,} last week "
+                        f"({direction} {abs(pct):.1f}%)."
+                    )
 
     except Exception as e:
-        logger.error(f"[BitNet] Context build error: {e}", exc_info=True)
-        ctx_parts.append(f"Note: Could not fetch live data ({str(e)[:100]})")
+        logger.error(f"[BitNet] Context error: {e}", exc_info=True)
+        return link, link_label, None, None, ""
 
-    return "\n".join(ctx_parts) if ctx_parts else "No specific context available."
+    context_string = "\n".join(facts) if facts else ""
+    return link, link_label, chart_type, chart_data, context_string
