@@ -39,7 +39,7 @@ services:
       - MASTER_ADMIN_KEY=${MASTER_ADMIN_KEY}
 
       # ── Feature Flags ─────────────────────────────────────────
-      - PATIENT_PORTAL_ENABLED=${PATIENT_PORTAL_ENABLED:-true}
+      - PATIENT_PORTAL_ENABLED=${PATIENT_PORTAL_ENABLED:-false}
       - LIVE_FEED_ENABLED=${LIVE_FEED_ENABLED:-true}
 
       # ── BitNet AI Assistant ───────────────────────────────────
