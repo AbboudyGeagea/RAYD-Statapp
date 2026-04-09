@@ -114,10 +114,17 @@
             <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-2">AI</p>
         </div>
         <a href="{{ url_for('bitnet.assistant_page') }}"
-           class="sidebar-item {% if request.endpoint and request.endpoint.startswith('bitnet.') %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
+           class="sidebar-item {% if request.endpoint == 'bitnet.assistant_page' %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
            title="AI Assistant">
             <i class="bi bi-robot flex-shrink-0" style="color:#10b981;"></i> AI Assistant
         </a>
+        {% if current_user.role == 'admin' %}
+        <a href="{{ url_for('bitnet.ai_admin') }}"
+           class="sidebar-item {% if request.endpoint == 'bitnet.ai_admin' %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
+           title="AI Teaching Center">
+            <i class="bi bi-mortarboard-fill flex-shrink-0" style="color:#a78bfa;"></i> AI Teaching Center
+        </a>
+        {% endif %}
         {% endif %}
         {% endif %}
 
