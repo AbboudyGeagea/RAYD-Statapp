@@ -447,11 +447,65 @@ def get_gold_standard_data(form_data):
             tech_df['actual_min']   = pd.to_numeric(tech_df['actual_min'], errors='coerce').fillna(0)
             tech_df['expected_min'] = pd.to_numeric(tech_df['expected_min'], errors='coerce').fillna(15)
 
-            # Flag abnormal: < 50% expected = too short, > 200% expected = too long
+            # ── ER preemption detection ──────────────────────────────
+            # For each completed exam, find ER/urgent cases that ran on the
+            # same modality between scheduled_datetime and done_at.
+            # Their total expected duration = ER delay (not the tech's fault).
+            er_delay_map = {}  # accession -> {'er_delay_min': float, 'er_cases': int}
+            try:
+                er_rows = db.session.execute(text("""
+                    WITH completed AS (
+                        SELECT accession_number, modality,
+                               COALESCE(scheduled_datetime, received_at) AS sched,
+                               done_at
+                        FROM hl7_orders
+                        WHERE order_status = 'CM'
+                          AND done_at IS NOT NULL
+                          AND done_at::date BETWEEN :start AND :end
+                    )
+                    SELECT
+                        c.accession_number,
+                        COUNT(er.id) AS er_cases,
+                        COALESCE(SUM(COALESCE(pm.duration_minutes, 15)), 0) AS er_delay_min
+                    FROM completed c
+                    JOIN hl7_orders er
+                        ON UPPER(TRIM(er.modality)) = UPPER(TRIM(c.modality))
+                       AND er.accession_number != c.accession_number
+                       AND er.done_at IS NOT NULL
+                       AND er.done_at > c.sched
+                       AND er.done_at <= c.done_at
+                    JOIN etl_didb_studies s
+                        ON s.accession_number = er.accession_number
+                       AND UPPER(COALESCE(s.patient_class, '')) IN ('ER', 'EMERGENCY', 'URGENT', 'U')
+                    LEFT JOIN procedure_duration_map pm
+                        ON UPPER(TRIM(er.procedure_code)) = UPPER(TRIM(pm.procedure_code))
+                    GROUP BY c.accession_number
+                """), {"start": start, "end": end}).fetchall()
+                for acc, er_cases, er_delay in er_rows:
+                    er_delay_map[acc] = {
+                        'er_delay_min': float(er_delay),
+                        'er_cases': int(er_cases),
+                    }
+            except Exception as _er_e:
+                print(f"ER preemption detection error: {_er_e}")
+
+            # Add ER delay columns
+            tech_df['er_delay_min'] = tech_df['accession_number'].map(
+                lambda a: er_delay_map.get(a, {}).get('er_delay_min', 0)
+            )
+            tech_df['er_cases'] = tech_df['accession_number'].map(
+                lambda a: er_delay_map.get(a, {}).get('er_cases', 0)
+            )
+            tech_df['adjusted_min'] = (tech_df['actual_min'] - tech_df['er_delay_min']).clip(lower=0)
+
+            # Flag uses ADJUSTED TAT — so ER delays don't penalise techs
             def _flag(row):
                 if row['actual_min'] <= 0:
                     return 'invalid'
-                ratio = row['actual_min'] / row['expected_min'] if row['expected_min'] > 0 else 1
+                adj = row['adjusted_min']
+                ratio = adj / row['expected_min'] if row['expected_min'] > 0 else 1
+                if row['er_delay_min'] > 0 and row['actual_min'] / row['expected_min'] > 2.0 and ratio <= 2.0:
+                    return 'er_delayed'
                 if ratio < 0.5:
                     return 'too_short'
                 elif ratio > 2.0:
@@ -465,25 +519,29 @@ def get_gold_standard_data(form_data):
                 v = float(val)
                 return default if (v != v or v == float('inf') or v == float('-inf')) else round(v, 1)
 
-            # Per-technician cards
+            # Per-technician cards — use adjusted TAT for performance metrics
             for tech, tdf in tech_df.groupby('done_by'):
                 valid = tdf[tdf['actual_min'] > 0]
                 tech_data['technicians'].append({
                     'name': str(tech),
                     'total_exams': len(tdf),
-                    'avg_min': _safe(valid['actual_min'].mean()) if len(valid) > 0 else 0,
-                    'median_min': _safe(valid['actual_min'].median()) if len(valid) > 0 else 0,
+                    'avg_min': _safe(valid['adjusted_min'].mean()) if len(valid) > 0 else 0,
+                    'avg_raw_min': _safe(valid['actual_min'].mean()) if len(valid) > 0 else 0,
+                    'median_min': _safe(valid['adjusted_min'].median()) if len(valid) > 0 else 0,
+                    'total_er_delay': _safe(tdf['er_delay_min'].sum()),
+                    'er_affected': int((tdf['er_delay_min'] > 0).sum()),
                     'too_short': int((tdf['flag'] == 'too_short').sum()),
                     'too_long': int((tdf['flag'] == 'too_long').sum()),
+                    'er_delayed': int((tdf['flag'] == 'er_delayed').sum()),
                     'normal': int((tdf['flag'] == 'normal').sum()),
                     'by_modality': [
-                        {'mod': str(m), 'cnt': len(mdf), 'avg': _safe(mdf[mdf['actual_min'] > 0]['actual_min'].mean()) if (mdf['actual_min'] > 0).any() else 0}
+                        {'mod': str(m), 'cnt': len(mdf), 'avg': _safe(mdf[mdf['actual_min'] > 0]['adjusted_min'].mean()) if (mdf['actual_min'] > 0).any() else 0}
                         for m, mdf in tdf.groupby('modality')
                     ],
                 })
 
-            # Flagged studies (abnormal only)
-            flagged = tech_df[tech_df['flag'].isin(['too_short', 'too_long'])].head(100)
+            # Flagged studies (abnormal + ER delayed)
+            flagged = tech_df[tech_df['flag'].isin(['too_short', 'too_long', 'er_delayed'])].head(100)
             for _, r in flagged.iterrows():
                 tech_data['flagged'].append({
                     'accession': str(r.get('accession_number') or ''),
@@ -492,20 +550,25 @@ def get_gold_standard_data(form_data):
                     'modality': str(r.get('modality') or ''),
                     'technician': str(r.get('done_by') or ''),
                     'actual_min': _safe(r['actual_min']),
+                    'adjusted_min': _safe(r['adjusted_min']),
                     'expected_min': int(r['expected_min']),
+                    'er_delay_min': _safe(r['er_delay_min']),
+                    'er_cases': int(r['er_cases']),
                     'flag': str(r['flag']),
                     'done_at': str(r['done_at'])[:16] if r.get('done_at') is not None else '',
                 })
 
-            # By procedure code — avg actual vs expected
+            # By procedure code — avg actual vs expected (uses adjusted)
             for proc, pdf in tech_df[tech_df['actual_min'] > 0].groupby('procedure_code'):
                 tech_data['by_procedure'].append({
                     'code': str(proc),
                     'text': str(pdf.iloc[0].get('procedure_text') or proc),
                     'count': len(pdf),
-                    'avg_actual': _safe(pdf['actual_min'].mean()),
+                    'avg_actual': _safe(pdf['adjusted_min'].mean()),
+                    'avg_raw': _safe(pdf['actual_min'].mean()),
                     'expected': int(pdf.iloc[0]['expected_min']),
                     'modality': str(pdf.iloc[0].get('modality') or ''),
+                    'er_affected': int((pdf['er_delay_min'] > 0).sum()),
                 })
 
             # Summary stats
@@ -513,11 +576,15 @@ def get_gold_standard_data(form_data):
             tech_data['summary'] = {
                 'total_completed': int(len(tech_df)),
                 'total_technicians': int(tech_df['done_by'].nunique()),
-                'avg_tat': _safe(valid_all['actual_min'].mean()) if len(valid_all) > 0 else 0,
-                'median_tat': _safe(valid_all['actual_min'].median()) if len(valid_all) > 0 else 0,
+                'avg_tat': _safe(valid_all['adjusted_min'].mean()) if len(valid_all) > 0 else 0,
+                'avg_raw_tat': _safe(valid_all['actual_min'].mean()) if len(valid_all) > 0 else 0,
+                'median_tat': _safe(valid_all['adjusted_min'].median()) if len(valid_all) > 0 else 0,
                 'flagged_count': int((tech_df['flag'].isin(['too_short', 'too_long'])).sum()),
                 'too_short_count': int((tech_df['flag'] == 'too_short').sum()),
                 'too_long_count': int((tech_df['flag'] == 'too_long').sum()),
+                'er_delayed_count': int((tech_df['flag'] == 'er_delayed').sum()),
+                'total_er_delay_min': _safe(tech_df['er_delay_min'].sum()),
+                'er_affected_exams': int((tech_df['er_delay_min'] > 0).sum()),
             }
 
     except Exception as _e:
