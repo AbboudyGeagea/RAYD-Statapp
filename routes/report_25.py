@@ -101,7 +101,7 @@ def get_gold_standard_data(form_data):
             SELECT
                 UPPER(TRIM(ws.aetitle)) AS ae,
                 ws.day_of_week,
-                COALESCE(ws.std_opening_minutes, m.daily_capacity_minutes, 480) AS std_opening_minutes
+                COALESCE(m.daily_capacity_minutes, ws.std_opening_minutes, 480) AS std_opening_minutes
             FROM device_weekly_schedule ws
             LEFT JOIN aetitle_modality_map m
                 ON UPPER(TRIM(ws.aetitle)) = UPPER(TRIM(m.aetitle))
