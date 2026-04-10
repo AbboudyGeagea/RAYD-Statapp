@@ -97,7 +97,15 @@ def get_gold_standard_data(form_data):
         date_range = pd.date_range(start, end)
         weekday_counts = date_range.dayofweek.value_counts().to_dict()
         
-        sched_q = db.session.execute(text("SELECT UPPER(TRIM(aetitle)) as ae, day_of_week, std_opening_minutes FROM device_weekly_schedule")).mappings().all()
+        sched_q = db.session.execute(text("""
+            SELECT
+                UPPER(TRIM(ws.aetitle)) AS ae,
+                ws.day_of_week,
+                COALESCE(ws.std_opening_minutes, m.daily_capacity_minutes, 480) AS std_opening_minutes
+            FROM device_weekly_schedule ws
+            LEFT JOIN aetitle_modality_map m
+                ON UPPER(TRIM(ws.aetitle)) = UPPER(TRIM(m.aetitle))
+        """)).mappings().all()
         schedule_lookup = {(s['ae'], int(s['day_of_week'])): s['std_opening_minutes'] for s in sched_q}
         
         for ae in sorted(df['aetitle'].unique()):

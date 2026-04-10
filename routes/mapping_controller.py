@@ -103,19 +103,20 @@ def upload_modality_map():
         for _, row in df.iterrows():
             ae = str(row['aetitle']).strip().upper()
             mod = str(row['modality']).strip().upper()
-            # Handle capacity: use CSV value or default to 720
+            # Handle capacity: use CSV value or default to 480
             try:
-                cap = int(float(row['daily_capacity_minutes'])) if pd.notna(row['daily_capacity_minutes']) else 720
+                cap = int(float(row['daily_capacity_minutes'])) if pd.notna(row['daily_capacity_minutes']) else 480
             except:
-                cap = 720
+                cap = 480
 
-            # 1. Sync Parent (AETitleModalityMap)
+            # 1. Sync Parent (AETitleModalityMap) — keep both tables in sync
             parent = AETitleModalityMap.query.filter_by(aetitle=ae).first()
             if not parent:
-                parent = AETitleModalityMap(aetitle=ae, modality=mod)
+                parent = AETitleModalityMap(aetitle=ae, modality=mod, daily_capacity_minutes=cap)
                 db.session.add(parent)
             else:
                 parent.modality = mod
+                parent.daily_capacity_minutes = cap
             
             # Flush tells the DB about the parent so the Foreign Key doesn't fail
             db.session.flush()

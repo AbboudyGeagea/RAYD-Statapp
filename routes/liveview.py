@@ -49,7 +49,7 @@ def liveview_data():
                 s.storing_ae,
                 m.modality,
                 SUM(COALESCE(pm.duration_minutes, 15)) AS used_mins,
-                COALESCE(MAX(ws.std_opening_minutes), 720) AS capacity_mins
+                COALESCE(MAX(ws.std_opening_minutes), MAX(m.daily_capacity_minutes), 480) AS capacity_mins
             FROM etl_didb_studies s
             LEFT JOIN aetitle_modality_map m
                 ON m.aetitle = s.storing_ae

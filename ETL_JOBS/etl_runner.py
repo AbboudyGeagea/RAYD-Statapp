@@ -153,10 +153,10 @@ def _sync_lookup_tables(engine):
             ON CONFLICT (aetitle) DO NOTHING
         """))
 
-        # 2. Default weekly schedule for any new AEs (720 min/day, all 7 days)
+        # 2. Default weekly schedule for any new AEs (uses daily_capacity_minutes from map)
         conn.execute(text("""
             INSERT INTO device_weekly_schedule (aetitle, day_of_week, std_opening_minutes)
-            SELECT m.aetitle, d.day_of_week, 720
+            SELECT m.aetitle, d.day_of_week, COALESCE(m.daily_capacity_minutes, 480)
             FROM aetitle_modality_map m
             CROSS JOIN generate_series(0, 6) AS d(day_of_week)
             ON CONFLICT (aetitle, day_of_week) DO NOTHING
