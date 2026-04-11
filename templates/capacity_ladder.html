@@ -362,8 +362,9 @@ function onSlider(val) {
 function runOptimizer(alpha) {
     if (!_candidates.length || !_gaps.length) return [];
 
-    // Normalize RVU/min so both dimensions are [0,1]
+    // Normalize both dimensions to [0,1] independently
     const maxRvuPerMin = Math.max(..._candidates.map(p => (p.rvu || 0) / p.duration), 0.001);
+    const maxDuration  = Math.max(..._candidates.map(p => p.duration), 1);
 
     const placements = [];
     for (const gap of _gaps) {
@@ -373,11 +374,18 @@ function runOptimizer(alpha) {
             const fits = _candidates.filter(p => p.duration <= remaining);
             if (!fits.length) break;
 
+            // RVU strategy: maximize RVU/min (prefers high-value short procedures)
+            // Utilization strategy: maximize fill (prefers procedures closest to gap size)
             const best = fits.reduce((a, b) => {
-                const sa = alpha * ((a.rvu||0) / a.duration / maxRvuPerMin)
-                         + (1 - alpha) * (a.duration / remaining);
-                const sb = alpha * ((b.rvu||0) / b.duration / maxRvuPerMin)
-                         + (1 - alpha) * (b.duration / remaining);
+                // RVU dimension: RVU per minute, normalized
+                const rvuA = (a.rvu || 0) / a.duration / maxRvuPerMin;
+                const rvuB = (b.rvu || 0) / b.duration / maxRvuPerMin;
+                // Utilization dimension: how well it fills the remaining gap
+                // Penalize both too-short (wasted time) and same-every-slot
+                const utilA = 1 - Math.abs(remaining - a.duration) / remaining;
+                const utilB = 1 - Math.abs(remaining - b.duration) / remaining;
+                const sa = alpha * rvuA + (1 - alpha) * utilA;
+                const sb = alpha * rvuB + (1 - alpha) * utilB;
                 return sa >= sb ? a : b;
             });
 
