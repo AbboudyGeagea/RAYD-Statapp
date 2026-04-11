@@ -132,7 +132,8 @@ def get_gold_standard_data(form_data):
 
             matrix_rows.append({
                 "ae": ae, "days": days_util, "avg": ae_avg,
-                "total_rvu": round(ae_df['rvu'].sum(), 1)
+                "total_rvu": round(ae_df['rvu'].sum(), 1),
+                "total_cap": ae_total_cap,
             })
 
     # TAT percentiles for the whole dataset
@@ -280,7 +281,10 @@ def get_gold_standard_data(form_data):
             ae_g = ae_g[ae_g['count'] >= 5].sort_values('mean')
             ae_tat = [{'ae': r['aetitle'], 'avg_tat': round(float(r['mean']), 1), 'cnt': int(r['count'])} for _, r in ae_g.iterrows()]
 
-        threshold = global_mean_tat * 2
+        # IQR-based outlier threshold (robust to skew, unlike mean*2)
+        q1_tat, q3_tat = tat_vals.quantile(0.25), tat_vals.quantile(0.75)
+        iqr_tat = q3_tat - q1_tat
+        threshold = q3_tat + 1.5 * iqr_tat
         out_cols = [c for c in ['aetitle', 'modality', 'reading_radiologist', 'patient_class', 'procedure_code', 'study_date', 'total_tat_min'] if c in df.columns]
         out_df = df[df['total_tat_min'] > threshold][out_cols].sort_values('total_tat_min', ascending=False).head(50)
         for row in out_df.to_dict('records'):
@@ -601,7 +605,7 @@ def get_gold_standard_data(form_data):
 
     result = ({
         "summary": {
-            "total": len(df), "global_util": f"{(sum(r['avg'] for r in matrix_rows)/len(matrix_rows) if matrix_rows else 0):.1f}%",
+            "total": len(df), "global_util": f"{(sum(r['avg'] * r.get('total_cap', 1) for r in matrix_rows) / sum(r.get('total_cap', 1) for r in matrix_rows) if matrix_rows and sum(r.get('total_cap', 1) for r in matrix_rows) > 0 else 0):.1f}%",
             "er_wait": f"{df[df['patient_class'].str.contains('ER|Emergency', case=False, na=False)]['total_tat_min'].mean():.1f}m" if 'patient_class' in df.columns else "0m",
             "high_stress_count": high_stress, "low_util_count": under_utilized,
             "work_hours": round(total_active_mins / 60, 1), "total_rvu": round(df['rvu'].sum(), 1),

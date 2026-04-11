@@ -29,8 +29,10 @@ def get_report_data(form_data):
     if not df.empty:
         df["total_gb"]    = pd.to_numeric(df["total_gb"],    errors="coerce").fillna(0)
         df["study_count"] = pd.to_numeric(df["study_count"], errors="coerce").fillna(0)
+        # Exclude rows with 0 studies — replace(0,1) would produce misleading averages
+        df = df[df["study_count"] > 0].copy()
         df["avg_mb_per_study"] = (
-            df["total_gb"] * 1024 / df["study_count"].replace(0, 1)
+            df["total_gb"] * 1024 / df["study_count"]
         ).round(2)
 
     return df, start, end
@@ -75,7 +77,7 @@ def report_29():
                 .sum().reset_index()
             )
             ae_agg["avg_mb"] = (
-                ae_agg["total_gb"] * 1024 / ae_agg["study_count"].replace(0, 1)
+                ae_agg["total_gb"] * 1024 / ae_agg["study_count"]
             ).round(1)
             ae_mb = ae_agg["avg_mb"]
             if len(ae_mb) > 4:
@@ -99,7 +101,7 @@ def report_29():
                 .sum().reset_index()
             )
             proc_agg["avg_mb"] = (
-                proc_agg["total_gb"] * 1024 / proc_agg["study_count"].replace(0, 1)
+                proc_agg["total_gb"] * 1024 / proc_agg["study_count"]
             ).round(1)
             proc_mb = proc_agg["avg_mb"]
             if len(proc_mb) > 4:
@@ -119,7 +121,7 @@ def report_29():
                 .reset_index()
             )
             table_df["avg_mb_per_study"] = (
-                table_df["total_gb"] * 1024 / table_df["study_count"].replace(0, 1)
+                table_df["total_gb"] * 1024 / table_df["study_count"]
             ).round(2)
             table_df = table_df.rename(columns={"storing_ae": "performing_technician"})
             table_data = table_df.sort_values("total_gb", ascending=False).to_dict(orient="records")

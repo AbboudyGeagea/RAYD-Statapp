@@ -118,10 +118,13 @@ def report_23():
             SELECT
                 modality AS mod,
                 CASE
-                    WHEN age_at_exam < 18  THEN 'Under 18'
-                    WHEN age_at_exam <= 35 THEN '19-35'
-                    WHEN age_at_exam <= 64 THEN '36-64'
-                    ELSE '65+'
+                    WHEN age_at_exam <= 0.083 THEN '[0-1 month]'
+                    WHEN age_at_exam <= 1     THEN '[1 month - 1 year]'
+                    WHEN age_at_exam <= 12    THEN '[1-12 years]'
+                    WHEN age_at_exam <= 18    THEN '[13-18]'
+                    WHEN age_at_exam <= 35    THEN '[19-35]'
+                    WHEN age_at_exam <= 64    THEN '[36-64]'
+                    ELSE '[65+]'
                 END AS age,
                 COALESCE(sex, 'U') AS sex,
                 COUNT(*) AS cnt
@@ -176,13 +179,19 @@ def report_23():
                         first = df_pt.groupby('patient_db_uid')['study_date'].min().rename('first_date')
                         df_pt = df_pt.join(first, on='patient_db_uid')
                         df_pt['days'] = (df_pt['study_date'] - df_pt['first_date']).dt.days
-                        total_pts = df_pt['patient_db_uid'].nunique()
-                        if total_pts:
+                        period_end = pd.to_datetime(params['e'])
+                        if not df_pt.empty:
                             for window, key in [(30, '30d'), (60, '60d'), (90, '90d')]:
-                                returned = df_pt[
-                                    (df_pt['days'] > 0) & (df_pt['days'] <= window)
-                                ]['patient_db_uid'].nunique()
-                                repeat_rates[key] = round(returned / total_pts * 100, 1)
+                                # Only count patients whose first visit had enough
+                                # runway (N days before period end) to possibly return
+                                eligible = first[first <= period_end - pd.Timedelta(days=window)]
+                                eligible_pts = eligible.index.nunique()
+                                if eligible_pts > 0:
+                                    returned = df_pt[
+                                        (df_pt['patient_db_uid'].isin(eligible.index)) &
+                                        (df_pt['days'] > 0) & (df_pt['days'] <= window)
+                                    ]['patient_db_uid'].nunique()
+                                    repeat_rates[key] = round(returned / eligible_pts * 100, 1)
 
                     # ── Age × Gender × Modality cube ──────────────────
                     cube_data = []
@@ -215,7 +224,7 @@ def report_23():
                         _age_order = ['[0-1 month]', '[1 month - 1 year]', '[1-12 years]', '[13-18]', '[19-35]', '[36-64]', '[65+]']
                         df_agg['_am_bucket'] = pd.cut(
                             df_agg['age_at_exam'],
-                            bins=[-0.001, 0.083, 1, 12, 18, 35, 64, 999],
+                            bins=[-0.001, 0.083, 1, 12.999, 18, 35, 64, 999],
                             labels=_age_order
                         )
                         am_piv = df_agg.dropna(subset=['modality']).groupby(['modality', '_am_bucket']).size().unstack(fill_value=0)

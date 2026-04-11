@@ -89,6 +89,35 @@
                 <button type="submit" class="run-btn">Update Analysis</button>
             </form>
 
+            {% if current_user.role == 'admin' %}
+            <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:14px;">
+                <label>Total Storage Capacity (GB)</label>
+                <div class="flex items-center gap-2">
+                    <input type="number" id="storageCapInput" class="input-field" style="flex:1;"
+                           value="{{ storage_capacity_gb }}" min="1" step="1">
+                    <button onclick="saveStorageCap()" class="run-btn" style="width:auto;padding:10px 16px;font-size:10px;">Save</button>
+                </div>
+                <div id="storageCapMsg" style="font-size:11px;margin-top:4px;"></div>
+            </div>
+            <script>
+            function saveStorageCap(){
+                const val = parseFloat(document.getElementById('storageCapInput').value);
+                const msg = document.getElementById('storageCapMsg');
+                if(!val || val <= 0){ msg.style.color='#e74c3c'; msg.textContent='Enter a value > 0'; return; }
+                fetch('{{ url_for("report_ai.save_storage_capacity") }}',{
+                    method:'POST', headers:{'Content-Type':'application/json'},
+                    body:JSON.stringify({capacity_gb: val})
+                }).then(r=>r.json()).then(d=>{
+                    if(d.status==='success'){
+                        msg.style.color='#27ae60'; msg.textContent='Saved — reload report to see updated forecast';
+                    } else {
+                        msg.style.color='#e74c3c'; msg.textContent=d.message||'Error';
+                    }
+                }).catch(()=>{ msg.style.color='#e74c3c'; msg.textContent='Network error'; });
+            }
+            </script>
+            {% endif %}
+
             <div style="border-top:1px solid var(--border);padding-top:16px;">
                 <label class="mb-3">Modules</label>
                 <div class="flex flex-col gap-2">

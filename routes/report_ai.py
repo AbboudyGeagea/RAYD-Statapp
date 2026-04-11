@@ -3,7 +3,7 @@ import logging
 import numpy as np
 import pandas as pd
 from datetime import date, timedelta
-from flask import Blueprint, render_template, request, abort
+from flask import Blueprint, render_template, request, abort, jsonify
 from flask_login import login_required, current_user
 from sqlalchemy import text
 from db import db, get_go_live_date, user_has_page
@@ -137,7 +137,11 @@ def _get_storage_intelligence(start, end):
     daily_growth  = slope
     days_to_full  = None
 
-    capacity_gb = 10240.0  # 10TB default
+    # User-configurable storage capacity (from settings table, default 10 TB)
+    cap_row = db.session.execute(text(
+        "SELECT value FROM settings WHERE key = 'storage_capacity_gb'"
+    )).fetchone()
+    capacity_gb = float(cap_row[0]) if cap_row else 10240.0
 
     remaining = capacity_gb - current_gb
     if daily_growth > 0:
@@ -250,9 +254,15 @@ def _get_utilization_intelligence(start, end):
 
     df = pd.DataFrame(rows, columns=['ae', 'study_date', 'load_mins'])
 
-    sched = db.session.execute(text(
-        "SELECT UPPER(TRIM(aetitle)) as ae, day_of_week, std_opening_minutes FROM device_weekly_schedule"
-    )).mappings().all()
+    sched = db.session.execute(text("""
+        SELECT
+            UPPER(TRIM(ws.aetitle)) AS ae,
+            ws.day_of_week,
+            COALESCE(m.daily_capacity_minutes, ws.std_opening_minutes, 480) AS std_opening_minutes
+        FROM device_weekly_schedule ws
+        LEFT JOIN aetitle_modality_map m
+            ON UPPER(TRIM(ws.aetitle)) = UPPER(TRIM(m.aetitle))
+    """)).mappings().all()
     schedule_lookup = {(s['ae'], int(s['day_of_week'])): s['std_opening_minutes'] for s in sched}
 
     date_range   = pd.date_range(start, end)
@@ -446,11 +456,45 @@ def report_ai():
         "physician":   physician
     }
 
+    # Load current storage capacity setting for the form
+    cap_row = db.session.execute(text(
+        "SELECT value FROM settings WHERE key = 'storage_capacity_gb'"
+    )).fetchone()
+    storage_capacity_gb = float(cap_row[0]) if cap_row else 10240.0
+
     return render_template(
         "report_ai.html",
         data=data,
         run_report=True,
         display_start=start,
         display_end=end,
-        active_tab=active_tab
+        active_tab=active_tab,
+        storage_capacity_gb=storage_capacity_gb
     )
+
+
+@report_ai_bp.route("/report/ai/storage-capacity", methods=["POST"])
+@login_required
+def save_storage_capacity():
+    if current_user.role != 'admin':
+        return jsonify({"status": "error", "message": "Admin only"}), 403
+    try:
+        val = float(request.get_json(force=True).get("capacity_gb", 0))
+        if val <= 0:
+            return jsonify({"status": "error", "message": "Must be > 0"}), 400
+        exists = db.session.execute(text(
+            "SELECT 1 FROM settings WHERE key = 'storage_capacity_gb'"
+        )).fetchone()
+        if exists:
+            db.session.execute(text(
+                "UPDATE settings SET value = :v WHERE key = 'storage_capacity_gb'"
+            ), {"v": str(val)})
+        else:
+            db.session.execute(text(
+                "INSERT INTO settings (key, value) VALUES ('storage_capacity_gb', :v)"
+            ), {"v": str(val)})
+        db.session.commit()
+        return jsonify({"status": "success", "capacity_gb": val})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500

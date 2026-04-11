@@ -256,18 +256,20 @@ def yesterday_overview():
             SELECT
                 s.storing_ae,
                 SUM(COALESCE(pm.duration_minutes, 15)) as used_mins,
-                COALESCE(MAX(ws.std_opening_minutes), 0) as capacity_mins
+                COALESCE(MAX(m.daily_capacity_minutes), MAX(ws.std_opening_minutes), 480) as capacity_mins
             FROM etl_didb_studies s
             LEFT JOIN procedure_duration_map pm ON pm.procedure_code = s.procedure_code
             LEFT JOIN device_weekly_schedule ws
                 ON UPPER(TRIM(ws.aetitle)) = UPPER(TRIM(s.storing_ae))
                AND ws.day_of_week = (EXTRACT(ISODOW FROM (CURRENT_DATE - 1))::int - 1)
+            LEFT JOIN aetitle_modality_map m
+                ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
             WHERE s.study_date = CURRENT_DATE - 1
               AND s.storing_ae IS NOT NULL
             GROUP BY s.storing_ae
-            HAVING COALESCE(MAX(ws.std_opening_minutes), 0) > 0
+            HAVING COALESCE(MAX(m.daily_capacity_minutes), MAX(ws.std_opening_minutes), 480) > 0
             ORDER BY (SUM(COALESCE(pm.duration_minutes,15))::float /
-                      NULLIF(MAX(ws.std_opening_minutes),0)) DESC
+                      NULLIF(COALESCE(MAX(m.daily_capacity_minutes), MAX(ws.std_opening_minutes), 480),0)) DESC
         """)
 
         util_list = []

@@ -207,14 +207,26 @@ def _get_opening_minutes(aetitle, day, dow):
     if exc is not None:
         return exc[0]
 
-    # Fall back to weekly schedule
+    # Fall back to weekly schedule, then master capacity
     sched = db.session.execute(text("""
-        SELECT std_opening_minutes
-        FROM device_weekly_schedule
-        WHERE aetitle = :ae AND day_of_week = :dow
+        SELECT COALESCE(m.daily_capacity_minutes, ws.std_opening_minutes, 0)
+        FROM device_weekly_schedule ws
+        LEFT JOIN aetitle_modality_map m
+            ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(ws.aetitle))
+        WHERE ws.aetitle = :ae AND ws.day_of_week = :dow
     """), {"ae": aetitle, "dow": dow}).fetchone()
 
-    return sched[0] if sched else 0
+    if sched:
+        return sched[0]
+
+    # No weekly schedule row — check master table directly
+    master = db.session.execute(text("""
+        SELECT daily_capacity_minutes
+        FROM aetitle_modality_map
+        WHERE aetitle = :ae
+    """), {"ae": aetitle}).fetchone()
+
+    return master[0] if master and master[0] else 0
 
 
 def _get_scheduled(aetitle, day):

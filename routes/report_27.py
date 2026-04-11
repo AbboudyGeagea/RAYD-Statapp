@@ -71,8 +71,9 @@ def report_27():
     start_a = request.form.get("start_date", go_live.strftime('%Y-%m-%d'))
     end_a = request.form.get("end_date", today.strftime('%Y-%m-%d'))
     # Comparison Range
+    # Comparison ends the day before go_live to avoid overlap with primary period
     start_b = request.form.get("comp_start_date", (go_live - timedelta(days=30)).strftime('%Y-%m-%d'))
-    end_b = request.form.get("comp_end_date", go_live.strftime('%Y-%m-%d'))
+    end_b = request.form.get("comp_end_date", (go_live - timedelta(days=1)).strftime('%Y-%m-%d'))
 
     run_report = request.method == "POST"
     data = {}
@@ -88,7 +89,8 @@ def report_27():
             if len(dur_raw) > 0:
                 q1, q3 = dur_raw.quantile(0.25), dur_raw.quantile(0.75)
                 iqr = q3 - q1
-                dur_clean = dur_raw[dur_raw.between(q1 - 1.5 * iqr, q3 + 1.5 * iqr)]
+                # Only remove upper outliers — short durations are valid procedures
+                dur_clean = dur_raw[dur_raw <= q3 + 1.5 * iqr]
                 avg_duration = round(dur_clean.mean(), 1)
                 duration_outliers_removed = int(len(dur_raw) - len(dur_clean))
             else:
