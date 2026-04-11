@@ -7,17 +7,15 @@ services:
     restart: unless-stopped
     ports:
       - "6661:8080"
-    env_file:
-      - .env
     environment:
-      - TZ=${TZ:-Asia/Beirut}
-      - SECRET_KEY=${SECRET_KEY:-dev-secret-key}
-      - POSTGRES_USER=${POSTGRES_USER:-etl_user}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-etl_pass}
+      - TZ=Asia/Beirut
+      - SECRET_KEY=dev-secret-key
+      - POSTGRES_USER=etl_user
+      - POSTGRES_PASSWORD=etl_pass
       - POSTGRES_HOST=db
       - POSTGRES_PORT=5432
-      - POSTGRES_DB=${POSTGRES_DB:-etl_db}
-      - MASTER_ADMIN_KEY=${MASTER_ADMIN_KEY:-admin123}
+      - POSTGRES_DB=etl_db
+      - MASTER_ADMIN_KEY=admin123
       - PATIENT_PORTAL_ENABLED=false
       - LIVE_FEED_ENABLED=true
       - BITNET_ENABLED=false
@@ -30,9 +28,9 @@ services:
     container_name: rayd_db
     restart: unless-stopped
     environment:
-      - POSTGRES_USER=${POSTGRES_USER:-etl_user}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-etl_pass}
-      - POSTGRES_DB=${POSTGRES_DB:-etl_db}
+      - POSTGRES_USER=etl_user
+      - POSTGRES_PASSWORD=etl_pass
+      - POSTGRES_DB=etl_db
     ports:
       - "5432:5432"
     volumes:
@@ -40,7 +38,7 @@ services:
       - ./init-db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
       - ./init-db/rayd_backup.sql:/docker-entrypoint-initdb.d/02_data.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-etl_user} -d ${POSTGRES_DB:-etl_db}"]
+      test: ["CMD-SHELL", "pg_isready -U etl_user -d etl_db"]
       interval: 5s
       timeout: 3s
       retries: 10
