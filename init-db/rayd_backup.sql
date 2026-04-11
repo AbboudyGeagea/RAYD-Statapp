@@ -98,7 +98,7 @@ ALTER TABLE public.db_params DISABLE TRIGGER ALL;
 
 COPY public.db_params (id, name, db_role, db_type, conn_string, host, username, password, port, sid, mode, created_at, updated_at) FROM stdin;
 2	oracle_PACS	source	oracle	\N	10.10.11.50	sys	a1d2m7i4	1521	mst1	SYSDBA	2025-11-18 11:20:20.901226	2025-11-18 11:20:20.907357
-1	etl_db	dest	postgres	postgresql://etl_user:SecureCrynBabe@localhost:5432/etl_db	localhost	\N	\N	\N	\N	\N	2025-11-18 11:20:20.901226	2025-11-18 11:20:20.907357
+1	etl_db	dest	postgres	postgresql://etl_user:etl_pass@db:5432/etl_db	db	\N	\N	\N	\N	\N	2025-11-18 11:20:20.901226	2025-11-18 11:20:20.907357
 \.
 
 
