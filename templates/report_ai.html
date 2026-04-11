@@ -221,6 +221,8 @@
         if (el) el.classList.add('active');
         const panel = document.getElementById('panel-' + name);
         if (panel) panel.classList.add('active');
+        // ECharts renders as 0x0 when container is display:none — resize after tab is visible
+        setTimeout(() => Object.values(charts).forEach(c => c && c.resize()), 50);
     }
 
     // Deep-link: jump to the tab requested via ?tab= param
