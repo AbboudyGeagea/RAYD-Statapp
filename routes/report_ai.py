@@ -24,7 +24,7 @@ def _linear_forecast(dates, values, forecast_days=90):
     slope, intercept = coeffs
     ss_res = np.sum((np.array(values) - np.polyval(coeffs, x)) ** 2)
     ss_tot = np.sum((np.array(values) - np.mean(values)) ** 2)
-    r2 = round(1 - (ss_res / ss_tot) if ss_tot > 0 else 0, 3)
+    r2 = round(max(0, 1 - (ss_res / ss_tot)) if ss_tot > 0 else 0, 3)
 
     last_date = pd.to_datetime(dates[-1])
     future_x = np.arange(len(values), len(values) + forecast_days)
@@ -33,11 +33,28 @@ def _linear_forecast(dates, values, forecast_days=90):
     return future_dates, future_vals, r2, round(slope, 2)
 
 
-def _detect_anomalies(values, threshold=2.0):
-    """Returns list of booleans — True = anomaly."""
+def _detect_anomalies(values, threshold=2.0, dates=None):
+    """Returns list of booleans — True = anomaly.
+    If dates are provided, uses weekday-aware detection (compares each day
+    against its own weekday's mean/std) to avoid flagging normal Mon-vs-Sun
+    differences as anomalies."""
     if len(values) < 4:
         return [False] * len(values)
     arr = np.array(values, dtype=float)
+
+    if dates is not None and len(dates) == len(values):
+        dows = np.array([pd.to_datetime(d).weekday() for d in dates])
+        flags = []
+        for i, v in enumerate(arr):
+            same_dow = arr[dows == dows[i]]
+            if len(same_dow) < 3:
+                # Not enough same-weekday samples — fall back to global
+                mean, std = arr.mean(), arr.std()
+            else:
+                mean, std = same_dow.mean(), same_dow.std()
+            flags.append(bool(std > 0 and abs(v - mean) > threshold * std))
+        return flags
+
     mean, std = arr.mean(), arr.std()
     if std == 0:
         return [False] * len(values)
@@ -191,7 +208,7 @@ def _get_volume_intelligence(start, end):
     values = [int(r[1]) for r in rows]
 
     f_dates, f_vals, r2, slope = _linear_forecast(dates, values, 90)
-    anomalies = _detect_anomalies(values)
+    anomalies = _detect_anomalies(values, dates=dates)
 
     avg_daily = round(np.mean(values), 1)
 
@@ -265,9 +282,6 @@ def _get_utilization_intelligence(start, end):
     """)).mappings().all()
     schedule_lookup = {(s['ae'], int(s['day_of_week'])): s['std_opening_minutes'] for s in sched}
 
-    date_range   = pd.date_range(start, end)
-    weekday_occ  = date_range.dayofweek.value_counts().to_dict()
-
     ae_results   = []
     all_anomalies = 0
     high_stress  = []
@@ -283,15 +297,13 @@ def _get_utilization_intelligence(start, end):
         daily_dates = []
         for _, row in ae_df.iterrows():
             dow      = int(row['dow'])
-            cap      = schedule_lookup.get((ae_upper, dow), 0)
-            occ      = weekday_occ.get(dow, 1)
-            day_cap  = cap  # per-day capacity
+            day_cap  = schedule_lookup.get((ae_upper, dow), 0)
             util_pct = round((row['load_mins'] / day_cap * 100), 1) if day_cap > 0 else 0
             daily_utils.append(util_pct)
             daily_dates.append(str(row['study_date'].date()))
 
         avg_util   = round(np.mean(daily_utils), 1) if daily_utils else 0
-        anomalies  = _detect_anomalies(daily_utils)
+        anomalies  = _detect_anomalies(daily_utils, dates=daily_dates)
         anom_count = sum(anomalies)
         all_anomalies += anom_count
 

@@ -144,10 +144,11 @@ def report_23():
                 age_total = df_agg['age_at_exam'].notna().sum()
                 df_agg = df_agg[df_agg['age_at_exam'].isna() | df_agg['age_at_exam'].between(0, 110)]
                 age_outliers_removed = int(age_total - df_agg['age_at_exam'].notna().sum())
-                df_agg['age_at_exam'] = df_agg['age_at_exam'].fillna(0)
                 metrics["age_outliers_removed"] = age_outliers_removed
 
-                mod_avg   = df_agg.groupby('modality')['age_at_exam'].mean().sort_values().to_dict()
+                # Compute mean BEFORE fillna(0) — unknown ages must not count as age 0
+                mod_avg   = df_agg.dropna(subset=['age_at_exam']).groupby('modality')['age_at_exam'].mean().sort_values().to_dict()
+                df_agg['age_at_exam'] = df_agg['age_at_exam'].fillna(0)
                 class_vol = df_agg['patient_class'].value_counts().to_dict()
 
                 age_order = ['[0-1 month]', '[1 month - 1 year]', '[1-12 years]',

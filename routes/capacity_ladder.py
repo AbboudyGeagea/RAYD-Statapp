@@ -20,6 +20,16 @@ from db import db
 logger = logging.getLogger("CAPACITY_LADDER")
 capacity_ladder_bp = Blueprint("capacity_ladder", __name__)
 
+def _get_default_start_hour():
+    """Read default shift start hour from settings table (fallback 8)."""
+    try:
+        row = db.session.execute(
+            text("SELECT value FROM settings WHERE key = 'capacity_start_hour'")
+        ).fetchone()
+        return int(row[0]) if row else 8
+    except Exception:
+        return 8
+
 
 # ─────────────────────────────────────────────
 #  PAGE
@@ -132,8 +142,8 @@ def detail():
         scheduled = _get_scheduled(aetitle, day)
         scheduled_min = sum(p["duration"] for p in scheduled)
 
-        # Build timeline slots (opening hours assumed to start at 08:00)
-        start_hour   = 8
+        # Build timeline slots
+        start_hour   = _get_default_start_hour()
         start_minute = start_hour * 60
         end_minute   = start_minute + opening_min
 
@@ -316,7 +326,7 @@ def suggestions():
             return jsonify({"gaps": [], "procedures": [], "modality": modality})
 
         scheduled    = _get_scheduled(aetitle, day)
-        start_minute = 8 * 60
+        start_minute = _get_default_start_hour() * 60
         end_minute   = start_minute + opening_min
 
         blocks = []

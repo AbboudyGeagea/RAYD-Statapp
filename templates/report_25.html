@@ -291,8 +291,11 @@
                     <div class="chart-card">
                         <div class="chart-card-header">
                             <span class="chart-card-title">Duration vs. TAT Correlation</span>
+                            {% if run_report and data and data.pearson_r is not none %}
+                            <span class="outlier-badge" style="background:{% if data.pearson_r|abs >= 0.7 %}#dcfce7{% elif data.pearson_r|abs >= 0.4 %}#fef9c3{% else %}#fee2e2{% endif %};color:#18181b;">r = {{ data.pearson_r }}</span>
+                            {% endif %}
                             {% if run_report and data and data.scatter_outliers_removed %}
-                            <span class="outlier-badge">⚠ {{ data.scatter_outliers_removed }} outliers removed<span class="tooltip">IQR filter applied — extreme duration/TAT values excluded.</span></span>
+                            <span class="outlier-badge">{{ data.scatter_outliers_removed }} outliers removed<span class="tooltip">IQR filter applied — extreme duration/TAT values excluded.</span></span>
                             {% endif %}
                             <button class="export-png-btn" onclick="exportChart('chart-7', 'duration_tat_correlation')">
                                 <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
@@ -924,6 +927,39 @@
                     </div>
                 </div>
 
+                <!-- Shift Utilization KPIs -->
+                {% if ts.avg_util_pct is defined and ts.total_span_hrs > 0 %}
+                <div class="space-y-2">
+                    <p class="text-xs font-black text-blue-500 uppercase tracking-widest">Shift Utilization</p>
+                    <p class="text-[10px] text-zinc-500">
+                        How much of each technician's active shift (first scheduled exam to last completed) is occupied by procedure work.
+                        Idle time = gaps between procedures where the technician is on shift but not scanning.
+                    </p>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div class="glass-card flex flex-col items-center border border-cyan-500/20">
+                            <p class="text-[10px] font-black text-zinc-500 uppercase">Avg Utilization</p>
+                            <p class="text-3xl font-black {% if ts.avg_util_pct >= 75 %}text-emerald-400{% elif ts.avg_util_pct >= 50 %}text-amber-400{% else %}text-rose-400{% endif %}">{{ ts.avg_util_pct }}<span class="text-sm">%</span></p>
+                            <p class="text-[10px] text-zinc-600">work time / shift span</p>
+                        </div>
+                        <div class="glass-card flex flex-col items-center">
+                            <p class="text-[10px] font-black text-zinc-500 uppercase">Total Shift Hrs</p>
+                            <p class="text-3xl font-black text-white">{{ ts.total_span_hrs }}<span class="text-sm">h</span></p>
+                            <p class="text-[10px] text-zinc-600">first start to last done</p>
+                        </div>
+                        <div class="glass-card flex flex-col items-center">
+                            <p class="text-[10px] font-black text-zinc-500 uppercase">Work Hrs</p>
+                            <p class="text-3xl font-black text-emerald-400">{{ ts.total_work_hrs }}<span class="text-sm">h</span></p>
+                            <p class="text-[10px] text-zinc-600">sum of expected durations</p>
+                        </div>
+                        <div class="glass-card flex flex-col items-center border border-rose-500/20">
+                            <p class="text-[10px] font-black text-zinc-500 uppercase">Idle Hrs</p>
+                            <p class="text-3xl font-black text-rose-400">{{ ts.total_idle_hrs }}<span class="text-sm">h</span></p>
+                            <p class="text-[10px] text-zinc-600">shift span minus work</p>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
                 <!-- Per-Technician Cards -->
                 <div class="space-y-4">
                     <p class="text-xs font-black text-blue-500 uppercase tracking-widest">Per-Technician Performance</p>
@@ -949,6 +985,21 @@
                             <div class="flex items-center gap-2 mb-3 px-2 py-1.5 rounded-lg bg-violet-500/5 border border-violet-500/15">
                                 <i class="bi bi-ambulance text-violet-400 text-[11px]"></i>
                                 <span class="text-[10px] text-violet-300 font-bold">{{ t.total_er_delay }}m total ER delay across {{ t.er_affected }} exams</span>
+                            </div>
+                            {% endif %}
+                            <!-- Shift utilization -->
+                            {% if t.span_min > 0 %}
+                            <div class="mb-3 px-2 py-1.5 rounded-lg bg-cyan-500/5 border border-cyan-500/15">
+                                <div class="flex items-center justify-between mb-1">
+                                    <span class="text-[10px] font-bold {% if t.util_pct >= 75 %}text-emerald-400{% elif t.util_pct >= 50 %}text-amber-400{% else %}text-rose-400{% endif %}">
+                                        {{ t.util_pct }}% shift utilization
+                                    </span>
+                                    <span class="text-[9px] text-zinc-500">{{ t.active_days }}d | {{ (t.span_min / 60)|round(1) }}h span | {{ (t.work_min / 60)|round(1) }}h work | {{ (t.idle_min / 60)|round(1) }}h idle</span>
+                                </div>
+                                <div class="flex rounded-lg overflow-hidden h-1.5">
+                                    <div style="width:{{ t.util_pct }}%" class="{% if t.util_pct >= 75 %}bg-emerald-500{% elif t.util_pct >= 50 %}bg-amber-500{% else %}bg-rose-500{% endif %}"></div>
+                                    <div style="width:{{ 100 - t.util_pct }}%" class="bg-zinc-800"></div>
+                                </div>
                             </div>
                             {% endif %}
                             <!-- Modality breakdown -->
@@ -987,6 +1038,63 @@
                         {% endfor %}
                     </div>
                 </div>
+
+                <!-- Technician ↔ Modality Rotation -->
+                {% if data.tech_data.sankey and data.tech_data.sankey.links %}
+                <div class="space-y-4">
+                    <p class="text-xs font-black text-blue-500 uppercase tracking-widest">Technician &harr; Modality Rotation</p>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="chart-card">
+                            <div class="chart-card-header">
+                                <span class="chart-card-title">Technician &rarr; Modality Flow</span>
+                                <button onclick="exportChart('chart-tech-sankey','TechModalityFlow')" class="chart-export-btn"><i class="bi bi-download"></i></button>
+                            </div>
+                            <div class="chart-card-desc">
+                                Flow width = number of exams completed. Shows which modalities each technician works on and how their workload is distributed.
+                            </div>
+                            <div class="chart-card-body">
+                                <div id="chart-tech-sankey" style="height:400px;"></div>
+                            </div>
+                        </div>
+                        <div class="chart-card">
+                            <div class="chart-card-header">
+                                <span class="chart-card-title">Modality Transitions (Same-Day)</span>
+                                <button onclick="exportChart('chart-tech-transitions','ModalityTransitions')" class="chart-export-btn"><i class="bi bi-download"></i></button>
+                            </div>
+                            <div class="chart-card-desc">
+                                When a technician finishes on one modality and their next exam is on a different modality within the same day, that's a rotation.
+                                Frequent rotations may indicate cross-training or scheduling gaps.
+                            </div>
+                            <div class="chart-card-body">
+                                <div id="chart-tech-transitions" style="height:400px;"></div>
+                            </div>
+                        </div>
+                    </div>
+                    {% if data.tech_data.transitions %}
+                    <div class="glass-card overflow-x-auto" style="max-height:250px; overflow-y:auto;">
+                        <p class="text-[10px] font-black text-zinc-500 uppercase tracking-wider mb-2">Rotation Log</p>
+                        <table class="w-full text-left" style="border-collapse:separate; border-spacing:0;">
+                            <thead>
+                                <tr class="text-[10px] font-black text-zinc-500 uppercase tracking-wider">
+                                    <th class="pb-2 pr-4 sticky top-0 bg-[#111413] z-10">From</th>
+                                    <th class="pb-2 pr-4 sticky top-0 bg-[#111413] z-10">To</th>
+                                    <th class="pb-2 pr-4 sticky top-0 bg-[#111413] z-10 text-right">Rotations</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for tr in data.tech_data.transitions %}
+                                <tr class="border-t border-white/5">
+                                    <td class="py-1.5 pr-4 text-xs font-bold text-cyan-400">{{ tr['from'] }}</td>
+                                    <td class="py-1.5 pr-4 text-xs font-bold text-emerald-400">{{ tr.to }}</td>
+                                    <td class="py-1.5 pr-4 text-xs text-right font-mono text-white">{{ tr.count }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% endif %}
+                </div>
+                {% endif %}
 
                 <!-- Procedure: Actual vs Expected -->
                 <div class="space-y-4">
@@ -1219,6 +1327,10 @@
                     tooltip: { trigger: 'item', formatter: p => `Duration: ${p.value[0]}m<br>TAT: ${p.value[1]}m` },
                     xAxis: { name: 'Proc Duration (min)', nameTextStyle: { color: '#52525b', fontSize: 11 }, ...axisStyle },
                     yAxis: { name: 'Total TAT (min)',      nameTextStyle: { color: '#52525b', fontSize: 11 }, ...axisStyle },
+                    graphic: d.pearson_r != null ? [{
+                        type: 'text', left: 60, top: 10,
+                        style: { text: `Pearson r = ${d.pearson_r}`, fontSize: 12, fill: '#71717a' }
+                    }] : [],
                     series: [{ type: 'scatter', data: d.correlation || [], itemStyle: { color: '#3b82f6', opacity: 0.4 }, symbolSize: 6 }]
                 });
                 registerChart('chart-7', c7);
@@ -1672,6 +1784,90 @@
                         }]
                     });
                     registerChart('chart-tech-compare', cTech);
+                }
+
+                // ── Sankey: Technician → Modality ────────────────────────
+                const sankeyEl = document.getElementById('chart-tech-sankey');
+                if (sankeyEl && d.tech_data && d.tech_data.sankey && d.tech_data.sankey.links.length > 0) {
+                    const cSankey = echarts.init(sankeyEl);
+                    const modalities = [...new Set(d.tech_data.sankey.links.map(l => l.target))];
+                    const modColors = {};
+                    const palette = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#06b6d4','#84cc16','#f97316','#6366f1'];
+                    modalities.forEach((m, i) => modColors[m] = palette[i % palette.length]);
+
+                    cSankey.setOption({
+                        tooltip: { trigger: 'item', formatter: p => {
+                            if (p.dataType === 'edge') return `${p.data.source} → ${p.data.target}: ${p.data.value} exams`;
+                            return p.name;
+                        }},
+                        series: [{
+                            type: 'sankey',
+                            layout: 'none',
+                            emphasis: { focus: 'adjacency' },
+                            nodeAlign: 'left',
+                            nodeGap: 12,
+                            nodeWidth: 20,
+                            lineStyle: { color: 'gradient', opacity: 0.4, curveness: 0.5 },
+                            label: { color: '#d4d4d8', fontSize: 11, fontWeight: 'bold' },
+                            itemStyle: { borderWidth: 0 },
+                            data: d.tech_data.sankey.nodes.map(n => ({
+                                name: n.name,
+                                itemStyle: { color: modColors[n.name] || '#3b82f6' }
+                            })),
+                            links: d.tech_data.sankey.links
+                        }]
+                    });
+                    registerChart('chart-tech-sankey', cSankey);
+                }
+
+                // ── Chord/Graph: Modality Transitions ────────────────────
+                const transEl = document.getElementById('chart-tech-transitions');
+                if (transEl && d.tech_data && d.tech_data.transitions && d.tech_data.transitions.length > 0) {
+                    const cTrans = echarts.init(transEl);
+                    const trans = d.tech_data.transitions;
+                    const allMods = [...new Set(trans.flatMap(t => [t.from, t.to]))];
+                    const modColors2 = {};
+                    const pal2 = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#06b6d4','#84cc16','#f97316','#6366f1'];
+                    allMods.forEach((m, i) => modColors2[m] = pal2[i % pal2.length]);
+                    const maxVal = Math.max(...trans.map(t => t.count));
+
+                    const nodes = allMods.map(m => ({
+                        name: m,
+                        symbolSize: 30 + (trans.filter(t => t.from === m || t.to === m).reduce((s, t) => s + t.count, 0) / Math.max(maxVal, 1)) * 30,
+                        itemStyle: { color: modColors2[m] },
+                        label: { show: true, color: '#d4d4d8', fontSize: 12, fontWeight: 'bold' }
+                    }));
+                    const links = trans.map(t => ({
+                        source: t.from,
+                        target: t.to,
+                        value: t.count,
+                        lineStyle: {
+                            width: Math.max(1, (t.count / Math.max(maxVal, 1)) * 10),
+                            color: modColors2[t.from],
+                            opacity: 0.6,
+                            curveness: 0.3
+                        }
+                    }));
+
+                    cTrans.setOption({
+                        tooltip: { formatter: p => {
+                            if (p.dataType === 'edge') return `${p.data.source} → ${p.data.target}: ${p.data.value} rotations`;
+                            return p.name;
+                        }},
+                        series: [{
+                            type: 'graph',
+                            layout: 'circular',
+                            circular: { rotateLabel: true },
+                            roam: true,
+                            emphasis: { focus: 'adjacency', lineStyle: { opacity: 0.8, width: 4 } },
+                            data: nodes,
+                            links: links,
+                            edgeSymbol: ['none', 'arrow'],
+                            edgeSymbolSize: [4, 10],
+                            label: { position: 'right' }
+                        }]
+                    });
+                    registerChart('chart-tech-transitions', cTrans);
                 }
             }
         }

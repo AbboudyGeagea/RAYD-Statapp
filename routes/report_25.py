@@ -56,7 +56,20 @@ def get_gold_standard_data(form_data):
     if form_data.get("loc_enabled") == "on" and form_data.getlist("patient_location"):
         where_clauses.append("patient_location IN :locations")
         params["locations"] = tuple(form_data.getlist("patient_location"))
-        
+
+    # Build secondary filter fragments for raw SQL queries against etl_didb_studies (prefix "s.")
+    _sec_filters = ""
+    if "classes" in params:
+        _sec_filters += " AND s.patient_class IN :classes"
+    if "modalities" in params:
+        _sec_filters += " AND UPPER(TRIM(m.modality)) IN :modalities"
+    if "aetitles" in params:
+        _sec_filters += " AND s.storing_ae IN :aetitles"
+    if "locations" in params:
+        _sec_filters += " AND s.patient_location IN :locations"
+    # Whether secondary queries need the modality JOIN
+    _sec_needs_mod_join = "modalities" in params
+
     # 2. Fetch SQL Template
     template_res = db.session.execute(text("SELECT report_sql_query FROM report_template WHERE report_id = 25")).fetchone()
     if not template_res: 
@@ -91,7 +104,7 @@ def get_gold_standard_data(form_data):
     matrix_rows = []
     high_stress = 0
     under_utilized = 0
-    total_active_mins = df['proc_duration'].sum()
+    total_active_mins = df.loc[df['proc_duration'] > 0, 'proc_duration'].sum()
 
     if 'aetitle' in df.columns:
         date_range = pd.date_range(start, end)
@@ -152,12 +165,16 @@ def get_gold_standard_data(form_data):
                 mods = [{"m": m, "avg": round(m_df['total_tat_min'].mean(), 1), "count": len(m_df), "rvu": round(m_df['rvu'].sum(), 1)} for m, m_df in l_df.groupby('modality')]
                 drill.append({"loc": loc, "mods": mods, "loc_rvu": round(l_df['rvu'].sum(), 1)})
 
-            total_scan_hours = r_df['proc_duration'].sum() / 60
-            rvu_per_hour = round(r_df['rvu'].sum() / total_scan_hours, 2) if total_scan_hours > 0 else 0.0
+            # Only count studies with a mapped duration — unmapped studies (0 min)
+            # would contribute RVU without time, inflating the rate
+            r_df_mapped = r_df[r_df['proc_duration'] > 0]
+            total_scan_hours = r_df_mapped['proc_duration'].sum() / 60
+            rvu_per_hour = round(r_df_mapped['rvu'].sum() / total_scan_hours, 2) if total_scan_hours > 0 else 0.0
 
+            r_df_valid = r_df[r_df['total_tat_min'] > 0]
             rad_cards.append({
                 "name": rad,
-                "overall": round(r_df['total_tat_min'].mean(), 1),
+                "overall": round(r_df_valid['total_tat_min'].mean(), 1) if len(r_df_valid) > 0 else 0.0,
                 "tat_median": round(float(r_df[r_df['total_tat_min'] > 0]['total_tat_min'].median()), 1) if (r_df['total_tat_min'] > 0).any() else 0.0,
                 "total_rvu": round(r_df['rvu'].sum(), 1),
                 "rvu_per_hour": rvu_per_hour,
@@ -181,22 +198,24 @@ def get_gold_standard_data(form_data):
     shift_patterns = {}
     try:
         _BREAK_MIN = 20
-        ts_rows = db.session.execute(text("""
+        ts_rows = db.session.execute(text(f"""
             SELECT
                 COALESCE(
                     NULLIF(TRIM(CONCAT(
-                        COALESCE(signing_physician_first_name, ''), ' ',
-                        COALESCE(signing_physician_last_name,  '')
+                        COALESCE(s.signing_physician_first_name, ''), ' ',
+                        COALESCE(s.signing_physician_last_name,  '')
                     )), ''),
-                    rep_final_signed_by,
+                    s.rep_final_signed_by,
                     'Unknown'
                 ) AS radiologist,
-                rep_final_timestamp
-            FROM etl_didb_studies
-            WHERE rep_final_timestamp IS NOT NULL
-              AND rep_final_timestamp::date BETWEEN :start AND :end
+                s.rep_final_timestamp
+            FROM etl_didb_studies s
+            {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
+            WHERE s.rep_final_timestamp IS NOT NULL
+              AND s.rep_final_timestamp::date BETWEEN :start AND :end
+              {_sec_filters}
             ORDER BY 1, 2
-        """), {"start": start, "end": end}).fetchall()
+        """), params).fetchall()
 
         if ts_rows:
             ts_df = pd.DataFrame(ts_rows, columns=['radiologist', 'ts'])
@@ -333,12 +352,12 @@ def get_gold_standard_data(form_data):
     # Unread study aging buckets
     unread_aging = []
     try:
-        aging_rows = db.session.execute(text("""
+        aging_rows = db.session.execute(text(f"""
             SELECT
                 CASE
-                    WHEN EXTRACT(EPOCH FROM (NOW() - study_date::timestamp))/3600 <= 24 THEN '0-24h'
-                    WHEN EXTRACT(EPOCH FROM (NOW() - study_date::timestamp))/3600 <= 48 THEN '24-48h'
-                    WHEN EXTRACT(EPOCH FROM (NOW() - study_date::timestamp))/3600 <= 72 THEN '48-72h'
+                    WHEN EXTRACT(EPOCH FROM (NOW() - s.study_date::timestamp))/3600 <= 24 THEN '0-24h'
+                    WHEN EXTRACT(EPOCH FROM (NOW() - s.study_date::timestamp))/3600 <= 48 THEN '24-48h'
+                    WHEN EXTRACT(EPOCH FROM (NOW() - s.study_date::timestamp))/3600 <= 72 THEN '48-72h'
                     ELSE '72h+'
                 END AS bucket,
                 COALESCE(UPPER(m.modality), 'N/A') AS modality,
@@ -347,10 +366,11 @@ def get_gold_standard_data(form_data):
             LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
             WHERE s.study_status ILIKE '%unread%'
               AND s.study_date BETWEEN :start AND :end
+              {_sec_filters}
             GROUP BY 1, 2
             ORDER BY
                 CASE bucket WHEN '0-24h' THEN 1 WHEN '24-48h' THEN 2 WHEN '48-72h' THEN 3 ELSE 4 END
-        """), {"start": start, "end": end}).fetchall()
+        """), params).fetchall()
         for bucket, modality, cnt in aging_rows:
             unread_aging.append({'bucket': bucket, 'modality': modality, 'cnt': int(cnt)})
     except Exception:
@@ -360,7 +380,7 @@ def get_gold_standard_data(form_data):
     shift_breakdown = []
     try:
         sc = _load_shift_config()
-        shift_rows = db.session.execute(text("""
+        shift_rows = db.session.execute(text(f"""
             SELECT
                 CASE
                     WHEN EXTRACT(HOUR FROM o.scheduled_datetime) >= :ms AND EXTRACT(HOUR FROM o.scheduled_datetime) < :me THEN 'Morning'
@@ -374,10 +394,10 @@ def get_gold_standard_data(form_data):
             LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
             WHERE s.study_date BETWEEN :start AND :end
               AND o.scheduled_datetime IS NOT NULL
+              {_sec_filters}
             GROUP BY 1, 2
             ORDER BY 1, 2
-        """), {
-            "start": start, "end": end,
+        """), {**params,
             "ms": sc['morning_start'],   "me": sc['morning_end'],
             "as": sc['afternoon_start'], "ae": sc['afternoon_end'],
         }).fetchall()
@@ -389,20 +409,22 @@ def get_gold_standard_data(form_data):
     # Addendum rate by radiologist
     addendum_data = {'overall_pct': 0.0, 'by_rad': []}
     try:
-        add_rows = db.session.execute(text("""
+        add_rows = db.session.execute(text(f"""
             SELECT
-                COALESCE(rep_final_signed_by, 'Unknown') AS radiologist,
+                COALESCE(s.rep_final_signed_by, 'Unknown') AS radiologist,
                 COUNT(*) AS total,
-                SUM(CASE WHEN rep_has_addendum THEN 1 ELSE 0 END) AS addendum_count,
-                ROUND(SUM(CASE WHEN rep_has_addendum THEN 1 ELSE 0 END)::numeric / NULLIF(COUNT(*),0) * 100, 1) AS addendum_pct
-            FROM etl_didb_studies
-            WHERE study_date BETWEEN :start AND :end
-              AND rep_final_signed_by IS NOT NULL
-              AND rep_final_timestamp IS NOT NULL
+                SUM(CASE WHEN s.rep_has_addendum THEN 1 ELSE 0 END) AS addendum_count,
+                ROUND(SUM(CASE WHEN s.rep_has_addendum THEN 1 ELSE 0 END)::numeric / NULLIF(COUNT(*),0) * 100, 1) AS addendum_pct
+            FROM etl_didb_studies s
+            {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
+            WHERE s.study_date BETWEEN :start AND :end
+              AND s.rep_final_signed_by IS NOT NULL
+              AND s.rep_final_timestamp IS NOT NULL
+              {_sec_filters}
             GROUP BY 1
             HAVING COUNT(*) >= 5
             ORDER BY addendum_pct DESC
-        """), {"start": start, "end": end}).fetchall()
+        """), params).fetchall()
         by_rad = [
             {'rad': r[0], 'total': int(r[1]), 'addendum_count': int(r[2]), 'pct': float(r[3] or 0)}
             for r in add_rows
@@ -428,7 +450,14 @@ def get_gold_standard_data(form_data):
         except Exception:
             db.session.rollback()
 
-        tech_rows = db.session.execute(text("""
+        # Build hl7-specific filters (hl7_orders uses ho. prefix, different columns)
+        _ho_filters = ""
+        if "modalities" in params:
+            _ho_filters += " AND UPPER(TRIM(ho.modality)) IN :modalities"
+        # Note: hl7_orders doesn't have patient_class/storing_ae/patient_location
+        # so those filters are not applicable to technician TAT
+
+        tech_rows = db.session.execute(text(f"""
             SELECT
                 ho.accession_number,
                 ho.patient_id,
@@ -451,8 +480,9 @@ def get_gold_standard_data(form_data):
               AND ho.done_at IS NOT NULL
               AND ho.done_by IS NOT NULL
               AND ho.done_at::date BETWEEN :start AND :end
+              {_ho_filters}
             ORDER BY ho.done_at DESC
-        """), {"start": start, "end": end}).mappings().fetchall()
+        """), params).mappings().fetchall()
 
         if tech_rows:
             tech_df = pd.DataFrame(tech_rows)
@@ -465,7 +495,7 @@ def get_gold_standard_data(form_data):
             # Their total expected duration = ER delay (not the tech's fault).
             er_delay_map = {}  # accession -> {'er_delay_min': float, 'er_cases': int}
             try:
-                er_rows = db.session.execute(text("""
+                er_rows = db.session.execute(text(f"""
                     WITH completed AS (
                         SELECT accession_number, modality,
                                COALESCE(scheduled_datetime, received_at) AS sched,
@@ -474,6 +504,7 @@ def get_gold_standard_data(form_data):
                         WHERE order_status = 'CM'
                           AND done_at IS NOT NULL
                           AND done_at::date BETWEEN :start AND :end
+                          {"AND UPPER(TRIM(modality)) IN :modalities" if "modalities" in params else ""}
                     )
                     SELECT
                         c.accession_number,
@@ -492,7 +523,7 @@ def get_gold_standard_data(form_data):
                     LEFT JOIN procedure_duration_map pm
                         ON UPPER(TRIM(er.procedure_code)) = UPPER(TRIM(pm.procedure_code))
                     GROUP BY c.accession_number
-                """), {"start": start, "end": end}).fetchall()
+                """), params).fetchall()
                 for acc, er_cases, er_delay in er_rows:
                     er_delay_map[acc] = {
                         'er_delay_min': float(er_delay),
@@ -531,9 +562,38 @@ def get_gold_standard_data(form_data):
                 v = float(val)
                 return default if (v != v or v == float('inf') or v == float('-inf')) else round(v, 1)
 
+            # ── Shift utilization per technician ──────────────────────
+            # Per tech per day: span = first_start → last_done, work = sum(expected_min)
+            tech_df['start_dt'] = pd.to_datetime(tech_df['start_time'], errors='coerce')
+            tech_df['done_dt']  = pd.to_datetime(tech_df['done_at'], errors='coerce')
+            tech_df['work_date'] = tech_df['done_dt'].dt.date
+
+            tech_util_map = {}  # tech_name -> {span_min, work_min, util_pct, days}
+            for tech_name, tg in tech_df[tech_df['done_dt'].notna() & tech_df['start_dt'].notna()].groupby('done_by'):
+                day_spans = []
+                day_works = []
+                for _, day_df in tg.groupby('work_date'):
+                    first_start = day_df['start_dt'].min()
+                    last_done   = day_df['done_dt'].max()
+                    span = (last_done - first_start).total_seconds() / 60.0
+                    work = day_df['expected_min'].sum()
+                    if span > 0:
+                        day_spans.append(span)
+                        day_works.append(float(work))
+                total_span = sum(day_spans)
+                total_work = sum(day_works)
+                tech_util_map[tech_name] = {
+                    'span_min': round(total_span, 1),
+                    'work_min': round(total_work, 1),
+                    'util_pct': round(total_work / total_span * 100, 1) if total_span > 0 else 0,
+                    'idle_min': round(max(total_span - total_work, 0), 1),
+                    'days': len(day_spans),
+                }
+
             # Per-technician cards — use adjusted TAT for performance metrics
             for tech, tdf in tech_df.groupby('done_by'):
                 valid = tdf[tdf['actual_min'] > 0]
+                util_info = tech_util_map.get(tech, {})
                 tech_data['technicians'].append({
                     'name': str(tech),
                     'total_exams': len(tdf),
@@ -546,6 +606,11 @@ def get_gold_standard_data(form_data):
                     'too_long': int((tdf['flag'] == 'too_long').sum()),
                     'er_delayed': int((tdf['flag'] == 'er_delayed').sum()),
                     'normal': int((tdf['flag'] == 'normal').sum()),
+                    'util_pct': util_info.get('util_pct', 0),
+                    'span_min': util_info.get('span_min', 0),
+                    'work_min': util_info.get('work_min', 0),
+                    'idle_min': util_info.get('idle_min', 0),
+                    'active_days': util_info.get('days', 0),
                     'by_modality': [
                         {'mod': str(m), 'cnt': len(mdf), 'avg': _safe(mdf[mdf['actual_min'] > 0]['adjusted_min'].mean()) if (mdf['actual_min'] > 0).any() else 0}
                         for m, mdf in tdf.groupby('modality')
@@ -578,10 +643,41 @@ def get_gold_standard_data(form_data):
                     'count': len(pdf),
                     'avg_actual': _safe(pdf['adjusted_min'].mean()),
                     'avg_raw': _safe(pdf['actual_min'].mean()),
-                    'expected': int(pdf.iloc[0]['expected_min']),
+                    'expected': int(pdf['expected_min'].mode().iloc[0]) if not pdf['expected_min'].mode().empty else int(pdf.iloc[0]['expected_min']),
                     'modality': str(pdf.iloc[0].get('modality') or ''),
                     'er_affected': int((pdf['er_delay_min'] > 0).sum()),
                 })
+
+            # ── Technician ↔ Modality rotation data ──────────────────
+            # Sankey: technician → modality (weighted by exam count)
+            sankey_links = []
+            for tech_name, tg in tech_df.groupby('done_by'):
+                for mod, mdf in tg.groupby('modality'):
+                    sankey_links.append({
+                        'source': str(tech_name),
+                        'target': str(mod),
+                        'value': len(mdf),
+                    })
+            sankey_nodes = (
+                [{'name': str(t)} for t in tech_df['done_by'].unique()] +
+                [{'name': str(m)} for m in tech_df['modality'].unique()]
+            )
+            tech_data['sankey'] = {'nodes': sankey_nodes, 'links': sankey_links}
+
+            # Transitions: consecutive exams by same tech, ordered by time
+            # Shows how techs rotate between modalities within a day
+            transitions = {}  # (from_mod, to_mod) -> count
+            sorted_df = tech_df[tech_df['done_dt'].notna()].sort_values(['done_by', 'work_date', 'done_dt'])
+            for _, tg in sorted_df.groupby(['done_by', 'work_date']):
+                mods = tg['modality'].tolist()
+                for i in range(len(mods) - 1):
+                    if str(mods[i]) != str(mods[i+1]):
+                        key = (str(mods[i]), str(mods[i+1]))
+                        transitions[key] = transitions.get(key, 0) + 1
+            tech_data['transitions'] = [
+                {'from': k[0], 'to': k[1], 'count': v}
+                for k, v in sorted(transitions.items(), key=lambda x: -x[1])
+            ]
 
             # Summary stats
             valid_all = tech_df[tech_df['actual_min'] > 0]
@@ -591,12 +687,16 @@ def get_gold_standard_data(form_data):
                 'avg_tat': _safe(valid_all['adjusted_min'].mean()) if len(valid_all) > 0 else 0,
                 'avg_raw_tat': _safe(valid_all['actual_min'].mean()) if len(valid_all) > 0 else 0,
                 'median_tat': _safe(valid_all['adjusted_min'].median()) if len(valid_all) > 0 else 0,
-                'flagged_count': int((tech_df['flag'].isin(['too_short', 'too_long'])).sum()),
+                'flagged_count': int((tech_df['flag'].isin(['too_short', 'too_long', 'er_delayed'])).sum()),
                 'too_short_count': int((tech_df['flag'] == 'too_short').sum()),
                 'too_long_count': int((tech_df['flag'] == 'too_long').sum()),
                 'er_delayed_count': int((tech_df['flag'] == 'er_delayed').sum()),
                 'total_er_delay_min': _safe(tech_df['er_delay_min'].sum()),
                 'er_affected_exams': int((tech_df['er_delay_min'] > 0).sum()),
+                'avg_util_pct': round(sum(v['work_min'] for v in tech_util_map.values()) / max(sum(v['span_min'] for v in tech_util_map.values()), 1) * 100, 1) if tech_util_map else 0,
+                'total_span_hrs': round(sum(v['span_min'] for v in tech_util_map.values()) / 60, 1) if tech_util_map else 0,
+                'total_work_hrs': round(sum(v['work_min'] for v in tech_util_map.values()) / 60, 1) if tech_util_map else 0,
+                'total_idle_hrs': round(sum(v['idle_min'] for v in tech_util_map.values()) / 60, 1) if tech_util_map else 0,
             }
 
     except Exception as _e:
@@ -606,19 +706,25 @@ def get_gold_standard_data(form_data):
     result = ({
         "summary": {
             "total": len(df), "global_util": f"{(sum(r['avg'] * r.get('total_cap', 1) for r in matrix_rows) / sum(r.get('total_cap', 1) for r in matrix_rows) if matrix_rows and sum(r.get('total_cap', 1) for r in matrix_rows) > 0 else 0):.1f}%",
-            "er_wait": f"{df[df['patient_class'].str.contains('ER|Emergency', case=False, na=False)]['total_tat_min'].mean():.1f}m" if 'patient_class' in df.columns else "0m",
+            "er_wait": f"{df[(df['patient_class'].str.contains('ER|Emergency', case=False, na=False)) & (df['total_tat_min'] > 0)]['total_tat_min'].mean():.1f}m" if 'patient_class' in df.columns and (df['patient_class'].str.contains('ER|Emergency', case=False, na=False) & (df['total_tat_min'] > 0)).any() else "0m",
             "high_stress_count": high_stress, "low_util_count": under_utilized,
             "work_hours": round(total_active_mins / 60, 1), "total_rvu": round(df['rvu'].sum(), 1),
             "tat_median": tat_median, "tat_p25": tat_p25, "tat_p75": tat_p75,
         },
         "matrix": matrix_rows, 
-        "class_tat": df.groupby('patient_class')['total_tat_min'].mean().round(1).to_dict() if 'patient_class' in df.columns else {}, 
+        "class_tat": df[df['total_tat_min'] > 0].groupby('patient_class')['total_tat_min'].mean().round(1).to_dict() if 'patient_class' in df.columns else {},
         "rad_cards": rad_cards,
         "modality_split": [{"name": k, "value": int(v)} for k, v in df['modality'].value_counts().items()] if 'modality' in df.columns else [], 
         "hourly_patterns": {i: int(v) for i, v in pd.to_datetime(df['scheduled_datetime']).dt.hour.value_counts().sort_index().items()} if 'scheduled_datetime' in df.columns else {}, 
         "correlation": (lambda: (
             lambda raw: raw[_iqr_filter(raw['proc_duration']) & _iqr_filter(raw['total_tat_min'])][['proc_duration','total_tat_min']].values.tolist()
         )(df[(df['proc_duration']>0)&(df['total_tat_min']>0)]) if 'proc_duration' in df.columns and 'total_tat_min' in df.columns else [])(),
+        "pearson_r": (lambda: (
+            lambda clean: round(clean['proc_duration'].corr(clean['total_tat_min']), 3)
+            if len(clean) > 2 else None
+        )((lambda raw: raw[_iqr_filter(raw['proc_duration']) & _iqr_filter(raw['total_tat_min'])])(
+            df[(df['proc_duration']>0)&(df['total_tat_min']>0)]
+        )) if 'proc_duration' in df.columns and 'total_tat_min' in df.columns else None)(),
         "scatter_outliers_removed": scatter_outliers_removed,
         "rvu_outliers_removed": rvu_outliers_removed,
         "raw_df": df,

@@ -27,11 +27,11 @@ def get_where_params(form):
         params["status"] = form.get("f_status")
         
     if form.get("f_mod_active") == "on" and form.get("f_mod"):
-        where += " AND modality = :mod"
+        where += " AND UPPER(modality) = UPPER(:mod)"
         params["mod"] = form.get("f_mod")
-        
+
     if form.get("f_ae_active") == "on" and form.get("f_ae"):
-        where += " AND storing_ae = :ae"
+        where += " AND UPPER(storing_ae) = UPPER(:ae)"
         params["ae"] = form.get("f_ae")
         
     return where, params
@@ -368,30 +368,37 @@ def status_drilldown_22():
     """Return studies for a given status as JSON (for click-through on the status chart)."""
     from flask import jsonify
     status = request.form.get("status", "")
-    start  = request.form.get("start_date", "")
-    end    = request.form.get("end_date", "")
     export = request.form.get("export") == "1"
 
-    rows = db.session.execute(text("""
-        SELECT
-            s.study_db_uid,
-            COALESCE(p.fallback_id, '') AS patient_id,
-            s.study_date,
-            COALESCE(m.modality, 'N/A') AS modality,
-            COALESCE(s.procedure_code, 'N/A') AS procedure_code,
-            COALESCE(s.study_description, '') AS description,
-            COALESCE(s.storing_ae, 'N/A') AS ae,
-            COALESCE(NULLIF(TRIM(CONCAT_WS(' ',
-                s.referring_physician_first_name,
-                s.referring_physician_last_name)), ''), 'Unknown') AS physician
-        FROM etl_didb_studies s
-        LEFT JOIN aetitle_modality_map m ON s.storing_ae = m.aetitle
-        LEFT JOIN etl_patient_view p ON p.patient_db_uid::TEXT = s.patient_db_uid::TEXT
-        WHERE UPPER(s.study_status) = UPPER(:status)
-          AND s.study_date BETWEEN :start AND :end
-        ORDER BY s.study_date DESC
+    # Reuse the shared filter builder so drilldown respects active filters
+    where, params = get_where_params(request.form)
+
+    rows = db.session.execute(text(f"""
+        WITH base_data AS (
+            SELECT
+                s.study_db_uid,
+                COALESCE(p.fallback_id, '') AS patient_id,
+                s.study_date,
+                COALESCE(m.modality, 'N/A') AS modality,
+                s.storing_ae,
+                COALESCE(s.procedure_code, 'N/A') AS procedure_code,
+                COALESCE(s.study_description, '') AS description,
+                COALESCE(s.storing_ae, 'N/A') AS ae,
+                s.study_status, s.patient_class, p.sex,
+                COALESCE(NULLIF(TRIM(CONCAT_WS(' ',
+                    s.referring_physician_first_name,
+                    s.referring_physician_last_name)), ''), 'Unknown') AS physician
+            FROM etl_didb_studies s
+            LEFT JOIN aetitle_modality_map m ON s.storing_ae = m.aetitle
+            LEFT JOIN etl_patient_view p ON p.patient_db_uid::TEXT = s.patient_db_uid::TEXT
+        )
+        SELECT study_db_uid, patient_id, study_date, modality,
+               procedure_code, description, ae, physician
+        FROM base_data {where}
+          AND UPPER(study_status) = UPPER(:status)
+        ORDER BY study_date DESC
         LIMIT 500
-    """), {"status": status, "start": start, "end": end}).fetchall()
+    """), {**params, "status": status}).fetchall()
 
     if export:
         def generate():
@@ -402,7 +409,7 @@ def status_drilldown_22():
             for r in rows:
                 w.writerow(r)
                 yield out.getvalue(); out.seek(0); out.truncate(0)
-        filename = f"{status}_studies_{start}_to_{end}.csv"
+        filename = f"{status}_studies_{params['start']}_to_{params['end']}.csv"
         return Response(generate(), mimetype="text/csv",
                         headers={"Content-Disposition": f"attachment; filename={filename}"})
 
