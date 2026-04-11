@@ -286,7 +286,31 @@ def create_app():
 
     # --- STARTUP: AUTO-TRIGGER ETL IF DB IS EMPTY ---
     with app.app_context():
-        if is_db_empty():
+        # Skip ETL entirely when demo mode is active (no Oracle available)
+        demo_mode = False
+        try:
+            demo_row = db.session.execute(
+                text("SELECT value FROM settings WHERE key = 'demo_mode'")
+            ).fetchone()
+            demo_mode = demo_row and demo_row[0].lower() == 'true'
+        except Exception:
+            pass
+
+        # Also skip if no Oracle source is configured in db_params
+        has_oracle = False
+        try:
+            ora_row = db.session.execute(
+                text("SELECT 1 FROM db_params WHERE db_type ILIKE '%oracle%' LIMIT 1")
+            ).fetchone()
+            has_oracle = ora_row is not None
+        except Exception:
+            pass
+
+        if demo_mode:
+            logger.info("⏸  [Startup Check] Demo mode — skipping ETL.")
+        elif not has_oracle:
+            logger.info("⏸  [Startup Check] No Oracle source configured — skipping ETL.")
+        elif is_db_empty():
             trigger_initial_etl(app)
         else:
             logger.info("✅ [Startup Check] All critical tables have data — skipping initial ETL.")
@@ -303,6 +327,15 @@ def create_app():
                 ).fetchone()
                 if demo_row and demo_row[0].lower() == 'true':
                     logger.info("⏸  [Scheduled ETL] Skipped — demo mode is active.")
+                    return
+            except Exception:
+                pass
+            try:
+                ora_row = db.session.execute(
+                    text("SELECT 1 FROM db_params WHERE db_type ILIKE '%oracle%' LIMIT 1")
+                ).fetchone()
+                if not ora_row:
+                    logger.info("⏸  [Scheduled ETL] Skipped — no Oracle source configured.")
                     return
             except Exception:
                 pass
