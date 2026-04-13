@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | Feature Not Licensed</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+
+    {% include '_header.html' %}
+
+    <div class="flex flex-1 overflow-hidden">
+        {% include '_sidebar.html' %}
+
+        <main class="flex-1 flex items-center justify-center bg-[#181f1c]">
+            <div class="text-center max-w-md px-8">
+                <div class="w-20 h-20 rounded-full bg-amber-900/30 border border-amber-500/30 flex items-center justify-center mx-auto mb-6">
+                    <i class="bi bi-lock-fill text-3xl text-amber-400"></i>
+                </div>
+                <h1 class="text-2xl font-black text-white mb-2">Feature Not Licensed</h1>
+                <p class="text-slate-400 text-sm leading-relaxed mb-2">
+                    <span class="font-bold text-amber-400">{{ feature_name }}</span> is not included in your current license tier
+                    (<span class="text-slate-300">{{ tier }}</span>).
+                </p>
+                <p class="text-slate-500 text-xs mb-8">Contact your RAYD administrator or vendor to upgrade your license and unlock this feature.</p>
+                <a href="{{ url_for('viewer.dashboard') }}"
+                   class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#1d2522] border border-[#28332e] text-slate-300 text-sm font-bold hover:border-blue-500/50 hover:text-white transition-all">
+                    <i class="bi bi-arrow-left"></i> Back to Dashboard
+                </a>
+            </div>
+        </main>
+    </div>
+
+</body>
+</html>

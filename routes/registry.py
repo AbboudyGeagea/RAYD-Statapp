@@ -194,6 +194,18 @@ def get_study_limit(app):
     return lic.get('max_studies_per_report', 0)
 
 
+def _register_not_licensed_route(app, url, feature_name, tier):
+    """Register a stub route that renders the 'not licensed' page instead of a 404."""
+    from flask import render_template
+    from flask_login import login_required
+    # Use url as part of the endpoint name to avoid conflicts
+    endpoint = f"not_licensed_{url.replace('/', '_').strip('_')}"
+    def _view():
+        return render_template('not_licensed.html', feature_name=feature_name, tier=tier), 403
+    _view.__name__ = endpoint
+    app.add_url_rule(url, endpoint=endpoint, view_func=login_required(_view))
+
+
 def register_blueprints(app):
     lic = _load_license(app)
     app.config['LICENSE'] = lic
@@ -228,23 +240,30 @@ def register_blueprints(app):
             logger.info(f"  Report {rid}: not licensed — skipped")
 
     # ── Licensed features ─────────────────────────────────────
+    # Each entry: feature_key → (blueprint, kwargs, [(fallback_url, display_name), ...])
+    # Fallback routes show a "not licensed" page instead of a 404.
     feature_map = {
-        'ai_report':        (report_ai_bp,        {}),
-        'capacity_ladder':  (capacity_ladder_bp,   {}),
-        'er_dashboard':     (er_bp,                {}),
-        'liveview':         (liveview_bp,          {}),
-        'oru_analytics':    (oru_bp,               {}),
-        'saved_reports':    (saved_reports_bp,      {'url_prefix': '/saved'}),
-        'hl7_orders':       (hl7_orders_bp,        {}),
-        'adapter_mapper':   (adapter_mapper_bp,    {}),
-        'super_report':     (super_report_bp,      {}),
+        'ai_report':       (report_ai_bp,       {}, [('/report/ai',                   'AI Report')]),
+        'capacity_ladder': (capacity_ladder_bp,  {}, [('/viewer/capacity-ladder',      'Capacity Ladder')]),
+        'er_dashboard':    (er_bp,               {}, [('/er',                          'ER Dashboard')]),
+        'liveview':        (liveview_bp,         {}, [('/liveview',                    'Live Dashboard')]),
+        'oru_analytics':   (oru_bp,              {}, [('/oru',                         'ORU Analytics')]),
+        'saved_reports':   (saved_reports_bp,    {'url_prefix': '/saved'}, []),
+        'hl7_orders':      (hl7_orders_bp,       {}, [('/hl7/orders',                  'HL7 Orders')]),
+        'adapter_mapper':  (adapter_mapper_bp,   {}, [('/admin/adapters',              'Adapter Mapper')]),
+        'super_report':    (super_report_bp,     {}, [('/viewer/super-report-page',    'Super Report'),
+                                                      ('/viewer/super-report',         'Super Report')]),
     }
-    for feature, (bp, kwargs) in feature_map.items():
+    for feature, (bp, kwargs, fallbacks) in feature_map.items():
         if lic.get(feature, False):
             app.register_blueprint(bp, **kwargs)
             logger.info(f"  {feature}: enabled")
         else:
             logger.info(f"  {feature}: not licensed — skipped")
+            # Register stub routes so users see a clear message instead of 404
+            tier = lic.get('tier', 'current')
+            for url, display_name in fallbacks:
+                _register_not_licensed_route(app, url, display_name, tier)
 
     # ── Patient Portal (license + config flag) ────────────────
     if lic.get('patient_portal', False) and app.config.get("PATIENT_PORTAL_ENABLED", True):
