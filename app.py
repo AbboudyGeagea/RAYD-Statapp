@@ -251,6 +251,15 @@ def create_app():
             db.session.execute(text(
                 "ALTER TABLE procedure_duration_map ADD COLUMN IF NOT EXISTS modality VARCHAR(20)"
             ))
+            db.session.execute(text("""
+                CREATE TABLE IF NOT EXISTS procedure_modality_conflicts (
+                    id              SERIAL PRIMARY KEY,
+                    procedure_code  VARCHAR UNIQUE,
+                    modalities      TEXT,
+                    sample_count    INTEGER,
+                    detected_at     TIMESTAMP DEFAULT NOW()
+                )
+            """))
             db.session.commit()
         except Exception as e:
             db.session.rollback()
