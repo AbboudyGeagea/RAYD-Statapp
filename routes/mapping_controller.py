@@ -244,15 +244,18 @@ def save_grid_changes():
             val = int(item['value'])
             
             # Logic for Point #3: Store in DeviceException
+            reason = str(item.get('reason', 'Grid Adjustment') or 'Grid Adjustment').strip()
             existing = DeviceException.query.filter_by(aetitle=ae, exception_date=exc_date).first()
             if existing:
                 existing.actual_opening_minutes = val
+                if reason and reason != 'Grid Adjustment':
+                    existing.reason = reason
             else:
                 db.session.add(DeviceException(
-                    aetitle=ae, 
-                    exception_date=exc_date, 
-                    actual_opening_minutes=val, 
-                    reason="Grid Adjustment"
+                    aetitle=ae,
+                    exception_date=exc_date,
+                    actual_opening_minutes=val,
+                    reason=reason
                 ))
         db.session.commit()
         return jsonify({"status": "success"})

@@ -4,13 +4,13 @@
     <meta charset="UTF-8">
     <title>RAYD | Modality / Procedures Config</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://unpkg.com/@alpinejs/collapse@3.x.x/dist/cdn.min.js"></script>
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
         html { font-size: 110%; }
         :root { --accent: #60a5fa; }
-        body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; }
-        body { transition: background 0.2s, color 0.2s; }
+        body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; transition: background 0.2s, color 0.2s; }
         body.light { background: #f0f4f8 !important; color: #1a202c !important; }
         body.light aside, body.light header { background: #ffffff !important; border-color: #e2e8f0 !important; }
         body.light .sidebar-item { color: #4a5568 !important; }
@@ -21,20 +21,63 @@
         .card-custom { background: #232b28; border-radius: 1.5rem; border: 1px solid #28332e; }
         .upload-zone { background: #1d2522; border: 2px dashed #28332e; border-radius: 1rem; transition: all 0.2s; cursor: pointer; }
         .upload-zone:hover { border-color: var(--accent); background: #232b28; }
-        .capacity-tile { background: #181f1c; border: 1px solid #28332e; display: flex; overflow: hidden; }
-        .capacity-tile.has-exception { border-color: #f97316 !important; background: #241a14; }
-        .tile-input { width: 70%; padding: 0.75rem 0.25rem; background: transparent; text-align: center; font-weight: 900; color: white; outline: none; }
-        .tile-btn { width: 30%; border-left: 1px solid #28332e; background: #1d2522; color: #4b5563; }
-        /* Procedure Table specific styles */
+
+        /* Capacity grid cells */
+        .cap-cell { position: relative; }
+        .cap-input {
+            width: 100%; padding: 6px 28px 6px 8px;
+            background: #181f1c; border: 1px solid #28332e;
+            border-radius: 8px; color: white; font-weight: 900;
+            font-size: 12px; text-align: center; outline: none;
+            transition: border-color 0.15s;
+        }
+        .cap-input:focus { border-color: #60a5fa; }
+        .cap-input.is-exception { border-color: #f97316; background: #1c1510; }
+        .cap-note-btn {
+            position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+            background: none; border: none; cursor: pointer; padding: 2px;
+            color: #4b5563; transition: color 0.15s;
+        }
+        .cap-note-btn:hover { color: #f97316; }
+        .cap-note-btn.has-exc { color: #f97316; }
+
+        /* Apply-all inputs in column header */
+        .apply-col-input {
+            width: 60px; padding: 3px 6px;
+            background: #141a17; border: 1px solid #28332e;
+            border-radius: 6px; color: #94a3b8; font-size: 10px;
+            text-align: center; outline: none;
+        }
+        .apply-col-input:focus { border-color: #60a5fa; color: white; }
+        .apply-col-btn {
+            font-size: 9px; font-weight: 900; text-transform: uppercase;
+            letter-spacing: 0.05em; padding: 2px 6px; border-radius: 4px;
+            background: #1d2522; border: 1px solid #28332e; color: #64748b;
+            cursor: pointer; transition: all 0.15s; white-space: nowrap;
+        }
+        .apply-col-btn:hover { background: #60a5fa20; border-color: #60a5fa; color: #60a5fa; }
+
+        /* Procedure Table */
         .proc-input { background: #181f1c; border: 1px solid #28332e; color: white; border-radius: 0.5rem; text-align: center; font-size: 12px; transition: border-color 0.2s; }
         .proc-input:focus { border-color: var(--accent); outline: none; }
         .proc-input.saving { border-color: #fbbf24; background: #242114; }
         .proc-input.saved { border-color: #10b981; }
+
+        /* Modality group header */
+        .mod-group-header {
+            display: flex; align-items: center; gap: 10px;
+            padding: 10px 16px; cursor: pointer;
+            background: #1d2522; border-bottom: 1px solid #28332e;
+            user-select: none; transition: background 0.15s;
+            position: sticky; top: 0; z-index: 5;
+        }
+        .mod-group-header:hover { background: #232b28; }
+
         [x-cloak] { display: none !important; }
     </style>
 </head>
 <body class="flex flex-col h-screen overflow-hidden" x-init="generateWeekDates()">
-    
+
     {% include '_header.html' %}
 
     <div class="flex flex-1 overflow-hidden">
@@ -42,7 +85,7 @@
 
         <main class="flex-1 overflow-y-auto p-10 bg-[#181f1c] custom-scrollbar">
             <div class="max-w-7xl mx-auto space-y-12">
-                
+
                 {% with messages = get_flashed_messages(with_categories=true) %}
                   {% if messages %}
                     {% for category, message in messages %}
@@ -53,6 +96,7 @@
                   {% endif %}
                 {% endwith %}
 
+                <!-- Upload cards -->
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div class="card-custom p-6">
                         <div class="flex items-center justify-between mb-4">
@@ -91,60 +135,80 @@
                     </div>
                 </div>
 
-                <div class="space-y-6">
+                <!-- ═══════════════════════════════════════════
+                     CAPACITY GRID
+                ═══════════════════════════════════════════ -->
+                <div class="space-y-4">
                     <div class="flex items-end justify-between">
                         <div>
-                            <h2 class="text-3xl font-black text-[#e2e8f0] tracking-tight uppercase">Capacity Grid</h2>
-                            <p class="text-[#60a5fa] font-bold text-xs uppercase" x-text="weekRangeLabel"></p>
+                            <h2 class="text-2xl font-black text-[#e2e8f0] tracking-tight uppercase">Capacity Grid</h2>
+                            <p class="text-[#60a5fa] font-bold text-xs uppercase mt-0.5" x-text="weekRangeLabel"></p>
                         </div>
-                        <button @click="saveAllChanges()" class="px-8 py-3 bg-[#60a5fa] text-white text-[10px] font-black rounded-xl hover:bg-blue-500 transition shadow-lg">
-                            SAVE GRID CHANGES
+                        <button @click="saveAllChanges()"
+                                class="px-6 py-2.5 bg-[#60a5fa] text-white text-[10px] font-black rounded-xl hover:bg-blue-500 transition shadow-lg uppercase tracking-widest">
+                            <i class="bi bi-floppy-fill mr-1"></i> Save Grid Changes
                         </button>
                     </div>
 
                     <div class="card-custom overflow-hidden">
                         <div class="overflow-x-auto">
-                            <table class="w-full text-left">
-                                <thead class="text-[10px] font-black text-slate-500 uppercase border-b border-[#28332e]">
+                            <table class="w-full text-left" style="border-collapse:separate; border-spacing:0;">
+                                <thead class="text-[9px] font-black text-slate-500 uppercase border-b border-[#28332e]">
                                     <tr>
-                                        <th class="px-8 py-5 text-[#60a5fa]">Modality / AE Title</th>
-                                        <template x-for="day in weekDates">
-                                            <th class="px-2 py-5 text-center border-l border-[#28332e]/50">
-                                                <div x-text="day.name"></div>
-                                                <div class="text-[9px] text-slate-400 mt-1" x-text="day.dateLabel"></div>
+                                        <th class="px-6 py-4 text-[#60a5fa]" style="min-width:180px">Room / Device</th>
+                                        <template x-for="(day, di) in weekDates" :key="di">
+                                            <th class="px-2 py-3 text-center border-l border-[#28332e]/50" style="min-width:110px">
+                                                <div x-text="day.name" class="text-white"></div>
+                                                <div class="text-[9px] text-slate-500 mt-0.5" x-text="day.dateLabel"></div>
+                                                <!-- Apply-to-column row -->
+                                                <div class="flex flex-col items-center gap-1 mt-2">
+                                                    <input type="number" class="apply-col-input"
+                                                           :id="'col-input-'+di" placeholder="mins">
+                                                    <button class="apply-col-btn"
+                                                            @click="applyToColumn(di)">↓ All</button>
+                                                </div>
                                             </th>
                                         </template>
+                                        <th class="px-3 py-4 text-center border-l border-[#28332e]/50 text-[9px]">Apply Row</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-[#28332e]">
 {% for map in modality_mappings %}
-<tr class="hover:bg-[#1d2521]/50 transition">
-    <td class="px-8 py-5">
+<tr class="hover:bg-[#1d2521]/40 transition">
+    <td class="px-6 py-3">
         <div class="font-mono text-xs font-bold text-white">{{ map.aetitle.upper() }}</div>
         <div class="text-[9px] text-[#60a5fa] font-black uppercase tracking-widest">{{ map.modality.upper() }}</div>
         {% if map.room_name %}<div class="text-[9px] text-[#34d399] mt-0.5">{{ map.room_name }}</div>{% endif %}
     </td>
-    
+
     {% for day_idx in range(7) %}
-    {# NEW LOGIC: Extract the correct day's minutes from the relationship #}
     {% set day_schedule = map.weekly_schedules | selectattr("day_of_week", "equalto", day_idx) | first %}
     {% set baseline_mins = day_schedule.std_opening_minutes if day_schedule else 720 %}
-    
-    <td class="px-2 py-4 border-l border-[#28332e]/30">
-        <div class="capacity-tile rounded-xl" :class="hasException('{{ map.aetitle.upper() }}', {{ day_idx }}) ? 'has-exception' : ''">
-            <input type="number" 
-                   {# Pass the baseline_mins we just calculated #}
+    <td class="px-2 py-2 border-l border-[#28332e]/30">
+        <div class="cap-cell">
+            <input type="number"
                    :value="getCapacityValue('{{ map.aetitle.upper() }}', {{ day_idx }}, {{ baseline_mins }})"
-                   class="tile-input"
+                   :class="hasException('{{ map.aetitle.upper() }}', {{ day_idx }}) ? 'cap-input is-exception' : 'cap-input'"
+                   id="cap-{{ map.aetitle.upper() }}-{{ day_idx }}"
                    @change="updateCapacity('{{ map.aetitle.upper() }}', {{ day_idx }}, $event.target.value)">
-            
-            <button @click="openNoteModal('{{ map.aetitle.upper() }}', {{ day_idx }}, $event.target.closest('.capacity-tile').querySelector('input').value)" 
-                    class="tile-btn">
-                <i class="bi" :class="hasException('{{ map.aetitle.upper() }}', {{ day_idx }}) ? 'bi-exclamation-triangle-fill text-orange-400' : 'bi-gear-fill'"></i>
+            <button class="cap-note-btn"
+                    :class="hasException('{{ map.aetitle.upper() }}', {{ day_idx }}) ? 'has-exc' : ''"
+                    @click="openNoteModal('{{ map.aetitle.upper() }}', {{ day_idx }}, document.getElementById('cap-{{ map.aetitle.upper() }}-{{ day_idx }}').value)"
+                    title="Add note / reason">
+                <i class="bi" :class="hasException('{{ map.aetitle.upper() }}', {{ day_idx }}) ? 'bi-flag-fill' : 'bi-flag'"></i>
             </button>
         </div>
     </td>
     {% endfor %}
+
+    <!-- Apply to row button -->
+    <td class="px-3 py-2 border-l border-[#28332e]/30 text-center">
+        <button class="apply-col-btn"
+                @click="applyToRow('{{ map.aetitle.upper() }}', [{% for day_idx in range(7) %}{% set day_schedule = map.weekly_schedules | selectattr('day_of_week', 'equalto', day_idx) | first %}{{ day_schedule.std_opening_minutes if day_schedule else 720 }}{% if not loop.last %},{% endif %}{% endfor %}])"
+                title="Copy Monday's value to all days">
+            → All Days
+        </button>
+    </td>
 </tr>
 {% endfor %}
                                 </tbody>
@@ -153,78 +217,138 @@
                     </div>
                 </div>
 
-                <div class="space-y-6">
+                <!-- ═══════════════════════════════════════════
+                     PROCEDURE CATALOG — grouped by modality
+                ═══════════════════════════════════════════ -->
+                <div class="space-y-4">
                     <div class="flex items-center justify-between">
-                        <h2 class="text-3xl font-black text-[#e2e8f0] tracking-tight uppercase">Procedure Catalog</h2>
-                        <div class="relative">
-                            <i class="bi bi-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs"></i>
-                            <input type="text" x-model="procSearch" placeholder="SEARCH CODES..." 
-                                   class="bg-[#232b28] border border-[#28332e] rounded-xl pl-9 pr-4 py-2 text-[10px] font-black text-[#60a5fa] focus:border-blue-400 outline-none w-64">
+                        <h2 class="text-2xl font-black text-[#e2e8f0] tracking-tight uppercase">Procedure Catalog</h2>
+                        <div class="flex items-center gap-3">
+                            <div class="relative">
+                                <i class="bi bi-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs"></i>
+                                <input type="text" x-model="procSearch" placeholder="Search codes..."
+                                       class="bg-[#232b28] border border-[#28332e] rounded-xl pl-9 pr-4 py-2 text-[10px] font-black text-[#60a5fa] focus:border-blue-400 outline-none w-56">
+                            </div>
                         </div>
                     </div>
 
-                    <div class="card-custom p-2 overflow-hidden">
-                        <div class="max-h-[500px] overflow-y-auto custom-scrollbar">
-                            <table class="w-full text-left">
-                                <thead class="sticky top-0 bg-[#232b28] text-[9px] font-black text-slate-500 uppercase border-b border-[#28332e] z-10">
-                                    <tr>
-                                        <th class="px-6 py-4">Procedure Code</th>
-                                        <th class="px-6 py-4 text-center">Modality</th>
-                                        <th class="px-6 py-4 text-center">Duration (Min)</th>
-                                        <th class="px-6 py-4 text-center">RVU Value</th>
-                                        <th class="px-6 py-4 text-right">Status</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="divide-y divide-[#28332e]">
-                                    {% for proc in duration_mappings %}
-                                    <tr class="hover:bg-white/5 transition {% if proc.procedure_code in conflict_codes %}bg-orange-900/20{% endif %}" x-show="'{{ proc.procedure_code }}'.includes(procSearch.toUpperCase())">
-                                        <td class="px-6 py-4">
-                                            <span class="font-mono text-xs font-bold text-white tracking-widest">{{ proc.procedure_code }}</span>
-                                            {% if proc.procedure_code in conflict_codes %}
-                                            <br><span class="text-[9px] text-orange-400 font-bold"><i class="bi bi-exclamation-triangle-fill"></i> Seen on multiple modalities — please verify</span>
-                                            {% for c in conflicts if c.procedure_code == proc.procedure_code %}
-                                            <br><span class="text-[9px] text-orange-300">Found on: {{ c.modalities }} ({{ c.sample_count }} studies)</span>
-                                            {% endfor %}
-                                            {% elif proc.procedure_code in fuzzy_map and not proc.modality %}
-                                            {% set fc = fuzzy_map[proc.procedure_code] %}
-                                            <br><span class="text-[9px] text-blue-400 font-bold"><i class="bi bi-cpu"></i> AI Suggestion: {{ fc.suggested_modality }} ({{ (fc.match_score * 100)|int }}% match)</span>
-                                            {% endif %}
-                                        </td>
-                                        <td class="px-6 py-4 text-center">
-                                            {% set fc = fuzzy_map.get(proc.procedure_code) %}
-                                            <select @change="updateProcModality('{{ proc.procedure_code }}', $event.target.value, $event.target)"
-                                                    class="bg-[#1a2722] border border-[#28332e] text-white text-[10px] font-bold rounded px-2 py-1.5 outline-none focus:border-blue-400 {% if proc.procedure_code in conflict_codes and not proc.modality %}border-orange-500{% elif fc and not proc.modality %}border-blue-500{% endif %}">
-                                                <option value="" {% if not proc.modality and not (fc and not proc.modality) %}selected{% endif %}>—</option>
-                                                {% for mod in ['CT','MR','CR','DX','US','NM','PT','XA','RF','MG','DR','SC','OT'] %}
-                                                <option value="{{ mod }}" {% if proc.modality == mod or (fc and not proc.modality and fc.suggested_modality == mod) %}selected{% endif %}>{{ mod }}</option>
+                    <div class="card-custom overflow-hidden">
+                        <div class="max-h-[680px] overflow-y-auto custom-scrollbar">
+
+                            {# Group procedures by modality #}
+                            {% set modalities_seen = [] %}
+                            {% for proc in duration_mappings %}
+                                {% set mod_key = proc.modality if proc.modality else '__UNMAPPED__' %}
+                                {% if mod_key not in modalities_seen %}
+                                    {% if modalities_seen.append(mod_key) %}{% endif %}
+                                {% endif %}
+                            {% endfor %}
+
+                            {% for mod_key in modalities_seen %}
+                                {% if mod_key == '__UNMAPPED__' %}
+                                    {% set group_procs = duration_mappings | rejectattr('modality') | list %}
+                                {% else %}
+                                    {% set group_procs = duration_mappings | selectattr('modality', 'equalto', mod_key) | list %}
+                                {% endif %}
+                                {% set conflict_count = group_procs | selectattr('procedure_code', 'in', conflict_codes) | list | length %}
+                                {% set fuzzy_count = namespace(val=0) %}
+                                {% for p in group_procs %}{% if p.procedure_code in fuzzy_map and not p.modality %}{% set fuzzy_count.val = fuzzy_count.val + 1 %}{% endif %}{% endfor %}
+
+                                <div x-data="{ open: {{ 'true' if loop.first else 'false' }} }">
+                                    <!-- Group header -->
+                                    <div class="mod-group-header" @click="open = !open">
+                                        <i class="bi text-[10px] transition-transform duration-200"
+                                           :class="open ? 'bi-chevron-down' : 'bi-chevron-right'"
+                                           style="color:#60a5fa"></i>
+                                        {% if mod_key == '__UNMAPPED__' %}
+                                        <span class="text-[11px] font-black text-slate-400 uppercase tracking-widest">Unmapped</span>
+                                        {% else %}
+                                        <span class="text-[11px] font-black text-white uppercase tracking-widest">{{ mod_key }}</span>
+                                        {% endif %}
+                                        <span class="text-[9px] font-bold text-slate-600 bg-[#141a17] px-2 py-0.5 rounded-full">{{ group_procs | length }} procedures</span>
+                                        {% if conflict_count > 0 %}
+                                        <span class="text-[9px] font-black text-orange-400 bg-orange-900/30 px-2 py-0.5 rounded-full">{{ conflict_count }} conflicts</span>
+                                        {% endif %}
+                                        {% if fuzzy_count.val > 0 %}
+                                        <span class="text-[9px] font-black text-blue-400 bg-blue-900/30 px-2 py-0.5 rounded-full">{{ fuzzy_count.val }} suggested</span>
+                                        {% endif %}
+                                    </div>
+
+                                    <!-- Group table -->
+                                    <div x-show="open" x-collapse>
+                                        <table class="w-full text-left">
+                                            <thead class="text-[9px] font-black text-slate-600 uppercase border-b border-[#28332e] bg-[#1a201e]">
+                                                <tr>
+                                                    <th class="px-6 py-3">Procedure Code</th>
+                                                    <th class="px-6 py-3 text-center">Modality</th>
+                                                    <th class="px-6 py-3 text-center">Duration (min)</th>
+                                                    <th class="px-6 py-3 text-center">RVU</th>
+                                                    <th class="px-6 py-3 text-right">Status</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody class="divide-y divide-[#28332e]/60">
+                                                {% for proc in group_procs %}
+                                                <tr class="hover:bg-white/5 transition {% if proc.procedure_code in conflict_codes %}bg-orange-900/10{% endif %}"
+                                                    x-show="!procSearch || '{{ proc.procedure_code }}'.includes(procSearch.toUpperCase())">
+
+                                                    <td class="px-6 py-3">
+                                                        <span class="font-mono text-xs font-bold text-white tracking-widest">{{ proc.procedure_code }}</span>
+                                                        {% if proc.procedure_code in conflict_codes %}
+                                                        <br><span class="text-[9px] text-orange-400 font-bold"><i class="bi bi-exclamation-triangle-fill"></i> Multiple modalities — please verify</span>
+                                                        {% for c in conflicts if c.procedure_code == proc.procedure_code %}
+                                                        <br><span class="text-[9px] text-orange-300">Found on: {{ c.modalities }} ({{ c.sample_count }} studies)</span>
+                                                        {% endfor %}
+                                                        {% elif proc.procedure_code in fuzzy_map and not proc.modality %}
+                                                        {% set fc = fuzzy_map[proc.procedure_code] %}
+                                                        <br><span class="text-[9px] text-blue-400 font-bold"><i class="bi bi-cpu"></i> AI Suggestion: {{ fc.suggested_modality }} ({{ (fc.match_score * 100)|int }}%)</span>
+                                                        {% endif %}
+                                                    </td>
+
+                                                    <td class="px-6 py-3 text-center">
+                                                        {% set fc = fuzzy_map.get(proc.procedure_code) %}
+                                                        <select @change="updateProcModality('{{ proc.procedure_code }}', $event.target.value, $event.target)"
+                                                                class="bg-[#1a2722] border text-white text-[10px] font-bold rounded px-2 py-1.5 outline-none focus:border-blue-400
+                                                                {% if proc.procedure_code in conflict_codes and not proc.modality %}border-orange-500
+                                                                {% elif fc and not proc.modality %}border-blue-500
+                                                                {% else %}border-[#28332e]{% endif %}">
+                                                            <option value="" {% if not proc.modality and not (fc and not proc.modality) %}selected{% endif %}>—</option>
+                                                            {% for mod in ['CT','MR','CR','DX','US','NM','PT','XA','RF','MG','DR','SC','OT'] %}
+                                                            <option value="{{ mod }}" {% if proc.modality == mod or (fc and not proc.modality and fc.suggested_modality == mod) %}selected{% endif %}>{{ mod }}</option>
+                                                            {% endfor %}
+                                                        </select>
+                                                    </td>
+
+                                                    <td class="px-6 py-3 text-center">
+                                                        <input type="number" value="{{ proc.duration_minutes }}"
+                                                               @change="updateProcData('{{ proc.procedure_code }}', $event.target.value, '{{ proc.rvu_value }}', '{{ proc.modality or '' }}', $event.target)"
+                                                               class="proc-input w-20 py-1.5">
+                                                    </td>
+
+                                                    <td class="px-6 py-3 text-center">
+                                                        <input type="number" step="0.1" value="{{ proc.rvu_value }}"
+                                                               @change="updateProcData('{{ proc.procedure_code }}', $event.target.closest('tr').querySelector('input[type=number]').value, $event.target.value, $event.target.closest('tr').querySelector('select').value, $event.target)"
+                                                               class="proc-input w-20 py-1.5">
+                                                    </td>
+
+                                                    <td class="px-6 py-3 text-right">
+                                                        {% if proc.procedure_code in conflict_codes and not proc.modality %}
+                                                        <span class="text-[9px] font-black uppercase px-2 py-1 rounded bg-orange-900/50 text-orange-400">Needs Review</span>
+                                                        {% elif proc.modality %}
+                                                        <span class="text-[9px] font-black uppercase px-2 py-1 rounded bg-emerald-900/50 text-emerald-400">Mapped</span>
+                                                        {% elif proc.procedure_code in fuzzy_map %}
+                                                        <span class="text-[9px] font-black uppercase px-2 py-1 rounded bg-blue-900/50 text-blue-400">Suggested</span>
+                                                        {% else %}
+                                                        <span class="text-[9px] font-black uppercase px-2 py-1 rounded bg-slate-800 text-slate-500">Auto</span>
+                                                        {% endif %}
+                                                    </td>
+                                                </tr>
                                                 {% endfor %}
-                                            </select>
-                                        </td>
-                                        <td class="px-6 py-4 text-center">
-                                            <input type="number" value="{{ proc.duration_minutes }}"
-                                                   @change="updateProcData('{{ proc.procedure_code }}', $event.target.value, '{{ proc.rvu_value }}', '{{ proc.modality or '' }}', $event.target)"
-                                                   class="proc-input w-24 py-1.5">
-                                        </td>
-                                        <td class="px-6 py-4 text-center">
-                                            <input type="number" step="0.1" value="{{ proc.rvu_value }}"
-                                                   @change="updateProcData('{{ proc.procedure_code }}', $event.target.closest('tr').querySelector('input[type=number]').value, $event.target.value, $event.target.closest('tr').querySelector('select').value, $event.target)"
-                                                   class="proc-input w-24 py-1.5">
-                                        </td>
-                                        <td class="px-6 py-4 text-right">
-                                            {% if proc.procedure_code in conflict_codes and not proc.modality %}
-                                            <span class="text-[9px] font-black uppercase px-2 py-1 rounded bg-orange-900/50 text-orange-400">Needs Review</span>
-                                            {% elif proc.modality %}
-                                            <span class="text-[9px] font-black uppercase px-2 py-1 rounded bg-emerald-900/50 text-emerald-400">Mapped</span>
-                                            {% elif proc.procedure_code in fuzzy_map %}
-                                            <span class="text-[9px] font-black uppercase px-2 py-1 rounded bg-blue-900/50 text-blue-400">Suggested</span>
-                                            {% else %}
-                                            <span class="text-[9px] font-black uppercase px-2 py-1 rounded bg-slate-800 text-slate-500">Auto</span>
-                                            {% endif %}
-                                        </td>
-                                    </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            {% endfor %}
+
                         </div>
                     </div>
                 </div>
@@ -233,24 +357,32 @@
         </main>
     </div>
 
+    <!-- Note modal -->
     <div x-show="modalOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-6">
         <div class="absolute inset-0 bg-[#181f1c]/90 backdrop-blur-md" @click="modalOpen = false"></div>
         <div class="bg-[#232b28] border border-[#28332e] rounded-3xl w-full max-w-sm p-8 shadow-2xl relative z-10">
-            <h2 class="text-xl font-black text-white" x-text="activeContext.ae"></h2>
-            <p class="text-[10px] text-orange-400 font-bold uppercase tracking-widest mb-6" x-text="activeContext.dateLabel"></p>
-            <div class="space-y-3">
+            <h2 class="text-lg font-black text-white" x-text="activeContext.ae"></h2>
+            <p class="text-[10px] text-orange-400 font-bold uppercase tracking-widest mb-2" x-text="activeContext.dateLabel"></p>
+            <div class="flex items-center gap-2 mb-5">
+                <span class="text-[9px] text-slate-500 uppercase font-bold">Minutes:</span>
+                <input type="number" x-model="activeContext.currentMin"
+                       class="bg-[#181f1c] border border-[#28332e] rounded-lg px-3 py-1.5 text-white text-sm font-black w-24 outline-none focus:border-blue-400">
+            </div>
+            <p class="text-[9px] text-slate-500 uppercase font-black tracking-widest mb-3">Reason</p>
+            <div class="space-y-2">
                 <template x-for="reason in reasons">
-                    <button @click="activeContext.note = reason" 
+                    <button @click="activeContext.note = reason"
                             :class="activeContext.note === reason ? 'bg-[#60a5fa] text-white border-[#60a5fa]' : 'bg-[#181f1c] text-slate-400 border-[#28332e]'"
-                            class="w-full text-left px-5 py-4 rounded-xl border text-xs font-bold transition flex justify-between items-center">
+                            class="w-full text-left px-4 py-3 rounded-xl border text-xs font-bold transition flex justify-between items-center">
                         <span x-text="reason"></span>
                         <i x-show="activeContext.note === reason" class="bi bi-check-circle-fill"></i>
                     </button>
                 </template>
-                <button @click="saveNote()" class="w-full mt-4 py-4 bg-orange-500 text-white font-black text-[10px] uppercase tracking-widest rounded-xl">
-                    Confirm & Save
-                </button>
             </div>
+            <button @click="saveNote()"
+                    class="w-full mt-5 py-3.5 bg-orange-500 hover:bg-orange-400 text-white font-black text-[10px] uppercase tracking-widest rounded-xl transition">
+                <i class="bi bi-floppy-fill mr-1"></i> Confirm & Save
+            </button>
         </div>
     </div>
 
@@ -262,18 +394,17 @@
                 changedData: [],
                 procSearch: '',
                 modalOpen: false,
-                reasons: ['Maintenance', 'Shortage', 'Holiday', 'Breakdown','Extra Staff', 'Extra Load'],
+                reasons: ['Maintenance', 'Shortage', 'Holiday', 'Breakdown', 'Extra Staff', 'Extra Load'],
                 activeContext: { ae: '', date: '', dateLabel: '', currentMin: '', note: '' },
                 existingExceptions: {{ exceptions_json | safe if exceptions_json else '{}' }},
 
                 generateWeekDates() {
                     const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
                     const curr = new Date();
-                    const dayNum = curr.getDay() || 7; 
+                    const dayNum = curr.getDay() || 7;
                     const monday = new Date(curr.getTime());
                     monday.setDate(curr.getDate() - dayNum + 1);
                     monday.setHours(0,0,0,0);
-
                     for (let i = 0; i < 7; i++) {
                         const d = new Date(monday.getTime());
                         d.setDate(monday.getDate() + i);
@@ -283,7 +414,7 @@
                             iso: `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
                         });
                     }
-                    this.weekRangeLabel = `${this.weekDates[0].dateLabel} - ${this.weekDates[6].dateLabel}`;
+                    this.weekRangeLabel = `${this.weekDates[0].dateLabel} – ${this.weekDates[6].dateLabel}`;
                 },
 
                 getCapacityValue(ae, dayIdx, defaultValue) {
@@ -297,60 +428,92 @@
                 },
 
                 updateCapacity(aetitle, dayIdx, value) {
-                    this.changedData.push({ aetitle: aetitle.toUpperCase(), date: this.weekDates[dayIdx].iso, value });
+                    const ae = aetitle.toUpperCase();
+                    const date = this.weekDates[dayIdx].iso;
+                    // Replace existing pending change for same cell
+                    this.changedData = this.changedData.filter(d => !(d.aetitle === ae && d.date === date));
+                    this.changedData.push({ aetitle: ae, date, value });
+                },
+
+                // Apply Monday's (first day) value to all 7 days for this row
+                applyToRow(ae, defaults) {
+                    const firstInput = document.getElementById(`cap-${ae}-0`);
+                    const val = firstInput ? firstInput.value : defaults[0];
+                    for (let i = 0; i < 7; i++) {
+                        const el = document.getElementById(`cap-${ae}-${i}`);
+                        if (el) {
+                            el.value = val;
+                            this.updateCapacity(ae, i, val);
+                        }
+                    }
+                },
+
+                // Apply a single value to all devices for a given day column
+                applyToColumn(dayIdx) {
+                    const inputEl = document.getElementById(`col-input-${dayIdx}`);
+                    const val = inputEl ? inputEl.value.trim() : '';
+                    if (!val || isNaN(val)) { alert('Enter a value in the column header first.'); return; }
+                    // Find all cap-input elements for this day column
+                    document.querySelectorAll(`[id$="-${dayIdx}"][id^="cap-"]`).forEach(el => {
+                        const parts = el.id.split('-');
+                        // id format: cap-AETITLE-DAYIDX — AETITLE may contain hyphens
+                        const ae = parts.slice(1, parts.length - 1).join('-');
+                        el.value = val;
+                        this.updateCapacity(ae, dayIdx, val);
+                    });
                 },
 
                 openNoteModal(ae, dayIdx, currentMin) {
                     const day = this.weekDates[dayIdx];
-                    this.activeContext = { ae: ae.toUpperCase(), date: day.iso, dateLabel: `${day.name} ${day.dateLabel}`, currentMin, note: '' };
+                    this.activeContext = {
+                        ae: ae.toUpperCase(),
+                        date: day.iso,
+                        dateLabel: `${day.name} ${day.dateLabel}`,
+                        currentMin: currentMin || '',
+                        note: ''
+                    };
                     this.modalOpen = true;
                 },
 
                 async saveNote() {
-                    // Save reason/note
-                    const noteRes = await fetch('/mapping/device/exception/save', {
+                    if (!this.activeContext.note) { alert('Please select a reason.'); return; }
+                    const payload = [{
+                        aetitle: this.activeContext.ae,
+                        date: this.activeContext.date,
+                        value: this.activeContext.currentMin,
+                        reason: this.activeContext.note
+                    }];
+                    const res = await fetch('/mapping/device/grid/save', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ 
-                            aetitle: this.activeContext.ae, 
-                            date: this.activeContext.date,
-                            minutes: this.activeContext.currentMin,
-                            reason: this.activeContext.note 
-                        })
+                        body: JSON.stringify({ updates: payload })
                     });
-
-                    // Also save the capacity value immediately — no need to press Save Changes
-                    const gridRes = await fetch('/mapping/device/grid/save', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ updates: [{
-                            aetitle: this.activeContext.ae,
-                            date: this.activeContext.date,
-                            value: this.activeContext.currentMin
-                        }]})
-                    });
-
-                    if (noteRes.ok && gridRes.ok) {
-                        this.existingExceptions[`${this.activeContext.ae}_${this.activeContext.date}`] = this.activeContext.currentMin;
-                        // Remove from changedData since it's already saved
+                    if (res.ok) {
+                        const key = `${this.activeContext.ae}_${this.activeContext.date}`;
+                        this.existingExceptions[key] = this.activeContext.currentMin;
                         this.changedData = this.changedData.filter(
                             d => !(d.aetitle === this.activeContext.ae && d.date === this.activeContext.date)
                         );
                         this.modalOpen = false;
+                        // Refresh the cell border
+                        const el = document.getElementById(`cap-${this.activeContext.ae}-${this.weekDates.findIndex(d => d.iso === this.activeContext.date)}`);
+                        if (el) el.classList.add('is-exception');
+                    } else {
+                        alert('Save failed. Please try again.');
                     }
                 },
 
                 async saveAllChanges() {
-                    if (this.changedData.length === 0) return alert("No changes detected.");
+                    if (this.changedData.length === 0) { alert('No changes to save.'); return; }
                     const res = await fetch('/mapping/device/grid/save', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ updates: this.changedData })
                     });
                     if (res.ok) { location.reload(); }
+                    else { alert('Save failed.'); }
                 },
 
-                // NEW: Procedure Data Update Handler
                 async updateProcModality(code, modality, el) {
                     el.style.borderColor = '#f59e0b';
                     try {
@@ -362,11 +525,10 @@
                         if (res.ok) {
                             el.style.borderColor = '#34d399';
                             setTimeout(() => { el.style.borderColor = ''; }, 1500);
-                            // Remove conflict highlight from row
-                            el.closest('tr').classList.remove('bg-orange-900/20');
+                            el.closest('tr').classList.remove('bg-orange-900/10');
                         }
                     } catch (e) {
-                        alert("Failed to update modality.");
+                        alert('Failed to update modality.');
                         el.style.borderColor = '';
                     }
                 },
@@ -385,7 +547,7 @@
                             setTimeout(() => el.classList.remove('saved'), 1500);
                         }
                     } catch (e) {
-                        alert("Failed to update procedure.");
+                        alert('Failed to update procedure.');
                         el.classList.remove('saving');
                     }
                 }
@@ -401,7 +563,7 @@
         function toggleTheme() {
             const next = document.body.classList.contains('light') ? 'dark' : 'light';
             applyTheme(next);
-            fetch('/user/theme', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({theme: next}) });
+            fetch('/user/theme', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ theme: next }) });
         }
     </script>
 </body>
