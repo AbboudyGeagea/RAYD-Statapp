@@ -513,6 +513,7 @@
                                     <tr>
                                         <th class="px-6 py-4">Similar Procedure Codes</th>
                                         <th class="px-6 py-4" style="min-width:260px">Master Name (used in RAYD)</th>
+                                        <th class="px-6 py-4" style="min-width:110px">Modality</th>
                                         <th class="px-6 py-4 text-center">Status</th>
                                         <th class="px-6 py-4 text-right">Actions</th>
                                     </tr>
@@ -545,6 +546,18 @@
                                                 Approved by {{ group.approved_by or 'admin' }}
                                             </div>
                                             {% endif %}
+                                        </td>
+
+                                        <!-- Modality mapping -->
+                                        <td class="px-6 py-4">
+                                            <select id="canon-mod-{{ group.id }}"
+                                                    onchange="setCanonicalModality({{ group.id }}, this)"
+                                                    class="w-full bg-[#141a17] border border-[#28332e] focus:border-emerald-500 text-slate-300 rounded-lg px-2 py-1.5 text-[10px] font-black outline-none transition">
+                                                <option value="">—</option>
+                                                {% for mod in ['CT','MR','CR','DX','US','NM','PT','XA','RF','MG','DR','SC','OT'] %}
+                                                <option value="{{ mod }}" {% if group.group_modality == mod %}selected{% endif %}>{{ mod }}</option>
+                                                {% endfor %}
+                                            </select>
                                         </td>
 
                                         <!-- Status badge -->
@@ -833,6 +846,22 @@
             });
             if (res.ok) { document.getElementById('canon-row-' + groupId).remove(); }
             else { alert('Delete failed.'); }
+        }
+
+        async function setCanonicalModality(groupId, selectEl) {
+            const modality = selectEl.value;
+            const res = await fetch('/mapping/canonical/set-modality', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ group_id: groupId, modality: modality || null })
+            });
+            if (res.ok) {
+                selectEl.classList.add('border-emerald-600');
+                setTimeout(() => selectEl.classList.remove('border-emerald-600'), 1200);
+            } else {
+                alert('Failed to save modality.');
+                selectEl.value = '';
+            }
         }
 
         function unapproveCanonical(groupId) {

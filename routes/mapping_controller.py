@@ -112,14 +112,16 @@ def mapping_page():
         fuzzy_candidates = []
         fuzzy_map = {}
 
-    # Canonical groups — approved groups with their member codes
+    # Canonical groups — approved groups with their member codes and current modality
     try:
         raw_groups = db.session.execute(_t("""
             SELECT g.id, g.canonical_name, g.approved, g.approved_by, g.approved_at,
                    ARRAY_AGG(m.procedure_code ORDER BY m.procedure_code) AS member_codes,
-                   ARRAY_AGG(m.similarity_score ORDER BY m.procedure_code) AS scores
+                   ARRAY_AGG(m.similarity_score ORDER BY m.procedure_code) AS scores,
+                   MODE() WITHIN GROUP (ORDER BY p.modality) AS group_modality
             FROM procedure_canonical_groups g
             JOIN procedure_canonical_members m ON m.group_id = g.id
+            LEFT JOIN procedure_duration_map p ON p.procedure_code = m.procedure_code
             GROUP BY g.id, g.canonical_name, g.approved, g.approved_by, g.approved_at
             ORDER BY g.approved ASC, g.detected_at DESC
         """)).fetchall()
@@ -354,6 +356,38 @@ def delete_canonical_group():
     try:
         group_id = int(data['group_id'])
         db.session.execute(_t("DELETE FROM procedure_canonical_groups WHERE id = :id"), {"id": group_id})
+        db.session.commit()
+        return jsonify({"status": "success"})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@mapping_bp.route('/canonical/set-modality', methods=['POST'])
+@login_required
+def set_canonical_modality():
+    """Apply a modality to all procedure codes in a canonical group."""
+    if current_user.role != 'admin': return abort(403)
+    from sqlalchemy import text as _t
+    data = request.get_json(force=True)
+    try:
+        group_id = int(data['group_id'])
+        modality = str(data.get('modality') or '').strip().upper() or None
+
+        # Get all member codes for this group
+        members = db.session.execute(
+            _t("SELECT procedure_code FROM procedure_canonical_members WHERE group_id = :gid"),
+            {"gid": group_id}
+        ).fetchall()
+        codes = [r[0] for r in members]
+        if not codes:
+            return jsonify({"status": "error", "message": "Group has no members"}), 404
+
+        db.session.execute(_t("""
+            UPDATE procedure_duration_map
+            SET modality = :mod
+            WHERE procedure_code = ANY(:codes)
+        """), {"mod": modality, "codes": codes})
         db.session.commit()
         return jsonify({"status": "success"})
     except Exception as e:
