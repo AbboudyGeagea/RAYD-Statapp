@@ -406,77 +406,125 @@ def _trend(p):
 
 
 def _generate_narrative(cur, prev, start, end, cmp_start, cmp_end, delta):
-    ck, pk   = cur["kpis"],    prev["kpis"]
-    co, po   = cur["orders"],  prev["orders"]
-    cs, ps   = cur["storage"], prev["storage"]
-    cv       = cur["volume"]
-    cd       = cur["demographics"]
-    cp       = cur["physicians"]
+    ck, pk = cur["kpis"],    prev["kpis"]
+    co, po = cur["orders"],  prev["orders"]
+    cs, ps = cur["storage"], prev["storage"]
+    cv     = cur["volume"]
+    cd     = cur["demographics"]
+    cp     = cur["physicians"]
 
     s_chg  = _pct(ck.get("total_studies"),  pk.get("total_studies"))
     pt_chg = _pct(ck.get("total_patients"), pk.get("total_patients"))
     st_chg = _pct(cs.get("total_gb"),       ps.get("total_gb"))
     or_chg = _pct(co.get("total"),          po.get("total"))
+    im_chg = _pct(ck.get("total_images"),   pk.get("total_images"))
 
-    sentences = []
+    sections = []
 
-    # S1 — Overview
-    chg = f" ({_fp(s_chg)} vs prior {delta} days)" if s_chg is not None else ""
-    sentences.append(
-        f"Between {start} and {end}, the department completed {_fmt(ck.get('total_studies'))} studies "
-        f"across {_fmt(ck.get('total_patients'))} unique patients{chg}."
+    # ── Overview ──────────────────────────────────────────────
+    overview = []
+    chg_str = f" ({_fp(s_chg)} vs prior {delta}-day period)" if s_chg is not None else ""
+    overview.append(
+        f"{_fmt(ck.get('total_studies'))} studies completed between {start} and {end}{chg_str}"
     )
-
-    # S2 — Top findings
-    findings = []
-    mods = cv.get("top_modalities", [])
-    if mods:
-        tm  = mods[0]
-        tot = float(ck.get("total_studies") or 1)
-        pct = round(tm["cnt"] / tot * 100, 1)
-        findings.append(f"{tm['modality']} led with {_fmt(tm['cnt'])} studies ({pct}% of total)")
-    if cp:
-        findings.append(f"{cp[0]['physician']} was the top referrer ({_fmt(cp[0]['cnt'])} referrals)")
-    if cv.get("peak_day"):
-        findings.append(f"peak day was {cv['peak_day']} at {_fmt(cv['peak_count'])} studies")
-    if findings:
-        sentences.append("Key findings: " + "; ".join(findings) + ".")
-
-    # S3 — Warnings
-    warnings = []
+    overview.append(
+        f"{_fmt(ck.get('total_patients'))} unique patients seen"
+        + (f", {_fp(pt_chg)} vs prior period" if pt_chg is not None else "")
+    )
+    overview.append(
+        f"{_fmt(ck.get('total_images'))} images acquired across {_fmt(ck.get('active_aes'))} active devices"
+        + (f" ({_fp(im_chg)})" if im_chg is not None else "")
+    )
     ff = float(co.get("fulfillment_pct") or 0)
-    if ff < 70:
-        warnings.append(f"order fulfillment is critically low at {ff}% ({_fmt(int(co.get('total',0)) - int(co.get('fulfilled',0)))} unfulfilled orders)")
-    elif ff < 85:
-        warnings.append(f"order fulfillment is below the 85% target at {ff}%")
+    overview.append(
+        f"{_fmt(co.get('total'))} orders received — {ff:.1f}% fulfillment rate "
+        f"({_fmt(co.get('fulfilled'))} completed)"
+    )
+    sections.append({"icon": "bi-bar-chart-line", "color": "#60a5fa", "title": "Overview", "bullets": overview})
 
-    avg_gb = float(cs.get("avg_gb_per_day") or 0)
-    if avg_gb > 2:
-        warnings.append(f"storage consumption is elevated at {avg_gb:.1f} GB/day")
-    if st_chg is not None and st_chg > 30:
-        warnings.append(f"storage grew {_fp(st_chg)} vs the prior period")
-    if s_chg is not None and s_chg < -20:
-        warnings.append(f"study volume dropped {_fp(s_chg)} — investigate scheduling gaps")
+    # ── Volume & Modality ─────────────────────────────────────
+    volume_bullets = []
+    avg_day = float(cv.get("avg_per_day") or 0)
+    volume_bullets.append(f"Average throughput: {avg_day:.1f} studies per day")
+    if cv.get("peak_day"):
+        volume_bullets.append(f"Peak day: {cv['peak_day']} with {_fmt(cv['peak_count'])} studies")
+    mods = cv.get("top_modalities", [])
+    tot  = float(ck.get("total_studies") or 1)
+    for m in mods:
+        pct_share = round(float(m["cnt"]) / tot * 100, 1)
+        volume_bullets.append(f"{m['modality']}: {_fmt(m['cnt'])} studies ({pct_share}% of total)")
+    sections.append({"icon": "bi-graph-up", "color": "#34d399", "title": "Volume & Modality Mix", "bullets": volume_bullets})
 
-    male, female = float(cd.get("male") or 0), float(cd.get("female") or 0)
+    # ── Physicians ────────────────────────────────────────────
+    if cp:
+        phys_bullets = []
+        for i, p in enumerate(cp[:5]):
+            share = round(float(p["cnt"]) / tot * 100, 1)
+            prefix = ["Top referrer", "2nd", "3rd", "4th", "5th"][i]
+            phys_bullets.append(f"{prefix}: {p['physician']} — {_fmt(p['cnt'])} referrals ({share}%)")
+        sections.append({"icon": "bi-person-badge", "color": "#a78bfa", "title": "Top Referring Physicians", "bullets": phys_bullets})
+
+    # ── Demographics ──────────────────────────────────────────
+    demo_bullets = []
+    male   = float(cd.get("male") or 0)
+    female = float(cd.get("female") or 0)
+    inp    = float(cd.get("inpatient") or 0)
+    outp   = float(cd.get("outpatient") or 0)
     tot_gen = male + female
     if tot_gen > 0:
+        demo_bullets.append(f"Gender split: {round(male/tot_gen*100)}% male / {round(female/tot_gen*100)}% female")
+    tot_cls = inp + outp
+    if tot_cls > 0:
+        demo_bullets.append(f"Patient class: {round(inp/tot_cls*100)}% inpatient / {round(outp/tot_cls*100)}% outpatient")
+    avg_age = cd.get("avg_age")
+    if avg_age:
+        demo_bullets.append(f"Average patient age: {float(avg_age):.1f} years (range {int(cd.get('min_age') or 0)}–{int(cd.get('max_age') or 0)})")
+    if demo_bullets:
+        sections.append({"icon": "bi-people", "color": "#f472b6", "title": "Patient Demographics", "bullets": demo_bullets})
+
+    # ── Storage ───────────────────────────────────────────────
+    storage_bullets = []
+    storage_bullets.append(
+        f"Total storage consumed: {float(cs.get('total_gb') or 0):.1f} GB"
+        + (f" ({_fp(st_chg)} vs prior period)" if st_chg is not None else "")
+    )
+    avg_gb = float(cs.get("avg_gb_per_day") or 0)
+    storage_bullets.append(f"Average daily intake: {avg_gb:.1f} GB/day")
+    for m in (cs.get("by_modality") or [])[:4]:
+        storage_bullets.append(f"{m['modality']}: {float(m['gb']):.1f} GB")
+    sections.append({"icon": "bi-hdd-stack", "color": "#2dd4bf", "title": "Storage", "bullets": storage_bullets})
+
+    # ── Period Comparison ─────────────────────────────────────
+    comp_bullets = []
+    if s_chg  is not None: comp_bullets.append(f"Study volume: {_trend(s_chg)} at {_fp(s_chg)}")
+    if pt_chg is not None: comp_bullets.append(f"Unique patients: {_trend(pt_chg)} at {_fp(pt_chg)}")
+    if or_chg is not None: comp_bullets.append(f"Orders received: {_trend(or_chg)} at {_fp(or_chg)}")
+    if st_chg is not None: comp_bullets.append(f"Storage consumed: {_trend(st_chg)} at {_fp(st_chg)}")
+    if im_chg is not None: comp_bullets.append(f"Images acquired: {_trend(im_chg)} at {_fp(im_chg)}")
+    if comp_bullets:
+        comp_bullets.insert(0, f"Comparing {start} → {end} against {cmp_start} → {cmp_end}")
+        sections.append({"icon": "bi-arrow-left-right", "color": "#fb923c", "title": "Period Comparison", "bullets": comp_bullets})
+
+    # ── Alerts ────────────────────────────────────────────────
+    alerts = []
+    if ff < 70:
+        unfulfilled = int(co.get("total", 0) or 0) - int(co.get("fulfilled", 0) or 0)
+        alerts.append(f"Order fulfillment critically low at {ff:.1f}% — {_fmt(unfulfilled)} orders not completed")
+    elif ff < 85:
+        alerts.append(f"Order fulfillment below 85% target — currently at {ff:.1f}%")
+    if avg_gb > 2:
+        alerts.append(f"Storage intake elevated at {avg_gb:.1f} GB/day — review archiving policy")
+    if st_chg is not None and st_chg > 30:
+        alerts.append(f"Storage grew {_fp(st_chg)} vs prior period — capacity planning recommended")
+    if s_chg is not None and s_chg < -20:
+        alerts.append(f"Study volume fell {_fp(s_chg)} — investigate scheduling gaps or cancellations")
+    if tot_gen > 0:
         mp = round(male / tot_gen * 100)
-        if mp > 70:   warnings.append(f"notable gender skew — {mp}% male")
-        elif mp < 30: warnings.append(f"notable gender skew — {100-mp}% female")
-
-    if warnings:
-        sentences.append("⚠ " + "; ".join(warnings) + ".")
+        if mp > 70:   alerts.append(f"Notable gender skew: {mp}% male — verify referral population")
+        elif mp < 30: alerts.append(f"Notable gender skew: {100-mp}% female — verify referral population")
+    if alerts:
+        sections.append({"icon": "bi-exclamation-triangle", "color": "#f87171", "title": "Alerts & Anomalies", "bullets": alerts})
     else:
-        sentences.append("No critical anomalies detected — all key metrics are within normal ranges.")
+        sections.append({"icon": "bi-check-circle", "color": "#34d399", "title": "Alerts & Anomalies", "bullets": ["No critical anomalies detected — all key metrics within normal ranges"]})
 
-    # S4 — Period comparison
-    comps = []
-    if s_chg  is not None: comps.append(f"studies {_trend(s_chg)} ({_fp(s_chg)})")
-    if or_chg is not None: comps.append(f"orders {_trend(or_chg)} ({_fp(or_chg)})")
-    if st_chg is not None: comps.append(f"storage {_trend(st_chg)} ({_fp(st_chg)})")
-    if pt_chg is not None: comps.append(f"patients {_trend(pt_chg)} ({_fp(pt_chg)})")
-    if comps:
-        sentences.append(f"vs {cmp_start} → {cmp_end}: " + ", ".join(comps) + ".")
-
-    return " ".join(sentences)
+    return sections

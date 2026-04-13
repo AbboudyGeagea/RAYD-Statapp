@@ -46,7 +46,15 @@
         .kpi-card { border-top: 2px solid; }
 
         /* Narrative */
-        .narrative-box { background: rgba(251,191,36,0.05); border: 1px solid rgba(251,191,36,0.2); border-left: 3px solid #fbbf24; border-radius: 0 10px 10px 0; padding: 14px 18px; font-size: 13px; color: #cbd5e1; line-height: 1.75; }
+        .narrative-box { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .narrative-section { background: rgba(255,255,255,0.02); border: 1px solid #1e2a26; border-radius: 12px; padding: 14px 16px; }
+        .narrative-section ul { margin: 0; padding: 0; list-style: none; }
+        .narrative-section ul li { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; color: #94a3b8; line-height: 1.6; padding: 3px 0; border-bottom: 1px solid #1a2420; }
+        .narrative-section ul li:last-child { border-bottom: none; }
+        .narrative-section ul li::before { content: "›"; font-weight: 900; flex-shrink: 0; margin-top: 1px; }
+        .narrative-cursor { display: inline-block; width: 2px; height: 12px; background: currentColor; margin-left: 2px; animation: blink 0.7s step-end infinite; vertical-align: middle; }
+        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+        @media (max-width: 900px) { .narrative-box { grid-template-columns: 1fr; } }
 
         /* Light mode */
         body.light { background: #f0f4f8 !important; color: #1a202c !important; }
@@ -58,7 +66,8 @@
         body.light .row-stat .lbl { color: #64748b !important; }
         body.light .row-stat .val { color: #1a202c !important; }
         body.light .row-stat { border-color: #e2e8f0 !important; }
-        body.light .narrative-box { background: rgba(251,191,36,0.05) !important; color: #374151 !important; }
+        body.light .narrative-section { background: #f8fafc !important; border-color: #e2e8f0 !important; }
+        body.light .narrative-section ul li { color: #475569 !important; border-color: #e2e8f0 !important; }
         body.light .sidebar-item { color: #4a5568 !important; }
         body.light .sidebar-item:hover, body.light .sidebar-item.active { background: #e2e8f0 !important; color: #2b6cb0 !important; }
     </style>
@@ -554,7 +563,7 @@
 
         document.getElementById('period-label').textContent =
             `${d.delta_days} days · comparing to ${d.cmp_start} → ${d.cmp_end}`;
-        document.getElementById('super-narrative').textContent = d.narrative;
+        renderNarrative(d.narrative);
 
         // KPIs
         const kpis = [
@@ -621,6 +630,62 @@
             <p class="text-2xl font-black text-white font-mono">${c.val}</p>
             ${c.chg!==null?`<p style="font-size:9px;font-weight:700;color:${c.chg>=0?'#34d399':'#f87171'}">${c.chg>=0?'+':''}${c.chg}%</p>`:''}`
         +`</div>`).join('');
+    }
+
+    // ── Narrative typewriter ──────────────────────────────────────────
+    function renderNarrative(sections) {
+        const box = document.getElementById('super-narrative');
+        box.innerHTML = '';
+        if (!Array.isArray(sections) || !sections.length) return;
+
+        // Build DOM skeleton — all sections empty to start
+        const sectionEls = sections.map(sec => {
+            const div = document.createElement('div');
+            div.className = 'narrative-section';
+            div.innerHTML = `
+                <p class="text-[9px] font-black uppercase tracking-widest mb-2 flex items-center gap-1"
+                   style="color:${escHtml(sec.color)}">
+                    <i class="bi ${escHtml(sec.icon)}"></i> ${escHtml(sec.title)}
+                </p>
+                <ul></ul>`;
+            box.appendChild(div);
+            return { ul: div.querySelector('ul'), bullets: sec.bullets || [] };
+        });
+
+        // Flatten all bullets into a queue: { ulEl, text }
+        const queue = [];
+        sectionEls.forEach(({ ul, bullets }) => {
+            bullets.forEach(text => queue.push({ ul, text }));
+        });
+
+        let qi = 0;
+        function typeNextBullet() {
+            if (qi >= queue.length) return;
+            const { ul, text } = queue[qi++];
+
+            const li  = document.createElement('li');
+            li.style.color = '#94a3b8';
+            const cursor = document.createElement('span');
+            cursor.className = 'narrative-cursor';
+            li.appendChild(cursor);
+            ul.appendChild(li);
+
+            let ci = 0;
+            const charDelay = 18;  // ms per character
+            const bulletDelay = 120; // pause between bullets
+
+            function typeChar() {
+                if (ci < text.length) {
+                    li.insertBefore(document.createTextNode(text[ci++]), cursor);
+                    setTimeout(typeChar, charDelay);
+                } else {
+                    cursor.remove();
+                    setTimeout(typeNextBullet, bulletDelay);
+                }
+            }
+            typeChar();
+        }
+        typeNextBullet();
     }
 
     // ── Helpers ───────────────────────────────────────────────────────
