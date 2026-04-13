@@ -299,6 +299,40 @@ def create_app():
             db.session.rollback()
             logger.warning(f"[Migration] hl7_oru_reports: {e}")
 
+    # --- MIGRATION: hl7_scn_studies (real-time completed studies) ---
+    with app.app_context():
+        try:
+            db.session.execute(text("""
+                CREATE TABLE IF NOT EXISTS hl7_scn_studies (
+                    id               SERIAL PRIMARY KEY,
+                    accession_number VARCHAR(100),
+                    patient_id       VARCHAR(100),
+                    patient_name     TEXT,
+                    procedure_code   VARCHAR(100),
+                    procedure_text   TEXT,
+                    modality         VARCHAR(20),
+                    storing_ae       VARCHAR(100),
+                    patient_class    VARCHAR(50),
+                    study_datetime   TIMESTAMP,
+                    order_status     VARCHAR(20) DEFAULT 'CM',
+                    received_at      TIMESTAMP DEFAULT NOW(),
+                    UNIQUE (accession_number)
+                )
+            """))
+            db.session.execute(text(
+                "ALTER TABLE hl7_scn_studies ADD COLUMN IF NOT EXISTS patient_class VARCHAR(50)"
+            ))
+            db.session.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_scn_study_dt ON hl7_scn_studies (study_datetime DESC)"
+            ))
+            db.session.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_scn_modality ON hl7_scn_studies (modality)"
+            ))
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            logger.warning(f"[Migration] hl7_scn_studies: {e}")
+
     # --- MIGRATION: patient portal password_hash column ---
     with app.app_context():
         try:

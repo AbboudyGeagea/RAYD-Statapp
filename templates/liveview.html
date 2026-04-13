@@ -375,7 +375,10 @@
         <div class="brand-sub">Reliable Analytics For Your Department</div>
       </div>
     </div>
-    <div class="center-title">Live Operations Center</div>
+    <div style="text-align:center;">
+      <div class="center-title">Live Operations Center</div>
+      <div id="data-date-badge" style="font-size:11px;color:#f59e0b;letter-spacing:0.1em;font-weight:600;display:none;"></div>
+    </div>
     <div class="right-info">
       <div style="text-align:right;">
         <div id="clock">--:--:--</div>
@@ -403,17 +406,12 @@
         <div class="kpi-value blue" id="kpi-patients">—</div>
         <i class="bi bi-people-fill kpi-icon" style="color:#60a5fa;"></i>
       </div>
-      <div class="kpi-card purple">
-        <div class="kpi-label">Reports Signed</div>
-        <div class="kpi-value purple" id="kpi-reports">—</div>
-        <i class="bi bi-file-earmark-check-fill kpi-icon" style="color:#a78bfa;"></i>
-      </div>
-      <div class="kpi-card amber">
+      <div class="kpi-card amber" id="kpi-card-inpatient" style="display:none;">
         <div class="kpi-label">Inpatient</div>
         <div class="kpi-value amber" id="kpi-inpatient">—</div>
         <i class="bi bi-hospital-fill kpi-icon" style="color:#f59e0b;"></i>
       </div>
-      <div class="kpi-card rose">
+      <div class="kpi-card rose" id="kpi-card-outpatient" style="display:none;">
         <div class="kpi-label">Outpatient</div>
         <div class="kpi-value rose" id="kpi-outpatient">—</div>
         <i class="bi bi-person-walking kpi-icon" style="color:#f87171;"></i>
@@ -506,12 +504,34 @@ function utilColor(pct) {
 
 // ── Render ────────────────────────────────────────────────────────────────
 function render(data) {
+  // Show data date if it differs from today
+  const badge = document.getElementById('data-date-badge');
+  const today = new Date().toISOString().slice(0, 10);
+  if (data.date && data.date !== today) {
+    const d = new Date(data.date + 'T00:00:00');
+    badge.textContent = 'SHOWING DATA FROM ' + d.toLocaleDateString('en-GB', {weekday:'short', year:'numeric', month:'short', day:'numeric'}).toUpperCase();
+    badge.style.display = 'block';
+  } else {
+    badge.style.display = 'none';
+  }
+
   const kpi = data.kpi;
   document.getElementById('kpi-studies').textContent   = fmt(kpi.total_studies);
   document.getElementById('kpi-patients').textContent  = fmt(kpi.total_patients);
-  document.getElementById('kpi-reports').textContent   = fmt(kpi.reports_signed);
-  document.getElementById('kpi-inpatient').textContent = fmt(kpi.inpatient);
-  document.getElementById('kpi-outpatient').textContent= fmt(kpi.outpatient);
+
+  // Show inpatient/outpatient cards only if SCN sends patient_class
+  if (kpi.inpatient !== undefined) {
+    document.getElementById('kpi-inpatient').textContent = fmt(kpi.inpatient);
+    document.getElementById('kpi-card-inpatient').style.display = '';
+  } else {
+    document.getElementById('kpi-card-inpatient').style.display = 'none';
+  }
+  if (kpi.outpatient !== undefined) {
+    document.getElementById('kpi-outpatient').textContent = fmt(kpi.outpatient);
+    document.getElementById('kpi-card-outpatient').style.display = '';
+  } else {
+    document.getElementById('kpi-card-outpatient').style.display = 'none';
+  }
 
   // ── Modality bars
   const maxCount = data.modalities.length ? Math.max(...data.modalities.map(m => m.count)) : 1;

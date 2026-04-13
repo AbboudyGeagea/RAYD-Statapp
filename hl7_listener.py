@@ -58,6 +58,29 @@ INSERT_SQL = """
 """
 
 
+SCN_INSERT_SQL = """
+    INSERT INTO hl7_scn_studies (
+        accession_number, patient_id, patient_name,
+        procedure_code, procedure_text, modality, storing_ae,
+        patient_class, study_datetime, order_status, received_at
+    ) VALUES (
+        :accession_number, :patient_id, :patient_name,
+        :procedure_code, :procedure_text, :modality, :storing_ae,
+        :patient_class, :study_datetime, :order_status, :received_at
+    )
+    ON CONFLICT (accession_number) DO UPDATE SET
+        patient_id     = EXCLUDED.patient_id,
+        patient_name   = EXCLUDED.patient_name,
+        procedure_code = EXCLUDED.procedure_code,
+        procedure_text = EXCLUDED.procedure_text,
+        modality       = EXCLUDED.modality,
+        storing_ae     = EXCLUDED.storing_ae,
+        patient_class  = EXCLUDED.patient_class,
+        study_datetime = EXCLUDED.study_datetime,
+        order_status   = EXCLUDED.order_status,
+        received_at    = EXCLUDED.received_at
+"""
+
 # ── HL7 helpers ───────────────────────────────────────────────────────────────
 
 def _seg(segments, name):
@@ -265,6 +288,8 @@ def parse_orm_o01(raw_message):
     if not ordering_physician:
         ordering_physician = _format_name(_field(obr, 16, ''))
 
+    patient_class = _field(pid, 18)
+
     return {
         "message_id":         message_id,
         "message_datetime":   message_datetime,
@@ -273,6 +298,7 @@ def parse_orm_o01(raw_message):
         "patient_name":       patient_name,
         "date_of_birth":      dob,
         "gender":             gender,
+        "patient_class":      patient_class,
         "accession_number":   accession_number or None,
         "placer_order_number":placer_order_number or None,
         "procedure_code":     procedure_code,
@@ -372,6 +398,36 @@ def _handle_client(conn, addr, app):
                                 f"| patient={parsed['patient_id']} "
                                 f"| accession={parsed['accession_number']}"
                             )
+
+                            # ── SCN: Study Complete → feed liveview ──────
+                            if parsed.get('order_status') in ('CM', 'SC'):
+                                scn_data = {
+                                    'accession_number': parsed.get('accession_number'),
+                                    'patient_id':       parsed.get('patient_id'),
+                                    'patient_name':     parsed.get('patient_name'),
+                                    'procedure_code':   parsed.get('procedure_code'),
+                                    'procedure_text':   parsed.get('procedure_text'),
+                                    'modality':         parsed.get('modality'),
+                                    'storing_ae':       _field(_seg(segments, 'OBR'), 21) or _field(_seg(segments, 'OBR'), 24),
+                                    'patient_class':    parsed.get('patient_class'),
+                                    'study_datetime':   parsed.get('scheduled_datetime') or datetime.now(),
+                                    'order_status':     parsed.get('order_status'),
+                                    'received_at':      datetime.now(),
+                                }
+                                if scn_data['accession_number']:
+                                    with app.app_context():
+                                        from sqlalchemy import text as _t
+                                        from db import db as _db
+                                        try:
+                                            _db.session.execute(_t(SCN_INSERT_SQL), scn_data)
+                                            _db.session.commit()
+                                            logger.info(
+                                                f"✅ SCN stored | accession={scn_data['accession_number']} "
+                                                f"| modality={scn_data['modality']}"
+                                            )
+                                        except Exception as scn_err:
+                                            _db.session.rollback()
+                                            logger.warning(f"⚠ SCN insert error: {scn_err}")
 
                             try:
                                 from routes.portal_bp import process_orm_for_portal
