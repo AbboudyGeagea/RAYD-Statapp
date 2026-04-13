@@ -100,9 +100,10 @@ def _get_oracle_params(pg_engine, connection_name):
 
 
 def _connect_oracle(params):
+    from utils.crypto import decrypt
     host, port, sid, username, password, mode = params
     dsn = oracledb.makedsn(host, int(port or 1521), sid=sid)
-    kwargs = {"user": username, "password": password, "dsn": dsn}
+    kwargs = {"user": username, "password": decrypt(password), "dsn": dsn}
     if mode and mode.upper() == 'SYSDBA':
         kwargs["mode"] = oracledb.SYSDBA
     return oracledb.connect(**kwargs)

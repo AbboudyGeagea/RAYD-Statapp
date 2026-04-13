@@ -266,6 +266,16 @@ while [ -z "$ORACLE_PASS" ]; do
     read -r -s -p "  Oracle password (required): " ORACLE_PASS; echo ""
 done
 
+# Encrypt Oracle password using the app's SECRET_KEY
+set -a; source .env; set +a
+ENCRYPTED_ORACLE_PASS=$(python3 -c "
+import sys, os, base64, hashlib
+os.environ['SECRET_KEY'] = '${SECRET_KEY}'
+sys.path.insert(0, '.')
+from utils.crypto import encrypt
+print(encrypt('${ORACLE_PASS}'))
+")
+
 pg_exec "
 INSERT INTO db_params (name, db_role, db_type, host, port, sid, username, password, mode)
 VALUES (
@@ -276,7 +286,7 @@ VALUES (
     ${ORACLE_PORT},
     '${ORACLE_SID}',
     '${ORACLE_USER}',
-    '${ORACLE_PASS}',
+    '${ENCRYPTED_ORACLE_PASS}',
     ''
 )
 ON CONFLICT (name) DO UPDATE SET
@@ -286,7 +296,7 @@ ON CONFLICT (name) DO UPDATE SET
     username = EXCLUDED.username,
     password = EXCLUDED.password;
 "
-ok "Oracle PACS connection saved (${ORACLE_USER}@${ORACLE_HOST}:${ORACLE_PORT}/${ORACLE_SID})."
+ok "Oracle PACS connection saved (${ORACLE_USER}@${ORACLE_HOST}:${ORACLE_PORT}/${ORACLE_SID}) — password encrypted."
 
 # ── 6d. Demo mode / Go-live date ──────────────────────
 echo ""

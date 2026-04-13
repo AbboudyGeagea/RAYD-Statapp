@@ -301,6 +301,35 @@ def create_app():
             db.session.rollback()
             logger.warning(f"[Migration] patient_portal_users.password_hash: {e}")
 
+    # --- MIGRATION: encrypt db_params passwords ---
+    with app.app_context():
+        try:
+            from utils.crypto import encrypt, decrypt
+            from cryptography.fernet import InvalidToken
+            rows = db.session.execute(
+                text("SELECT id, password FROM db_params WHERE password IS NOT NULL AND password != ''")
+            ).fetchall()
+            for row_id, pwd in rows:
+                # Test if already encrypted by trying to decrypt
+                try:
+                    from cryptography.fernet import Fernet
+                    import base64, hashlib
+                    secret = os.environ.get('SECRET_KEY', '')
+                    key = base64.urlsafe_b64encode(hashlib.sha256(secret.encode()).digest())
+                    Fernet(key).decrypt(pwd.encode())
+                    # Already encrypted — skip
+                except Exception:
+                    # Not encrypted — encrypt it now
+                    db.session.execute(
+                        text("UPDATE db_params SET password = :p WHERE id = :id"),
+                        {"p": encrypt(pwd), "id": row_id}
+                    )
+                    logger.info(f"[Migration] Encrypted password for db_params id={row_id}")
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            logger.warning(f"[Migration] db_params encryption: {e}")
+
     # --- STARTUP: AUTO-TRIGGER ETL IF DB IS EMPTY ---
     with app.app_context():
         # Skip ETL entirely when demo mode is active (no Oracle available)

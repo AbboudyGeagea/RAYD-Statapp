@@ -12,3 +12,4 @@ requests
 psutil
 xlsxwriter
 scikit-learn==1.4.2
+cryptography==42.0.5

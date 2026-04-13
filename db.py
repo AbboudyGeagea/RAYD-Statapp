@@ -22,14 +22,15 @@ db = SQLAlchemy()
 class OracleConnector:
     @staticmethod
     def get_connection(sysdba=False):
+        from utils.crypto import decrypt
         params = DBParams.query.filter(DBParams.name.ilike('%oracle%')).first()
-        if not params: 
+        if not params:
             raise Exception("No Oracle configuration found in db_params table.")
-        
+
         dsn = oracledb.makedsn(params.host, params.port, sid=params.sid)
         connect_kwargs = {
-            "user": params.username, 
-            "password": params.password, 
+            "user": params.username,
+            "password": decrypt(params.password),
             "dsn": dsn
         }
         
