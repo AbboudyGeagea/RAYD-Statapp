@@ -136,7 +136,7 @@ def _sync_lookup_tables(engine):
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
 
         # 1. AE → Modality: pick the most frequent modality per AE from series data
-        conn.execute(text("""
+        r = conn.execute(text("""
             INSERT INTO aetitle_modality_map (aetitle, modality, daily_capacity_minutes)
             SELECT storing_ae, modality, 480
             FROM (
@@ -158,29 +158,38 @@ def _sync_lookup_tables(engine):
             WHERE rn = 1
             ON CONFLICT (aetitle) DO NOTHING
         """))
+        logger.info(f"Phase 8 — Step 1 (AE→Modality): {r.rowcount} new AEs inserted")
 
         # 2. Default weekly schedule for any new AEs (uses daily_capacity_minutes from map)
-        conn.execute(text("""
+        r = conn.execute(text("""
             INSERT INTO device_weekly_schedule (aetitle, day_of_week, std_opening_minutes)
             SELECT m.aetitle, d.day_of_week, COALESCE(m.daily_capacity_minutes, 480)
             FROM aetitle_modality_map m
             CROSS JOIN generate_series(0, 6) AS d(day_of_week)
             ON CONFLICT (aetitle, day_of_week) DO NOTHING
         """))
+        logger.info(f"Phase 8 — Step 2 (Weekly Schedule): {r.rowcount} new schedule rows inserted")
 
         # 3. Procedure codes: distinct from orders, default 15 min / 1.0 RVU
-        conn.execute(text("""
+        r = conn.execute(text("""
             INSERT INTO procedure_duration_map (procedure_code, duration_minutes, rvu_value)
             SELECT DISTINCT TRIM(proc_id), 15, 1.0
             FROM etl_orders
             WHERE proc_id IS NOT NULL AND TRIM(proc_id) != ''
             ON CONFLICT (procedure_code) DO NOTHING
         """))
+        logger.info(f"Phase 8 — Step 3 (Procedure Codes): {r.rowcount} new procedures inserted")
+
+        # Snapshot: how many still need modality before strategies run
+        total_unmapped = conn.execute(text(
+            "SELECT COUNT(*) FROM procedure_duration_map WHERE modality IS NULL"
+        )).scalar()
+        logger.info(f"Phase 8 — Modality fill: {total_unmapped:,} procedures currently unmapped")
 
         # 4. Auto-learn procedure → modality from historical data
         #    Only fills NULL modality — never overwrites manual assignments
         #    Strategy A: exact match via etl_orders → etl_didb_studies (study_db_uid join)
-        conn.execute(text("""
+        r = conn.execute(text("""
             UPDATE procedure_duration_map p
             SET modality = sub.modality
             FROM (
@@ -198,9 +207,10 @@ def _sync_lookup_tables(engine):
             WHERE p.procedure_code = sub.procedure_code
               AND p.modality IS NULL
         """))
+        logger.info(f"Phase 8 — Strategy A (orders→studies join): {r.rowcount} procedures mapped")
 
         #    Strategy B: exact match directly from etl_didb_studies.procedure_code
-        conn.execute(text("""
+        r = conn.execute(text("""
             UPDATE procedure_duration_map p
             SET modality = sub.modality
             FROM (
@@ -217,10 +227,11 @@ def _sync_lookup_tables(engine):
             WHERE p.procedure_code = sub.procedure_code
               AND p.modality IS NULL
         """))
+        logger.info(f"Phase 8 — Strategy B (studies.procedure_code exact): {r.rowcount} procedures mapped")
 
         #    Strategy C: fuzzy match (>=0.9 similarity) on procedure code
         #    Catches codes that differ by spacing, dashes, minor typos
-        conn.execute(text("""
+        r = conn.execute(text("""
             UPDATE procedure_duration_map p
             SET modality = sub.modality
             FROM (
@@ -240,10 +251,11 @@ def _sync_lookup_tables(engine):
               AND sub.modality IS NOT NULL
               AND p.modality IS NULL
         """))
+        logger.info(f"Phase 8 — Strategy C (fuzzy code >=90%): {r.rowcount} procedures mapped")
 
         #    Strategy D: fuzzy match (>=0.9 similarity) on procedure description
         #    Matches proc_text from orders against study_description
-        conn.execute(text("""
+        r = conn.execute(text("""
             UPDATE procedure_duration_map p
             SET modality = sub.modality
             FROM (
@@ -268,6 +280,7 @@ def _sync_lookup_tables(engine):
               AND sub.modality IS NOT NULL
               AND p.modality IS NULL
         """))
+        logger.info(f"Phase 8 — Strategy D (fuzzy description >=90%): {r.rowcount} procedures mapped")
 
         #    Fuzzy candidates (70-89%): store for human review, do NOT auto-fill
         conn.execute(text("""
@@ -281,7 +294,7 @@ def _sync_lookup_tables(engine):
             )
         """))
         conn.execute(text("TRUNCATE procedure_fuzzy_candidates"))
-        conn.execute(text("""
+        r = conn.execute(text("""
             INSERT INTO procedure_fuzzy_candidates (procedure_code, suggested_modality, match_score, matched_via)
             SELECT DISTINCT ON (p.procedure_code)
                 p.procedure_code,
@@ -302,9 +315,10 @@ def _sync_lookup_tables(engine):
                 match_score        = EXCLUDED.match_score,
                 detected_at        = NOW()
         """))
+        logger.info(f"Phase 8 — Fuzzy candidates (70-89%): {r.rowcount} stored for human review")
 
         #    Strategy E: match via AE title modality as last resort
-        conn.execute(text("""
+        r = conn.execute(text("""
             UPDATE procedure_duration_map p
             SET modality = sub.modality
             FROM (
@@ -321,6 +335,19 @@ def _sync_lookup_tables(engine):
             WHERE p.procedure_code = sub.procedure_code
               AND p.modality IS NULL
         """))
+        logger.info(f"Phase 8 — Strategy E (AE title fallback): {r.rowcount} procedures mapped")
+
+        # Final summary
+        still_unmapped = conn.execute(text(
+            "SELECT COUNT(*) FROM procedure_duration_map WHERE modality IS NULL"
+        )).scalar()
+        total_mapped = conn.execute(text(
+            "SELECT COUNT(*) FROM procedure_duration_map WHERE modality IS NOT NULL"
+        )).scalar()
+        logger.info(
+            f"Phase 8 — Final: {total_mapped:,} mapped, {still_unmapped:,} still unmapped "
+            f"({still_unmapped} may appear as 'Suggested' or 'Auto' on config page)"
+        )
 
         # 5. Flag inconsistent procedure→modality mappings
         #    (procedures that appear on 2+ different modalities)
@@ -334,7 +361,7 @@ def _sync_lookup_tables(engine):
             )
         """))
         conn.execute(text("TRUNCATE procedure_modality_conflicts"))
-        conn.execute(text("""
+        r = conn.execute(text("""
             INSERT INTO procedure_modality_conflicts (procedure_code, modalities, sample_count)
             SELECT
                 TRIM(s.procedure_code),
@@ -348,6 +375,7 @@ def _sync_lookup_tables(engine):
             GROUP BY TRIM(s.procedure_code)
             HAVING COUNT(DISTINCT UPPER(TRIM(s.study_modality))) > 1
         """))
+        logger.info(f"Phase 8 — Conflicts detected: {r.rowcount} procedures flagged on 2+ modalities")
 
 
 if __name__ == "__main__":
