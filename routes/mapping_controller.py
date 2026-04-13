@@ -25,6 +25,11 @@ def get_or_create(model, **kwargs):
 @login_required
 def export_modality_csv():
     if current_user.role != 'admin': return abort(403)
+    from flask import current_app, jsonify
+    from routes.registry import check_license_limit
+    ok, msg = check_license_limit(current_app, 'export')
+    if not ok:
+        return jsonify({"error": msg}), 403
     rows = AETitleModalityMap.query.order_by(AETitleModalityMap.aetitle).all()
     buf = io.StringIO()
     w = csv.writer(buf)
@@ -45,6 +50,11 @@ def export_modality_csv():
 @login_required
 def export_procedure_csv():
     if current_user.role != 'admin': return abort(403)
+    from flask import current_app, jsonify
+    from routes.registry import check_license_limit
+    ok, msg = check_license_limit(current_app, 'export')
+    if not ok:
+        return jsonify({"error": msg}), 403
     rows = ProcedureDurationMap.query.order_by(ProcedureDurationMap.procedure_code).all()
     buf = io.StringIO()
     w = csv.writer(buf)

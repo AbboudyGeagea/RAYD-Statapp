@@ -133,9 +133,13 @@ def report_27():
 @report_27_bp.route("/report/27/export", methods=["POST"])
 @login_required
 def export_report_27():
-    # Helper to re-fetch data for export based on the hidden start_date field
+    from flask import current_app, jsonify
+    from routes.registry import check_license_limit
+    ok, msg = check_license_limit(current_app, 'export')
+    if not ok:
+        return jsonify({"error": msg}), 403
     start = request.form.get("start_date")
     end = request.form.get("end_date")
     df = get_report_data(start, end)
-    return Response(df.to_csv(index=False), mimetype="text/csv", 
+    return Response(df.to_csv(index=False), mimetype="text/csv",
                     headers={"Content-disposition": f"attachment; filename=Audit_Export_{start}.csv"})

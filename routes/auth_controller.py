@@ -32,6 +32,14 @@ def register():
         role = request.form.get('role')
         admin_key_input = request.form.get('admin_key')
 
+        # 0. License: max_users check
+        from flask import current_app
+        from routes.registry import check_license_limit
+        ok, msg = check_license_limit(current_app, 'max_users')
+        if not ok:
+            flash(msg, 'danger')
+            return redirect(url_for('auth.register'))
+
         # 1. Validation: Check if username exists
         if User.query.filter_by(username=username).first():
             flash('Username already taken.', 'danger')
@@ -103,6 +111,20 @@ def login():
             demo_mode, demo_user = _get_demo_settings()
             if demo_mode and user.role != 'admin' and user.username != demo_user:
                 flash('Access is restricted during demo mode.', 'warning')
+                return redirect(url_for('auth.login'))
+
+            # License: check expiry
+            from flask import current_app
+            from routes.registry import check_license_limit
+            ok, msg = check_license_limit(current_app, 'expired')
+            if not ok and user.role != 'admin':
+                flash(msg, 'danger')
+                return redirect(url_for('auth.login'))
+
+            # License: concurrent session limit
+            ok, msg = check_license_limit(current_app, 'max_sessions')
+            if not ok and user.role != 'admin':
+                flash(msg, 'warning')
                 return redirect(url_for('auth.login'))
 
             login_user(user)

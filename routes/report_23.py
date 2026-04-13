@@ -278,6 +278,11 @@ def report_23():
 @report_23_bp.route('/report/23/export', methods=['POST'])
 @login_required
 def export_report_23():
+    from flask import current_app, jsonify
+    from routes.registry import check_license_limit
+    ok, msg = check_license_limit(current_app, 'export')
+    if not ok:
+        return jsonify({"error": msg}), 403
     base_sql, start_date, end_date, params, extra_where = get_report_config(request.form)
 
     if not base_sql:

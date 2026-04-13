@@ -1,4 +1,7 @@
 # routes/registry.py
+import json
+import logging
+from datetime import date
 from .auth_controller    import auth_bp
 from .admin_controller   import admin_bp
 from .viewer_controller  import viewer_bp
@@ -25,48 +28,248 @@ from routes.liveview         import liveview_bp
 from routes.oru_analytics    import oru_bp
 from routes.adapter_mapper   import adapter_mapper_bp
 
+logger = logging.getLogger("REGISTRY")
+
+# ── Default license (everything ON, no limits) ───────────────
+DEFAULT_LICENSE = {
+    "tier": "enterprise",
+    "reports": [22, 23, 25, 27, 29],
+    "ai_report": True,
+    "capacity_ladder": True,
+    "er_dashboard": True,
+    "patient_portal": True,
+    "live_feed": True,
+    "liveview": True,
+    "hl7_orders": True,
+    "oru_analytics": True,
+    "saved_reports": True,
+    "bitnet_ai": True,
+    "export": True,
+    "adapter_mapper": True,
+    "max_users": 0,          # 0 = unlimited
+    "max_sessions": 0,       # 0 = unlimited concurrent sessions
+    "expires": "",            # "" = never, else "YYYY-MM-DD"
+    "max_studies_per_report": 0,  # 0 = unlimited, else cap rows
+}
+
+# ── Tier presets (used by install.sh) ────────────────────────
+TIER_PRESETS = {
+    "basic": {
+        "tier": "basic",
+        "reports": [22],
+        "ai_report": False,
+        "capacity_ladder": False,
+        "er_dashboard": False,
+        "patient_portal": False,
+        "live_feed": True,
+        "liveview": True,
+        "hl7_orders": True,
+        "oru_analytics": False,
+        "saved_reports": False,
+        "bitnet_ai": False,
+        "export": False,
+        "adapter_mapper": False,
+        "max_users": 5,
+        "max_sessions": 2,
+        "expires": "",
+        "max_studies_per_report": 5000,
+    },
+    "professional": {
+        "tier": "professional",
+        "reports": [22, 23, 25, 27, 29],
+        "ai_report": False,
+        "capacity_ladder": True,
+        "er_dashboard": True,
+        "patient_portal": False,
+        "live_feed": True,
+        "liveview": True,
+        "hl7_orders": True,
+        "oru_analytics": True,
+        "saved_reports": True,
+        "bitnet_ai": False,
+        "export": True,
+        "adapter_mapper": False,
+        "max_users": 0,
+        "max_sessions": 0,
+        "expires": "",
+        "max_studies_per_report": 0,
+    },
+    "enterprise": DEFAULT_LICENSE.copy(),
+}
+
+
+def _load_license(app):
+    """Read license JSON from settings table. Falls back to full access."""
+    try:
+        from sqlalchemy import text
+        from db import db
+        with app.app_context():
+            row = db.session.execute(
+                text("SELECT value FROM settings WHERE key = 'license'")
+            ).fetchone()
+            if row:
+                lic = json.loads(row[0])
+                merged = DEFAULT_LICENSE.copy()
+                merged.update(lic)
+                return merged
+    except Exception as e:
+        logger.warning(f"Could not load license: {e}")
+    return DEFAULT_LICENSE.copy()
+
+
+def check_license_limit(app, check):
+    """
+    Runtime license checks called from routes.
+    Returns (ok: bool, message: str).
+
+    Usage:
+        ok, msg = check_license_limit(current_app, 'export')
+        if not ok: return jsonify(error=msg), 403
+    """
+    lic = app.config.get('LICENSE', DEFAULT_LICENSE)
+
+    # ── Expiry ────────────────────────────────────────────
+    if check == 'expired' or check != 'expired':
+        exp = lic.get('expires', '')
+        if exp:
+            try:
+                if date.today() > date.fromisoformat(exp):
+                    return False, f"License expired on {exp}. Contact your vendor."
+            except ValueError:
+                pass
+
+    if check == 'export':
+        if not lic.get('export', False):
+            return False, "Export is not included in your license tier."
+
+    elif check == 'max_users':
+        limit = lic.get('max_users', 0)
+        if limit > 0:
+            from db import User, db
+            count = db.session.execute(
+                __import__('sqlalchemy').text("SELECT COUNT(*) FROM users")
+            ).scalar()
+            if count >= limit:
+                return False, f"User limit reached ({limit}). Upgrade your license to add more users."
+
+    elif check == 'max_sessions':
+        limit = lic.get('max_sessions', 0)
+        if limit > 0:
+            from db import db
+            count = db.session.execute(
+                __import__('sqlalchemy').text("SELECT COUNT(*) FROM active_sessions")
+            ).scalar()
+            if count >= limit:
+                return False, f"All {limit} concurrent seats are in use. Try again later or upgrade your license."
+
+    elif check == 'report':
+        # Pass report_id as second arg via check_license_limit(app, 'report:25')
+        pass
+
+    return True, ""
+
+
+def check_report_licensed(app, report_id):
+    """Check if a specific report ID is licensed."""
+    lic = app.config.get('LICENSE', DEFAULT_LICENSE)
+    exp = lic.get('expires', '')
+    if exp:
+        try:
+            if date.today() > date.fromisoformat(exp):
+                return False, f"License expired on {exp}."
+        except ValueError:
+            pass
+    if report_id not in lic.get('reports', []):
+        return False, f"Report {report_id} is not included in your license."
+    return True, ""
+
+
+def get_study_limit(app):
+    """Return max studies per report, or 0 for unlimited."""
+    lic = app.config.get('LICENSE', DEFAULT_LICENSE)
+    return lic.get('max_studies_per_report', 0)
+
 
 def register_blueprints(app):
+    lic = _load_license(app)
+    app.config['LICENSE'] = lic
+    logger.info(f"License tier: {lic.get('tier', 'unknown')} — reports: {lic.get('reports', [])}")
+
+    # ── Check expiry at startup ───────────────────────────────
+    exp = lic.get('expires', '')
+    if exp:
+        try:
+            if date.today() > date.fromisoformat(exp):
+                logger.warning(f"LICENSE EXPIRED on {exp} — running in restricted mode")
+        except ValueError:
+            pass
+
     # ── Core (always registered) ──────────────────────────────
     app.register_blueprint(auth_bp)
     app.register_blueprint(admin_bp,         url_prefix='/admin')
     app.register_blueprint(viewer_bp,        url_prefix='/viewer')
     app.register_blueprint(mapping_bp)
     app.register_blueprint(report_bp)
-    app.register_blueprint(saved_reports_bp, url_prefix='/saved')
-    app.register_blueprint(report_ai_bp)
-    app.register_blueprint(super_report_bp)
-    app.register_blueprint(capacity_ladder_bp)
     app.register_blueprint(preferences_bp)
     app.register_blueprint(docs_bp)
-    app.register_blueprint(er_bp)
-    app.register_blueprint(liveview_bp)
-    app.register_blueprint(oru_bp)
-    app.register_blueprint(adapter_mapper_bp)
-
-    # ── Reports ───────────────────────────────────────────────
-    app.register_blueprint(report_22_bp)
-    app.register_blueprint(report_23_bp)
-    app.register_blueprint(report_25_bp)
-    app.register_blueprint(report_27_bp)
-    app.register_blueprint(report_29_bp)
-    app.register_blueprint(hl7_orders_bp)
     app.register_blueprint(etl_gear_bp)
 
-    # ── Patient Portal (optional) ─────────────────────────────
-    if app.config.get("PATIENT_PORTAL_ENABLED", True):
+    # ── Licensed reports ──────────────────────────────────────
+    report_map = {
+        22: report_22_bp,
+        23: report_23_bp,
+        25: report_25_bp,
+        27: report_27_bp,
+        29: report_29_bp,
+    }
+    licensed_reports = lic.get('reports', [])
+    for rid, bp in report_map.items():
+        if rid in licensed_reports:
+            app.register_blueprint(bp)
+            logger.info(f"  Report {rid}: enabled")
+        else:
+            logger.info(f"  Report {rid}: not licensed — skipped")
+
+    # ── Licensed features ─────────────────────────────────────
+    feature_map = {
+        'ai_report':        (report_ai_bp,        {}),
+        'capacity_ladder':  (capacity_ladder_bp,   {}),
+        'er_dashboard':     (er_bp,                {}),
+        'liveview':         (liveview_bp,          {}),
+        'oru_analytics':    (oru_bp,               {}),
+        'saved_reports':    (saved_reports_bp,      {'url_prefix': '/saved'}),
+        'hl7_orders':       (hl7_orders_bp,        {}),
+        'adapter_mapper':   (adapter_mapper_bp,    {}),
+        'super_report':     (super_report_bp,      {}),
+    }
+    for feature, (bp, kwargs) in feature_map.items():
+        if lic.get(feature, False):
+            app.register_blueprint(bp, **kwargs)
+            logger.info(f"  {feature}: enabled")
+        else:
+            logger.info(f"  {feature}: not licensed — skipped")
+
+    # ── Patient Portal (license + config flag) ────────────────
+    if lic.get('patient_portal', False) and app.config.get("PATIENT_PORTAL_ENABLED", True):
         app.register_blueprint(portal_bp)
         app.register_blueprint(portal_admin_bp)
+        logger.info("  patient_portal: enabled")
 
-    # ── Live AE Feed (optional) ───────────────────────────────
-    if app.config.get("LIVE_FEED_ENABLED", True):
+    # ── Live AE Feed (license + config flag) ──────────────────
+    if lic.get('live_feed', False) and app.config.get("LIVE_FEED_ENABLED", True):
         app.register_blueprint(live_feed_bp)
+        logger.info("  live_feed: enabled")
 
-    # ── BitNet AI Assistant (optional) ────────────────────────
-    if app.config.get("BITNET_ENABLED", True):
+    # ── BitNet AI Assistant (license + config flag) ───────────
+    if lic.get('bitnet_ai', False) and app.config.get("BITNET_ENABLED", True):
         try:
             from routes.bitnet_service import bitnet_bp
             app.register_blueprint(bitnet_bp)
-            app.logger.info("✅ BitNet AI Assistant enabled")
+            logger.info("  bitnet_ai: enabled")
         except ImportError as e:
-            app.logger.warning(f"⚠ BitNet import failed: {e}")
+            logger.warning(f"  bitnet_ai: import failed: {e}")
+
+    # ── Inject license into templates ─────────────────────────
+    @app.context_processor
+    def inject_license():
+        return {"license": lic}

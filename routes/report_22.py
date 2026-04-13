@@ -401,6 +401,11 @@ def status_drilldown_22():
     """), {**params, "status": status}).fetchall()
 
     if export:
+        from flask import current_app
+        from routes.registry import check_license_limit
+        ok, msg = check_license_limit(current_app, 'export')
+        if not ok:
+            return jsonify({"error": msg}), 403
         def generate():
             out = io.StringIO()
             w = csv.writer(out)

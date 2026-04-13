@@ -298,7 +298,127 @@ ON CONFLICT (name) DO UPDATE SET
 "
 ok "Oracle PACS connection saved (${ORACLE_USER}@${ORACLE_HOST}:${ORACLE_PORT}/${ORACLE_SID}) — password encrypted."
 
-# ── 6d. Demo mode / Go-live date ──────────────────────
+# ── 6d. License Tier ─────────────────────────────────
+echo ""
+echo "  ── License Tier ──────────────────────────────────"
+echo "  1) Basic        — Report 22 only, 5 users, 2 sessions, 5k row cap"
+echo "  2) Professional — All reports, unlimited users, no AI/portal"
+echo "  3) Enterprise   — Everything enabled, no limits"
+echo "  4) Custom       — Start from a tier and edit the JSON"
+echo ""
+read -r -p "  Select license tier [1-4] (default: 3): " TIER_CHOICE
+TIER_CHOICE="${TIER_CHOICE:-3}"
+
+case "$TIER_CHOICE" in
+    1) TIER_KEY="basic" ;;
+    2) TIER_KEY="professional" ;;
+    4) TIER_KEY="custom" ;;
+    *) TIER_KEY="enterprise" ;;
+esac
+
+# Build the license JSON using Python (access to TIER_PRESETS)
+PRESET_KEY="$TIER_KEY"
+if [[ "$TIER_KEY" == "custom" ]]; then PRESET_KEY="enterprise"; fi
+LICENSE_JSON=$(python3 -c "
+import sys, json
+sys.path.insert(0, '.')
+from routes.registry import TIER_PRESETS
+print(json.dumps(TIER_PRESETS['${PRESET_KEY}']))
+")
+
+if [[ "$TIER_KEY" == "custom" ]]; then
+    echo ""
+    echo "  Starting from enterprise tier. Edit the JSON below."
+    echo "  Current license JSON:"
+    echo "  $LICENSE_JSON" | python3 -m json.tool 2>/dev/null || echo "  $LICENSE_JSON"
+    echo ""
+
+    # Let the user customise individual fields
+    read -r -p "  Licensed report IDs (comma-separated, e.g. 22,23,25,27,29): " CUSTOM_REPORTS
+    if [ -n "$CUSTOM_REPORTS" ]; then
+        LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+d['reports'] = [int(x.strip()) for x in '${CUSTOM_REPORTS}'.split(',') if x.strip().isdigit()]
+d['tier'] = 'custom'
+print(json.dumps(d))
+")
+    fi
+
+    read -r -p "  Max users (0 = unlimited): " CUSTOM_MAX_USERS
+    if [ -n "$CUSTOM_MAX_USERS" ]; then
+        LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+d['max_users'] = int('${CUSTOM_MAX_USERS}') if '${CUSTOM_MAX_USERS}'.isdigit() else 0
+print(json.dumps(d))
+")
+    fi
+
+    read -r -p "  Max concurrent sessions (0 = unlimited): " CUSTOM_MAX_SESS
+    if [ -n "$CUSTOM_MAX_SESS" ]; then
+        LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+d['max_sessions'] = int('${CUSTOM_MAX_SESS}') if '${CUSTOM_MAX_SESS}'.isdigit() else 0
+print(json.dumps(d))
+")
+    fi
+
+    read -r -p "  Expiry date (YYYY-MM-DD, blank = never): " CUSTOM_EXPIRY
+    if [ -n "$CUSTOM_EXPIRY" ]; then
+        LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+d['expires'] = '${CUSTOM_EXPIRY}'
+print(json.dumps(d))
+")
+    fi
+
+    read -r -p "  Max studies per report (0 = unlimited): " CUSTOM_STUDY_CAP
+    if [ -n "$CUSTOM_STUDY_CAP" ]; then
+        LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+d['max_studies_per_report'] = int('${CUSTOM_STUDY_CAP}') if '${CUSTOM_STUDY_CAP}'.isdigit() else 0
+print(json.dumps(d))
+")
+    fi
+
+    # Toggle individual features
+    for feat in ai_report capacity_ladder er_dashboard patient_portal live_feed liveview hl7_orders oru_analytics saved_reports bitnet_ai export adapter_mapper; do
+        CURRENT=$(echo "$LICENSE_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('$feat', False))")
+        read -r -p "  Enable $feat? (current: $CURRENT) [y/n/Enter=keep]: " TOGGLE
+        if [[ "${TOGGLE,,}" == "y" ]]; then
+            LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+d['$feat'] = True
+print(json.dumps(d))
+")
+        elif [[ "${TOGGLE,,}" == "n" ]]; then
+            LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+d['$feat'] = False
+print(json.dumps(d))
+")
+        fi
+    done
+fi
+
+# Write license to settings table
+pg_exec "
+INSERT INTO settings (key, value) VALUES ('license', '${LICENSE_JSON}')
+ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+"
+
+echo ""
+echo "  Final license:"
+echo "  $LICENSE_JSON" | python3 -m json.tool 2>/dev/null || echo "  $LICENSE_JSON"
+ok "License tier '${TIER_KEY}' saved."
+
+# ── 6e. Demo mode / Go-live date ──────────────────────
 echo ""
 echo "  ── Deployment Type ─────────────────────────────"
 read -r -p "  Is this a demo installation? (y/N): " IS_DEMO

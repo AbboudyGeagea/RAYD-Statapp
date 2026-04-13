@@ -217,6 +217,16 @@ def create_app():
             if request.endpoint != 'auth.login':
                 return redirect(url_for('auth.login'))
 
+        # License expiry — admins can still log in to update the license
+        if current_user.is_authenticated and current_user.role != 'admin':
+            from routes.registry import check_license_limit
+            ok, msg = check_license_limit(app, 'expired')
+            if not ok:
+                from flask import flash as _flash
+                _flash(msg, 'danger')
+                logout_user()
+                return redirect(url_for('auth.login'))
+
     # --- ROOT REDIRECT ---
     @app.route('/')
     def index():

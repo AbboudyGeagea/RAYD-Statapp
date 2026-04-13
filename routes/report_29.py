@@ -143,6 +143,11 @@ def report_29():
 @report_29_bp.route("/report/29/export", methods=["POST"])
 @login_required
 def export_report_29():
+    from flask import current_app, jsonify
+    from routes.registry import check_license_limit
+    ok, msg = check_license_limit(current_app, 'export')
+    if not ok:
+        return jsonify({"error": msg}), 403
     df, start, end = get_report_data(request.form)
     if df.empty:
         return "No data to export", 400
