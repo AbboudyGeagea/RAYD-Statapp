@@ -385,10 +385,15 @@ def _sync_lookup_tables(engine):
 
 def _detect_canonical_groups(conn, logger):
     """
-    Find procedure codes that are likely duplicates of each other
-    (similarity >= 0.65 via pg_trgm). Groups them using union-find
-    into canonical groups. Only inserts groups that don't already
-    have an approved canonical name — approved decisions are preserved.
+    Detect duplicate procedure names using BOTH code similarity AND description
+    similarity. A pair is a candidate only when both signals agree, preventing
+    unrelated short codes (angio, thorax, pelvis) from clustering together.
+
+    Thresholds:
+      - code_sim >= 0.75 AND desc_sim >= 0.75  (both agree)
+      - OR desc_sim >= 0.90 alone              (description nearly identical)
+    Pairs are stored for human review — no auto-grouping.
+    Already-reviewed pairs (confirmed/rejected) are never re-inserted.
     """
     # Ensure tables exist
     conn.execute(text("""
@@ -409,95 +414,65 @@ def _detect_canonical_groups(conn, logger):
             added_at        TIMESTAMP DEFAULT NOW()
         )
     """))
+    conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS procedure_duplicate_candidates (
+            id              SERIAL PRIMARY KEY,
+            code_a          VARCHAR,
+            code_b          VARCHAR,
+            code_similarity NUMERIC(4,3),
+            desc_similarity NUMERIC(4,3),
+            desc_a          TEXT,
+            desc_b          TEXT,
+            status          VARCHAR(10) DEFAULT 'pending',
+            group_id        INTEGER REFERENCES procedure_canonical_groups(id) ON DELETE SET NULL,
+            reviewed_at     TIMESTAMP,
+            detected_at     TIMESTAMP DEFAULT NOW(),
+            UNIQUE(code_a, code_b)
+        )
+    """))
 
-    # Fetch all similar pairs (excluding codes already in approved groups)
-    pairs = conn.execute(text("""
-        SELECT p1.procedure_code AS code_a,
-               p2.procedure_code AS code_b,
-               similarity(UPPER(TRIM(p1.procedure_code)), UPPER(TRIM(p2.procedure_code))) AS score
+    # Step 1: representative description per procedure code (most common proc_text)
+    r = conn.execute(text("""
+        WITH proc_descs AS (
+            SELECT
+                UPPER(TRIM(proc_id)) AS procedure_code,
+                MODE() WITHIN GROUP (ORDER BY UPPER(TRIM(proc_text))) AS proc_text
+            FROM etl_orders
+            WHERE proc_id IS NOT NULL AND TRIM(proc_id) != ''
+              AND proc_text IS NOT NULL AND TRIM(proc_text) != ''
+            GROUP BY UPPER(TRIM(proc_id))
+        )
+        INSERT INTO procedure_duplicate_candidates
+            (code_a, code_b, code_similarity, desc_similarity, desc_a, desc_b)
+        SELECT
+            LEAST(p1.procedure_code, p2.procedure_code),
+            GREATEST(p1.procedure_code, p2.procedure_code),
+            ROUND(similarity(p1.procedure_code, p2.procedure_code)::numeric, 3),
+            ROUND(COALESCE(similarity(d1.proc_text, d2.proc_text), 0)::numeric, 3),
+            d1.proc_text,
+            d2.proc_text
         FROM procedure_duration_map p1
         JOIN procedure_duration_map p2
             ON p1.procedure_code < p2.procedure_code
-           AND similarity(UPPER(TRIM(p1.procedure_code)), UPPER(TRIM(p2.procedure_code))) >= 0.65
-        WHERE p1.procedure_code NOT IN (
-            SELECT m.procedure_code FROM procedure_canonical_members m
-            JOIN procedure_canonical_groups g ON g.id = m.group_id
-            WHERE g.approved = TRUE
-        )
-          AND p2.procedure_code NOT IN (
-            SELECT m.procedure_code FROM procedure_canonical_members m
-            JOIN procedure_canonical_groups g ON g.id = m.group_id
-            WHERE g.approved = TRUE
-        )
-    """)).fetchall()
-
-    if not pairs:
-        logger.info("Phase 8 — Canonical groups: no new similar pairs found")
-        return
-
-    # Union-Find to build connected components
-    parent = {}
-    scores = {}
-
-    def find(x):
-        if parent.setdefault(x, x) != x:
-            parent[x] = find(parent[x])
-        return parent[x]
-
-    def union(a, b, score):
-        ra, rb = find(a), find(b)
-        if ra != rb:
-            parent[rb] = ra
-        key = (min(a, b), max(a, b))
-        scores[key] = max(scores.get(key, 0), score)
-
-    for row in pairs:
-        union(row.code_a, row.code_b, float(row.score))
-
-    # Group by root
-    groups = {}
-    for code in parent:
-        root = find(code)
-        groups.setdefault(root, set()).add(code)
-
-    # Only keep groups with 2+ members
-    groups = {r: members for r, members in groups.items() if len(members) >= 2}
-
-    # Remove groups that are subsets of existing unapproved groups
-    existing_members = {
-        r[0] for r in conn.execute(text(
-            "SELECT procedure_code FROM procedure_canonical_members"
-        )).fetchall()
-    }
-
-    new_groups_inserted = 0
-    for root, members in groups.items():
-        # Skip if all members already in a group
-        if members.issubset(existing_members):
-            continue
-
-        # Pick canonical name: longest member (usually most descriptive)
-        canonical = max(members, key=len)
-
-        result = conn.execute(text("""
-            INSERT INTO procedure_canonical_groups (canonical_name, approved, detected_at)
-            VALUES (:name, FALSE, NOW())
-            RETURNING id
-        """), {"name": canonical})
-        group_id = result.fetchone()[0]
-
-        for code in members:
-            key = (min(code, root), max(code, root))
-            score = scores.get(key, 0.65)
-            conn.execute(text("""
-                INSERT INTO procedure_canonical_members (procedure_code, group_id, similarity_score)
-                VALUES (:code, :gid, :score)
-                ON CONFLICT (procedure_code) DO NOTHING
-            """), {"code": code, "gid": group_id, "score": score})
-
-        new_groups_inserted += 1
-
-    logger.info(f"Phase 8 — Canonical groups: {new_groups_inserted} new similarity groups detected")
+        LEFT JOIN proc_descs d1 ON d1.procedure_code = p1.procedure_code
+        LEFT JOIN proc_descs d2 ON d2.procedure_code = p2.procedure_code
+        WHERE
+            -- Both modalities known and different → skip immediately
+            NOT (p1.modality IS NOT NULL AND p2.modality IS NOT NULL
+                 AND p1.modality != p2.modality)
+            AND (
+                -- Both code AND description agree
+                (similarity(p1.procedure_code, p2.procedure_code) >= 0.75
+                 AND d1.proc_text IS NOT NULL AND d2.proc_text IS NOT NULL
+                 AND similarity(d1.proc_text, d2.proc_text) >= 0.75)
+                -- OR description alone is very strong
+                OR (d1.proc_text IS NOT NULL AND d2.proc_text IS NOT NULL
+                    AND similarity(d1.proc_text, d2.proc_text) >= 0.90)
+            )
+        ON CONFLICT (code_a, code_b) DO NOTHING
+    """))
+    new_pairs = r.rowcount
+    logger.info(f"Phase 8 — Canonical duplicate candidates: {new_pairs} new pairs queued for review")
 
 
 if __name__ == "__main__":

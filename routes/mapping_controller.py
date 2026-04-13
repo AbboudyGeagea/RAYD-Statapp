@@ -112,7 +112,7 @@ def mapping_page():
         fuzzy_candidates = []
         fuzzy_map = {}
 
-    # Canonical groups — similar procedure names awaiting manager approval
+    # Canonical groups — approved groups with their member codes
     try:
         raw_groups = db.session.execute(_t("""
             SELECT g.id, g.canonical_name, g.approved, g.approved_by, g.approved_at,
@@ -127,6 +127,20 @@ def mapping_page():
     except Exception:
         canonical_groups = []
 
+    # Pending pairs — candidate duplicates awaiting human review
+    try:
+        pending_pairs = db.session.execute(_t("""
+            SELECT id, code_a, code_b,
+                   code_similarity, desc_similarity,
+                   desc_a, desc_b
+            FROM procedure_duplicate_candidates
+            WHERE status = 'pending'
+            ORDER BY desc_similarity DESC, code_similarity DESC
+        """)).fetchall()
+        pending_pairs = [dict(r._mapping) for r in pending_pairs]
+    except Exception:
+        pending_pairs = []
+
     return render_template(
         'mapping.html',
         modality_mappings=modality_mappings,
@@ -136,6 +150,7 @@ def mapping_page():
         conflict_codes=conflict_codes,
         fuzzy_map=fuzzy_map,
         canonical_groups=canonical_groups,
+        pending_pairs=pending_pairs,
     )
 
 
@@ -339,6 +354,81 @@ def delete_canonical_group():
     try:
         group_id = int(data['group_id'])
         db.session.execute(_t("DELETE FROM procedure_canonical_groups WHERE id = :id"), {"id": group_id})
+        db.session.commit()
+        return jsonify({"status": "success"})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@mapping_bp.route('/canonical/confirm-pair', methods=['POST'])
+@login_required
+def confirm_pair():
+    """Mark a candidate pair as confirmed and add both codes to a canonical group."""
+    if current_user.role != 'admin': return abort(403)
+    from sqlalchemy import text as _t
+    data = request.get_json(force=True)
+    try:
+        pair_id   = int(data['pair_id'])
+        canon_name = str(data.get('canonical_name', '')).strip()
+        if not canon_name:
+            return jsonify({"status": "error", "message": "Canonical name is required"}), 400
+
+        # Fetch the pair
+        pair = db.session.execute(
+            _t("SELECT code_a, code_b, desc_similarity FROM procedure_duplicate_candidates WHERE id = :id"),
+            {"id": pair_id}
+        ).fetchone()
+        if not pair:
+            return jsonify({"status": "error", "message": "Pair not found"}), 404
+
+        # Create a new canonical group
+        group_row = db.session.execute(_t("""
+            INSERT INTO procedure_canonical_groups (canonical_name, approved, approved_by, approved_at)
+            VALUES (:name, TRUE, :user, NOW())
+            RETURNING id
+        """), {"name": canon_name, "user": current_user.username}).fetchone()
+        group_id = group_row[0]
+
+        # Add both codes as members (upsert — code may already be in another group)
+        for code in (pair.code_a, pair.code_b):
+            db.session.execute(_t("""
+                INSERT INTO procedure_canonical_members (procedure_code, group_id, similarity_score)
+                VALUES (:code, :gid, :score)
+                ON CONFLICT (procedure_code) DO UPDATE
+                    SET group_id = EXCLUDED.group_id,
+                        similarity_score = EXCLUDED.similarity_score,
+                        added_at = NOW()
+            """), {"code": code, "gid": group_id, "score": float(pair.desc_similarity)})
+
+        # Mark the pair as confirmed
+        db.session.execute(_t("""
+            UPDATE procedure_duplicate_candidates
+            SET status = 'confirmed', group_id = :gid, reviewed_at = NOW()
+            WHERE id = :id
+        """), {"gid": group_id, "id": pair_id})
+
+        db.session.commit()
+        return jsonify({"status": "success", "group_id": group_id})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@mapping_bp.route('/canonical/reject-pair', methods=['POST'])
+@login_required
+def reject_pair():
+    """Mark a candidate pair as rejected (different procedures)."""
+    if current_user.role != 'admin': return abort(403)
+    from sqlalchemy import text as _t
+    data = request.get_json(force=True)
+    try:
+        pair_id = int(data['pair_id'])
+        db.session.execute(_t("""
+            UPDATE procedure_duplicate_candidates
+            SET status = 'rejected', reviewed_at = NOW()
+            WHERE id = :id
+        """), {"id": pair_id})
         db.session.commit()
         return jsonify({"status": "success"})
     except Exception as e:

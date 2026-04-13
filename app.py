@@ -288,6 +288,22 @@ def create_app():
                     added_at        TIMESTAMP DEFAULT NOW()
                 )
             """))
+            db.session.execute(text("""
+                CREATE TABLE IF NOT EXISTS procedure_duplicate_candidates (
+                    id              SERIAL PRIMARY KEY,
+                    code_a          VARCHAR,
+                    code_b          VARCHAR,
+                    code_similarity NUMERIC(4,3),
+                    desc_similarity NUMERIC(4,3),
+                    desc_a          TEXT,
+                    desc_b          TEXT,
+                    status          VARCHAR(10) DEFAULT 'pending',
+                    group_id        INTEGER REFERENCES procedure_canonical_groups(id) ON DELETE SET NULL,
+                    reviewed_at     TIMESTAMP,
+                    detected_at     TIMESTAMP DEFAULT NOW(),
+                    UNIQUE(code_a, code_b)
+                )
+            """))
             db.session.commit()
         except Exception as e:
             db.session.rollback()
