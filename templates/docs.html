@@ -81,7 +81,7 @@
                             <a href="#livefeed" class="toc-link">Live Feed</a>
                             <a href="#hl7orders" class="toc-link">HL7 Orders</a>
                             <a href="#capacityladder" class="toc-link">Capacity Ladder</a>
-                            <a href="#mappingconsole" class="toc-link">Mapping Console</a>
+                            <a href="#mappingconsole" class="toc-link">Modality / Procedures Config</a>
                             <a href="#etlstatus" class="toc-link">ETL Status</a>
                             <a href="#aiassistant" class="toc-link">AI Assistant</a>
                             <a href="#aiteaching" class="toc-link">AI Teaching Center</a>
@@ -1218,26 +1218,77 @@
                     <section id="mappingconsole">
                         <div class="flex items-center gap-3 mb-4">
                             <span class="report-badge" style="background:rgba(167,139,250,0.12);color:#a78bfa;border:1px solid rgba(167,139,250,0.25);">Config</span>
-                            <h2 class="text-lg font-black text-white tracking-tight">Mapping Console — AE Title to Modality</h2>
+                            <h2 class="text-lg font-black text-white tracking-tight">Modality / Procedures Config</h2>
                         </div>
-                        <p class="text-slate-400 text-sm mb-5 leading-relaxed">An administrative interface for managing the mapping between PACS AE titles and human-readable modality names. Correct mappings are essential for accurate modality-level reporting throughout the platform.</p>
+                        <p class="text-slate-400 text-sm mb-5 leading-relaxed">An administrative interface for managing the mapping between PACS AE titles and modality names, and between procedure codes and their durations, RVU values, and modality assignments. All values feed directly into capacity calculations, utilisation reports, and revenue analytics. Most fields are populated automatically by the ETL — administrators only need to review and correct edge cases.</p>
 
                         <div class="doc-card">
+
+                            <!-- AE Title Table -->
                             <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
                                 <div class="flex items-center gap-3">
                                     <span class="tag tag-table"><i class="bi bi-table"></i> Table</span>
                                     <span class="tag tag-text"><i class="bi bi-pencil"></i> Editor</span>
-                                    <span class="font-bold text-sm text-white">AE Title Mapping Table</span>
+                                    <span class="font-bold text-sm text-white">AE Title → Modality &amp; Room Name</span>
                                 </div>
                                 <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
                             </div>
                             <div class="section-body">
                                 <div class="chart-item">
-                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> A table listing all known AE titles with their currently assigned modality label, device name, and location. New mappings can be added inline; existing mappings can be edited or deleted without leaving the page.</p>
-                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Reads and writes the <code class="text-blue-400 bg-blue-400/10 px-1 rounded">aetitle_modality_map</code> table. RAYD auto-discovers new AE titles from incoming PACS data and flags any that are unmapped (shown in amber). Unmapped AE titles fall back to the raw AE string in all reports.</p>
-                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> A single misconfigured AE title can silently corrupt modality breakdowns across every report. This console makes the mapping state visible and editable by non-technical administrators, removing dependence on a developer for routine configuration changes.</p></div>
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Every known PACS AE title with its assigned modality, room name (shown to non-technical staff), and daily capacity in minutes. The weekly schedule grid below shows each device's scheduled open minutes per day of the week, with per-day overrides for holidays or special configurations.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> The ETL auto-discovers new AE titles from PACS series data and inserts them into <code class="text-blue-400 bg-blue-400/10 px-1 rounded">aetitle_modality_map</code> using <code class="text-blue-400 bg-blue-400/10 px-1 rounded">ON CONFLICT DO NOTHING</code> — manually configured values are never overwritten. The modality is determined by the most frequent modality seen for that AE title across all historical series. A CSV upload is available for bulk initial configuration.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> The Room Name field abstracts the technical AE title (e.g. <em>CT_SCANNER_GE_01</em>) into a plain name like <em>CT Room 1</em>. This allows non-technical staff such as radiographers to filter the Live Dashboard by their own room without needing to understand DICOM addressing.</p></div>
                                 </div>
                             </div>
+
+                            <!-- Procedure Table -->
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-table"><i class="bi bi-table"></i> Table</span>
+                                    <span class="tag tag-text"><i class="bi bi-cpu"></i> AI Auto-Fill</span>
+                                    <span class="font-bold text-sm text-white">Procedure Code → Duration, RVU &amp; Modality</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Every procedure code extracted from the order feed, with its duration in minutes, RVU (Relative Value Unit) for revenue weighting, and modality assignment. Status badges indicate the confidence level of each mapping:</p>
+                                    <ul class="text-slate-300 text-sm mt-2 space-y-1 ml-4 list-disc">
+                                        <li><span class="font-bold text-emerald-400">Mapped</span> — modality confirmed (manually set or auto-learned with high confidence)</li>
+                                        <li><span class="font-bold text-blue-400">Suggested</span> — ETL found a 70–89% fuzzy match; the suggested modality is pre-selected in the dropdown — one click to confirm</li>
+                                        <li><span class="font-bold text-orange-400">Needs Review</span> — procedure was seen on two or more different modalities historically; requires human decision</li>
+                                        <li><span class="font-bold text-slate-400">Auto</span> — no match found yet; default values applied (15 min, 1.0 RVU)</li>
+                                    </ul>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-3"><strong class="text-white">How it works — Automatic Modality Learning:</strong> Every time the ETL runs (Phase 8), RAYD attempts to learn the correct modality for each procedure code using five sequential strategies. Each strategy only runs on procedures still unmapped by the previous one:</p>
+                                    <ol class="text-slate-300 text-sm mt-2 space-y-2 ml-4 list-decimal">
+                                        <li><strong class="text-white">Strategy A — Order-to-Study Join:</strong> Joins <code class="text-blue-400 bg-blue-400/10 px-1 rounded">etl_orders</code> to <code class="text-blue-400 bg-blue-400/10 px-1 rounded">etl_didb_studies</code> on <code class="text-blue-400 bg-blue-400/10 px-1 rounded">study_db_uid</code>. Uses the statistical <code class="text-blue-400 bg-blue-400/10 px-1 rounded">MODE()</code> function to pick the most frequently occurring modality for each procedure code across all its historical orders. This is the most reliable strategy when the order-study link is populated.</li>
+                                        <li><strong class="text-white">Strategy B — Studies Procedure Code:</strong> Directly matches on the <code class="text-blue-400 bg-blue-400/10 px-1 rounded">procedure_code</code> column in <code class="text-blue-400 bg-blue-400/10 px-1 rounded">etl_didb_studies</code>. Useful when orders exist but the UID join fails due to system differences.</li>
+                                        <li><strong class="text-white">Strategy C — Fuzzy Code Match (≥90%):</strong> Uses PostgreSQL's <code class="text-blue-400 bg-blue-400/10 px-1 rounded">pg_trgm</code> trigram similarity extension to find study procedure codes that are at least 90% similar to the unmapped code. Catches codes that differ only by spacing, hyphens, or minor typos between systems.</li>
+                                        <li><strong class="text-white">Strategy D — Fuzzy Description Match (≥90%):</strong> Compares the free-text procedure description from the order (<code class="text-blue-400 bg-blue-400/10 px-1 rounded">proc_text</code>) against the study description (<code class="text-blue-400 bg-blue-400/10 px-1 rounded">study_description</code>) using trigram similarity. Effective when codes differ completely between RIS and PACS but descriptions are consistent.</li>
+                                        <li><strong class="text-white">Strategy E — AE Title Fallback:</strong> Looks up which AE title stored the study and uses that device's known modality as a last resort. Less specific but better than leaving the field empty.</li>
+                                    </ol>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-3"><strong class="text-white">Fuzzy Candidates (70–89% match):</strong> Codes that are similar but below the 90% auto-fill threshold are stored separately in <code class="text-blue-400 bg-blue-400/10 px-1 rounded">procedure_fuzzy_candidates</code>. These appear with a <span class="font-bold text-blue-400">Suggested</span> badge and the proposed modality is pre-selected in the dropdown. A manager can confirm with a single click — the choice is then saved permanently and will not be overwritten by future ETL runs.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-3"><strong class="text-white">Conflict Detection:</strong> If a procedure code has historically been performed on two or more different modalities (e.g. both CT and MR), it is flagged as <span class="font-bold text-orange-400">Needs Review</span>. The conflicting modalities and number of studies seen on each are shown. This is a genuine clinical ambiguity — the administrator must choose the canonical modality for reporting purposes.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Procedure-to-modality mapping is the foundation for modality-level RVU revenue reporting, capacity utilisation calculation, and AI-generated analytics. Without it, every procedure without an explicit DICOM modality tag falls into an "Unknown" bucket. The five-strategy auto-learning means a new site reaches near-complete coverage within the first ETL run, with only genuine edge cases requiring human input.</p></div>
+                                </div>
+                            </div>
+
+                            <!-- CSV Import/Export -->
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-text"><i class="bi bi-file-earmark-arrow-up"></i> CSV</span>
+                                    <span class="font-bold text-sm text-white">Bulk Import &amp; Export</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">Modality map CSV format:</strong> <code class="text-blue-400 bg-blue-400/10 px-1 rounded">aetitle, modality, room_name, daily_capacity_minutes</code>. Uploading syncs both the AE map and the weekly schedule for all 7 days automatically.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">Procedure map CSV format:</strong> <code class="text-blue-400 bg-blue-400/10 px-1 rounded">procedure_code, duration_minutes, rvu_value, modality</code>. The modality column is optional — if omitted, the ETL auto-learning fills it. Uploads are validated row-by-row before any database writes; if any row is invalid the entire upload is rejected with a specific error.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Allows a new site to seed its configuration from an existing deployment's export in under a minute, bypassing the ETL auto-learning entirely for known-good mappings.</p></div>
+                                </div>
+                            </div>
+
                         </div>
                     </section>
 
@@ -1249,7 +1300,7 @@
                             <span class="report-badge" style="background:rgba(251,191,36,0.12);color:#fbbf24;border:1px solid rgba(251,191,36,0.25);">ETL</span>
                             <h2 class="text-lg font-black text-white tracking-tight">ETL Status — Pipeline Monitoring</h2>
                         </div>
-                        <p class="text-slate-400 text-sm mb-5 leading-relaxed">Monitors the health and progress of the Oracle-to-PostgreSQL ETL pipeline. Shows the last successful run, rows transferred, any errors encountered, and a historical run log.</p>
+                        <p class="text-slate-400 text-sm mb-5 leading-relaxed">Monitors the health and progress of the Oracle-to-PostgreSQL ETL pipeline. Shows the last successful run, rows transferred, per-phase status, and a historical run log. The ETL runs nightly (default 5:00 AM) and can also be triggered manually.</p>
 
                         <div class="doc-card">
                             <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
@@ -1262,9 +1313,20 @@
                             </div>
                             <div class="section-body">
                                 <div class="chart-item">
-                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> KPI tiles for: last run timestamp, duration of last run, rows inserted/updated in the last run, and current status (Running / Success / Failed). A run history table shows the last 30 ETL executions with start time, end time, row counts, and any error message captured.</p>
-                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> The ETL script writes a record to <code class="text-blue-400 bg-blue-400/10 px-1 rounded">etl_run_log</code> at the start and end of each run, including row counts per table and any exception message. The status page reads this table directly.</p>
-                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Data freshness is invisible unless explicitly monitored. If the ETL fails silently overnight, reports the next morning will show yesterday's data without any obvious indication. This page makes pipeline failures immediately visible to any authorised user, not just the technical team.</p></div>
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> KPI tiles for: last run timestamp, duration, rows processed, and current status (Running / Success / Failed). A run history table shows the last 30 executions with start/end time, row counts, and any error message.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">Pipeline phases:</strong> The ETL runs 8 sequential phases per sync:</p>
+                                    <ol class="text-slate-300 text-sm mt-2 space-y-1 ml-4 list-decimal">
+                                        <li><strong class="text-white">Studies</strong> — pulls from Oracle <code class="text-blue-400 bg-blue-400/10 px-1 rounded">didb_studies</code>. Incremental: new UIDs + any study with a <code class="text-blue-400 bg-blue-400/10 px-1 rounded">STUDY_DATE</code> in the last 10 days (to catch status/report updates).</li>
+                                        <li><strong class="text-white">Series</strong> — pulls series metadata for all active study UIDs from phase 1.</li>
+                                        <li><strong class="text-white">Raw Images</strong> — image-level records for active studies.</li>
+                                        <li><strong class="text-white">Image Locations</strong> — storage path data (depends on raw images).</li>
+                                        <li><strong class="text-white">Patients</strong> — demographics sync from <code class="text-blue-400 bg-blue-400/10 px-1 rounded">didb_patients_view</code>.</li>
+                                        <li><strong class="text-white">Orders</strong> — RIS/HIS order records.</li>
+                                        <li><strong class="text-white">Storage Summary</strong> — rolls up image sizes into the daily storage summary table used by storage reports.</li>
+                                        <li><strong class="text-white">Lookup Sync</strong> — auto-populates AE title mappings, weekly schedules, procedure codes, and modality auto-learning (see Modality / Procedures Config). Per-strategy row counts are logged here.</li>
+                                    </ol>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-3"><strong class="text-white">Manual trigger:</strong> The ETL can be run on demand from the ETL Status page or via the server command <code class="text-blue-400 bg-blue-400/10 px-1 rounded">docker exec -it rayd_service python app.py -m</code>. When run in manual mode, the HL7 listener and scheduler are not started — avoiding port conflicts with the already-running service.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Silent ETL failures mean reports show stale data without any warning. This page makes failures immediately visible. The Phase 8 strategy logs (visible in server logs after each run) pinpoint exactly which modality-learning strategy succeeded or failed on each site — useful for diagnosing sites where procedure-to-modality mapping is not filling.</p></div>
                                 </div>
                             </div>
                         </div>
@@ -1462,10 +1524,27 @@
                             <span class="report-badge" style="background:rgba(34,197,94,0.12);color:#22c55e;border:1px solid rgba(34,197,94,0.25);">Live Today</span>
                             <h2 class="text-lg font-black text-white tracking-tight">Live Dashboard — Today's Operations</h2>
                         </div>
-                        <p class="text-slate-400 text-sm mb-5 leading-relaxed">A real-time operational snapshot scoped exclusively to today's date. Refreshes automatically to reflect the current state of all studies, devices, and reports without any date filter interaction. Distinct from the Live Feed (which shows arriving PACS events as a stream) — this is a structured KPI dashboard for today's shift.</p>
+                        <p class="text-slate-400 text-sm mb-5 leading-relaxed">A real-time operational dashboard powered exclusively by HL7 SCN (Study Complete Notification) messages received directly from PACS. Because it listens to live HL7 traffic rather than waiting for the nightly ETL, it reflects completions within seconds of a study being stored. Staff can filter by room to see only their own workload.</p>
 
                         <div class="doc-card">
 
+                            <!-- Data source -->
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-kpi"><i class="bi bi-broadcast"></i> HL7 SCN</span>
+                                    <span class="font-bold text-sm text-white">How Data Reaches This Page</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">Data source:</strong> PACS sends an HL7 ORM message with order status <code class="text-blue-400 bg-blue-400/10 px-1 rounded">ORC-5 = CM</code> or <code class="text-blue-400 bg-blue-400/10 px-1 rounded">SC</code> (Complete / Study Complete Notification) when a study is successfully stored. RAYD's built-in MLLP listener receives this message on port 6661, parses the patient ID, name, accession number, modality, AE title, and patient class (inpatient/outpatient from PID-18), then writes it to the <code class="text-blue-400 bg-blue-400/10 px-1 rounded">hl7_scn_studies</code> table in real time.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">Zero Oracle load:</strong> This page does not query Oracle at any point. All data comes from HL7 messages already in the local PostgreSQL database. This design eliminates any risk of placing additional load on the production PACS database during peak hours.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Traditional live dashboards either poll Oracle every few minutes (causing DB load) or wait for the overnight ETL (stale by hours). The SCN approach gives sub-minute freshness with no database impact — the only requirement is that PACS is configured to send ORM messages to RAYD's HL7 endpoint.</p></div>
+                                </div>
+                            </div>
+
+                            <!-- KPI strip -->
                             <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
                                 <div class="flex items-center gap-3">
                                     <span class="tag tag-kpi"><i class="bi bi-speedometer2"></i> KPI Strip</span>
@@ -1475,27 +1554,29 @@
                             </div>
                             <div class="section-body">
                                 <div class="chart-item">
-                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Five counters refreshed on every page load: total studies today, distinct patients seen, reports signed, inpatient count, and outpatient count.</p>
-                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Single aggregation query against <code class="text-blue-400 bg-blue-400/10 px-1 rounded">etl_didb_studies</code> filtered to <code class="text-blue-400 bg-blue-400/10 px-1 rounded">study_date = today</code>. Inpatient/outpatient are classified by <code class="text-blue-400 bg-blue-400/10 px-1 rounded">patient_class</code> ILIKE patterns.</p>
-                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Gives the duty manager an instant read of the day's workload without navigating any date filters. The reports-signed count vs total studies gives a real-time reporting completion rate — if those two numbers diverge significantly by mid-afternoon, a backlog is forming.</p></div>
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Studies completed today, distinct patients seen, and — when patient class data is present in the SCN messages — inpatient and outpatient counts as separate cards. A data-date badge appears in amber if the most recent SCN is from a prior date (e.g. weekend maintenance mode), so staff are never misled into thinking they're seeing today's data when they are not.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Aggregates <code class="text-blue-400 bg-blue-400/10 px-1 rounded">hl7_scn_studies</code> for today's date. Inpatient/outpatient cards are shown conditionally only when the <code class="text-blue-400 bg-blue-400/10 px-1 rounded">patient_class</code> field is populated — if PACS does not send PID-18, those cards are hidden rather than showing misleading zeros.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> The duty manager gets a live count of completions without touching any report or filter. The inpatient/outpatient split helps predict downstream demand — a high inpatient ratio in the morning typically predicts a busier afternoon reporting load.</p></div>
                                 </div>
                             </div>
 
+                            <!-- Room filter -->
                             <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
                                 <div class="flex items-center gap-3">
-                                    <span class="tag tag-bar"><i class="bi bi-bar-chart"></i> Bar</span>
-                                    <span class="font-bold text-sm text-white">Today's Modality Breakdown</span>
+                                    <span class="tag tag-text"><i class="bi bi-funnel"></i> Filter</span>
+                                    <span class="font-bold text-sm text-white">Room Selector</span>
                                 </div>
                                 <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
                             </div>
                             <div class="section-body">
                                 <div class="chart-item">
-                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Study count per modality for today, showing up to 12 modalities ranked by volume.</p>
-                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Groups <code class="text-blue-400 bg-blue-400/10 px-1 rounded">UPPER(TRIM(study_modality))</code> for today's studies, ordered descending, limited to top 12.</p>
-                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Instantly identifies which modalities are carrying the day's load. An unusually high CT count by 10 AM may indicate emergency overflow or a scheduled list running ahead — both useful signals for resource reallocation.</p></div>
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> A dropdown at the top of the dashboard listing all configured rooms by their plain name (e.g. <em>CT Room 1</em>, <em>MRI Suite A</em>). Selecting a room filters all KPIs and the study list to that room only. Selecting "All Rooms" returns to the site-wide view.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Room names are read from the <code class="text-blue-400 bg-blue-400/10 px-1 rounded">room_name</code> field in <code class="text-blue-400 bg-blue-400/10 px-1 rounded">aetitle_modality_map</code>. The selected room's AE title is passed as a filter parameter to <code class="text-blue-400 bg-blue-400/10 px-1 rounded">/liveview/data?ae=</code>. DICOM AE titles are never exposed to the user — only the plain room names configured in the Modality / Procedures Config page appear in this list.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Radiographers and technicians can view their own room's throughput without seeing data from other rooms. This is useful for self-monitoring against their own expected list and for reporting their room's count to a supervisor at end of shift.</p></div>
                                 </div>
                             </div>
 
+                            <!-- Device utilisation -->
                             <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
                                 <div class="flex items-center gap-3">
                                     <span class="tag tag-kpi"><i class="bi bi-hdd-stack"></i> Device Cards</span>
@@ -1505,9 +1586,9 @@
                             </div>
                             <div class="section-body">
                                 <div class="chart-item">
-                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> A card per active AE device showing: modality label, minutes used vs scheduled capacity for today, and a colour-coded utilisation percentage (green &lt;60%, amber 60–85%, red &gt;85%). An overall site utilisation percentage is shown at the top.</p>
-                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Joins today's studies with <code class="text-blue-400 bg-blue-400/10 px-1 rounded">procedure_duration_map</code> to sum used minutes per device (defaulting to 15 min if unmapped). Capacity comes from <code class="text-blue-400 bg-blue-400/10 px-1 rounded">device_weekly_schedule</code> for today's day-of-week (defaulting to 720 min if no schedule exists). Utilisation % = used ÷ capacity × 100, capped at 100%.</p>
-                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Provides a live capacity gauge without requiring a call to the modality room. A device sitting at 20% utilisation at noon is either running behind schedule, has had cancellations, or has a technical problem — all warranting investigation. A device at 95% before lunch is a candidate for evening overtime or next-day compensation.</p></div>
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> A card per active device showing its room name, modality, minutes used vs scheduled capacity, and a colour-coded utilisation bar (green &lt;60%, amber 60–85%, red &gt;85%).</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> SCN completions are joined with <code class="text-blue-400 bg-blue-400/10 px-1 rounded">procedure_duration_map</code> to sum used minutes (defaulting to 15 min for unmapped procedures). Capacity is read from <code class="text-blue-400 bg-blue-400/10 px-1 rounded">device_weekly_schedule</code> for today's day-of-week. Any per-day overrides in <code class="text-blue-400 bg-blue-400/10 px-1 rounded">device_exceptions</code> take precedence over the standard schedule.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> A device at 95% before lunch needs attention — either the list is running fast and can absorb add-on cases, or it is at risk of overrun. A device at 20% by midday may have had cancellations or a technical problem. This data used to require a phone call to the room; now it is visible site-wide in real time.</p></div>
                                 </div>
                             </div>
 
