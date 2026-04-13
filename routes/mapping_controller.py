@@ -102,6 +102,16 @@ def mapping_page():
         conflicts = []
         conflict_codes = set()
 
+    # Fuzzy candidates (70-89% match) awaiting human confirmation
+    try:
+        fuzzy_candidates = db.session.execute(
+            _t("SELECT procedure_code, suggested_modality, match_score, matched_via FROM procedure_fuzzy_candidates ORDER BY match_score DESC")
+        ).fetchall()
+        fuzzy_map = {f.procedure_code: f for f in fuzzy_candidates}
+    except Exception:
+        fuzzy_candidates = []
+        fuzzy_map = {}
+
     return render_template(
         'mapping.html',
         modality_mappings=modality_mappings,
@@ -109,6 +119,7 @@ def mapping_page():
         exceptions_json=json.dumps(exceptions_lookup),
         conflicts=conflicts,
         conflict_codes=conflict_codes,
+        fuzzy_map=fuzzy_map,
     )
 
 

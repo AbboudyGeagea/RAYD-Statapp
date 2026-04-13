@@ -185,14 +185,18 @@
                                             {% for c in conflicts if c.procedure_code == proc.procedure_code %}
                                             <br><span class="text-[9px] text-orange-300">Found on: {{ c.modalities }} ({{ c.sample_count }} studies)</span>
                                             {% endfor %}
+                                            {% elif proc.procedure_code in fuzzy_map and not proc.modality %}
+                                            {% set fc = fuzzy_map[proc.procedure_code] %}
+                                            <br><span class="text-[9px] text-blue-400 font-bold"><i class="bi bi-cpu"></i> AI Suggestion: {{ fc.suggested_modality }} ({{ (fc.match_score * 100)|int }}% match)</span>
                                             {% endif %}
                                         </td>
                                         <td class="px-6 py-4 text-center">
+                                            {% set fc = fuzzy_map.get(proc.procedure_code) %}
                                             <select @change="updateProcModality('{{ proc.procedure_code }}', $event.target.value, $event.target)"
-                                                    class="bg-[#1a2722] border border-[#28332e] text-white text-[10px] font-bold rounded px-2 py-1.5 outline-none focus:border-blue-400 {% if proc.procedure_code in conflict_codes and not proc.modality %}border-orange-500{% endif %}">
-                                                <option value="" {% if not proc.modality %}selected{% endif %}>—</option>
+                                                    class="bg-[#1a2722] border border-[#28332e] text-white text-[10px] font-bold rounded px-2 py-1.5 outline-none focus:border-blue-400 {% if proc.procedure_code in conflict_codes and not proc.modality %}border-orange-500{% elif fc and not proc.modality %}border-blue-500{% endif %}">
+                                                <option value="" {% if not proc.modality and not (fc and not proc.modality) %}selected{% endif %}>—</option>
                                                 {% for mod in ['CT','MR','CR','DX','US','NM','PT','XA','RF','MG','DR','SC','OT'] %}
-                                                <option value="{{ mod }}" {% if proc.modality == mod %}selected{% endif %}>{{ mod }}</option>
+                                                <option value="{{ mod }}" {% if proc.modality == mod or (fc and not proc.modality and fc.suggested_modality == mod) %}selected{% endif %}>{{ mod }}</option>
                                                 {% endfor %}
                                             </select>
                                         </td>
@@ -211,6 +215,8 @@
                                             <span class="text-[9px] font-black uppercase px-2 py-1 rounded bg-orange-900/50 text-orange-400">Needs Review</span>
                                             {% elif proc.modality %}
                                             <span class="text-[9px] font-black uppercase px-2 py-1 rounded bg-emerald-900/50 text-emerald-400">Mapped</span>
+                                            {% elif proc.procedure_code in fuzzy_map %}
+                                            <span class="text-[9px] font-black uppercase px-2 py-1 rounded bg-blue-900/50 text-blue-400">Suggested</span>
                                             {% else %}
                                             <span class="text-[9px] font-black uppercase px-2 py-1 rounded bg-slate-800 text-slate-500">Auto</span>
                                             {% endif %}

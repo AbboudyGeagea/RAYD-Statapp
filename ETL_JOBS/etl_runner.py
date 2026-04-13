@@ -132,6 +132,9 @@ def _sync_lookup_tables(engine):
     Uses ON CONFLICT DO NOTHING — never overwrites manually configured values."""
     with engine.begin() as conn:
 
+        # Enable trigram extension for fuzzy matching
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+
         # 1. AE → Modality: pick the most frequent modality per AE from series data
         conn.execute(text("""
             INSERT INTO aetitle_modality_map (aetitle, modality, daily_capacity_minutes)
@@ -176,14 +179,14 @@ def _sync_lookup_tables(engine):
 
         # 4. Auto-learn procedure → modality from historical data
         #    Only fills NULL modality — never overwrites manual assignments
+        #    Strategy A: exact match via etl_orders → etl_didb_studies (study_db_uid join)
         conn.execute(text("""
             UPDATE procedure_duration_map p
             SET modality = sub.modality
             FROM (
                 SELECT
                     TRIM(o.proc_id) AS procedure_code,
-                    MODE() WITHIN GROUP (ORDER BY s.study_modality) AS modality,
-                    COUNT(DISTINCT s.study_modality) AS modality_count
+                    MODE() WITHIN GROUP (ORDER BY s.study_modality) AS modality
                 FROM etl_orders o
                 JOIN etl_didb_studies s
                     ON s.study_db_uid::TEXT = o.study_db_uid::TEXT
@@ -191,6 +194,129 @@ def _sync_lookup_tables(engine):
                   AND s.study_modality IS NOT NULL
                   AND TRIM(s.study_modality) != ''
                 GROUP BY TRIM(o.proc_id)
+            ) sub
+            WHERE p.procedure_code = sub.procedure_code
+              AND p.modality IS NULL
+        """))
+
+        #    Strategy B: exact match directly from etl_didb_studies.procedure_code
+        conn.execute(text("""
+            UPDATE procedure_duration_map p
+            SET modality = sub.modality
+            FROM (
+                SELECT
+                    TRIM(s.procedure_code) AS procedure_code,
+                    MODE() WITHIN GROUP (ORDER BY s.study_modality) AS modality
+                FROM etl_didb_studies s
+                WHERE s.procedure_code IS NOT NULL
+                  AND TRIM(s.procedure_code) != ''
+                  AND s.study_modality IS NOT NULL
+                  AND TRIM(s.study_modality) != ''
+                GROUP BY TRIM(s.procedure_code)
+            ) sub
+            WHERE p.procedure_code = sub.procedure_code
+              AND p.modality IS NULL
+        """))
+
+        #    Strategy C: fuzzy match (>=0.9 similarity) on procedure code
+        #    Catches codes that differ by spacing, dashes, minor typos
+        conn.execute(text("""
+            UPDATE procedure_duration_map p
+            SET modality = sub.modality
+            FROM (
+                SELECT
+                    p2.procedure_code,
+                    (
+                        SELECT MODE() WITHIN GROUP (ORDER BY s.study_modality)
+                        FROM etl_didb_studies s
+                        WHERE similarity(UPPER(TRIM(p2.procedure_code)), UPPER(TRIM(s.procedure_code))) >= 0.9
+                          AND s.study_modality IS NOT NULL
+                          AND TRIM(s.study_modality) != ''
+                    ) AS modality
+                FROM procedure_duration_map p2
+                WHERE p2.modality IS NULL
+            ) sub
+            WHERE p.procedure_code = sub.procedure_code
+              AND sub.modality IS NOT NULL
+              AND p.modality IS NULL
+        """))
+
+        #    Strategy D: fuzzy match (>=0.9 similarity) on procedure description
+        #    Matches proc_text from orders against study_description
+        conn.execute(text("""
+            UPDATE procedure_duration_map p
+            SET modality = sub.modality
+            FROM (
+                SELECT
+                    p2.procedure_code,
+                    (
+                        SELECT MODE() WITHIN GROUP (ORDER BY s.study_modality)
+                        FROM etl_orders o
+                        JOIN etl_didb_studies s
+                            ON s.study_db_uid::TEXT = o.study_db_uid::TEXT
+                        WHERE TRIM(o.proc_id) = p2.procedure_code
+                          AND o.proc_text IS NOT NULL AND TRIM(o.proc_text) != ''
+                          AND s.study_description IS NOT NULL
+                          AND similarity(UPPER(o.proc_text), UPPER(s.study_description)) >= 0.9
+                          AND s.study_modality IS NOT NULL
+                          AND TRIM(s.study_modality) != ''
+                    ) AS modality
+                FROM procedure_duration_map p2
+                WHERE p2.modality IS NULL
+            ) sub
+            WHERE p.procedure_code = sub.procedure_code
+              AND sub.modality IS NOT NULL
+              AND p.modality IS NULL
+        """))
+
+        #    Fuzzy candidates (70-89%): store for human review, do NOT auto-fill
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS procedure_fuzzy_candidates (
+                id              SERIAL PRIMARY KEY,
+                procedure_code  VARCHAR UNIQUE,
+                suggested_modality VARCHAR(20),
+                match_score     NUMERIC(4,3),
+                matched_via     VARCHAR(20),
+                detected_at     TIMESTAMP DEFAULT NOW()
+            )
+        """))
+        conn.execute(text("TRUNCATE procedure_fuzzy_candidates"))
+        conn.execute(text("""
+            INSERT INTO procedure_fuzzy_candidates (procedure_code, suggested_modality, match_score, matched_via)
+            SELECT DISTINCT ON (p.procedure_code)
+                p.procedure_code,
+                s.study_modality,
+                MAX(similarity(UPPER(TRIM(p.procedure_code)), UPPER(TRIM(s.procedure_code)))) AS match_score,
+                'code'
+            FROM procedure_duration_map p
+            JOIN etl_didb_studies s
+                ON similarity(UPPER(TRIM(p.procedure_code)), UPPER(TRIM(s.procedure_code))) >= 0.7
+               AND similarity(UPPER(TRIM(p.procedure_code)), UPPER(TRIM(s.procedure_code))) < 0.9
+            WHERE p.modality IS NULL
+              AND s.study_modality IS NOT NULL
+              AND TRIM(s.study_modality) != ''
+            GROUP BY p.procedure_code, s.study_modality
+            ORDER BY p.procedure_code, match_score DESC
+            ON CONFLICT (procedure_code) DO UPDATE SET
+                suggested_modality = EXCLUDED.suggested_modality,
+                match_score        = EXCLUDED.match_score,
+                detected_at        = NOW()
+        """))
+
+        #    Strategy E: match via AE title modality as last resort
+        conn.execute(text("""
+            UPDATE procedure_duration_map p
+            SET modality = sub.modality
+            FROM (
+                SELECT
+                    TRIM(s.procedure_code) AS procedure_code,
+                    MODE() WITHIN GROUP (ORDER BY am.modality) AS modality
+                FROM etl_didb_studies s
+                JOIN aetitle_modality_map am ON am.aetitle = s.storing_ae
+                WHERE s.procedure_code IS NOT NULL
+                  AND TRIM(s.procedure_code) != ''
+                  AND am.modality IS NOT NULL
+                GROUP BY TRIM(s.procedure_code)
             ) sub
             WHERE p.procedure_code = sub.procedure_code
               AND p.modality IS NULL
@@ -211,16 +337,15 @@ def _sync_lookup_tables(engine):
         conn.execute(text("""
             INSERT INTO procedure_modality_conflicts (procedure_code, modalities, sample_count)
             SELECT
-                TRIM(o.proc_id),
+                TRIM(s.procedure_code),
                 STRING_AGG(DISTINCT UPPER(TRIM(s.study_modality)), ', ' ORDER BY UPPER(TRIM(s.study_modality))),
                 COUNT(*)
-            FROM etl_orders o
-            JOIN etl_didb_studies s
-                ON s.study_db_uid::TEXT = o.study_db_uid::TEXT
-            WHERE o.proc_id IS NOT NULL
+            FROM etl_didb_studies s
+            WHERE s.procedure_code IS NOT NULL
+              AND TRIM(s.procedure_code) != ''
               AND s.study_modality IS NOT NULL
               AND TRIM(s.study_modality) != ''
-            GROUP BY TRIM(o.proc_id)
+            GROUP BY TRIM(s.procedure_code)
             HAVING COUNT(DISTINCT UPPER(TRIM(s.study_modality))) > 1
         """))
 

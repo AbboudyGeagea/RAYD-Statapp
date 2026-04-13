@@ -260,6 +260,16 @@ def create_app():
                     detected_at     TIMESTAMP DEFAULT NOW()
                 )
             """))
+            db.session.execute(text("""
+                CREATE TABLE IF NOT EXISTS procedure_fuzzy_candidates (
+                    id              SERIAL PRIMARY KEY,
+                    procedure_code  VARCHAR UNIQUE,
+                    suggested_modality VARCHAR(20),
+                    match_score     NUMERIC(4,3),
+                    matched_via     VARCHAR(20),
+                    detected_at     TIMESTAMP DEFAULT NOW()
+                )
+            """))
             db.session.commit()
         except Exception as e:
             db.session.rollback()
