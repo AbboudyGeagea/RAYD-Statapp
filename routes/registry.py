@@ -49,6 +49,7 @@ DEFAULT_LICENSE = {
     "bitnet_ai": True,
     "export": True,
     "adapter_mapper": True,
+    "super_report": True,
     "max_users": 0,          # 0 = unlimited
     "max_sessions": 0,       # 0 = unlimited concurrent sessions
     "expires": "",            # "" = never, else "YYYY-MM-DD"
