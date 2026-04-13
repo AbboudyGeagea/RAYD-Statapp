@@ -270,6 +270,24 @@ def create_app():
                     detected_at     TIMESTAMP DEFAULT NOW()
                 )
             """))
+            db.session.execute(text("""
+                CREATE TABLE IF NOT EXISTS procedure_canonical_groups (
+                    id              SERIAL PRIMARY KEY,
+                    canonical_name  VARCHAR(300),
+                    approved        BOOLEAN DEFAULT FALSE,
+                    approved_by     VARCHAR(100),
+                    approved_at     TIMESTAMP,
+                    detected_at     TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            db.session.execute(text("""
+                CREATE TABLE IF NOT EXISTS procedure_canonical_members (
+                    procedure_code  VARCHAR PRIMARY KEY,
+                    group_id        INTEGER REFERENCES procedure_canonical_groups(id) ON DELETE CASCADE,
+                    similarity_score NUMERIC(4,3),
+                    added_at        TIMESTAMP DEFAULT NOW()
+                )
+            """))
             db.session.commit()
         except Exception as e:
             db.session.rollback()

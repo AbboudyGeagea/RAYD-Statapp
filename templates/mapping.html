@@ -73,6 +73,14 @@
         }
         .mod-group-header:hover { background: #232b28; }
 
+        /* Tabs */
+        .tab-btn { padding: 10px 0; border-bottom: 3px solid transparent; color: #64748b; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.1em; cursor: pointer; transition: all 0.2s; background: none; border-left: none; border-right: none; border-top: none; }
+        .tab-btn.active { border-bottom-color: #60a5fa; color: #60a5fa; }
+        .tab-btn:hover:not(.active) { color: #94a3b8; }
+
+        /* Canonical table */
+        .canonical-badge { display: inline-flex; align-items: center; gap: 3px; font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 4px; }
+
         [x-cloak] { display: none !important; }
     </style>
 </head>
@@ -96,11 +104,33 @@
                   {% endif %}
                 {% endwith %}
 
-                <!-- Upload cards -->
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Page title + tabs -->
+                <div>
+                    <h1 class="text-3xl font-black text-white uppercase tracking-tight mb-6">Modality / Procedures Config</h1>
+                    <div class="flex gap-8 border-b border-[#28332e]" id="main-tabs">
+                        <button class="tab-btn active" onclick="switchTab('modality', this)">
+                            <i class="bi bi-hdd-network mr-1"></i> Modality & Capacity
+                        </button>
+                        <button class="tab-btn" onclick="switchTab('procedures', this)">
+                            <i class="bi bi-list-check mr-1"></i> Procedures
+                            {% if canonical_groups | selectattr('approved', 'equalto', false) | list | length > 0 %}
+                            <span class="ml-1 text-[8px] font-black bg-amber-500 text-black px-1.5 py-0.5 rounded-full">
+                                {{ canonical_groups | selectattr('approved', 'equalto', false) | list | length }} pending
+                            </span>
+                            {% endif %}
+                        </button>
+                    </div>
+                </div>
+
+                <!-- ═══════════════════════════════════
+                     TAB: MODALITY & CAPACITY
+                ═══════════════════════════════════ -->
+                <div id="tab-modality" class="space-y-8">
+
+                    <!-- Upload -->
                     <div class="card-custom p-6">
                         <div class="flex items-center justify-between mb-4">
-                            <h4 class="text-[10px] font-black text-[#60a5fa] uppercase tracking-[0.2em]">Modality & Capacity Map</h4>
+                            <h4 class="text-[10px] font-black text-[#60a5fa] uppercase tracking-[0.2em]">Bulk Import / Export</h4>
                             <a href="{{ url_for('mapping.export_modality_csv') }}"
                                class="flex items-center gap-1.5 px-3 py-1.5 bg-[#1d2522] border border-[#28332e] rounded-lg text-[9px] font-black text-slate-400 hover:text-[#60a5fa] hover:border-[#60a5fa] transition uppercase tracking-widest">
                                 <i class="bi bi-download"></i> Export CSV
@@ -108,32 +138,15 @@
                         </div>
                         <form action="{{ url_for('mapping.upload_modality_map') }}" method="POST" enctype="multipart/form-data" id="modalityForm">
                             <input type="file" name="file" id="modalityFile" class="hidden" onchange="document.getElementById('modalityForm').submit()">
-                            <div onclick="document.getElementById('modalityFile').click()" class="upload-zone p-6 flex flex-col items-center justify-center text-center">
-                                <i class="bi bi-file-earmark-arrow-up text-2xl text-slate-500 mb-2"></i>
-                                <span class="text-xs font-bold text-slate-400">Upload AETitle CSV</span>
-                                <span class="text-[9px] text-slate-600 mt-1 uppercase">aetitle, modality, room_name, daily_capacity_minutes</span>
+                            <div onclick="document.getElementById('modalityFile').click()" class="upload-zone p-5 flex items-center gap-4">
+                                <i class="bi bi-file-earmark-arrow-up text-2xl text-slate-500"></i>
+                                <div>
+                                    <div class="text-xs font-bold text-slate-400">Upload AETitle CSV</div>
+                                    <div class="text-[9px] text-slate-600 mt-0.5 uppercase">aetitle · modality · room_name · daily_capacity_minutes</div>
+                                </div>
                             </div>
                         </form>
                     </div>
-
-                    <div class="card-custom p-6">
-                        <div class="flex items-center justify-between mb-4">
-                            <h4 class="text-[10px] font-black text-[#60a5fa] uppercase tracking-[0.2em]">Procedure & RVU Map</h4>
-                            <a href="{{ url_for('mapping.export_procedure_csv') }}"
-                               class="flex items-center gap-1.5 px-3 py-1.5 bg-[#1d2522] border border-[#28332e] rounded-lg text-[9px] font-black text-slate-400 hover:text-[#60a5fa] hover:border-[#60a5fa] transition uppercase tracking-widest">
-                                <i class="bi bi-download"></i> Export CSV
-                            </a>
-                        </div>
-                        <form action="{{ url_for('mapping.upload_procedure_map') }}" method="POST" enctype="multipart/form-data" id="procForm">
-                            <input type="file" name="file" id="procFile" class="hidden" onchange="document.getElementById('procForm').submit()">
-                            <div onclick="document.getElementById('procFile').click()" class="upload-zone p-6 flex flex-col items-center justify-center text-center">
-                                <i class="bi bi-calculator text-2xl text-slate-500 mb-2"></i>
-                                <span class="text-xs font-bold text-slate-400">Upload Procedure CSV</span>
-                                <span class="text-[9px] text-slate-600 mt-1 uppercase">procedure_code, duration_minutes, rvu_value, modality</span>
-                            </div>
-                        </form>
-                    </div>
-                </div>
 
                 <!-- ═══════════════════════════════════════════
                      CAPACITY GRID
@@ -216,6 +229,34 @@
                         </div>
                     </div>
                 </div>
+
+                </div><!-- end #tab-modality -->
+
+                <!-- ═══════════════════════════════════
+                     TAB: PROCEDURES
+                ═══════════════════════════════════ -->
+                <div id="tab-procedures" class="space-y-8 hidden">
+
+                    <!-- Upload -->
+                    <div class="card-custom p-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <h4 class="text-[10px] font-black text-[#60a5fa] uppercase tracking-[0.2em]">Bulk Import / Export</h4>
+                            <a href="{{ url_for('mapping.export_procedure_csv') }}"
+                               class="flex items-center gap-1.5 px-3 py-1.5 bg-[#1d2522] border border-[#28332e] rounded-lg text-[9px] font-black text-slate-400 hover:text-[#60a5fa] hover:border-[#60a5fa] transition uppercase tracking-widest">
+                                <i class="bi bi-download"></i> Export CSV
+                            </a>
+                        </div>
+                        <form action="{{ url_for('mapping.upload_procedure_map') }}" method="POST" enctype="multipart/form-data" id="procForm">
+                            <input type="file" name="file" id="procFile" class="hidden" onchange="document.getElementById('procForm').submit()">
+                            <div onclick="document.getElementById('procFile').click()" class="upload-zone p-5 flex items-center gap-4">
+                                <i class="bi bi-calculator text-2xl text-slate-500"></i>
+                                <div>
+                                    <div class="text-xs font-bold text-slate-400">Upload Procedure CSV</div>
+                                    <div class="text-[9px] text-slate-600 mt-0.5 uppercase">procedure_code · duration_minutes · rvu_value · modality</div>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
 
                 <!-- ═══════════════════════════════════════════
                      PROCEDURE CATALOG — grouped by modality
@@ -352,6 +393,115 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- ═══════════════════════════════════════════
+                     CANONICAL MAPPING TABLE
+                ═══════════════════════════════════════════ -->
+                <div class="space-y-4">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h2 class="text-2xl font-black text-[#e2e8f0] tracking-tight uppercase">Canonical Mapping</h2>
+                            <p class="text-slate-500 text-xs mt-1">Procedure names that appear to be duplicates of each other. Set one master name — RAYD uses it in all reports.</p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-[9px] font-black uppercase text-slate-500">
+                                {{ canonical_groups | selectattr('approved', 'equalto', false) | list | length }} pending ·
+                                {{ canonical_groups | selectattr('approved', 'equalto', true) | list | length }} approved
+                            </span>
+                        </div>
+                    </div>
+
+                    {% if canonical_groups %}
+                    <div class="card-custom overflow-hidden">
+                        <div class="max-h-[600px] overflow-y-auto custom-scrollbar">
+                            <table class="w-full text-left">
+                                <thead class="sticky top-0 bg-[#232b28] text-[9px] font-black text-slate-500 uppercase border-b border-[#28332e] z-10">
+                                    <tr>
+                                        <th class="px-6 py-4">Similar Procedure Codes</th>
+                                        <th class="px-6 py-4" style="min-width:260px">Master Name (used in RAYD)</th>
+                                        <th class="px-6 py-4 text-center">Status</th>
+                                        <th class="px-6 py-4 text-right">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-[#28332e]">
+                                    {% for group in canonical_groups %}
+                                    <tr class="hover:bg-white/5 transition {% if not group.approved %}bg-amber-900/5{% endif %}"
+                                        id="canon-row-{{ group.id }}">
+
+                                        <!-- Member code badges -->
+                                        <td class="px-6 py-4">
+                                            <div class="flex flex-wrap gap-1.5">
+                                                {% for code in group.member_codes %}
+                                                <span class="canonical-badge bg-[#1d2522] border border-[#28332e] text-slate-300">
+                                                    <i class="bi bi-code text-slate-500"></i> {{ code }}
+                                                </span>
+                                                {% endfor %}
+                                            </div>
+                                        </td>
+
+                                        <!-- Editable canonical name -->
+                                        <td class="px-6 py-4">
+                                            <input type="text"
+                                                   id="canon-name-{{ group.id }}"
+                                                   value="{{ group.canonical_name or '' }}"
+                                                   {% if group.approved %}readonly{% endif %}
+                                                   class="w-full bg-[#141a17] border {% if group.approved %}border-emerald-800 text-emerald-300{% else %}border-amber-700/50 text-white focus:border-amber-400{% endif %} rounded-lg px-3 py-2 text-xs font-bold outline-none transition">
+                                            {% if group.approved %}
+                                            <div class="text-[9px] text-slate-500 mt-1">
+                                                Approved by {{ group.approved_by or 'admin' }}
+                                            </div>
+                                            {% endif %}
+                                        </td>
+
+                                        <!-- Status badge -->
+                                        <td class="px-6 py-4 text-center">
+                                            {% if group.approved %}
+                                            <span class="canonical-badge bg-emerald-900/50 text-emerald-400 border border-emerald-800/50">
+                                                <i class="bi bi-check-circle-fill"></i> Approved
+                                            </span>
+                                            {% else %}
+                                            <span class="canonical-badge bg-amber-900/50 text-amber-400 border border-amber-800/50">
+                                                <i class="bi bi-clock-fill"></i> Pending
+                                            </span>
+                                            {% endif %}
+                                        </td>
+
+                                        <!-- Actions -->
+                                        <td class="px-6 py-4 text-right">
+                                            <div class="flex items-center justify-end gap-2">
+                                                {% if not group.approved %}
+                                                <button onclick="approveCanonical({{ group.id }})"
+                                                        class="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-[9px] font-black uppercase tracking-widest rounded-lg transition">
+                                                    <i class="bi bi-check-lg"></i> Approve
+                                                </button>
+                                                {% else %}
+                                                <button onclick="unapproveCanonical({{ group.id }})"
+                                                        class="px-3 py-1.5 bg-[#1d2522] border border-[#28332e] hover:border-amber-500 text-slate-400 hover:text-amber-400 text-[9px] font-black uppercase tracking-widest rounded-lg transition">
+                                                    <i class="bi bi-pencil"></i> Edit
+                                                </button>
+                                                {% endif %}
+                                                <button onclick="deleteCanonical({{ group.id }})"
+                                                        class="px-3 py-1.5 bg-[#1d2522] border border-[#28332e] hover:border-red-500 text-slate-400 hover:text-red-400 text-[9px] font-black uppercase tracking-widest rounded-lg transition">
+                                                    <i class="bi bi-trash"></i>
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    {% else %}
+                    <div class="card-custom p-12 text-center">
+                        <i class="bi bi-check2-circle text-4xl text-emerald-500 mb-3 block"></i>
+                        <p class="text-slate-400 text-sm font-bold">No duplicate procedure names detected yet.</p>
+                        <p class="text-slate-600 text-xs mt-1">This table fills automatically after the next ETL run.</p>
+                    </div>
+                    {% endif %}
+                </div>
+
+                </div><!-- end #tab-procedures -->
 
             </div>
         </main>
@@ -552,6 +702,55 @@
                     }
                 }
             }
+        }
+
+        // ── Tab switching ────────────────────────────────────────
+        function switchTab(name, btn) {
+            ['modality', 'procedures'].forEach(t => {
+                document.getElementById('tab-' + t).classList.add('hidden');
+            });
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById('tab-' + name).classList.remove('hidden');
+            btn.classList.add('active');
+        }
+
+        // ── Canonical mapping actions ────────────────────────────
+        async function approveCanonical(groupId) {
+            const nameEl = document.getElementById('canon-name-' + groupId);
+            const name = nameEl.value.trim();
+            if (!name) { alert('Please enter a canonical name first.'); nameEl.focus(); return; }
+            const res = await fetch('/mapping/canonical/approve', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ group_id: groupId, canonical_name: name })
+            });
+            if (res.ok) { location.reload(); }
+            else { alert('Save failed.'); }
+        }
+
+        async function deleteCanonical(groupId) {
+            if (!confirm('Remove this group? It will be re-detected on the next ETL run if the codes are still similar.')) return;
+            const res = await fetch('/mapping/canonical/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ group_id: groupId })
+            });
+            if (res.ok) { document.getElementById('canon-row-' + groupId).remove(); }
+            else { alert('Delete failed.'); }
+        }
+
+        function unapproveCanonical(groupId) {
+            const nameEl = document.getElementById('canon-name-' + groupId);
+            nameEl.removeAttribute('readonly');
+            nameEl.classList.remove('border-emerald-800', 'text-emerald-300');
+            nameEl.classList.add('border-amber-700/50', 'text-white', 'focus:border-amber-400');
+            nameEl.focus();
+        }
+
+        // Redirect to procedures tab if URL has #procedures
+        if (window.location.hash === '#procedures') {
+            const btn = document.querySelector('.tab-btn:nth-child(2)');
+            if (btn) switchTab('procedures', btn);
         }
 
         function applyTheme(theme) {

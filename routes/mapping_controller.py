@@ -112,6 +112,21 @@ def mapping_page():
         fuzzy_candidates = []
         fuzzy_map = {}
 
+    # Canonical groups — similar procedure names awaiting manager approval
+    try:
+        raw_groups = db.session.execute(_t("""
+            SELECT g.id, g.canonical_name, g.approved, g.approved_by, g.approved_at,
+                   ARRAY_AGG(m.procedure_code ORDER BY m.procedure_code) AS member_codes,
+                   ARRAY_AGG(m.similarity_score ORDER BY m.procedure_code) AS scores
+            FROM procedure_canonical_groups g
+            JOIN procedure_canonical_members m ON m.group_id = g.id
+            GROUP BY g.id, g.canonical_name, g.approved, g.approved_by, g.approved_at
+            ORDER BY g.approved ASC, g.detected_at DESC
+        """)).fetchall()
+        canonical_groups = [dict(r._mapping) for r in raw_groups]
+    except Exception:
+        canonical_groups = []
+
     return render_template(
         'mapping.html',
         modality_mappings=modality_mappings,
@@ -120,6 +135,7 @@ def mapping_page():
         conflicts=conflicts,
         conflict_codes=conflict_codes,
         fuzzy_map=fuzzy_map,
+        canonical_groups=canonical_groups,
     )
 
 
@@ -283,6 +299,48 @@ def update_single_procedure():
             db.session.commit()
             return jsonify({"status": "success"})
         return jsonify({"status": "error", "message": "Procedure not found"}), 404
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@mapping_bp.route('/canonical/approve', methods=['POST'])
+@login_required
+def approve_canonical_group():
+    if current_user.role != 'admin': return abort(403)
+    from sqlalchemy import text as _t
+    data = request.get_json(force=True)
+    try:
+        group_id = int(data['group_id'])
+        canonical_name = str(data['canonical_name']).strip()
+        if not canonical_name:
+            return jsonify({"status": "error", "message": "Canonical name required"}), 400
+        db.session.execute(_t("""
+            UPDATE procedure_canonical_groups
+            SET canonical_name = :name,
+                approved = TRUE,
+                approved_by = :user,
+                approved_at = NOW()
+            WHERE id = :id
+        """), {"name": canonical_name, "user": current_user.username, "id": group_id})
+        db.session.commit()
+        return jsonify({"status": "success"})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@mapping_bp.route('/canonical/delete', methods=['POST'])
+@login_required
+def delete_canonical_group():
+    if current_user.role != 'admin': return abort(403)
+    from sqlalchemy import text as _t
+    data = request.get_json(force=True)
+    try:
+        group_id = int(data['group_id'])
+        db.session.execute(_t("DELETE FROM procedure_canonical_groups WHERE id = :id"), {"id": group_id})
+        db.session.commit()
+        return jsonify({"status": "success"})
     except Exception as e:
         db.session.rollback()
         return jsonify({"status": "error", "message": str(e)}), 500

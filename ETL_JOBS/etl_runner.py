@@ -377,6 +377,128 @@ def _sync_lookup_tables(engine):
         """))
         logger.info(f"Phase 8 — Conflicts detected: {r.rowcount} procedures flagged on 2+ modalities")
 
+        # 6. Canonical group detection — find similar procedure names using pg_trgm
+        #    Groups similar codes so managers can assign one canonical display name.
+        #    Only inserts NEW groups — never touches already-approved groups.
+        _detect_canonical_groups(conn, logger)
+
+
+def _detect_canonical_groups(conn, logger):
+    """
+    Find procedure codes that are likely duplicates of each other
+    (similarity >= 0.65 via pg_trgm). Groups them using union-find
+    into canonical groups. Only inserts groups that don't already
+    have an approved canonical name — approved decisions are preserved.
+    """
+    # Ensure tables exist
+    conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS procedure_canonical_groups (
+            id              SERIAL PRIMARY KEY,
+            canonical_name  VARCHAR(300),
+            approved        BOOLEAN DEFAULT FALSE,
+            approved_by     VARCHAR(100),
+            approved_at     TIMESTAMP,
+            detected_at     TIMESTAMP DEFAULT NOW()
+        )
+    """))
+    conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS procedure_canonical_members (
+            procedure_code  VARCHAR PRIMARY KEY,
+            group_id        INTEGER REFERENCES procedure_canonical_groups(id) ON DELETE CASCADE,
+            similarity_score NUMERIC(4,3),
+            added_at        TIMESTAMP DEFAULT NOW()
+        )
+    """))
+
+    # Fetch all similar pairs (excluding codes already in approved groups)
+    pairs = conn.execute(text("""
+        SELECT p1.procedure_code AS code_a,
+               p2.procedure_code AS code_b,
+               similarity(UPPER(TRIM(p1.procedure_code)), UPPER(TRIM(p2.procedure_code))) AS score
+        FROM procedure_duration_map p1
+        JOIN procedure_duration_map p2
+            ON p1.procedure_code < p2.procedure_code
+           AND similarity(UPPER(TRIM(p1.procedure_code)), UPPER(TRIM(p2.procedure_code))) >= 0.65
+        WHERE p1.procedure_code NOT IN (
+            SELECT m.procedure_code FROM procedure_canonical_members m
+            JOIN procedure_canonical_groups g ON g.id = m.group_id
+            WHERE g.approved = TRUE
+        )
+          AND p2.procedure_code NOT IN (
+            SELECT m.procedure_code FROM procedure_canonical_members m
+            JOIN procedure_canonical_groups g ON g.id = m.group_id
+            WHERE g.approved = TRUE
+        )
+    """)).fetchall()
+
+    if not pairs:
+        logger.info("Phase 8 — Canonical groups: no new similar pairs found")
+        return
+
+    # Union-Find to build connected components
+    parent = {}
+    scores = {}
+
+    def find(x):
+        if parent.setdefault(x, x) != x:
+            parent[x] = find(parent[x])
+        return parent[x]
+
+    def union(a, b, score):
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[rb] = ra
+        key = (min(a, b), max(a, b))
+        scores[key] = max(scores.get(key, 0), score)
+
+    for row in pairs:
+        union(row.code_a, row.code_b, float(row.score))
+
+    # Group by root
+    groups = {}
+    for code in parent:
+        root = find(code)
+        groups.setdefault(root, set()).add(code)
+
+    # Only keep groups with 2+ members
+    groups = {r: members for r, members in groups.items() if len(members) >= 2}
+
+    # Remove groups that are subsets of existing unapproved groups
+    existing_members = {
+        r[0] for r in conn.execute(text(
+            "SELECT procedure_code FROM procedure_canonical_members"
+        )).fetchall()
+    }
+
+    new_groups_inserted = 0
+    for root, members in groups.items():
+        # Skip if all members already in a group
+        if members.issubset(existing_members):
+            continue
+
+        # Pick canonical name: longest member (usually most descriptive)
+        canonical = max(members, key=len)
+
+        result = conn.execute(text("""
+            INSERT INTO procedure_canonical_groups (canonical_name, approved, detected_at)
+            VALUES (:name, FALSE, NOW())
+            RETURNING id
+        """), {"name": canonical})
+        group_id = result.fetchone()[0]
+
+        for code in members:
+            key = (min(code, root), max(code, root))
+            score = scores.get(key, 0.65)
+            conn.execute(text("""
+                INSERT INTO procedure_canonical_members (procedure_code, group_id, similarity_score)
+                VALUES (:code, :gid, :score)
+                ON CONFLICT (procedure_code) DO NOTHING
+            """), {"code": code, "gid": group_id, "score": score})
+
+        new_groups_inserted += 1
+
+    logger.info(f"Phase 8 — Canonical groups: {new_groups_inserted} new similarity groups detected")
+
 
 if __name__ == "__main__":
     import sys
