@@ -415,9 +415,6 @@
                                 {{ pending_pairs | length }} pairs
                             </span>
                             {% endif %}
-                            <span class="text-[9px] font-black uppercase text-slate-500">
-                                · {{ canonical_groups | length }} approved
-                            </span>
                         </div>
                     </div>
 
@@ -606,107 +603,10 @@
                     </div>
                     {% endif %}
 
-                    <!-- ── Approved canonical groups ── -->
-                    {% if canonical_groups %}
-                    <div class="card-custom overflow-hidden">
-                        <div class="max-h-[600px] overflow-y-auto custom-scrollbar">
-                            <table class="w-full text-left">
-                                <thead class="sticky top-0 bg-[#232b28] text-[9px] font-black text-slate-500 uppercase border-b border-[#28332e] z-10">
-                                    <tr>
-                                        <th class="px-6 py-4">Similar Procedure Codes</th>
-                                        <th class="px-6 py-4" style="min-width:260px">Master Name (used in RAYD)</th>
-                                        <th class="px-6 py-4" style="min-width:110px">Modality</th>
-                                        <th class="px-6 py-4 text-center">Status</th>
-                                        <th class="px-6 py-4 text-right">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="divide-y divide-[#28332e]">
-                                    {% for group in canonical_groups %}
-                                    <tr class="hover:bg-white/5 transition {% if not group.approved %}bg-amber-900/5{% endif %}"
-                                        id="canon-row-{{ group.id }}">
-
-                                        <!-- Member code badges -->
-                                        <td class="px-6 py-4">
-                                            <div class="flex flex-wrap gap-1.5">
-                                                {% for code in group.member_codes %}
-                                                <span class="canonical-badge bg-[#1d2522] border border-[#28332e] text-slate-300">
-                                                    <i class="bi bi-code text-slate-500"></i> {{ code }}
-                                                </span>
-                                                {% endfor %}
-                                            </div>
-                                        </td>
-
-                                        <!-- Editable canonical name -->
-                                        <td class="px-6 py-4">
-                                            <input type="text"
-                                                   id="canon-name-{{ group.id }}"
-                                                   value="{{ group.canonical_name or '' }}"
-                                                   {% if group.approved %}readonly{% endif %}
-                                                   class="w-full bg-[#141a17] border {% if group.approved %}border-emerald-800 text-emerald-300{% else %}border-amber-700/50 text-white focus:border-amber-400{% endif %} rounded-lg px-3 py-2 text-xs font-bold outline-none transition">
-                                            {% if group.approved %}
-                                            <div class="text-[9px] text-slate-500 mt-1">
-                                                Approved by {{ group.approved_by or 'admin' }}
-                                            </div>
-                                            {% endif %}
-                                        </td>
-
-                                        <!-- Modality mapping -->
-                                        <td class="px-6 py-4">
-                                            <select id="canon-mod-{{ group.id }}"
-                                                    onchange="setCanonicalModality({{ group.id }}, this)"
-                                                    class="w-full bg-[#141a17] border border-[#28332e] focus:border-emerald-500 text-slate-300 rounded-lg px-2 py-1.5 text-[10px] font-black outline-none transition">
-                                                <option value="">—</option>
-                                                {% for mod in ['CT','MR','CR','DX','US','NM','PT','XA','RF','MG','DR','SC','OT'] %}
-                                                <option value="{{ mod }}" {% if group.group_modality == mod %}selected{% endif %}>{{ mod }}</option>
-                                                {% endfor %}
-                                            </select>
-                                        </td>
-
-                                        <!-- Status badge -->
-                                        <td class="px-6 py-4 text-center">
-                                            {% if group.approved %}
-                                            <span class="canonical-badge bg-emerald-900/50 text-emerald-400 border border-emerald-800/50">
-                                                <i class="bi bi-check-circle-fill"></i> Approved
-                                            </span>
-                                            {% else %}
-                                            <span class="canonical-badge bg-amber-900/50 text-amber-400 border border-amber-800/50">
-                                                <i class="bi bi-clock-fill"></i> Pending
-                                            </span>
-                                            {% endif %}
-                                        </td>
-
-                                        <!-- Actions -->
-                                        <td class="px-6 py-4 text-right">
-                                            <div class="flex items-center justify-end gap-2">
-                                                {% if not group.approved %}
-                                                <button onclick="approveCanonical({{ group.id }})"
-                                                        class="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-[9px] font-black uppercase tracking-widest rounded-lg transition">
-                                                    <i class="bi bi-check-lg"></i> Approve
-                                                </button>
-                                                {% else %}
-                                                <button onclick="unapproveCanonical({{ group.id }})"
-                                                        class="px-3 py-1.5 bg-[#1d2522] border border-[#28332e] hover:border-amber-500 text-slate-400 hover:text-amber-400 text-[9px] font-black uppercase tracking-widest rounded-lg transition">
-                                                    <i class="bi bi-pencil"></i> Edit
-                                                </button>
-                                                {% endif %}
-                                                <button onclick="deleteCanonical({{ group.id }})"
-                                                        class="px-3 py-1.5 bg-[#1d2522] border border-[#28332e] hover:border-red-500 text-slate-400 hover:text-red-400 text-[9px] font-black uppercase tracking-widest rounded-lg transition">
-                                                    <i class="bi bi-trash"></i>
-                                                </button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                    {% endif %}
-
-                    {% if not pending_pairs and not canonical_groups %}
+                    {% if not pending_pairs and not ai_groups %}
                     <div class="card-custom p-12 text-center">
                         <i class="bi bi-check2-circle text-4xl text-emerald-500 mb-3 block"></i>
-                        <p class="text-slate-400 text-sm font-bold">No duplicate procedure names detected yet.</p>
+                        <p class="text-slate-400 text-sm font-bold">No duplicates detected yet.</p>
                         <p class="text-slate-600 text-xs mt-1">This section fills automatically after the next ETL run.</p>
                     </div>
                     {% endif %}
@@ -966,31 +866,6 @@
             else { alert('Delete failed.'); }
         }
 
-        // ── Human canonical mapping actions ──────────────────────
-        async function approveCanonical(groupId) {
-            const nameEl = document.getElementById('canon-name-' + groupId);
-            const name = nameEl.value.trim();
-            if (!name) { alert('Please enter a canonical name first.'); nameEl.focus(); return; }
-            const res = await fetch('/mapping/canonical/approve', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ group_id: groupId, canonical_name: name })
-            });
-            if (res.ok) { location.reload(); }
-            else { alert('Save failed.'); }
-        }
-
-        async function deleteCanonical(groupId) {
-            if (!confirm('Remove this group? It will be re-detected on the next ETL run if the codes are still similar.')) return;
-            const res = await fetch('/mapping/canonical/delete', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ group_id: groupId })
-            });
-            if (res.ok) { document.getElementById('canon-row-' + groupId).remove(); }
-            else { alert('Delete failed.'); }
-        }
-
         async function setCanonicalModality(groupId, selectEl) {
             const modality = selectEl.value;
             const res = await fetch('/mapping/canonical/set-modality', {
@@ -1005,14 +880,6 @@
                 alert('Failed to save modality.');
                 selectEl.value = '';
             }
-        }
-
-        function unapproveCanonical(groupId) {
-            const nameEl = document.getElementById('canon-name-' + groupId);
-            nameEl.removeAttribute('readonly');
-            nameEl.classList.remove('border-emerald-800', 'text-emerald-300');
-            nameEl.classList.add('border-amber-700/50', 'text-white', 'focus:border-amber-400');
-            nameEl.focus();
         }
 
         // ── Pending pairs: confirm / reject ─────────────────────
