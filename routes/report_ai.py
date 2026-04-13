@@ -223,11 +223,14 @@ def _get_volume_intelligence(start, end):
     cur_total  = sum(values)
     vs_prev    = _pct_change(cur_total, prev_total)
 
-    # Modality breakdown for context
+    # Modality breakdown — prefer procedure's true modality, fall back to AE map
     mod_rows = db.session.execute(text("""
-        SELECT m.modality, COUNT(*) as cnt
+        SELECT
+            UPPER(TRIM(COALESCE(pm.modality, m.modality, s.study_modality, 'UNMAPPED'))) AS modality,
+            COUNT(*) as cnt
         FROM etl_didb_studies s
-        LEFT JOIN aetitle_modality_map m ON s.storing_ae = m.aetitle
+        LEFT JOIN procedure_duration_map pm ON pm.procedure_code = s.procedure_code
+        LEFT JOIN aetitle_modality_map m ON m.aetitle = s.storing_ae
         WHERE s.study_date BETWEEN :s AND :e
         GROUP BY 1 ORDER BY 2 DESC LIMIT 8
     """), {"s": start, "e": end}).fetchall()
@@ -239,7 +242,7 @@ def _get_volume_intelligence(start, end):
         "r2": r2,
         "vs_prev_pct": vs_prev,
         "vs_prev_total": prev_total,
-        "modality_split": [{"name": r[0] or "UNMAPPED", "value": int(r[1])} for r in mod_rows],
+        "modality_split": [{"name": r.modality or "UNMAPPED", "value": int(r.cnt)} for r in mod_rows],
         "chart": {
             "historical_dates": dates,
             "historical_vals":  values,
@@ -258,13 +261,31 @@ def _get_utilization_intelligence(start, end):
         SELECT
             s.storing_ae,
             s.study_date,
-            COALESCE(SUM(m.duration_minutes), 0) as load_mins
+            COALESCE(SUM(pm.duration_minutes), 0) as load_mins
         FROM etl_didb_studies s
-        LEFT JOIN procedure_duration_map m ON m.procedure_code = s.procedure_code
+        LEFT JOIN procedure_duration_map pm ON pm.procedure_code = s.procedure_code
         WHERE s.study_date BETWEEN :s AND :e
         GROUP BY 1, 2
         ORDER BY 1, 2
     """), {"s": start, "e": end}).fetchall()
+
+    # Modality mix per AE — uses procedure's true modality for accuracy
+    ae_modality_mix = {}
+    mix_rows = db.session.execute(text("""
+        SELECT
+            s.storing_ae,
+            UPPER(TRIM(COALESCE(pm.modality, am.modality, s.study_modality))) AS modality,
+            COUNT(*) AS cnt
+        FROM etl_didb_studies s
+        LEFT JOIN procedure_duration_map pm ON pm.procedure_code = s.procedure_code
+        LEFT JOIN aetitle_modality_map am ON am.aetitle = s.storing_ae
+        WHERE s.study_date BETWEEN :s AND :e
+          AND s.storing_ae IS NOT NULL
+        GROUP BY 1, 2
+        ORDER BY 1, 3 DESC
+    """), {"s": start, "e": end}).fetchall()
+    for r in mix_rows:
+        ae_modality_mix.setdefault(r[0], []).append({"modality": r[1] or "UNMAPPED", "count": int(r[2])})
 
     if not rows:
         return None
@@ -320,6 +341,7 @@ def _get_utilization_intelligence(start, end):
             "avg_util": avg_util,
             "anomaly_count": anom_count,
             "slope": slope,
+            "modality_mix": ae_modality_mix.get(ae, []),
             "chart": {
                 "dates":          daily_dates,
                 "utils":          daily_utils,
@@ -360,6 +382,26 @@ def _get_physician_intelligence(start, end):
         return None
 
     df = pd.DataFrame(rows, columns=['physician', 'month', 'cnt'])
+
+    # Per-physician modality referral pattern
+    phys_mod_rows = db.session.execute(text("""
+        SELECT
+            COALESCE(NULLIF(TRIM(CONCAT_WS(' ',
+                referring_physician_first_name,
+                referring_physician_last_name)), ''), 'Unknown') as physician,
+            UPPER(TRIM(COALESCE(pm.modality, am.modality, s.study_modality))) AS modality,
+            COUNT(*) as cnt
+        FROM etl_didb_studies s
+        LEFT JOIN procedure_duration_map pm ON pm.procedure_code = s.procedure_code
+        LEFT JOIN aetitle_modality_map am ON am.aetitle = s.storing_ae
+        WHERE s.study_date BETWEEN :s AND :e
+          AND s.referring_physician_first_name IS NOT NULL
+        GROUP BY 1, 2
+        ORDER BY 1, 3 DESC
+    """), {"s": start, "e": end}).fetchall()
+    phys_modality_map = {}
+    for r in phys_mod_rows:
+        phys_modality_map.setdefault(r[0], []).append({"modality": r[1] or "UNMAPPED", "count": int(r[2])})
 
     # Same period last year for comparison
     one_year_ago_start = (pd.to_datetime(start) - timedelta(days=365)).strftime('%Y-%m-%d')
@@ -403,11 +445,12 @@ def _get_physician_intelligence(start, end):
             growing.append(physician)
 
         physician_data.append({
-            "name":      physician,
-            "total":     total,
-            "slope":     slope,
-            "vs_prev":   vs_prev,
-            "prev_total": prev_total,
+            "name":         physician,
+            "total":        total,
+            "slope":        slope,
+            "vs_prev":      vs_prev,
+            "prev_total":   prev_total,
+            "modality_mix": phys_modality_map.get(physician, []),
             "chart": {
                 "months":         months,
                 "counts":         counts,

@@ -33,11 +33,11 @@ def export_modality_csv():
     rows = AETitleModalityMap.query.order_by(AETitleModalityMap.aetitle).all()
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(['aetitle', 'modality', 'daily_capacity_minutes'])
+    w.writerow(['aetitle', 'modality', 'room_name', 'daily_capacity_minutes'])
     for r in rows:
         sched = next((s for s in r.weekly_schedules if s.day_of_week == 0), None)
         cap = sched.std_opening_minutes if sched else 720
-        w.writerow([r.aetitle, r.modality, cap])
+        w.writerow([r.aetitle, r.modality, r.room_name or '', cap])
     buf.seek(0)
     return Response(
         buf.getvalue(),
@@ -58,9 +58,9 @@ def export_procedure_csv():
     rows = ProcedureDurationMap.query.order_by(ProcedureDurationMap.procedure_code).all()
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(['procedure_code', 'duration_minutes', 'rvu_value'])
+    w.writerow(['procedure_code', 'duration_minutes', 'rvu_value', 'modality'])
     for r in rows:
-        w.writerow([r.procedure_code, r.duration_minutes, r.rvu_value])
+        w.writerow([r.procedure_code, r.duration_minutes, r.rvu_value, r.modality or ''])
     buf.seek(0)
     return Response(
         buf.getvalue(),
@@ -91,11 +91,24 @@ def mapping_page():
         for ex in exceptions
     }
     
+    # Procedure-modality conflicts detected by ETL
+    from sqlalchemy import text as _t
+    try:
+        conflicts = db.session.execute(
+            _t("SELECT procedure_code, modalities, sample_count FROM procedure_modality_conflicts ORDER BY sample_count DESC")
+        ).fetchall()
+        conflict_codes = {c.procedure_code for c in conflicts}
+    except Exception:
+        conflicts = []
+        conflict_codes = set()
+
     return render_template(
         'mapping.html',
         modality_mappings=modality_mappings,
         duration_mappings=duration_mappings,
-        exceptions_json=json.dumps(exceptions_lookup)
+        exceptions_json=json.dumps(exceptions_lookup),
+        conflicts=conflicts,
+        conflict_codes=conflict_codes,
     )
 
 
@@ -119,14 +132,19 @@ def upload_modality_map():
             except:
                 cap = 480
 
+            # Room name (optional column)
+            room = str(row.get('room_name', '')).strip() if 'room_name' in df.columns and pd.notna(row.get('room_name')) else None
+
             # 1. Sync Parent (AETitleModalityMap) — keep both tables in sync
             parent = AETitleModalityMap.query.filter_by(aetitle=ae).first()
             if not parent:
-                parent = AETitleModalityMap(aetitle=ae, modality=mod, daily_capacity_minutes=cap)
+                parent = AETitleModalityMap(aetitle=ae, modality=mod, room_name=room, daily_capacity_minutes=cap)
                 db.session.add(parent)
             else:
                 parent.modality = mod
                 parent.daily_capacity_minutes = cap
+                if room:
+                    parent.room_name = room
             
             # Flush tells the DB about the parent so the Foreign Key doesn't fail
             db.session.flush()
@@ -168,7 +186,7 @@ def upload_procedure_map():
         # LAYER OF PROTECTION: Schema Validation
         required = {'procedure_code', 'duration_minutes', 'rvu_value'}
         if not required.issubset(df.columns):
-            flash("Upload Aborted: CSV headers must be procedure_code, duration_minutes, rvu_value", "danger")
+            flash("Upload Aborted: CSV headers must include procedure_code, duration_minutes, rvu_value", "danger")
             return redirect(url_for('mapping.mapping_page'))
 
         # LAYER OF PROTECTION: Data Integrity Check (Dry Run)
@@ -188,9 +206,13 @@ def upload_procedure_map():
             duration = int(float(row['duration_minutes']))
             rvu = float(row['rvu_value'])
 
+            modality = str(row.get('modality', '')).strip().upper() if 'modality' in df.columns and pd.notna(row.get('modality')) else None
+
             mapping, created = get_or_create(ProcedureDurationMap, procedure_code=p_code)
             mapping.duration_minutes = duration
             mapping.rvu_value = rvu
+            if modality:
+                mapping.modality = modality
 
         db.session.commit()
         flash(f"Success: {len(df)} procedures verified and updated.", "success")
@@ -236,8 +258,14 @@ def update_single_procedure():
         p_code = str(data['code']).strip().upper()
         mapping = ProcedureDurationMap.query.filter_by(procedure_code=p_code).first()
         if mapping:
-            mapping.duration_minutes = int(data['duration'])
-            mapping.rvu_value = float(data.get('rvu', mapping.rvu_value))
+            dur = int(data.get('duration', 0))
+            if dur > 0:
+                mapping.duration_minutes = dur
+            rvu = data.get('rvu')
+            if rvu is not None and str(rvu).strip():
+                mapping.rvu_value = float(rvu)
+            if 'modality' in data:
+                mapping.modality = str(data['modality']).strip().upper() or None
             db.session.commit()
             return jsonify({"status": "success"})
         return jsonify({"status": "error", "message": "Procedure not found"}), 404

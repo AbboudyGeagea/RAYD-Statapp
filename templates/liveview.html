@@ -379,6 +379,15 @@
       <div class="center-title">Live Operations Center</div>
       <div id="data-date-badge" style="font-size:11px;color:#f59e0b;letter-spacing:0.1em;font-weight:600;display:none;"></div>
     </div>
+    <div style="display:flex;align-items:center;gap:14px;">
+      <select id="room-select" style="
+        background:#1a2722;border:1px solid #2d4a3e;color:#e2e8f0;
+        padding:6px 12px;border-radius:6px;font-size:13px;font-weight:600;
+        cursor:pointer;min-width:180px;outline:none;
+      ">
+        <option value="">All Rooms</option>
+      </select>
+    </div>
     <div class="right-info">
       <div style="text-align:right;">
         <div id="clock">--:--:--</div>
@@ -576,9 +585,33 @@ function render(data) {
   }).join('');
 }
 
+// ── Room selector ────────────────────────────────────────────────────────
+const roomSelect = document.getElementById('room-select');
+let selectedAE = '';
+
+function loadRooms() {
+  fetch('/liveview/rooms')
+    .then(r => r.json())
+    .then(rooms => {
+      rooms.forEach(r => {
+        const opt = document.createElement('option');
+        opt.value = r.aetitle;
+        opt.textContent = r.room_name;
+        roomSelect.appendChild(opt);
+      });
+    })
+    .catch(() => {});
+}
+
+roomSelect.addEventListener('change', () => {
+  selectedAE = roomSelect.value;
+  loadData();
+});
+
 // ── Fetch ─────────────────────────────────────────────────────────────────
 function loadData() {
-  fetch('/liveview/data')
+  const url = selectedAE ? `/liveview/data?ae=${encodeURIComponent(selectedAE)}` : '/liveview/data';
+  fetch(url)
     .then(r => r.json())
     .then(data => {
       if (data.error) {
@@ -601,12 +634,12 @@ function loadData() {
 }
 
 function showError(msg) {
-  // Show error inline in topbar without crashing the layout
   const el = document.getElementById('countdown-text');
   if (el) { el.textContent = '⚠ ' + msg; el.style.color = '#f87171'; }
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────
+loadRooms();
 loadData();
 </script>
 </body>

@@ -84,7 +84,7 @@
                 <a href="{{ url_for('viewer.viewer_dashboard') }}" class="sidebar-item"><i class="bi bi-speedometer2"></i> Viewer Dashboard</a>
                 {% if current_user.role == 'admin' %}
                 <a href="{{ url_for('admin.admin_dashboard') }}" class="sidebar-item"><i class="bi bi-cpu"></i> ETL Control Room</a>
-                <a href="{{ url_for('mapping.mapping_page') }}" class="sidebar-item"><i class="bi bi-calendar-week"></i> Live Week Matrix</a>
+                <a href="{{ url_for('mapping.mapping_page') }}" class="sidebar-item"><i class="bi bi-calendar-week"></i> Modality / Procedures Config</a>
                 {% endif %}
                 <div class="pt-3 pb-1"><p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-2">RIS</p></div>
                 {% if current_user.role == 'admin' %}

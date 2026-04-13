@@ -143,3 +143,7 @@ def export_report_27():
     df = get_report_data(start, end)
     return Response(df.to_csv(index=False), mimetype="text/csv",
                     headers={"Content-disposition": f"attachment; filename=Audit_Export_{start}.csv"})
+
+# ── Self-register ─────────────────────────────────────────────
+from routes.report_registry import register_report
+register_report(27, report_27_bp, report_27, export_report_27)

@@ -245,6 +245,12 @@ def create_app():
             db.session.execute(text(
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS favorites TEXT DEFAULT '[]'"
             ))
+            db.session.execute(text(
+                "ALTER TABLE aetitle_modality_map ADD COLUMN IF NOT EXISTS room_name VARCHAR(100)"
+            ))
+            db.session.execute(text(
+                "ALTER TABLE procedure_duration_map ADD COLUMN IF NOT EXISTS modality VARCHAR(20)"
+            ))
             db.session.commit()
         except Exception as e:
             db.session.rollback()

@@ -384,3 +384,7 @@ def conflict_export():
         mimetype='text/csv',
         headers={'Content-Disposition': 'attachment; filename="conflict_patients.csv"'}
     )
+
+# ── Self-register ─────────────────────────────────────────────
+from routes.report_registry import register_report
+register_report(23, report_23_bp, report_23, export_report_23)

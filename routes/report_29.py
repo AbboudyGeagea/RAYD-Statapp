@@ -156,3 +156,7 @@ def export_report_29():
         mimetype="text/csv",
         headers={"Content-Disposition": f"attachment; filename=Storage_Audit_{start}_to_{end}.csv"}
     )
+
+# ── Self-register ─────────────────────────────────────────────
+from routes.report_registry import register_report
+register_report(29, report_29_bp, report_29, export_report_29)

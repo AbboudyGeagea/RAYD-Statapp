@@ -8,11 +8,13 @@ from .viewer_controller  import viewer_bp
 from .mapping_controller import mapping_bp
 from .saved_reports      import saved_reports_bp
 from .report_controller  import report_bp
-from .report_22          import report_22_bp
-from .report_23          import report_23_bp
-from .report_25          import report_25_bp
-from .report_27          import report_27_bp
-from .report_29          import report_29_bp
+# Report modules self-register on import — just import them to trigger registration
+import routes.report_22   # noqa: F401
+import routes.report_23   # noqa: F401
+import routes.report_25   # noqa: F401
+import routes.report_27   # noqa: F401
+import routes.report_29   # noqa: F401
+from routes.report_registry import get_all_reports, get_report_ids
 from routes.hl7_orders       import hl7_orders_bp
 from routes.etl_gear_route   import etl_gear_bp
 from routes.report_ai        import report_ai_bp
@@ -31,9 +33,10 @@ from routes.adapter_mapper   import adapter_mapper_bp
 logger = logging.getLogger("REGISTRY")
 
 # ── Default license (everything ON, no limits) ───────────────
+# Reports list is populated dynamically from registered reports
 DEFAULT_LICENSE = {
     "tier": "enterprise",
-    "reports": [22, 23, 25, 27, 29],
+    "reports": get_report_ids(),
     "ai_report": True,
     "capacity_ladder": True,
     "er_dashboard": True,
@@ -76,7 +79,7 @@ TIER_PRESETS = {
     },
     "professional": {
         "tier": "professional",
-        "reports": [22, 23, 25, 27, 29],
+        "reports": get_report_ids(),
         "ai_report": False,
         "capacity_ladder": True,
         "er_dashboard": True,
@@ -214,18 +217,11 @@ def register_blueprints(app):
     app.register_blueprint(docs_bp)
     app.register_blueprint(etl_gear_bp)
 
-    # ── Licensed reports ──────────────────────────────────────
-    report_map = {
-        22: report_22_bp,
-        23: report_23_bp,
-        25: report_25_bp,
-        27: report_27_bp,
-        29: report_29_bp,
-    }
+    # ── Licensed reports (auto-discovered from report_registry) ─
     licensed_reports = lic.get('reports', [])
-    for rid, bp in report_map.items():
+    for rid, reg in get_all_reports().items():
         if rid in licensed_reports:
-            app.register_blueprint(bp)
+            app.register_blueprint(reg['bp'])
             logger.info(f"  Report {rid}: enabled")
         else:
             logger.info(f"  Report {rid}: not licensed — skipped")

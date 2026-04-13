@@ -174,6 +174,56 @@ def _sync_lookup_tables(engine):
             ON CONFLICT (procedure_code) DO NOTHING
         """))
 
+        # 4. Auto-learn procedure → modality from historical data
+        #    Only fills NULL modality — never overwrites manual assignments
+        conn.execute(text("""
+            UPDATE procedure_duration_map p
+            SET modality = sub.modality
+            FROM (
+                SELECT
+                    TRIM(o.proc_id) AS procedure_code,
+                    MODE() WITHIN GROUP (ORDER BY s.study_modality) AS modality,
+                    COUNT(DISTINCT s.study_modality) AS modality_count
+                FROM etl_orders o
+                JOIN etl_didb_studies s
+                    ON s.study_db_uid::TEXT = o.study_db_uid::TEXT
+                WHERE o.proc_id IS NOT NULL
+                  AND s.study_modality IS NOT NULL
+                  AND TRIM(s.study_modality) != ''
+                GROUP BY TRIM(o.proc_id)
+            ) sub
+            WHERE p.procedure_code = sub.procedure_code
+              AND p.modality IS NULL
+        """))
+
+        # 5. Flag inconsistent procedure→modality mappings
+        #    (procedures that appear on 2+ different modalities)
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS procedure_modality_conflicts (
+                id              SERIAL PRIMARY KEY,
+                procedure_code  VARCHAR UNIQUE,
+                modalities      TEXT,
+                sample_count    INTEGER,
+                detected_at     TIMESTAMP DEFAULT NOW()
+            )
+        """))
+        conn.execute(text("TRUNCATE procedure_modality_conflicts"))
+        conn.execute(text("""
+            INSERT INTO procedure_modality_conflicts (procedure_code, modalities, sample_count)
+            SELECT
+                TRIM(o.proc_id),
+                STRING_AGG(DISTINCT UPPER(TRIM(s.study_modality)), ', ' ORDER BY UPPER(TRIM(s.study_modality))),
+                COUNT(*)
+            FROM etl_orders o
+            JOIN etl_didb_studies s
+                ON s.study_db_uid::TEXT = o.study_db_uid::TEXT
+            WHERE o.proc_id IS NOT NULL
+              AND s.study_modality IS NOT NULL
+              AND TRIM(s.study_modality) != ''
+            GROUP BY TRIM(o.proc_id)
+            HAVING COUNT(DISTINCT UPPER(TRIM(s.study_modality))) > 1
+        """))
+
 
 if __name__ == "__main__":
     import sys

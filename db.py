@@ -281,12 +281,14 @@ class procedure_duration_map(db.Model):
     procedure_code = db.Column(String, unique=True)
     duration_minutes = db.Column(Integer)
     rvu_value = db.Column(Numeric(10,2), default=0.0)
+    modality = db.Column(String(20))
 
 class aetitle_modality_map(db.Model):
     __tablename__ = 'aetitle_modality_map'
     id = db.Column(Integer, primary_key=True)
     aetitle = db.Column(String, unique=True)
     modality = db.Column(String)
+    room_name = db.Column(String(100))
     daily_capacity_minutes = db.Column(Integer, default=480)
     weekly_schedules = relationship("device_weekly_schedule", back_populates="device")
     exceptions = relationship("device_exceptions", back_populates="device")

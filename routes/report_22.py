@@ -459,3 +459,7 @@ def export_report_22():
                 output.seek(0); output.truncate(0)
     
     return Response(generate(), mimetype="text/csv", headers={"Content-disposition": "attachment; filename=raw_data.csv"})
+
+# ── Self-register ─────────────────────────────────────────────
+from routes.report_registry import register_report
+register_report(22, report_22_bp, report_22, export_report_22)

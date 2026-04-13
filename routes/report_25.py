@@ -826,3 +826,7 @@ def save_shifts_25():
                 )
     db.session.commit()
     return redirect(url_for('report_25.report_25'))
+
+# ── Self-register ─────────────────────────────────────────────
+from routes.report_registry import register_report
+register_report(25, report_25_bp, report_25, export_report_25)
