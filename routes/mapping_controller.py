@@ -369,8 +369,9 @@ def confirm_pair():
     from sqlalchemy import text as _t
     data = request.get_json(force=True)
     try:
-        pair_id   = int(data['pair_id'])
+        pair_id    = int(data['pair_id'])
         canon_name = str(data.get('canonical_name', '')).strip()
+        modality   = str(data.get('modality') or '').strip().upper() or None
         if not canon_name:
             return jsonify({"status": "error", "message": "Canonical name is required"}), 400
 
@@ -400,6 +401,14 @@ def confirm_pair():
                         similarity_score = EXCLUDED.similarity_score,
                         added_at = NOW()
             """), {"code": code, "gid": group_id, "score": float(pair.desc_similarity)})
+
+        # Apply modality to both procedure codes if provided
+        if modality:
+            db.session.execute(_t("""
+                UPDATE procedure_duration_map
+                SET modality = :mod
+                WHERE procedure_code IN (:a, :b)
+            """), {"mod": modality, "a": pair.code_a, "b": pair.code_b})
 
         # Mark the pair as confirmed
         db.session.execute(_t("""

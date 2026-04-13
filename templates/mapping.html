@@ -431,7 +431,9 @@
                                             <th class="px-4 py-3">Description B</th>
                                             <th class="px-4 py-3 text-center">Code %</th>
                                             <th class="px-4 py-3 text-center">Desc %</th>
-                                            <th class="px-4 py-3 text-right" style="min-width:220px">Decision</th>
+                                            <th class="px-4 py-3" style="min-width:180px">Master Name</th>
+                                            <th class="px-4 py-3" style="min-width:90px">Modality</th>
+                                            <th class="px-4 py-3 text-right" style="min-width:170px">Decision</th>
                                         </tr>
                                     </thead>
                                     <tbody class="divide-y divide-[#28332e]" id="pending-pairs-body">
@@ -442,7 +444,7 @@
                                                     <i class="bi bi-code text-slate-500"></i> {{ pair.code_a }}
                                                 </span>
                                             </td>
-                                            <td class="px-4 py-3 text-xs text-slate-400 max-w-[200px] truncate" title="{{ pair.desc_a or '—' }}">
+                                            <td class="px-4 py-3 text-xs text-slate-400 max-w-[180px] truncate" title="{{ pair.desc_a or '—' }}">
                                                 {{ pair.desc_a or '—' }}
                                             </td>
                                             <td class="px-4 py-3">
@@ -450,7 +452,7 @@
                                                     <i class="bi bi-code text-slate-500"></i> {{ pair.code_b }}
                                                 </span>
                                             </td>
-                                            <td class="px-4 py-3 text-xs text-slate-400 max-w-[200px] truncate" title="{{ pair.desc_b or '—' }}">
+                                            <td class="px-4 py-3 text-xs text-slate-400 max-w-[180px] truncate" title="{{ pair.desc_b or '—' }}">
                                                 {{ pair.desc_b or '—' }}
                                             </td>
                                             <td class="px-4 py-3 text-center">
@@ -463,11 +465,29 @@
                                                     {{ (pair.desc_similarity * 100) | int }}%
                                                 </span>
                                             </td>
+                                            <!-- Master name inline input -->
+                                            <td class="px-4 py-3">
+                                                <input type="text"
+                                                       id="pair-name-{{ pair.id }}"
+                                                       placeholder="e.g. Abdominal + Pelvis CT"
+                                                       class="w-full bg-[#141a17] border border-amber-700/40 focus:border-amber-400 text-white rounded-lg px-2 py-1.5 text-[10px] font-bold outline-none transition placeholder-slate-600">
+                                            </td>
+                                            <!-- Modality inline select -->
+                                            <td class="px-4 py-3">
+                                                <select id="pair-mod-{{ pair.id }}"
+                                                        class="w-full bg-[#141a17] border border-[#28332e] focus:border-emerald-500 text-slate-300 rounded-lg px-2 py-1.5 text-[10px] font-bold outline-none transition">
+                                                    <option value="">—</option>
+                                                    {% for mod in ['CT','MR','CR','DX','US','NM','PT','XA','RF','MG','DR','SC','OT'] %}
+                                                    <option value="{{ mod }}">{{ mod }}</option>
+                                                    {% endfor %}
+                                                </select>
+                                            </td>
+                                            <!-- Action buttons -->
                                             <td class="px-4 py-3 text-right">
                                                 <div class="flex items-center justify-end gap-2">
                                                     <button onclick="confirmPair({{ pair.id }}, '{{ pair.code_a }}', '{{ pair.code_b }}')"
                                                             class="px-3 py-1.5 bg-emerald-800 hover:bg-emerald-700 border border-emerald-700 text-emerald-200 text-[9px] font-black uppercase tracking-widest rounded-lg transition whitespace-nowrap">
-                                                        <i class="bi bi-check2-circle"></i> Same Procedure
+                                                        <i class="bi bi-check2-circle"></i> Confirm
                                                     </button>
                                                     <button onclick="rejectPair({{ pair.id }})"
                                                             class="px-3 py-1.5 bg-[#1d2522] border border-[#28332e] hover:border-red-500 text-slate-400 hover:text-red-400 text-[9px] font-black uppercase tracking-widest rounded-lg transition whitespace-nowrap">
@@ -825,24 +845,23 @@
 
         // ── Pending pairs: confirm / reject ─────────────────────
         async function confirmPair(pairId, codeA, codeB) {
-            const suggested = `${codeA} / ${codeB}`;
-            const canonName = prompt(`Enter the master (canonical) name for this procedure:\n\nCodes: ${codeA}  ↔  ${codeB}`, suggested);
-            if (canonName === null) return; // cancelled
-            if (!canonName.trim()) { alert('A canonical name is required.'); return; }
+            const nameEl = document.getElementById('pair-name-' + pairId);
+            const modEl  = document.getElementById('pair-mod-'  + pairId);
+            const canonName = nameEl.value.trim();
+            if (!canonName) {
+                nameEl.focus();
+                nameEl.classList.add('border-red-500');
+                setTimeout(() => nameEl.classList.remove('border-red-500'), 1500);
+                return;
+            }
+            const modality = modEl ? modEl.value.trim() : '';
             const res = await fetch('/mapping/canonical/confirm-pair', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ pair_id: pairId, canonical_name: canonName.trim() })
+                body: JSON.stringify({ pair_id: pairId, canonical_name: canonName, modality: modality || null })
             });
             if (res.ok) {
-                const row = document.getElementById('pair-row-' + pairId);
-                if (row) row.remove();
-                // Update badge
-                const remaining = document.querySelectorAll('#pending-pairs-body tr').length;
-                if (remaining === 0) {
-                    const tbl = document.getElementById('pending-pairs-table');
-                    if (tbl) tbl.closest('.card-custom').parentElement.remove();
-                }
+                document.getElementById('pair-row-' + pairId)?.remove();
             } else {
                 const d = await res.json().catch(() => ({}));
                 alert('Error: ' + (d.message || 'Could not confirm pair.'));
