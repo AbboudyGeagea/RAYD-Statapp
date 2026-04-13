@@ -456,8 +456,12 @@ def create_app():
         replace_existing=True
     )
 
-    scheduler.start()
-    start_mllp_listener(app, host='0.0.0.0', port=6661)
+    # Only start scheduler and HL7 listener when running as server, not manual ETL
+    manual_mode = len(sys.argv) > 1 and sys.argv[1] == '-m'
+    if not manual_mode:
+        scheduler.start()
+        start_mllp_listener(app, host='0.0.0.0', port=6661)
+
     return app
 
 # ---------------------------------------------------------
@@ -476,6 +480,5 @@ if __name__ == '__main__':
                 print("✅ Manual Sync Finished.")
             except Exception as e:
                 print(f"❌ Manual Sync Failed: {e}")
-
-    start_mllp_listener(app, host='0.0.0.0', port=6661)
-    app.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)
+    else:
+        app.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)
