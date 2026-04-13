@@ -33,7 +33,10 @@ def execute_sync(app=None):
     else:
         logger.info("Standalone/Cron trigger started.")
         from sqlalchemy import create_engine
-        uri = os.getenv('SQLALCHEMY_DATABASE_URI', 'postgresql://etl_user:Rayd_Secure_2026@localhost:5432/etl_db')
+        uri = os.getenv('SQLALCHEMY_DATABASE_URI')
+        if not uri:
+            logger.error("SQLALCHEMY_DATABASE_URI not set — cannot run standalone ETL.")
+            return
         engine = create_engine(uri)
         _perform_migration(engine)
 

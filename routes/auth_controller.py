@@ -39,7 +39,10 @@ def register():
 
         # 2. Validation: Admin Protection
         if role == 'admin':
-            master_key = os.environ.get('MASTER_ADMIN_KEY', 'SuperSecret123')
+            master_key = os.environ.get('MASTER_ADMIN_KEY', '')
+            if not master_key:
+                flash('Admin registration is not configured.', 'danger')
+                return redirect(url_for('auth.register'))
             if admin_key_input != master_key:
                 flash('Incorrect Admin Secret Key.', 'danger')
                 return redirect(url_for('auth.register'))

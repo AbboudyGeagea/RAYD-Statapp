@@ -113,8 +113,9 @@ def discover_schema():
 @login_required
 def view_dump(filename):
     _admin_only()
-    # Prevent path traversal
-    if '..' in filename or '/' in filename:
+    from werkzeug.utils import secure_filename as _sec
+    filename = _sec(filename)
+    if not filename:
         abort(400)
     filepath = os.path.join(_DUMPS_DIR, filename)
     if not os.path.exists(filepath):

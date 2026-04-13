@@ -95,12 +95,18 @@ def run_saved_report(saved_id):
         final_where = "1=1"
         where_clauses = []
         # VERY IMPORTANT: use bound params; this naive builder only demonstrates idea
+        ALLOWED_COLUMNS = {
+            'modality', 'aetitle', 'storing_ae', 'patient_class',
+            'patient_location', 'study_date', 'referring_physician',
+            'reading_physician', 'procedure_code', 'order_status',
+        }
         params = {}
         idx = 0
         for k, v in filters.items():
+            if k not in ALLOWED_COLUMNS:
+                continue
             idx += 1
             param_name = f"p{idx}"
-            # This is a heuristic mapping — adapt to your real columns
             where_clauses.append(f"{k} = :{param_name}")
             params[param_name] = v
 

@@ -347,7 +347,8 @@ class PatientPortalUser(db.Model):
     """
     One record per patient MRN.
     Upserted every time an ORM arrives for that patient.
-    password_plain is masked (visible to admin), never hashed.
+    Passwords are hashed. password_plain kept temporarily for migration,
+    new logins use password_hash.
     """
     __tablename__ = 'patient_portal_users'
     id               = db.Column(Integer, primary_key=True)
@@ -356,7 +357,8 @@ class PatientPortalUser(db.Model):
     phone            = db.Column(String(30))
     accession_number = db.Column(String(100))
     username         = db.Column(String(50), unique=True, nullable=False)  # = MRN
-    password_plain   = db.Column(String(20), nullable=False)               # masked, not hashed
+    password_plain   = db.Column(String(20))                               # deprecated — migrate then drop
+    password_hash    = db.Column(String(256))
     is_active        = db.Column(Boolean, default=True)
     last_login       = db.Column(DateTime)
     whatsapp_sent    = db.Column(Boolean, default=False)

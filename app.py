@@ -104,7 +104,9 @@ def trigger_initial_etl(app):
 # ---------------------------------------------------------
 def create_app():
     app = Flask(__name__)
-    app.secret_key = os.getenv("SECRET_KEY", "P@ssw0rd123!")
+    app.secret_key = os.environ.get("SECRET_KEY")
+    if not app.secret_key:
+        raise RuntimeError("SECRET_KEY environment variable is required")
 
     # --- LOAD FEATURE FLAGS FROM config.py ---
     app.config.from_object(app_config)
@@ -175,13 +177,16 @@ def create_app():
 
     # --- DB CONFIG ---
     user     = os.environ.get('POSTGRES_USER',     'etl_user')
-    password = os.environ.get('POSTGRES_PASSWORD', 'SecureCrynBabe')
+    password = os.environ.get('POSTGRES_PASSWORD', '')
     host     = os.environ.get('POSTGRES_HOST',     'localhost')
     port     = os.environ.get('POSTGRES_PORT',     '5432')
     dbname   = os.environ.get('POSTGRES_DB',       'etl_db')
 
     app.config['SQLALCHEMY_DATABASE_URI'] = f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{dbname}"
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+    app.config['SESSION_COOKIE_HTTPONLY'] = True
+    app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+    app.config['SESSION_COOKIE_SECURE'] = os.environ.get('SESSION_COOKIE_SECURE', 'true').lower() == 'true'
 
     init_db(app)
 
@@ -203,7 +208,7 @@ def create_app():
         if request.path.startswith('/static/') or (
             request.endpoint and (
                 request.endpoint.startswith('auth.') or
-                request.endpoint.startswith('liveview.') or
+                request.endpoint.startswith('portal.') or
                 request.endpoint == 'static'
             )
         ):
@@ -283,6 +288,18 @@ def create_app():
         except Exception as e:
             db.session.rollback()
             logger.warning(f"[Migration] hl7_oru_reports: {e}")
+
+    # --- MIGRATION: patient portal password_hash column ---
+    with app.app_context():
+        try:
+            db.session.execute(text("""
+                ALTER TABLE patient_portal_users
+                ADD COLUMN IF NOT EXISTS password_hash VARCHAR(256)
+            """))
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            logger.warning(f"[Migration] patient_portal_users.password_hash: {e}")
 
     # --- STARTUP: AUTO-TRIGGER ETL IF DB IS EMPTY ---
     with app.app_context():
@@ -373,4 +390,4 @@ if __name__ == '__main__':
                 print(f"❌ Manual Sync Failed: {e}")
 
     start_mllp_listener(app, host='0.0.0.0', port=6661)
-    app.run(host='0.0.0.0', port=8080, debug=True, use_reloader=False)
+    app.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)

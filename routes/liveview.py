@@ -1,4 +1,5 @@
 from flask import Blueprint, render_template, jsonify
+from flask_login import login_required
 from sqlalchemy import text
 from db import db
 from datetime import date
@@ -7,11 +8,13 @@ liveview_bp = Blueprint('liveview', __name__, url_prefix='/liveview')
 
 
 @liveview_bp.route('/')
+@login_required
 def liveview():
     return render_template('liveview.html')
 
 
 @liveview_bp.route('/data')
+@login_required
 def liveview_data():
     today = date.today().isoformat()
 

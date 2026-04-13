@@ -1,4 +1,5 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, abort
+from flask_login import login_required, current_user
 import os, re
 
 etl_gear_bp = Blueprint('etl_gear', __name__)
@@ -9,7 +10,10 @@ ETL_SETTINGS_PATH = os.path.join(
 )
 
 @etl_gear_bp.route('/admin/etl-gear', methods=['POST'])
+@login_required
 def save_etl_gear():
+    if current_user.role != 'admin':
+        abort(403)
     try:
         data        = request.get_json()
         num_workers = int(data.get('num_workers', 4))
@@ -36,4 +40,6 @@ def save_etl_gear():
         return jsonify(ok=True)
 
     except Exception as e:
-        return jsonify(ok=False, error=str(e)), 500
+        import logging
+        logging.getLogger(__name__).error(f"ETL gear save error: {e}")
+        return jsonify(ok=False, error="Failed to save settings"), 500

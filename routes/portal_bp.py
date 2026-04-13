@@ -171,11 +171,13 @@ def process_orm_for_portal(raw_message, accession_number):
             """), {"acc": accession_number, "phone": phone,
                    "name": full_name, "mrn": mrn})
         else:
-            # New patient — generate password and create record
+            # New patient — generate password, hash it, create record
             password = _generate_password()
+            from werkzeug.security import generate_password_hash
+            pwd_hash = generate_password_hash(password, method='pbkdf2:sha256')
             db.session.execute(text("""
                 INSERT INTO patient_portal_users
-                    (mrn, full_name, phone, accession_number, username, password_plain)
+                    (mrn, full_name, phone, accession_number, username, password_hash)
                 VALUES
                     (:mrn, :name, :phone, :acc, :mrn, :pwd)
                 ON CONFLICT (username) DO UPDATE SET
@@ -185,7 +187,7 @@ def process_orm_for_portal(raw_message, accession_number):
                     updated_at = NOW()
             """), {
                 "mrn": mrn, "name": full_name, "phone": phone,
-                "acc": accession_number, "pwd": password
+                "acc": accession_number, "pwd": pwd_hash
             })
 
         db.session.commit()
@@ -223,12 +225,28 @@ def portal_login():
         password = request.form.get("password", "").strip()
 
         row = db.session.execute(text("""
-            SELECT id, mrn, full_name, accession_number, password_plain, is_active
+            SELECT id, mrn, full_name, accession_number, password_hash, is_active, password_plain
             FROM patient_portal_users
-            WHERE username = :u AND password_plain = :p
-        """), {"u": username, "p": password}).fetchone()
+            WHERE username = :u
+        """), {"u": username}).fetchone()
 
         if not row:
+            error = "Invalid username or password."
+        else:
+            from werkzeug.security import check_password_hash as _chk
+            pw_ok = False
+            if row[4] and _chk(row[4], password):
+                pw_ok = True
+            elif row[6] and row[6] == password:
+                # Legacy plaintext — verify and migrate to hash
+                pw_ok = True
+                from werkzeug.security import generate_password_hash as _gen
+                db.session.execute(text(
+                    "UPDATE patient_portal_users SET password_hash = :h, password_plain = NULL WHERE id = :id"
+                ), {"h": _gen(password, method='pbkdf2:sha256'), "id": row[0]})
+                db.session.commit()
+
+        if not row or not pw_ok:
             error = "Invalid username or password."
         elif not row[5]:
             error = "Your account has been deactivated. Please contact the radiology department."
@@ -273,9 +291,24 @@ def portal_redirect():
     if not base_url:
         return "Viewer not configured. Please contact the radiology department.", 503
 
-    # Build full URL — never sent to patient's browser as visible text
-    viewer_url = f"{base_url}?user={viewer_user}&pass={viewer_pass}&{acc_param}={accession}"
+    # Build viewer URL with credentials server-side, proxied via session token
+    import hashlib, time
+    token = hashlib.sha256(f"{accession}{time.time()}{os.urandom(8).hex()}".encode()).hexdigest()[:32]
+    session['viewer_token'] = token
+    session['viewer_url'] = f"{base_url}?user={viewer_user}&pass={viewer_pass}&{acc_param}={accession}"
 
+    return redirect(url_for('portal.portal_viewer_proxy', token=token))
+
+
+@portal_bp.route("/portal/view/<token>")
+def portal_viewer_proxy(token):
+    """Proxy the viewer redirect so credentials never appear in browser history."""
+    if session.get('viewer_token') != token or 'portal_mrn' not in session:
+        return redirect(url_for("portal.portal_login"))
+    viewer_url = session.pop('viewer_url', '')
+    session.pop('viewer_token', None)
+    if not viewer_url:
+        return redirect(url_for("portal.portal_login"))
     return redirect(viewer_url)
 
 

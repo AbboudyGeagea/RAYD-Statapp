@@ -1,5 +1,18 @@
 venv/
+.venv/
 .git/
 __pycache__/
 *.pyc
+*.pyo
 .env
+.env.*
+github key
+*.pem
+*.key
+*.crt
+nohup.out
+*.odt
+*.docx
+instance/
+.idea/
+.vscode/

@@ -3,7 +3,10 @@ import hashlib
 import hmac
 import os
 
-SECRET_KEY = os.environ.get('SECRET_KEY', 'P@ssw0rd123!')
+SECRET_KEY = os.environ.get('SECRET_KEY', '')
+if not SECRET_KEY:
+    import warnings
+    warnings.warn("SECRET_KEY not set — report tokens will be insecure")
 
 def generate_report_token(*args, **kwargs):
     report_id = None
