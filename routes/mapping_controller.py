@@ -112,22 +112,43 @@ def mapping_page():
         fuzzy_candidates = []
         fuzzy_map = {}
 
-    # Canonical groups — approved groups with their member codes and current modality
+    # Canonical groups — human-confirmed groups (source='human' or approved=TRUE)
     try:
         raw_groups = db.session.execute(_t("""
             SELECT g.id, g.canonical_name, g.approved, g.approved_by, g.approved_at,
+                   g.source, g.cluster_confidence,
                    ARRAY_AGG(m.procedure_code ORDER BY m.procedure_code) AS member_codes,
                    ARRAY_AGG(m.similarity_score ORDER BY m.procedure_code) AS scores,
                    MODE() WITHIN GROUP (ORDER BY p.modality) AS group_modality
             FROM procedure_canonical_groups g
             JOIN procedure_canonical_members m ON m.group_id = g.id
             LEFT JOIN procedure_duration_map p ON p.procedure_code = m.procedure_code
-            GROUP BY g.id, g.canonical_name, g.approved, g.approved_by, g.approved_at
+            WHERE g.approved = TRUE OR g.source = 'human'
+            GROUP BY g.id, g.canonical_name, g.approved, g.approved_by, g.approved_at,
+                     g.source, g.cluster_confidence
             ORDER BY g.approved ASC, g.detected_at DESC
         """)).fetchall()
         canonical_groups = [dict(r._mapping) for r in raw_groups]
     except Exception:
         canonical_groups = []
+
+    # AI-suggested groups — pending manager review
+    try:
+        raw_ai = db.session.execute(_t("""
+            SELECT g.id, g.canonical_name, g.cluster_confidence,
+                   ARRAY_AGG(m.procedure_code ORDER BY m.procedure_code) AS member_codes,
+                   ARRAY_AGG(m.similarity_score ORDER BY m.procedure_code)  AS scores,
+                   MODE() WITHIN GROUP (ORDER BY p.modality) AS group_modality
+            FROM procedure_canonical_groups g
+            JOIN procedure_canonical_members m ON m.group_id = g.id
+            LEFT JOIN procedure_duration_map p ON p.procedure_code = m.procedure_code
+            WHERE g.source = 'ai_suggested' AND g.approved = FALSE
+            GROUP BY g.id, g.canonical_name, g.cluster_confidence
+            ORDER BY g.cluster_confidence DESC NULLS LAST
+        """)).fetchall()
+        ai_groups = [dict(r._mapping) for r in raw_ai]
+    except Exception:
+        ai_groups = []
 
     # Pending pairs — candidate duplicates awaiting human review
     try:
@@ -152,6 +173,7 @@ def mapping_page():
         conflict_codes=conflict_codes,
         fuzzy_map=fuzzy_map,
         canonical_groups=canonical_groups,
+        ai_groups=ai_groups,
         pending_pairs=pending_pairs,
     )
 

@@ -272,14 +272,24 @@ def create_app():
             """))
             db.session.execute(text("""
                 CREATE TABLE IF NOT EXISTS procedure_canonical_groups (
-                    id              SERIAL PRIMARY KEY,
-                    canonical_name  VARCHAR(300),
-                    approved        BOOLEAN DEFAULT FALSE,
-                    approved_by     VARCHAR(100),
-                    approved_at     TIMESTAMP,
-                    detected_at     TIMESTAMP DEFAULT NOW()
+                    id                 SERIAL PRIMARY KEY,
+                    canonical_name     VARCHAR(300),
+                    approved           BOOLEAN DEFAULT FALSE,
+                    approved_by        VARCHAR(100),
+                    approved_at        TIMESTAMP,
+                    detected_at        TIMESTAMP DEFAULT NOW(),
+                    source             VARCHAR(20) DEFAULT 'human',
+                    cluster_confidence NUMERIC(4,3)
                 )
             """))
+            db.session.execute(text(
+                "ALTER TABLE procedure_canonical_groups "
+                "ADD COLUMN IF NOT EXISTS source VARCHAR(20) DEFAULT 'human'"
+            ))
+            db.session.execute(text(
+                "ALTER TABLE procedure_canonical_groups "
+                "ADD COLUMN IF NOT EXISTS cluster_confidence NUMERIC(4,3)"
+            ))
             db.session.execute(text("""
                 CREATE TABLE IF NOT EXISTS procedure_canonical_members (
                     procedure_code  VARCHAR PRIMARY KEY,

@@ -382,6 +382,22 @@ def _sync_lookup_tables(engine):
         #    Only inserts NEW groups — never touches already-approved groups.
         _detect_canonical_groups(conn, logger)
 
+        # 7. Phase 9 — Ensemble clustering of unclustered procedure codes
+        #    TF-IDF char n-grams + 3-algorithm bootstrap ensemble (60 runs)
+        #    Co-association threshold 0.75 → AI-suggested groups for manager review
+        try:
+            from etl_phase9_clustering import run_phase9_clustering
+        except ImportError:
+            try:
+                from ETL_JOBS.etl_phase9_clustering import run_phase9_clustering
+            except ImportError:
+                run_phase9_clustering = None
+
+        if run_phase9_clustering:
+            run_phase9_clustering(conn, logger)
+        else:
+            logger.warning("Phase 9 — etl_phase9_clustering not found, skipping.")
+
 
 def _detect_canonical_groups(conn, logger):
     """
