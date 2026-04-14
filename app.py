@@ -190,6 +190,10 @@ def create_app():
 
     init_db(app)
 
+    # --- DB MIGRATIONS ---
+    from db_migrations import run_migrations
+    run_migrations(app)
+
     # --- LOGIN MANAGER ---
     login_manager = LoginManager()
     login_manager.login_view = 'auth.login'
