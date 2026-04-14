@@ -65,6 +65,9 @@
                                 {% if config.BITNET_ENABLED %}
                                 <th class="pb-5 px-4 text-center">AI Assistant</th>
                                 {% endif %}
+                                {% if config.get('PATIENT_PORTAL_ENABLED', False) %}
+                                <th class="pb-5 px-4 text-center">Patient Portal</th>
+                                {% endif %}
                                 <th class="pb-5 px-4 text-center">Delete</th>
                             </tr>
                         </thead>
@@ -94,7 +97,7 @@
                                 </td>
 
                                 {% for pk in page_keys %}
-                                {% if pk != 'bitnet' or config.BITNET_ENABLED %}
+                                {% if (pk != 'bitnet' or config.BITNET_ENABLED) and (pk != 'patient_portal' or config.get('PATIENT_PORTAL_ENABLED', False)) %}
                                 <td class="py-5 px-4 text-center">
                                     {% set enabled = page_perms.get(u.id, {}).get(pk, False) %}
                                     <button onclick="togglePerm({{ u.id }}, '{{ pk }}', this)"

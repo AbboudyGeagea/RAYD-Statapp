@@ -64,7 +64,7 @@ def admin_dashboard():
     for p in all_perms:
         page_perms.setdefault(p.user_id, {})[p.page_key] = p.is_enabled
 
-    page_keys = ['live_feed', 'hl7_orders', 'report_ai', 'bitnet', 'oru']
+    page_keys = ['live_feed', 'hl7_orders', 'report_ai', 'bitnet', 'oru', 'patient_portal']
 
     return render_template(
         'admin_panel.html',
@@ -95,7 +95,7 @@ def user_management():
     for p in all_perms:
         page_perms.setdefault(p.user_id, {})[p.page_key] = p.is_enabled
 
-    page_keys = ['live_feed', 'hl7_orders', 'report_ai', 'bitnet', 'oru']
+    page_keys = ['live_feed', 'hl7_orders', 'report_ai', 'bitnet', 'oru', 'patient_portal']
 
     return render_template('user_management.html',
         users=users, page_perms=page_perms, page_keys=page_keys)
@@ -215,7 +215,7 @@ def set_demo_mode():
             db.session.add(user)
             db.session.flush()
             # Grant all page permissions to the new demo account
-            for page_key in ['live_feed', 'hl7_orders', 'report_ai', 'bitnet', 'oru']:
+            for page_key in ['live_feed', 'hl7_orders', 'report_ai', 'bitnet', 'oru', 'patient_portal']:
                 db.session.add(UserPagePermission(user_id=user.id, page_key=page_key, is_enabled=True))
 
     db.session.commit()

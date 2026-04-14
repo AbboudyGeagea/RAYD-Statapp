@@ -12,19 +12,26 @@ Wire up in registry.py:
 """
 
 import logging
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
-from flask_login import login_required
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, abort
+from flask_login import login_required, current_user
 from sqlalchemy import text
-from db import db
+from db import db, user_has_page
 from routes.portal_bp import _generate_password, _send_whatsapp, _get_config
 
 logger = logging.getLogger("PORTAL_ADMIN")
 portal_admin_bp = Blueprint("portal_admin", __name__)
 
 
+def _require_portal_access():
+    """Abort 403 unless the user is admin or has patient_portal permission."""
+    if current_user.role != 'admin' and not user_has_page(current_user, 'patient_portal'):
+        abort(403)
+
+
 @portal_admin_bp.route("/admin/portal")
 @login_required
 def portal_users():
+    _require_portal_access()
     """Patient portal user list with search and filters."""
     search  = request.args.get("q", "").strip()
     status  = request.args.get("status", "all")
@@ -85,6 +92,7 @@ def portal_users():
 @portal_admin_bp.route("/admin/portal/reset/<int:user_id>", methods=["POST"])
 @login_required
 def reset_password(user_id):
+    _require_portal_access()
     """Generate new password, update DB, resend WhatsApp."""
     row = db.session.execute(
         text("SELECT * FROM patient_portal_users WHERE id = :id"),
@@ -133,6 +141,7 @@ def reset_password(user_id):
 @portal_admin_bp.route("/admin/portal/toggle/<int:user_id>", methods=["POST"])
 @login_required
 def toggle_user(user_id):
+    _require_portal_access()
     """Activate or deactivate a portal user."""
     row = db.session.execute(
         text("SELECT is_active FROM patient_portal_users WHERE id = :id"),
@@ -154,6 +163,7 @@ def toggle_user(user_id):
 @portal_admin_bp.route("/admin/portal/resend/<int:user_id>", methods=["POST"])
 @login_required
 def resend_whatsapp(user_id):
+    _require_portal_access()
     """Resend WhatsApp with existing password."""
     row = db.session.execute(
         text("SELECT * FROM patient_portal_users WHERE id = :id"),
@@ -185,6 +195,7 @@ def resend_whatsapp(user_id):
 @portal_admin_bp.route("/admin/portal/test-whatsapp", methods=["POST"])
 @login_required
 def test_whatsapp():
+    _require_portal_access()
     """Send a test WhatsApp message to verify Twilio credentials."""
     data   = request.get_json()
     phone  = (data or {}).get("phone", "").strip()
@@ -204,6 +215,7 @@ def test_whatsapp():
 @portal_admin_bp.route("/admin/portal/config", methods=["GET", "POST"])
 @login_required
 def portal_config():
+    _require_portal_access()
     """View and edit portal configuration."""
     if request.method == "POST":
         for key, value in request.form.items():
