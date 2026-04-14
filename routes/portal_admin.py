@@ -23,7 +23,14 @@ portal_admin_bp = Blueprint("portal_admin", __name__)
 
 
 def _require_portal_access():
-    """Abort 403 unless the user is admin or has patient_portal permission."""
+    """Abort 403 for demo users (always) and non-permitted non-admins."""
+    from sqlalchemy import text as _t
+    demo_row = db.session.execute(
+        _t("SELECT value FROM settings WHERE key = 'demo_user'")
+    ).fetchone()
+    demo_username = (demo_row[0] or '').strip() if demo_row else ''
+    if demo_username and current_user.username == demo_username:
+        abort(403)
     if current_user.role != 'admin' and not user_has_page(current_user, 'patient_portal'):
         abort(403)
 

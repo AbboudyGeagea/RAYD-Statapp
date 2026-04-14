@@ -92,7 +92,7 @@
         </a>
         {% endif %}
 
-        {% if config.get('PATIENT_PORTAL_ENABLED', False) and (current_user.role == 'admin' or current_user|user_has_page('patient_portal')) %}
+        {% if config.get('PATIENT_PORTAL_ENABLED', False) and current_user.username != demo_user and (current_user.role == 'admin' or current_user|user_has_page('patient_portal')) %}
         <a href="{{ url_for('portal_admin.portal_users') }}"
            class="sidebar-item {% if request.endpoint and request.endpoint.startswith('portal_admin.') %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
            title="Patient Portal">

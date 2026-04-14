@@ -214,9 +214,16 @@ def set_demo_mode():
             )
             db.session.add(user)
             db.session.flush()
-            # Grant all page permissions to the new demo account
-            for page_key in ['live_feed', 'hl7_orders', 'report_ai', 'bitnet', 'oru', 'patient_portal']:
+            # Grant all page permissions to the new demo account — patient_portal is always excluded
+            for page_key in ['live_feed', 'hl7_orders', 'report_ai', 'bitnet', 'oru']:
                 db.session.add(UserPagePermission(user_id=user.id, page_key=page_key, is_enabled=True))
+
+        # Always strip patient_portal from the demo user, even if previously granted manually
+        db.session.flush()
+        db.session.execute(
+            text("DELETE FROM user_page_permissions WHERE user_id = :uid AND page_key = 'patient_portal'"),
+            {"uid": user.id}
+        )
 
     db.session.commit()
     return jsonify({'status': 'ok'})
