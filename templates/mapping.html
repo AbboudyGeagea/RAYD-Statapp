@@ -396,221 +396,154 @@
                 </div>
 
                 <!-- ═══════════════════════════════════════════
-                     CANONICAL MAPPING TABLE
+                     CANONICAL MAPPING
                 ═══════════════════════════════════════════ -->
-                <div class="space-y-4">
+                <div class="space-y-6" id="canonical-section">
+
+                    <!-- Header -->
                     <div class="flex items-center justify-between">
                         <div>
                             <h2 class="text-2xl font-black text-[#e2e8f0] tracking-tight uppercase">Canonical Mapping</h2>
-                            <p class="text-slate-500 text-xs mt-1">Procedure names that appear to be duplicates. AI detects clusters — you review and approve the master name.</p>
+                            <p class="text-slate-500 text-xs mt-1">AI clusters similar procedure names. Review each member — approve ✓ or move ✗ to another cluster.</p>
                         </div>
-                        <div class="flex items-center gap-3">
-                            {% if ai_groups %}
-                            <span class="text-[9px] font-black uppercase text-indigo-400">
-                                <i class="bi bi-stars mr-1"></i>{{ ai_groups | length }} AI clusters
-                            </span>
-                            {% endif %}
-                            {% if pending_pairs %}
-                            <span class="text-[9px] font-black uppercase text-amber-400">
-                                {{ pending_pairs | length }} pairs
-                            </span>
-                            {% endif %}
-                        </div>
+                        <button onclick="addCluster()"
+                                class="flex items-center gap-2 px-4 py-2 bg-indigo-700 hover:bg-indigo-600 text-white text-[9px] font-black uppercase tracking-widest rounded-xl transition">
+                            <i class="bi bi-plus-lg"></i> Add Master Cluster
+                        </button>
                     </div>
 
-                    <!-- ── AI-Suggested Clusters ── -->
+                    <!-- ── Cluster Cards ── -->
                     {% if ai_groups %}
-                    <div>
-                        <div class="flex items-center gap-2 mb-2">
-                            <i class="bi bi-stars text-indigo-400"></i>
-                            <span class="text-[9px] font-black uppercase tracking-widest text-indigo-400">
-                                {{ ai_groups | length }} clusters suggested by AI
-                            </span>
-                            <span class="text-[9px] text-slate-500">— ensemble of 3 algorithms, 60 bootstrap runs, 75% consensus</span>
+                    <div class="space-y-3" id="cluster-cards">
+                        {% for grp in ai_groups %}
+                        {%- set gid = grp.id -%}
+                        <div id="cluster-card-{{ gid }}" class="card-custom border border-indigo-900/30 overflow-hidden">
+
+                            <!-- Card header: master name + confidence + modality + delete -->
+                            <div class="flex items-center gap-3 px-5 py-3 bg-indigo-950/30 border-b border-indigo-900/20">
+                                <i class="bi bi-stars text-indigo-400 text-sm flex-shrink-0"></i>
+                                <input type="text"
+                                       id="cluster-name-{{ gid }}"
+                                       value="{{ grp.canonical_name or '' }}"
+                                       placeholder="Master cluster name…"
+                                       onblur="renameCluster({{ gid }}, this.value)"
+                                       class="flex-1 bg-transparent border-b border-indigo-700/40 focus:border-indigo-400 text-white text-sm font-black outline-none transition placeholder-slate-600 pb-0.5">
+                                <!-- Confidence bar -->
+                                {%- set pct = ((grp.cluster_confidence or 0) * 100) | int -%}
+                                <div class="flex items-center gap-1.5 flex-shrink-0">
+                                    <div class="w-12 h-1 bg-[#1d2522] rounded-full overflow-hidden">
+                                        <div class="h-full rounded-full {% if pct >= 85 %}bg-emerald-500{% elif pct >= 75 %}bg-indigo-500{% else %}bg-amber-500{% endif %}" style="width:{{ pct }}%"></div>
+                                    </div>
+                                    <span class="text-[9px] font-black text-slate-500">{{ pct }}%</span>
+                                </div>
+                                <!-- Modality -->
+                                <select onchange="setCanonicalModality({{ gid }}, this)"
+                                        class="bg-[#141a17] border border-[#28332e] focus:border-indigo-500 text-slate-300 rounded-lg px-2 py-1 text-[10px] font-black outline-none transition flex-shrink-0">
+                                    <option value="">Modality—</option>
+                                    {% for mod in ['CT','MR','CR','DX','US','NM','PT','XA','RF','MG','DR','SC','OT'] %}
+                                    <option value="{{ mod }}" {% if grp.group_modality == mod %}selected{% endif %}>{{ mod }}</option>
+                                    {% endfor %}
+                                </select>
+                                <button onclick="deleteAiGroup({{ gid }})"
+                                        class="flex-shrink-0 text-slate-600 hover:text-red-400 transition text-sm" title="Delete cluster">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
+
+                            <!-- Member rows -->
+                            <div class="divide-y divide-[#28332e]">
+                                {% for i in range(grp.member_codes | length) %}
+                                {%- set code = grp.member_codes[i] -%}
+                                {%- set desc = grp.member_descs[i] if grp.member_descs else code -%}
+                                {%- set approved = grp.member_approved[i] if grp.member_approved else none -%}
+                                <div id="member-{{ gid }}-{{ code }}" class="flex items-center gap-3 px-5 py-2.5 hover:bg-white/[0.03] transition group">
+                                    <!-- Code badge -->
+                                    <span class="canonical-badge bg-indigo-950/50 border border-indigo-800/30 text-indigo-300 flex-shrink-0">
+                                        <i class="bi bi-code text-indigo-600"></i> {{ code }}
+                                    </span>
+                                    <!-- Description -->
+                                    <span class="flex-1 text-xs text-slate-300 truncate" title="{{ desc }}">{{ desc }}</span>
+                                    <!-- Approve / Reject buttons -->
+                                    <div class="flex items-center gap-1.5 flex-shrink-0">
+                                        <button onclick="approveMember('{{ code }}', {{ gid }})"
+                                                title="Approve — this name belongs here"
+                                                class="w-7 h-7 flex items-center justify-center rounded-lg transition {% if approved %}bg-emerald-700 text-white{% else %}bg-[#1d2522] border border-[#28332e] text-slate-500 hover:border-emerald-500 hover:text-emerald-400{% endif %}">
+                                            <i class="bi bi-check-lg text-xs"></i>
+                                        </button>
+                                        <button onclick="toggleMovePanel('{{ code }}', {{ gid }})"
+                                                title="Reject — move to another cluster"
+                                                class="w-7 h-7 flex items-center justify-center rounded-lg bg-[#1d2522] border border-[#28332e] text-slate-500 hover:border-red-500 hover:text-red-400 transition">
+                                            <i class="bi bi-x-lg text-xs"></i>
+                                        </button>
+                                    </div>
+                                    <!-- Move panel (hidden by default) -->
+                                    <div id="move-{{ gid }}-{{ code }}" class="hidden flex items-center gap-2 flex-shrink-0">
+                                        <select id="move-sel-{{ gid }}-{{ code }}"
+                                                class="bg-[#141a17] border border-red-800/40 text-slate-300 rounded-lg px-2 py-1 text-[10px] font-bold outline-none">
+                                            <option value="">Move to…</option>
+                                            {% for other in ai_groups %}
+                                            {% if other.id != gid %}
+                                            <option value="{{ other.id }}">{{ other.canonical_name or ('Cluster ' + other.id | string) }}</option>
+                                            {% endif %}
+                                            {% endfor %}
+                                            <option value="new">+ New cluster</option>
+                                            <option value="unmapped">Unmapped</option>
+                                        </select>
+                                        <button onclick="doMove('{{ code }}', {{ gid }})"
+                                                class="px-2 py-1 bg-red-800 hover:bg-red-700 text-white text-[9px] font-black rounded-lg transition">
+                                            Move
+                                        </button>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
                         </div>
-                        <div class="card-custom overflow-hidden border border-indigo-900/30">
-                            <div class="max-h-[550px] overflow-y-auto custom-scrollbar">
-                                <table class="w-full text-left">
-                                    <thead class="sticky top-0 bg-[#1a1f2e] text-[9px] font-black text-slate-500 uppercase border-b border-indigo-900/40 z-10">
-                                        <tr>
-                                            <th class="px-4 py-3">Member Codes</th>
-                                            <th class="px-4 py-3">Confidence</th>
-                                            <th class="px-4 py-3" style="min-width:200px">Master Name</th>
-                                            <th class="px-4 py-3" style="min-width:90px">Modality</th>
-                                            <th class="px-4 py-3 text-right" style="min-width:160px">Action</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody class="divide-y divide-indigo-900/20" id="ai-groups-body">
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+
+                    <!-- ── Unmapped ── -->
+                    <div id="unmapped-section">
+                        <div class="flex items-center gap-2 mb-2">
+                            <i class="bi bi-question-circle text-slate-500"></i>
+                            <span class="text-[9px] font-black uppercase tracking-widest text-slate-500">
+                                Unmapped — {{ unclustered_procs | length }} procedures not assigned to any cluster
+                            </span>
+                        </div>
+                        {% if unclustered_procs %}
+                        <div class="card-custom border border-[#28332e] overflow-hidden">
+                            <div class="max-h-64 overflow-y-auto custom-scrollbar divide-y divide-[#28332e]">
+                                {% for proc in unclustered_procs %}
+                                <div id="unc-{{ proc.procedure_code }}" class="flex items-center gap-3 px-5 py-2.5 hover:bg-white/[0.03] transition">
+                                    <span class="canonical-badge bg-[#1d2522] border border-[#28332e] text-slate-400 flex-shrink-0">
+                                        <i class="bi bi-code text-slate-600"></i> {{ proc.procedure_code }}
+                                    </span>
+                                    <span class="flex-1 text-xs text-slate-500 truncate" title="{{ proc.description }}">{{ proc.description }}</span>
+                                    {% if proc.modality %}
+                                    <span class="text-[9px] font-black text-slate-600">{{ proc.modality }}</span>
+                                    {% endif %}
+                                    <!-- Add to cluster -->
+                                    <select id="unc-sel-{{ proc.procedure_code }}"
+                                            onchange="addToCluster('{{ proc.procedure_code }}', this)"
+                                            class="bg-[#141a17] border border-[#28332e] hover:border-indigo-600 text-slate-500 rounded-lg px-2 py-1 text-[10px] font-bold outline-none transition flex-shrink-0">
+                                        <option value="">+ Add to…</option>
                                         {% for grp in ai_groups %}
-                                        <tr id="ai-group-{{ grp.id }}" class="hover:bg-indigo-950/20 transition">
-                                            <!-- Member codes -->
-                                            <td class="px-4 py-3">
-                                                <div class="flex flex-wrap gap-1">
-                                                    {% for code in grp.member_codes %}
-                                                    <span class="canonical-badge bg-indigo-950/60 border border-indigo-800/40 text-indigo-300">
-                                                        <i class="bi bi-code text-indigo-600"></i> {{ code }}
-                                                    </span>
-                                                    {% endfor %}
-                                                </div>
-                                                {% if grp.member_codes | length > 1 %}
-                                                <div class="text-[9px] text-slate-600 mt-1">{{ grp.member_codes | length }} procedures</div>
-                                                {% endif %}
-                                            </td>
-                                            <!-- Confidence score -->
-                                            <td class="px-4 py-3">
-                                                {% set conf = grp.cluster_confidence or 0 %}
-                                                {% set pct = (conf * 100) | int %}
-                                                <div class="flex items-center gap-1.5">
-                                                    <div class="w-14 h-1.5 bg-[#1d2522] rounded-full overflow-hidden">
-                                                        <div class="h-full rounded-full {% if pct >= 85 %}bg-emerald-500{% elif pct >= 75 %}bg-indigo-500{% else %}bg-amber-500{% endif %}"
-                                                             style="width:{{ pct }}%"></div>
-                                                    </div>
-                                                    <span class="text-[9px] font-black {% if pct >= 85 %}text-emerald-400{% elif pct >= 75 %}text-indigo-400{% else %}text-amber-400{% endif %}">
-                                                        {{ pct }}%
-                                                    </span>
-                                                </div>
-                                            </td>
-                                            <!-- Editable master name -->
-                                            <td class="px-4 py-3">
-                                                <input type="text"
-                                                       id="ai-name-{{ grp.id }}"
-                                                       value="{{ grp.canonical_name or '' }}"
-                                                       placeholder="Enter master name..."
-                                                       class="w-full bg-[#141a17] border border-indigo-700/40 focus:border-indigo-400 text-white rounded-lg px-2 py-1.5 text-[10px] font-bold outline-none transition placeholder-slate-600">
-                                            </td>
-                                            <!-- Modality -->
-                                            <td class="px-4 py-3">
-                                                <select id="ai-mod-{{ grp.id }}"
-                                                        class="w-full bg-[#141a17] border border-[#28332e] focus:border-indigo-500 text-slate-300 rounded-lg px-2 py-1.5 text-[10px] font-black outline-none transition">
-                                                    <option value="">—</option>
-                                                    {% for mod in ['CT','MR','CR','DX','US','NM','PT','XA','RF','MG','DR','SC','OT'] %}
-                                                    <option value="{{ mod }}" {% if grp.group_modality == mod %}selected{% endif %}>{{ mod }}</option>
-                                                    {% endfor %}
-                                                </select>
-                                            </td>
-                                            <!-- Actions -->
-                                            <td class="px-4 py-3 text-right">
-                                                <div class="flex items-center justify-end gap-2">
-                                                    <button onclick="approveAiGroup({{ grp.id }})"
-                                                            class="px-3 py-1.5 bg-indigo-700 hover:bg-indigo-600 text-white text-[9px] font-black uppercase tracking-widest rounded-lg transition whitespace-nowrap">
-                                                        <i class="bi bi-check2-circle"></i> Approve
-                                                    </button>
-                                                    <button onclick="deleteAiGroup({{ grp.id }})"
-                                                            class="px-3 py-1.5 bg-[#1d2522] border border-[#28332e] hover:border-red-500 text-slate-400 hover:text-red-400 text-[9px] font-black uppercase tracking-widest rounded-lg transition">
-                                                        <i class="bi bi-x"></i>
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </tr>
+                                        <option value="{{ grp.id }}">{{ grp.canonical_name or ('Cluster ' + grp.id | string) }}</option>
                                         {% endfor %}
-                                    </tbody>
-                                </table>
+                                    </select>
+                                </div>
+                                {% endfor %}
                             </div>
                         </div>
-                    </div>
-                    {% endif %}
-
-                    <!-- ── Pending Pairs: human review ── -->
-                    {% if pending_pairs %}
-                    <div>
-                        <div class="flex items-center gap-2 mb-2">
-                            <span class="text-[9px] font-black uppercase tracking-widest text-amber-400">
-                                <i class="bi bi-exclamation-triangle-fill mr-1"></i>{{ pending_pairs | length }} pairs awaiting your review
-                            </span>
-                            <span class="text-[9px] text-slate-500">— are these the same procedure?</span>
+                        {% else %}
+                        <div class="card-custom p-8 text-center">
+                            <i class="bi bi-check2-circle text-3xl text-emerald-500 mb-2 block"></i>
+                            <p class="text-slate-500 text-xs">All procedures are assigned to a cluster.</p>
                         </div>
-                        <div class="card-custom overflow-hidden">
-                            <div class="max-h-[500px] overflow-y-auto custom-scrollbar">
-                                <table class="w-full text-left" id="pending-pairs-table">
-                                    <thead class="sticky top-0 bg-[#232b28] text-[9px] font-black text-slate-500 uppercase border-b border-[#28332e] z-10">
-                                        <tr>
-                                            <th class="px-4 py-3">Code A</th>
-                                            <th class="px-4 py-3">Description A</th>
-                                            <th class="px-4 py-3">Code B</th>
-                                            <th class="px-4 py-3">Description B</th>
-                                            <th class="px-4 py-3 text-center">Code %</th>
-                                            <th class="px-4 py-3 text-center">Desc %</th>
-                                            <th class="px-4 py-3" style="min-width:180px">Master Name</th>
-                                            <th class="px-4 py-3" style="min-width:90px">Modality</th>
-                                            <th class="px-4 py-3 text-right" style="min-width:170px">Decision</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody class="divide-y divide-[#28332e]" id="pending-pairs-body">
-                                        {% for pair in pending_pairs %}
-                                        <tr id="pair-row-{{ pair.id }}" class="hover:bg-white/5 transition">
-                                            <td class="px-4 py-3">
-                                                <span class="canonical-badge bg-[#1d2522] border border-[#28332e] text-slate-300">
-                                                    <i class="bi bi-code text-slate-500"></i> {{ pair.code_a }}
-                                                </span>
-                                            </td>
-                                            <td class="px-4 py-3 text-xs text-slate-400 max-w-[180px] truncate" title="{{ pair.desc_a or '—' }}">
-                                                {{ pair.desc_a or '—' }}
-                                            </td>
-                                            <td class="px-4 py-3">
-                                                <span class="canonical-badge bg-[#1d2522] border border-[#28332e] text-slate-300">
-                                                    <i class="bi bi-code text-slate-500"></i> {{ pair.code_b }}
-                                                </span>
-                                            </td>
-                                            <td class="px-4 py-3 text-xs text-slate-400 max-w-[180px] truncate" title="{{ pair.desc_b or '—' }}">
-                                                {{ pair.desc_b or '—' }}
-                                            </td>
-                                            <td class="px-4 py-3 text-center">
-                                                <span class="text-[9px] font-black {% if pair.code_similarity >= 0.8 %}text-emerald-400{% elif pair.code_similarity >= 0.6 %}text-amber-400{% else %}text-slate-500{% endif %}">
-                                                    {{ (pair.code_similarity * 100) | int }}%
-                                                </span>
-                                            </td>
-                                            <td class="px-4 py-3 text-center">
-                                                <span class="text-[9px] font-black {% if pair.desc_similarity >= 0.85 %}text-emerald-400{% elif pair.desc_similarity >= 0.7 %}text-amber-400{% else %}text-slate-500{% endif %}">
-                                                    {{ (pair.desc_similarity * 100) | int }}%
-                                                </span>
-                                            </td>
-                                            <!-- Master name inline input -->
-                                            <td class="px-4 py-3">
-                                                <input type="text"
-                                                       id="pair-name-{{ pair.id }}"
-                                                       placeholder="e.g. Abdominal + Pelvis CT"
-                                                       class="w-full bg-[#141a17] border border-amber-700/40 focus:border-amber-400 text-white rounded-lg px-2 py-1.5 text-[10px] font-bold outline-none transition placeholder-slate-600">
-                                            </td>
-                                            <!-- Modality inline select -->
-                                            <td class="px-4 py-3">
-                                                <select id="pair-mod-{{ pair.id }}"
-                                                        class="w-full bg-[#141a17] border border-[#28332e] focus:border-emerald-500 text-slate-300 rounded-lg px-2 py-1.5 text-[10px] font-bold outline-none transition">
-                                                    <option value="">—</option>
-                                                    {% for mod in ['CT','MR','CR','DX','US','NM','PT','XA','RF','MG','DR','SC','OT'] %}
-                                                    <option value="{{ mod }}">{{ mod }}</option>
-                                                    {% endfor %}
-                                                </select>
-                                            </td>
-                                            <!-- Action buttons -->
-                                            <td class="px-4 py-3 text-right">
-                                                <div class="flex items-center justify-end gap-2">
-                                                    <button onclick="confirmPair({{ pair.id }}, '{{ pair.code_a }}', '{{ pair.code_b }}')"
-                                                            class="px-3 py-1.5 bg-emerald-800 hover:bg-emerald-700 border border-emerald-700 text-emerald-200 text-[9px] font-black uppercase tracking-widest rounded-lg transition whitespace-nowrap">
-                                                        <i class="bi bi-check2-circle"></i> Confirm
-                                                    </button>
-                                                    <button onclick="rejectPair({{ pair.id }})"
-                                                            class="px-3 py-1.5 bg-[#1d2522] border border-[#28332e] hover:border-red-500 text-slate-400 hover:text-red-400 text-[9px] font-black uppercase tracking-widest rounded-lg transition whitespace-nowrap">
-                                                        <i class="bi bi-x-circle"></i> Different
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                        {% endfor %}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
+                        {% endif %}
                     </div>
-                    {% endif %}
 
-                    {% if not pending_pairs and not ai_groups %}
-                    <div class="card-custom p-12 text-center">
-                        <i class="bi bi-check2-circle text-4xl text-emerald-500 mb-3 block"></i>
-                        <p class="text-slate-400 text-sm font-bold">No duplicates detected yet.</p>
-                        <p class="text-slate-600 text-xs mt-1">This section fills automatically after the next ETL run.</p>
-                    </div>
-                    {% endif %}
-                </div>
+                </div><!-- end canonical-section -->
 
                 </div><!-- end #tab-procedures -->
 
@@ -825,99 +758,110 @@
             btn.classList.add('active');
         }
 
-        // ── AI-suggested cluster actions ─────────────────────────
-        async function approveAiGroup(groupId) {
-            const nameEl = document.getElementById('ai-name-' + groupId);
-            const modEl  = document.getElementById('ai-mod-'  + groupId);
-            const name   = nameEl.value.trim();
-            if (!name) {
-                nameEl.focus();
-                nameEl.classList.add('border-red-500');
-                setTimeout(() => nameEl.classList.remove('border-red-500'), 1500);
+        // ── Canonical cluster actions ────────────────────────────
+
+        async function approveMember(code, groupId) {
+            const btn = document.querySelector(`#member-${groupId}-${code} button[onclick*="approveMember"]`);
+            await fetch('/mapping/canonical/approve-member', {
+                method: 'POST', headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({code})
+            });
+            if (btn) {
+                btn.classList.remove('bg-[#1d2522]','border-[#28332e]','text-slate-500');
+                btn.classList.add('bg-emerald-700','text-white');
+            }
+        }
+
+        function toggleMovePanel(code, groupId) {
+            const panel = document.getElementById(`move-${groupId}-${code}`);
+            if (panel) panel.classList.toggle('hidden');
+        }
+
+        async function doMove(code, fromGroupId) {
+            const sel = document.getElementById(`move-sel-${fromGroupId}-${code}`);
+            const val = sel ? sel.value : '';
+            if (!val) return;
+
+            if (val === 'new') {
+                const name = prompt('New cluster name:');
+                if (!name) return;
+                const r = await fetch('/mapping/canonical/add-cluster', {
+                    method:'POST', headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({name})
+                });
+                const d = await r.json();
+                if (!r.ok) { alert('Could not create cluster.'); return; }
+                await fetch('/mapping/canonical/move-member', {
+                    method:'POST', headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({code, group_id: d.group_id})
+                });
+                document.getElementById(`member-${fromGroupId}-${code}`)?.remove();
+                location.reload(); // reload to show new cluster card
                 return;
             }
-            // 1. Approve the group (sets canonical name + approved=TRUE)
-            const r1 = await fetch('/mapping/canonical/approve', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ group_id: groupId, canonical_name: name })
-            });
-            if (!r1.ok) { alert('Could not approve group.'); return; }
 
-            // 2. Apply modality if selected
-            const mod = modEl ? modEl.value.trim() : '';
-            if (mod) {
-                await fetch('/mapping/canonical/set-modality', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ group_id: groupId, modality: mod })
-                });
+            const groupId = val === 'unmapped' ? null : parseInt(val);
+            const res = await fetch('/mapping/canonical/move-member', {
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({code, group_id: groupId})
+            });
+            if (res.ok) {
+                document.getElementById(`member-${fromGroupId}-${code}`)?.remove();
+                if (val === 'unmapped') {
+                    // optionally add to unmapped list visually — reload is simplest
+                    location.reload();
+                }
             }
-            document.getElementById('ai-group-' + groupId)?.remove();
         }
 
         async function deleteAiGroup(groupId) {
             const res = await fetch('/mapping/canonical/delete', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ group_id: groupId })
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({group_id: groupId})
             });
-            if (res.ok) { document.getElementById('ai-group-' + groupId)?.remove(); }
+            if (res.ok) { document.getElementById('cluster-card-' + groupId)?.remove(); }
             else { alert('Delete failed.'); }
         }
 
+        async function renameCluster(groupId, name) {
+            if (!name.trim()) return;
+            await fetch('/mapping/canonical/rename-cluster', {
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({group_id: groupId, name: name.trim()})
+            });
+        }
+
         async function setCanonicalModality(groupId, selectEl) {
-            const modality = selectEl.value;
             const res = await fetch('/mapping/canonical/set-modality', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ group_id: groupId, modality: modality || null })
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({group_id: groupId, modality: selectEl.value || null})
             });
             if (res.ok) {
                 selectEl.classList.add('border-emerald-600');
                 setTimeout(() => selectEl.classList.remove('border-emerald-600'), 1200);
-            } else {
-                alert('Failed to save modality.');
+            }
+        }
+
+        async function addCluster() {
+            const name = prompt('Master cluster name:');
+            if (!name) return;
+            const res = await fetch('/mapping/canonical/add-cluster', {
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({name})
+            });
+            if (res.ok) { location.reload(); }
+        }
+
+        async function addToCluster(code, selectEl) {
+            const groupId = selectEl.value;
+            if (!groupId) return;
+            const res = await fetch('/mapping/canonical/add-to-cluster', {
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({code, group_id: parseInt(groupId)})
+            });
+            if (res.ok) {
+                document.getElementById('unc-' + code)?.remove();
                 selectEl.value = '';
-            }
-        }
-
-        // ── Pending pairs: confirm / reject ─────────────────────
-        async function confirmPair(pairId, codeA, codeB) {
-            const nameEl = document.getElementById('pair-name-' + pairId);
-            const modEl  = document.getElementById('pair-mod-'  + pairId);
-            const canonName = nameEl.value.trim();
-            if (!canonName) {
-                nameEl.focus();
-                nameEl.classList.add('border-red-500');
-                setTimeout(() => nameEl.classList.remove('border-red-500'), 1500);
-                return;
-            }
-            const modality = modEl ? modEl.value.trim() : '';
-            const res = await fetch('/mapping/canonical/confirm-pair', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ pair_id: pairId, canonical_name: canonName, modality: modality || null })
-            });
-            if (res.ok) {
-                document.getElementById('pair-row-' + pairId)?.remove();
-            } else {
-                const d = await res.json().catch(() => ({}));
-                alert('Error: ' + (d.message || 'Could not confirm pair.'));
-            }
-        }
-
-        async function rejectPair(pairId) {
-            const res = await fetch('/mapping/canonical/reject-pair', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ pair_id: pairId })
-            });
-            if (res.ok) {
-                const row = document.getElementById('pair-row-' + pairId);
-                if (row) row.remove();
-            } else {
-                alert('Could not mark pair as different. Try again.');
             }
         }
 

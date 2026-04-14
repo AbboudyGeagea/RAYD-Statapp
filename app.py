@@ -295,9 +295,14 @@ def create_app():
                     procedure_code  VARCHAR PRIMARY KEY,
                     group_id        INTEGER REFERENCES procedure_canonical_groups(id) ON DELETE CASCADE,
                     similarity_score NUMERIC(4,3),
+                    member_approved BOOLEAN DEFAULT NULL,
                     added_at        TIMESTAMP DEFAULT NOW()
                 )
             """))
+            db.session.execute(text(
+                "ALTER TABLE procedure_canonical_members "
+                "ADD COLUMN IF NOT EXISTS member_approved BOOLEAN DEFAULT NULL"
+            ))
             db.session.execute(text("""
                 CREATE TABLE IF NOT EXISTS procedure_duplicate_candidates (
                     id              SERIAL PRIMARY KEY,

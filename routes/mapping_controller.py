@@ -132,16 +132,26 @@ def mapping_page():
     except Exception:
         canonical_groups = []
 
-    # AI-suggested groups — pending manager review
+    # AI-suggested groups — pending manager review, with member descriptions
     try:
         raw_ai = db.session.execute(_t("""
+            WITH proc_descs AS (
+                SELECT UPPER(TRIM(proc_id)) AS procedure_code,
+                       MODE() WITHIN GROUP (ORDER BY UPPER(TRIM(proc_text))) AS proc_text
+                FROM etl_orders
+                WHERE proc_id IS NOT NULL AND TRIM(proc_id) != ''
+                  AND proc_text IS NOT NULL AND TRIM(proc_text) != ''
+                GROUP BY UPPER(TRIM(proc_id))
+            )
             SELECT g.id, g.canonical_name, g.cluster_confidence,
-                   ARRAY_AGG(m.procedure_code ORDER BY m.procedure_code) AS member_codes,
-                   ARRAY_AGG(m.similarity_score ORDER BY m.procedure_code)  AS scores,
+                   ARRAY_AGG(m.procedure_code   ORDER BY m.procedure_code) AS member_codes,
+                   ARRAY_AGG(COALESCE(d.proc_text, m.procedure_code) ORDER BY m.procedure_code) AS member_descs,
+                   ARRAY_AGG(m.member_approved   ORDER BY m.procedure_code) AS member_approved,
                    MODE() WITHIN GROUP (ORDER BY p.modality) AS group_modality
             FROM procedure_canonical_groups g
             JOIN procedure_canonical_members m ON m.group_id = g.id
             LEFT JOIN procedure_duration_map p ON p.procedure_code = m.procedure_code
+            LEFT JOIN proc_descs d ON d.procedure_code = m.procedure_code
             WHERE g.source = 'ai_suggested' AND g.approved = FALSE
             GROUP BY g.id, g.canonical_name, g.cluster_confidence
             ORDER BY g.cluster_confidence DESC NULLS LAST
@@ -149,6 +159,32 @@ def mapping_page():
         ai_groups = [dict(r._mapping) for r in raw_ai]
     except Exception:
         ai_groups = []
+
+    # Unclustered procedures — not assigned to any canonical group
+    try:
+        raw_unc = db.session.execute(_t("""
+            WITH proc_descs AS (
+                SELECT UPPER(TRIM(proc_id)) AS procedure_code,
+                       MODE() WITHIN GROUP (ORDER BY UPPER(TRIM(proc_text))) AS proc_text
+                FROM etl_orders
+                WHERE proc_id IS NOT NULL AND TRIM(proc_id) != ''
+                  AND proc_text IS NOT NULL AND TRIM(proc_text) != ''
+                GROUP BY UPPER(TRIM(proc_id))
+            )
+            SELECT p.procedure_code,
+                   COALESCE(d.proc_text, p.procedure_code) AS description,
+                   p.modality
+            FROM procedure_duration_map p
+            LEFT JOIN proc_descs d ON d.procedure_code = p.procedure_code
+            WHERE p.procedure_code NOT IN (
+                SELECT procedure_code FROM procedure_canonical_members
+            )
+            ORDER BY p.procedure_code
+            LIMIT 300
+        """)).fetchall()
+        unclustered_procs = [dict(r._mapping) for r in raw_unc]
+    except Exception:
+        unclustered_procs = []
 
     # Pending pairs — candidate duplicates awaiting human review
     try:
@@ -175,6 +211,7 @@ def mapping_page():
         canonical_groups=canonical_groups,
         ai_groups=ai_groups,
         pending_pairs=pending_pairs,
+        unclustered_procs=unclustered_procs,
     )
 
 
@@ -494,6 +531,110 @@ def reject_pair():
             SET status = 'rejected', reviewed_at = NOW()
             WHERE id = :id
         """), {"id": pair_id})
+        db.session.commit()
+        return jsonify({"status": "success"})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@mapping_bp.route('/canonical/approve-member', methods=['POST'])
+@login_required
+def approve_member():
+    if current_user.role != 'admin': return abort(403)
+    from sqlalchemy import text as _t
+    data = request.get_json(force=True)
+    try:
+        code = str(data['code']).strip().upper()
+        db.session.execute(_t(
+            "UPDATE procedure_canonical_members SET member_approved = TRUE WHERE procedure_code = :code"
+        ), {"code": code})
+        db.session.commit()
+        return jsonify({"status": "success"})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@mapping_bp.route('/canonical/move-member', methods=['POST'])
+@login_required
+def move_member():
+    """Move a code to a different cluster, or delete from all clusters (unclustered)."""
+    if current_user.role != 'admin': return abort(403)
+    from sqlalchemy import text as _t
+    data = request.get_json(force=True)
+    try:
+        code     = str(data['code']).strip().upper()
+        group_id = data.get('group_id')
+        if group_id is None:
+            db.session.execute(_t(
+                "DELETE FROM procedure_canonical_members WHERE procedure_code = :code"
+            ), {"code": code})
+        else:
+            db.session.execute(_t("""
+                UPDATE procedure_canonical_members
+                SET group_id = :gid, member_approved = NULL
+                WHERE procedure_code = :code
+            """), {"gid": int(group_id), "code": code})
+        db.session.commit()
+        return jsonify({"status": "success"})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@mapping_bp.route('/canonical/add-to-cluster', methods=['POST'])
+@login_required
+def add_to_cluster():
+    if current_user.role != 'admin': return abort(403)
+    from sqlalchemy import text as _t
+    data = request.get_json(force=True)
+    try:
+        code     = str(data['code']).strip().upper()
+        group_id = int(data['group_id'])
+        db.session.execute(_t("""
+            INSERT INTO procedure_canonical_members (procedure_code, group_id, member_approved)
+            VALUES (:code, :gid, NULL)
+            ON CONFLICT (procedure_code) DO UPDATE SET group_id = EXCLUDED.group_id, member_approved = NULL
+        """), {"code": code, "gid": group_id})
+        db.session.commit()
+        return jsonify({"status": "success"})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@mapping_bp.route('/canonical/add-cluster', methods=['POST'])
+@login_required
+def add_cluster():
+    if current_user.role != 'admin': return abort(403)
+    from sqlalchemy import text as _t
+    data = request.get_json(force=True)
+    try:
+        name = str(data.get('name', 'New Cluster')).strip()
+        row = db.session.execute(_t("""
+            INSERT INTO procedure_canonical_groups (canonical_name, approved, source, detected_at)
+            VALUES (:name, FALSE, 'ai_suggested', NOW())
+            RETURNING id
+        """), {"name": name}).fetchone()
+        db.session.commit()
+        return jsonify({"status": "success", "group_id": row[0]})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@mapping_bp.route('/canonical/rename-cluster', methods=['POST'])
+@login_required
+def rename_cluster():
+    if current_user.role != 'admin': return abort(403)
+    from sqlalchemy import text as _t
+    data = request.get_json(force=True)
+    try:
+        group_id = int(data['group_id'])
+        name     = str(data['name']).strip()
+        db.session.execute(_t(
+            "UPDATE procedure_canonical_groups SET canonical_name = :name WHERE id = :id"
+        ), {"name": name, "id": group_id})
         db.session.commit()
         return jsonify({"status": "success"})
     except Exception as e:
