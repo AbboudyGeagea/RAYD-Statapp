@@ -17,3 +17,4 @@ nohup.out
 instance/
 .idea/
 .vscode/
+graphify-out/
