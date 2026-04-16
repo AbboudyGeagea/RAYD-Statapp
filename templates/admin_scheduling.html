@@ -24,6 +24,10 @@
         .page-btn:hover:not(.disabled) { border-color: var(--accent); color: var(--accent); background: rgba(96,165,250,0.05); }
         .input-group { display: grid; gap: 0.5rem; }
         .input-border { background: #141b19; border: 1px solid #334155; color: #e2e8f0; padding: 0.9rem 1rem; border-radius: 0.85rem; }
+        .tab-button { background: #141b19; border: 1px solid #334155; color: #94a3b8; padding: 0.9rem 1.1rem; border-radius: 999px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; transition: all 0.2s; }
+        .tab-button.active { background: #60a5fa; border-color: #60a5fa; color: #0f172a; }
+        .tab-panel { display: block; }
+        .tab-panel.hidden { display: none; }
         .er-highlight { border-color: #dc2626 !important; background: rgba(220,38,38,0.08); }
         .badge-er { background: #dc2626; color: #fff; font-size: 10px; padding: 0.25rem 0.6rem; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.08em; }
     </style>
@@ -51,7 +55,13 @@
                     </div>
                 </div>
 
-                <div id="scheduling-card" class="table-container mb-10">
+                <div class="flex gap-3 mb-6">
+                    <button id="tab-schedule" type="button" class="tab-button active" onclick="showTab('schedule')">Schedule Case</button>
+                    <button id="tab-saved" type="button" class="tab-button" onclick="showTab('saved')">Saved Entries</button>
+                </div>
+
+                <div id="schedule-tab" class="tab-panel">
+                    <div id="scheduling-card" class="table-container mb-10">
                     {% with messages = get_flashed_messages(with_categories=true) %}
                         {% if messages %}
                             <div class="space-y-3 mb-6">
@@ -150,13 +160,14 @@
                     </form>
                 </div>
 
-                <div class="table-container">
-                    <div class="flex items-center justify-between mb-6">
-                        <div>
-                            <h4 class="text-white text-2xl font-black">Saved Scheduling Entries</h4>
-                            <p class="text-slate-500 text-sm mt-1">Select a row to edit an existing schedule.</p>
+                <div id="saved-tab" class="tab-panel hidden">
+                    <div class="table-container">
+                        <div class="flex items-center justify-between mb-6">
+                            <div>
+                                <h4 class="text-white text-2xl font-black">Saved Scheduling Entries</h4>
+                                <p class="text-slate-500 text-sm mt-1">Select a row to edit an existing schedule.</p>
+                            </div>
                         </div>
-                    </div>
                     <div class="overflow-x-auto">
                         <table class="w-full text-left">
                             <thead>
@@ -240,7 +251,29 @@
             }
         }
 
-        document.addEventListener('DOMContentLoaded', updateErHighlight);
+        function showTab(tab) {
+            const schedulePanel = document.getElementById('schedule-tab');
+            const savedPanel = document.getElementById('saved-tab');
+            const scheduleButton = document.getElementById('tab-schedule');
+            const savedButton = document.getElementById('tab-saved');
+
+            if (tab === 'saved') {
+                schedulePanel.classList.add('hidden');
+                savedPanel.classList.remove('hidden');
+                scheduleButton.classList.remove('active');
+                savedButton.classList.add('active');
+            } else {
+                schedulePanel.classList.remove('hidden');
+                savedPanel.classList.add('hidden');
+                scheduleButton.classList.add('active');
+                savedButton.classList.remove('active');
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            showTab('schedule');
+            updateErHighlight();
+        });
     </script>
 </body>
 </html>
