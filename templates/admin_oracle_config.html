@@ -31,7 +31,7 @@
         {% include '_sidebar.html' %}
 
         <main class="flex-1 overflow-y-auto p-10 bg-[#181f1c]">
-            <div class="max-w-2xl mx-auto">
+            <div class="max-w-xl mx-auto">
 
                 {% with messages = get_flashed_messages(with_categories=true) %}
                 {% if messages %}
@@ -50,81 +50,57 @@
                 <div class="card">
                     <div class="mb-8">
                         <div class="flex items-center gap-3 mb-2">
-                            {% if cfg %}
+                            {% if cfg and cfg.host %}
                             <span class="flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                                 <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> Configured
                             </span>
                             {% else %}
                             <span class="flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-rose-500/10 text-rose-400 border border-rose-500/20">
-                                <span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span> Not Configured
+                                <span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span> Host Not Set
                             </span>
                             {% endif %}
                         </div>
-                        <h3 class="text-white text-2xl font-black tracking-tight uppercase">Oracle Connection</h3>
-                        <p class="text-slate-500 text-xs mt-1">Credentials are encrypted at rest using AES-128. The password field is always blank for security — enter it every time you save.</p>
+                        <h3 class="text-white text-2xl font-black tracking-tight uppercase">Oracle PACS Connection</h3>
+                        <p class="text-slate-500 text-xs mt-1">
+                            Fixed params (user, port, SID, mode) are managed centrally and never change between installations.
+                            Only the <span class="text-slate-300 font-semibold">host/IP</span> is site-specific.
+                        </p>
                     </div>
 
                     <form method="POST" autocomplete="off">
                         <div class="grid grid-cols-1 gap-5">
 
                             <div>
-                                <label class="field-label">Connection Name</label>
-                                <input type="text" name="name" class="input-field"
-                                    value="{{ cfg.name if cfg else 'oracle' }}"
-                                    placeholder="oracle" required>
-                            </div>
-
-                            <div class="grid grid-cols-3 gap-4">
-                                <div class="col-span-2">
-                                    <label class="field-label">Host / IP</label>
-                                    <input type="text" name="host" class="input-field"
-                                        value="{{ cfg.host if cfg else '' }}"
-                                        placeholder="192.168.1.10" required>
-                                </div>
-                                <div>
-                                    <label class="field-label">Port</label>
-                                    <input type="number" name="port" class="input-field"
-                                        value="{{ cfg.port if cfg else '1521' }}"
-                                        placeholder="1521" required>
-                                </div>
+                                <label class="field-label">Host / IP <span class="text-rose-400">*</span></label>
+                                <input type="text" name="host" class="input-field"
+                                    value="{{ cfg.host if cfg else '' }}"
+                                    placeholder="10.10.11.50" required autofocus>
                             </div>
 
                             <div>
-                                <label class="field-label">SID / Service Name</label>
-                                <input type="text" name="sid" class="input-field"
-                                    value="{{ cfg.sid if cfg else '' }}"
-                                    placeholder="ORCL" required>
+                                <label class="field-label">Password <span class="text-slate-500">(leave blank to keep existing)</span></label>
+                                <input type="password" name="password" class="input-field"
+                                    autocomplete="new-password" placeholder="••••••••">
                             </div>
 
-                            <div class="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label class="field-label">Username</label>
-                                    <input type="text" name="username" class="input-field"
-                                        value="{{ cfg.username if cfg else '' }}"
-                                        autocomplete="off" placeholder="medilink" required>
-                                </div>
-                                <div>
-                                    <label class="field-label">Password <span class="text-rose-400">(required every save)</span></label>
-                                    <input type="password" name="password" class="input-field"
-                                        autocomplete="new-password" placeholder="••••••••" required>
-                                </div>
-                            </div>
+                        </div>
 
-                            <div>
-                                <label class="field-label">Connection Mode <span class="text-slate-600">(optional — leave blank for normal)</span></label>
-                                <select name="mode" class="input-field">
-                                    <option value="" {% if not cfg or not cfg.mode %}selected{% endif %}>Normal</option>
-                                    <option value="SYSDBA" {% if cfg and cfg.mode == 'SYSDBA' %}selected{% endif %}>SYSDBA</option>
-                                </select>
+                        <!-- Fixed params display -->
+                        <div class="mt-6 p-4 rounded-xl bg-[#141b19] border border-[#28332e]">
+                            <p class="text-[10px] font-black uppercase tracking-widest text-slate-600 mb-3">Fixed Parameters (all installations)</p>
+                            <div class="grid grid-cols-2 gap-2 text-xs font-mono">
+                                <span class="text-slate-500">User</span><span class="text-slate-400">{{ cfg.username if cfg else 'sys' }}</span>
+                                <span class="text-slate-500">Port</span><span class="text-slate-400">{{ cfg.port if cfg else '1521' }}</span>
+                                <span class="text-slate-500">SID</span><span class="text-slate-400">{{ cfg.sid if cfg else 'mst1' }}</span>
+                                <span class="text-slate-500">Mode</span><span class="text-slate-400">{{ cfg.mode if cfg else 'SYSDBA' }}</span>
                             </div>
-
                         </div>
 
                         <div class="flex items-center gap-4 mt-8">
                             <button type="submit"
                                 class="px-6 py-3 bg-[#60a5fa] text-[#0f172a] text-xs font-black uppercase tracking-widest rounded-xl hover:bg-[#93c5fd] transition-colors">
                                 <i class="bi bi-floppy-fill mr-1"></i>
-                                {{ 'Update Connection' if cfg else 'Save Connection' }}
+                                {{ 'Update Host' if cfg and cfg.host else 'Save Host' }}
                             </button>
                             <a href="{{ url_for('admin.admin_dashboard') }}"
                                class="px-6 py-3 border border-[#28332e] text-slate-400 text-xs font-black uppercase tracking-widest rounded-xl hover:border-[#60a5fa] transition-colors">
@@ -132,26 +108,14 @@
                             </a>
                         </div>
                     </form>
-
-                    {% if cfg %}
-                    <div class="mt-8 pt-6 border-t border-[#28332e]">
-                        <p class="text-[10px] font-black uppercase tracking-widest text-slate-600 mb-3">Current Connection</p>
-                        <div class="grid grid-cols-2 gap-2 text-xs font-mono">
-                            <span class="text-slate-500">Host</span><span class="text-slate-300">{{ cfg.host }}:{{ cfg.port }}</span>
-                            <span class="text-slate-500">SID</span><span class="text-slate-300">{{ cfg.sid }}</span>
-                            <span class="text-slate-500">Username</span><span class="text-slate-300">{{ cfg.username }}</span>
-                            <span class="text-slate-500">Mode</span><span class="text-slate-300">{{ cfg.mode or 'Normal' }}</span>
-                        </div>
-                    </div>
-                    {% endif %}
                 </div>
 
-                {% if cfg %}
+                {% if cfg and cfg.host %}
                 <div class="mt-6 card" style="padding: 1.5rem;">
-                    <p class="text-[10px] font-black uppercase tracking-widest text-[#60a5fa] mb-3">Next Step</p>
-                    <p class="text-slate-400 text-sm mb-4">Oracle connection is configured. Go to the ETL Control Room to trigger a full sync.</p>
+                    <p class="text-[10px] font-black uppercase tracking-widest text-[#60a5fa] mb-3">Current Connection</p>
+                    <p class="text-slate-400 text-sm mb-1 font-mono">{{ cfg.username }}@{{ cfg.host }}:{{ cfg.port }}/{{ cfg.sid }} <span class="text-slate-600">[{{ cfg.mode }}]</span></p>
                     <a href="{{ url_for('admin.admin_dashboard') }}"
-                       class="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase tracking-widest rounded-xl transition-colors">
+                       class="inline-flex items-center gap-2 mt-3 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase tracking-widest rounded-xl transition-colors">
                         <i class="bi bi-arrow-right-circle-fill"></i> Go to ETL Control Room
                     </a>
                 </div>

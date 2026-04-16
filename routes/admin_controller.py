@@ -309,43 +309,40 @@ def oracle_config():
 
     from utils.crypto import encrypt
 
+    # Always work with the canonical oracle_PACS row
     existing = db.session.execute(
-        text("SELECT * FROM db_params WHERE name ILIKE '%oracle%' LIMIT 1")
+        text("SELECT * FROM db_params WHERE name = 'oracle_PACS'")
     ).mappings().fetchone()
 
     if request.method == 'POST':
-        name     = (request.form.get('name')     or 'oracle').strip()
         host     = (request.form.get('host')     or '').strip()
-        port     = (request.form.get('port')     or '1521').strip()
-        sid      = (request.form.get('sid')      or '').strip()
-        username = (request.form.get('username') or '').strip()
         password = (request.form.get('password') or '').strip()
-        mode     = (request.form.get('mode')     or '').strip()
 
-        if not all([host, port, sid, username, password]):
-            flash("All fields except Mode are required.", "danger")
+        if not host:
+            flash("Host / IP is required.", "danger")
         else:
-            enc_password = encrypt(password)
+            # Keep existing password if none supplied
+            if password:
+                enc_password = encrypt(password)
+            else:
+                enc_password = existing['password'] if existing else ''
+
             if existing:
                 db.session.execute(text("""
                     UPDATE db_params
-                    SET host=:host, port=:port, sid=:sid,
-                        username=:username, password=:password,
-                        mode=:mode, db_type='oracle', db_role='source',
-                        updated_at=NOW()
-                    WHERE name ILIKE '%oracle%'
-                """), {"host": host, "port": int(port), "sid": sid,
-                       "username": username, "password": enc_password, "mode": mode})
+                    SET host=:host, password=:password, updated_at=NOW()
+                    WHERE name = 'oracle_PACS'
+                """), {"host": host, "password": enc_password})
             else:
+                # Row missing (shouldn't happen after migration 0004) — recreate it
                 db.session.execute(text("""
                     INSERT INTO db_params
                         (name, db_role, db_type, host, port, sid, username, password, mode)
                     VALUES
-                        (:name, 'source', 'oracle', :host, :port, :sid, :username, :password, :mode)
-                """), {"name": name, "host": host, "port": int(port), "sid": sid,
-                       "username": username, "password": enc_password, "mode": mode})
+                        ('oracle_PACS', 'source', 'oracle', :host, 1521, 'mst1', 'sys', :password, 'SYSDBA')
+                """), {"host": host, "password": enc_password})
             db.session.commit()
-            flash("Oracle connection saved. You can now trigger ETL from the admin panel.", "success")
+            flash("Oracle host updated. You can now trigger ETL.", "success")
             return redirect(url_for('admin.oracle_config'))
 
     return render_template('admin_oracle_config.html', cfg=existing)
