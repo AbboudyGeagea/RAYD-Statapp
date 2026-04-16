@@ -85,6 +85,19 @@ def live_status():
         for exc in exceptions:
             opening_map[exc["modality"]] = exc["total_mins"] or 0
 
+        # Ensure link metadata columns exist before we query them
+        try:
+            db.session.execute(text("""
+                ALTER TABLE hl7_orders
+                    ADD COLUMN IF NOT EXISTS linked_accession_number VARCHAR(100),
+                    ADD COLUMN IF NOT EXISTS linked_study_db_uid BIGINT,
+                    ADD COLUMN IF NOT EXISTS linked_by VARCHAR(100),
+                    ADD COLUMN IF NOT EXISTS linked_at TIMESTAMP
+            """))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+
         # Today's orders — use scheduled_datetime when available, fall back to received_at.
         orders = db.session.execute(text("""
             SELECT
@@ -96,7 +109,9 @@ def live_status():
                 o.procedure_code,
                 o.modality,
                 COALESCE(pm.duration_minutes, 15) AS duration,
-                (pm.procedure_code IS NULL)        AS unknown_code
+                (pm.procedure_code IS NULL)        AS unknown_code,
+                o.linked_accession_number,
+                o.linked_study_db_uid
             FROM hl7_orders o
             LEFT JOIN procedure_duration_map pm
                    ON pm.procedure_code = o.procedure_code
@@ -180,10 +195,26 @@ def live_status():
         has_overrun = any(a["overrun"] for t in result for a in t.get("active_orders", []))
         fallback    = 2 if has_overrun else 60
 
+        orphan_orders = db.session.execute(text("""
+            SELECT COUNT(*)
+            FROM hl7_orders o
+            LEFT JOIN etl_didb_studies s ON s.accession_number = o.accession_number
+            WHERE (
+                (o.scheduled_datetime >= CURRENT_DATE AND o.scheduled_datetime < CURRENT_DATE + INTERVAL '1 day')
+                OR
+                (o.scheduled_datetime IS NULL AND o.received_at >= CURRENT_DATE AND o.received_at < CURRENT_DATE + INTERVAL '1 day')
+            )
+              AND COALESCE(o.order_status, '') NOT IN ('CA', 'CM')
+              AND s.accession_number IS NULL
+              AND o.linked_accession_number IS NULL
+              AND o.linked_study_db_uid IS NULL
+        """)).scalar() or 0
+
         return jsonify({
             "tiles":           result,
             "as_of":           now.strftime("%H:%M:%S"),
             "next_refresh_in": max(next_event_min, 1) if next_event_min is not None else fallback,
+            "orphan_orders":   int(orphan_orders),
         })
 
     except Exception as e:
@@ -286,7 +317,11 @@ def dismiss_order():
         db.session.execute(text("""
             ALTER TABLE hl7_orders
                 ADD COLUMN IF NOT EXISTS done_at  TIMESTAMP,
-                ADD COLUMN IF NOT EXISTS done_by  VARCHAR(100)
+                ADD COLUMN IF NOT EXISTS done_by  VARCHAR(100),
+                ADD COLUMN IF NOT EXISTS linked_accession_number VARCHAR(100),
+                ADD COLUMN IF NOT EXISTS linked_study_db_uid BIGINT,
+                ADD COLUMN IF NOT EXISTS linked_by VARCHAR(100),
+                ADD COLUMN IF NOT EXISTS linked_at TIMESTAMP
         """))
         db.session.execute(text("""
             UPDATE hl7_orders
@@ -295,6 +330,46 @@ def dismiss_order():
                 done_by  = :user
             WHERE message_id = :mid
         """), {"mid": message_id, "user": current_user.username})
+        db.session.commit()
+        return jsonify({"ok": True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+
+# ── API — link active HL7 order to an existing study without dismissing it ──────────
+@live_feed_bp.route("/viewer/live/link", methods=["POST"])
+@login_required
+def link_order():
+    if not user_has_page(current_user, 'live_feed'):
+        abort(403)
+    data                = request.get_json(force=True)
+    message_id          = data.get("message_id")
+    linked_accession    = (data.get("linked_accession_number") or "").strip()
+    linked_study_db_uid = data.get("linked_study_db_uid")
+    if not message_id or not linked_accession:
+        return jsonify({"error": "message_id and linked_accession_number are required"}), 400
+    try:
+        db.session.execute(text("""
+            ALTER TABLE hl7_orders
+                ADD COLUMN IF NOT EXISTS linked_accession_number VARCHAR(100),
+                ADD COLUMN IF NOT EXISTS linked_study_db_uid BIGINT,
+                ADD COLUMN IF NOT EXISTS linked_by VARCHAR(100),
+                ADD COLUMN IF NOT EXISTS linked_at TIMESTAMP
+        """))
+        db.session.execute(text("""
+            UPDATE hl7_orders
+            SET linked_accession_number = NULLIF(:linked_accession_number, ''),
+                linked_study_db_uid = NULLIF(:linked_study_db_uid, '')::BIGINT,
+                linked_by = :user,
+                linked_at = NOW()
+            WHERE message_id = :mid
+        """), {
+            "mid": message_id,
+            "linked_accession_number": linked_accession,
+            "linked_study_db_uid": str(linked_study_db_uid) if linked_study_db_uid else '',
+            "user": current_user.username,
+        })
         db.session.commit()
         return jsonify({"ok": True})
     except Exception as e:

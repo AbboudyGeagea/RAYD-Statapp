@@ -48,6 +48,11 @@
            title="User Management">
             <i class="bi bi-people-fill flex-shrink-0" style="color:#60a5fa;"></i> User Management
         </a>
+        <a href="{{ url_for('admin.scheduling_page') }}" target="_blank"
+           class="sidebar-item {% if request.endpoint == 'admin.scheduling_page' %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
+           title="Scheduling">
+            <i class="bi bi-calendar3-range flex-shrink-0" style="color:#38bdf8;"></i> Scheduling
+        </a>
         <a href="{{ url_for('mapping.mapping_page') }}"
            class="sidebar-item {% if request.endpoint and request.endpoint.startswith('mapping.') %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
            title="Modality / Procedures Config">

@@ -444,7 +444,11 @@ def get_gold_standard_data(form_data):
             db.session.execute(text("""
                 ALTER TABLE hl7_orders
                     ADD COLUMN IF NOT EXISTS done_at  TIMESTAMP,
-                    ADD COLUMN IF NOT EXISTS done_by  VARCHAR(100)
+                    ADD COLUMN IF NOT EXISTS done_by  VARCHAR(100),
+                    ADD COLUMN IF NOT EXISTS linked_accession_number VARCHAR(100),
+                    ADD COLUMN IF NOT EXISTS linked_study_db_uid BIGINT,
+                    ADD COLUMN IF NOT EXISTS linked_by VARCHAR(100),
+                    ADD COLUMN IF NOT EXISTS linked_at TIMESTAMP
             """))
             db.session.commit()
         except Exception:
@@ -472,28 +476,38 @@ def get_gold_standard_data(form_data):
                 ROUND(EXTRACT(EPOCH FROM (
                     ho.done_at - COALESCE(ho.scheduled_datetime, ho.received_at)
                 )) / 60.0, 1) AS actual_min,
-                COALESCE(pm.duration_minutes, 15) AS expected_min
+                    CASE
+                        WHEN ho.scheduled_datetime IS NOT NULL
+                        THEN ROUND(EXTRACT(EPOCH FROM (ho.done_at - ho.scheduled_datetime)) / 60.0, 1)
+                    END AS patient_wait_min,
+                    COALESCE(pm.duration_minutes, 15) AS expected_min
+                FROM hl7_orders ho
+                LEFT JOIN procedure_duration_map pm
+                    ON UPPER(TRIM(ho.procedure_code)) = UPPER(TRIM(pm.procedure_code))
+                WHERE ho.order_status = 'CM'
+                  AND ho.done_at IS NOT NULL
+                  AND ho.done_by IS NOT NULL
+                  AND ho.done_at::date BETWEEN :start AND :end
+                  {_ho_filters}
+                ORDER BY ho.done_at DESC
+            """), params).mappings().fetchall()
+
+        orphan_count = db.session.execute(text("""
+            SELECT COUNT(*)
             FROM hl7_orders ho
-            LEFT JOIN procedure_duration_map pm
-                ON UPPER(TRIM(ho.procedure_code)) = UPPER(TRIM(pm.procedure_code))
-            WHERE ho.order_status = 'CM'
-              AND ho.done_at IS NOT NULL
-              AND ho.done_by IS NOT NULL
-              AND ho.done_at::date BETWEEN :start AND :end
-              {_ho_filters}
-            ORDER BY ho.done_at DESC
-        """), params).mappings().fetchall()
+            LEFT JOIN etl_didb_studies s ON s.accession_number = ho.accession_number
+            WHERE COALESCE(ho.scheduled_datetime::date, ho.received_at::date) BETWEEN :start AND :end
+              AND COALESCE(ho.order_status, '') NOT IN ('CA')
+              AND s.accession_number IS NULL
+              AND ho.linked_accession_number IS NULL
+              AND ho.linked_study_db_uid IS NULL
+        """), params).scalar() or 0
 
         if tech_rows:
             tech_df = pd.DataFrame(tech_rows)
-            tech_df['actual_min']   = pd.to_numeric(tech_df['actual_min'], errors='coerce').fillna(0)
-            tech_df['expected_min'] = pd.to_numeric(tech_df['expected_min'], errors='coerce').fillna(15)
-
-            # ── ER preemption detection ──────────────────────────────
-            # For each completed exam, find ER/urgent cases that ran on the
-            # same modality between scheduled_datetime and done_at.
-            # Their total expected duration = ER delay (not the tech's fault).
-            er_delay_map = {}  # accession -> {'er_delay_min': float, 'er_cases': int}
+            tech_df['actual_min']       = pd.to_numeric(tech_df['actual_min'], errors='coerce').fillna(0)
+            tech_df['patient_wait_min'] = pd.to_numeric(tech_df['patient_wait_min'], errors='coerce')
+            tech_df['expected_min']     = pd.to_numeric(tech_df['expected_min'], errors='coerce').fillna(15)
             try:
                 er_rows = db.session.execute(text(f"""
                     WITH completed AS (
@@ -568,6 +582,8 @@ def get_gold_standard_data(form_data):
             tech_df['done_dt']  = pd.to_datetime(tech_df['done_at'], errors='coerce')
             tech_df['work_date'] = tech_df['done_dt'].dt.date
 
+            valid_wait = tech_df[tech_df['patient_wait_min'].notna()]
+
             tech_util_map = {}  # tech_name -> {span_min, work_min, util_pct, days}
             for tech_name, tg in tech_df[tech_df['done_dt'].notna() & tech_df['start_dt'].notna()].groupby('done_by'):
                 day_spans = []
@@ -600,6 +616,8 @@ def get_gold_standard_data(form_data):
                     'avg_min': _safe(valid['adjusted_min'].mean()) if len(valid) > 0 else 0,
                     'avg_raw_min': _safe(valid['actual_min'].mean()) if len(valid) > 0 else 0,
                     'median_min': _safe(valid['adjusted_min'].median()) if len(valid) > 0 else 0,
+                    'avg_wait_min': _safe(valid['patient_wait_min'].mean()) if len(valid[valid['patient_wait_min'].notna()]) > 0 else 0,
+                    'median_wait_min': _safe(valid['patient_wait_min'].median()) if len(valid[valid['patient_wait_min'].notna()]) > 0 else 0,
                     'total_er_delay': _safe(tdf['er_delay_min'].sum()),
                     'er_affected': int((tdf['er_delay_min'] > 0).sum()),
                     'too_short': int((tdf['flag'] == 'too_short').sum()),
@@ -627,6 +645,7 @@ def get_gold_standard_data(form_data):
                     'modality': str(r.get('modality') or ''),
                     'technician': str(r.get('done_by') or ''),
                     'actual_min': _safe(r['actual_min']),
+                    'patient_wait_min': _safe(r['patient_wait_min']) if pd.notna(r.get('patient_wait_min')) else None,
                     'adjusted_min': _safe(r['adjusted_min']),
                     'expected_min': int(r['expected_min']),
                     'er_delay_min': _safe(r['er_delay_min']),
@@ -681,18 +700,22 @@ def get_gold_standard_data(form_data):
 
             # Summary stats
             valid_all = tech_df[tech_df['actual_min'] > 0]
+            valid_wait = tech_df[tech_df['patient_wait_min'].notna()]
             tech_data['summary'] = {
                 'total_completed': int(len(tech_df)),
                 'total_technicians': int(tech_df['done_by'].nunique()),
                 'avg_tat': _safe(valid_all['adjusted_min'].mean()) if len(valid_all) > 0 else 0,
                 'avg_raw_tat': _safe(valid_all['actual_min'].mean()) if len(valid_all) > 0 else 0,
                 'median_tat': _safe(valid_all['adjusted_min'].median()) if len(valid_all) > 0 else 0,
+                'avg_patient_wait': _safe(valid_wait['patient_wait_min'].mean()) if len(valid_wait) > 0 else 0,
+                'median_patient_wait': _safe(valid_wait['patient_wait_min'].median()) if len(valid_wait) > 0 else 0,
                 'flagged_count': int((tech_df['flag'].isin(['too_short', 'too_long', 'er_delayed'])).sum()),
                 'too_short_count': int((tech_df['flag'] == 'too_short').sum()),
                 'too_long_count': int((tech_df['flag'] == 'too_long').sum()),
                 'er_delayed_count': int((tech_df['flag'] == 'er_delayed').sum()),
                 'total_er_delay_min': _safe(tech_df['er_delay_min'].sum()),
                 'er_affected_exams': int((tech_df['er_delay_min'] > 0).sum()),
+                'orphan_order_count': int(orphan_count),
                 'avg_util_pct': round(sum(v['work_min'] for v in tech_util_map.values()) / max(sum(v['span_min'] for v in tech_util_map.values()), 1) * 100, 1) if tech_util_map else 0,
                 'total_span_hrs': round(sum(v['span_min'] for v in tech_util_map.values()) / 60, 1) if tech_util_map else 0,
                 'total_work_hrs': round(sum(v['work_min'] for v in tech_util_map.values()) / 60, 1) if tech_util_map else 0,

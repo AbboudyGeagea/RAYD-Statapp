@@ -44,7 +44,10 @@
                     <div>
                         <h3 class="text-white text-3xl font-black tracking-tight uppercase">User Management</h3>
                         <p class="text-slate-500 text-[11px] font-bold uppercase tracking-widest mt-1">
-                            {{ users|selectattr('role', 'ne', 'admin')|list|length }} users · Manage roles and page access
+                            {{ users|length }} users · Manage roles and page access
+                        </p>
+                        <p class="text-slate-500 text-xs mt-2">
+                            Role defaults: Viewer → AI Reports + Report Intelligence; Tec → HL7 Orders. Changing role will reset page access to those defaults.
                         </p>
                     </div>
                     <a href="{{ url_for('auth.register') }}"
@@ -57,23 +60,16 @@
                     <table class="w-full text-left">
                         <thead>
                             <tr class="border-b border-[#28332e] text-[#60a5fa] text-[10px] uppercase tracking-[0.2em] font-black">
-                                <th class="pb-5 px-4">Username</th>
+                                        <th class="pb-5 px-4">Username</th>
                                 <th class="pb-5 px-4">Role</th>
-                                <th class="pb-5 px-4 text-center">Live AE Status</th>
-                                <th class="pb-5 px-4 text-center">HL7 Orders</th>
-                                <th class="pb-5 px-4 text-center">AI Reports</th>
-                                {% if config.BITNET_ENABLED %}
-                                <th class="pb-5 px-4 text-center">AI Assistant</th>
-                                {% endif %}
-                                {% if config.get('PATIENT_PORTAL_ENABLED', False) %}
-                                <th class="pb-5 px-4 text-center">Patient Portal</th>
-                                {% endif %}
+                                {% for pk,label in page_keys %}
+                                <th class="pb-5 px-4 text-center">{{ label }}</th>
+                                {% endfor %}
                                 <th class="pb-5 px-4 text-center">Delete</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-[#28332e]">
                             {% for u in users %}
-                            {% if u.role != 'admin' %}
                             <tr class="group hover:bg-[#1d2522]/50 transition-all" id="user-row-{{ u.id }}">
 
                                 <td class="py-5 px-4">
@@ -96,19 +92,18 @@
                                     </select>
                                 </td>
 
-                                {% for pk in page_keys %}
-                                {% if (pk != 'bitnet' or config.BITNET_ENABLED) and (pk != 'patient_portal' or config.get('PATIENT_PORTAL_ENABLED', False)) %}
+                                {% for pk,label in page_keys %}
                                 <td class="py-5 px-4 text-center">
                                     {% set enabled = page_perms.get(u.id, {}).get(pk, False) %}
                                     <button onclick="togglePerm({{ u.id }}, '{{ pk }}', this)"
                                         data-enabled="{{ 'true' if enabled else 'false' }}"
+                                        title="{{ label }}"
                                         class="w-10 h-6 rounded-full border transition-all relative inline-flex flex-shrink-0
                                                {{ 'bg-[#60a5fa] border-[#60a5fa]' if enabled else 'bg-transparent border-[#334155]' }}">
                                         <span class="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all
                                                      {{ 'left-4' if enabled else 'left-0.5' }}"></span>
                                     </button>
                                 </td>
-                                {% endif %}
                                 {% endfor %}
 
                                 <td class="py-5 px-4 text-center">
@@ -118,7 +113,6 @@
                                     </button>
                                 </td>
                             </tr>
-                            {% endif %}
                             {% endfor %}
                         </tbody>
                     </table>

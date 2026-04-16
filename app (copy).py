@@ -26,7 +26,9 @@ except ImportError:
 # CONFIG CLASS
 # ---------------------------------------------------------
 class Config:
-    SECRET_KEY = os.environ.get('SECRET_KEY', 'default_strong_secret_key_please_change')
+    SECRET_KEY = os.environ.get('SECRET_KEY')
+    if not SECRET_KEY:
+        raise RuntimeError("CRITICAL: SECRET_KEY environment variable must be set in production")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     GO_LIVE_DATE = date(2023, 1, 1)
     LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
@@ -46,7 +48,9 @@ def get_db_uri_from_db():
 
     # fallback credentials from environment variables
     user = os.environ.get('POSTGRES_USER', 'etl_user')
-    password = os.environ.get('POSTGRES_PASSWORD', '$ecureC3ynbabe')
+    password = os.environ.get('POSTGRES_PASSWORD')
+    if not password:
+        raise RuntimeError("CRITICAL: POSTGRES_PASSWORD environment variable must be set in production")
     host = os.environ.get('POSTGRES_HOST', 'localhost')
     port = os.environ.get('POSTGRES_PORT', '5432')
     dbname = os.environ.get('POSTGRES_DB', 'etl_db')
@@ -162,4 +166,5 @@ if __name__ == '__main__':
         except Exception as e:
             app.logger.error(f"ETL scheduler failed: {e}")
 
-    app.run(host='0.0.0.0', port=8080, debug=True)
+    DEBUG = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
+    app.run(host='0.0.0.0', port=8080, debug=DEBUG)

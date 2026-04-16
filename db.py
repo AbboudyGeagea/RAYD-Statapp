@@ -182,6 +182,20 @@ class UserPagePermission(db.Model):
     page_key = db.Column(String(50), nullable=False)   # e.g. 'live_feed', 'hl7_orders'
     is_enabled = db.Column(Boolean, default=True)
 
+class SchedulingEntry(db.Model):
+    __tablename__ = 'scheduling_entries'
+    id = db.Column(Integer, primary_key=True)
+    first_name = db.Column(Text, nullable=False)
+    middle_name = db.Column(Text, nullable=False)
+    last_name = db.Column(Text, nullable=False)
+    date_of_birth = db.Column(Date, nullable=False)
+    referring_physician = db.Column(Text, nullable=False)
+    patient_class = db.Column(String(10), nullable=False)
+    procedures = db.Column(JSONB, nullable=False, server_default='[]')
+    third_party_approvals = db.Column(JSONB, nullable=False, server_default='[]')
+    created_at = db.Column(DateTime, server_default=func.now())
+    updated_at = db.Column(DateTime, server_default=func.now(), onupdate=func.now())
+
 def user_has_page(user, page_key):
     """Returns True if the user can access the given page. Admins always can."""
     if user.role == 'admin':

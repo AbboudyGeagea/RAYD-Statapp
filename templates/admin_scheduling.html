@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | Scheduling</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        :root { --accent: #60a5fa; }
+        body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; }
+        body.light { background: #f0f4f8; color: #1a202c; }
+        body.light .sidebar-item { color: #4a5568; }
+        body.light .sidebar-item:hover, body.light .sidebar-item.active { background: #e2e8f0; color: #2b6cb0 !important; }
+        body.light aside, body.light header { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        body.light .table-container { background: #ffffff; border-color: #e2e8f0; }
+        body.light .field-label { color: #475569; }
+        body.light input, body.light select { background: #ffffff; color: #1a202c; border-color: #cbd5e1; }
+        .sidebar-item { transition: all 0.2s; border-radius: 0.75rem; margin-bottom: 0.25rem; cursor: pointer; text-decoration: none !important; color: #94a3b8; }
+        .sidebar-item:hover { background: #1d2522; color: var(--accent) !important; }
+        .sidebar-item.active { background: #1d2522; color: var(--accent) !important; border-left: 4px solid var(--accent); }
+        .table-container { background: #232b28; border-radius: 1.5rem; padding: 2.5rem; border: 1px solid #28332e; }
+        .page-btn { padding: 0.6rem 1.2rem; border-radius: 0.75rem; background: #1d2522; border: 1px solid #28332e; transition: all 0.2s; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px; }
+        .page-btn:hover:not(.disabled) { border-color: var(--accent); color: var(--accent); background: rgba(96,165,250,0.05); }
+        .input-group { display: grid; gap: 0.5rem; }
+        .input-border { background: #141b19; border: 1px solid #334155; color: #e2e8f0; padding: 0.9rem 1rem; border-radius: 0.85rem; }
+        .er-highlight { border-color: #dc2626 !important; background: rgba(220,38,38,0.08); }
+        .badge-er { background: #dc2626; color: #fff; font-size: 10px; padding: 0.25rem 0.6rem; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.08em; }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+    {% include '_header.html' %}
+
+    <div class="flex flex-1 overflow-hidden">
+        {% include '_sidebar.html' %}
+
+        <main class="flex-1 overflow-y-auto p-10 bg-[#181f1c]">
+            <div class="max-w-7xl mx-auto">
+                <div class="flex flex-col gap-3 mb-8">
+                    <div class="flex items-start justify-between gap-4">
+                        <div>
+                            <h3 class="text-white text-3xl font-black tracking-tight uppercase">Scheduling</h3>
+                            <p class="text-slate-500 text-sm mt-2 max-w-2xl">Create and edit scheduled cases. All first-level fields are mandatory. Add extra procedure or insurance lines as needed.</p>
+                        </div>
+                        {% if schedule and schedule.patient_class == 'ER' %}
+                        <div class="badge-er flex items-center gap-2">
+                            <i class="bi bi-exclamation-circle-fill"></i>
+                            Emergency Case (ER)
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div id="scheduling-card" class="table-container mb-10">
+                    {% with messages = get_flashed_messages(with_categories=true) %}
+                        {% if messages %}
+                            <div class="space-y-3 mb-6">
+                                {% for category, message in messages %}
+                                    <div class="rounded-2xl px-4 py-3 text-sm font-semibold {{ 'bg-emerald-500/10 text-emerald-200 border border-emerald-500/20' if category == 'success' else 'bg-rose-500/10 text-rose-200 border border-rose-500/20' }}">
+                                        {{ message }}
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+                    {% endwith %}
+
+                    <form method="POST" id="scheduling-form">
+                        {% if schedule %}
+                        <input type="hidden" name="schedule_id" value="{{ schedule.id }}">
+                        {% endif %}
+
+                        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+                            <div class="input-group">
+                                <label class="text-xs uppercase tracking-[0.3em] text-slate-400 font-black">First Name</label>
+                                <input type="text" name="first_name" required value="{{ schedule.first_name if schedule else '' }}" class="input-border">
+                            </div>
+                            <div class="input-group">
+                                <label class="text-xs uppercase tracking-[0.3em] text-slate-400 font-black">Middle Name</label>
+                                <input type="text" name="middle_name" required value="{{ schedule.middle_name if schedule else '' }}" class="input-border">
+                            </div>
+                            <div class="input-group">
+                                <label class="text-xs uppercase tracking-[0.3em] text-slate-400 font-black">Last Name</label>
+                                <input type="text" name="last_name" required value="{{ schedule.last_name if schedule else '' }}" class="input-border">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+                            <div class="input-group">
+                                <label class="text-xs uppercase tracking-[0.3em] text-slate-400 font-black">Date of Birth</label>
+                                <input type="date" name="date_of_birth" required value="{{ schedule.date_of_birth.strftime('%Y-%m-%d') if schedule and schedule.date_of_birth else '' }}" class="input-border">
+                            </div>
+                            <div class="input-group">
+                                <label class="text-xs uppercase tracking-[0.3em] text-slate-400 font-black">Referring Physician</label>
+                                <input type="text" name="referring_physician" required value="{{ schedule.referring_physician if schedule else '' }}" class="input-border">
+                            </div>
+                            <div class="input-group">
+                                <label class="text-xs uppercase tracking-[0.3em] text-slate-400 font-black">Patient Class</label>
+                                <select name="patient_class" required onchange="updateErHighlight()" class="input-border" id="patientClassSelect">
+                                    <option value="">Select One</option>
+                                    <option value="IP" {% if schedule and schedule.patient_class == 'IP' %}selected{% endif %}>IP</option>
+                                    <option value="OP" {% if schedule and schedule.patient_class == 'OP' %}selected{% endif %}>OP</option>
+                                    <option value="ER" {% if schedule and schedule.patient_class == 'ER' %}selected{% endif %}>ER</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                            <div>
+                                <div class="flex items-center justify-between mb-3">
+                                    <label class="text-xs uppercase tracking-[0.3em] text-slate-400 font-black">Procedure Name</label>
+                                    <button type="button" onclick="addProcedureRow()" class="text-[11px] font-black uppercase tracking-[0.2em] px-3 py-2 rounded-lg bg-[#1e293b] border border-[#334155] hover:border-[#60a5fa] text-slate-300 transition-all">Add Procedure</button>
+                                </div>
+                                <div id="procedure-list" class="space-y-3">
+                                    {% set procedure_values = schedule.procedures if schedule and schedule.procedures else [''] %}
+                                    {% for value in procedure_values %}
+                                    <div class="flex items-center gap-3">
+                                        <input type="text" name="procedure_name" {% if loop.first %}required{% endif %} value="{{ value }}" placeholder="Procedure {{ loop.index }}" class="input-border flex-1">
+                                        {% if not loop.first %}
+                                        <button type="button" onclick="removeRow(this)" class="text-sm px-3 py-2 rounded-lg bg-[#111827] border border-[#334155] text-slate-300">Remove</button>
+                                        {% endif %}
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                            <div>
+                                <div class="flex items-center justify-between mb-3">
+                                    <label class="text-xs uppercase tracking-[0.3em] text-slate-400 font-black">Third Party Approval</label>
+                                    <button type="button" onclick="addTpaRow()" class="text-[11px] font-black uppercase tracking-[0.2em] px-3 py-2 rounded-lg bg-[#1e293b] border border-[#334155] hover:border-[#60a5fa] text-slate-300 transition-all">Add Approval</button>
+                                </div>
+                                <div id="tpa-list" class="space-y-3">
+                                    {% set tpa_values = schedule.third_party_approvals if schedule and schedule.third_party_approvals else [''] %}
+                                    {% for value in tpa_values %}
+                                    <div class="flex items-center gap-3">
+                                        <input type="text" name="third_party_approval" {% if loop.first %}required{% endif %} value="{{ value }}" placeholder="Insurance Approval {{ loop.index }}" class="input-border flex-1">
+                                        {% if not loop.first %}
+                                        <button type="button" onclick="removeRow(this)" class="text-sm px-3 py-2 rounded-lg bg-[#111827] border border-[#334155] text-slate-300">Remove</button>
+                                        {% endif %}
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex flex-wrap items-center gap-3">
+                            <button type="submit" class="px-5 py-3 rounded-2xl bg-[#60a5fa] text-black font-bold uppercase tracking-[0.2em]">Save Entry</button>
+                            {% if schedule %}
+                            <a href="{{ url_for('admin.scheduling_page') }}" class="px-5 py-3 rounded-2xl border border-[#28332e] text-slate-300 hover:border-[#60a5fa]">New Entry</a>
+                            {% endif %}
+                        </div>
+                    </form>
+                </div>
+
+                <div class="table-container">
+                    <div class="flex items-center justify-between mb-6">
+                        <div>
+                            <h4 class="text-white text-2xl font-black">Saved Scheduling Entries</h4>
+                            <p class="text-slate-500 text-sm mt-1">Select a row to edit an existing schedule.</p>
+                        </div>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left">
+                            <thead>
+                                <tr class="border-b border-[#28332e] text-[#60a5fa] text-[10px] uppercase tracking-[0.2em] font-black">
+                                    <th class="pb-4 px-4">Patient</th>
+                                    <th class="pb-4 px-4">DOB</th>
+                                    <th class="pb-4 px-4">Class</th>
+                                    <th class="pb-4 px-4">Referring Physician</th>
+                                    <th class="pb-4 px-4">Procedures</th>
+                                    <th class="pb-4 px-4">Insurance</th>
+                                    <th class="pb-4 px-4 text-right">Edit</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-[#28332e]">
+                                {% if schedules %}
+                                    {% for item in schedules %}
+                                    <tr class="group hover:bg-[#1d2522]/50 transition-all {% if item.patient_class == 'ER' %}bg-[#581c1c]/10{% endif %}">
+                                        <td class="py-4 px-4 text-sm">
+                                            <div class="font-bold">{{ item.first_name }} {{ item.middle_name }} {{ item.last_name }}</div>
+                                        </td>
+                                        <td class="py-4 px-4 text-sm text-slate-400">{{ item.date_of_birth.strftime('%Y-%m-%d') if item.date_of_birth else '—' }}</td>
+                                        <td class="py-4 px-4 text-sm">
+                                            <span class="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-[0.18em] {{ 'bg-red-500/10 text-red-300' if item.patient_class == 'ER' else 'bg-slate-800 text-slate-200' }}">{{ item.patient_class }}</span>
+                                        </td>
+                                        <td class="py-4 px-4 text-sm">{{ item.referring_physician }}</td>
+                                        <td class="py-4 px-4 text-sm">{{ item.procedures | join(', ') }}</td>
+                                        <td class="py-4 px-4 text-sm">{{ item.third_party_approvals | join(', ') }}</td>
+                                        <td class="py-4 px-4 text-right">
+                                            <a href="{{ url_for('admin.scheduling_page', schedule_id=item.id) }}" class="text-slate-300 hover:text-[#60a5fa] font-semibold">Edit</a>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                {% else %}
+                                    <tr>
+                                        <td colspan="7" class="py-6 px-4 text-slate-500 text-sm">No scheduling records yet. Use the form above to create the first entry.</td>
+                                    </tr>
+                                {% endif %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        function addProcedureRow() {
+            const container = document.getElementById('procedure-list');
+            const row = document.createElement('div');
+            row.className = 'flex items-center gap-3';
+            row.innerHTML = `
+                <input type="text" name="procedure_name" placeholder="Additional procedure" class="input-border flex-1">
+                <button type="button" onclick="removeRow(this)" class="text-sm px-3 py-2 rounded-lg bg-[#111827] border border-[#334155] text-slate-300">Remove</button>
+            `;
+            container.appendChild(row);
+        }
+
+        function addTpaRow() {
+            const container = document.getElementById('tpa-list');
+            const row = document.createElement('div');
+            row.className = 'flex items-center gap-3';
+            row.innerHTML = `
+                <input type="text" name="third_party_approval" placeholder="Additional approval" class="input-border flex-1">
+                <button type="button" onclick="removeRow(this)" class="text-sm px-3 py-2 rounded-lg bg-[#111827] border border-[#334155] text-slate-300">Remove</button>
+            `;
+            container.appendChild(row);
+        }
+
+        function removeRow(button) {
+            const row = button.closest('div');
+            if (row) row.remove();
+        }
+
+        function updateErHighlight() {
+            const card = document.getElementById('scheduling-card');
+            const selection = document.getElementById('patientClassSelect').value;
+            if (selection === 'ER') {
+                card.classList.add('er-highlight');
+            } else {
+                card.classList.remove('er-highlight');
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', updateErHighlight);
+    </script>
+</body>
+</html>

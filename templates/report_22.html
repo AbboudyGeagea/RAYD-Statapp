@@ -89,6 +89,17 @@
     <main class="flex-1 p-10 overflow-y-auto bg-[#020617] space-y-8">
         {% if run_report %}
         
+        <section class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="card border-l-4 border-sky-400 bg-sky-950/10 p-4">
+                <div class="card-header">HL7 Orphan Orders</div>
+                <div class="card-desc">Unmatched HL7 orders in the selected period. These represent workload that may not appear in ETL study counts because only one completed study may have been recorded per multi-order exam.</div>
+                <div class="p-4">
+                    <p class="text-4xl font-black text-sky-400">{{ data.orphan_order_count }}</p>
+                    <p class="text-[10px] text-slate-400">Actual study volume should be study count + orphan orders due to unlinked HL7 orders.</p>
+                </div>
+            </div>
+        </section>
+
         <!-- Predictive Churn: At-Risk Physicians -->
         {% if data.at_risk %}
         <section class="space-y-4">

@@ -126,6 +126,34 @@
         </div>
     </div>
 
+    <!-- ── Link Order Modal ─────────────────────────────────────────────────── -->
+    <div id="link-order-modal" class="modal-backdrop hidden">
+        <div class="modal-box">
+            <div>
+                <h2 class="text-white font-black text-base uppercase tracking-tight leading-none">Link HL7 Order</h2>
+                <p class="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Link to an existing accession without marking it done</p>
+            </div>
+            <div>
+                <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1.5">HL7 Message ID</label>
+                <input id="modal-link-message-id" type="text" readonly class="modal-input" style="color:#94a3b8;">
+            </div>
+            <div>
+                <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1.5">Accession Number</label>
+                <input id="modal-link-accession" type="text" class="modal-input" placeholder="Enter accession to link">
+            </div>
+            <div class="flex gap-3">
+                <button onclick="saveLink()"
+                    class="flex-1 bg-sky-600 hover:bg-sky-500 text-white font-black text-xs uppercase tracking-widest py-3 rounded-xl transition-colors">
+                    Link
+                </button>
+                <button onclick="closeLinkModal()"
+                    class="flex-1 border border-[#1a2420] text-slate-500 hover:text-white font-black text-xs uppercase tracking-widest py-3 rounded-xl transition-colors">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- ── Header ──────────────────────────────────────────────────────────── -->
     <header class="live-header sticky top-0 z-50">
         <div class="flex items-center gap-4">
@@ -141,6 +169,7 @@
             <div class="stat-chip"><span class="status-dot dot-busy"></span><span class="text-xs font-black text-green-400" id="cnt-busy">—</span><span class="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Busy</span></div>
             <div class="stat-chip"><span class="status-dot dot-delayed"></span><span class="text-xs font-black text-yellow-400" id="cnt-delayed">—</span><span class="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Delayed</span></div>
             <div class="stat-chip"><span class="status-dot dot-free"></span><span class="text-xs font-black text-slate-400" id="cnt-free">—</span><span class="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Free</span></div>
+            <div class="stat-chip"><span class="status-dot dot-delayed"></span><span class="text-xs font-black text-sky-400" id="cnt-orphan">—</span><span class="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Orphans</span></div>
         </div>
 
         <!-- Clock, SSE indicator, refresh button, countdown ring -->
@@ -233,7 +262,7 @@ async function loadStatus() {
         if (data.error) { console.error(data.error); return; }
 
         renderTiles(data.tiles);
-        renderSummary(data.tiles);
+        renderSummary(data.tiles, data.orphan_orders);
         document.getElementById('last-update').textContent = `Updated ${data.as_of}`;
 
         // next_refresh_in is in minutes → seconds, min 30s
@@ -324,6 +353,18 @@ function buildTile(t) {
             const unknownBadge = o.unknown_code
                 ? `<span class="badge badge-unknown" onclick="openAddProc('${escHtml(o.procedure_code)}')" title="Unknown code — click to set duration"><i class="bi bi-info-circle"></i></span>`
                 : '';
+            const linkedBadge = o.linked_accession_number
+                ? `<span class="badge badge-mins" title="Linked accession ${escHtml(o.linked_accession_number)}"><i class="bi bi-link-45deg"></i> Linked</span>`
+                : '';
+            const linkBtn = o.linked_accession_number
+                ? ''
+                : `<button onclick="openLinkModal('${escHtml(o.message_id)}')" title="Link this order"
+                    style="margin-left:auto;flex-shrink:0;background:rgba(56,189,248,0.08);border:1px solid rgba(56,189,248,0.2);
+                    color:#38bdf8;border-radius:6px;padding:2px 8px;font-size:10px;font-weight:800;cursor:pointer;
+                    transition:all .15s;" onmouseover="this.style.background='rgba(56,189,248,0.2)'"
+                    onmouseout="this.style.background='rgba(56,189,248,0.08)'>
+                    <i class="bi bi-link-45deg"></i> Link
+                </button>`;
             const doneBtn = `<button onclick="dismissOrder('${escHtml(o.message_id)}')" title="Mark exam as done"
                 style="margin-left:auto;flex-shrink:0;background:rgba(74,222,128,0.08);border:1px solid rgba(74,222,128,0.2);
                 color:#4ade80;border-radius:6px;padding:2px 8px;font-size:10px;font-weight:800;cursor:pointer;
@@ -341,7 +382,11 @@ function buildTile(t) {
                 </div>
                 <div style="display:flex;align-items:center;gap:6px;justify-content:space-between;">
                     ${timeBadge}
-                    ${doneBtn}
+                    <div style="display:flex;gap:6px;align-items:center;">
+                        ${linkedBadge}
+                        ${linkBtn}
+                        ${doneBtn}
+                    </div>
                 </div>
             </div>`;
         };
@@ -399,12 +444,13 @@ function buildTile(t) {
 }
 
 // ── Summary counts ────────────────────────────────────────────────────
-function renderSummary(tiles) {
+function renderSummary(tiles, orphanCount) {
     const counts = { busy:0, delayed:0, free:0 };
     tiles.forEach(t => { if (counts[t.status] !== undefined) counts[t.status]++; });
     document.getElementById('cnt-busy').textContent    = counts.busy;
     document.getElementById('cnt-delayed').textContent = counts.delayed;
     document.getElementById('cnt-free').textContent    = counts.free;
+    document.getElementById('cnt-orphan').textContent  = orphanCount != null ? orphanCount : 0;
 }
 
 // ── Add procedure modal ───────────────────────────────────────────────
@@ -451,6 +497,46 @@ async function saveProcedure() {
     } catch(e) {
         alert('Save failed: ' + e);
     }
+}
+
+async function linkOrder(messageId, accession) {
+    try {
+        const res  = await fetch('/viewer/live/link', {
+            method:  'POST',
+            headers: {'Content-Type': 'application/json'},
+            body:    JSON.stringify({ message_id: messageId, linked_accession_number: accession }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+            closeLinkModal();
+            loadStatus();
+        } else {
+            alert('Link error: ' + (data.error || 'Unknown error'));
+        }
+    } catch(e) {
+        alert('Link failed: ' + e);
+    }
+}
+
+function openLinkModal(messageId) {
+    document.getElementById('modal-link-message-id').value = messageId;
+    document.getElementById('modal-link-accession').value = '';
+    document.getElementById('link-order-modal').classList.remove('hidden');
+    document.getElementById('modal-link-accession').focus();
+}
+
+function closeLinkModal() {
+    document.getElementById('link-order-modal').classList.add('hidden');
+}
+
+function saveLink() {
+    const messageId = document.getElementById('modal-link-message-id').value;
+    const accession = document.getElementById('modal-link-accession').value.trim();
+    if (!messageId || !accession) {
+        alert('Both message ID and accession are required.');
+        return;
+    }
+    linkOrder(messageId, accession);
 }
 
 // ── Dismiss exam ──────────────────────────────────────────────────────

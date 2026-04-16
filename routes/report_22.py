@@ -67,6 +67,18 @@ def report_22():
     if run_report:
         where, params = get_where_params(request.form)
 
+        try:
+            db.session.execute(text("""
+                ALTER TABLE hl7_orders
+                    ADD COLUMN IF NOT EXISTS linked_accession_number VARCHAR(100),
+                    ADD COLUMN IF NOT EXISTS linked_study_db_uid BIGINT,
+                    ADD COLUMN IF NOT EXISTS linked_by VARCHAR(100),
+                    ADD COLUMN IF NOT EXISTS linked_at TIMESTAMP
+            """))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+
         base_sql = """
             SELECT
                 s.study_db_uid, s.procedure_code, s.study_date, s.storing_ae, s.study_description,
@@ -218,6 +230,18 @@ def report_22():
             HAVING COUNT(*) >= 5
             ORDER BY cnt DESC LIMIT 20
         """), params).fetchall()
+
+        orphan_count = db.session.execute(text("""
+            SELECT COUNT(*)
+            FROM hl7_orders ho
+            LEFT JOIN etl_didb_studies s ON s.accession_number = ho.accession_number
+            WHERE COALESCE(ho.scheduled_datetime::date, ho.received_at::date) BETWEEN :start AND :end
+              AND COALESCE(ho.order_status, '') NOT IN ('CA')
+              AND s.accession_number IS NULL
+              AND ho.linked_accession_number IS NULL
+              AND ho.linked_study_db_uid IS NULL
+        """), params).scalar() or 0
+        data['orphan_order_count'] = int(orphan_count)
 
         # Consolidated: proc age outlier counts in a single query
         age_proc_counts = db.session.execute(text(f"""

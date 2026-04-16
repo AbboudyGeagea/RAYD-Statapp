@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, redirect, url_for, flash, jsonify, request, abort
 from flask_login import login_required, current_user
-from db import User, ReportTemplate, ETLJobLog, ReportAccessControl, UserPagePermission, db
+from db import User, ReportTemplate, ETLJobLog, ReportAccessControl, UserPagePermission, SchedulingEntry, db
 from sqlalchemy import func, text
 from datetime import datetime
 import sys, os
@@ -83,19 +83,141 @@ def admin_dashboard():
     )
 
 
+@admin_bp.route('/scheduling', endpoint='scheduling_page', methods=['GET', 'POST'])
+@login_required
+def scheduling_page():
+    if current_user.role != 'admin':
+        flash("Admin access required.", "danger")
+        return redirect(url_for('viewer.viewer_dashboard'))
+
+    # Ensure the scheduling table exists before using it.
+    try:
+        db.session.execute(text("""
+            CREATE TABLE IF NOT EXISTS scheduling_entries (
+                id SERIAL PRIMARY KEY,
+                first_name TEXT NOT NULL,
+                middle_name TEXT NOT NULL,
+                last_name TEXT NOT NULL,
+                date_of_birth DATE NOT NULL,
+                referring_physician TEXT NOT NULL,
+                patient_class TEXT NOT NULL,
+                procedures JSONB NOT NULL DEFAULT '[]',
+                third_party_approvals JSONB NOT NULL DEFAULT '[]',
+                created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT now(),
+                updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT now()
+            );
+        """))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+    schedule_id = request.args.get('schedule_id', type=int)
+    schedule = SchedulingEntry.query.get(schedule_id) if schedule_id else None
+
+    if request.method == 'POST':
+        form_schedule_id = request.form.get('schedule_id', type=int)
+        first_name = (request.form.get('first_name') or '').strip()
+        middle_name = (request.form.get('middle_name') or '').strip()
+        last_name = (request.form.get('last_name') or '').strip()
+        date_of_birth_raw = (request.form.get('date_of_birth') or '').strip()
+        referring_physician = (request.form.get('referring_physician') or '').strip()
+        patient_class = (request.form.get('patient_class') or '').strip().upper()
+        procedures = [p.strip() for p in request.form.getlist('procedure_name') if p.strip()]
+        third_party_approvals = [p.strip() for p in request.form.getlist('third_party_approval') if p.strip()]
+
+        if not (first_name and middle_name and last_name and date_of_birth_raw and referring_physician and patient_class and procedures and third_party_approvals):
+            flash("Please complete all required scheduling fields.", "danger")
+        else:
+            try:
+                date_of_birth = datetime.strptime(date_of_birth_raw, '%Y-%m-%d').date()
+            except ValueError:
+                flash("Please enter a valid date of birth.", "danger")
+                date_of_birth = None
+
+            if date_of_birth:
+                if form_schedule_id:
+                    schedule = SchedulingEntry.query.get(form_schedule_id)
+                    if schedule:
+                        schedule.first_name = first_name
+                        schedule.middle_name = middle_name
+                        schedule.last_name = last_name
+                        schedule.date_of_birth = date_of_birth
+                        schedule.referring_physician = referring_physician
+                        schedule.patient_class = patient_class
+                        schedule.procedures = procedures
+                        schedule.third_party_approvals = third_party_approvals
+                        schedule.updated_at = datetime.utcnow()
+                        db.session.commit()
+                        flash("Scheduling entry updated.", "success")
+                        return redirect(url_for('admin.scheduling_page', schedule_id=schedule.id))
+                new_entry = SchedulingEntry(
+                    first_name=first_name,
+                    middle_name=middle_name,
+                    last_name=last_name,
+                    date_of_birth=date_of_birth,
+                    referring_physician=referring_physician,
+                    patient_class=patient_class,
+                    procedures=procedures,
+                    third_party_approvals=third_party_approvals,
+                )
+                db.session.add(new_entry)
+                db.session.commit()
+                flash("Scheduling entry saved.", "success")
+                return redirect(url_for('admin.scheduling_page', schedule_id=new_entry.id))
+
+    schedules = SchedulingEntry.query.order_by(SchedulingEntry.updated_at.desc()).all()
+
+    return render_template('admin_scheduling.html', schedule=schedule, schedules=schedules)
+
+
+def _get_user_page_columns():
+    from flask import current_app
+    page_columns = [
+        ('live_feed', 'Live AE Status'),
+        ('hl7_orders', 'HL7 Orders'),
+        ('report_ai', 'AI Reports'),
+        ('bitnet', 'AI Assistant'),
+        ('oru', 'Report Intelligence'),
+    ]
+    if current_app.config.get('PATIENT_PORTAL_ENABLED', False):
+        page_columns.append(('patient_portal', 'Patient Portal'))
+    return page_columns
+
+
+def _apply_role_default_permissions(user, role):
+    default_map = {
+        'viewer': {'report_ai', 'oru'},
+        'tec': {'hl7_orders'},
+    }
+    allowed_keys = {'live_feed', 'hl7_orders', 'report_ai', 'bitnet', 'oru', 'patient_portal'}
+    defaults = default_map.get(role, set())
+
+    existing_perms = {p.page_key: p for p in UserPagePermission.query.filter_by(user_id=user.id).all()}
+
+    for page_key in allowed_keys:
+        desired = page_key in defaults
+        perm = existing_perms.get(page_key)
+        if perm:
+            perm.is_enabled = desired
+        elif desired:
+            db.session.add(UserPagePermission(user_id=user.id, page_key=page_key, is_enabled=True))
+
+    # keep any extra, unsupported page permissions untouched
+
+
 @admin_bp.route('/users')
 @login_required
 def user_management():
     if current_user.role != 'admin':
         return abort(403)
 
-    users = User.query.order_by(User.username).all()
+    users = User.query.filter(User.role != 'admin').order_by(User.role, User.username).all()
     all_perms = UserPagePermission.query.all()
     page_perms = {}
     for p in all_perms:
         page_perms.setdefault(p.user_id, {})[p.page_key] = p.is_enabled
 
-    page_keys = ['live_feed', 'hl7_orders', 'report_ai', 'bitnet', 'oru', 'patient_portal']
+    page_keys = _get_user_page_columns()
 
     return render_template('user_management.html',
         users=users, page_perms=page_perms, page_keys=page_keys)
@@ -141,8 +263,11 @@ def update_user_role():
     if not user or user.role == 'admin':
         return jsonify({'status': 'error', 'message': 'User not found or protected'}), 400
 
-    user.role = new_role
-    db.session.commit()
+    if user.role != new_role:
+        user.role = new_role
+        _apply_role_default_permissions(user, new_role)
+        db.session.commit()
+
     return jsonify({'status': 'ok'})
 
 
