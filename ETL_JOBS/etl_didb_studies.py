@@ -153,8 +153,22 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
         batch_num   = 0
         skipped_bad = 0
 
-        def _upsert_row(row):
-            chunked_upsert_func(pg_engine, pg_table, col_names, [row], 'study_db_uid')
+        # Nullable bigint columns by index — corrupt values are NULL-ed out,
+        # not skipped. study_db_uid (0) is the PK and must be valid; if it's
+        # corrupt the row is dropped entirely.
+        NULLABLE_BIGINT_COLS = {1}  # patient_db_uid
+
+        def _sanitize(row):
+            """Return a sanitized copy: NULL out any corrupt nullable bigint."""
+            row = list(row)
+            for idx in NULLABLE_BIGINT_COLS:
+                if row[idx] is None:
+                    continue
+                try:
+                    int(row[idx])
+                except (TypeError, ValueError):
+                    row[idx] = None
+            return tuple(row)
 
         while True:
             batch = cursor.fetchmany(1000)
@@ -168,17 +182,18 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
                 processed_uids.extend([row[0] for row in batch])
                 total_rows += len(batch)
             except Exception:
-                # Slow path — one row at a time, skip only the bad ones
+                # Slow path — sanitize nullable bigints, skip only truly unrecoverable rows
                 for row in batch:
+                    row = _sanitize(row)
                     try:
-                        _upsert_row(row)
+                        chunked_upsert_func(pg_engine, pg_table, col_names, [row], 'study_db_uid')
                         processed_uids.append(row[0])
                         total_rows += 1
                     except Exception as row_err:
                         skipped_bad += 1
                         logging.warning(f"[Studies ETL] Skipping bad row (uid={row[0]!r}): {row_err}")
 
-            print(f"[Studies ETL] 📦 Batch {batch_num} — {total_rows:,} rows so far, {skipped_bad} bad rows skipped")
+            print(f"[Studies ETL] 📦 Batch {batch_num} — {total_rows:,} rows so far, {skipped_bad} dropped")
 
         status = "SUCCESS"
         cursor.close()

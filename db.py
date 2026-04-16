@@ -61,15 +61,101 @@ def etl_analytics_refresh():
     except Exception: db.session.rollback()
 
 def chunked_upsert(engine, table_name, col_names, data, constraint_col):
-    if not data: return
-    cols_str = ", ".join(col_names)
+    """
+    Bulk upsert with automatic type-safe fallback.
+
+    Fast path: insert the whole batch in one statement.
+    If PostgreSQL rejects the batch (e.g. "R3" in a bigint column), fall back
+    to row-by-row insertion.  On each individual row failure the offending
+    non-PK numeric column is set to NULL and the insert is retried once.
+    If it still fails, the row is skipped and a warning is logged.
+
+    Numeric columns are discovered once per (engine, table) pair from the PG
+    information_schema so no per-ETL-file knowledge is required.
+    """
+    if not data:
+        return
+
+    cols_str   = ", ".join(col_names)
     placeholders = ", ".join([f":{col}" for col in col_names])
-    update_cols = [col for col in col_names if col != constraint_col]
-    update_stmt = ", ".join([f"{col} = EXCLUDED.{col}" for col in update_cols])
-    query = text(f"INSERT INTO {table_name} ({cols_str}) VALUES ({placeholders}) ON CONFLICT ({constraint_col}) DO UPDATE SET {update_stmt}")
-    with engine.begin() as conn:
-        dict_data = [dict(zip(col_names, row)) for row in data]
-        conn.execute(query, dict_data)
+    update_cols  = [col for col in col_names if col != constraint_col]
+    update_stmt  = ", ".join([f"{col} = EXCLUDED.{col}" for col in update_cols])
+    upsert_sql   = text(
+        f"INSERT INTO {table_name} ({cols_str}) VALUES ({placeholders}) "
+        f"ON CONFLICT ({constraint_col}) DO UPDATE SET {update_stmt}"
+    )
+
+    dict_data = [dict(zip(col_names, row)) for row in data]
+
+    # ── Fast path ─────────────────────────────────────────────────────────────
+    try:
+        with engine.begin() as conn:
+            conn.execute(upsert_sql, dict_data)
+        return
+    except Exception:
+        pass  # fall through to row-by-row
+
+    # ── Discover numeric columns from PG catalog (cached per table) ───────────
+    _cache = getattr(chunked_upsert, '_numeric_cache', {})
+    if table_name not in _cache:
+        try:
+            with engine.connect() as conn:
+                rows = conn.execute(text("""
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_name = :t
+                      AND data_type IN ('bigint','integer','smallint','numeric','double precision','real')
+                """), {"t": table_name}).fetchall()
+            _cache[table_name] = {r[0] for r in rows}
+        except Exception:
+            _cache[table_name] = set()
+        chunked_upsert._numeric_cache = _cache
+    numeric_cols = _cache[table_name]
+
+    def _sanitize(row_dict):
+        """NULL out any non-PK numeric value that can't be cast to a number."""
+        sanitized = dict(row_dict)
+        for col, val in sanitized.items():
+            if col == constraint_col or col not in numeric_cols or val is None:
+                continue
+            try:
+                float(val)          # catches int, float, Decimal, numeric strings
+            except (TypeError, ValueError):
+                logging.warning(
+                    f"[chunked_upsert] {table_name}.{col}: "
+                    f"non-numeric value {val!r} → NULL"
+                )
+                sanitized[col] = None
+        return sanitized
+
+    # ── Row-by-row fallback ───────────────────────────────────────────────────
+    skipped = 0
+    for row_dict in dict_data:
+        # First try: original values
+        try:
+            with engine.begin() as conn:
+                conn.execute(upsert_sql, [row_dict])
+            continue
+        except Exception:
+            pass
+
+        # Second try: sanitized (NULL out bad numeric columns)
+        sanitized = _sanitize(row_dict)
+        try:
+            with engine.begin() as conn:
+                conn.execute(upsert_sql, [sanitized])
+        except Exception as e:
+            skipped += 1
+            pk_val = row_dict.get(constraint_col, '?')
+            logging.warning(
+                f"[chunked_upsert] {table_name}: skipping row "
+                f"(pk={pk_val!r}) — {e}"
+            )
+
+    if skipped:
+        logging.warning(
+            f"[chunked_upsert] {table_name}: {skipped} rows permanently skipped"
+        )
 
 # ----------------------------------------------------------------
 # 3. CORE & AUTH MODELS
