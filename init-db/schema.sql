@@ -1207,12 +1207,8 @@ ALTER TABLE ONLY public.summary_storage_daily
     ADD CONSTRAINT summary_storage_daily_pkey PRIMARY KEY (id);
 
 
---
--- Name: summary_storage_daily summary_storage_daily_study_date_modality_procedure_code_key; Type: CONSTRAINT; Schema: public; Owner: etl_user
---
-
-ALTER TABLE ONLY public.summary_storage_daily
-    ADD CONSTRAINT summary_storage_daily_study_date_modality_procedure_code_key UNIQUE (study_date, modality, procedure_code);
+-- Removed: summary_storage_daily_study_date_modality_procedure_code_key
+-- Superseded by the correct 4-column constraint _date_ae_mod_proc_uc above.
 
 
 --
