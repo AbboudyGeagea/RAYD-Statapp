@@ -1608,6 +1608,19 @@ SELECT pg_catalog.setval('public.users_id_seq', 6, true);
 
 
 --
+-- Name: user_page_permissions; Type: TABLE; Schema: public; Owner: etl_user
+--
+
+CREATE TABLE public.user_page_permissions (
+    id SERIAL PRIMARY KEY,
+    user_id integer NOT NULL REFERENCES public.users(id),
+    page_key character varying(50) NOT NULL,
+    is_enabled boolean DEFAULT true
+);
+
+ALTER TABLE public.user_page_permissions OWNER TO etl_user;
+
+--
 -- Name: scheduling_entries; Type: TABLE; Schema: public; Owner: etl_user
 --
 
