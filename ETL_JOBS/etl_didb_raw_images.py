@@ -35,10 +35,18 @@ def run_raw_images_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, 
     total_chunks = (len(study_uid_whitelist) + 999) // 1000
     print(f"[Raw Images ETL] 🚀 Starting — {len(study_uid_whitelist):,} study IDs across {total_chunks} chunks")
 
+    # Pre-load all valid series IDs from PG to guard against FK violations.
+    # Oracle sometimes has raw images referencing series that were never stored.
+    with pg_engine.connect() as _c:
+        _rows = _c.execute(text("SELECT series_db_uid FROM etl_didb_serieses")).fetchall()
+    valid_series_ids = {r[0] for r in _rows}
+    print(f"[Raw Images ETL] 🔍 {len(valid_series_ids):,} valid series IDs loaded from PG")
+
     ora_conn = OracleConnector.get_connection(oracle_source)
     cursor   = ora_conn.cursor()
 
     try:
+        skipped_fk = 0
         for chunk_num, i in enumerate(range(0, len(study_uid_whitelist), 1000), start=1):
             chunk  = study_uid_whitelist[i:i + 1000]
             binds  = [f":id{j}" for j in range(len(chunk))]
@@ -57,8 +65,13 @@ def run_raw_images_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, 
                 if not batch:
                     break
                 batch_num += 1
-                chunked_upsert_func(pg_engine, pg_table, col_names, batch, 'raw_image_db_uid')
-                total_rows += len(batch)
+                # series_db_uid is index 3 — skip rows whose series doesn't exist in PG
+                clean = [r for r in batch if r[3] in valid_series_ids]
+                skipped_fk += len(batch) - len(clean)
+                if not clean:
+                    continue
+                chunked_upsert_func(pg_engine, pg_table, col_names, clean, 'raw_image_db_uid')
+                total_rows += len(clean)
 
                 if total_rows % 10000 == 0:
                     print(f"[Raw Images ETL] 📦 Chunk {chunk_num}/{total_chunks} — {total_rows:,} rows so far...")
@@ -71,8 +84,8 @@ def run_raw_images_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, 
                             conn.commit()
 
         status = "SUCCESS"
-        print(f"[Raw Images ETL] ✅ Done — {total_rows:,} rows")
-        logging.info(f"Raw Images ETL complete: {total_rows:,} rows")
+        print(f"[Raw Images ETL] ✅ Done — {total_rows:,} rows inserted, {skipped_fk:,} skipped (orphan series FK)")
+        logging.info(f"Raw Images ETL complete: {total_rows:,} rows, {skipped_fk} skipped FK")
 
     except Exception as exc:
         status    = "FAILED"

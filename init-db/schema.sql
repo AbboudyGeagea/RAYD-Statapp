@@ -1548,7 +1548,7 @@ COPY public.aetitle_modality_map (id, aetitle, modality, daily_capacity_minutes)
 --
 
 COPY public.go_live_config (id, go_live_date) FROM stdin;
-1	2000-01-01
+1	2025-06-01
 \.
 
 

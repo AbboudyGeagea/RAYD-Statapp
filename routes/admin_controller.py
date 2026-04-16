@@ -432,9 +432,11 @@ def trigger_etl():
         from ETL_JOBS.etl_runner import execute_sync
         import threading
 
+        app = current_app._get_current_object()
+
         def _run():
-            with current_app.app_context():
-                execute_sync(current_app._get_current_object())
+            with app.app_context():
+                execute_sync(app)
 
         threading.Thread(target=_run, daemon=True).start()
         return jsonify({"status": "success"})
