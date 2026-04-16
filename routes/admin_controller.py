@@ -331,7 +331,7 @@ def oracle_config():
                     UPDATE db_params
                     SET host=:host, port=:port, sid=:sid,
                         username=:username, password=:password,
-                        mode=:mode, db_type='oracle',
+                        mode=:mode, db_type='oracle', db_role='source',
                         updated_at=NOW()
                     WHERE name ILIKE '%oracle%'
                 """), {"host": host, "port": int(port), "sid": sid,
@@ -339,9 +339,9 @@ def oracle_config():
             else:
                 db.session.execute(text("""
                     INSERT INTO db_params
-                        (name, db_type, host, port, sid, username, password, mode)
+                        (name, db_role, db_type, host, port, sid, username, password, mode)
                     VALUES
-                        (:name, 'oracle', :host, :port, :sid, :username, :password, :mode)
+                        (:name, 'source', 'oracle', :host, :port, :sid, :username, :password, :mode)
                 """), {"name": name, "host": host, "port": int(port), "sid": sid,
                        "username": username, "password": enc_password, "mode": mode})
             db.session.commit()
