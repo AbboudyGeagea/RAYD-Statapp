@@ -436,295 +436,141 @@ def get_gold_standard_data(form_data):
     except Exception:
         pass
 
-    # ── Technician TAT (from hl7_orders "Done" workflow) ────────────────
-    tech_data = {'technicians': [], 'flagged': [], 'by_procedure': [], 'summary': {}}
+    # ── Reporting Phase TAT (PACS arrival → reporting milestones) ────────────
+    tech_data = {'summary': {}, 'by_radiologist': [], 'by_modality': [], 'studies': []}
     try:
-        # Ensure done_at/done_by columns exist (added dynamically by live_feed dismiss)
-        try:
-            db.session.execute(text("""
-                ALTER TABLE hl7_orders
-                    ADD COLUMN IF NOT EXISTS done_at  TIMESTAMP,
-                    ADD COLUMN IF NOT EXISTS done_by  VARCHAR(100),
-                    ADD COLUMN IF NOT EXISTS linked_accession_number VARCHAR(100),
-                    ADD COLUMN IF NOT EXISTS linked_study_db_uid BIGINT,
-                    ADD COLUMN IF NOT EXISTS linked_by VARCHAR(100),
-                    ADD COLUMN IF NOT EXISTS linked_at TIMESTAMP
-            """))
-            db.session.commit()
-        except Exception:
-            db.session.rollback()
-
-        # Build hl7-specific filters (hl7_orders uses ho. prefix, different columns)
-        _ho_filters = ""
-        if "modalities" in params:
-            _ho_filters += " AND UPPER(TRIM(ho.modality)) IN :modalities"
-        # Note: hl7_orders doesn't have patient_class/storing_ae/patient_location
-        # so those filters are not applicable to technician TAT
-
-        tech_rows = db.session.execute(text(f"""
+        phase_rows = db.session.execute(text(f"""
             SELECT
-                ho.accession_number,
-                ho.patient_id,
-                ho.procedure_code,
-                ho.procedure_text,
-                ho.modality,
-                ho.done_by,
-                ho.done_at,
-                COALESCE(ho.scheduled_datetime, ho.received_at) AS start_time,
-                ho.scheduled_datetime,
-                ho.received_at,
-                ROUND(EXTRACT(EPOCH FROM (
-                    ho.done_at - COALESCE(ho.scheduled_datetime, ho.received_at)
-                )) / 60.0, 1) AS actual_min,
-                    CASE
-                        WHEN ho.scheduled_datetime IS NOT NULL
-                        THEN ROUND(EXTRACT(EPOCH FROM (ho.done_at - ho.scheduled_datetime)) / 60.0, 1)
-                    END AS patient_wait_min,
-                    COALESCE(pm.duration_minutes, 15) AS expected_min
-                FROM hl7_orders ho
-                LEFT JOIN procedure_duration_map pm
-                    ON UPPER(TRIM(ho.procedure_code)) = UPPER(TRIM(pm.procedure_code))
-                WHERE ho.order_status = 'CM'
-                  AND ho.done_at IS NOT NULL
-                  AND ho.done_by IS NOT NULL
-                  AND ho.done_at::date BETWEEN :start AND :end
-                  {_ho_filters}
-                ORDER BY ho.done_at DESC
-            """), params).mappings().fetchall()
+                s.accession_number,
+                s.study_date::text                                                      AS study_date,
+                COALESCE(m.modality, s.study_modality, 'Unknown')                       AS modality,
+                NULLIF(TRIM(CONCAT(
+                    COALESCE(s.signing_physician_first_name,''), ' ',
+                    COALESCE(s.signing_physician_last_name,'')
+                )), '')                                                                  AS radiologist,
+                s.rep_prelim_timestamp,
+                s.rep_transcribed_timestamp,
+                s.rep_final_timestamp,
+                CASE WHEN s.rep_prelim_timestamp IS NOT NULL
+                     THEN ROUND(EXTRACT(EPOCH FROM (
+                         s.rep_prelim_timestamp - s.insert_time
+                     )) / 60.0, 1)
+                END AS to_prelim_min,
+                CASE WHEN s.rep_transcribed_timestamp IS NOT NULL
+                      AND s.rep_prelim_timestamp IS NOT NULL
+                     THEN ROUND(EXTRACT(EPOCH FROM (
+                         s.rep_transcribed_timestamp - s.rep_prelim_timestamp
+                     )) / 60.0, 1)
+                END AS to_transcribed_min,
+                CASE WHEN s.rep_final_timestamp IS NOT NULL
+                      AND s.rep_transcribed_timestamp IS NOT NULL
+                     THEN ROUND(EXTRACT(EPOCH FROM (
+                         s.rep_final_timestamp - s.rep_transcribed_timestamp
+                     )) / 60.0, 1)
+                END AS to_final_min,
+                CASE WHEN s.rep_final_timestamp IS NOT NULL
+                     THEN ROUND(EXTRACT(EPOCH FROM (
+                         s.rep_final_timestamp - s.insert_time
+                     )) / 60.0, 1)
+                END AS total_tat_min
+            FROM etl_didb_studies s
+            LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
+            WHERE s.study_date BETWEEN :start AND :end
+              AND s.insert_time IS NOT NULL
+              AND COALESCE(m.modality, s.study_modality, 'Unknown') != 'SR'
+              {_sec_filters}
+        """), params).mappings().fetchall()
 
-        orphan_count = db.session.execute(text("""
-            SELECT COUNT(*)
-            FROM hl7_orders ho
-            LEFT JOIN etl_didb_studies s ON s.accession_number = ho.accession_number
-            WHERE COALESCE(ho.scheduled_datetime::date, ho.received_at::date) BETWEEN :start AND :end
-              AND COALESCE(ho.order_status, '') NOT IN ('CA')
-              AND s.accession_number IS NULL
-              AND ho.linked_accession_number IS NULL
-              AND ho.linked_study_db_uid IS NULL
-        """), params).scalar() or 0
-
-        if tech_rows:
-            tech_df = pd.DataFrame(tech_rows)
-            tech_df['actual_min']       = pd.to_numeric(tech_df['actual_min'], errors='coerce').fillna(0)
-            tech_df['patient_wait_min'] = pd.to_numeric(tech_df['patient_wait_min'], errors='coerce')
-            tech_df['expected_min']     = pd.to_numeric(tech_df['expected_min'], errors='coerce').fillna(15)
+        def _safe(val, default=0):
             try:
-                er_rows = db.session.execute(text(f"""
-                    WITH completed AS (
-                        SELECT accession_number, modality,
-                               COALESCE(scheduled_datetime, received_at) AS sched,
-                               done_at
-                        FROM hl7_orders
-                        WHERE order_status = 'CM'
-                          AND done_at IS NOT NULL
-                          AND done_at::date BETWEEN :start AND :end
-                          {"AND UPPER(TRIM(modality)) IN :modalities" if "modalities" in params else ""}
-                    )
-                    SELECT
-                        c.accession_number,
-                        COUNT(er.id) AS er_cases,
-                        COALESCE(SUM(COALESCE(pm.duration_minutes, 15)), 0) AS er_delay_min
-                    FROM completed c
-                    JOIN hl7_orders er
-                        ON UPPER(TRIM(er.modality)) = UPPER(TRIM(c.modality))
-                       AND er.accession_number != c.accession_number
-                       AND er.done_at IS NOT NULL
-                       AND er.done_at > c.sched
-                       AND er.done_at <= c.done_at
-                    JOIN etl_didb_studies s
-                        ON s.accession_number = er.accession_number
-                       AND UPPER(COALESCE(s.patient_class, '')) IN ('ER', 'EMERGENCY', 'URGENT', 'U')
-                    LEFT JOIN procedure_duration_map pm
-                        ON UPPER(TRIM(er.procedure_code)) = UPPER(TRIM(pm.procedure_code))
-                    GROUP BY c.accession_number
-                """), params).fetchall()
-                for acc, er_cases, er_delay in er_rows:
-                    er_delay_map[acc] = {
-                        'er_delay_min': float(er_delay),
-                        'er_cases': int(er_cases),
-                    }
-            except Exception as _er_e:
-                print(f"ER preemption detection error: {_er_e}")
-
-            # Add ER delay columns
-            tech_df['er_delay_min'] = tech_df['accession_number'].map(
-                lambda a: er_delay_map.get(a, {}).get('er_delay_min', 0)
-            )
-            tech_df['er_cases'] = tech_df['accession_number'].map(
-                lambda a: er_delay_map.get(a, {}).get('er_cases', 0)
-            )
-            tech_df['adjusted_min'] = (tech_df['actual_min'] - tech_df['er_delay_min']).clip(lower=0)
-
-            # Flag uses ADJUSTED TAT — so ER delays don't penalise techs
-            def _flag(row):
-                if row['actual_min'] <= 0:
-                    return 'invalid'
-                adj = row['adjusted_min']
-                ratio = adj / row['expected_min'] if row['expected_min'] > 0 else 1
-                if row['er_delay_min'] > 0 and row['actual_min'] / row['expected_min'] > 2.0 and ratio <= 2.0:
-                    return 'er_delayed'
-                if ratio < 0.5:
-                    return 'too_short'
-                elif ratio > 2.0:
-                    return 'too_long'
-                return 'normal'
-
-            tech_df['flag'] = tech_df.apply(_flag, axis=1)
-
-            def _safe(val, default=0):
-                """Convert pandas numeric to Python float, replacing NaN/inf."""
                 v = float(val)
                 return default if (v != v or v == float('inf') or v == float('-inf')) else round(v, 1)
+            except Exception:
+                return default
 
-            # ── Shift utilization per technician ──────────────────────
-            # Per tech per day: span = first_start → last_done, work = sum(expected_min)
-            tech_df['start_dt'] = pd.to_datetime(tech_df['start_time'], errors='coerce')
-            tech_df['done_dt']  = pd.to_datetime(tech_df['done_at'], errors='coerce')
-            tech_df['work_date'] = tech_df['done_dt'].dt.date
+        def _valid(df, col):
+            return df[(df[col] > 0) & (df[col] < 2880)]
 
-            valid_wait = tech_df[tech_df['patient_wait_min'].notna()]
+        if phase_rows:
+            phase_df = pd.DataFrame(phase_rows)
+            for col in ['to_prelim_min', 'to_transcribed_min', 'to_final_min', 'total_tat_min']:
+                phase_df[col] = pd.to_numeric(phase_df[col], errors='coerce')
 
-            tech_util_map = {}  # tech_name -> {span_min, work_min, util_pct, days}
-            for tech_name, tg in tech_df[tech_df['done_dt'].notna() & tech_df['start_dt'].notna()].groupby('done_by'):
-                day_spans = []
-                day_works = []
-                for _, day_df in tg.groupby('work_date'):
-                    first_start = day_df['start_dt'].min()
-                    last_done   = day_df['done_dt'].max()
-                    span = (last_done - first_start).total_seconds() / 60.0
-                    work = day_df['expected_min'].sum()
-                    if span > 0:
-                        day_spans.append(span)
-                        day_works.append(float(work))
-                total_span = sum(day_spans)
-                total_work = sum(day_works)
-                tech_util_map[tech_name] = {
-                    'span_min': round(total_span, 1),
-                    'work_min': round(total_work, 1),
-                    'util_pct': round(total_work / total_span * 100, 1) if total_span > 0 else 0,
-                    'idle_min': round(max(total_span - total_work, 0), 1),
-                    'days': len(day_spans),
-                }
+            pv   = _valid(phase_df, 'to_prelim_min')
+            tv   = _valid(phase_df, 'to_transcribed_min')
+            fv   = _valid(phase_df, 'to_final_min')
+            totv = _valid(phase_df, 'total_tat_min')
 
-            # Per-technician cards — use adjusted TAT for performance metrics
-            for tech, tdf in tech_df.groupby('done_by'):
-                valid = tdf[tdf['actual_min'] > 0]
-                util_info = tech_util_map.get(tech, {})
-                tech_data['technicians'].append({
-                    'name': str(tech),
-                    'total_exams': len(tdf),
-                    'avg_min': _safe(valid['adjusted_min'].mean()) if len(valid) > 0 else 0,
-                    'avg_raw_min': _safe(valid['actual_min'].mean()) if len(valid) > 0 else 0,
-                    'median_min': _safe(valid['adjusted_min'].median()) if len(valid) > 0 else 0,
-                    'avg_wait_min': _safe(valid['patient_wait_min'].mean()) if len(valid[valid['patient_wait_min'].notna()]) > 0 else 0,
-                    'median_wait_min': _safe(valid['patient_wait_min'].median()) if len(valid[valid['patient_wait_min'].notna()]) > 0 else 0,
-                    'total_er_delay': _safe(tdf['er_delay_min'].sum()),
-                    'er_affected': int((tdf['er_delay_min'] > 0).sum()),
-                    'too_short': int((tdf['flag'] == 'too_short').sum()),
-                    'too_long': int((tdf['flag'] == 'too_long').sum()),
-                    'er_delayed': int((tdf['flag'] == 'er_delayed').sum()),
-                    'normal': int((tdf['flag'] == 'normal').sum()),
-                    'util_pct': util_info.get('util_pct', 0),
-                    'span_min': util_info.get('span_min', 0),
-                    'work_min': util_info.get('work_min', 0),
-                    'idle_min': util_info.get('idle_min', 0),
-                    'active_days': util_info.get('days', 0),
-                    'by_modality': [
-                        {'mod': str(m), 'cnt': len(mdf), 'avg': _safe(mdf[mdf['actual_min'] > 0]['adjusted_min'].mean()) if (mdf['actual_min'] > 0).any() else 0}
-                        for m, mdf in tdf.groupby('modality')
-                    ],
-                })
-
-            # Flagged studies (abnormal + ER delayed)
-            flagged = tech_df[tech_df['flag'].isin(['too_short', 'too_long', 'er_delayed'])].head(100)
-            for _, r in flagged.iterrows():
-                tech_data['flagged'].append({
-                    'accession': str(r.get('accession_number') or ''),
-                    'patient_id': str(r.get('patient_id') or ''),
-                    'procedure': str(r.get('procedure_text') or r.get('procedure_code') or ''),
-                    'modality': str(r.get('modality') or ''),
-                    'technician': str(r.get('done_by') or ''),
-                    'actual_min': _safe(r['actual_min']),
-                    'patient_wait_min': _safe(r['patient_wait_min']) if pd.notna(r.get('patient_wait_min')) else None,
-                    'adjusted_min': _safe(r['adjusted_min']),
-                    'expected_min': int(r['expected_min']),
-                    'er_delay_min': _safe(r['er_delay_min']),
-                    'er_cases': int(r['er_cases']),
-                    'flag': str(r['flag']),
-                    'done_at': str(r['done_at'])[:16] if r.get('done_at') is not None else '',
-                })
-
-            # By procedure code — avg actual vs expected (uses adjusted)
-            for proc, pdf in tech_df[tech_df['actual_min'] > 0].groupby('procedure_code'):
-                tech_data['by_procedure'].append({
-                    'code': str(proc),
-                    'text': str(pdf.iloc[0].get('procedure_text') or proc),
-                    'count': len(pdf),
-                    'avg_actual': _safe(pdf['adjusted_min'].mean()),
-                    'avg_raw': _safe(pdf['actual_min'].mean()),
-                    'expected': int(pdf['expected_min'].mode().iloc[0]) if not pdf['expected_min'].mode().empty else int(pdf.iloc[0]['expected_min']),
-                    'modality': str(pdf.iloc[0].get('modality') or ''),
-                    'er_affected': int((pdf['er_delay_min'] > 0).sum()),
-                })
-
-            # ── Technician ↔ Modality rotation data ──────────────────
-            # Sankey: technician → modality (weighted by exam count)
-            sankey_links = []
-            for tech_name, tg in tech_df.groupby('done_by'):
-                for mod, mdf in tg.groupby('modality'):
-                    sankey_links.append({
-                        'source': str(tech_name),
-                        'target': str(mod),
-                        'value': len(mdf),
-                    })
-            sankey_nodes = (
-                [{'name': str(t)} for t in tech_df['done_by'].unique()] +
-                [{'name': str(m)} for m in tech_df['modality'].unique()]
-            )
-            tech_data['sankey'] = {'nodes': sankey_nodes, 'links': sankey_links}
-
-            # Transitions: consecutive exams by same tech, ordered by time
-            # Shows how techs rotate between modalities within a day
-            transitions = {}  # (from_mod, to_mod) -> count
-            sorted_df = tech_df[tech_df['done_dt'].notna()].sort_values(['done_by', 'work_date', 'done_dt'])
-            for _, tg in sorted_df.groupby(['done_by', 'work_date']):
-                mods = tg['modality'].tolist()
-                for i in range(len(mods) - 1):
-                    if str(mods[i]) != str(mods[i+1]):
-                        key = (str(mods[i]), str(mods[i+1]))
-                        transitions[key] = transitions.get(key, 0) + 1
-            tech_data['transitions'] = [
-                {'from': k[0], 'to': k[1], 'count': v}
-                for k, v in sorted(transitions.items(), key=lambda x: -x[1])
-            ]
-
-            # Summary stats
-            valid_all = tech_df[tech_df['actual_min'] > 0]
-            valid_wait = tech_df[tech_df['patient_wait_min'].notna()]
             tech_data['summary'] = {
-                'total_completed': int(len(tech_df)),
-                'total_technicians': int(tech_df['done_by'].nunique()),
-                'avg_tat': _safe(valid_all['adjusted_min'].mean()) if len(valid_all) > 0 else 0,
-                'avg_raw_tat': _safe(valid_all['actual_min'].mean()) if len(valid_all) > 0 else 0,
-                'median_tat': _safe(valid_all['adjusted_min'].median()) if len(valid_all) > 0 else 0,
-                'avg_patient_wait': _safe(valid_wait['patient_wait_min'].mean()) if len(valid_wait) > 0 else 0,
-                'median_patient_wait': _safe(valid_wait['patient_wait_min'].median()) if len(valid_wait) > 0 else 0,
-                'flagged_count': int((tech_df['flag'].isin(['too_short', 'too_long', 'er_delayed'])).sum()),
-                'too_short_count': int((tech_df['flag'] == 'too_short').sum()),
-                'too_long_count': int((tech_df['flag'] == 'too_long').sum()),
-                'er_delayed_count': int((tech_df['flag'] == 'er_delayed').sum()),
-                'total_er_delay_min': _safe(tech_df['er_delay_min'].sum()),
-                'er_affected_exams': int((tech_df['er_delay_min'] > 0).sum()),
-                'orphan_order_count': int(orphan_count),
-                'avg_util_pct': round(sum(v['work_min'] for v in tech_util_map.values()) / max(sum(v['span_min'] for v in tech_util_map.values()), 1) * 100, 1) if tech_util_map else 0,
-                'total_span_hrs': round(sum(v['span_min'] for v in tech_util_map.values()) / 60, 1) if tech_util_map else 0,
-                'total_work_hrs': round(sum(v['work_min'] for v in tech_util_map.values()) / 60, 1) if tech_util_map else 0,
-                'total_idle_hrs': round(sum(v['idle_min'] for v in tech_util_map.values()) / 60, 1) if tech_util_map else 0,
+                'total_studies':      len(phase_df),
+                'reported':           int(phase_df['rep_final_timestamp'].notna().sum()),
+                'prelim_count':       int(phase_df['rep_prelim_timestamp'].notna().sum()),
+                'transcribed_count':  int(phase_df['rep_transcribed_timestamp'].notna().sum()),
+                'avg_to_prelim':      _safe(pv['to_prelim_min'].mean())        if len(pv)   else 0,
+                'median_to_prelim':   _safe(pv['to_prelim_min'].median())      if len(pv)   else 0,
+                'avg_to_transcribed': _safe(tv['to_transcribed_min'].mean())   if len(tv)   else 0,
+                'avg_to_final':       _safe(fv['to_final_min'].mean())         if len(fv)   else 0,
+                'avg_total_tat':      _safe(totv['total_tat_min'].mean())      if len(totv) else 0,
+                'median_total_tat':   _safe(totv['total_tat_min'].median())    if len(totv) else 0,
             }
+
+            # By radiologist (min 3 studies)
+            for rad, rdf in phase_df[phase_df['radiologist'].notna()].groupby('radiologist'):
+                if len(rdf) < 3:
+                    continue
+                rv   = _valid(rdf, 'to_prelim_min')
+                tv_r = _valid(rdf, 'to_transcribed_min')
+                fv_r = _valid(rdf, 'to_final_min')
+                tot  = _valid(rdf, 'total_tat_min')
+                tech_data['by_radiologist'].append({
+                    'name':               str(rad),
+                    'count':              len(rdf),
+                    'avg_to_prelim':      _safe(rv['to_prelim_min'].mean())        if len(rv)   else None,
+                    'avg_to_transcribed': _safe(tv_r['to_transcribed_min'].mean()) if len(tv_r) else None,
+                    'avg_to_final':       _safe(fv_r['to_final_min'].mean())       if len(fv_r) else None,
+                    'avg_total_tat':      _safe(tot['total_tat_min'].mean())       if len(tot)  else None,
+                    'median_total_tat':   _safe(tot['total_tat_min'].median())     if len(tot)  else None,
+                })
+            tech_data['by_radiologist'].sort(
+                key=lambda x: x['avg_total_tat'] if x['avg_total_tat'] is not None else 9999
+            )
+
+            # By modality
+            for mod, mdf in phase_df.groupby('modality'):
+                if str(mod) in ('Unknown', 'SR'):
+                    continue
+                rv   = _valid(mdf, 'to_prelim_min')
+                tv_m = _valid(mdf, 'to_transcribed_min')
+                fv_m = _valid(mdf, 'to_final_min')
+                tot  = _valid(mdf, 'total_tat_min')
+                tech_data['by_modality'].append({
+                    'modality':           str(mod),
+                    'count':              len(mdf),
+                    'avg_to_prelim':      _safe(rv['to_prelim_min'].mean())        if len(rv)   else None,
+                    'avg_to_transcribed': _safe(tv_m['to_transcribed_min'].mean()) if len(tv_m) else None,
+                    'avg_to_final':       _safe(fv_m['to_final_min'].mean())       if len(fv_m) else None,
+                    'avg_total_tat':      _safe(tot['total_tat_min'].mean())       if len(tot)  else None,
+                })
+            tech_data['by_modality'].sort(
+                key=lambda x: x['avg_total_tat'] if x['avg_total_tat'] is not None else 9999
+            )
+
+            # Slowest 200 studies by total TAT
+            for _, r in totv.nlargest(200, 'total_tat_min').iterrows():
+                tech_data['studies'].append({
+                    'accession':          str(r.get('accession_number') or ''),
+                    'study_date':         str(r.get('study_date') or '')[:10],
+                    'modality':           str(r.get('modality') or ''),
+                    'radiologist':        str(r['radiologist']) if pd.notna(r.get('radiologist')) else '',
+                    'to_prelim_min':      float(r['to_prelim_min'])      if pd.notna(r.get('to_prelim_min'))      else None,
+                    'to_transcribed_min': float(r['to_transcribed_min']) if pd.notna(r.get('to_transcribed_min')) else None,
+                    'to_final_min':       float(r['to_final_min'])       if pd.notna(r.get('to_final_min'))       else None,
+                    'total_tat_min':      float(r['total_tat_min'])      if pd.notna(r.get('total_tat_min'))      else None,
+                })
 
     except Exception as _e:
         db.session.rollback()
-        print(f"Technician TAT error: {_e}")
+        print(f"Reporting phase TAT error: {_e}")
 
     result = ({
         "summary": {
@@ -849,6 +695,164 @@ def save_shifts_25():
                 )
     db.session.commit()
     return redirect(url_for('report_25.report_25'))
+
+@report_25_bp.route("/report/25/patient-journey")
+@login_required
+def patient_journey_api():
+    from flask import jsonify as _json
+    from datetime import datetime as _dt
+
+    pid       = (request.args.get('pid', '') or '').strip()
+    accession = (request.args.get('accession', '') or '').strip()
+
+    if not pid and not accession:
+        return _json({'studies': [], 'error': 'Provide patient ID or accession number'})
+
+    try:
+        accessions = set()
+
+        # ── Find accessions by accession number ───────────────────────────────
+        if accession:
+            rows = db.session.execute(text(
+                "SELECT DISTINCT accession_number FROM etl_didb_studies "
+                "WHERE accession_number ILIKE :acc LIMIT 15"
+            ), {'acc': f'%{accession}%'}).fetchall()
+            accessions.update(r[0] for r in rows if r[0])
+
+        # ── Find accessions by patient ID (hl7_orders, then etl_didb_studies) ─
+        if pid:
+            try:
+                rows = db.session.execute(text(
+                    "SELECT DISTINCT accession_number FROM hl7_orders "
+                    "WHERE patient_id ILIKE :pid AND accession_number IS NOT NULL LIMIT 20"
+                ), {'pid': f'%{pid}%'}).fetchall()
+                accessions.update(r[0] for r in rows if r[0])
+            except Exception:
+                pass
+            try:
+                rows = db.session.execute(text(
+                    "SELECT DISTINCT accession_number FROM etl_didb_studies "
+                    "WHERE patient_id ILIKE :pid LIMIT 20"
+                ), {'pid': f'%{pid}%'}).fetchall()
+                accessions.update(r[0] for r in rows if r[0])
+            except Exception:
+                pass
+
+        if not accessions:
+            return _json({'studies': [], 'error': None, 'message': 'No matching studies found'})
+
+        results = []
+        for accn in list(accessions)[:15]:
+            study = db.session.execute(text("""
+                SELECT
+                    s.accession_number,
+                    s.study_date::text                                                AS study_date,
+                    s.study_time,
+                    COALESCE(s.study_description, '')                                 AS study_description,
+                    COALESCE(m.modality, s.study_modality, 'Unknown')                 AS modality,
+                    COALESCE(s.patient_class, '')                                     AS patient_class,
+                    COALESCE(s.patient_location, '')                                  AS patient_location,
+                    s.insert_time,
+                    s.rep_prelim_timestamp,
+                    s.rep_transcribed_timestamp,
+                    s.rep_final_timestamp,
+                    NULLIF(TRIM(CONCAT(
+                        COALESCE(s.signing_physician_first_name,''), ' ',
+                        COALESCE(s.signing_physician_last_name,'')
+                    )), '')                                                            AS radiologist,
+                    s.rep_final_signed_by
+                FROM etl_didb_studies s
+                LEFT JOIN aetitle_modality_map m
+                    ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
+                WHERE s.accession_number = :accn
+                LIMIT 1
+            """), {'accn': accn}).mappings().fetchone()
+
+            if not study:
+                continue
+            study = dict(study)
+
+            # ── hl7_orders row ────────────────────────────────────────────────
+            try:
+                orders = db.session.execute(text("""
+                    SELECT
+                        received_at,
+                        scheduled_datetime,
+                        done_at,
+                        done_by,
+                        order_status,
+                        COALESCE(procedure_text, procedure_code, '') AS procedure,
+                        modality   AS order_modality,
+                        patient_id AS order_pid
+                    FROM hl7_orders
+                    WHERE accession_number = :accn
+                    ORDER BY received_at NULLS LAST
+                    LIMIT 5
+                """), {'accn': accn}).mappings().fetchall()
+                orders = [dict(r) for r in orders]
+            except Exception:
+                orders = []
+
+            # ── Build timeline ────────────────────────────────────────────────
+            events = []
+
+            def _ev(ts, ev_type, label, detail='', by=None):
+                if ts is None:
+                    return
+                events.append({
+                    'ts':     str(ts),
+                    'type':   ev_type,
+                    'label':  label,
+                    'detail': detail,
+                    'by':     str(by) if by else None,
+                })
+
+            pid_val = None
+            for o in orders:
+                pid_val = pid_val or o.get('order_pid')
+                _ev(o.get('received_at'),       'order_received', 'Order Received',
+                    o.get('procedure') or '')
+                _ev(o.get('scheduled_datetime'), 'scheduled',      'Exam Scheduled',
+                    f"Status: {o.get('order_status') or '?'}")
+                _ev(o.get('done_at'),            'tech_done',      'Exam Completed by Tech',
+                    f"Modality: {o.get('order_modality') or ''}",
+                    o.get('done_by'))
+
+            _ev(study.get('insert_time'),              'pacs_in',     'Arrived in PACS',
+                f"Modality: {study.get('modality','')}")
+            _ev(study.get('rep_prelim_timestamp'),     'prelim',      'Preliminary Report', '')
+            _ev(study.get('rep_transcribed_timestamp'),'transcribed', 'Transcribed', '')
+            _ev(study.get('rep_final_timestamp'),      'final',       'Final Report Signed',
+                '', study.get('radiologist') or study.get('rep_final_signed_by'))
+
+            # Sort and compute inter-event gaps
+            events.sort(key=lambda x: x['ts'])
+            for i in range(1, len(events)):
+                try:
+                    t1 = _dt.fromisoformat(str(events[i-1]['ts']).replace('Z', '').split('.')[0])
+                    t2 = _dt.fromisoformat(str(events[i]['ts']).replace('Z', '').split('.')[0])
+                    events[i]['gap_min'] = round((t2 - t1).total_seconds() / 60)
+                except Exception:
+                    events[i]['gap_min'] = None
+
+            results.append({
+                'accession':       accn,
+                'study_date':      study.get('study_date', ''),
+                'modality':        study.get('modality', ''),
+                'patient_id':      pid_val or '',
+                'patient_class':   study.get('patient_class', ''),
+                'patient_location':study.get('patient_location', ''),
+                'description':     study.get('study_description', ''),
+                'events':          events,
+            })
+
+        results.sort(key=lambda x: x['study_date'], reverse=True)
+        return _json({'studies': results, 'error': None})
+
+    except Exception as e:
+        db.session.rollback()
+        return _json({'studies': [], 'error': str(e)}), 500
+
 
 # ── Self-register ─────────────────────────────────────────────
 from routes.report_registry import register_report

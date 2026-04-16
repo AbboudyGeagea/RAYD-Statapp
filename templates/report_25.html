@@ -155,7 +155,8 @@
                 <div onclick="switchTab('infra')"    class="tab-btn" id="btn-infra">Infrastructure</div>
                 <div onclick="switchTab('clinical')" class="tab-btn" id="btn-clinical">Radiologists</div>
                 <div onclick="switchTab('efficiency')"  class="tab-btn" id="btn-efficiency">Efficiency Intel</div>
-                <div onclick="switchTab('technicians')" class="tab-btn" id="btn-technicians">Technicians</div>
+                <div onclick="switchTab('technicians')"    class="tab-btn" id="btn-technicians">Technicians</div>
+                <div onclick="switchTab('journey')"       class="tab-btn" id="btn-journey">Patient Journey</div>
 
             </nav>
 
@@ -927,312 +928,162 @@
             <div id="tab-technicians" class="tab-content hidden space-y-8">
 
                 <p class="section-desc">
-                    Technician performance based on the Live AE Status "Done" workflow. Measures time from scheduled start
-                    (fallback: order received time) to when the technician marked the exam complete.
-                    <strong>ER preemption detection:</strong> when ER/urgent cases run on the same modality between
-                    scheduled time and completion, the delay is subtracted from the technician's TAT (adjusted TAT).
-                    This ensures technicians are not penalized for department-level delays.
+                    Reporting workflow phases measured from PACS arrival (<strong>insert_time</strong>) to each milestone.
+                    Set a <strong>fair threshold</strong> in minutes — phase cells are highlighted green (on target),
+                    amber (up to 2&times;), or red (exceeded).
                 </p>
 
-                {% if data and data.tech_data and data.tech_data.summary and data.tech_data.summary.total_completed > 0 %}
+                <!-- Threshold control -->
+                <div class="glass-card flex flex-wrap items-center gap-4">
+                    <label class="text-xs font-black text-zinc-400 uppercase tracking-widest">Phase Threshold</label>
+                    <div class="flex items-center gap-2">
+                        <input type="number" id="phase-threshold" value="60" min="1" max="1440"
+                               class="input-dark w-24 text-center font-mono text-lg"
+                               oninput="applyPhaseColors()">
+                        <span class="text-xs text-zinc-500">minutes</span>
+                    </div>
+                    <div class="flex gap-2 text-[10px]">
+                        <span class="px-2 py-1 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-bold">&le; threshold</span>
+                        <span class="px-2 py-1 rounded bg-amber-500/15 border border-amber-500/30 text-amber-400 font-bold">&le; 2&times;</span>
+                        <span class="px-2 py-1 rounded bg-rose-500/15 border border-rose-500/30 text-rose-400 font-bold">&gt; 2&times;</span>
+                    </div>
+                </div>
+
+                {% if data and data.tech_data and data.tech_data.summary and data.tech_data.summary.total_studies > 0 %}
                 {% set ts = data.tech_data.summary %}
-                {% set techs = data.tech_data.technicians %}
-                {% set flagged = data.tech_data.flagged %}
-                {% set by_proc = data.tech_data.by_procedure %}
 
                 <!-- Summary KPIs -->
-                <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-4">
+                <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
                     <div class="glass-card flex flex-col items-center">
-                        <p class="text-[10px] font-black text-zinc-500 uppercase">Completed</p>
-                        <p class="text-3xl font-black text-white">{{ ts.total_completed }}</p>
-                        <p class="text-[10px] text-zinc-600">exams marked done</p>
-                    </div>
-                    <div class="glass-card flex flex-col items-center">
-                        <p class="text-[10px] font-black text-zinc-500 uppercase">Technicians</p>
-                        <p class="text-3xl font-black text-blue-400">{{ ts.total_technicians }}</p>
-                        <p class="text-[10px] text-zinc-600">active in period</p>
+                        <p class="text-[10px] font-black text-zinc-500 uppercase">Total Studies</p>
+                        <p class="text-3xl font-black text-white">{{ ts.total_studies }}</p>
+                        <p class="text-[10px] text-zinc-600">in period</p>
                     </div>
                     <div class="glass-card flex flex-col items-center">
-                        <p class="text-[10px] font-black text-zinc-500 uppercase">Adj. Avg TAT</p>
-                        <p class="text-3xl font-black text-emerald-400">{{ ts.avg_tat }}<span class="text-sm">m</span></p>
-                        <p class="text-[10px] text-zinc-600">raw {{ ts.avg_raw_tat }}m | median {{ ts.median_tat }}m</p>
+                        <p class="text-[10px] font-black text-zinc-500 uppercase">Signed</p>
+                        <p class="text-3xl font-black text-emerald-400">{{ ts.reported }}</p>
+                        <p class="text-[10px] text-zinc-600">final report</p>
                     </div>
                     <div class="glass-card flex flex-col items-center">
-                        <p class="text-[10px] font-black text-zinc-500 uppercase">Avg Patient Wait</p>
-                        <p class="text-3xl font-black text-sky-400">{{ ts.avg_patient_wait }}<span class="text-sm">m</span></p>
-                        <p class="text-[10px] text-zinc-600">median {{ ts.median_patient_wait }}m</p>
+                        <p class="text-[10px] font-black text-zinc-500 uppercase">PACS &rarr; Prelim</p>
+                        <p class="text-3xl font-black phase-kpi" data-phase-val="{{ ts.avg_to_prelim }}">{{ ts.avg_to_prelim }}<span class="text-sm">m</span></p>
+                        <p class="text-[10px] text-zinc-600">avg &middot; {{ ts.prelim_count }} studies</p>
                     </div>
-                    <div class="glass-card flex flex-col items-center border border-sky-500/20">
-                        <p class="text-[10px] font-black text-zinc-500 uppercase">Orphan Orders</p>
-                        <p class="text-3xl font-black text-sky-400">{{ ts.orphan_order_count }}</p>
-                        <p class="text-[10px] text-zinc-600">should be added to actual study volume</p>
+                    <div class="glass-card flex flex-col items-center">
+                        <p class="text-[10px] font-black text-zinc-500 uppercase">Prelim &rarr; Trans.</p>
+                        <p class="text-3xl font-black phase-kpi" data-phase-val="{{ ts.avg_to_transcribed }}">{{ ts.avg_to_transcribed }}<span class="text-sm">m</span></p>
+                        <p class="text-[10px] text-zinc-600">avg &middot; {{ ts.transcribed_count }} studies</p>
                     </div>
-                    <div class="glass-card flex flex-col items-center border border-amber-500/20">
-                        <p class="text-[10px] font-black text-zinc-500 uppercase">Too Short</p>
-                        <p class="text-3xl font-black text-amber-400">{{ ts.too_short_count }}</p>
-                        <p class="text-[10px] text-zinc-600">&lt; 50% expected</p>
+                    <div class="glass-card flex flex-col items-center">
+                        <p class="text-[10px] font-black text-zinc-500 uppercase">Trans. &rarr; Final</p>
+                        <p class="text-3xl font-black phase-kpi" data-phase-val="{{ ts.avg_to_final }}">{{ ts.avg_to_final }}<span class="text-sm">m</span></p>
+                        <p class="text-[10px] text-zinc-600">avg</p>
                     </div>
-                    <div class="glass-card flex flex-col items-center border border-rose-500/20">
-                        <p class="text-[10px] font-black text-zinc-500 uppercase">Too Long</p>
-                        <p class="text-3xl font-black text-rose-400">{{ ts.too_long_count }}</p>
-                        <p class="text-[10px] text-zinc-600">&gt; 200% adjusted</p>
-                    </div>
-                    <div class="glass-card flex flex-col items-center border border-violet-500/20">
-                        <p class="text-[10px] font-black text-zinc-500 uppercase">ER Delayed</p>
-                        <p class="text-3xl font-black text-violet-400">{{ ts.er_delayed_count }}</p>
-                        <p class="text-[10px] text-zinc-600">{{ ts.er_affected_exams }} exams affected | {{ ts.total_er_delay_min }}m total</p>
+                    <div class="glass-card flex flex-col items-center">
+                        <p class="text-[10px] font-black text-zinc-500 uppercase">Total TAT</p>
+                        <p class="text-3xl font-black phase-kpi" data-phase-val="{{ ts.avg_total_tat }}">{{ ts.avg_total_tat }}<span class="text-sm">m</span></p>
+                        <p class="text-[10px] text-zinc-600">avg | median {{ ts.median_total_tat }}m</p>
                     </div>
                 </div>
 
-                <!-- Shift Utilization KPIs -->
-                {% if ts.avg_util_pct is defined and ts.total_span_hrs > 0 %}
-                <div class="space-y-2">
-                    <p class="text-xs font-black text-blue-500 uppercase tracking-widest">Shift Utilization</p>
-                    <p class="text-[10px] text-zinc-500">
-                        How much of each technician's active shift (first scheduled exam to last completed) is occupied by procedure work.
-                        Idle time = gaps between procedures where the technician is on shift but not scanning.
-                    </p>
-                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <div class="glass-card flex flex-col items-center border border-cyan-500/20">
-                            <p class="text-[10px] font-black text-zinc-500 uppercase">Avg Utilization</p>
-                            <p class="text-3xl font-black {% if ts.avg_util_pct >= 75 %}text-emerald-400{% elif ts.avg_util_pct >= 50 %}text-amber-400{% else %}text-rose-400{% endif %}">{{ ts.avg_util_pct }}<span class="text-sm">%</span></p>
-                            <p class="text-[10px] text-zinc-600">work time / shift span</p>
-                        </div>
-                        <div class="glass-card flex flex-col items-center">
-                            <p class="text-[10px] font-black text-zinc-500 uppercase">Total Shift Hrs</p>
-                            <p class="text-3xl font-black text-white">{{ ts.total_span_hrs }}<span class="text-sm">h</span></p>
-                            <p class="text-[10px] text-zinc-600">first start to last done</p>
-                        </div>
-                        <div class="glass-card flex flex-col items-center">
-                            <p class="text-[10px] font-black text-zinc-500 uppercase">Work Hrs</p>
-                            <p class="text-3xl font-black text-emerald-400">{{ ts.total_work_hrs }}<span class="text-sm">h</span></p>
-                            <p class="text-[10px] text-zinc-600">sum of expected durations</p>
-                        </div>
-                        <div class="glass-card flex flex-col items-center border border-rose-500/20">
-                            <p class="text-[10px] font-black text-zinc-500 uppercase">Idle Hrs</p>
-                            <p class="text-3xl font-black text-rose-400">{{ ts.total_idle_hrs }}<span class="text-sm">h</span></p>
-                            <p class="text-[10px] text-zinc-600">shift span minus work</p>
-                        </div>
-                    </div>
-                </div>
-                {% endif %}
-
-                <!-- Per-Technician Cards -->
-                <div class="space-y-4">
-                    <p class="text-xs font-black text-blue-500 uppercase tracking-widest">Per-Technician Performance</p>
-                    <div class="grid grid-cols-2 gap-4">
-                        {% for t in techs|sort(attribute='total_exams', reverse=True) %}
-                        <div class="glass-card">
-                            <div class="flex items-center justify-between mb-3">
-                                <div class="flex items-center gap-3">
-                                    <div class="w-9 h-9 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
-                                        <i class="bi bi-person-badge text-blue-400"></i>
-                                    </div>
-                                    <div>
-                                        <p class="text-sm font-black text-white">{{ t.name }}</p>
-                                        <p class="text-[10px] text-zinc-500">{{ t.total_exams }} exams{% if t.er_affected > 0 %} | {{ t.er_affected }} ER-affected{% endif %}</p>
-                                    </div>
-                                </div>
-                                <div class="text-right">
-                                    <p class="text-lg font-black text-emerald-400">{{ t.avg_min }}<span class="text-[10px] text-zinc-500">m adj</span></p>
-                                    <p class="text-[10px] text-zinc-500">raw {{ t.avg_raw_min }}m | median {{ t.median_min }}m</p>
-                                    <p class="text-[10px] text-zinc-500">wait {{ t.avg_wait_min }}m | median {{ t.median_wait_min }}m</p>
-                                </div>
-                            </div>
-                            {% if t.total_er_delay > 0 %}
-                            <div class="flex items-center gap-2 mb-3 px-2 py-1.5 rounded-lg bg-violet-500/5 border border-violet-500/15">
-                                <i class="bi bi-ambulance text-violet-400 text-[11px]"></i>
-                                <span class="text-[10px] text-violet-300 font-bold">{{ t.total_er_delay }}m total ER delay across {{ t.er_affected }} exams</span>
-                            </div>
-                            {% endif %}
-                            <!-- Shift utilization -->
-                            {% if t.span_min > 0 %}
-                            <div class="mb-3 px-2 py-1.5 rounded-lg bg-cyan-500/5 border border-cyan-500/15">
-                                <div class="flex items-center justify-between mb-1">
-                                    <span class="text-[10px] font-bold {% if t.util_pct >= 75 %}text-emerald-400{% elif t.util_pct >= 50 %}text-amber-400{% else %}text-rose-400{% endif %}">
-                                        {{ t.util_pct }}% shift utilization
-                                    </span>
-                                    <span class="text-[9px] text-zinc-500">{{ t.active_days }}d | {{ (t.span_min / 60)|round(1) }}h span | {{ (t.work_min / 60)|round(1) }}h work | {{ (t.idle_min / 60)|round(1) }}h idle</span>
-                                </div>
-                                <div class="flex rounded-lg overflow-hidden h-1.5">
-                                    <div style="width:{{ t.util_pct }}%" class="{% if t.util_pct >= 75 %}bg-emerald-500{% elif t.util_pct >= 50 %}bg-amber-500{% else %}bg-rose-500{% endif %}"></div>
-                                    <div style="width:{{ 100 - t.util_pct }}%" class="bg-zinc-800"></div>
-                                </div>
-                            </div>
-                            {% endif %}
-                            <!-- Modality breakdown -->
-                            <div class="flex flex-wrap gap-2 mb-3">
-                                {% for m in t.by_modality %}
-                                <span class="px-2 py-1 rounded-lg text-[10px] font-bold bg-zinc-900 border border-white/5 text-zinc-400">
-                                    {{ m.mod }}: {{ m.cnt }} <span class="text-zinc-600">({{ m.avg }}m)</span>
-                                </span>
-                                {% endfor %}
-                            </div>
-                            <!-- Flag bar -->
-                            {% set total = t.normal + t.too_short + t.too_long + t.er_delayed %}
-                            {% if total > 0 %}
-                            <div class="flex rounded-lg overflow-hidden h-2">
-                                {% if t.normal > 0 %}
-                                <div style="width:{{ (t.normal / total * 100)|round(1) }}%" class="bg-emerald-500/60" title="{{ t.normal }} normal"></div>
-                                {% endif %}
-                                {% if t.er_delayed > 0 %}
-                                <div style="width:{{ (t.er_delayed / total * 100)|round(1) }}%" class="bg-violet-500/60" title="{{ t.er_delayed }} ER delayed"></div>
-                                {% endif %}
-                                {% if t.too_short > 0 %}
-                                <div style="width:{{ (t.too_short / total * 100)|round(1) }}%" class="bg-amber-500/60" title="{{ t.too_short }} too short"></div>
-                                {% endif %}
-                                {% if t.too_long > 0 %}
-                                <div style="width:{{ (t.too_long / total * 100)|round(1) }}%" class="bg-rose-500/60" title="{{ t.too_long }} too long"></div>
-                                {% endif %}
-                            </div>
-                            <div class="flex gap-4 mt-1">
-                                <span class="text-[9px] text-emerald-500/70 font-bold">{{ t.normal }} normal</span>
-                                {% if t.er_delayed > 0 %}<span class="text-[9px] text-violet-500/70 font-bold">{{ t.er_delayed }} ER delayed</span>{% endif %}
-                                {% if t.too_short > 0 %}<span class="text-[9px] text-amber-500/70 font-bold">{{ t.too_short }} short</span>{% endif %}
-                                {% if t.too_long > 0 %}<span class="text-[9px] text-rose-500/70 font-bold">{{ t.too_long }} long</span>{% endif %}
-                            </div>
-                            {% endif %}
-                        </div>
-                        {% endfor %}
-                    </div>
-                </div>
-
-                <!-- Technician ↔ Modality Rotation -->
-                {% if data.tech_data.sankey and data.tech_data.sankey.links %}
-                <div class="space-y-4">
-                    <p class="text-xs font-black text-blue-500 uppercase tracking-widest">Technician &harr; Modality Rotation</p>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div class="chart-card">
-                            <div class="chart-card-header">
-                                <span class="chart-card-title">Technician &rarr; Modality Flow</span>
-                                <button onclick="exportChart('chart-tech-sankey','TechModalityFlow')" class="chart-export-btn"><i class="bi bi-download"></i></button>
-                            </div>
-                            <div class="chart-card-desc">
-                                Flow width = number of exams completed. Shows which modalities each technician works on and how their workload is distributed.
-                            </div>
-                            <div class="chart-card-body">
-                                <div id="chart-tech-sankey" style="height:400px;"></div>
-                            </div>
-                        </div>
-                        <div class="chart-card">
-                            <div class="chart-card-header">
-                                <span class="chart-card-title">Modality Transitions (Same-Day)</span>
-                                <button onclick="exportChart('chart-tech-transitions','ModalityTransitions')" class="chart-export-btn"><i class="bi bi-download"></i></button>
-                            </div>
-                            <div class="chart-card-desc">
-                                When a technician finishes on one modality and their next exam is on a different modality within the same day, that's a rotation.
-                                Frequent rotations may indicate cross-training or scheduling gaps.
-                            </div>
-                            <div class="chart-card-body">
-                                <div id="chart-tech-transitions" style="height:400px;"></div>
-                            </div>
-                        </div>
-                    </div>
-                    {% if data.tech_data.transitions %}
-                    <div class="glass-card overflow-x-auto" style="max-height:250px; overflow-y:auto;">
-                        <p class="text-[10px] font-black text-zinc-500 uppercase tracking-wider mb-2">Rotation Log</p>
+                <!-- By Radiologist -->
+                {% if data.tech_data.by_radiologist %}
+                <div class="space-y-3">
+                    <p class="text-xs font-black text-blue-500 uppercase tracking-widest">By Radiologist</p>
+                    <div class="glass-card overflow-x-auto" style="max-height:420px; overflow-y:auto;">
                         <table class="w-full text-left" style="border-collapse:separate; border-spacing:0;">
                             <thead>
                                 <tr class="text-[10px] font-black text-zinc-500 uppercase tracking-wider">
-                                    <th class="pb-2 pr-4 sticky top-0 bg-[#111413] z-10">From</th>
-                                    <th class="pb-2 pr-4 sticky top-0 bg-[#111413] z-10">To</th>
-                                    <th class="pb-2 pr-4 sticky top-0 bg-[#111413] z-10 text-right">Rotations</th>
+                                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Radiologist</th>
+                                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right">Studies</th>
+                                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right">PACS &rarr; Prelim</th>
+                                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right">Prelim &rarr; Trans.</th>
+                                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right">Trans. &rarr; Final</th>
+                                    <th class="pb-3 sticky top-0 bg-[#111413] z-10 text-right">Total TAT</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {% for tr in data.tech_data.transitions %}
+                                {% for r in data.tech_data.by_radiologist %}
                                 <tr class="border-t border-white/5">
-                                    <td class="py-1.5 pr-4 text-xs font-bold text-cyan-400">{{ tr['from'] }}</td>
-                                    <td class="py-1.5 pr-4 text-xs font-bold text-emerald-400">{{ tr.to }}</td>
-                                    <td class="py-1.5 pr-4 text-xs text-right font-mono text-white">{{ tr.count }}</td>
+                                    <td class="py-2 pr-4 text-xs font-bold text-blue-400">{{ r.name }}</td>
+                                    <td class="py-2 pr-4 text-xs text-right text-zinc-400">{{ r.count }}</td>
+                                    <td class="py-2 pr-4 text-right"><span class="phase-cell px-2 py-0.5 rounded text-xs font-mono font-bold" data-phase-val="{{ r.avg_to_prelim if r.avg_to_prelim is not none else '' }}">{% if r.avg_to_prelim is not none %}{{ '%.1f'|format(r.avg_to_prelim) }}m{% else %}--{% endif %}</span></td>
+                                    <td class="py-2 pr-4 text-right"><span class="phase-cell px-2 py-0.5 rounded text-xs font-mono font-bold" data-phase-val="{{ r.avg_to_transcribed if r.avg_to_transcribed is not none else '' }}">{% if r.avg_to_transcribed is not none %}{{ '%.1f'|format(r.avg_to_transcribed) }}m{% else %}--{% endif %}</span></td>
+                                    <td class="py-2 pr-4 text-right"><span class="phase-cell px-2 py-0.5 rounded text-xs font-mono font-bold" data-phase-val="{{ r.avg_to_final if r.avg_to_final is not none else '' }}">{% if r.avg_to_final is not none %}{{ '%.1f'|format(r.avg_to_final) }}m{% else %}--{% endif %}</span></td>
+                                    <td class="py-2 text-right"><span class="phase-cell px-2 py-0.5 rounded text-xs font-mono font-bold" data-phase-val="{{ r.avg_total_tat if r.avg_total_tat is not none else '' }}">{% if r.avg_total_tat is not none %}{{ '%.1f'|format(r.avg_total_tat) }}m{% else %}--{% endif %}</span></td>
                                 </tr>
                                 {% endfor %}
                             </tbody>
                         </table>
                     </div>
-                    {% endif %}
                 </div>
                 {% endif %}
 
-                <!-- Procedure: Actual vs Expected -->
-                <div class="space-y-4">
-                    <p class="text-xs font-black text-blue-500 uppercase tracking-widest">Procedure Duration: Actual vs Expected</p>
-                    <div class="chart-card">
-                        <div class="chart-card-header">
-                            <span class="chart-card-title">Avg Actual vs Expected Duration by Procedure</span>
-                            <button onclick="exportChart('chart-tech-proc','TechProcDuration')" class="chart-export-btn"><i class="bi bi-download"></i></button>
-                        </div>
-                        <div class="chart-card-desc">Bars show average actual completion time vs expected duration per procedure code. Hover for details.</div>
-                        <div class="chart-card-body">
-                            <div id="chart-tech-proc" style="height:350px;"></div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Technician TAT Distribution -->
-                <div class="space-y-4">
-                    <p class="text-xs font-black text-blue-500 uppercase tracking-widest">Technician Comparison</p>
-                    <div class="chart-card">
-                        <div class="chart-card-header">
-                            <span class="chart-card-title">Average TAT per Technician</span>
-                            <button onclick="exportChart('chart-tech-compare','TechCompare')" class="chart-export-btn"><i class="bi bi-download"></i></button>
-                        </div>
-                        <div class="chart-card-body">
-                            <div id="chart-tech-compare" style="height:300px;"></div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Flagged Studies Table -->
-                {% if flagged %}
-                <div class="space-y-4">
-                    <p class="text-xs font-black text-blue-500 uppercase tracking-widest">
-                        Flagged Exams
-                        <span class="ml-2 px-2 py-0.5 rounded bg-rose-500/10 border border-rose-500/20 text-rose-400 text-[10px]">{{ flagged|length }}</span>
-                    </p>
-                    <div class="glass-card overflow-x-auto" style="max-height:400px; overflow-y:auto;">
+                <!-- By Modality -->
+                {% if data.tech_data.by_modality %}
+                <div class="space-y-3">
+                    <p class="text-xs font-black text-blue-500 uppercase tracking-widest">By Modality</p>
+                    <div class="glass-card overflow-x-auto">
                         <table class="w-full text-left" style="border-collapse:separate; border-spacing:0;">
                             <thead>
                                 <tr class="text-[10px] font-black text-zinc-500 uppercase tracking-wider">
-                                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Flag</th>
-                                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Accession</th>
-                                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Procedure</th>
-                                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Modality</th>
-                                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Technician</th>
-                                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right">Raw TAT</th>
-                                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right">Wait</th>
-                                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right">ER Delay</th>
-                                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right">Adj. TAT</th>
-                                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right">Expected</th>
-                                    <th class="pb-3 sticky top-0 bg-[#111413] z-10">Done At</th>
+                                    <th class="pb-3 pr-4">Modality</th>
+                                    <th class="pb-3 pr-4 text-right">Studies</th>
+                                    <th class="pb-3 pr-4 text-right">PACS &rarr; Prelim</th>
+                                    <th class="pb-3 pr-4 text-right">Prelim &rarr; Trans.</th>
+                                    <th class="pb-3 pr-4 text-right">Trans. &rarr; Final</th>
+                                    <th class="pb-3 text-right">Total TAT</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {% for f in flagged %}
-                                <tr class="border-t border-white/5 {% if f.flag == 'too_short' %}bg-amber-500/5{% elif f.flag == 'er_delayed' %}bg-violet-500/5{% else %}bg-rose-500/5{% endif %}">
-                                    <td class="py-2 pr-4">
-                                        {% if f.flag == 'too_short' %}
-                                        <span class="px-2 py-0.5 rounded text-[10px] font-black bg-amber-500/10 border border-amber-500/20 text-amber-400">SHORT</span>
-                                        {% elif f.flag == 'er_delayed' %}
-                                        <span class="px-2 py-0.5 rounded text-[10px] font-black bg-violet-500/10 border border-violet-500/20 text-violet-400">ER DELAY</span>
-                                        {% else %}
-                                        <span class="px-2 py-0.5 rounded text-[10px] font-black bg-rose-500/10 border border-rose-500/20 text-rose-400">LONG</span>
-                                        {% endif %}
-                                    </td>
-                                    <td class="py-2 pr-4 text-xs font-mono text-zinc-400">{{ f.accession }}</td>
-                                    <td class="py-2 pr-4 text-xs text-zinc-300" title="{{ f.procedure }}">{{ f.procedure[:40] }}</td>
-                                    <td class="py-2 pr-4 text-xs text-zinc-400">{{ f.modality }}</td>
-                                    <td class="py-2 pr-4 text-xs font-bold text-blue-400">{{ f.technician }}</td>
-                                    <td class="py-2 pr-4 text-xs text-right font-mono text-zinc-400">{{ f.actual_min }}m</td>
-                                    <td class="py-2 pr-4 text-xs text-right font-mono {% if f.patient_wait_min is not none %}text-sky-400{% else %}text-zinc-600{% endif %}">
-                                        {% if f.patient_wait_min is not none %}{{ f.patient_wait_min }}m{% else %}--{% endif %}
-                                    </td>
-                                    <td class="py-2 pr-4 text-xs text-right font-mono {% if f.er_delay_min > 0 %}text-violet-400{% else %}text-zinc-600{% endif %}">
-                                        {% if f.er_delay_min > 0 %}-{{ f.er_delay_min }}m <span class="text-[9px] text-violet-500/60">({{ f.er_cases }} ER)</span>{% else %}--{% endif %}
-                                    </td>
-                                    <td class="py-2 pr-4 text-xs text-right font-mono font-bold {% if f.flag == 'too_short' %}text-amber-400{% elif f.flag == 'er_delayed' %}text-emerald-400{% elif f.flag == 'too_long' %}text-rose-400{% else %}text-emerald-400{% endif %}">{{ f.adjusted_min }}m</td>
-                                    <td class="py-2 pr-4 text-xs text-right font-mono text-zinc-500">{{ f.expected_min }}m</td>
-                                    <td class="py-2 text-xs text-zinc-500">{{ f.done_at }}</td>
+                                {% for m in data.tech_data.by_modality %}
+                                <tr class="border-t border-white/5">
+                                    <td class="py-2 pr-4 text-xs font-bold text-emerald-400">{{ m.modality }}</td>
+                                    <td class="py-2 pr-4 text-xs text-right text-zinc-400">{{ m.count }}</td>
+                                    <td class="py-2 pr-4 text-right"><span class="phase-cell px-2 py-0.5 rounded text-xs font-mono font-bold" data-phase-val="{{ m.avg_to_prelim if m.avg_to_prelim is not none else '' }}">{% if m.avg_to_prelim is not none %}{{ '%.1f'|format(m.avg_to_prelim) }}m{% else %}--{% endif %}</span></td>
+                                    <td class="py-2 pr-4 text-right"><span class="phase-cell px-2 py-0.5 rounded text-xs font-mono font-bold" data-phase-val="{{ m.avg_to_transcribed if m.avg_to_transcribed is not none else '' }}">{% if m.avg_to_transcribed is not none %}{{ '%.1f'|format(m.avg_to_transcribed) }}m{% else %}--{% endif %}</span></td>
+                                    <td class="py-2 pr-4 text-right"><span class="phase-cell px-2 py-0.5 rounded text-xs font-mono font-bold" data-phase-val="{{ m.avg_to_final if m.avg_to_final is not none else '' }}">{% if m.avg_to_final is not none %}{{ '%.1f'|format(m.avg_to_final) }}m{% else %}--{% endif %}</span></td>
+                                    <td class="py-2 text-right"><span class="phase-cell px-2 py-0.5 rounded text-xs font-mono font-bold" data-phase-val="{{ m.avg_total_tat if m.avg_total_tat is not none else '' }}">{% if m.avg_total_tat is not none %}{{ '%.1f'|format(m.avg_total_tat) }}m{% else %}--{% endif %}</span></td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- Slowest Studies -->
+                {% if data.tech_data.studies %}
+                <div class="space-y-3">
+                    <p class="text-xs font-black text-blue-500 uppercase tracking-widest">
+                        Slowest Studies
+                        <span class="ml-2 px-2 py-0.5 rounded bg-rose-500/10 border border-rose-500/20 text-rose-400 text-[10px]">top {{ data.tech_data.studies|length }} by total TAT</span>
+                    </p>
+                    <div class="glass-card overflow-x-auto" style="max-height:420px; overflow-y:auto;">
+                        <table class="w-full text-left" style="border-collapse:separate; border-spacing:0;">
+                            <thead>
+                                <tr class="text-[10px] font-black text-zinc-500 uppercase tracking-wider">
+                                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Accession</th>
+                                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Date</th>
+                                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Mod.</th>
+                                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Radiologist</th>
+                                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right">PACS &rarr; Prelim</th>
+                                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right">Prelim &rarr; Trans.</th>
+                                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right">Trans. &rarr; Final</th>
+                                    <th class="pb-3 sticky top-0 bg-[#111413] z-10 text-right">Total TAT</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for s in data.tech_data.studies %}
+                                <tr class="border-t border-white/5">
+                                    <td class="py-2 pr-4 text-xs font-mono text-zinc-400">{{ s.accession }}</td>
+                                    <td class="py-2 pr-4 text-xs text-zinc-500">{{ s.study_date }}</td>
+                                    <td class="py-2 pr-4 text-xs text-zinc-400">{{ s.modality }}</td>
+                                    <td class="py-2 pr-4 text-xs font-bold text-blue-400">{{ s.radiologist or '--' }}</td>
+                                    <td class="py-2 pr-4 text-right"><span class="phase-cell px-2 py-0.5 rounded text-xs font-mono font-bold" data-phase-val="{{ s.to_prelim_min if s.to_prelim_min is not none else '' }}">{% if s.to_prelim_min is not none %}{{ '%.1f'|format(s.to_prelim_min) }}m{% else %}--{% endif %}</span></td>
+                                    <td class="py-2 pr-4 text-right"><span class="phase-cell px-2 py-0.5 rounded text-xs font-mono font-bold" data-phase-val="{{ s.to_transcribed_min if s.to_transcribed_min is not none else '' }}">{% if s.to_transcribed_min is not none %}{{ '%.1f'|format(s.to_transcribed_min) }}m{% else %}--{% endif %}</span></td>
+                                    <td class="py-2 pr-4 text-right"><span class="phase-cell px-2 py-0.5 rounded text-xs font-mono font-bold" data-phase-val="{{ s.to_final_min if s.to_final_min is not none else '' }}">{% if s.to_final_min is not none %}{{ '%.1f'|format(s.to_final_min) }}m{% else %}--{% endif %}</span></td>
+                                    <td class="py-2 text-right"><span class="phase-cell px-2 py-0.5 rounded text-xs font-mono font-bold" data-phase-val="{{ s.total_tat_min if s.total_tat_min is not none else '' }}">{% if s.total_tat_min is not none %}{{ '%.1f'|format(s.total_tat_min) }}m{% else %}--{% endif %}</span></td>
                                 </tr>
                                 {% endfor %}
                             </tbody>
@@ -1243,11 +1094,49 @@
 
                 {% else %}
                 <div class="glass-card text-center py-12 text-zinc-600">
-                    <i class="bi bi-person-badge text-4xl mb-3 block opacity-40"></i>
-                    <p class="italic">No technician completion data available for this period.</p>
-                    <p class="text-[11px] mt-2">Technicians mark exams as "Done" on the <a href="/viewer/live" class="text-blue-400 hover:underline">Live AE Status</a> page.</p>
+                    <i class="bi bi-clock-history text-4xl mb-3 block opacity-40"></i>
+                    <p class="italic">No reporting phase data available for this period.</p>
+                    <p class="text-[11px] mt-2">Ensure studies have <code>insert_time</code> populated from the ETL pipeline.</p>
                 </div>
                 {% endif %}
+
+            </div>
+
+            <!-- ═══════════════════════════════════════════════════════════════ -->
+            <!-- TAB: PATIENT JOURNEY                                            -->
+            <!-- ═══════════════════════════════════════════════════════════════ -->
+            <div id="tab-journey" class="tab-content hidden space-y-6">
+
+                <p class="section-desc">
+                    Trace the full lifecycle of a patient encounter — from order creation through technician exam,
+                    PACS arrival, and each reporting milestone. Enter a Patient ID or Accession Number to begin.
+                </p>
+
+                <!-- Search form -->
+                <div class="glass-card flex flex-wrap items-end gap-4">
+                    <div class="flex flex-col gap-1">
+                        <label class="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Patient ID</label>
+                        <input id="jrn-pid" type="text" placeholder="e.g. 123456"
+                               class="input-dark w-44 font-mono"
+                               onkeydown="if(event.key==='Enter') runJourney()">
+                    </div>
+                    <div class="flex flex-col gap-1">
+                        <label class="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Accession Number</label>
+                        <input id="jrn-acc" type="text" placeholder="e.g. ACC2024001234"
+                               class="input-dark w-52 font-mono"
+                               onkeydown="if(event.key==='Enter') runJourney()">
+                    </div>
+                    <button onclick="runJourney()"
+                            class="px-5 py-2.5 bg-blue-500/20 border border-blue-500/30 rounded-xl text-xs font-black text-blue-400 hover:bg-blue-500/30 transition-colors flex items-center gap-2">
+                        <i class="bi bi-search"></i> Trace Journey
+                    </button>
+                    <div id="jrn-spinner" class="hidden text-xs text-zinc-500 flex items-center gap-2">
+                        <i class="bi bi-arrow-repeat animate-spin"></i> Loading…
+                    </div>
+                </div>
+
+                <!-- Results -->
+                <div id="jrn-results"></div>
 
             </div>
 
@@ -1337,6 +1226,29 @@
             if (t === 'clinical' && window._spCharts) {
                 window._spCharts.forEach(function(c) { try { c.resize(); } catch(e){} });
             }
+            if (t === 'technicians') {
+                applyPhaseColors();
+            }
+        }
+
+        function applyPhaseColors() {
+            const t = parseFloat(document.getElementById('phase-threshold')?.value) || 60;
+            document.querySelectorAll('.phase-cell, .phase-kpi').forEach(el => {
+                const v = parseFloat(el.dataset.phaseVal);
+                el.classList.remove(
+                    'text-emerald-400', 'text-amber-400', 'text-rose-400', 'text-zinc-500',
+                    'bg-emerald-500/10', 'bg-amber-500/10', 'bg-rose-500/10'
+                );
+                if (isNaN(v) || v <= 0) {
+                    el.classList.add('text-zinc-500');
+                } else if (v <= t) {
+                    el.classList.add('text-emerald-400', 'bg-emerald-500/10');
+                } else if (v <= t * 2) {
+                    el.classList.add('text-amber-400', 'bg-amber-500/10');
+                } else {
+                    el.classList.add('text-rose-400', 'bg-rose-500/10');
+                }
+            });
         }
 
         // ── Chart rendering ──────────────────────────────────────────────────
@@ -1731,207 +1643,140 @@
                 }
             }
 
-            // ── Technician Charts ────────────────────────────────────────────
-            if (d.tech_data && d.tech_data.summary && d.tech_data.summary.total_completed > 0) {
+        }
 
-                // Procedure: Actual vs Expected
-                const procEl = document.getElementById('chart-tech-proc');
-                if (procEl && d.tech_data.by_procedure && d.tech_data.by_procedure.length > 0) {
-                    const procs = d.tech_data.by_procedure.sort((a,b) => b.count - a.count).slice(0, 20);
-                    const cProc = echarts.init(procEl, 'dark');
-                    cProc.setOption({
-                        backgroundColor: 'transparent',
-                        tooltip: {
-                            trigger: 'axis',
-                            axisPointer: { type: 'shadow' },
-                            formatter: function(ps) {
-                                let s = '<b>' + ps[0].name + '</b><br/>';
-                                ps.forEach(p => s += p.marker + ' ' + p.seriesName + ': ' + p.value + 'm<br/>');
-                                const proc = procs[ps[0].dataIndex];
-                                if (proc) {
-                                    s += '<span style="color:#71717a">' + proc.count + ' exams · ' + proc.modality + '</span>';
-                                    if (proc.avg_raw && proc.avg_raw !== proc.avg_actual)
-                                        s += '<br/><span style="color:#a78bfa">Raw avg: ' + proc.avg_raw + 'm</span>';
-                                    if (proc.er_affected > 0)
-                                        s += '<br/><span style="color:#a78bfa">' + proc.er_affected + ' ER-affected exams</span>';
-                                }
-                                return s;
-                            }
-                        },
-                        legend: { data: ['Adj. Avg', 'Expected'], textStyle: { color: '#71717a' }, top: 0 },
-                        grid: { left: 10, right: 30, bottom: 0, top: 40, containLabel: true },
-                        yAxis: {
-                            type: 'category',
-                            data: procs.map(p => p.text ? p.text.substring(0, 30) : p.code),
-                            axisLabel: { color: '#52525b', fontSize: 10 },
-                            axisTick: { show: false },
-                            axisLine: { show: false }
-                        },
-                        xAxis: {
-                            type: 'value',
-                            name: 'Minutes',
-                            axisLabel: axisStyle.axisLabel,
-                            splitLine: axisStyle.splitLine
-                        },
-                        series: [
-                            {
-                                name: 'Adj. Avg', type: 'bar',
-                                data: procs.map(p => p.avg_actual),
-                                itemStyle: {
-                                    borderRadius: [0, 4, 4, 0],
-                                    color: function(params) {
-                                        const proc = procs[params.dataIndex];
-                                        if (!proc) return '#3b82f6';
-                                        const ratio = proc.avg_actual / (proc.expected || 15);
-                                        if (ratio < 0.5) return '#f59e0b';
-                                        if (ratio > 2.0) return '#ef4444';
-                                        return '#22c55e';
-                                    }
-                                }
-                            },
-                            {
-                                name: 'Expected', type: 'bar',
-                                data: procs.map(p => p.expected),
-                                itemStyle: { borderRadius: [0, 4, 4, 0], color: 'rgba(255,255,255,0.08)' },
-                                barGap: '-100%', z: 0
-                            }
-                        ]
-                    });
-                    registerChart('chart-tech-proc', cProc);
-                }
+        // Apply phase color highlights whenever technicians tab is visible
+        if (!$('#tab-technicians').hasClass('hidden')) {
+            applyPhaseColors();
+        }
 
-                // Technician Comparison Bar
-                const techEl = document.getElementById('chart-tech-compare');
-                if (techEl && d.tech_data.technicians && d.tech_data.technicians.length > 0) {
-                    const sorted = [...d.tech_data.technicians].sort((a,b) => a.avg_min - b.avg_min);
-                    const cTech = echarts.init(techEl, 'dark');
-                    cTech.setOption({
-                        backgroundColor: 'transparent',
-                        tooltip: {
-                            trigger: 'axis',
-                            formatter: function(ps) {
-                                const t = sorted[ps[0].dataIndex];
-                                let s = '<b>' + t.name + '</b><br/>' +
-                                    'Adj: ' + t.avg_min + 'm · Raw: ' + (t.avg_raw_min || t.avg_min) + 'm · Median: ' + t.median_min + 'm<br/>' +
-                                    t.total_exams + ' exams · ' + t.too_short + ' short · ' + t.too_long + ' long';
-                                if (t.er_delayed > 0) s += ' · <span style="color:#a78bfa">' + t.er_delayed + ' ER delayed</span>';
-                                if (t.er_affected > 0) s += '<br/><span style="color:#a78bfa">' + t.total_er_delay + 'm total ER delay</span>';
-                                return s;
-                            }
-                        },
-                        grid: { left: 10, right: 30, bottom: 0, top: 10, containLabel: true },
-                        yAxis: {
-                            type: 'category',
-                            data: sorted.map(t => t.name),
-                            axisLabel: { color: '#52525b', fontSize: 11, fontWeight: 700 },
-                            axisTick: { show: false },
-                            axisLine: { show: false }
-                        },
-                        xAxis: {
-                            type: 'value', name: 'Avg Minutes',
-                            axisLabel: axisStyle.axisLabel,
-                            splitLine: axisStyle.splitLine
-                        },
-                        series: [{
-                            type: 'bar',
-                            data: sorted.map(t => ({
-                                value: t.avg_min,
-                                itemStyle: {
-                                    borderRadius: [0, 6, 6, 0],
-                                    color: t.too_long > t.total_exams * 0.2 ? '#ef4444' :
-                                           t.too_short > t.total_exams * 0.2 ? '#f59e0b' : '#3b82f6'
-                                }
-                            })),
-                            label: { show: true, position: 'right', color: '#71717a', fontSize: 10, formatter: p => p.value + 'm' }
-                        }]
-                    });
-                    registerChart('chart-tech-compare', cTech);
-                }
-
-                // ── Sankey: Technician → Modality ────────────────────────
-                const sankeyEl = document.getElementById('chart-tech-sankey');
-                if (sankeyEl && d.tech_data && d.tech_data.sankey && d.tech_data.sankey.links.length > 0) {
-                    const cSankey = echarts.init(sankeyEl);
-                    const modalities = [...new Set(d.tech_data.sankey.links.map(l => l.target))];
-                    const modColors = {};
-                    const palette = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#06b6d4','#84cc16','#f97316','#6366f1'];
-                    modalities.forEach((m, i) => modColors[m] = palette[i % palette.length]);
-
-                    cSankey.setOption({
-                        tooltip: { trigger: 'item', formatter: p => {
-                            if (p.dataType === 'edge') return `${p.data.source} → ${p.data.target}: ${p.data.value} exams`;
-                            return p.name;
-                        }},
-                        series: [{
-                            type: 'sankey',
-                            layout: 'none',
-                            emphasis: { focus: 'adjacency' },
-                            nodeAlign: 'left',
-                            nodeGap: 12,
-                            nodeWidth: 20,
-                            lineStyle: { color: 'gradient', opacity: 0.4, curveness: 0.5 },
-                            label: { color: '#d4d4d8', fontSize: 11, fontWeight: 'bold' },
-                            itemStyle: { borderWidth: 0 },
-                            data: d.tech_data.sankey.nodes.map(n => ({
-                                name: n.name,
-                                itemStyle: { color: modColors[n.name] || '#3b82f6' }
-                            })),
-                            links: d.tech_data.sankey.links
-                        }]
-                    });
-                    registerChart('chart-tech-sankey', cSankey);
-                }
-
-                // ── Chord/Graph: Modality Transitions ────────────────────
-                const transEl = document.getElementById('chart-tech-transitions');
-                if (transEl && d.tech_data && d.tech_data.transitions && d.tech_data.transitions.length > 0) {
-                    const cTrans = echarts.init(transEl);
-                    const trans = d.tech_data.transitions;
-                    const allMods = [...new Set(trans.flatMap(t => [t.from, t.to]))];
-                    const modColors2 = {};
-                    const pal2 = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#06b6d4','#84cc16','#f97316','#6366f1'];
-                    allMods.forEach((m, i) => modColors2[m] = pal2[i % pal2.length]);
-                    const maxVal = Math.max(...trans.map(t => t.count));
-
-                    const nodes = allMods.map(m => ({
-                        name: m,
-                        symbolSize: 30 + (trans.filter(t => t.from === m || t.to === m).reduce((s, t) => s + t.count, 0) / Math.max(maxVal, 1)) * 30,
-                        itemStyle: { color: modColors2[m] },
-                        label: { show: true, color: '#d4d4d8', fontSize: 12, fontWeight: 'bold' }
-                    }));
-                    const links = trans.map(t => ({
-                        source: t.from,
-                        target: t.to,
-                        value: t.count,
-                        lineStyle: {
-                            width: Math.max(1, (t.count / Math.max(maxVal, 1)) * 10),
-                            color: modColors2[t.from],
-                            opacity: 0.6,
-                            curveness: 0.3
-                        }
-                    }));
-
-                    cTrans.setOption({
-                        tooltip: { formatter: p => {
-                            if (p.dataType === 'edge') return `${p.data.source} → ${p.data.target}: ${p.data.value} rotations`;
-                            return p.name;
-                        }},
-                        series: [{
-                            type: 'graph',
-                            layout: 'circular',
-                            circular: { rotateLabel: true },
-                            roam: true,
-                            emphasis: { focus: 'adjacency', lineStyle: { opacity: 0.8, width: 4 } },
-                            data: nodes,
-                            links: links,
-                            edgeSymbol: ['none', 'arrow'],
-                            edgeSymbolSize: [4, 10],
-                            label: { position: 'right' }
-                        }]
-                    });
-                    registerChart('chart-tech-transitions', cTrans);
-                }
+        // ── Patient Journey ──────────────────────────────────────────────────
+        function runJourney() {
+            const pid = document.getElementById('jrn-pid').value.trim();
+            const acc = document.getElementById('jrn-acc').value.trim();
+            if (!pid && !acc) {
+                document.getElementById('jrn-results').innerHTML =
+                    '<p class="text-xs text-zinc-500 italic">Enter a Patient ID or Accession Number.</p>';
+                return;
             }
+            const spinner = document.getElementById('jrn-spinner');
+            const results = document.getElementById('jrn-results');
+            spinner.classList.remove('hidden');
+            results.innerHTML = '';
+
+            const params = new URLSearchParams();
+            if (pid) params.set('pid', pid);
+            if (acc) params.set('accession', acc);
+
+            fetch('/report/25/patient-journey?' + params.toString())
+                .then(r => r.json())
+                .then(data => {
+                    spinner.classList.add('hidden');
+                    if (data.error) {
+                        results.innerHTML = `<p class="text-xs text-rose-400">${data.error}</p>`;
+                        return;
+                    }
+                    if (!data.studies || data.studies.length === 0) {
+                        results.innerHTML = '<div class="glass-card text-center py-10 text-zinc-600"><i class="bi bi-search text-3xl mb-2 block opacity-30"></i><p class="italic text-sm">No matching studies found.</p></div>';
+                        return;
+                    }
+                    results.innerHTML = data.studies.map(renderStudyJourney).join('');
+                })
+                .catch(e => {
+                    spinner.classList.add('hidden');
+                    results.innerHTML = `<p class="text-xs text-rose-400">Request failed: ${e.message}</p>`;
+                });
+        }
+
+        const JOURNEY_META = {
+            order_received: { icon: 'bi-file-earmark-text',  color: 'text-zinc-400',   bg: 'bg-zinc-500/15',   label: 'Order Received'         },
+            scheduled:      { icon: 'bi-calendar-check',     color: 'text-sky-400',    bg: 'bg-sky-500/15',    label: 'Exam Scheduled'         },
+            tech_done:      { icon: 'bi-person-badge',       color: 'text-violet-400', bg: 'bg-violet-500/15', label: 'Exam Completed (Tech)'  },
+            pacs_in:        { icon: 'bi-hdd-rack',           color: 'text-blue-400',   bg: 'bg-blue-500/15',   label: 'Arrived in PACS'        },
+            prelim:         { icon: 'bi-pencil-square',      color: 'text-amber-400',  bg: 'bg-amber-500/15',  label: 'Preliminary Report'     },
+            transcribed:    { icon: 'bi-keyboard',           color: 'text-orange-400', bg: 'bg-orange-500/15', label: 'Transcribed'            },
+            final:          { icon: 'bi-patch-check-fill',   color: 'text-emerald-400',bg: 'bg-emerald-500/15',label: 'Final Report Signed'    },
+        };
+
+        function fmtTs(ts) {
+            if (!ts) return '--';
+            try {
+                const d = new Date(ts);
+                return d.toLocaleString('en-GB', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
+            } catch(e) { return ts.slice(0, 16); }
+        }
+
+        function fmtGap(min) {
+            if (min === null || min === undefined) return '';
+            const sign = min < 0 ? '−' : '';
+            const abs = Math.abs(min);
+            if (abs < 60) return `${sign}${abs}m`;
+            const h = Math.floor(abs / 60);
+            const m = abs % 60;
+            return m > 0 ? `${sign}${h}h ${m}m` : `${sign}${h}h`;
+        }
+
+        function renderStudyJourney(s) {
+            const meta = [
+                s.study_date, s.modality,
+                s.patient_id   ? `PID: ${s.patient_id}`     : '',
+                s.patient_class ? `Class: ${s.patient_class}` : '',
+                s.patient_location ? `Loc: ${s.patient_location}` : '',
+                s.description,
+            ].filter(Boolean).join(' · ');
+
+            const timeline = s.events.map((ev, i) => {
+                const m = JOURNEY_META[ev.type] || { icon:'bi-dot', color:'text-zinc-500', bg:'bg-zinc-700/30', label: ev.label };
+                const gapHtml = (ev.gap_min !== null && ev.gap_min !== undefined && i > 0)
+                    ? `<div class="flex items-center gap-1 ml-6 my-0.5">
+                           <div class="w-px h-5 bg-white/10 ml-3.5"></div>
+                           <span class="text-[10px] font-mono ${ev.gap_min > 120 ? 'text-rose-400' : ev.gap_min > 60 ? 'text-amber-400' : 'text-zinc-500'}">${fmtGap(ev.gap_min)}</span>
+                       </div>` : (i > 0 ? '<div class="ml-6 my-0.5"><div class="w-px h-4 bg-white/10 ml-3.5"></div></div>' : '');
+
+                return `${gapHtml}
+                <div class="flex items-start gap-3">
+                    <div class="w-8 h-8 rounded-xl ${m.bg} border border-white/5 flex items-center justify-center shrink-0 mt-0.5">
+                        <i class="bi ${m.icon} ${m.color} text-sm"></i>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-baseline gap-2 flex-wrap">
+                            <span class="text-xs font-black ${m.color}">${ev.label || m.label}</span>
+                            ${ev.by ? `<span class="text-[10px] text-zinc-500">by <span class="text-zinc-300 font-bold">${ev.by}</span></span>` : ''}
+                        </div>
+                        <div class="flex items-center gap-3 mt-0.5">
+                            <span class="text-[10px] font-mono text-zinc-500">${fmtTs(ev.ts)}</span>
+                            ${ev.detail ? `<span class="text-[10px] text-zinc-600">${ev.detail}</span>` : ''}
+                        </div>
+                    </div>
+                </div>`;
+            }).join('');
+
+            const totalMin = s.events.length > 1
+                ? (() => {
+                    try {
+                        const first = new Date(s.events[0].ts);
+                        const last  = new Date(s.events[s.events.length - 1].ts);
+                        return Math.round((last - first) / 60000);
+                    } catch(e) { return null; }
+                  })()
+                : null;
+
+            const totalBadge = totalMin !== null
+                ? `<span class="px-2 py-0.5 rounded text-[10px] font-mono font-black ${totalMin > 240 ? 'bg-rose-500/10 border border-rose-500/20 text-rose-400' : totalMin > 120 ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400' : 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400'}">${fmtGap(totalMin)} total</span>`
+                : '';
+
+            return `
+            <div class="glass-card space-y-4">
+                <div class="flex items-start justify-between gap-4">
+                    <div>
+                        <p class="text-sm font-black text-white font-mono">${s.accession}</p>
+                        <p class="text-[10px] text-zinc-500 mt-0.5">${meta}</p>
+                    </div>
+                    ${totalBadge}
+                </div>
+                <div class="space-y-0 pl-1">${timeline}</div>
+                ${s.events.length === 0 ? '<p class="text-xs text-zinc-600 italic">No timeline events found for this study.</p>' : ''}
+            </div>`;
         }
 
         function openShiftConfig() {
