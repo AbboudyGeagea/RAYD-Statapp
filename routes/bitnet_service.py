@@ -105,6 +105,21 @@ _HALLUCINATION_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Lighter scanner for narrative endpoint — only blocks schema leakage,
+# NOT SQL keywords (which appear in normal English: "from", "where", "having", etc.)
+_NARRATIVE_SCHEMA_TOKENS = [
+    "etl_didb_studies", "etl_orders", "etl_didb_raw_images",
+    "etl_image_locations", "etl_didb_serieses", "etl_patient_view",
+    "summary_storage_daily", "aetitle_modality_map", "hl7_orders",
+    "study_db_uid", "storing_ae", "raw_image_db_uid", "series_db_uid",
+    "image_size_kb", "order_dbid", "scheduled_datetime", "has_study",
+    r"```", r"SELECT\s+\w+\s+FROM",   # only block SELECT...FROM as a unit
+]
+_NARRATIVE_RE = re.compile(
+    "|".join(_NARRATIVE_SCHEMA_TOKENS),
+    re.IGNORECASE,
+)
+
 FALLBACK_EN = "I'm sorry, I generated an invalid response. Please rephrase your question."
 FALLBACK_AR = "عذراً، لم أتمكن من توليد إجابة صحيحة. يرجى إعادة صياغة سؤالك."
 
@@ -301,8 +316,8 @@ def narrative():
 
     raw = _run_inference(system, f"Statistics:\n{facts}\n\nWrite the executive summary:", max_tokens=400)
 
-    if _contains_hallucination(raw):
-        logger.warning(f"[BitNet] Hallucination in narrative: {raw[:200]}")
+    if _NARRATIVE_RE.search(raw):
+        logger.warning(f"[BitNet] Schema leak in narrative: {raw[:200]}")
         raw = "Unable to generate narrative — please review the statistics directly."
 
     return jsonify({"narrative": raw})
