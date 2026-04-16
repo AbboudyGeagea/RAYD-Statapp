@@ -294,6 +294,10 @@ def chat():
     return jsonify(payload)
 
 
+# ── Narrative cache (keyed by stats hash, TTL 10 min) ─────────
+_narrative_cache: dict = {}
+NARRATIVE_TTL = 600
+
 # ── Narrative endpoint ────────────────────────────────────────
 @bitnet_bp.route("/ai/narrative", methods=["POST"])
 @login_required
@@ -303,24 +307,31 @@ def narrative():
     if not stats:
         return jsonify({"error": "No stats provided"}), 400
 
+    # Cache check — same stats within 10 min returns instantly
+    cache_key = hashlib.md5(json.dumps(stats, sort_keys=True).encode()).hexdigest()
+    now = time.time()
+    hit = _narrative_cache.get(cache_key)
+    if hit and (now - hit["ts"]) < NARRATIVE_TTL:
+        return jsonify(hit["payload"])
+
     facts_lines = [f"- {k.replace('_', ' ').title()}: {v}" for k, v in stats.items()]
     facts = "\n".join(facts_lines)
 
     system = (
-        "You are a senior radiology department analyst. "
-        "Write a concise 3-paragraph executive summary based only on the provided statistics. "
-        "Focus on key trends, anomalies, and actionable insights. "
-        "Be professional and direct. Never invent numbers not in the provided data. "
-        "Never write SQL or code."
+        "You are a radiology department analyst. "
+        "Write 3 concise sentences summarising the key findings from the statistics below. "
+        "Be direct. Use only the numbers provided. No SQL, no code, no lists."
     )
 
-    raw = _run_inference(system, f"Statistics:\n{facts}\n\nWrite the executive summary:", max_tokens=400)
+    raw = _run_inference(system, f"Statistics:\n{facts}\n\nSummary:", max_tokens=150)
 
     if _NARRATIVE_RE.search(raw):
         logger.warning(f"[BitNet] Schema leak in narrative: {raw[:200]}")
         raw = "Unable to generate narrative — please review the statistics directly."
 
-    return jsonify({"narrative": raw})
+    payload = {"narrative": raw}
+    _narrative_cache[cache_key] = {"payload": payload, "ts": now}
+    return jsonify(payload)
 
 
 # ── WhatsApp generator ────────────────────────────────────────
