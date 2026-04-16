@@ -62,6 +62,11 @@ def report_29():
                 df.groupby("modality")["total_gb"]
                 .sum().sort_values(ascending=False).reset_index()
             )
+            stats["date_range"]        = f"{display_start} to {display_end}"
+            stats["top_modality"]      = mod_df.iloc[0]["modality"] if not mod_df.empty else "N/A"
+            stats["top_modality_gb"]   = round(float(mod_df.iloc[0]["total_gb"]), 1) if not mod_df.empty else 0
+            stats["total_studies"]     = int(df["study_count"].sum())
+            stats["avg_mb_per_study"]  = round(float((df["total_gb"].sum() * 1024) / max(df["study_count"].sum(), 1)), 1)
             modality_bar_json = {
                 "labels": mod_df["modality"].tolist(),
                 "datasets": [{
