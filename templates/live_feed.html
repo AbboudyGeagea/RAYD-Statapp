@@ -154,6 +154,21 @@
         </div>
     </div>
 
+    <!-- ── Orphan Orders Modal ───────────────────────────────────────────────── -->
+    <div id="orphan-modal" class="modal-backdrop hidden">
+        <div class="modal-box" style="width:560px;max-height:80vh;overflow-y:auto;">
+            <div>
+                <h2 class="text-white font-black text-base uppercase tracking-tight leading-none">Unmatched Orders Today</h2>
+                <p class="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Orders with no corresponding study in PACS. Use the Link button on the tile to resolve.</p>
+            </div>
+            <div id="orphan-list" class="flex flex-col gap-3 mt-2"></div>
+            <button onclick="document.getElementById('orphan-modal').classList.add('hidden')"
+                class="w-full border border-[#1a2420] text-slate-500 hover:text-white font-black text-xs uppercase tracking-widest py-3 rounded-xl transition-colors mt-2">
+                Close
+            </button>
+        </div>
+    </div>
+
     <!-- ── Header ──────────────────────────────────────────────────────────── -->
     <header class="live-header sticky top-0 z-50">
         <div class="flex items-center gap-4">
@@ -169,7 +184,7 @@
             <div class="stat-chip"><span class="status-dot dot-busy"></span><span class="text-xs font-black text-green-400" id="cnt-busy">—</span><span class="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Busy</span></div>
             <div class="stat-chip"><span class="status-dot dot-delayed"></span><span class="text-xs font-black text-yellow-400" id="cnt-delayed">—</span><span class="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Delayed</span></div>
             <div class="stat-chip"><span class="status-dot dot-free"></span><span class="text-xs font-black text-slate-400" id="cnt-free">—</span><span class="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Free</span></div>
-            <div class="stat-chip"><span class="status-dot dot-delayed"></span><span class="text-xs font-black text-sky-400" id="cnt-orphan">—</span><span class="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Orphans</span></div>
+            <div class="stat-chip" id="orphan-chip" onclick="openOrphanModal()" style="cursor:pointer;" title="Click to see unmatched orders"><span class="status-dot dot-delayed"></span><span class="text-xs font-black text-sky-400" id="cnt-orphan">—</span><span class="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Orphans</span></div>
         </div>
 
         <!-- Clock, SSE indicator, refresh button, countdown ring -->
@@ -214,6 +229,53 @@
             <div class="ae-tile tile-free animate-pulse" style="height:160px;"></div>
             <div class="ae-tile tile-free animate-pulse" style="height:160px;"></div>
             <div class="ae-tile tile-free animate-pulse" style="height:160px;"></div>
+        </div>
+
+        <!-- ── Patient Waiting Time TAT ───────────────────────────────────── -->
+        <div id="tat-panel" class="mt-6" style="display:none;">
+            <div style="background:#111714;border:1px solid #1a2420;border-radius:16px;padding:20px;">
+                <div class="flex items-center justify-between mb-4">
+                    <div>
+                        <h2 style="color:#e2e8f0;font-weight:900;font-size:13px;text-transform:uppercase;letter-spacing:0.08em;">Patient Waiting Time — Today</h2>
+                        <p style="color:#475569;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.15em;margin-top:2px;">Scheduled → Exam Completed</p>
+                    </div>
+                    <div class="flex gap-4" id="tat-stats">
+                        <div style="text-align:center;">
+                            <p style="font-size:22px;font-weight:900;color:#60a5fa;" id="tat-avg">—</p>
+                            <p style="font-size:9px;font-weight:900;color:#475569;text-transform:uppercase;letter-spacing:0.12em;">Avg min</p>
+                        </div>
+                        <div style="text-align:center;">
+                            <p style="font-size:22px;font-weight:900;color:#4ade80;" id="tat-min">—</p>
+                            <p style="font-size:9px;font-weight:900;color:#475569;text-transform:uppercase;letter-spacing:0.12em;">Min</p>
+                        </div>
+                        <div style="text-align:center;">
+                            <p style="font-size:22px;font-weight:900;color:#f87171;" id="tat-max">—</p>
+                            <p style="font-size:9px;font-weight:900;color:#475569;text-transform:uppercase;letter-spacing:0.12em;">Max</p>
+                        </div>
+                        <div style="text-align:center;">
+                            <p style="font-size:22px;font-weight:900;color:#94a3b8;" id="tat-count">—</p>
+                            <p style="font-size:9px;font-weight:900;color:#475569;text-transform:uppercase;letter-spacing:0.12em;">Exams</p>
+                        </div>
+                    </div>
+                </div>
+                <div style="overflow-x:auto;">
+                    <table style="width:100%;font-size:11px;border-collapse:collapse;" id="tat-table">
+                        <thead>
+                            <tr style="border-bottom:1px solid #1a2420;color:#60a5fa;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.18em;">
+                                <th style="padding:6px 10px;text-align:left;">Patient</th>
+                                <th style="padding:6px 10px;text-align:left;">Accession</th>
+                                <th style="padding:6px 10px;text-align:left;">Procedure</th>
+                                <th style="padding:6px 10px;text-align:left;">Modality</th>
+                                <th style="padding:6px 10px;text-align:left;">Scheduled</th>
+                                <th style="padding:6px 10px;text-align:left;">Done</th>
+                                <th style="padding:6px 10px;text-align:left;">By</th>
+                                <th style="padding:6px 10px;text-align:right;">Wait (min)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tat-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -548,7 +610,7 @@ async function dismissOrder(messageId) {
             body:    JSON.stringify({ message_id: messageId }),
         });
         const data = await res.json();
-        if (data.ok) loadStatus();
+        if (data.ok) { loadStatus(); loadTat(); }
         else console.error('Dismiss error:', data.error);
     } catch(e) { console.error('Dismiss failed:', e); }
 }
@@ -569,8 +631,68 @@ function escHtml(s) {
     return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// ── Patient Waiting Time TAT ──────────────────────────────────────────
+async function loadTat() {
+    try {
+        const res  = await fetch('/viewer/live/tat');
+        const data = await res.json();
+        if (data.error || !data.count) { document.getElementById('tat-panel').style.display = 'none'; return; }
+
+        document.getElementById('tat-panel').style.display = 'block';
+        document.getElementById('tat-avg').textContent   = data.avg_wait != null ? data.avg_wait : '—';
+        document.getElementById('tat-min').textContent   = data.min_wait != null ? data.min_wait : '—';
+        document.getElementById('tat-max').textContent   = data.max_wait != null ? data.max_wait : '—';
+        document.getElementById('tat-count').textContent = data.count;
+
+        const tbody = document.getElementById('tat-tbody');
+        tbody.innerHTML = data.exams.map(e => {
+            const mins = e.wait_minutes;
+            const color = mins <= 30 ? '#4ade80' : mins <= 60 ? '#fbbf24' : '#f87171';
+            return `<tr style="border-bottom:1px solid #1a2420;">
+                <td style="padding:7px 10px;color:#94a3b8;font-family:monospace;">${escHtml(e.patient_id)}</td>
+                <td style="padding:7px 10px;color:#64748b;font-family:monospace;font-size:10px;">${escHtml(e.accession_number)}</td>
+                <td style="padding:7px 10px;color:#94a3b8;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHtml(e.procedure_text)}">${escHtml(e.procedure_text)}</td>
+                <td style="padding:7px 10px;"><span style="background:#1e293b;color:#94a3b8;border-radius:4px;padding:2px 7px;font-size:9px;font-weight:700;">${escHtml(e.modality)}</span></td>
+                <td style="padding:7px 10px;color:#64748b;font-family:monospace;">${escHtml(e.scheduled_at)}</td>
+                <td style="padding:7px 10px;color:#64748b;font-family:monospace;">${escHtml(e.done_at)}</td>
+                <td style="padding:7px 10px;color:#64748b;font-size:10px;">${escHtml(e.done_by)}</td>
+                <td style="padding:7px 10px;text-align:right;font-weight:900;color:${color};">${mins}</td>
+            </tr>`;
+        }).join('');
+    } catch(e) { console.error('TAT load failed:', e); }
+}
+
+// ── Orphan Orders Modal ───────────────────────────────────────────────
+async function openOrphanModal() {
+    const count = parseInt(document.getElementById('cnt-orphan').textContent) || 0;
+    if (count === 0) return;
+    try {
+        const res  = await fetch('/viewer/live/orphans');
+        const data = await res.json();
+        const list = document.getElementById('orphan-list');
+        if (!data.orphans || data.orphans.length === 0) {
+            list.innerHTML = '<p style="color:#475569;font-size:12px;">No unmatched orders right now.</p>';
+        } else {
+            list.innerHTML = data.orphans.map(o => `
+                <div style="background:#0d1117;border:1px solid #f97316;border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:4px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <span style="font-family:monospace;font-weight:900;color:#f97316;font-size:12px;">${escHtml(o.patient_id)}</span>
+                        <span style="font-size:9px;font-weight:900;background:rgba(249,115,22,0.12);color:#f97316;border:1px solid rgba(249,115,22,0.25);border-radius:4px;padding:2px 7px;text-transform:uppercase;">${escHtml(o.modality)}</span>
+                    </div>
+                    <span style="color:#64748b;font-family:monospace;font-size:10px;">${escHtml(o.accession_number)} · Scheduled ${escHtml(o.scheduled_at)}</span>
+                    <span style="color:#94a3b8;font-size:11px;">${escHtml(o.procedure_text)}</span>
+                </div>`).join('');
+        }
+        document.getElementById('orphan-modal').classList.remove('hidden');
+    } catch(e) { console.error('Orphan load failed:', e); }
+}
+document.getElementById('orphan-modal').addEventListener('click', function(e) {
+    if (e.target === this) this.classList.add('hidden');
+});
+
 // ── Boot ──────────────────────────────────────────────────────────────
 loadStatus();
+loadTat();
 startSSE();
 
 function applyTheme(theme) {

@@ -222,6 +222,119 @@ def live_status():
         return jsonify({"error": str(e)}), 500
 
 
+# ── API — Patient Waiting Time TAT ───────────────────────────────────────────
+@live_feed_bp.route("/viewer/live/tat")
+@login_required
+def live_tat():
+    """
+    Returns today's completed exam TAT stats.
+    TAT = done_at − scheduled_datetime (clock starts when the order was scheduled).
+    """
+    if not user_has_page(current_user, 'live_feed'):
+        abort(403)
+    try:
+        rows = db.session.execute(text("""
+            SELECT
+                o.message_id,
+                o.patient_id,
+                o.accession_number,
+                o.procedure_text,
+                o.modality,
+                o.scheduled_datetime,
+                o.done_at,
+                o.done_by,
+                EXTRACT(EPOCH FROM (o.done_at - o.scheduled_datetime)) / 60.0 AS wait_minutes
+            FROM hl7_orders o
+            WHERE o.done_at::date = CURRENT_DATE
+              AND o.scheduled_datetime IS NOT NULL
+              AND o.done_at IS NOT NULL
+              AND o.done_at > o.scheduled_datetime
+            ORDER BY o.done_at DESC
+        """)).mappings().fetchall()
+
+        exams = []
+        for r in rows:
+            mins = float(r["wait_minutes"] or 0)
+            exams.append({
+                "message_id":       r["message_id"],
+                "patient_id":       r["patient_id"] or "—",
+                "accession_number": r["accession_number"] or "—",
+                "procedure_text":   r["procedure_text"] or "—",
+                "modality":         r["modality"] or "—",
+                "scheduled_at":     r["scheduled_datetime"].strftime("%H:%M") if r["scheduled_datetime"] else "—",
+                "done_at":          r["done_at"].strftime("%H:%M") if r["done_at"] else "—",
+                "done_by":          r["done_by"] or "—",
+                "wait_minutes":     round(mins, 1),
+            })
+
+        if exams:
+            wait_vals = [e["wait_minutes"] for e in exams]
+            avg_wait  = round(sum(wait_vals) / len(wait_vals), 1)
+            min_wait  = round(min(wait_vals), 1)
+            max_wait  = round(max(wait_vals), 1)
+        else:
+            avg_wait = min_wait = max_wait = None
+
+        return jsonify({
+            "exams":     exams,
+            "count":     len(exams),
+            "avg_wait":  avg_wait,
+            "min_wait":  min_wait,
+            "max_wait":  max_wait,
+        })
+
+    except Exception as e:
+        logger.error(f"TAT error: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+# ── API — orphan order details ────────────────────────────────────────────────
+@live_feed_bp.route("/viewer/live/orphans")
+@login_required
+def live_orphans():
+    """Returns today's unmatched HL7 orders (no study, not linked, not cancelled)."""
+    if not user_has_page(current_user, 'live_feed'):
+        abort(403)
+    try:
+        rows = db.session.execute(text("""
+            SELECT
+                o.message_id,
+                o.patient_id,
+                o.accession_number,
+                o.procedure_text,
+                o.procedure_code,
+                o.modality,
+                COALESCE(o.scheduled_datetime, o.received_at) AS scheduled_datetime
+            FROM hl7_orders o
+            LEFT JOIN etl_didb_studies s ON s.accession_number = o.accession_number
+            WHERE (
+                (o.scheduled_datetime >= CURRENT_DATE AND o.scheduled_datetime < CURRENT_DATE + INTERVAL '1 day')
+                OR
+                (o.scheduled_datetime IS NULL AND o.received_at >= CURRENT_DATE AND o.received_at < CURRENT_DATE + INTERVAL '1 day')
+            )
+              AND COALESCE(o.order_status, '') NOT IN ('CA', 'CM')
+              AND s.accession_number IS NULL
+              AND o.linked_accession_number IS NULL
+              AND o.linked_study_db_uid IS NULL
+            ORDER BY COALESCE(o.scheduled_datetime, o.received_at)
+        """)).mappings().fetchall()
+
+        orphans = [{
+            "message_id":       r["message_id"],
+            "patient_id":       r["patient_id"] or "—",
+            "accession_number": r["accession_number"] or "—",
+            "procedure_text":   r["procedure_text"] or r["procedure_code"] or "—",
+            "modality":         r["modality"] or "—",
+            "scheduled_at":     r["scheduled_datetime"].strftime("%H:%M") if r["scheduled_datetime"] else "—",
+        } for r in rows]
+
+        return jsonify({"orphans": orphans, "count": len(orphans)})
+
+    except Exception as e:
+        logger.error(f"Orphans error: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
 # ── API — lightweight version check (SSE fallback) ───────────────────────────
 @live_feed_bp.route("/viewer/live/version")
 @login_required
