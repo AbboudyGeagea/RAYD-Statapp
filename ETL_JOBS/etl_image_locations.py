@@ -55,8 +55,15 @@ def run_images_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, stud
             batch_size  = ETL_GEAR.get("batch_size", 5000)
             chunk_size  = 1000
 
+            # Pre-load valid raw_image_db_uid values from PG to prevent FK violations.
+            with pg_engine.connect() as _c:
+                _rows = _c.execute(text("SELECT raw_image_db_uid FROM etl_didb_raw_images")).fetchall()
+            valid_raw_ids = {r[0] for r in _rows}
+            logging.info(f"Image Locations ETL: {len(valid_raw_ids):,} valid raw image IDs loaded from PG")
+
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures = []
+                futures  = []
+                skipped_fk = 0
 
                 for i in range(0, len(study_uid_whitelist), chunk_size):
                     chunk  = study_uid_whitelist[i : i + chunk_size]
@@ -93,13 +100,18 @@ def run_images_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, stud
                         batch = cursor.fetchmany(batch_size)
                         if not batch:
                             break
+                        # raw_image_db_uid is index 0 — skip rows whose parent doesn't exist in PG
+                        clean = [r for r in batch if r[0] in valid_raw_ids]
+                        skipped_fk += len(batch) - len(clean)
+                        if not clean:
+                            continue
                         futures.append(
                             executor.submit(
                                 chunked_upsert_func,
-                                pg_engine, pg_table, col_names, batch, 'raw_image_db_uid'
+                                pg_engine, pg_table, col_names, clean, 'raw_image_db_uid'
                             )
                         )
-                        total_rows += len(batch)
+                        total_rows += len(clean)
 
                         # Backpressure — drain every 4× workers
                         if len(futures) >= max_workers * 4:

@@ -146,6 +146,21 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
             cursor.execute(query, {'gd': gd_str, 'max_id': max_uid, 'lb': lookback_date})
 
         # ── Batch fetch & upsert ─────────────────────────────────────────────
+        # Bigint columns by index (study_db_uid=0, patient_db_uid=1).
+        # Oracle occasionally stores corrupt values like "R3" in these columns.
+        BIGINT_COLS = {0, 1}
+
+        def _is_valid_row(row):
+            for idx in BIGINT_COLS:
+                val = row[idx]
+                if val is None:
+                    continue
+                try:
+                    int(val)
+                except (TypeError, ValueError):
+                    return False
+            return True
+
         batch_num  = 0
         skipped_pk = 0
         while True:
@@ -154,23 +169,15 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
                 break
             batch_num += 1
 
-            # Guard: study_db_uid (index 0) must be a valid integer — Oracle
-            # occasionally has corrupted PKs like "R3". Skip those rows.
-            clean = []
-            for row in batch:
-                try:
-                    int(row[0])
-                    clean.append(row)
-                except (TypeError, ValueError):
-                    skipped_pk += 1
-                    logging.warning(f"[Studies ETL] Skipping bad study_db_uid: {row[0]!r}")
+            clean = [row for row in batch if _is_valid_row(row)]
+            skipped_pk += len(batch) - len(clean)
 
             if clean:
                 processed_uids.extend([row[0] for row in clean])
                 chunked_upsert_func(pg_engine, pg_table, col_names, clean, 'study_db_uid')
                 total_rows += len(clean)
 
-            print(f"[Studies ETL] 📦 Batch {batch_num} — {total_rows:,} rows so far, {skipped_pk} bad PKs skipped")
+            print(f"[Studies ETL] 📦 Batch {batch_num} — {total_rows:,} rows so far, {skipped_pk} bad rows skipped")
 
         status = "SUCCESS"
         cursor.close()
