@@ -146,38 +146,39 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
             cursor.execute(query, {'gd': gd_str, 'max_id': max_uid, 'lb': lookback_date})
 
         # ── Batch fetch & upsert ─────────────────────────────────────────────
-        # Bigint columns by index (study_db_uid=0, patient_db_uid=1).
-        # Oracle occasionally stores corrupt values like "R3" in these columns.
-        BIGINT_COLS = {0, 1}
+        # Strategy: attempt bulk upsert first (fast path).
+        # If the batch contains any corrupt Oracle value (e.g. "R3" in a bigint
+        # column), PostgreSQL will reject the whole batch. Fall back to row-by-row
+        # insertion so only the single bad row is dropped, not the entire batch.
+        batch_num   = 0
+        skipped_bad = 0
 
-        def _is_valid_row(row):
-            for idx in BIGINT_COLS:
-                val = row[idx]
-                if val is None:
-                    continue
-                try:
-                    int(val)
-                except (TypeError, ValueError):
-                    return False
-            return True
+        def _upsert_row(row):
+            chunked_upsert_func(pg_engine, pg_table, col_names, [row], 'study_db_uid')
 
-        batch_num  = 0
-        skipped_pk = 0
         while True:
             batch = cursor.fetchmany(1000)
             if not batch:
                 break
             batch_num += 1
 
-            clean = [row for row in batch if _is_valid_row(row)]
-            skipped_pk += len(batch) - len(clean)
+            try:
+                # Fast path — bulk insert the whole batch
+                chunked_upsert_func(pg_engine, pg_table, col_names, batch, 'study_db_uid')
+                processed_uids.extend([row[0] for row in batch])
+                total_rows += len(batch)
+            except Exception:
+                # Slow path — one row at a time, skip only the bad ones
+                for row in batch:
+                    try:
+                        _upsert_row(row)
+                        processed_uids.append(row[0])
+                        total_rows += 1
+                    except Exception as row_err:
+                        skipped_bad += 1
+                        logging.warning(f"[Studies ETL] Skipping bad row (uid={row[0]!r}): {row_err}")
 
-            if clean:
-                processed_uids.extend([row[0] for row in clean])
-                chunked_upsert_func(pg_engine, pg_table, col_names, clean, 'study_db_uid')
-                total_rows += len(clean)
-
-            print(f"[Studies ETL] 📦 Batch {batch_num} — {total_rows:,} rows so far, {skipped_pk} bad rows skipped")
+            print(f"[Studies ETL] 📦 Batch {batch_num} — {total_rows:,} rows so far, {skipped_bad} bad rows skipped")
 
         status = "SUCCESS"
         cursor.close()
