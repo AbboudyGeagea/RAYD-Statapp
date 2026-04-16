@@ -31,37 +31,51 @@ def run_series_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, stud
         # so the DB record is updated with the end_time.
     else:
         # --- Extraction Logic ---
+        # Pre-load valid study IDs already in PG to guard against FK violations.
+        # Oracle sometimes returns series for study_db_uid values that failed to
+        # insert in Phase 1 (e.g. corrupt PKs like "R3" that were skipped).
+        with pg_engine.connect() as _c:
+            _rows = _c.execute(text("SELECT study_db_uid FROM etl_didb_studies")).fetchall()
+        valid_study_ids = {r[0] for r in _rows}
+        logging.info(f"Series ETL: {len(valid_study_ids):,} valid study IDs loaded from PG")
+
         ora_conn = OracleConnector.get_connection(oracle_source)
         cursor = ora_conn.cursor()
         try:
             col_names = [
-                'series_db_uid', 'study_db_uid', 'patient_db_uid', 'study_instance_uid', 
+                'series_db_uid', 'study_db_uid', 'patient_db_uid', 'study_instance_uid',
                 'series_instance_uid', 'series_number', 'modality', 'number_of_series_images',
                 'body_part_examined', 'protocol_name', 'series_description', 'series_icon_blob_len',
                 'institution_name', 'station_name', 'manufacturer', 'institutional_department_name',
                 'last_update'
             ]
 
+            skipped_fk = 0
             for i in range(0, len(study_uid_whitelist), 1000):
                 chunk = study_uid_whitelist[i:i+1000]
                 binds = [f":id{j}" for j in range(len(chunk))]
                 query = f"""
-                    SELECT series_db_uid, study_db_uid, patient_db_uid, study_instance_uid, 
+                    SELECT series_db_uid, study_db_uid, patient_db_uid, study_instance_uid,
                     series_instance_uid, series_number, modality, number_of_series_images,
                     body_part_examined, protocol_name, series_description, series_icon_blob_len,
                     institution_name, station_name, manufacturer, institutional_department_name,
-                    CURRENT_TIMESTAMP FROM medistore.didb_serieses 
+                    CURRENT_TIMESTAMP FROM medistore.didb_serieses
                     WHERE study_db_uid IN ({','.join(binds)})
                 """
                 params = dict(zip([b.strip(':') for b in binds], chunk))
                 cursor.execute(query, params)
-                
+
                 while True:
                     batch = cursor.fetchmany(1000)
                     if not batch: break
-                    chunked_upsert_func(pg_engine, pg_table, col_names, batch, 'series_db_uid')
-                    total_rows += len(batch)
-            
+                    # study_db_uid is index 1 — skip rows whose parent study isn't in PG
+                    clean = [r for r in batch if r[1] in valid_study_ids]
+                    skipped_fk += len(batch) - len(clean)
+                    if clean:
+                        chunked_upsert_func(pg_engine, pg_table, col_names, clean, 'series_db_uid')
+                        total_rows += len(clean)
+
+            logging.info(f"Series ETL: {skipped_fk} rows skipped (orphan study FK)")
             status = "SUCCESS"
         except Exception as exc:
             status = "FAILED"

@@ -146,16 +146,31 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
             cursor.execute(query, {'gd': gd_str, 'max_id': max_uid, 'lb': lookback_date})
 
         # ── Batch fetch & upsert ─────────────────────────────────────────────
-        batch_num = 0
+        batch_num  = 0
+        skipped_pk = 0
         while True:
             batch = cursor.fetchmany(1000)
             if not batch:
                 break
             batch_num += 1
-            processed_uids.extend([row[0] for row in batch])
-            chunked_upsert_func(pg_engine, pg_table, col_names, batch, 'study_db_uid')
-            total_rows += len(batch)
-            print(f"[Studies ETL] 📦 Batch {batch_num} — {total_rows:,} rows so far...")
+
+            # Guard: study_db_uid (index 0) must be a valid integer — Oracle
+            # occasionally has corrupted PKs like "R3". Skip those rows.
+            clean = []
+            for row in batch:
+                try:
+                    int(row[0])
+                    clean.append(row)
+                except (TypeError, ValueError):
+                    skipped_pk += 1
+                    logging.warning(f"[Studies ETL] Skipping bad study_db_uid: {row[0]!r}")
+
+            if clean:
+                processed_uids.extend([row[0] for row in clean])
+                chunked_upsert_func(pg_engine, pg_table, col_names, clean, 'study_db_uid')
+                total_rows += len(clean)
+
+            print(f"[Studies ETL] 📦 Batch {batch_num} — {total_rows:,} rows so far, {skipped_pk} bad PKs skipped")
 
         status = "SUCCESS"
         cursor.close()
