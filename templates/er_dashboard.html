@@ -146,25 +146,11 @@
                 <div id="chart-radiologist" style="height:280px;"></div>
             </div>
 
-            <!-- SLA Breach Table -->
+            <!-- SLA Breach Heatmap -->
             <div id="breach-section" class="hidden">
-                <p class="section-title"><i class="bi bi-shield-exclamation mr-1"></i> SLA Breach Log</p>
-                <div class="card overflow-hidden">
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-left">
-                            <thead>
-                                <tr class="border-b border-[#28332e] text-[#f43f5e] text-[10px] uppercase tracking-widest font-black">
-                                    <th class="pb-3 px-4 pt-3">Accession</th>
-                                    <th class="pb-3 px-4 pt-3">Date</th>
-                                    <th class="pb-3 px-4 pt-3">Modality</th>
-                                    <th class="pb-3 px-4 pt-3">Radiologist</th>
-                                    <th class="pb-3 px-4 pt-3">TAT</th>
-                                    <th class="pb-3 px-4 pt-3">Over SLA by</th>
-                                </tr>
-                            </thead>
-                            <tbody id="breach-body" class="divide-y divide-[#28332e] text-sm"></tbody>
-                        </table>
-                    </div>
+                <p class="section-title"><i class="bi bi-shield-exclamation mr-1"></i> SLA Breach Heatmap — Radiologist × Modality</p>
+                <div class="card">
+                    <div id="breach-heatmap" style="height:320px;"></div>
                 </div>
             </div>
 
@@ -394,17 +380,63 @@ function renderBreaches(rows, sla) {
     const sec = document.getElementById('breach-section');
     if (!rows.length) { sec.classList.add('hidden'); return; }
     sec.classList.remove('hidden');
-    document.getElementById('breach-body').innerHTML = rows.map(r => {
-        const over = Math.round(r.tat_min - sla);
-        return `<tr class="hover:bg-[#1d2522]/50">
-            <td class="py-3 px-4 font-mono text-xs text-slate-300">${r.accession_number || '—'}</td>
-            <td class="py-3 px-4 text-xs text-slate-400">${r.study_date}</td>
-            <td class="py-3 px-4 text-xs font-bold text-white">${r.modality}</td>
-            <td class="py-3 px-4 text-xs text-slate-300">${r.radiologist}</td>
-            <td class="py-3 px-4 text-xs font-black text-red-400">${fmtMin(r.tat_min)}</td>
-            <td class="py-3 px-4 text-xs font-bold text-amber-400">+${fmtMin(over)}</td>
-        </tr>`;
-    }).join('');
+
+    const radiologists = [...new Set(rows.map(r => r.radiologist))];
+    const modalities   = [...new Set(rows.map(r => r.modality))];
+
+    // Build [modIdx, radIdx, count] data for heatmap
+    const data = rows.map(r => [
+        modalities.indexOf(r.modality),
+        radiologists.indexOf(r.radiologist),
+        r.breach_count,
+        r.avg_over_sla_min,
+        r.worst_tat_min,
+    ]);
+    const maxCount = Math.max(...rows.map(r => r.breach_count));
+
+    const chart = ec('breach-heatmap');
+    chart.setOption({
+        backgroundColor: '#181f1c',
+        tooltip: {
+            formatter: p => {
+                const d = p.data;
+                return `<b>${radiologists[d[1]]}</b><br/>
+                        Modality: <b>${modalities[d[0]]}</b><br/>
+                        Breaches: <b style="color:#f43f5e">${d[2]}</b><br/>
+                        Avg over SLA: <b>+${fmtMin(d[3])}</b><br/>
+                        Worst TAT: <b>${fmtMin(d[4])}</b>`;
+            }
+        },
+        grid: { top: 20, bottom: 60, left: 140, right: 60 },
+        xAxis: {
+            type: 'category', data: modalities,
+            axisLabel: { color: '#94a3b8', fontSize: 11, fontWeight: 'bold' },
+            axisLine: { lineStyle: { color: '#28332e' } },
+            splitLine: { lineStyle: { color: '#1e2a26' } },
+        },
+        yAxis: {
+            type: 'category', data: radiologists,
+            axisLabel: { color: '#94a3b8', fontSize: 11 },
+            axisLine: { lineStyle: { color: '#28332e' } },
+            splitLine: { lineStyle: { color: '#1e2a26' } },
+        },
+        visualMap: {
+            min: 1, max: maxCount,
+            calculable: false, orient: 'horizontal',
+            left: 'center', bottom: 0,
+            inRange: { color: ['#3d1a1a', '#7f1d1d', '#dc2626', '#f43f5e'] },
+            textStyle: { color: '#94a3b8', fontSize: 10 },
+        },
+        series: [{
+            type: 'heatmap', data: data,
+            label: {
+                show: true,
+                formatter: p => p.data[2],
+                color: '#fff', fontSize: 11, fontWeight: 'bold',
+            },
+            emphasis: { itemStyle: { shadowBlur: 8, shadowColor: '#f43f5e' } },
+        }],
+    });
 }
 
 function applyTheme(theme) {

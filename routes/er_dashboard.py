@@ -78,6 +78,7 @@ def er_data():
             LEFT JOIN aetitle_modality_map m ON m.aetitle = s.storing_ae
             WHERE s.study_date BETWEEN :start AND :end
               AND {_ER_WHERE}
+              AND COALESCE(m.modality, s.study_modality, 'Unknown') != 'SR'
         )
         """
 
@@ -180,20 +181,21 @@ def er_data():
         """), params).mappings().fetchall()
         by_radiologist = [dict(r) for r in rad_rows]
 
-        # ── SLA breach table ──────────────────────────────────────────────────
-        breach_rows = db.session.execute(text(cte + f"""
+        # ── SLA breach heatmap (radiologist × modality) ───────────────────────
+        heatmap_rows = db.session.execute(text(cte + f"""
             SELECT
-                accession_number,
-                study_date::text AS study_date,
+                COALESCE(radiologist, 'Unassigned') AS radiologist,
                 modality,
-                COALESCE(radiologist, '—') AS radiologist,
-                ROUND(final_tat_min) AS tat_min
+                COUNT(*)                                        AS breach_count,
+                ROUND(AVG(final_tat_min - {sla_limit}))        AS avg_over_sla_min,
+                ROUND(MAX(final_tat_min))                       AS worst_tat_min
             FROM er
             WHERE final_tat_min > {sla_limit}
-            ORDER BY final_tat_min DESC
-            LIMIT 100
+              AND modality IS NOT NULL AND modality != 'Unknown'
+            GROUP BY radiologist, modality
+            ORDER BY breach_count DESC
         """), params).mappings().fetchall()
-        breaches = [dict(r) for r in breach_rows]
+        breaches = [dict(r) for r in heatmap_rows]
 
         return jsonify({
             'kpi': {

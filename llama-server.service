@@ -4,9 +4,9 @@ After=network.target
 
 [Service]
 Type=simple
-User=stats
-ExecStart=/home/stats/BitNet/build/bin/llama-server \
-  -m /home/stats/BitNet/models/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf \
+User=rami
+ExecStart=/opt/bitnet/build/bin/llama-server \
+  -m /opt/bitnet/models/BitNet-b1.58-2B-4T/ggml-model-i2_s.gguf \
   -t 14 -tb 14 --host 0.0.0.0 --port 8081 -c 4096 --parallel 2
 Restart=on-failure
 RestartSec=10
