@@ -73,6 +73,31 @@ def _perform_migration(engine):
             run_series_etl(engine, src, 'etl_didb_serieses', database_module.chunked_upsert, active_ids)
             logger.info("✅ Phase 2 done")
 
+            # ── PHASE 2b: Backfill study_modality from series ──────
+            # study_modality is not in the DIDB_STUDIES Oracle query, but Phase 7
+            # (storage rollup) and Phase 8 (procedure mapping) both depend on it.
+            # Derive the most common modality from series so it is never left NULL.
+            logger.info("📋 Phase 2b: Backfilling study_modality from series data")
+            try:
+                with engine.begin() as _c:
+                    _r = _c.execute(text("""
+                        UPDATE etl_didb_studies s
+                        SET study_modality = sub.modality
+                        FROM (
+                            SELECT study_db_uid,
+                                   MODE() WITHIN GROUP (ORDER BY modality) AS modality
+                            FROM etl_didb_serieses
+                            WHERE modality IS NOT NULL AND TRIM(modality) != ''
+                            GROUP BY study_db_uid
+                        ) sub
+                        WHERE s.study_db_uid = sub.study_db_uid
+                          AND (s.study_modality IS NULL
+                               OR s.study_modality != sub.modality)
+                    """))
+                logger.info(f"✅ Phase 2b done — {_r.rowcount:,} studies updated with study_modality")
+            except Exception as _e:
+                logger.warning(f"Phase 2b (study_modality backfill) skipped: {_e}")
+
             # ── PHASE 3: Raw Images ───────────────────────────────────────
             logger.info("📋 Phase 3: Raw Images")
             run_raw_images_etl(engine, src, 'etl_didb_raw_images', database_module.chunked_upsert, active_ids)
