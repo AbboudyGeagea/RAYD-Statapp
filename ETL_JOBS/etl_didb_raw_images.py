@@ -47,6 +47,7 @@ def run_raw_images_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, 
 
     try:
         skipped_fk = 0
+        last_printed = 0
         for chunk_num, i in enumerate(range(0, len(study_uid_whitelist), 1000), start=1):
             chunk  = study_uid_whitelist[i:i + 1000]
             binds  = [f":id{j}" for j in range(len(chunk))]
@@ -58,13 +59,12 @@ def run_raw_images_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, 
                 WHERE study_db_uid IN ({','.join(binds)})
             """
             cursor.execute(query, params)
+            print(f"[Raw Images ETL] → Chunk {chunk_num}/{total_chunks}")
 
-            batch_num = 0
             while True:
                 batch = cursor.fetchmany(2000)
                 if not batch:
                     break
-                batch_num += 1
                 # series_db_uid is index 3 — skip rows whose series doesn't exist in PG
                 clean = [r for r in batch if r[3] in valid_series_ids]
                 skipped_fk += len(batch) - len(clean)
@@ -73,8 +73,9 @@ def run_raw_images_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, 
                 chunked_upsert_func(pg_engine, pg_table, col_names, clean, 'raw_image_db_uid')
                 total_rows += len(clean)
 
-                if total_rows % 10000 == 0:
-                    print(f"[Raw Images ETL] 📦 Chunk {chunk_num}/{total_chunks} — {total_rows:,} rows so far...")
+                if total_rows - last_printed >= 50000:
+                    last_printed = total_rows
+                    print(f"[Raw Images ETL] 📦 {total_rows:,} rows loaded (chunk {chunk_num}/{total_chunks})")
                     if log_id:
                         with pg_engine.connect() as conn:
                             conn.execute(

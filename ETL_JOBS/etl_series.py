@@ -51,7 +51,10 @@ def run_series_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, stud
             ]
 
             skipped_fk = 0
-            for i in range(0, len(study_uid_whitelist), 1000):
+            total_chunks = (len(study_uid_whitelist) + 999) // 1000
+            print(f"[Series ETL] 🚀 Starting — {len(study_uid_whitelist):,} study IDs across {total_chunks} chunks")
+
+            for chunk_num, i in enumerate(range(0, len(study_uid_whitelist), 1000), start=1):
                 chunk = study_uid_whitelist[i:i+1000]
                 binds = [f":id{j}" for j in range(len(chunk))]
                 query = f"""
@@ -75,6 +78,10 @@ def run_series_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, stud
                         chunked_upsert_func(pg_engine, pg_table, col_names, clean, 'series_db_uid')
                         total_rows += len(clean)
 
+                if chunk_num % 5 == 0 or chunk_num == total_chunks:
+                    print(f"[Series ETL] 📦 Chunk {chunk_num}/{total_chunks} — {total_rows:,} rows loaded")
+
+            print(f"[Series ETL] ✅ Done — {total_rows:,} rows{f', {skipped_fk:,} skipped (orphan FK)' if skipped_fk else ''}")
             logging.info(f"Series ETL: {skipped_fk} rows skipped (orphan study FK)")
             status = "SUCCESS"
         except Exception as exc:

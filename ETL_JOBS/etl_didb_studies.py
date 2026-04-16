@@ -209,7 +209,8 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
                         skipped_bad += 1
                         logging.warning(f"[Studies ETL] Skipping bad row (uid={row[0]!r}): {row_err}")
 
-            print(f"[Studies ETL] 📦 Batch {batch_num} — {total_rows:,} rows so far, {skipped_bad} dropped")
+            if batch_num % 5 == 0 or skipped_bad:
+                print(f"[Studies ETL] 📦 {total_rows:,} rows loaded{f', {skipped_bad} dropped' if skipped_bad else ''}")
 
         status = "SUCCESS"
         cursor.close()

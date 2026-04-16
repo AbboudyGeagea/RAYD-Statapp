@@ -156,7 +156,8 @@ def run_orders_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_l
                 chunked_upsert_func(pg_engine, pg_table, col_names, clean_batch, 'order_dbid')
                 total += len(clean_batch)
 
-            print(f"[Orders ETL] 📦 Batch {batch_num} — {total:,} rows inserted, {skipped} skipped")
+            if batch_num % 5 == 0:
+                print(f"[Orders ETL] 📦 {total:,} rows loaded{f', {skipped} skipped' if skipped else ''}")
 
         status = "SUCCESS"
         print(f"[Orders ETL] ✅ Done — {total:,} rows | {skipped} skipped (corrupt/null dates)")

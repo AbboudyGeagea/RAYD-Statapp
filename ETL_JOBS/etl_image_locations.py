@@ -59,13 +59,16 @@ def run_images_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, stud
             with pg_engine.connect() as _c:
                 _rows = _c.execute(text("SELECT raw_image_db_uid FROM etl_didb_raw_images")).fetchall()
             valid_raw_ids = {r[0] for r in _rows}
+            total_chunks = (len(study_uid_whitelist) + chunk_size - 1) // chunk_size
             logging.info(f"Image Locations ETL: {len(valid_raw_ids):,} valid raw image IDs loaded from PG")
+            print(f"[Image Locations ETL] 🚀 Starting — {len(study_uid_whitelist):,} study IDs | {len(valid_raw_ids):,} valid raw images")
 
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures  = []
+                futures    = []
                 skipped_fk = 0
+                last_printed = 0
 
-                for i in range(0, len(study_uid_whitelist), chunk_size):
+                for chunk_num, i in enumerate(range(0, len(study_uid_whitelist), chunk_size), start=1):
                     chunk  = study_uid_whitelist[i : i + chunk_size]
                     binds  = [f":id{j}" for j in range(len(chunk))]
                     params = {f"id{j}": v for j, v in enumerate(chunk)}
@@ -95,6 +98,7 @@ def run_images_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, stud
                     """
 
                     cursor.execute(query, params)
+                    print(f"[Image Locations ETL] → Chunk {chunk_num}/{total_chunks}")
 
                     while True:
                         batch = cursor.fetchmany(batch_size)
@@ -112,6 +116,9 @@ def run_images_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, stud
                             )
                         )
                         total_rows += len(clean)
+                        if total_rows - last_printed >= 50000:
+                            last_printed = total_rows
+                            print(f"[Image Locations ETL] 📦 {total_rows:,} rows loaded (chunk {chunk_num}/{total_chunks})")
 
                         # Backpressure — drain every 4× workers
                         if len(futures) >= max_workers * 4:
@@ -123,6 +130,7 @@ def run_images_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, stud
                 for f in as_completed(futures):
                     f.result()
 
+            print(f"[Image Locations ETL] ✅ Done — {total_rows:,} rows{f', {skipped_fk:,} skipped (orphan FK)' if skipped_fk else ''}")
             cursor.close()
             ora_conn.close()
             status = "SUCCESS"
