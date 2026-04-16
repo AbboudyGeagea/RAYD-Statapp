@@ -48,6 +48,14 @@
            title="User Management">
             <i class="bi bi-people-fill flex-shrink-0" style="color:#60a5fa;"></i> User Management
         </a>
+        <a href="{{ url_for('admin.oracle_config') }}"
+           class="sidebar-item {% if request.endpoint == 'admin.oracle_config' %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
+           title="Oracle DB Config">
+            <i class="bi bi-database-fill-gear flex-shrink-0" style="color:#f97316;"></i> Oracle DB Config
+            {% if not oracle_configured %}
+            <span style="font-size:8px;font-weight:900;padding:1px 6px;border-radius:4px;background:rgba(239,68,68,0.15);color:#f87171;text-transform:uppercase;letter-spacing:0.08em;">!</span>
+            {% endif %}
+        </a>
         <a href="{{ url_for('admin.scheduling_page') }}" target="_blank"
            class="sidebar-item {% if request.endpoint == 'admin.scheduling_page' %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
            title="Scheduling">

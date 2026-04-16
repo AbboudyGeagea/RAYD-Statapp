@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | Oracle Config</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        :root { --accent: #60a5fa; }
+        body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; }
+        .sidebar-item { transition: all 0.2s; border-radius: 0.75rem; margin-bottom: 0.25rem; cursor: pointer; text-decoration: none !important; color: #94a3b8; }
+        .sidebar-item:hover { background: #1d2522; color: var(--accent) !important; }
+        .sidebar-item.active { background: #1d2522; color: var(--accent) !important; border-left: 4px solid var(--accent); }
+        .card { background: #232b28; border-radius: 1.5rem; padding: 2.5rem; border: 1px solid #28332e; }
+        .input-field { background: #141b19; border: 1px solid #334155; color: #e2e8f0; padding: 0.9rem 1rem; border-radius: 0.85rem; width: 100%; font-size: 0.875rem; outline: none; transition: border-color 0.2s; }
+        .input-field:focus { border-color: var(--accent); }
+        .field-label { font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.3em; color: #64748b; margin-bottom: 6px; display: block; }
+        body.light { background: #f0f4f8; color: #1a202c; }
+        body.light aside, body.light header { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        body.light .sidebar-item { color: #4a5568; }
+        body.light .sidebar-item:hover, body.light .sidebar-item.active { background: #e2e8f0 !important; color: #2b6cb0 !important; }
+        body.light .card { background: #ffffff; border-color: #e2e8f0; color: #1a202c; }
+        body.light .input-field { background: #f8fafc; border-color: #e2e8f0; color: #1a202c; }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+    {% include '_header.html' %}
+
+    <div class="flex flex-1 overflow-hidden">
+        {% include '_sidebar.html' %}
+
+        <main class="flex-1 overflow-y-auto p-10 bg-[#181f1c]">
+            <div class="max-w-2xl mx-auto">
+
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                <div class="mb-6 space-y-3">
+                    {% for category, message in messages %}
+                    <div class="rounded-2xl px-4 py-3 text-sm font-semibold
+                        {{ 'bg-emerald-500/10 text-emerald-200 border border-emerald-500/20' if category == 'success'
+                           else 'bg-rose-500/10 text-rose-200 border border-rose-500/20' }}">
+                        {{ message }}
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                {% endwith %}
+
+                <div class="card">
+                    <div class="mb-8">
+                        <div class="flex items-center gap-3 mb-2">
+                            {% if cfg %}
+                            <span class="flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> Configured
+                            </span>
+                            {% else %}
+                            <span class="flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                                <span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span> Not Configured
+                            </span>
+                            {% endif %}
+                        </div>
+                        <h3 class="text-white text-2xl font-black tracking-tight uppercase">Oracle Connection</h3>
+                        <p class="text-slate-500 text-xs mt-1">Credentials are encrypted at rest using AES-128. The password field is always blank for security — enter it every time you save.</p>
+                    </div>
+
+                    <form method="POST" autocomplete="off">
+                        <div class="grid grid-cols-1 gap-5">
+
+                            <div>
+                                <label class="field-label">Connection Name</label>
+                                <input type="text" name="name" class="input-field"
+                                    value="{{ cfg.name if cfg else 'oracle' }}"
+                                    placeholder="oracle" required>
+                            </div>
+
+                            <div class="grid grid-cols-3 gap-4">
+                                <div class="col-span-2">
+                                    <label class="field-label">Host / IP</label>
+                                    <input type="text" name="host" class="input-field"
+                                        value="{{ cfg.host if cfg else '' }}"
+                                        placeholder="192.168.1.10" required>
+                                </div>
+                                <div>
+                                    <label class="field-label">Port</label>
+                                    <input type="number" name="port" class="input-field"
+                                        value="{{ cfg.port if cfg else '1521' }}"
+                                        placeholder="1521" required>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label class="field-label">SID / Service Name</label>
+                                <input type="text" name="sid" class="input-field"
+                                    value="{{ cfg.sid if cfg else '' }}"
+                                    placeholder="ORCL" required>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="field-label">Username</label>
+                                    <input type="text" name="username" class="input-field"
+                                        value="{{ cfg.username if cfg else '' }}"
+                                        autocomplete="off" placeholder="medilink" required>
+                                </div>
+                                <div>
+                                    <label class="field-label">Password <span class="text-rose-400">(required every save)</span></label>
+                                    <input type="password" name="password" class="input-field"
+                                        autocomplete="new-password" placeholder="••••••••" required>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label class="field-label">Connection Mode <span class="text-slate-600">(optional — leave blank for normal)</span></label>
+                                <select name="mode" class="input-field">
+                                    <option value="" {% if not cfg or not cfg.mode %}selected{% endif %}>Normal</option>
+                                    <option value="SYSDBA" {% if cfg and cfg.mode == 'SYSDBA' %}selected{% endif %}>SYSDBA</option>
+                                </select>
+                            </div>
+
+                        </div>
+
+                        <div class="flex items-center gap-4 mt-8">
+                            <button type="submit"
+                                class="px-6 py-3 bg-[#60a5fa] text-[#0f172a] text-xs font-black uppercase tracking-widest rounded-xl hover:bg-[#93c5fd] transition-colors">
+                                <i class="bi bi-floppy-fill mr-1"></i>
+                                {{ 'Update Connection' if cfg else 'Save Connection' }}
+                            </button>
+                            <a href="{{ url_for('admin.admin_dashboard') }}"
+                               class="px-6 py-3 border border-[#28332e] text-slate-400 text-xs font-black uppercase tracking-widest rounded-xl hover:border-[#60a5fa] transition-colors">
+                                Back to Admin
+                            </a>
+                        </div>
+                    </form>
+
+                    {% if cfg %}
+                    <div class="mt-8 pt-6 border-t border-[#28332e]">
+                        <p class="text-[10px] font-black uppercase tracking-widest text-slate-600 mb-3">Current Connection</p>
+                        <div class="grid grid-cols-2 gap-2 text-xs font-mono">
+                            <span class="text-slate-500">Host</span><span class="text-slate-300">{{ cfg.host }}:{{ cfg.port }}</span>
+                            <span class="text-slate-500">SID</span><span class="text-slate-300">{{ cfg.sid }}</span>
+                            <span class="text-slate-500">Username</span><span class="text-slate-300">{{ cfg.username }}</span>
+                            <span class="text-slate-500">Mode</span><span class="text-slate-300">{{ cfg.mode or 'Normal' }}</span>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+
+                {% if cfg %}
+                <div class="mt-6 card" style="padding: 1.5rem;">
+                    <p class="text-[10px] font-black uppercase tracking-widest text-[#60a5fa] mb-3">Next Step</p>
+                    <p class="text-slate-400 text-sm mb-4">Oracle connection is configured. Go to the ETL Control Room to trigger a full sync.</p>
+                    <a href="{{ url_for('admin.admin_dashboard') }}"
+                       class="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase tracking-widest rounded-xl transition-colors">
+                        <i class="bi bi-arrow-right-circle-fill"></i> Go to ETL Control Room
+                    </a>
+                </div>
+                {% endif %}
+
+            </div>
+        </main>
+    </div>
+
+    <script>
+        function applyTheme(theme) {
+            document.body.classList.toggle('light', theme === 'light');
+            const icon = document.getElementById('theme-icon');
+            if (icon) icon.className = theme === 'light' ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
+        }
+        applyTheme("{{ ui_theme }}");
+        function toggleTheme() {
+            const next = document.body.classList.contains('light') ? 'dark' : 'light';
+            applyTheme(next);
+            fetch('/user/theme', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ theme: next }) });
+        }
+    </script>
+</body>
+</html>

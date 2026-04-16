@@ -90,10 +90,31 @@ def scheduling_page():
         flash("Admin access required.", "danger")
         return redirect(url_for('viewer.viewer_dashboard'))
 
-    # Scheduling table schema is managed in init-db/schema.sql.
+    # Ensure table exists — safe to run every request, cheap when already present.
+    try:
+        db.session.execute(text("""
+            CREATE TABLE IF NOT EXISTS scheduling_entries (
+                id                    SERIAL PRIMARY KEY,
+                first_name            TEXT NOT NULL,
+                middle_name           TEXT NOT NULL,
+                last_name             TEXT NOT NULL,
+                date_of_birth         DATE NOT NULL,
+                referring_physician   TEXT NOT NULL,
+                patient_class         TEXT NOT NULL,
+                procedure_datetime    TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+                modality_type         VARCHAR(50) NOT NULL,
+                procedures            JSONB NOT NULL DEFAULT '[]',
+                third_party_approvals JSONB NOT NULL DEFAULT '[]',
+                created_at            TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW(),
+                updated_at            TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
+            )
+        """))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
 
     schedule_id = request.args.get('schedule_id', type=int)
-    schedule = SchedulingEntry.query.get(schedule_id) if schedule_id else None
+    schedule = db.session.get(SchedulingEntry, schedule_id) if schedule_id else None
 
     if request.method == 'POST':
         form_schedule_id = request.form.get('schedule_id', type=int)
@@ -121,7 +142,7 @@ def scheduling_page():
 
             if date_of_birth and procedure_datetime:
                 if form_schedule_id:
-                    schedule = SchedulingEntry.query.get(form_schedule_id)
+                    schedule = db.session.get(SchedulingEntry, form_schedule_id)
                     if schedule:
                         schedule.first_name = first_name
                         schedule.middle_name = middle_name
@@ -154,7 +175,7 @@ def scheduling_page():
                 flash("Scheduling entry saved.", "success")
                 return redirect(url_for('admin.scheduling_page', schedule_id=new_entry.id))
 
-    schedules = SchedulingEntry.query.order_by(SchedulingEntry.updated_at.desc()).all()
+    schedules = SchedulingEntry.query.order_by(SchedulingEntry.updated_at.desc().nullslast(), SchedulingEntry.id.desc()).all()
 
     return render_template('admin_scheduling.html', schedule=schedule, schedules=schedules)
 
@@ -278,6 +299,56 @@ def delete_user():
     db.session.delete(user)
     db.session.commit()
     return jsonify({'status': 'ok'})
+
+
+@admin_bp.route('/oracle-config', endpoint='oracle_config', methods=['GET', 'POST'])
+@login_required
+def oracle_config():
+    if current_user.role != 'admin':
+        return abort(403)
+
+    from utils.crypto import encrypt
+
+    existing = db.session.execute(
+        text("SELECT * FROM db_params WHERE name ILIKE '%oracle%' LIMIT 1")
+    ).mappings().fetchone()
+
+    if request.method == 'POST':
+        name     = (request.form.get('name')     or 'oracle').strip()
+        host     = (request.form.get('host')     or '').strip()
+        port     = (request.form.get('port')     or '1521').strip()
+        sid      = (request.form.get('sid')      or '').strip()
+        username = (request.form.get('username') or '').strip()
+        password = (request.form.get('password') or '').strip()
+        mode     = (request.form.get('mode')     or '').strip()
+
+        if not all([host, port, sid, username, password]):
+            flash("All fields except Mode are required.", "danger")
+        else:
+            enc_password = encrypt(password)
+            if existing:
+                db.session.execute(text("""
+                    UPDATE db_params
+                    SET host=:host, port=:port, sid=:sid,
+                        username=:username, password=:password,
+                        mode=:mode, db_type='oracle',
+                        updated_at=NOW()
+                    WHERE name ILIKE '%oracle%'
+                """), {"host": host, "port": int(port), "sid": sid,
+                       "username": username, "password": enc_password, "mode": mode})
+            else:
+                db.session.execute(text("""
+                    INSERT INTO db_params
+                        (name, db_type, host, port, sid, username, password, mode)
+                    VALUES
+                        (:name, 'oracle', :host, :port, :sid, :username, :password, :mode)
+                """), {"name": name, "host": host, "port": int(port), "sid": sid,
+                       "username": username, "password": enc_password, "mode": mode})
+            db.session.commit()
+            flash("Oracle connection saved. You can now trigger ETL from the admin panel.", "success")
+            return redirect(url_for('admin.oracle_config'))
+
+    return render_template('admin_oracle_config.html', cfg=existing)
 
 
 @admin_bp.route('/sync-mappings', methods=['POST'])

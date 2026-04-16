@@ -145,14 +145,25 @@ def create_app():
             cfg['BITNET_ENABLED']          = True
             cfg['PATIENT_PORTAL_ENABLED']  = True
 
+        oracle_configured = False
+        try:
+            from db import db as _db
+            row = _db.session.execute(
+                _text("SELECT 1 FROM db_params WHERE name ILIKE '%oracle%' LIMIT 1")
+            ).fetchone()
+            oracle_configured = row is not None
+        except Exception:
+            pass
+
         return {
-            "config":       cfg,
-            "ui_theme":     theme,
-            "user_favorites": favorites,
-            "demo_mode":    demo_mode,
-            "demo_start":   demo_start,
-            "demo_end":     demo_end,
-            "demo_user":    demo_user,
+            "config":             cfg,
+            "ui_theme":           theme,
+            "user_favorites":     favorites,
+            "demo_mode":          demo_mode,
+            "demo_start":         demo_start,
+            "demo_end":           demo_end,
+            "demo_user":          demo_user,
+            "oracle_configured":  oracle_configured,
         }
 
     # --- JINJA FILTER: user_has_page ---
