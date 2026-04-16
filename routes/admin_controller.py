@@ -102,8 +102,10 @@ def scheduling_page():
         last_name = (request.form.get('last_name') or '').strip()
         date_of_birth_raw = (request.form.get('date_of_birth') or '').strip()
         referring_physician = (request.form.get('referring_physician') or '').strip()
-        patient_class = (request.form.get('patient_class') or '').strip().upper()        procedure_datetime_raw = request.form.get('procedure_datetime', '').strip()
-        modality_type = (request.form.get('modality_type') or '').strip()        procedures = [p.strip() for p in request.form.getlist('procedure_name') if p.strip()]
+        patient_class = (request.form.get('patient_class') or '').strip()
+        procedure_datetime_raw = request.form.get('procedure_datetime', '').strip()
+        modality_type = (request.form.get('modality_type') or '').strip()
+        procedures = [p.strip() for p in request.form.getlist('procedure_name') if p.strip()]
         third_party_approvals = [p.strip() for p in request.form.getlist('third_party_approval') if p.strip()]
 
         if not all([first_name, middle_name, last_name, date_of_birth_raw, referring_physician, patient_class, procedure_datetime_raw, modality_type, procedures, third_party_approvals]):
