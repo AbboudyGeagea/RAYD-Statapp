@@ -102,20 +102,22 @@ def scheduling_page():
         last_name = (request.form.get('last_name') or '').strip()
         date_of_birth_raw = (request.form.get('date_of_birth') or '').strip()
         referring_physician = (request.form.get('referring_physician') or '').strip()
-        patient_class = (request.form.get('patient_class') or '').strip().upper()
-        procedures = [p.strip() for p in request.form.getlist('procedure_name') if p.strip()]
+        patient_class = (request.form.get('patient_class') or '').strip().upper()        procedure_datetime_raw = request.form.get('procedure_datetime', '').strip()
+        modality_type = (request.form.get('modality_type') or '').strip()        procedures = [p.strip() for p in request.form.getlist('procedure_name') if p.strip()]
         third_party_approvals = [p.strip() for p in request.form.getlist('third_party_approval') if p.strip()]
 
-        if not (first_name and middle_name and last_name and date_of_birth_raw and referring_physician and patient_class and procedures and third_party_approvals):
+        if not all([first_name, middle_name, last_name, date_of_birth_raw, referring_physician, patient_class, procedure_datetime_raw, modality_type, procedures, third_party_approvals]):
             flash("Please complete all required scheduling fields.", "danger")
         else:
             try:
                 date_of_birth = datetime.strptime(date_of_birth_raw, '%Y-%m-%d').date()
+                procedure_datetime = datetime.strptime(procedure_datetime_raw, '%Y-%m-%dT%H:%M')
             except ValueError:
-                flash("Please enter a valid date of birth.", "danger")
+                flash("Please enter valid date and datetime values.", "danger")
                 date_of_birth = None
+                procedure_datetime = None
 
-            if date_of_birth:
+            if date_of_birth and procedure_datetime:
                 if form_schedule_id:
                     schedule = SchedulingEntry.query.get(form_schedule_id)
                     if schedule:
@@ -125,6 +127,8 @@ def scheduling_page():
                         schedule.date_of_birth = date_of_birth
                         schedule.referring_physician = referring_physician
                         schedule.patient_class = patient_class
+                        schedule.procedure_datetime = procedure_datetime
+                        schedule.modality_type = modality_type
                         schedule.procedures = procedures
                         schedule.third_party_approvals = third_party_approvals
                         schedule.updated_at = datetime.utcnow()
@@ -138,6 +142,8 @@ def scheduling_page():
                     date_of_birth=date_of_birth,
                     referring_physician=referring_physician,
                     patient_class=patient_class,
+                    procedure_datetime=procedure_datetime,
+                    modality_type=modality_type,
                     procedures=procedures,
                     third_party_approvals=third_party_approvals,
                 )

@@ -114,6 +114,28 @@
                             </div>
                         </div>
 
+                        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+                            <div class="input-group">
+                                <label class="text-xs uppercase tracking-[0.3em] text-slate-400 font-black">Procedure Date & Time</label>
+                                <input type="datetime-local" name="procedure_datetime" required value="{{ schedule.procedure_datetime.strftime('%Y-%m-%dT%H:%M') if schedule and schedule.procedure_datetime else '' }}" class="input-border">
+                            </div>
+                            <div class="input-group">
+                                <label class="text-xs uppercase tracking-[0.3em] text-slate-400 font-black">Modality Type</label>
+                                <select name="modality_type" required class="input-border">
+                                    <option value="">Select One</option>
+                                    <option value="CR" {% if schedule and schedule.modality_type == 'CR' %}selected{% endif %}>CR (Computed Radiography)</option>
+                                    <option value="CT" {% if schedule and schedule.modality_type == 'CT' %}selected{% endif %}>CT (Computed Tomography)</option>
+                                    <option value="MR" {% if schedule and schedule.modality_type == 'MR' %}selected{% endif %}>MR (Magnetic Resonance)</option>
+                                    <option value="US" {% if schedule and schedule.modality_type == 'US' %}selected{% endif %}>US (Ultrasound)</option>
+                                    <option value="XC" {% if schedule and schedule.modality_type == 'XC' %}selected{% endif %}>XC (External-camera Photography)</option>
+                                    <option value="MG" {% if schedule and schedule.modality_type == 'MG' %}selected{% endif %}>MG (Mammography)</option>
+                                    <option value="DX" {% if schedule and schedule.modality_type == 'DX' %}selected{% endif %}>DX (Digital Radiography)</option>
+                                    <option value="RF" {% if schedule and schedule.modality_type == 'RF' %}selected{% endif %}>RF (Radiofluoroscopy)</option>
+                                    <option value="OT" {% if schedule and schedule.modality_type == 'OT' %}selected{% endif %}>OT (Other)</option>
+                                </select>
+                            </div>
+                        </div>
+
                         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
                             <div>
                                 <div class="flex items-center justify-between mb-3">
@@ -175,6 +197,8 @@
                                     <th class="pb-4 px-4">Patient</th>
                                     <th class="pb-4 px-4">DOB</th>
                                     <th class="pb-4 px-4">Class</th>
+                                    <th class="pb-4 px-4">Procedure Date/Time</th>
+                                    <th class="pb-4 px-4">Modality</th>
                                     <th class="pb-4 px-4">Referring Physician</th>
                                     <th class="pb-4 px-4">Procedures</th>
                                     <th class="pb-4 px-4">Insurance</th>
@@ -188,9 +212,13 @@
                                         <td class="py-4 px-4 text-sm">
                                             <div class="font-bold">{{ item.first_name }} {{ item.middle_name }} {{ item.last_name }}</div>
                                         </td>
-                                        <td class="py-4 px-4 text-sm text-slate-400">{{ item.date_of_birth.strftime('%Y-%m-%d') if item.date_of_birth else '—' }}</td>
+                                        <td class="py-4 px-4 text-sm text-slate-400">{{ item.date_of_birth.strftime('%d/%m/%Y') if item.date_of_birth else '—' }}</td>
                                         <td class="py-4 px-4 text-sm">
                                             <span class="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-[0.18em] {{ 'bg-red-500/10 text-red-300' if item.patient_class == 'ER' else 'bg-slate-800 text-slate-200' }}">{{ item.patient_class }}</span>
+                                        </td>
+                                        <td class="py-4 px-4 text-sm text-slate-400">{{ item.procedure_datetime.strftime('%d/%m/%Y %H:%M') if item.procedure_datetime else '—' }}</td>
+                                        <td class="py-4 px-4 text-sm">
+                                            <span class="px-2 py-1 rounded-md text-[9px] font-bold uppercase tracking-wider bg-slate-700 text-slate-200">{{ item.modality_type if item.modality_type else '—' }}</span>
                                         </td>
                                         <td class="py-4 px-4 text-sm">{{ item.referring_physician }}</td>
                                         <td class="py-4 px-4 text-sm">{{ item.procedures | join(', ') }}</td>
@@ -202,7 +230,7 @@
                                     {% endfor %}
                                 {% else %}
                                     <tr>
-                                        <td colspan="7" class="py-6 px-4 text-slate-500 text-sm">No scheduling records yet. Use the form above to create the first entry.</td>
+                                        <td colspan="9" class="py-6 px-4 text-slate-500 text-sm">No scheduling records yet. Use the form above to create the first entry.</td>
                                     </tr>
                                 {% endif %}
                             </tbody>

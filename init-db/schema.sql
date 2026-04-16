@@ -1619,6 +1619,8 @@ CREATE TABLE public.scheduling_entries (
     date_of_birth date NOT NULL,
     referring_physician text NOT NULL,
     patient_class text NOT NULL,
+    procedure_datetime timestamp without time zone NOT NULL,
+    modality_type character varying(50) NOT NULL,
     procedures jsonb NOT NULL DEFAULT '[]'::jsonb,
     third_party_approvals jsonb NOT NULL DEFAULT '[]'::jsonb,
     created_at timestamp without time zone DEFAULT now(),

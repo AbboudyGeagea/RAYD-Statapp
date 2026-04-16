@@ -191,6 +191,8 @@ class SchedulingEntry(db.Model):
     date_of_birth = db.Column(Date, nullable=False)
     referring_physician = db.Column(Text, nullable=False)
     patient_class = db.Column(String(10), nullable=False)
+    procedure_datetime = db.Column(DateTime, nullable=False)
+    modality_type = db.Column(String(50), nullable=False)
     procedures = db.Column(JSONB, nullable=False, server_default='[]')
     third_party_approvals = db.Column(JSONB, nullable=False, server_default='[]')
     created_at = db.Column(DateTime, server_default=func.now())
