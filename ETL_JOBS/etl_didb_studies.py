@@ -67,10 +67,11 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
         ora_conn = OracleConnector.get_connection(oracle_source)
         cursor = ora_conn.cursor()
 
-        # ── FRESH LOAD: pull everything since go_live_date, no UID filter ──
-        # ── INCREMENTAL: pull new UIDs OR recently updated studies ──────────
-        if is_fresh_load:
-            query = """
+        # ── Build both query variants ─────────────────────────────────────────
+        # "with_join"    — includes LEFT JOIN to didb_patients_view for age_at_exam
+        # "without_join" — falls back to NULL for age_at_exam if the view is
+        #                  inaccessible (ORA-00942 / privilege issue)
+        _SELECT_WITH_JOIN = """
                 SELECT
                     s.STUDY_DB_UID, s.PATIENT_DB_UID, s.STUDY_INSTANCE_UID, s.ACCESSION_NUMBER,
                     s.STUDY_ID,
@@ -100,50 +101,65 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
                     SUBSTR(s.PATIENT_LOCATION, 1, 3)
                 FROM medistore.didb_studies s
                 LEFT JOIN medistore.didb_patients_view p ON p.PATIENT_DB_UID = s.PATIENT_DB_UID
-                WHERE s.STUDY_DATE >= TO_DATE(:gd, 'YYYY-MM-DD')
-                ORDER BY s.STUDY_DB_UID
-            """
-            cursor.execute(query, {'gd': gd_str})
+        """
+        _SELECT_NO_JOIN = """
+                SELECT
+                    s.STUDY_DB_UID, s.PATIENT_DB_UID, s.STUDY_INSTANCE_UID, s.ACCESSION_NUMBER,
+                    s.STUDY_ID,
+                    UPPER(TRIM(s.STORING_AE)),
+                    s.STUDY_DATE,
+                    CAST(SUBSTR(s.STUDY_DESCRIPTION, 1, 4000) AS VARCHAR2(4000)),
+                    s.STUDY_BODY_PART, s.STUDY_AGE,
+                    NULL AS age_at_exam,
+                    s.NUMBER_OF_STUDY_SERIES, s.NUMBER_OF_STUDY_IMAGES, s.STUDY_STATUS,
+                    s.PATIENT_CLASS, s.PROCEDURE_CODE, s.REFERRING_PHYSICIAN_FIRST_NAME,
+                    s.REFERRING_PHYSICIAN_MID_NAME, s.REFERRING_PHYSICIAN_LAST_NAME,
+                    s.REPORT_STATUS, s.ORDER_STATUS, s.LAST_ACCESS_TIME, s.INSERT_TIME,
+                    CURRENT_TIMESTAMP,
+                    s.READING_PHYSICIAN_FIRST_NAME, s.READING_PHYSICIAN_LAST_NAME, s.READING_PHYSICIAN_ID,
+                    s.SIGNING_PHYSICIAN_FIRST_NAME, s.SIGNING_PHYSICIAN_LAST_NAME, s.SIGNING_PHYSICIAN_ID,
+                    CASE WHEN s.STUDY_HAS_REPORT = 'Y' THEN 'true' ELSE 'false' END,
+                    s.REP_PRELIM_TIMESTAMP, s.REP_PRELIM_SIGNED_BY,
+                    s.REP_TRANSCRIBED_BY, s.REP_TRANSCRIBED_TIMESTAMP,
+                    s.REP_FINAL_SIGNED_BY, s.REP_FINAL_TIMESTAMP,
+                    s.REP_ADDENDUM_BY, s.REP_ADDENDUM_TIMESTAMP,
+                    CASE WHEN s.REP_HAS_ADDENDUM = 'Y' THEN 'true' ELSE 'false' END,
+                    CASE WHEN s.IS_LINKED_STUDY = 'Y' THEN 'true' ELSE 'false' END,
+                    SUBSTR(s.PATIENT_LOCATION, 1, 3)
+                FROM medistore.didb_studies s
+        """
 
-        else:
-            query = """
-                SELECT
-                    s.STUDY_DB_UID, s.PATIENT_DB_UID, s.STUDY_INSTANCE_UID, s.ACCESSION_NUMBER,
-                    s.STUDY_ID,
-                    UPPER(TRIM(s.STORING_AE)),
-                    s.STUDY_DATE,
-                    CAST(SUBSTR(s.STUDY_DESCRIPTION, 1, 4000) AS VARCHAR2(4000)),
-                    s.STUDY_BODY_PART, s.STUDY_AGE,
-                    CASE
-                        WHEN p.BIRTH_DATE IS NOT NULL AND s.STUDY_DATE IS NOT NULL
-                        THEN FLOOR((s.STUDY_DATE - p.BIRTH_DATE) / 365.25)
-                        ELSE NULL
-                    END as age_at_exam,
-                    s.NUMBER_OF_STUDY_SERIES, s.NUMBER_OF_STUDY_IMAGES, s.STUDY_STATUS,
-                    s.PATIENT_CLASS, s.PROCEDURE_CODE, s.REFERRING_PHYSICIAN_FIRST_NAME,
-                    s.REFERRING_PHYSICIAN_MID_NAME, s.REFERRING_PHYSICIAN_LAST_NAME,
-                    s.REPORT_STATUS, s.ORDER_STATUS, s.LAST_ACCESS_TIME, s.INSERT_TIME,
-                    CURRENT_TIMESTAMP,
-                    s.READING_PHYSICIAN_FIRST_NAME, s.READING_PHYSICIAN_LAST_NAME, s.READING_PHYSICIAN_ID,
-                    s.SIGNING_PHYSICIAN_FIRST_NAME, s.SIGNING_PHYSICIAN_LAST_NAME, s.SIGNING_PHYSICIAN_ID,
-                    CASE WHEN s.STUDY_HAS_REPORT = 'Y' THEN 'true' ELSE 'false' END,
-                    s.REP_PRELIM_TIMESTAMP, s.REP_PRELIM_SIGNED_BY,
-                    s.REP_TRANSCRIBED_BY, s.REP_TRANSCRIBED_TIMESTAMP,
-                    s.REP_FINAL_SIGNED_BY, s.REP_FINAL_TIMESTAMP,
-                    s.REP_ADDENDUM_BY, s.REP_ADDENDUM_TIMESTAMP,
-                    CASE WHEN s.REP_HAS_ADDENDUM = 'Y' THEN 'true' ELSE 'false' END,
-                    CASE WHEN s.IS_LINKED_STUDY = 'Y' THEN 'true' ELSE 'false' END,
-                    SUBSTR(s.PATIENT_LOCATION, 1, 3)
-                FROM medistore.didb_studies s
-                LEFT JOIN medistore.didb_patients_view p ON p.PATIENT_DB_UID = s.PATIENT_DB_UID
-                WHERE s.STUDY_DATE >= TO_DATE(:gd, 'YYYY-MM-DD')
-                AND (
-                    s.STUDY_DB_UID > :max_id
-                    OR s.STUDY_DATE >= TO_DATE(:lb, 'YYYY-MM-DD')
+        def _execute_query(use_join):
+            select = _SELECT_WITH_JOIN if use_join else _SELECT_NO_JOIN
+            if is_fresh_load:
+                q = select + " WHERE s.STUDY_DATE >= TO_DATE(:gd, 'YYYY-MM-DD') ORDER BY s.STUDY_DB_UID"
+                cursor.execute(q, {'gd': gd_str})
+            else:
+                q = select + """
+                    WHERE s.STUDY_DATE >= TO_DATE(:gd, 'YYYY-MM-DD')
+                    AND (
+                        s.STUDY_DB_UID > :max_id
+                        OR s.STUDY_DATE >= TO_DATE(:lb, 'YYYY-MM-DD')
+                    )
+                    ORDER BY s.STUDY_DB_UID
+                """
+                cursor.execute(q, {'gd': gd_str, 'max_id': max_uid, 'lb': lookback_date})
+
+        # ── Try with patients view first; fall back silently on ORA-00942 ─────
+        try:
+            _execute_query(use_join=True)
+            logging.info("Studies ETL: using didb_patients_view for age_at_exam")
+        except Exception as _join_err:
+            err_str = str(_join_err)
+            if 'ORA-00942' in err_str or 'table or view does not exist' in err_str.lower():
+                logging.warning(
+                    f"Studies ETL: didb_patients_view not accessible ({_join_err}) — "
+                    "falling back to NULL age_at_exam"
                 )
-                ORDER BY s.STUDY_DB_UID
-            """
-            cursor.execute(query, {'gd': gd_str, 'max_id': max_uid, 'lb': lookback_date})
+                print("[Studies ETL] ⚠️  didb_patients_view unavailable — age_at_exam will be NULL")
+                _execute_query(use_join=False)
+            else:
+                raise
 
         # ── Batch fetch & upsert ─────────────────────────────────────────────
         # Strategy: attempt bulk upsert first (fast path).

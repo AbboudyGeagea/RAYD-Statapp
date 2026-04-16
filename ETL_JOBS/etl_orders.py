@@ -113,7 +113,7 @@ def run_orders_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_l
             COALESCE(SCHEDULED_DATETIME, ORDER_DATETIME),
             ORDER_STATUS,
             COALESCE(MODALITY, PLACER_FIELD2),
-            CASE WHEN HAS_STUDY = 'Y' THEN 'true' ELSE 'false' END AS has_study,
+            CASE WHEN STUDY_DB_UID IS NOT NULL THEN 'true' ELSE 'false' END AS has_study,
             ORDER_CONTROL,
             CURRENT_TIMESTAMP
         FROM MEDILINK.MDB_ORDERS
