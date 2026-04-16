@@ -1,11 +1,12 @@
 import logging
 from datetime import datetime
 from sqlalchemy import text
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from db import OracleConnector
 from etl_settings import ETL_GEAR
 
 logger = logging.getLogger("ETL_WORKER")
+
+COMMIT_EVERY = 100_000  # flush to Postgres every N rows
 
 
 def run_images_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, study_uid_whitelist):
@@ -48,12 +49,8 @@ def run_images_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, stud
             cursor   = ora_conn.cursor()
             cursor.arraysize = ETL_GEAR["oracle_prefetch"]
 
-            # Force single worker for image_locations to prevent deadlocks.
-            # Oracle can return the same raw_image_db_uid in multiple chunks
-            # when parallel threads collide on the same PK — deadlock guaranteed.
-            max_workers = 1
-            batch_size  = ETL_GEAR.get("batch_size", 5000)
-            chunk_size  = 1000
+            batch_size = ETL_GEAR.get("batch_size", 5000)
+            chunk_size = 1000
 
             # Pre-load valid raw_image_db_uid values from PG to prevent FK violations.
             with pg_engine.connect() as _c:
@@ -63,72 +60,64 @@ def run_images_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, stud
             logging.info(f"Image Locations ETL: {len(valid_raw_ids):,} valid raw image IDs loaded from PG")
             print(f"[Image Locations ETL] 🚀 Starting — {len(study_uid_whitelist):,} study IDs | {len(valid_raw_ids):,} valid raw images")
 
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures    = []
-                skipped_fk = 0
-                last_printed = 0
+            skipped_fk   = 0
+            row_buffer   = []   # accumulate rows; flush every COMMIT_EVERY rows
+            last_printed = 0
 
-                for chunk_num, i in enumerate(range(0, len(study_uid_whitelist), chunk_size), start=1):
-                    chunk  = study_uid_whitelist[i : i + chunk_size]
-                    binds  = [f":id{j}" for j in range(len(chunk))]
-                    params = {f"id{j}": v for j, v in enumerate(chunk)}
+            for chunk_num, i in enumerate(range(0, len(study_uid_whitelist), chunk_size), start=1):
+                chunk  = study_uid_whitelist[i : i + chunk_size]
+                binds  = [f":id{j}" for j in range(len(chunk))]
+                params = {f"id{j}": v for j, v in enumerate(chunk)}
 
-                    # Deduplicate by raw_image_db_uid — Oracle has duplicate rows
-                    # (one with file_system path, one NULL). Pick the row with
-                    # the largest image_size (most complete record) per UID.
-                    query = f"""
-                        SELECT raw_image_db_uid, file_system, image_size_kb
-                        FROM (
-                            SELECT
-                                il.raw_image_db_uid,
-                                il.file_system,
-                                il.image_size AS image_size_kb,
-                                ROW_NUMBER() OVER (
-                                    PARTITION BY il.raw_image_db_uid
-                                    ORDER BY il.image_size DESC NULLS LAST
-                                ) AS rn
-                            FROM medistore.didb_image_locations il
-                            WHERE il.raw_image_db_uid IN (
-                                SELECT ri.raw_image_db_uid
-                                FROM medistore.DIDB_RAW_IMAGES_TABLE ri
-                                WHERE ri.study_db_uid IN ({','.join(binds)})
-                            )
+                # Deduplicate by raw_image_db_uid — Oracle has duplicate rows
+                # (one with file_system path, one NULL). Pick the row with
+                # the largest image_size (most complete record) per UID.
+                query = f"""
+                    SELECT raw_image_db_uid, file_system, image_size_kb
+                    FROM (
+                        SELECT
+                            il.raw_image_db_uid,
+                            il.file_system,
+                            il.image_size AS image_size_kb,
+                            ROW_NUMBER() OVER (
+                                PARTITION BY il.raw_image_db_uid
+                                ORDER BY il.image_size DESC NULLS LAST
+                            ) AS rn
+                        FROM medistore.didb_image_locations il
+                        WHERE il.raw_image_db_uid IN (
+                            SELECT ri.raw_image_db_uid
+                            FROM medistore.DIDB_RAW_IMAGES_TABLE ri
+                            WHERE ri.study_db_uid IN ({','.join(binds)})
                         )
-                        WHERE rn = 1
-                    """
+                    )
+                    WHERE rn = 1
+                """
 
-                    cursor.execute(query, params)
-                    print(f"[Image Locations ETL] → Chunk {chunk_num}/{total_chunks}")
+                cursor.execute(query, params)
+                print(f"[Image Locations ETL] → Chunk {chunk_num}/{total_chunks}")
 
-                    while True:
-                        batch = cursor.fetchmany(batch_size)
-                        if not batch:
-                            break
-                        # raw_image_db_uid is index 0 — skip rows whose parent doesn't exist in PG
-                        clean = [r for r in batch if r[0] in valid_raw_ids]
-                        skipped_fk += len(batch) - len(clean)
-                        if not clean:
-                            continue
-                        futures.append(
-                            executor.submit(
-                                chunked_upsert_func,
-                                pg_engine, pg_table, col_names, clean, 'raw_image_db_uid'
-                            )
-                        )
-                        total_rows += len(clean)
-                        if total_rows - last_printed >= 50000:
-                            last_printed = total_rows
-                            print(f"[Image Locations ETL] 📦 {total_rows:,} rows loaded (chunk {chunk_num}/{total_chunks})")
+                while True:
+                    batch = cursor.fetchmany(batch_size)
+                    if not batch:
+                        break
+                    # raw_image_db_uid is index 0 — skip rows whose parent doesn't exist in PG
+                    clean = [r for r in batch if r[0] in valid_raw_ids]
+                    skipped_fk += len(batch) - len(clean)
+                    row_buffer.extend(clean)
 
-                        # Backpressure — drain every 4× workers
-                        if len(futures) >= max_workers * 4:
-                            done = [f for f in futures if f.done()]
-                            for f in done:
-                                f.result()
-                            futures = [f for f in futures if not f.done()]
+                    # Flush to Postgres every COMMIT_EVERY rows
+                    if len(row_buffer) >= COMMIT_EVERY:
+                        chunked_upsert_func(pg_engine, pg_table, col_names, row_buffer, 'raw_image_db_uid')
+                        total_rows += len(row_buffer)
+                        row_buffer  = []
+                        print(f"[Image Locations ETL] 💾 Committed {total_rows:,} rows (chunk {chunk_num}/{total_chunks})")
 
-                for f in as_completed(futures):
-                    f.result()
+            # Final flush — leftover rows after last chunk
+            if row_buffer:
+                chunked_upsert_func(pg_engine, pg_table, col_names, row_buffer, 'raw_image_db_uid')
+                total_rows += len(row_buffer)
+                row_buffer  = []
+                print(f"[Image Locations ETL] 💾 Final commit — {total_rows:,} rows total")
 
             print(f"[Image Locations ETL] ✅ Done — {total_rows:,} rows{f', {skipped_fk:,} skipped (orphan FK)' if skipped_fk else ''}")
             cursor.close()

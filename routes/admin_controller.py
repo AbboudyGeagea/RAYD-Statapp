@@ -2,7 +2,7 @@ from flask import Blueprint, render_template, redirect, url_for, flash, jsonify,
 from flask_login import login_required, current_user
 from db import User, ReportTemplate, ETLJobLog, ReportAccessControl, UserPagePermission, SchedulingEntry, db
 from sqlalchemy import func, text
-from datetime import datetime
+from datetime import datetime, timedelta, date as date_type
 import sys, os
 _etl_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'ETL_JOBS')
 if _etl_path not in sys.path: sys.path.insert(0, _etl_path)
@@ -90,7 +90,7 @@ def scheduling_page():
         flash("Admin access required.", "danger")
         return redirect(url_for('viewer.viewer_dashboard'))
 
-    # Ensure table exists — safe to run every request, cheap when already present.
+    # Ensure table exists
     try:
         db.session.execute(text("""
             CREATE TABLE IF NOT EXISTS scheduling_entries (
@@ -113,71 +113,179 @@ def scheduling_page():
     except Exception:
         db.session.rollback()
 
+    # ── Date navigation ───────────────────────────────────────────────────────
+    view_date_str = request.args.get('date', datetime.now().strftime('%Y-%m-%d'))
+    try:
+        view_date = datetime.strptime(view_date_str, '%Y-%m-%d').date()
+    except ValueError:
+        view_date = datetime.now().date()
+    prev_date = (view_date - timedelta(days=1)).strftime('%Y-%m-%d')
+    next_date = (view_date + timedelta(days=1)).strftime('%Y-%m-%d')
+    is_today  = (view_date == datetime.now().date())
+
+    # ── Handle form POST ──────────────────────────────────────────────────────
     schedule_id = request.args.get('schedule_id', type=int)
     schedule = db.session.get(SchedulingEntry, schedule_id) if schedule_id else None
 
     if request.method == 'POST':
-        form_schedule_id = request.form.get('schedule_id', type=int)
-        first_name = (request.form.get('first_name') or '').strip()
-        middle_name = (request.form.get('middle_name') or '').strip()
-        last_name = (request.form.get('last_name') or '').strip()
-        date_of_birth_raw = (request.form.get('date_of_birth') or '').strip()
-        referring_physician = (request.form.get('referring_physician') or '').strip()
-        patient_class = (request.form.get('patient_class') or '').strip()
+        form_schedule_id      = request.form.get('schedule_id', type=int)
+        first_name            = (request.form.get('first_name')            or '').strip()
+        middle_name           = (request.form.get('middle_name')           or '').strip()
+        last_name             = (request.form.get('last_name')             or '').strip()
+        date_of_birth_raw     = (request.form.get('date_of_birth')         or '').strip()
+        referring_physician   = (request.form.get('referring_physician')   or '').strip()
+        patient_class         = (request.form.get('patient_class')         or '').strip()
         procedure_datetime_raw = request.form.get('procedure_datetime', '').strip()
-        modality_type = (request.form.get('modality_type') or '').strip()
-        procedures = [p.strip() for p in request.form.getlist('procedure_name') if p.strip()]
+        modality_type         = (request.form.get('modality_type')         or '').strip()
+        procedures            = [p.strip() for p in request.form.getlist('procedure_name')       if p.strip()]
         third_party_approvals = [p.strip() for p in request.form.getlist('third_party_approval') if p.strip()]
 
-        if not all([first_name, middle_name, last_name, date_of_birth_raw, referring_physician, patient_class, procedure_datetime_raw, modality_type, procedures, third_party_approvals]):
+        if not all([first_name, middle_name, last_name, date_of_birth_raw,
+                    referring_physician, patient_class, procedure_datetime_raw,
+                    modality_type, procedures, third_party_approvals]):
             flash("Please complete all required scheduling fields.", "danger")
         else:
             try:
-                date_of_birth = datetime.strptime(date_of_birth_raw, '%Y-%m-%d').date()
-                procedure_datetime = datetime.strptime(procedure_datetime_raw, '%Y-%m-%dT%H:%M')
+                date_of_birth      = datetime.strptime(date_of_birth_raw,      '%Y-%m-%d').date()
+                procedure_datetime = datetime.strptime(procedure_datetime_raw,  '%Y-%m-%dT%H:%M')
             except ValueError:
                 flash("Please enter valid date and datetime values.", "danger")
-                date_of_birth = None
-                procedure_datetime = None
+                date_of_birth = procedure_datetime = None
 
             if date_of_birth and procedure_datetime:
                 if form_schedule_id:
-                    schedule = db.session.get(SchedulingEntry, form_schedule_id)
-                    if schedule:
-                        schedule.first_name = first_name
-                        schedule.middle_name = middle_name
-                        schedule.last_name = last_name
-                        schedule.date_of_birth = date_of_birth
-                        schedule.referring_physician = referring_physician
-                        schedule.patient_class = patient_class
-                        schedule.procedure_datetime = procedure_datetime
-                        schedule.modality_type = modality_type
-                        schedule.procedures = procedures
-                        schedule.third_party_approvals = third_party_approvals
-                        schedule.updated_at = datetime.utcnow()
+                    entry = db.session.get(SchedulingEntry, form_schedule_id)
+                    if entry:
+                        entry.first_name = first_name; entry.middle_name = middle_name
+                        entry.last_name = last_name;   entry.date_of_birth = date_of_birth
+                        entry.referring_physician = referring_physician
+                        entry.patient_class = patient_class
+                        entry.procedure_datetime = procedure_datetime
+                        entry.modality_type = modality_type
+                        entry.procedures = procedures
+                        entry.third_party_approvals = third_party_approvals
+                        entry.updated_at = datetime.utcnow()
                         db.session.commit()
                         flash("Scheduling entry updated.", "success")
-                        return redirect(url_for('admin.scheduling_page', schedule_id=schedule.id))
-                new_entry = SchedulingEntry(
-                    first_name=first_name,
-                    middle_name=middle_name,
-                    last_name=last_name,
-                    date_of_birth=date_of_birth,
-                    referring_physician=referring_physician,
-                    patient_class=patient_class,
-                    procedure_datetime=procedure_datetime,
-                    modality_type=modality_type,
-                    procedures=procedures,
-                    third_party_approvals=third_party_approvals,
-                )
-                db.session.add(new_entry)
-                db.session.commit()
-                flash("Scheduling entry saved.", "success")
-                return redirect(url_for('admin.scheduling_page', schedule_id=new_entry.id))
+                        return redirect(url_for('admin.scheduling_page',
+                                                schedule_id=entry.id, date=procedure_datetime.strftime('%Y-%m-%d')))
+                else:
+                    new_entry = SchedulingEntry(
+                        first_name=first_name, middle_name=middle_name, last_name=last_name,
+                        date_of_birth=date_of_birth, referring_physician=referring_physician,
+                        patient_class=patient_class, procedure_datetime=procedure_datetime,
+                        modality_type=modality_type, procedures=procedures,
+                        third_party_approvals=third_party_approvals,
+                    )
+                    db.session.add(new_entry)
+                    db.session.commit()
+                    flash("Scheduling entry saved.", "success")
+                    return redirect(url_for('admin.scheduling_page',
+                                            schedule_id=new_entry.id, date=procedure_datetime.strftime('%Y-%m-%d')))
 
-    schedules = SchedulingEntry.query.order_by(SchedulingEntry.updated_at.desc().nullslast(), SchedulingEntry.id.desc()).all()
+    # ── Build day grid ────────────────────────────────────────────────────────
+    # Collect appointments from both sources for view_date
+    appointments = []
 
-    return render_template('admin_scheduling.html', schedule=schedule, schedules=schedules)
+    # Source 1: manually entered scheduling entries
+    day_start = datetime.combine(view_date, datetime.min.time())
+    day_end   = datetime.combine(view_date, datetime.max.time())
+    manual_entries = SchedulingEntry.query.filter(
+        SchedulingEntry.procedure_datetime >= day_start,
+        SchedulingEntry.procedure_datetime <= day_end
+    ).order_by(SchedulingEntry.procedure_datetime).all()
+
+    for e in manual_entries:
+        appointments.append({
+            'source':    'manual',
+            'id':        e.id,
+            'time':      e.procedure_datetime.strftime('%H:%M'),
+            'hour_slot': e.procedure_datetime.hour * 60 + (30 if e.procedure_datetime.minute >= 30 else 0),
+            'modality':  e.modality_type or 'OT',
+            'name':      f"{e.first_name} {e.last_name}",
+            'procedure': ', '.join(e.procedures) if e.procedures else '',
+            'class':     e.patient_class,
+            'ref':       e.referring_physician,
+        })
+
+    # Source 2: ETL orders from HIS
+    try:
+        etl_rows = db.session.execute(text("""
+            SELECT o.order_dbid, o.proc_text, o.proc_id,
+                   o.scheduled_datetime, o.order_status, o.modality,
+                   o.patient_dbid, o.order_control
+            FROM etl_orders o
+            WHERE DATE(o.scheduled_datetime) = :d
+              AND (o.order_status IS NULL OR o.order_status NOT IN ('CA','X','DC'))
+            ORDER BY o.scheduled_datetime
+        """), {"d": view_date}).fetchall()
+
+        for r in etl_rows:
+            if not r.scheduled_datetime:
+                continue
+            dt = r.scheduled_datetime
+            appointments.append({
+                'source':    'etl',
+                'id':        r.order_dbid,
+                'time':      dt.strftime('%H:%M'),
+                'hour_slot': dt.hour * 60 + (30 if dt.minute >= 30 else 0),
+                'modality':  (r.modality or 'OT').strip().upper(),
+                'name':      f"ID: {r.patient_dbid or '—'}",
+                'procedure': (r.proc_text or r.proc_id or '—')[:60],
+                'class':     'OP',
+                'ref':       r.order_control or '',
+            })
+    except Exception:
+        pass  # etl_orders may not exist on fresh installs
+
+    # Build grid: time_slot (minutes) → modality → [appointments]
+    from collections import defaultdict
+    grid_raw = defaultdict(lambda: defaultdict(list))
+    modalities_set = []
+    for appt in appointments:
+        slot = appt['hour_slot']
+        mod  = appt['modality']
+        grid_raw[slot][mod].append(appt)
+        if mod not in modalities_set:
+            modalities_set.append(mod)
+    modalities_set.sort()
+
+    # Time slots 07:00 – 20:30 in 30-min intervals
+    time_slots = []
+    for h in range(7, 21):
+        for m in (0, 30):
+            minutes = h * 60 + m
+            label   = f"{h:02d}:{m:02d}"
+            row     = {mod: grid_raw[minutes].get(mod, []) for mod in modalities_set}
+            has_any = any(row.values())
+            time_slots.append({'minutes': minutes, 'label': label, 'row': row, 'has_any': has_any})
+
+    # Summary counts
+    from collections import Counter
+    mod_counts = Counter(a['modality'] for a in appointments)
+    class_counts = Counter(a['class'] for a in appointments)
+
+    # All saved entries for "All Bookings" tab
+    schedules = SchedulingEntry.query.order_by(
+        SchedulingEntry.updated_at.desc().nullslast(),
+        SchedulingEntry.id.desc()
+    ).all()
+
+    return render_template('admin_scheduling.html',
+        schedule=schedule,
+        schedules=schedules,
+        view_date=view_date,
+        view_date_str=view_date_str,
+        prev_date=prev_date,
+        next_date=next_date,
+        is_today=is_today,
+        time_slots=time_slots,
+        modalities=modalities_set,
+        appointments=appointments,
+        mod_counts=mod_counts,
+        class_counts=class_counts,
+        total_count=len(appointments),
+    )
 
 
 def _get_user_page_columns():

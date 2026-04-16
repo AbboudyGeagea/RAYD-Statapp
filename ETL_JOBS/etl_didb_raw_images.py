@@ -3,6 +3,8 @@ from datetime import datetime
 from sqlalchemy import text
 from db import OracleConnector
 
+COMMIT_EVERY = 100_000  # flush to Postgres every N rows
+
 def run_raw_images_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, study_uid_whitelist):
     job_name   = "RAW_IMAGES_ETL"
     start_time = datetime.now()
@@ -46,8 +48,8 @@ def run_raw_images_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, 
     cursor   = ora_conn.cursor()
 
     try:
-        skipped_fk = 0
-        last_printed = 0
+        skipped_fk  = 0
+        row_buffer  = []   # accumulate rows; flush every COMMIT_EVERY rows
         for chunk_num, i in enumerate(range(0, len(study_uid_whitelist), 1000), start=1):
             chunk  = study_uid_whitelist[i:i + 1000]
             binds  = [f":id{j}" for j in range(len(chunk))]
@@ -68,14 +70,14 @@ def run_raw_images_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, 
                 # series_db_uid is index 3 — skip rows whose series doesn't exist in PG
                 clean = [r for r in batch if r[3] in valid_series_ids]
                 skipped_fk += len(batch) - len(clean)
-                if not clean:
-                    continue
-                chunked_upsert_func(pg_engine, pg_table, col_names, clean, 'raw_image_db_uid')
-                total_rows += len(clean)
+                row_buffer.extend(clean)
 
-                if total_rows - last_printed >= 50000:
-                    last_printed = total_rows
-                    print(f"[Raw Images ETL] 📦 {total_rows:,} rows loaded (chunk {chunk_num}/{total_chunks})")
+                # Flush to Postgres every COMMIT_EVERY rows
+                if len(row_buffer) >= COMMIT_EVERY:
+                    chunked_upsert_func(pg_engine, pg_table, col_names, row_buffer, 'raw_image_db_uid')
+                    total_rows += len(row_buffer)
+                    row_buffer  = []
+                    print(f"[Raw Images ETL] 💾 Committed {total_rows:,} rows (chunk {chunk_num}/{total_chunks})")
                     if log_id:
                         with pg_engine.connect() as conn:
                             conn.execute(
@@ -83,6 +85,13 @@ def run_raw_images_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, 
                                 {"r": total_rows, "id": log_id}
                             )
                             conn.commit()
+
+        # Final flush — leftover rows after last chunk
+        if row_buffer:
+            chunked_upsert_func(pg_engine, pg_table, col_names, row_buffer, 'raw_image_db_uid')
+            total_rows += len(row_buffer)
+            row_buffer  = []
+            print(f"[Raw Images ETL] 💾 Final commit — {total_rows:,} rows total")
 
         status = "SUCCESS"
         print(f"[Raw Images ETL] ✅ Done — {total_rows:,} rows inserted, {skipped_fk:,} skipped (orphan series FK)")

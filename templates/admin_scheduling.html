@@ -10,297 +10,399 @@
         :root { --accent: #60a5fa; }
         body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; }
         body.light { background: #f0f4f8; color: #1a202c; }
-        body.light .sidebar-item { color: #4a5568; }
-        body.light .sidebar-item:hover, body.light .sidebar-item.active { background: #e2e8f0; color: #2b6cb0 !important; }
         body.light aside, body.light header { background: #ffffff !important; border-color: #e2e8f0 !important; }
-        body.light .table-container { background: #ffffff; border-color: #e2e8f0; }
-        body.light .field-label { color: #475569; }
-        body.light input, body.light select { background: #ffffff; color: #1a202c; border-color: #cbd5e1; }
+        body.light .sidebar-item { color: #4a5568; }
+        body.light .sidebar-item:hover, body.light .sidebar-item.active { background: #e2e8f0 !important; color: #2b6cb0 !important; }
+        body.light .card { background: #ffffff; border-color: #e2e8f0; }
+        body.light .input-border { background: #f8fafc; border-color: #e2e8f0; color: #1a202c; }
+        body.light .grid-cell { background: #f8fafc; border-color: #e2e8f0; }
+        body.light .time-label { color: #64748b; }
         .sidebar-item { transition: all 0.2s; border-radius: 0.75rem; margin-bottom: 0.25rem; cursor: pointer; text-decoration: none !important; color: #94a3b8; }
         .sidebar-item:hover { background: #1d2522; color: var(--accent) !important; }
         .sidebar-item.active { background: #1d2522; color: var(--accent) !important; border-left: 4px solid var(--accent); }
-        .table-container { background: #232b28; border-radius: 1.5rem; padding: 2.5rem; border: 1px solid #28332e; }
-        .page-btn { padding: 0.6rem 1.2rem; border-radius: 0.75rem; background: #1d2522; border: 1px solid #28332e; transition: all 0.2s; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px; }
-        .page-btn:hover:not(.disabled) { border-color: var(--accent); color: var(--accent); background: rgba(96,165,250,0.05); }
-        .input-group { display: grid; gap: 0.5rem; }
-        .input-border { background: #141b19; border: 1px solid #334155; color: #e2e8f0; padding: 0.9rem 1rem; border-radius: 0.85rem; }
-        .tab-button { background: #141b19; border: 1px solid #334155; color: #94a3b8; padding: 0.9rem 1.1rem; border-radius: 999px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; transition: all 0.2s; }
-        .tab-button.active { background: #60a5fa; border-color: #60a5fa; color: #0f172a; }
-        .tab-panel { display: block; }
-        .tab-panel.hidden { display: none; }
+        .card { background: #232b28; border-radius: 1.5rem; padding: 2rem; border: 1px solid #28332e; }
+        .input-border { background: #141b19; border: 1px solid #334155; color: #e2e8f0; padding: 0.9rem 1rem; border-radius: 0.85rem; width: 100%; font-size: 0.875rem; outline: none; transition: border-color 0.2s; }
+        .input-border:focus { border-color: var(--accent); }
+        .tab-btn { background: #141b19; border: 1px solid #334155; color: #94a3b8; padding: 0.75rem 1.25rem; border-radius: 999px; font-size: 0.7rem; font-weight: 900; text-transform: uppercase; letter-spacing: 0.15em; transition: all 0.2s; cursor: pointer; }
+        .tab-btn.active { background: #60a5fa; border-color: #60a5fa; color: #0f172a; }
+        /* Grid */
+        .sched-grid { display: grid; }
+        .grid-header { background: #1a2420; font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.2em; color: #60a5fa; padding: 0.6rem 0.75rem; border-bottom: 1px solid #28332e; text-align: center; position: sticky; top: 0; z-index: 10; }
+        .time-label { font-size: 10px; font-weight: 700; color: #475569; padding: 0.5rem 0.75rem; border-right: 1px solid #1e2a26; border-bottom: 1px solid #1e2a26; text-align: right; white-space: nowrap; background: #1a2420; }
+        .grid-cell { border-right: 1px solid #1e2a26; border-bottom: 1px solid #1e2a26; padding: 3px; min-height: 44px; vertical-align: top; background: #1c2420; transition: background 0.15s; }
+        .grid-cell:hover { background: #1e2a26; }
+        .grid-cell.has-appt { background: #1c2824; }
+        .appt-card { border-radius: 0.5rem; padding: 0.35rem 0.5rem; margin-bottom: 3px; font-size: 11px; line-height: 1.3; cursor: pointer; transition: opacity 0.15s; }
+        .appt-card:hover { opacity: 0.85; }
+        .appt-card.manual { background: rgba(96,165,250,0.12); border-left: 3px solid #60a5fa; }
+        .appt-card.etl    { background: rgba(52,211,153,0.10); border-left: 3px solid #34d399; }
+        .appt-card.er     { background: rgba(239,68,68,0.15);  border-left: 3px solid #ef4444; }
+        .appt-card.ip     { background: rgba(251,191,36,0.12); border-left: 3px solid #fbbf24; }
+        .badge-mod { display: inline-block; font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.1em; padding: 2px 6px; border-radius: 4px; background: #1e293b; color: #94a3b8; }
+        .chip { display: inline-flex; align-items: center; gap: 6px; padding: 0.35rem 0.75rem; border-radius: 999px; font-size: 11px; font-weight: 700; }
         .er-highlight { border-color: #dc2626 !important; background: rgba(220,38,38,0.08); }
-        .badge-er { background: #dc2626; color: #fff; font-size: 10px; padding: 0.25rem 0.6rem; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.08em; }
     </style>
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
     {% include '_header.html' %}
-
     <div class="flex flex-1 overflow-hidden">
         {% include '_sidebar.html' %}
+        <main class="flex-1 overflow-y-auto p-8 bg-[#181f1c]">
+            <div class="max-w-full mx-auto">
 
-        <main class="flex-1 overflow-y-auto p-10 bg-[#181f1c]">
-            <div class="max-w-7xl mx-auto">
-                <div class="flex flex-col gap-3 mb-8">
-                    <div class="flex items-start justify-between gap-4">
-                        <div>
-                            <h3 class="text-white text-3xl font-black tracking-tight uppercase">Scheduling</h3>
-                            <p class="text-slate-500 text-sm mt-2 max-w-2xl">Create and edit scheduled cases. All first-level fields are mandatory. Add extra procedure or insurance lines as needed.</p>
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                <div class="mb-4 space-y-2">
+                    {% for cat, msg in messages %}
+                    <div class="rounded-xl px-4 py-3 text-sm font-semibold {{ 'bg-emerald-500/10 text-emerald-200 border border-emerald-500/20' if cat == 'success' else 'bg-rose-500/10 text-rose-200 border border-rose-500/20' }}">{{ msg }}</div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                {% endwith %}
+
+                <!-- Header -->
+                <div class="flex items-center justify-between mb-6">
+                    <div>
+                        <h2 class="text-white text-2xl font-black uppercase tracking-tight">Scheduling</h2>
+                        <p class="text-slate-500 text-xs mt-1">Daily procedure overview + booking management</p>
+                    </div>
+                    <button onclick="showTab('form')" class="px-4 py-2.5 bg-[#60a5fa] text-[#0f172a] text-xs font-black uppercase tracking-widest rounded-xl hover:bg-[#93c5fd] transition-colors">
+                        <i class="bi bi-plus-lg mr-1"></i> New Booking
+                    </button>
+                </div>
+
+                <!-- Tabs -->
+                <div class="flex gap-2 mb-6">
+                    <button id="tab-btn-grid"    class="tab-btn active" onclick="showTab('grid')">Day Overview</button>
+                    <button id="tab-btn-form"    class="tab-btn"        onclick="showTab('form')">Schedule Case</button>
+                    <button id="tab-btn-all"     class="tab-btn"        onclick="showTab('all')">All Bookings</button>
+                </div>
+
+                <!-- ══════════════════ TAB: DAY GRID ══════════════════ -->
+                <div id="panel-grid">
+
+                    <!-- Date nav -->
+                    <div class="flex items-center gap-4 mb-5">
+                        <a href="{{ url_for('admin.scheduling_page', date=prev_date) }}"
+                           class="p-2 rounded-lg border border-[#28332e] hover:border-[#60a5fa] text-slate-400 hover:text-[#60a5fa] transition-colors">
+                            <i class="bi bi-chevron-left"></i>
+                        </a>
+                        <div class="text-center">
+                            <div class="text-white font-black text-lg">
+                                {{ view_date.strftime('%A, %d %B %Y') }}
+                                {% if is_today %}<span class="ml-2 text-xs font-black uppercase tracking-widest text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-full">Today</span>{% endif %}
+                            </div>
                         </div>
-                        {% if schedule and schedule.patient_class == 'ER' %}
-                        <div class="badge-er flex items-center gap-2">
-                            <i class="bi bi-exclamation-circle-fill"></i>
-                            Emergency Case (ER)
-                        </div>
+                        <a href="{{ url_for('admin.scheduling_page', date=next_date) }}"
+                           class="p-2 rounded-lg border border-[#28332e] hover:border-[#60a5fa] text-slate-400 hover:text-[#60a5fa] transition-colors">
+                            <i class="bi bi-chevron-right"></i>
+                        </a>
+                        <a href="{{ url_for('admin.scheduling_page') }}"
+                           class="ml-2 px-3 py-1.5 text-xs font-black uppercase tracking-widest border border-[#28332e] rounded-lg text-slate-400 hover:border-[#60a5fa] hover:text-[#60a5fa] transition-colors">
+                            Today
+                        </a>
+                        <input type="date" value="{{ view_date_str }}" onchange="window.location='/admin/scheduling?date='+this.value"
+                               class="ml-2 bg-[#141b19] border border-[#334155] text-slate-300 text-xs rounded-lg px-3 py-1.5 outline-none focus:border-[#60a5fa]">
+                    </div>
+
+                    <!-- Summary chips -->
+                    <div class="flex flex-wrap gap-2 mb-5">
+                        <span class="chip bg-[#1e2a26] text-slate-300">
+                            <i class="bi bi-calendar3 text-[#60a5fa]"></i>
+                            <span class="font-black">{{ total_count }}</span> total
+                        </span>
+                        {% for mod, cnt in mod_counts.most_common() %}
+                        <span class="chip bg-[#1e2a26] text-slate-300">
+                            <span class="badge-mod">{{ mod }}</span> {{ cnt }}
+                        </span>
+                        {% endfor %}
+                        {% if class_counts.get('ER') %}
+                        <span class="chip bg-red-500/10 text-red-300 border border-red-500/20">
+                            <i class="bi bi-exclamation-circle-fill text-red-400"></i> {{ class_counts['ER'] }} ER
+                        </span>
+                        {% endif %}
+                        {% if class_counts.get('IP') %}
+                        <span class="chip bg-amber-500/10 text-amber-300 border border-amber-500/20">
+                            {{ class_counts['IP'] }} IP
+                        </span>
                         {% endif %}
                     </div>
+
+                    {% if not modalities %}
+                    <!-- Empty state -->
+                    <div class="card text-center py-16">
+                        <i class="bi bi-calendar-x text-4xl text-slate-600"></i>
+                        <p class="text-slate-500 mt-4 font-semibold">No procedures scheduled for this day.</p>
+                        <button onclick="showTab('form')" class="mt-4 px-4 py-2 bg-[#60a5fa] text-[#0f172a] text-xs font-black uppercase tracking-widest rounded-xl hover:bg-[#93c5fd] transition-colors">
+                            + Schedule a Case
+                        </button>
+                    </div>
+                    {% else %}
+                    <!-- Grid -->
+                    <div class="card" style="padding: 0; overflow: hidden;">
+                        <div class="overflow-auto" style="max-height: calc(100vh - 280px);">
+                            <table class="w-full border-collapse" style="min-width: {{ (modalities|length) * 180 + 70 }}px;">
+                                <thead>
+                                    <tr>
+                                        <th class="grid-header" style="width:70px; text-align:left; padding-left:0.75rem;">Time</th>
+                                        {% for mod in modalities %}
+                                        <th class="grid-header" style="min-width:180px;">
+                                            {{ mod }}
+                                            <span class="ml-1 text-slate-500 font-normal normal-case tracking-normal">
+                                                ({{ mod_counts.get(mod, 0) }})
+                                            </span>
+                                        </th>
+                                        {% endfor %}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for slot in time_slots %}
+                                    {% if slot.has_any or loop.index % 2 == 1 %}
+                                    <tr class="{{ 'bg-[#1a2420]/60' if loop.index % 2 == 0 else '' }}">
+                                        <td class="time-label">{{ slot.label }}</td>
+                                        {% for mod in modalities %}
+                                        {% set appts = slot.row[mod] %}
+                                        <td class="grid-cell {{ 'has-appt' if appts else '' }}">
+                                            {% for appt in appts %}
+                                            <div class="appt-card {{ 'er' if appt.class == 'ER' else ('ip' if appt.class == 'IP' else ('manual' if appt.source == 'manual' else 'etl')) }}"
+                                                 {% if appt.source == 'manual' %}
+                                                 onclick="editEntry({{ appt.id }}, '{{ view_date_str }}')"
+                                                 title="Click to edit"
+                                                 {% endif %}>
+                                                <div class="font-bold text-white truncate" style="max-width:160px;">{{ appt.name }}</div>
+                                                <div class="text-slate-400 truncate" style="max-width:160px; font-size:10px;">{{ appt.procedure }}</div>
+                                                <div class="flex items-center gap-1 mt-1">
+                                                    <span style="font-size:9px; color:#64748b;">{{ appt.time }}</span>
+                                                    {% if appt.class in ('ER','IP') %}
+                                                    <span class="px-1 rounded text-[8px] font-black uppercase {{ 'bg-red-500/20 text-red-300' if appt.class == 'ER' else 'bg-amber-500/20 text-amber-300' }}">{{ appt.class }}</span>
+                                                    {% endif %}
+                                                    {% if appt.source == 'etl' %}
+                                                    <span class="px-1 rounded text-[8px] font-black uppercase bg-emerald-500/10 text-emerald-400">HIS</span>
+                                                    {% endif %}
+                                                </div>
+                                            </div>
+                                            {% endfor %}
+                                        </td>
+                                        {% endfor %}
+                                    </tr>
+                                    {% endif %}
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    {% endif %}
                 </div>
 
-                <div class="flex gap-3 mb-6">
-                    <button id="tab-schedule" type="button" class="tab-button active" onclick="showTab('schedule')">Schedule Case</button>
-                    <button id="tab-saved" type="button" class="tab-button" onclick="showTab('saved')">Saved Entries</button>
-                </div>
-
-                <div id="schedule-tab" class="tab-panel">
-                    <div id="scheduling-card" class="table-container mb-10">
-                    {% with messages = get_flashed_messages(with_categories=true) %}
-                        {% if messages %}
-                            <div class="space-y-3 mb-6">
-                                {% for category, message in messages %}
-                                    <div class="rounded-2xl px-4 py-3 text-sm font-semibold {{ 'bg-emerald-500/10 text-emerald-200 border border-emerald-500/20' if category == 'success' else 'bg-rose-500/10 text-rose-200 border border-rose-500/20' }}">
-                                        {{ message }}
-                                    </div>
-                                {% endfor %}
-                            </div>
-                        {% endif %}
-                    {% endwith %}
-
-                    <form method="POST" id="scheduling-form">
-                        {% if schedule %}
-                        <input type="hidden" name="schedule_id" value="{{ schedule.id }}">
-                        {% endif %}
-
-                        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-                            <div class="input-group">
-                                <label class="text-xs uppercase tracking-[0.3em] text-slate-400 font-black">First Name</label>
-                                <input type="text" name="first_name" required value="{{ schedule.first_name if schedule else '' }}" class="input-border">
-                            </div>
-                            <div class="input-group">
-                                <label class="text-xs uppercase tracking-[0.3em] text-slate-400 font-black">Middle Name</label>
-                                <input type="text" name="middle_name" required value="{{ schedule.middle_name if schedule else '' }}" class="input-border">
-                            </div>
-                            <div class="input-group">
-                                <label class="text-xs uppercase tracking-[0.3em] text-slate-400 font-black">Last Name</label>
-                                <input type="text" name="last_name" required value="{{ schedule.last_name if schedule else '' }}" class="input-border">
-                            </div>
-                        </div>
-
-                        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-                            <div class="input-group">
-                                <label class="text-xs uppercase tracking-[0.3em] text-slate-400 font-black">Date of Birth</label>
-                                <input type="date" name="date_of_birth" required value="{{ schedule.date_of_birth.strftime('%Y-%m-%d') if schedule and schedule.date_of_birth else '' }}" class="input-border">
-                            </div>
-                            <div class="input-group">
-                                <label class="text-xs uppercase tracking-[0.3em] text-slate-400 font-black">Referring Physician</label>
-                                <input type="text" name="referring_physician" required value="{{ schedule.referring_physician if schedule else '' }}" class="input-border">
-                            </div>
-                            <div class="input-group">
-                                <label class="text-xs uppercase tracking-[0.3em] text-slate-400 font-black">Patient Class</label>
-                                <select name="patient_class" required onchange="updateErHighlight()" class="input-border" id="patientClassSelect">
-                                    <option value="">Select One</option>
-                                    <option value="IP" {% if schedule and schedule.patient_class == 'IP' %}selected{% endif %}>IP</option>
-                                    <option value="OP" {% if schedule and schedule.patient_class == 'OP' %}selected{% endif %}>OP</option>
-                                    <option value="ER" {% if schedule and schedule.patient_class == 'ER' %}selected{% endif %}>ER</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-                            <div class="input-group">
-                                <label class="text-xs uppercase tracking-[0.3em] text-slate-400 font-black">Procedure Date & Time</label>
-                                <input type="datetime-local" name="procedure_datetime" required value="{{ schedule.procedure_datetime.strftime('%Y-%m-%dT%H:%M') if schedule and schedule.procedure_datetime else '' }}" class="input-border">
-                            </div>
-                            <div class="input-group">
-                                <label class="text-xs uppercase tracking-[0.3em] text-slate-400 font-black">Modality Type</label>
-                                <select name="modality_type" required class="input-border">
-                                    <option value="">Select One</option>
-                                    <option value="CR" {% if schedule and schedule.modality_type == 'CR' %}selected{% endif %}>CR (Computed Radiography)</option>
-                                    <option value="CT" {% if schedule and schedule.modality_type == 'CT' %}selected{% endif %}>CT (Computed Tomography)</option>
-                                    <option value="MR" {% if schedule and schedule.modality_type == 'MR' %}selected{% endif %}>MR (Magnetic Resonance)</option>
-                                    <option value="US" {% if schedule and schedule.modality_type == 'US' %}selected{% endif %}>US (Ultrasound)</option>
-                                    <option value="XC" {% if schedule and schedule.modality_type == 'XC' %}selected{% endif %}>XC (External-camera Photography)</option>
-                                    <option value="MG" {% if schedule and schedule.modality_type == 'MG' %}selected{% endif %}>MG (Mammography)</option>
-                                    <option value="DX" {% if schedule and schedule.modality_type == 'DX' %}selected{% endif %}>DX (Digital Radiography)</option>
-                                    <option value="RF" {% if schedule and schedule.modality_type == 'RF' %}selected{% endif %}>RF (Radiofluoroscopy)</option>
-                                    <option value="OT" {% if schedule and schedule.modality_type == 'OT' %}selected{% endif %}>OT (Other)</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-                            <div>
-                                <div class="flex items-center justify-between mb-3">
-                                    <label class="text-xs uppercase tracking-[0.3em] text-slate-400 font-black">Procedure Name</label>
-                                    <button type="button" onclick="addProcedureRow()" class="text-[11px] font-black uppercase tracking-[0.2em] px-3 py-2 rounded-lg bg-[#1e293b] border border-[#334155] hover:border-[#60a5fa] text-slate-300 transition-all">Add Procedure</button>
-                                </div>
-                                <div id="procedure-list" class="space-y-3">
-                                    {% set procedure_values = schedule.procedures if schedule and schedule.procedures else [''] %}
-                                    {% for value in procedure_values %}
-                                    <div class="flex items-center gap-3">
-                                        <input type="text" name="procedure_name" {% if loop.first %}required{% endif %} value="{{ value }}" placeholder="Procedure {{ loop.index }}" class="input-border flex-1">
-                                        {% if not loop.first %}
-                                        <button type="button" onclick="removeRow(this)" class="text-sm px-3 py-2 rounded-lg bg-[#111827] border border-[#334155] text-slate-300">Remove</button>
-                                        {% endif %}
-                                    </div>
-                                    {% endfor %}
-                                </div>
-                            </div>
-                            <div>
-                                <div class="flex items-center justify-between mb-3">
-                                    <label class="text-xs uppercase tracking-[0.3em] text-slate-400 font-black">Third Party Approval</label>
-                                    <button type="button" onclick="addTpaRow()" class="text-[11px] font-black uppercase tracking-[0.2em] px-3 py-2 rounded-lg bg-[#1e293b] border border-[#334155] hover:border-[#60a5fa] text-slate-300 transition-all">Add Approval</button>
-                                </div>
-                                <div id="tpa-list" class="space-y-3">
-                                    {% set tpa_values = schedule.third_party_approvals if schedule and schedule.third_party_approvals else [''] %}
-                                    {% for value in tpa_values %}
-                                    <div class="flex items-center gap-3">
-                                        <input type="text" name="third_party_approval" {% if loop.first %}required{% endif %} value="{{ value }}" placeholder="Insurance Approval {{ loop.index }}" class="input-border flex-1">
-                                        {% if not loop.first %}
-                                        <button type="button" onclick="removeRow(this)" class="text-sm px-3 py-2 rounded-lg bg-[#111827] border border-[#334155] text-slate-300">Remove</button>
-                                        {% endif %}
-                                    </div>
-                                    {% endfor %}
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="flex flex-wrap items-center gap-3">
-                            <button type="submit" class="px-5 py-3 rounded-2xl bg-[#60a5fa] text-black font-bold uppercase tracking-[0.2em]">Save Entry</button>
-                            {% if schedule %}
-                            <a href="{{ url_for('admin.scheduling_page') }}" class="px-5 py-3 rounded-2xl border border-[#28332e] text-slate-300 hover:border-[#60a5fa]">New Entry</a>
+                <!-- ══════════════════ TAB: SCHEDULE FORM ══════════════════ -->
+                <div id="panel-form" class="hidden">
+                    <div class="card" id="scheduling-card">
+                        <div class="flex items-center justify-between mb-6">
+                            <h3 class="text-white text-xl font-black uppercase tracking-tight">
+                                {{ 'Edit Entry #' + schedule.id|string if schedule else 'New Scheduling Entry' }}
+                            </h3>
+                            {% if schedule and schedule.patient_class == 'ER' %}
+                            <span class="flex items-center gap-2 px-3 py-1 rounded-full text-xs font-black uppercase bg-red-500/10 text-red-300 border border-red-500/20">
+                                <i class="bi bi-exclamation-circle-fill"></i> Emergency Case
+                            </span>
                             {% endif %}
                         </div>
-                    </form>
+
+                        <form method="POST" id="scheduling-form">
+                            {% if schedule %}<input type="hidden" name="schedule_id" value="{{ schedule.id }}">{% endif %}
+
+                            <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-5">
+                                <div>
+                                    <label class="block text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 mb-2">First Name</label>
+                                    <input type="text" name="first_name" required value="{{ schedule.first_name if schedule else '' }}" class="input-border">
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 mb-2">Middle Name</label>
+                                    <input type="text" name="middle_name" required value="{{ schedule.middle_name if schedule else '' }}" class="input-border">
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 mb-2">Last Name</label>
+                                    <input type="text" name="last_name" required value="{{ schedule.last_name if schedule else '' }}" class="input-border">
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-5">
+                                <div>
+                                    <label class="block text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 mb-2">Date of Birth</label>
+                                    <input type="date" name="date_of_birth" required value="{{ schedule.date_of_birth.strftime('%Y-%m-%d') if schedule and schedule.date_of_birth else '' }}" class="input-border">
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 mb-2">Referring Physician</label>
+                                    <input type="text" name="referring_physician" required value="{{ schedule.referring_physician if schedule else '' }}" class="input-border">
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 mb-2">Patient Class</label>
+                                    <select name="patient_class" required onchange="updateErHighlight()" id="patientClassSelect" class="input-border">
+                                        <option value="">Select One</option>
+                                        <option value="OP" {% if schedule and schedule.patient_class == 'OP' %}selected{% endif %}>OP</option>
+                                        <option value="IP" {% if schedule and schedule.patient_class == 'IP' %}selected{% endif %}>IP</option>
+                                        <option value="ER" {% if schedule and schedule.patient_class == 'ER' %}selected{% endif %}>ER</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-5">
+                                <div>
+                                    <label class="block text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 mb-2">Procedure Date &amp; Time</label>
+                                    <input type="datetime-local" name="procedure_datetime" required
+                                           value="{{ schedule.procedure_datetime.strftime('%Y-%m-%dT%H:%M') if schedule and schedule.procedure_datetime else '' }}"
+                                           class="input-border">
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 mb-2">Modality</label>
+                                    <select name="modality_type" required class="input-border">
+                                        <option value="">Select One</option>
+                                        {% for code, label in [('CR','CR – Computed Radiography'),('CT','CT – Computed Tomography'),('MR','MR – Magnetic Resonance'),('US','US – Ultrasound'),('DX','DX – Digital Radiography'),('MG','MG – Mammography'),('RF','RF – Radiofluoroscopy'),('XC','XC – Photography'),('OT','OT – Other')] %}
+                                        <option value="{{ code }}" {% if schedule and schedule.modality_type == code %}selected{% endif %}>{{ label }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
+                                <div>
+                                    <div class="flex items-center justify-between mb-2">
+                                        <label class="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500">Procedures</label>
+                                        <button type="button" onclick="addRow('proc-list','procedure_name','Procedure')" class="text-[10px] font-black uppercase px-3 py-1.5 rounded-lg bg-[#1e293b] border border-[#334155] hover:border-[#60a5fa] text-slate-300 transition-all">+ Add</button>
+                                    </div>
+                                    <div id="proc-list" class="space-y-2">
+                                        {% for val in (schedule.procedures if schedule and schedule.procedures else ['']) %}
+                                        <div class="flex gap-2">
+                                            <input type="text" name="procedure_name" {% if loop.first %}required{% endif %} value="{{ val }}" placeholder="Procedure {{ loop.index }}" class="input-border flex-1">
+                                            {% if not loop.first %}<button type="button" onclick="removeRow(this)" class="px-3 py-2 rounded-lg bg-[#111827] border border-[#334155] text-slate-400 text-sm">✕</button>{% endif %}
+                                        </div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                                <div>
+                                    <div class="flex items-center justify-between mb-2">
+                                        <label class="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500">Third Party Approvals</label>
+                                        <button type="button" onclick="addRow('tpa-list','third_party_approval','Approval')" class="text-[10px] font-black uppercase px-3 py-1.5 rounded-lg bg-[#1e293b] border border-[#334155] hover:border-[#60a5fa] text-slate-300 transition-all">+ Add</button>
+                                    </div>
+                                    <div id="tpa-list" class="space-y-2">
+                                        {% for val in (schedule.third_party_approvals if schedule and schedule.third_party_approvals else ['']) %}
+                                        <div class="flex gap-2">
+                                            <input type="text" name="third_party_approval" {% if loop.first %}required{% endif %} value="{{ val }}" placeholder="Approval {{ loop.index }}" class="input-border flex-1">
+                                            {% if not loop.first %}<button type="button" onclick="removeRow(this)" class="px-3 py-2 rounded-lg bg-[#111827] border border-[#334155] text-slate-400 text-sm">✕</button>{% endif %}
+                                        </div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="flex gap-3">
+                                <button type="submit" class="px-6 py-3 bg-[#60a5fa] text-[#0f172a] text-xs font-black uppercase tracking-widest rounded-xl hover:bg-[#93c5fd] transition-colors">
+                                    <i class="bi bi-floppy-fill mr-1"></i>
+                                    {{ 'Update Entry' if schedule else 'Save Entry' }}
+                                </button>
+                                {% if schedule %}
+                                <a href="{{ url_for('admin.scheduling_page', date=view_date_str) }}"
+                                   class="px-6 py-3 border border-[#28332e] text-slate-400 text-xs font-black uppercase tracking-widest rounded-xl hover:border-[#60a5fa] transition-colors">
+                                    New Entry
+                                </a>
+                                {% endif %}
+                                <button type="button" onclick="showTab('grid')"
+                                        class="px-6 py-3 border border-[#28332e] text-slate-400 text-xs font-black uppercase tracking-widest rounded-xl hover:border-[#60a5fa] transition-colors">
+                                    Back to Grid
+                                </button>
+                            </div>
+                        </form>
+                    </div>
                 </div>
 
-                <div id="saved-tab" class="tab-panel hidden">
-                    <div class="table-container">
-                        <div class="flex items-center justify-between mb-6">
-                            <div>
-                                <h4 class="text-white text-2xl font-black">Saved Scheduling Entries</h4>
-                                <p class="text-slate-500 text-sm mt-1">Select a row to edit an existing schedule.</p>
-                            </div>
+                <!-- ══════════════════ TAB: ALL BOOKINGS ══════════════════ -->
+                <div id="panel-all" class="hidden">
+                    <div class="card" style="padding: 0; overflow: hidden;">
+                        <div class="px-6 py-4 border-b border-[#28332e] flex items-center justify-between">
+                            <h3 class="text-white font-black uppercase tracking-tight">All Scheduled Bookings</h3>
+                            <span class="text-slate-500 text-xs">{{ schedules|length }} entries</span>
                         </div>
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-left">
-                            <thead>
-                                <tr class="border-b border-[#28332e] text-[#60a5fa] text-[10px] uppercase tracking-[0.2em] font-black">
-                                    <th class="pb-4 px-4">Patient</th>
-                                    <th class="pb-4 px-4">DOB</th>
-                                    <th class="pb-4 px-4">Class</th>
-                                    <th class="pb-4 px-4">Procedure Date/Time</th>
-                                    <th class="pb-4 px-4">Modality</th>
-                                    <th class="pb-4 px-4">Referring Physician</th>
-                                    <th class="pb-4 px-4">Procedures</th>
-                                    <th class="pb-4 px-4">Insurance</th>
-                                    <th class="pb-4 px-4 text-right">Edit</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-[#28332e]">
-                                {% if schedules %}
+                        <div class="overflow-auto">
+                            <table class="w-full text-left">
+                                <thead>
+                                    <tr class="border-b border-[#28332e] bg-[#1a2420]">
+                                        {% for col in ['Patient','DOB','Class','Date & Time','Modality','Referring','Procedures','Insurance',''] %}
+                                        <th class="px-4 py-3 text-[10px] font-black uppercase tracking-[0.2em] text-[#60a5fa]">{{ col }}</th>
+                                        {% endfor %}
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-[#1e2a26]">
+                                    {% if schedules %}
                                     {% for item in schedules %}
-                                    <tr class="group hover:bg-[#1d2522]/50 transition-all {% if item.patient_class == 'ER' %}bg-[#581c1c]/10{% endif %}">
-                                        <td class="py-4 px-4 text-sm">
-                                            <div class="font-bold">{{ item.first_name }} {{ item.middle_name }} {{ item.last_name }}</div>
+                                    <tr class="hover:bg-[#1d2522]/50 transition-all {{ 'bg-red-900/10' if item.patient_class == 'ER' else '' }}">
+                                        <td class="px-4 py-3 text-sm font-bold">{{ item.first_name }} {{ item.middle_name }} {{ item.last_name }}</td>
+                                        <td class="px-4 py-3 text-sm text-slate-400">{{ item.date_of_birth.strftime('%d/%m/%Y') if item.date_of_birth else '—' }}</td>
+                                        <td class="px-4 py-3">
+                                            <span class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase {{ 'bg-red-500/10 text-red-300' if item.patient_class == 'ER' else ('bg-amber-500/10 text-amber-300' if item.patient_class == 'IP' else 'bg-slate-700 text-slate-300') }}">{{ item.patient_class }}</span>
                                         </td>
-                                        <td class="py-4 px-4 text-sm text-slate-400">{{ item.date_of_birth.strftime('%d/%m/%Y') if item.date_of_birth else '—' }}</td>
-                                        <td class="py-4 px-4 text-sm">
-                                            <span class="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-[0.18em] {{ 'bg-red-500/10 text-red-300' if item.patient_class == 'ER' else 'bg-slate-800 text-slate-200' }}">{{ item.patient_class }}</span>
-                                        </td>
-                                        <td class="py-4 px-4 text-sm text-slate-400">{{ item.procedure_datetime.strftime('%d/%m/%Y %H:%M') if item.procedure_datetime else '—' }}</td>
-                                        <td class="py-4 px-4 text-sm">
-                                            <span class="px-2 py-1 rounded-md text-[9px] font-bold uppercase tracking-wider bg-slate-700 text-slate-200">{{ item.modality_type if item.modality_type else '—' }}</span>
-                                        </td>
-                                        <td class="py-4 px-4 text-sm">{{ item.referring_physician }}</td>
-                                        <td class="py-4 px-4 text-sm">{{ item.procedures | join(', ') }}</td>
-                                        <td class="py-4 px-4 text-sm">{{ item.third_party_approvals | join(', ') }}</td>
-                                        <td class="py-4 px-4 text-right">
-                                            <a href="{{ url_for('admin.scheduling_page', schedule_id=item.id) }}" class="text-slate-300 hover:text-[#60a5fa] font-semibold">Edit</a>
+                                        <td class="px-4 py-3 text-sm text-slate-400">{{ item.procedure_datetime.strftime('%d/%m/%Y %H:%M') if item.procedure_datetime else '—' }}</td>
+                                        <td class="px-4 py-3"><span class="badge-mod">{{ item.modality_type or '—' }}</span></td>
+                                        <td class="px-4 py-3 text-sm text-slate-400">{{ item.referring_physician }}</td>
+                                        <td class="px-4 py-3 text-sm text-slate-400 max-w-[200px] truncate">{{ item.procedures | join(', ') }}</td>
+                                        <td class="px-4 py-3 text-sm text-slate-400 max-w-[150px] truncate">{{ item.third_party_approvals | join(', ') }}</td>
+                                        <td class="px-4 py-3">
+                                            <a href="{{ url_for('admin.scheduling_page', schedule_id=item.id, date=item.procedure_datetime.strftime('%Y-%m-%d') if item.procedure_datetime else view_date_str) }}"
+                                               onclick="setTimeout(()=>showTab('form'),50)"
+                                               class="text-xs font-bold text-[#60a5fa] hover:underline">Edit</a>
                                         </td>
                                     </tr>
                                     {% endfor %}
-                                {% else %}
-                                    <tr>
-                                        <td colspan="9" class="py-6 px-4 text-slate-500 text-sm">No scheduling records yet. Use the form above to create the first entry.</td>
-                                    </tr>
-                                {% endif %}
-                            </tbody>
-                        </table>
+                                    {% else %}
+                                    <tr><td colspan="9" class="px-4 py-10 text-slate-500 text-center text-sm">No bookings yet.</td></tr>
+                                    {% endif %}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
+
             </div>
         </main>
     </div>
 
     <script>
-        function addProcedureRow() {
-            const container = document.getElementById('procedure-list');
-            const row = document.createElement('div');
-            row.className = 'flex items-center gap-3';
-            row.innerHTML = `
-                <input type="text" name="procedure_name" placeholder="Additional procedure" class="input-border flex-1">
-                <button type="button" onclick="removeRow(this)" class="text-sm px-3 py-2 rounded-lg bg-[#111827] border border-[#334155] text-slate-300">Remove</button>
-            `;
-            container.appendChild(row);
+        const PANELS = ['grid','form','all'];
+        function showTab(name) {
+            PANELS.forEach(p => {
+                document.getElementById('panel-'+p).classList.toggle('hidden', p !== name);
+                document.getElementById('tab-btn-'+p).classList.toggle('active', p === name);
+            });
         }
 
-        function addTpaRow() {
-            const container = document.getElementById('tpa-list');
-            const row = document.createElement('div');
-            row.className = 'flex items-center gap-3';
-            row.innerHTML = `
-                <input type="text" name="third_party_approval" placeholder="Additional approval" class="input-border flex-1">
-                <button type="button" onclick="removeRow(this)" class="text-sm px-3 py-2 rounded-lg bg-[#111827] border border-[#334155] text-slate-300">Remove</button>
-            `;
-            container.appendChild(row);
+        function editEntry(id, date) {
+            window.location = `/admin/scheduling?schedule_id=${id}&date=${date}`;
         }
 
-        function removeRow(button) {
-            const row = button.closest('div');
-            if (row) row.remove();
+        function addRow(containerId, fieldName, label) {
+            const c = document.getElementById(containerId);
+            const idx = c.children.length + 1;
+            const div = document.createElement('div');
+            div.className = 'flex gap-2';
+            div.innerHTML = `<input type="text" name="${fieldName}" placeholder="${label} ${idx}" class="input-border flex-1">
+                             <button type="button" onclick="removeRow(this)" class="px-3 py-2 rounded-lg bg-[#111827] border border-[#334155] text-slate-400 text-sm">✕</button>`;
+            c.appendChild(div);
         }
+
+        function removeRow(btn) { btn.closest('div').remove(); }
 
         function updateErHighlight() {
             const card = document.getElementById('scheduling-card');
-            const selection = document.getElementById('patientClassSelect').value;
-            if (selection === 'ER') {
-                card.classList.add('er-highlight');
-            } else {
-                card.classList.remove('er-highlight');
-            }
+            const val  = document.getElementById('patientClassSelect').value;
+            card.classList.toggle('er-highlight', val === 'ER');
         }
 
-        function showTab(tab) {
-            const schedulePanel = document.getElementById('schedule-tab');
-            const savedPanel = document.getElementById('saved-tab');
-            const scheduleButton = document.getElementById('tab-schedule');
-            const savedButton = document.getElementById('tab-saved');
-
-            if (tab === 'saved') {
-                schedulePanel.classList.add('hidden');
-                savedPanel.classList.remove('hidden');
-                scheduleButton.classList.remove('active');
-                savedButton.classList.add('active');
-            } else {
-                schedulePanel.classList.remove('hidden');
-                savedPanel.classList.add('hidden');
-                scheduleButton.classList.add('active');
-                savedButton.classList.remove('active');
-            }
-        }
-
-        document.addEventListener('DOMContentLoaded', function() {
-            showTab('schedule');
-            updateErHighlight();
+        document.addEventListener('DOMContentLoaded', () => {
+            {% if schedule %}
+                showTab('form');
+            {% else %}
+                showTab('grid');
+            {% endif %}
+            if (document.getElementById('patientClassSelect')) updateErHighlight();
         });
     </script>
 </body>
