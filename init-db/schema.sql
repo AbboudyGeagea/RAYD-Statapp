@@ -1608,6 +1608,26 @@ SELECT pg_catalog.setval('public.users_id_seq', 6, true);
 
 
 --
+-- Name: scheduling_entries; Type: TABLE; Schema: public; Owner: etl_user
+--
+
+CREATE TABLE public.scheduling_entries (
+    id SERIAL PRIMARY KEY,
+    first_name text NOT NULL,
+    middle_name text NOT NULL,
+    last_name text NOT NULL,
+    date_of_birth date NOT NULL,
+    referring_physician text NOT NULL,
+    patient_class text NOT NULL,
+    procedures jsonb NOT NULL DEFAULT '[]'::jsonb,
+    third_party_approvals jsonb NOT NULL DEFAULT '[]'::jsonb,
+    created_at timestamp without time zone DEFAULT now(),
+    updated_at timestamp without time zone DEFAULT now()
+);
+
+ALTER TABLE public.scheduling_entries OWNER TO etl_user;
+
+--
 -- PostgreSQL database dump complete
 --
 

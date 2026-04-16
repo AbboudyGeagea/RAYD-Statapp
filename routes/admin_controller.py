@@ -90,26 +90,7 @@ def scheduling_page():
         flash("Admin access required.", "danger")
         return redirect(url_for('viewer.viewer_dashboard'))
 
-    # Ensure the scheduling table exists before using it.
-    try:
-        db.session.execute(text("""
-            CREATE TABLE IF NOT EXISTS scheduling_entries (
-                id SERIAL PRIMARY KEY,
-                first_name TEXT NOT NULL,
-                middle_name TEXT NOT NULL,
-                last_name TEXT NOT NULL,
-                date_of_birth DATE NOT NULL,
-                referring_physician TEXT NOT NULL,
-                patient_class TEXT NOT NULL,
-                procedures JSONB NOT NULL DEFAULT '[]',
-                third_party_approvals JSONB NOT NULL DEFAULT '[]',
-                created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT now(),
-                updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT now()
-            );
-        """))
-        db.session.commit()
-    except Exception:
-        db.session.rollback()
+    # Scheduling table schema is managed in init-db/schema.sql.
 
     schedule_id = request.args.get('schedule_id', type=int)
     schedule = SchedulingEntry.query.get(schedule_id) if schedule_id else None
