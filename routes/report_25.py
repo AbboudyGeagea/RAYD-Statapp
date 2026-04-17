@@ -728,7 +728,7 @@ def patient_journey_api():
                 ), {'pid': f'%{pid}%'}).fetchall()
                 accessions.update(r[0] for r in rows if r[0])
             except Exception:
-                pass
+                db.session.rollback()
             try:
                 rows = db.session.execute(text(
                     "SELECT DISTINCT accession_number FROM etl_didb_studies "
@@ -736,7 +736,7 @@ def patient_journey_api():
                 ), {'pid': f'%{pid}%'}).fetchall()
                 accessions.update(r[0] for r in rows if r[0])
             except Exception:
-                pass
+                db.session.rollback()
 
         if not accessions:
             return _json({'studies': [], 'error': None, 'message': 'No matching studies found'})
@@ -791,6 +791,7 @@ def patient_journey_api():
                 """), {'accn': accn}).mappings().fetchall()
                 orders = [dict(r) for r in orders]
             except Exception:
+                db.session.rollback()
                 orders = []
 
             # ── Build timeline ────────────────────────────────────────────────
