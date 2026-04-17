@@ -42,19 +42,23 @@
             <div class="max-w-5xl mx-auto">
 
                 <!-- ── Daily Briefing ─────────────────────────────────────── -->
-                <div id="briefing-card" class="card-custom px-5 py-4 mb-6 flex items-start gap-4" style="border-left:3px solid #60a5fa;">
-                    <div class="shrink-0 mt-0.5">
-                        <i class="bi bi-stars" style="font-size:1.2rem;color:#60a5fa;"></i>
+                <div id="briefing-card" class="card-custom px-5 py-5 mb-6" style="border-left:3px solid #60a5fa;">
+                    <!-- header row -->
+                    <div class="flex items-center justify-between mb-3">
+                        <div class="flex items-center gap-2">
+                            <i class="bi bi-stars" style="font-size:1rem;color:#60a5fa;"></i>
+                            <span style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.12em;color:#60a5fa;">Daily Briefing</span>
+                        </div>
+                        <span id="briefing-time" style="font-size:10px;color:#475569;"></span>
                     </div>
-                    <div class="flex-1 min-w-0">
-                        <p style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.12em;color:#60a5fa;margin-bottom:4px;">
-                            Daily Briefing
-                        </p>
-                        <p id="briefing-text" style="font-size:13px;font-weight:600;color:#e2e8f0;line-height:1.6;">
-                            Loading…
-                        </p>
-                    </div>
-                    <p id="briefing-time" style="font-size:10px;color:#475569;white-space:nowrap;margin-top:2px;"></p>
+                    <!-- headline -->
+                    <p id="briefing-headline" style="font-size:14px;font-weight:700;color:#e2e8f0;line-height:1.5;margin-bottom:14px;">
+                        Loading…
+                    </p>
+                    <!-- KPI pills -->
+                    <div id="briefing-kpis" class="flex flex-wrap gap-2 mb-4"></div>
+                    <!-- insight bullets -->
+                    <ul id="briefing-insights" style="margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px;"></ul>
                 </div>
                 <!-- ── End Daily Briefing ─────────────────────────────────── -->
 
@@ -419,29 +423,57 @@
         (async function() {
             try {
                 const d = await fetch('/viewer/briefing').then(r => r.json());
-                const el = document.getElementById('briefing-text');
-                const timeEl = document.getElementById('briefing-time');
-                if (el) {
-                    el.textContent = d.text || 'No data available.';
 
-                    // Colour the card accent based on volume trend
-                    const card = document.getElementById('briefing-card');
-                    if (card && d.pct_vs_avg !== undefined) {
-                        const color = d.pct_vs_avg >= 10 ? '#f43f5e'
-                                    : d.pct_vs_avg >= 0  ? '#60a5fa'
-                                    : '#f59e0b';
-                        card.style.borderLeftColor = color;
-                        card.querySelector('i').style.color = color;
-                        card.querySelector('p').style.color = color;
-                    }
+                // accent colour driven by volume trend
+                const accentColor = (d.pct_vs_avg >= 10) ? '#f43f5e'
+                                  : (d.pct_vs_avg >= 0)  ? '#60a5fa'
+                                  :                        '#f59e0b';
+                const card = document.getElementById('briefing-card');
+                if (card) {
+                    card.style.borderLeftColor = accentColor;
+                    card.querySelector('i').style.color  = accentColor;
+                    card.querySelector('span').style.color = accentColor;
                 }
-                if (timeEl) {
-                    const now = new Date();
-                    timeEl.textContent = now.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+
+                // headline
+                const hl = document.getElementById('briefing-headline');
+                if (hl) hl.textContent = d.headline || d.text || 'No data available.';
+
+                // KPI pills
+                const kpiEl = document.getElementById('briefing-kpis');
+                if (kpiEl && d.kpis) {
+                    const trendStyle = t => ({
+                        up:      'background:rgba(96,165,250,0.12);border-color:rgba(96,165,250,0.3);color:#93c5fd',
+                        down:    'background:rgba(244,63,94,0.12);border-color:rgba(244,63,94,0.3);color:#fda4af',
+                        good:    'background:rgba(34,197,94,0.12);border-color:rgba(34,197,94,0.3);color:#86efac',
+                        warn:    'background:rgba(245,158,11,0.12);border-color:rgba(245,158,11,0.3);color:#fcd34d',
+                        neutral: 'background:rgba(255,255,255,0.04);border-color:rgba(255,255,255,0.08);color:#94a3b8',
+                    }[t] || 'background:rgba(255,255,255,0.04);border-color:rgba(255,255,255,0.08);color:#94a3b8');
+
+                    kpiEl.innerHTML = d.kpis.map(k => `
+                        <div style="display:inline-flex;flex-direction:column;padding:6px 12px;border-radius:10px;border:1px solid;${trendStyle(k.trend)};min-width:90px;">
+                            <span style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.08em;opacity:0.7;margin-bottom:2px;">${k.label}</span>
+                            <span style="font-size:15px;font-weight:900;line-height:1;">${k.value}</span>
+                            ${k.sub ? `<span style="font-size:9px;opacity:0.6;margin-top:2px;">${k.sub}</span>` : ''}
+                        </div>`).join('');
                 }
+
+                // insight bullets
+                const insEl = document.getElementById('briefing-insights');
+                if (insEl && d.insights) {
+                    insEl.innerHTML = d.insights.map(s => `
+                        <li style="display:flex;gap:8px;align-items:flex-start;">
+                            <span style="color:#60a5fa;margin-top:3px;flex-shrink:0;font-size:8px;">◆</span>
+                            <span style="font-size:12px;color:#94a3b8;line-height:1.6;">${s}</span>
+                        </li>`).join('');
+                }
+
+                const timeEl = document.getElementById('briefing-time');
+                if (timeEl) timeEl.textContent = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+
             } catch(e) {
-                const el = document.getElementById('briefing-text');
-                if (el) el.textContent = 'Briefing unavailable.';
+                const hl = document.getElementById('briefing-headline');
+                if (hl) hl.textContent = 'Briefing unavailable.';
             }
         })();
     </script>
