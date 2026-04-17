@@ -470,6 +470,7 @@
                     const el = document.getElementById('chart-rad-tat-heatmap');
                     if (!el || !heatData.length) return;
                     const c = echarts.init(el, null, {renderer:'canvas'});
+                    window._radTatHeatmap = c;
                     c.setOption({
                         backgroundColor: 'transparent',
                         tooltip: {
@@ -807,26 +808,14 @@
                     </div>
                 </div>
 
-                <!-- Row 3: TAT Outlier Table -->
+                <!-- Row 3: TAT Outlier Cards -->
                 <div class="glass-card">
-                    <p class="text-xs font-black text-amber-500 uppercase mb-4">TAT Outlier Detection — Procedures >2× Mean TAT</p>
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-xs">
-                            <thead>
-                                <tr class="border-b border-white/5 text-zinc-500 uppercase text-[10px]">
-                                    <th class="text-left py-3 px-4">Radiologist</th>
-                                    <th class="text-left py-3 px-4">Patient Class</th>
-                                    <th class="text-left py-3 px-4">Modality</th>
-                                    <th class="text-right py-3 px-4">TAT</th>
-                                    <th class="text-right py-3 px-4">Mean TAT</th>
-                                    <th class="text-right py-3 px-4">Ratio</th>
-                                    <th class="text-right py-3 px-4">Study Date</th>
-                                </tr>
-                            </thead>
-                            <tbody id="outlier-table-body" class="divide-y divide-white/5">
-                                <tr><td colspan="7" class="text-center py-8 text-zinc-600">Loading...</td></tr>
-                            </tbody>
-                        </table>
+                    <div class="flex items-center justify-between mb-4">
+                        <p class="text-xs font-black text-amber-500 uppercase tracking-widest">TAT Outlier Detection</p>
+                        <span class="text-[10px] text-zinc-600 italic">IQR-based threshold · sorted by severity</span>
+                    </div>
+                    <div id="outlier-list" class="space-y-2">
+                        <div class="text-center py-8 text-zinc-600 italic text-xs">Loading…</div>
                     </div>
                 </div>
 
@@ -1249,8 +1238,11 @@
             $(`#btn-${t}`).addClass('active');
             $('#active_tab_input').val(t);
             initCharts();
-            if (t === 'clinical' && window._spCharts) {
-                window._spCharts.forEach(function(c) { try { c.resize(); } catch(e){} });
+            if (t === 'clinical') {
+                if (window._spCharts) {
+                    window._spCharts.forEach(function(c) { try { c.resize(); } catch(e){} });
+                }
+                if (window._radTatHeatmap) { try { window._radTatHeatmap.resize(); } catch(e){} }
             }
             if (t === 'technicians') {
                 applyPhaseColors();
@@ -1461,24 +1453,46 @@
                     registerChart('chart-rvu-tat', cRT);
                 }
 
-                // Outlier table — server-side data
+                // Outlier cards — server-side data
                 if (d.outlier_studies) {
-                    const body = document.getElementById('outlier-table-body');
-                    if (body) {
+                    const list = document.getElementById('outlier-list');
+                    if (list) {
                         if (d.outlier_studies.length === 0) {
-                            body.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-zinc-600">No outliers found (threshold: ${(d.global_mean_tat * 2).toFixed(0)}m)</td></tr>`;
+                            list.innerHTML = `<div class="text-center py-8 text-zinc-600 italic text-xs">No outliers found — all procedures within normal range.</div>`;
                         } else {
-                            const rows = d.outlier_studies.map(r => `
-                                <tr class="hover:bg-white/[0.02]">
-                                    <td class="py-3 px-4 text-zinc-300">${r.reading_radiologist || '—'}</td>
-                                    <td class="py-3 px-4 text-zinc-400">${r.patient_class || '—'}</td>
-                                    <td class="py-3 px-4 text-zinc-400">${r.modality || '—'}</td>
-                                    <td class="py-3 px-4 text-right text-amber-400 font-bold">${r.total_tat_min}m</td>
-                                    <td class="py-3 px-4 text-right text-zinc-500">${d.global_mean_tat}m</td>
-                                    <td class="py-3 px-4 text-right text-rose-400 font-black">${(r.total_tat_min / (d.global_mean_tat || 1)).toFixed(1)}×</td>
-                                    <td class="py-3 px-4 text-right text-zinc-600">${r.study_date || '—'}</td>
-                                </tr>`).join('');
-                            body.innerHTML = rows;
+                            const maxTat = Math.max(...d.outlier_studies.map(r => r.total_tat_min));
+                            const ini = name => (name && name !== '—')
+                                ? name.trim().split(/\s+/).map(n => n[0]).join('').slice(0,2).toUpperCase()
+                                : '?';
+                            list.innerHTML = d.outlier_studies.map(r => {
+                                const ratio = r.total_tat_min / (d.global_mean_tat || 1);
+                                const critical = ratio >= 3;
+                                const accent = critical ? '#ef4444' : '#f59e0b';
+                                const barW = Math.min(Math.round(r.total_tat_min / maxTat * 100), 100);
+                                return `
+                                <div class="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/[0.02] border border-white/5 hover:border-white/10 transition-all">
+                                    <div class="w-1 self-stretch rounded-full flex-shrink-0" style="background:${accent}"></div>
+                                    <div class="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-[11px] font-black" style="background:${accent}22;color:${accent}">${ini(r.reading_radiologist)}</div>
+                                    <div class="flex-1 min-w-0">
+                                        <div class="flex items-center gap-2 mb-1.5 flex-wrap">
+                                            <span class="text-xs font-bold text-zinc-200 truncate">${r.reading_radiologist || '—'}</span>
+                                            <span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-zinc-800 text-zinc-300">${r.modality || '—'}</span>
+                                            ${r.patient_class ? `<span class="text-[10px] text-zinc-500">${r.patient_class}</span>` : ''}
+                                        </div>
+                                        <div class="flex items-center gap-2">
+                                            <div class="flex-1 h-1 bg-white/5 rounded-full overflow-hidden">
+                                                <div class="h-full rounded-full" style="width:${barW}%;background:${accent}99"></div>
+                                            </div>
+                                            <span class="text-[10px] text-zinc-600 flex-shrink-0">${d.global_mean_tat}m avg</span>
+                                        </div>
+                                    </div>
+                                    <div class="text-right flex-shrink-0 space-y-0.5">
+                                        <div class="text-sm font-black" style="color:${accent}">${r.total_tat_min}m</div>
+                                        <div class="text-[10px] font-black px-1.5 py-0.5 rounded-full inline-block" style="background:${accent}22;color:${accent}">${ratio.toFixed(1)}×</div>
+                                    </div>
+                                    <div class="text-[10px] text-zinc-600 flex-shrink-0 w-20 text-right hidden sm:block">${r.study_date || '—'}</div>
+                                </div>`;
+                            }).join('');
                             document.getElementById('kpi-outlier-count').textContent = d.outlier_studies.length;
                         }
                     }
@@ -1518,25 +1532,41 @@
                 // Update outlier KPI
                 document.getElementById('kpi-outlier-count').textContent = outliers.length;
 
-                const tbody = document.getElementById('outlier-table-body');
-                if (outliers.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="7" class="text-center py-8 text-zinc-500">No TAT outliers detected — all procedures within normal range.</td></tr>';
+                const _oList = document.getElementById('outlier-list');
+                if (!_oList) { /* already rendered by server-side path */ }
+                else if (outliers.length === 0) {
+                    _oList.innerHTML = '<div class="text-center py-8 text-zinc-500 italic text-xs">No TAT outliers detected — all procedures within normal range.</div>';
                 } else {
-                    tbody.innerHTML = outliers.map(o => `
-                        <tr class="hover:bg-white/5 transition">
-                            <td class="py-3 px-4 font-bold text-white">${o.rad}</td>
-                            <td class="py-3 px-4 text-zinc-400">${o.loc}</td>
-                            <td class="py-3 px-4"><span class="px-2 py-0.5 rounded bg-slate-800 text-zinc-300 font-mono text-[10px]">${o.mod}</span></td>
-                            <td class="py-3 px-4 text-right font-bold text-amber-400">${o.avg}m</td>
-                            <td class="py-3 px-4 text-right text-zinc-500">${o.median.toFixed(1)}m</td>
-                            <td class="py-3 px-4 text-right">
-                                <span class="px-2 py-0.5 rounded font-black text-[10px] ${o.ratio > 2.5 ? 'bg-rose-500/20 text-rose-400' : 'bg-amber-500/20 text-amber-400'}">
-                                    ${o.ratio}×
-                                </span>
-                            </td>
-                            <td class="py-3 px-4 text-right text-zinc-400">${o.count}</td>
-                        </tr>
-                    `).join('');
+                    const _oMax = Math.max(...outliers.map(o => o.avg));
+                    const _oIni = name => name.trim().split(/\s+/).map(n => n[0]).join('').slice(0,2).toUpperCase();
+                    _oList.innerHTML = outliers.map(o => {
+                        const critical = o.ratio > 2.5;
+                        const accent = critical ? '#ef4444' : '#f59e0b';
+                        const barW = Math.min(Math.round(o.avg / _oMax * 100), 100);
+                        return `
+                        <div class="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/[0.02] border border-white/5 hover:border-white/10 transition-all">
+                            <div class="w-1 self-stretch rounded-full flex-shrink-0" style="background:${accent}"></div>
+                            <div class="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-[11px] font-black" style="background:${accent}22;color:${accent}">${_oIni(o.rad)}</div>
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-center gap-2 mb-1.5 flex-wrap">
+                                    <span class="text-xs font-bold text-zinc-200 truncate">${o.rad}</span>
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-zinc-800 text-zinc-300">${o.mod}</span>
+                                    <span class="text-[10px] text-zinc-500">${o.loc}</span>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <div class="flex-1 h-1 bg-white/5 rounded-full overflow-hidden">
+                                        <div class="h-full rounded-full" style="width:${barW}%;background:${accent}99"></div>
+                                    </div>
+                                    <span class="text-[10px] text-zinc-600 flex-shrink-0">${o.median.toFixed(1)}m median</span>
+                                </div>
+                            </div>
+                            <div class="text-right flex-shrink-0 space-y-0.5">
+                                <div class="text-sm font-black" style="color:${accent}">${o.avg}m</div>
+                                <div class="text-[10px] font-black px-1.5 py-0.5 rounded-full inline-block" style="background:${accent}22;color:${accent}">${o.ratio}×</div>
+                            </div>
+                            <div class="text-[10px] text-zinc-600 flex-shrink-0 w-14 text-right hidden sm:block">${o.count} studies</div>
+                        </div>`;
+                    }).join('');
                 }
             }
 

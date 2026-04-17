@@ -118,13 +118,10 @@ def report_23():
             SELECT
                 modality AS mod,
                 CASE
-                    WHEN age_at_exam <= 0.083 THEN '[0-1 month]'
-                    WHEN age_at_exam <= 1     THEN '[1 month - 1 year]'
-                    WHEN age_at_exam <= 12    THEN '[1-12 years]'
-                    WHEN age_at_exam <= 18    THEN '[13-18]'
-                    WHEN age_at_exam <= 35    THEN '[19-35]'
-                    WHEN age_at_exam <= 64    THEN '[36-64]'
-                    ELSE '[65+]'
+                    WHEN age_at_exam < 19 THEN 'Under 18'
+                    WHEN age_at_exam < 36 THEN '19-35'
+                    WHEN age_at_exam < 65 THEN '36-64'
+                    ELSE '65+'
                 END AS age,
                 COALESCE(sex, 'U') AS sex,
                 COUNT(*) AS cnt
