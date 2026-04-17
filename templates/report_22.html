@@ -60,8 +60,9 @@
                     <div class="flex justify-between items-center"><label class="mb-0">Study Status</label>
                         <input type="checkbox" name="f_status_active" onchange="document.getElementById('f_status').disabled = !this.checked" {% if filters.f_status_active %}checked{% endif %}>
                     </div>
-                    <select name="f_status" id="f_status" class="input-dark" {% if not filters.f_status_active %}disabled{% endif %}>
-                        {% for s in status_list %}<option value="{{ s[0] }}" {% if filters.status == s[0] %}selected{% endif %}>{{ s[0] }}</option>{% endfor %}
+                    <select name="f_status" id="f_status" class="input-dark" {% if not filters.f_status_active %}disabled{% endif %}
+                            data-filter-key="statuses"
+                            data-selected="{{ filters.status or '' }}">
                     </select>
                 </div>
 
@@ -69,8 +70,9 @@
                     <div class="flex justify-between items-center"><label class="mb-0">Modality</label>
                         <input type="checkbox" name="f_mod_active" onchange="document.getElementById('f_mod').disabled = !this.checked" {% if filters.f_mod_active %}checked{% endif %}>
                     </div>
-                    <select name="f_mod" id="f_mod" class="input-dark" {% if not filters.f_mod_active %}disabled{% endif %}>
-                        {% for m in mod_list %}<option value="{{ m[0] }}" {% if filters.mod == m[0] %}selected{% endif %}>{{ m[0] }}</option>{% endfor %}
+                    <select name="f_mod" id="f_mod" class="input-dark" {% if not filters.f_mod_active %}disabled{% endif %}
+                            data-filter-key="modalities"
+                            data-selected="{{ filters.mod or '' }}">
                     </select>
                 </div>
 
@@ -78,8 +80,9 @@
                     <div class="flex justify-between items-center"><label class="mb-0">Storing AE</label>
                         <input type="checkbox" name="f_ae_active" onchange="document.getElementById('f_ae').disabled = !this.checked" {% if filters.f_ae_active %}checked{% endif %}>
                     </div>
-                    <select name="f_ae" id="f_ae" class="input-dark" {% if not filters.f_ae_active %}disabled{% endif %}>
-                        {% for ae in ae_list %}<option value="{{ ae[0] }}" {% if filters.ae == ae[0] %}selected{% endif %}>{{ ae[0] }}</option>{% endfor %}
+                    <select name="f_ae" id="f_ae" class="input-dark" {% if not filters.f_ae_active %}disabled{% endif %}
+                            data-filter-key="aetitles"
+                            data-selected="{{ filters.ae or '' }}">
                     </select>
                 </div>
             </div>

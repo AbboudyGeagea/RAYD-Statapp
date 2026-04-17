@@ -86,8 +86,9 @@
 
             <div>
                 <label class="sidebar-label">Patient Class</label>
-                <select name="patient_class" multiple class="select2-js w-full">
-                    {% for c in classes %}<option value="{{c}}">{{c}}</option>{% endfor %}
+                <select name="patient_class" multiple class="select2-js w-full"
+                        data-filter-key="classes"
+                        data-selected="{{ request.form.getlist('patient_class') | join('||') }}">
                 </select>
                 <label class="inline-flex items-center mt-2 cursor-pointer">
                     <input type="checkbox" name="class_enabled" checked class="w-4 h-4 bg-black border-zinc-800 rounded text-blue-600">
@@ -97,8 +98,9 @@
 
             <div>
                 <label class="sidebar-label">Modality</label>
-                <select name="modality" multiple class="select2-js w-full">
-                    {% for m in modalities %}<option value="{{m}}">{{m}}</option>{% endfor %}
+                <select name="modality" multiple class="select2-js w-full"
+                        data-filter-key="modalities"
+                        data-selected="{{ request.form.getlist('modality') | join('||') }}">
                 </select>
                 <label class="inline-flex items-center mt-2 cursor-pointer">
                     <input type="checkbox" name="mod_enabled" checked class="w-4 h-4 bg-black border-zinc-800 rounded text-blue-600">
@@ -108,8 +110,9 @@
 
             <div>
                 <label class="sidebar-label">AE Title</label>
-                <select name="aetitle" multiple class="select2-js w-full">
-                    {% for ae in aetitles %}<option value="{{ae}}">{{ae}}</option>{% endfor %}
+                <select name="aetitle" multiple class="select2-js w-full"
+                        data-filter-key="aetitles"
+                        data-selected="{{ request.form.getlist('aetitle') | join('||') }}">
                 </select>
                 <label class="inline-flex items-center mt-2 cursor-pointer">
                     <input type="checkbox" name="ae_enabled" checked class="w-4 h-4 bg-black border-zinc-800 rounded text-blue-600">
@@ -119,8 +122,9 @@
 
             <div>
                 <label class="sidebar-label">Patient Location</label>
-                <select name="patient_location" multiple class="select2-js w-full">
-                    {% for l in locations %}<option value="{{l}}">{{l}}</option>{% endfor %}
+                <select name="patient_location" multiple class="select2-js w-full"
+                        data-filter-key="locations"
+                        data-selected="{{ request.form.getlist('patient_location') | join('||') }}">
                 </select>
                 <label class="inline-flex items-center mt-2 cursor-pointer">
                     <input type="checkbox" name="loc_enabled" checked class="w-4 h-4 bg-black border-zinc-800 rounded text-blue-600">

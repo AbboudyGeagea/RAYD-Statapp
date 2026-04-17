@@ -82,8 +82,9 @@
                             <label class="mb-0 text-[10px]">Modality</label>
                             <input type="checkbox" name="f_mod_active" onchange="document.getElementById('f_mod_23').disabled=!this.checked" {% if filters and filters.f_mod_active %}checked{% endif %}>
                         </div>
-                        <select name="f_mod" id="f_mod_23" class="input-dark" {% if not (filters and filters.f_mod_active) %}disabled{% endif %}>
-                            {% for m in mod_list %}<option value="{{ m[0] }}" {% if filters and filters.mod == m[0] %}selected{% endif %}>{{ m[0] }}</option>{% endfor %}
+                        <select name="f_mod" id="f_mod_23" class="input-dark" {% if not (filters and filters.f_mod_active) %}disabled{% endif %}
+                                data-filter-key="modalities"
+                                data-selected="{{ filters.mod if filters and filters.mod else '' }}">
                         </select>
                     </div>
 
@@ -92,8 +93,9 @@
                             <label class="mb-0 text-[10px]">Patient Class</label>
                             <input type="checkbox" name="f_class_active" onchange="document.getElementById('f_class_23').disabled=!this.checked" {% if filters and filters.f_class_active %}checked{% endif %}>
                         </div>
-                        <select name="f_class" id="f_class_23" class="input-dark" {% if not (filters and filters.f_class_active) %}disabled{% endif %}>
-                            {% for c in class_list %}<option value="{{ c[0] }}" {% if filters and filters.p_class == c[0] %}selected{% endif %}>{{ c[0] }}</option>{% endfor %}
+                        <select name="f_class" id="f_class_23" class="input-dark" {% if not (filters and filters.f_class_active) %}disabled{% endif %}
+                                data-filter-key="classes"
+                                data-selected="{{ filters.p_class if filters and filters.p_class else '' }}">
                         </select>
                     </div>
 
@@ -102,8 +104,9 @@
                             <label class="mb-0 text-[10px]">Sex</label>
                             <input type="checkbox" name="f_sex_active" onchange="document.getElementById('f_sex_23').disabled=!this.checked" {% if filters and filters.f_sex_active %}checked{% endif %}>
                         </div>
-                        <select name="f_sex" id="f_sex_23" class="input-dark" {% if not (filters and filters.f_sex_active) %}disabled{% endif %}>
-                            {% for s in sex_list %}<option value="{{ s[0] }}" {% if filters and filters.sex == s[0] %}selected{% endif %}>{{ s[0] }}</option>{% endfor %}
+                        <select name="f_sex" id="f_sex_23" class="input-dark" {% if not (filters and filters.f_sex_active) %}disabled{% endif %}
+                                data-filter-key="sex_values"
+                                data-selected="{{ filters.sex if filters and filters.sex else '' }}">
                         </select>
                     </div>
 

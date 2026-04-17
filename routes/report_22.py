@@ -44,9 +44,8 @@ def report_22():
     start_date = request.form.get("start_date", go_live.strftime('%Y-%m-%d'))
     end_date = request.form.get("end_date", today.strftime('%Y-%m-%d'))
 
-    status_list = db.session.execute(text("SELECT DISTINCT study_status FROM etl_didb_studies WHERE study_status IS NOT NULL")).fetchall()
-    mod_list = db.session.execute(text("SELECT DISTINCT modality FROM aetitle_modality_map")).fetchall()
-    ae_list = db.session.execute(text("SELECT DISTINCT storing_ae FROM etl_didb_studies WHERE storing_ae IS NOT NULL")).fetchall()
+    # Loaded asynchronously via /api/filter-options — not blocking here.
+    status_list = mod_list = ae_list = []
 
     filters = {
         "f_class_active": request.form.get("f_class_active") == "on",

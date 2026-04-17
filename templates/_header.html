@@ -27,3 +27,40 @@
         </button>
     </div>
 </header>
+<script>
+// ── Async filter-option loader ────────────────────────────────────────────
+// Called once per page. Fetches /api/filter-options (server-cached 5 min),
+// then populates every <select data-filter-key="KEY"> on the page.
+// Selected values that were POSTed back are preserved via data-selected.
+(function () {
+    const selects = document.querySelectorAll('select[data-filter-key]');
+    if (!selects.length) return;
+
+    fetch('/api/filter-options')
+        .then(r => r.json())
+        .then(opts => {
+            selects.forEach(sel => {
+                const key      = sel.dataset.filterKey;          // e.g. "classes"
+                const values   = opts[key] || [];
+                const selected = (sel.dataset.selected || '').split('||').filter(Boolean);
+                const current  = [...sel.options].map(o => o.value); // keep any static options
+
+                values.forEach(v => {
+                    if (current.includes(v)) return;
+                    const o = document.createElement('option');
+                    o.value = v; o.textContent = v;
+                    if (selected.includes(v)) o.selected = true;
+                    sel.appendChild(o);
+                });
+
+                // Re-init Select2 if present
+                if (window.$ && $(sel).data('select2')) {
+                    $(sel).trigger('change');
+                } else if (window.$ && $(sel).hasClass('select2-js')) {
+                    $(sel).select2();
+                }
+            });
+        })
+        .catch(() => {}); // silently ignore — filters remain empty, form still works
+}());
+</script>

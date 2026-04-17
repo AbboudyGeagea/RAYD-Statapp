@@ -1,10 +1,29 @@
 from flask import Blueprint, request, jsonify, session, url_for
 from functools import wraps
 from datetime import datetime
-from db import get_report_data, get_etl_cutoff_date 
+from flask_login import login_required
+from db import get_report_data, get_etl_cutoff_date, db
 
 # Define the Blueprint
 api_bp = Blueprint('api', __name__, url_prefix='/api')
+
+
+@api_bp.route('/filter-options')
+@login_required
+def filter_options():
+    """
+    Returns all dropdown values used by report filter panels.
+    Cached server-side for 5 minutes — called once by the page via JS
+    instead of blocking the initial server render.
+    """
+    from routes.report_cache import get_filter_options
+    try:
+        return jsonify(get_filter_options(db))
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"classes": [], "locations": [], "statuses": [],
+                        "aetitles": [], "modalities": [], "sex_values": [],
+                        "error": str(e)})
 
 # --- Helper Function for Authentication (Reused from Dashboard) ---
 

@@ -65,9 +65,8 @@ def report_23():
     run_report = request.method == 'POST'
     base_sql, start_date, end_date, params, extra_where = get_report_config(request.form)
 
-    mod_list   = db.session.execute(text("SELECT DISTINCT modality FROM aetitle_modality_map ORDER BY 1")).fetchall()
-    class_list = db.session.execute(text("SELECT DISTINCT patient_class FROM etl_didb_studies WHERE patient_class IS NOT NULL ORDER BY 1")).fetchall()
-    sex_list   = db.session.execute(text("SELECT DISTINCT sex FROM etl_patient_view WHERE sex IS NOT NULL ORDER BY 1")).fetchall()
+    # Loaded asynchronously via /api/filter-options — not blocking here.
+    mod_list = class_list = sex_list = []
 
     filters = {
         "f_mod_active":   request.form.get("f_mod_active") == "on",

@@ -615,10 +615,10 @@ def get_gold_standard_data(form_data):
 @report_25_bp.route("/report/25", methods=["GET", "POST"])
 @login_required
 def report_25():
-    classes   = [r[0] for r in db.session.execute(text("SELECT DISTINCT patient_class FROM etl_didb_studies WHERE patient_class IS NOT NULL ORDER BY 1")).all()]
-    locations = [r[0] for r in db.session.execute(text("SELECT DISTINCT patient_location FROM etl_didb_studies WHERE patient_location IS NOT NULL ORDER BY 1")).all()]
-    modalities= [r[0] for r in db.session.execute(text("SELECT DISTINCT modality FROM aetitle_modality_map ORDER BY 1")).all()]
-    aetitles  = [r[0] for r in db.session.execute(text("SELECT DISTINCT aetitle FROM aetitle_modality_map ORDER BY 1")).all()]
+    # Filter options are loaded asynchronously via /api/filter-options after
+    # page render — do NOT query here, as DISTINCT on etl_didb_studies blocks
+    # the entire page load.
+    classes = locations = modalities = aetitles = []
     
     tree_raw = db.session.execute(text("SELECT modality, aetitle FROM aetitle_modality_map")).all()
     tree_dict = {}

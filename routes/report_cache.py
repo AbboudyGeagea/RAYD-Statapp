@@ -70,3 +70,55 @@ def cache_invalidate(report_id: int = None) -> int:
     for k in keys:
         del _store[k]
     return len(keys)
+
+
+# ── Filter-options cache ───────────────────────────────────────────────────
+# Shared across all report pages. Keyed by a fixed string; TTL = 5 minutes.
+# Avoids running SELECT DISTINCT on etl_didb_studies on every page load.
+
+_FILTER_KEY = "__filter_options__"
+_FILTER_TTL = 300  # seconds
+
+
+def get_filter_options(db) -> dict:
+    """
+    Return {classes, locations, modalities, aetitles, statuses, sex_values}
+    from cache, re-querying only when the TTL has expired.
+    """
+    from sqlalchemy import text
+
+    entry = _store.get(_FILTER_KEY)
+    if entry and (time.time() - entry["ts"]) < _FILTER_TTL:
+        return entry["data"]
+
+    # One consolidated query — single round trip for everything from small
+    # lookup tables; DISTINCT on large tables grouped into one CTE so PG
+    # only scans etl_didb_studies once.
+    row = db.session.execute(text("""
+        WITH s AS MATERIALIZED (
+            SELECT DISTINCT patient_class, patient_location, study_status, storing_ae
+            FROM etl_didb_studies
+            WHERE patient_class IS NOT NULL
+               OR patient_location IS NOT NULL
+               OR study_status    IS NOT NULL
+               OR storing_ae      IS NOT NULL
+        )
+        SELECT
+            (SELECT JSON_AGG(v ORDER BY v) FROM (SELECT DISTINCT patient_class  AS v FROM s WHERE patient_class  IS NOT NULL) x) AS classes,
+            (SELECT JSON_AGG(v ORDER BY v) FROM (SELECT DISTINCT patient_location AS v FROM s WHERE patient_location IS NOT NULL) x) AS locations,
+            (SELECT JSON_AGG(v ORDER BY v) FROM (SELECT DISTINCT study_status   AS v FROM s WHERE study_status    IS NOT NULL) x) AS statuses,
+            (SELECT JSON_AGG(v ORDER BY v) FROM (SELECT DISTINCT storing_ae     AS v FROM s WHERE storing_ae      IS NOT NULL) x) AS aetitles,
+            (SELECT JSON_AGG(v ORDER BY v) FROM (SELECT DISTINCT modality FROM aetitle_modality_map WHERE modality IS NOT NULL) x) AS modalities,
+            (SELECT JSON_AGG(v ORDER BY v) FROM (SELECT DISTINCT sex AS v FROM etl_patient_view WHERE sex IS NOT NULL) x) AS sex_values
+    """)).fetchone()
+
+    data = {
+        "classes":    row[0] or [],
+        "locations":  row[1] or [],
+        "statuses":   row[2] or [],
+        "aetitles":   row[3] or [],
+        "modalities": row[4] or [],
+        "sex_values": row[5] or [],
+    }
+    _store[_FILTER_KEY] = {"data": data, "ts": time.time()}
+    return data
