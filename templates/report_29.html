@@ -141,13 +141,13 @@
                             </div>
                         </div>
                         <button onclick="generateSummary()" id="ai-retry-btn"
-                                class="hidden text-[10px] font-black uppercase tracking-widest text-[#38ada9] hover:underline">
-                            Retry
+                                class="text-[10px] font-black uppercase tracking-widest text-[#38ada9] hover:underline flex items-center gap-1">
+                            <i class="bi bi-stars"></i> Generate
                         </button>
                     </div>
                     <div class="px-6 py-5">
                         <div id="ai-summary-text" class="text-sm text-slate-600 leading-relaxed whitespace-pre-line">
-                            <span class="text-slate-400 italic">Generating summary…</span>
+                            <span class="text-slate-400 italic">Click Generate for an AI summary of this report.</span>
                         </div>
                     </div>
                 </div>
@@ -371,7 +371,6 @@
     function generateSummary() {
         const el       = document.getElementById('ai-summary-text');
         const retryBtn = document.getElementById('ai-retry-btn');
-        el.innerHTML = '<span class="text-slate-400 italic">Generating summary<span class="ai-cursor">▋</span></span>';
         retryBtn.classList.add('hidden');
         streamNarrative('/ai/narrative/stream', AI_STATS, el, retryBtn);
     }
@@ -433,8 +432,7 @@
         });
     }
 
-    // Auto-fire on page load
-    document.addEventListener('DOMContentLoaded', generateSummary);
+    // Manual trigger only — no auto-fire on page load
     {% endif %}
 
     function applyTheme(theme) {

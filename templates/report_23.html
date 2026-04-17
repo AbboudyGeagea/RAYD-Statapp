@@ -194,11 +194,13 @@
                         </div>
                     </div>
                     <button onclick="generateSummary23()" id="ai-retry-btn-23"
-                            class="hidden text-[10px] font-black uppercase tracking-widest text-emerald-400 hover:underline">Retry</button>
+                            class="text-[10px] font-black uppercase tracking-widest text-emerald-400 hover:underline flex items-center gap-1">
+                        <i class="bi bi-stars"></i> Generate
+                    </button>
                 </div>
                 <div class="px-5 py-4">
                     <div id="ai-summary-23" class="text-sm text-slate-300 leading-relaxed whitespace-pre-line">
-                        <span class="text-slate-500 italic">Generating summary<span class="ai-cursor">▋</span></span>
+                        <span class="text-slate-600 italic">Click Generate for an AI summary of this report.</span>
                     </div>
                 </div>
             </div>
@@ -576,9 +578,10 @@
             date_range:       "{{ display_start }} to {{ display_end }}",
         };
         function generateSummary23() {
+            const btn = document.getElementById('ai-retry-btn-23');
+            btn.classList.add('hidden');
             streamNarrative23('/ai/narrative/stream', AI_STATS_23,
-                document.getElementById('ai-summary-23'),
-                document.getElementById('ai-retry-btn-23'));
+                document.getElementById('ai-summary-23'), btn);
         }
         function streamNarrative23(url, stats, el, retryBtn) {
             let text = '';
@@ -609,7 +612,7 @@
                 return pump();
             }).catch(err => { el.innerHTML = '<span class="text-red-400 italic">AI server not reachable: ' + err.message + '</span>'; if (retryBtn) retryBtn.classList.remove('hidden'); });
         }
-        document.addEventListener('DOMContentLoaded', generateSummary23);
+        // Manual trigger only — no auto-fire on page load
         {% endif %}
     </script>
 </body>

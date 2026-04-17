@@ -104,11 +104,13 @@
                     </div>
                 </div>
                 <button onclick="generateSummary22()" id="ai-retry-btn-22"
-                        class="hidden text-[10px] font-black uppercase tracking-widest text-[#38ada9] hover:underline">Retry</button>
+                        class="text-[10px] font-black uppercase tracking-widest text-[#38ada9] hover:underline flex items-center gap-1">
+                    <i class="bi bi-stars"></i> Generate
+                </button>
             </div>
             <div class="px-5 py-4">
                 <div id="ai-summary-22" class="text-sm text-slate-300 leading-relaxed whitespace-pre-line">
-                    <span class="text-slate-500 italic">Generating summary<span class="ai-cursor">▋</span></span>
+                    <span class="text-slate-600 italic">Click Generate for an AI summary of this report.</span>
                 </div>
             </div>
         </div>
@@ -742,9 +744,10 @@
             churn_physicians:  "{{ data.phys_churn | length if data.phys_churn else 0 }}",
         };
         function generateSummary22() {
+            const btn = document.getElementById('ai-retry-btn-22');
+            btn.classList.add('hidden');
             streamNarrative22('/ai/narrative/stream', AI_STATS_22,
-                document.getElementById('ai-summary-22'),
-                document.getElementById('ai-retry-btn-22'));
+                document.getElementById('ai-summary-22'), btn);
         }
         function streamNarrative22(url, stats, el, retryBtn) {
             let text = '';
@@ -775,7 +778,7 @@
                 return pump();
             }).catch(err => { el.innerHTML = '<span class="text-red-400 italic">AI server not reachable: ' + err.message + '</span>'; if (retryBtn) retryBtn.classList.remove('hidden'); });
         }
-        document.addEventListener('DOMContentLoaded', generateSummary22);
+        // Manual trigger only — no auto-fire on page load
         {% endif %}
     </script>
     </div>
