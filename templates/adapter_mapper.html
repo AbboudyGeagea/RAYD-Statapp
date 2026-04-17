@@ -328,7 +328,7 @@
                                         {{ m.status }}
                                     </span>
                                 </td>
-                                <td class="py-3 pr-4 text-slate-500 mono">{{ str(m.updated_at)[:16] }}</td>
+                                <td class="py-3 pr-4 text-slate-500 mono">{{ (m.updated_at|string)[:16] }}</td>
                                 <td class="py-3 flex gap-2 flex-wrap">
                                     <button class="btn-ghost" style="padding:3px 10px;font-size:9px;"
                                             onclick="loadMapping({{ m.id }})">

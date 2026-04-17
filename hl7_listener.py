@@ -147,7 +147,11 @@ ORU_INSERT_SQL = """
     VALUES
         (:procedure_code, :procedure_name, :modality, :physician_id,
          :report_text, :impression_text, :result_datetime, :received_at)
+    ON CONFLICT DO NOTHING
 """
+
+# OBX value types that are clearly non-text — skip these, accept everything else
+_OBX_SKIP_TYPES = {'NM', 'DT', 'TM', 'DTM', 'ID', 'IS', 'NR', 'SN', 'CQ'}
 
 # HL7 escape sequence cleaner
 _HL7_ESC = re.compile(r'\\[A-Za-z.]+\\')
@@ -199,8 +203,8 @@ def parse_oru_r01(raw_message):
         obs_value = f[5]  if len(f) > 5  else ''    # the text
         obs_status= f[11] if len(f) > 11 else ''    # F = final
 
-        # Only capture text-type observations
-        if obs_type not in ('TX', 'FT', 'ST', ''):
+        # Skip numeric/date/coded types; accept TX, FT, ST, CWE, CE, ED, and unknown
+        if obs_type.upper() in _OBX_SKIP_TYPES:
             continue
         cleaned = _clean_obx_text(obs_value)
         if not cleaned:
@@ -209,7 +213,8 @@ def parse_oru_r01(raw_message):
         report_parts.append(cleaned)
 
         obs_upper = obs_id.upper()
-        if any(k in obs_upper for k in ('IMP', 'IMPRESSION', 'CONCLUSION', 'CONCL')):
+        if any(k in obs_upper for k in ('IMP', 'IMPRESSION', 'CONCLUSION', 'CONCL',
+                                         'DIAG', 'INTERP', 'SYNTH', 'AVIS')):
             impression_parts.append(cleaned)
 
     return {
@@ -358,8 +363,24 @@ def _handle_client(conn, addr, app):
 
                     if 'ORU' in msg_type_raw:
                         # ── ORU^R01: radiology result ─────────────────────
+                        logger.info(f"📨 ORU received | type={msg_type_raw} | from={addr[0]}")
                         parsed_oru = parse_oru_r01(raw_message)
-                        if parsed_oru and parsed_oru.get('report_text'):
+                        if parsed_oru is None:
+                            logger.warning("⚠ ORU parse_oru_r01 returned None — message type check failed")
+                        elif not parsed_oru.get('report_text'):
+                            # Log OBX types present so we can diagnose filter issues
+                            obx_types = [
+                                seg.split('|')[2] if len(seg.split('|')) > 2 else '?'
+                                for seg in raw_message.replace('\r\n','\r').replace('\n','\r').split('\r')
+                                if seg.startswith('OBX|')
+                            ]
+                            logger.warning(
+                                f"⚠ ORU received but no report_text extracted "
+                                f"| proc={parsed_oru.get('procedure_code')} "
+                                f"| OBX types seen={obx_types} "
+                                f"| OBX count={len(obx_types)}"
+                            )
+                        else:
                             with app.app_context():
                                 from sqlalchemy import text
                                 from db import db
