@@ -320,38 +320,32 @@ def yesterday_overview():
         peak_hour          = {"hour": kpi[8], "count": kpi[9]} if kpi[8] is not None else None
         vs_avg             = round((studies_total - avg_7d) / avg_7d * 100, 1) if avg_7d else None
 
-        # ── Query 2: lists (physicians + AE counts) ────────────────────
-        lists_row = one("""
-            WITH s AS MATERIALIZED (
-                SELECT storing_ae, referring_physician_first_name, referring_physician_last_name
-                FROM etl_didb_studies
-                WHERE study_date = CURRENT_DATE - 1
-            )
+        # ── Query 2a: top referring physicians ─────────────────────────
+        phys_rows = rows("""
             SELECT
-                (
-                    SELECT JSON_AGG(r ORDER BY r.cnt DESC)
-                    FROM (
-                        SELECT
-                            COALESCE(NULLIF(TRIM(CONCAT_WS(' ',
-                                referring_physician_first_name,
-                                referring_physician_last_name)), ''), 'Unknown') AS name,
-                            COUNT(*)::int AS cnt
-                        FROM s
-                        WHERE referring_physician_first_name IS NOT NULL
-                        GROUP BY 1 LIMIT 5
-                    ) r
-                ) AS physicians,
-                (
-                    SELECT JSON_AGG(a ORDER BY a.cnt DESC)
-                    FROM (
-                        SELECT storing_ae AS ae, COUNT(*)::int AS cnt
-                        FROM s WHERE storing_ae IS NOT NULL
-                        GROUP BY 1
-                    ) a
-                ) AS ae_counts
+                COALESCE(NULLIF(TRIM(CONCAT_WS(' ',
+                    referring_physician_first_name,
+                    referring_physician_last_name)), ''), 'Unknown') AS name,
+                COUNT(*)::int AS count
+            FROM etl_didb_studies
+            WHERE study_date = CURRENT_DATE - 1
+              AND referring_physician_first_name IS NOT NULL
+            GROUP BY 1
+            ORDER BY 2 DESC
+            LIMIT 5
         """)
-        physicians  = lists_row[0] or []
-        ae_by_count_raw = lists_row[1] or []
+        physicians = [{"name": r[0], "count": r[1]} for r in phys_rows]
+
+        # ── Query 2b: AE by study count ────────────────────────────────
+        ae_rows = rows("""
+            SELECT storing_ae AS ae, COUNT(*)::int AS count
+            FROM etl_didb_studies
+            WHERE study_date = CURRENT_DATE - 1
+              AND storing_ae IS NOT NULL
+            GROUP BY 1
+            ORDER BY 2 DESC
+        """)
+        ae_by_count_raw = [{"ae": r[0], "count": r[1]} for r in ae_rows]
 
         # ── Query 3: AE utilisation (join-heavy, kept separate) ────────
         ae_by_util = rows("""

@@ -584,7 +584,19 @@ def get_gold_standard_data(form_data):
         "class_tat": df[df['total_tat_min'] > 0].groupby('patient_class')['total_tat_min'].mean().round(1).to_dict() if 'patient_class' in df.columns else {},
         "rad_cards": rad_cards,
         "modality_split": [{"name": k, "value": int(v)} for k, v in df['modality'].value_counts().items()] if 'modality' in df.columns else [], 
-        "hourly_patterns": {i: int(v) for i, v in pd.to_datetime(df['scheduled_datetime']).dt.hour.value_counts().sort_index().items()} if 'scheduled_datetime' in df.columns else {}, 
+        "hourly_patterns": (lambda: {
+            str(r[0]): int(r[1])
+            for r in db.session.execute(text(f"""
+                SELECT EXTRACT(HOUR FROM o.scheduled_datetime)::int AS hr, COUNT(*) AS cnt
+                FROM etl_orders o
+                JOIN etl_didb_studies s ON s.study_db_uid = o.study_db_uid
+                {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
+                WHERE s.study_date BETWEEN :start AND :end
+                  AND o.scheduled_datetime IS NOT NULL
+                  {_sec_filters}
+                GROUP BY 1 ORDER BY 1
+            """), params).fetchall()
+        })(),
         "correlation": (lambda: (
             lambda raw: raw[_iqr_filter(raw['proc_duration']) & _iqr_filter(raw['total_tat_min'])][['proc_duration','total_tat_min']].values.tolist()
         )(df[(df['proc_duration']>0)&(df['total_tat_min']>0)]) if 'proc_duration' in df.columns and 'total_tat_min' in df.columns else [])(),
