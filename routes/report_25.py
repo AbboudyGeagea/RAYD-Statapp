@@ -741,92 +741,95 @@ def patient_journey_api():
         if not accessions:
             return _json({'studies': [], 'error': None, 'message': 'No matching studies found'})
 
-        results = []
-        for accn in list(accessions)[:15]:
-            study = db.session.execute(text("""
-                SELECT
-                    s.accession_number,
-                    s.study_date::text                                                AS study_date,
-                    s.study_time,
-                    COALESCE(s.study_description, '')                                 AS study_description,
-                    COALESCE(m.modality, s.study_modality, 'Unknown')                 AS modality,
-                    COALESCE(s.patient_class, '')                                     AS patient_class,
-                    COALESCE(s.patient_location, '')                                  AS patient_location,
-                    s.insert_time,
-                    s.rep_prelim_timestamp,
-                    s.rep_transcribed_timestamp,
-                    s.rep_final_timestamp,
-                    NULLIF(TRIM(CONCAT(
-                        COALESCE(s.signing_physician_first_name,''), ' ',
-                        COALESCE(s.signing_physician_last_name,'')
-                    )), '')                                                            AS radiologist,
-                    s.rep_final_signed_by
-                FROM etl_didb_studies s
-                LEFT JOIN aetitle_modality_map m
-                    ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
-                WHERE s.accession_number = :accn
-                LIMIT 1
-            """), {'accn': accn}).mappings().fetchone()
+        accn_list = list(accessions)[:15]
 
+        # ── Batch fetch studies (1 query for all accessions) ─────────────────
+        study_rows = db.session.execute(text("""
+            SELECT DISTINCT ON (s.accession_number)
+                s.accession_number,
+                s.study_date::text                                                AS study_date,
+                s.study_time,
+                COALESCE(s.study_description, '')                                 AS study_description,
+                COALESCE(m.modality, s.study_modality, 'Unknown')                 AS modality,
+                COALESCE(s.patient_class, '')                                     AS patient_class,
+                COALESCE(s.patient_location, '')                                  AS patient_location,
+                s.insert_time,
+                s.rep_prelim_timestamp,
+                s.rep_transcribed_timestamp,
+                s.rep_final_timestamp,
+                NULLIF(TRIM(CONCAT(
+                    COALESCE(s.signing_physician_first_name,''), ' ',
+                    COALESCE(s.signing_physician_last_name,'')
+                )), '')                                                            AS radiologist,
+                s.rep_final_signed_by
+            FROM etl_didb_studies s
+            LEFT JOIN aetitle_modality_map m
+                ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
+            WHERE s.accession_number = ANY(:accns)
+        """), {'accns': accn_list}).mappings().fetchall()
+        studies_map = {r['accession_number']: dict(r) for r in study_rows}
+
+        # ── Batch fetch hl7_orders (1 query for all accessions) ──────────────
+        orders_map = {}  # accn -> list of order dicts
+        try:
+            order_rows = db.session.execute(text("""
+                SELECT
+                    accession_number,
+                    received_at,
+                    scheduled_datetime,
+                    done_at,
+                    done_by,
+                    order_status,
+                    COALESCE(procedure_text, procedure_code, '') AS procedure,
+                    modality   AS order_modality,
+                    patient_id AS order_pid
+                FROM hl7_orders
+                WHERE accession_number = ANY(:accns)
+                ORDER BY accession_number, received_at NULLS LAST
+            """), {'accns': accn_list}).mappings().fetchall()
+            for r in order_rows:
+                orders_map.setdefault(r['accession_number'], []).append(dict(r))
+        except Exception:
+            db.session.rollback()
+
+        # ── Build timeline per accession (pure Python, no more DB calls) ─────
+        def _ev(events, ts, ev_type, label, detail='', by=None):
+            if ts is None:
+                return
+            events.append({
+                'ts':     str(ts),
+                'type':   ev_type,
+                'label':  label,
+                'detail': detail,
+                'by':     str(by) if by else None,
+            })
+
+        results = []
+        for accn in accn_list:
+            study  = studies_map.get(accn)
             if not study:
                 continue
-            study = dict(study)
+            orders = orders_map.get(accn, [])
 
-            # ── hl7_orders row ────────────────────────────────────────────────
-            try:
-                orders = db.session.execute(text("""
-                    SELECT
-                        received_at,
-                        scheduled_datetime,
-                        done_at,
-                        done_by,
-                        order_status,
-                        COALESCE(procedure_text, procedure_code, '') AS procedure,
-                        modality   AS order_modality,
-                        patient_id AS order_pid
-                    FROM hl7_orders
-                    WHERE accession_number = :accn
-                    ORDER BY received_at NULLS LAST
-                    LIMIT 5
-                """), {'accn': accn}).mappings().fetchall()
-                orders = [dict(r) for r in orders]
-            except Exception:
-                db.session.rollback()
-                orders = []
-
-            # ── Build timeline ────────────────────────────────────────────────
-            events = []
-
-            def _ev(ts, ev_type, label, detail='', by=None):
-                if ts is None:
-                    return
-                events.append({
-                    'ts':     str(ts),
-                    'type':   ev_type,
-                    'label':  label,
-                    'detail': detail,
-                    'by':     str(by) if by else None,
-                })
-
+            events  = []
             pid_val = None
             for o in orders:
                 pid_val = pid_val or o.get('order_pid')
-                _ev(o.get('received_at'),       'order_received', 'Order Received',
+                _ev(events, o.get('received_at'),       'order_received', 'Order Received',
                     o.get('procedure') or '')
-                _ev(o.get('scheduled_datetime'), 'scheduled',      'Exam Scheduled',
+                _ev(events, o.get('scheduled_datetime'), 'scheduled',      'Exam Scheduled',
                     f"Status: {o.get('order_status') or '?'}")
-                _ev(o.get('done_at'),            'tech_done',      'Exam Completed by Tech',
+                _ev(events, o.get('done_at'),            'tech_done',      'Exam Completed by Tech',
                     f"Modality: {o.get('order_modality') or ''}",
                     o.get('done_by'))
 
-            _ev(study.get('insert_time'),              'pacs_in',     'Arrived in PACS',
+            _ev(events, study.get('insert_time'),               'pacs_in',     'Arrived in PACS',
                 f"Modality: {study.get('modality','')}")
-            _ev(study.get('rep_prelim_timestamp'),     'prelim',      'Preliminary Report', '')
-            _ev(study.get('rep_transcribed_timestamp'),'transcribed', 'Transcribed', '')
-            _ev(study.get('rep_final_timestamp'),      'final',       'Final Report Signed',
+            _ev(events, study.get('rep_prelim_timestamp'),      'prelim',      'Preliminary Report', '')
+            _ev(events, study.get('rep_transcribed_timestamp'), 'transcribed', 'Transcribed', '')
+            _ev(events, study.get('rep_final_timestamp'),       'final',       'Final Report Signed',
                 '', study.get('radiologist') or study.get('rep_final_signed_by'))
 
-            # Sort and compute inter-event gaps
             events.sort(key=lambda x: x['ts'])
             for i in range(1, len(events)):
                 try:
@@ -837,14 +840,14 @@ def patient_journey_api():
                     events[i]['gap_min'] = None
 
             results.append({
-                'accession':       accn,
-                'study_date':      study.get('study_date', ''),
-                'modality':        study.get('modality', ''),
-                'patient_id':      pid_val or '',
-                'patient_class':   study.get('patient_class', ''),
-                'patient_location':study.get('patient_location', ''),
-                'description':     study.get('study_description', ''),
-                'events':          events,
+                'accession':        accn,
+                'study_date':       study.get('study_date', ''),
+                'modality':         study.get('modality', ''),
+                'patient_id':       pid_val or '',
+                'patient_class':    study.get('patient_class', ''),
+                'patient_location': study.get('patient_location', ''),
+                'description':      study.get('study_description', ''),
+                'events':           events,
             })
 
         results.sort(key=lambda x: x['study_date'], reverse=True)

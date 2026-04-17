@@ -23,7 +23,7 @@ import logging
 import json
 import os
 import psutil
-from flask import Blueprint, request, jsonify, render_template, abort
+from flask import Blueprint, request, jsonify, render_template, abort, Response, stream_with_context
 from flask_login import login_required, current_user
 from sqlalchemy import text
 from db import db, AiFeedback, AiCorrection
@@ -332,6 +332,122 @@ def narrative():
     payload = {"narrative": raw}
     _narrative_cache[cache_key] = {"payload": payload, "ts": now}
     return jsonify(payload)
+
+
+# ── Narrative streaming endpoint ──────────────────────────────
+@bitnet_bp.route("/ai/narrative/stream", methods=["POST"])
+@login_required
+def narrative_stream():
+    """
+    SSE endpoint — streams narrative tokens one by one.
+    Yields:  data: {"token": "word "}\n\n
+    Ends:    data: [DONE]\n\n
+    Cache hit: replays stored text word-by-word (typewriter feel, no model call).
+    """
+    body  = request.get_json(force=True)
+    stats = body.get("stats", {})
+    if not stats:
+        def _err():
+            yield 'data: {"error": "No stats provided"}\n\n'
+            yield 'data: [DONE]\n\n'
+        return Response(stream_with_context(_err()), mimetype="text/event-stream")
+
+    cache_key = hashlib.md5(json.dumps(stats, sort_keys=True).encode()).hexdigest()
+    now       = time.time()
+    hit       = _narrative_cache.get(cache_key)
+
+    # ── Cache hit: replay word-by-word ────────────────────────
+    if hit and (now - hit["ts"]) < NARRATIVE_TTL:
+        cached_text = hit["payload"]["narrative"]
+
+        def _replay():
+            for word in cached_text.split(" "):
+                yield f'data: {json.dumps({"token": word + " "})}\n\n'
+                time.sleep(0.04)
+            yield 'data: [DONE]\n\n'
+
+        resp = Response(stream_with_context(_replay()), mimetype="text/event-stream")
+        resp.headers["X-Accel-Buffering"] = "no"
+        resp.headers["Cache-Control"]     = "no-cache"
+        return resp
+
+    # ── Build prompt ──────────────────────────────────────────
+    facts_lines = [f"- {k.replace('_', ' ').title()}: {v}" for k, v in stats.items()]
+    facts       = "\n".join(facts_lines)
+
+    system = (
+        "You are a radiology department analyst. "
+        "Write 3 concise sentences summarising the key findings. "
+        "Be direct. Use only the numbers provided. No SQL, no code, no lists."
+    )
+    user_msg = f"Statistics:\n{facts}\n\nSummary:"
+
+    prompt = (
+        "<|begin_of_text|>"
+        f"<|start_header_id|>system<|end_header_id|>\n{system}<|eot_id|>"
+        f"<|start_header_id|>user<|end_header_id|>\n{user_msg}<|eot_id|>"
+        "<|start_header_id|>assistant<|end_header_id|>\n"
+    )
+
+    payload = {
+        "prompt":         prompt,
+        "n_predict":      120,
+        "temperature":    0.15,
+        "repeat_penalty": 1.15,
+        "stop":           ["<|eot_id|>", "<|end_of_text|>", "<|start_header_id|>"],
+        "stream":         True,
+        "seed":           42,
+    }
+
+    def _generate():
+        full_text = []
+        try:
+            with requests.post(
+                f"{BITNET_SERVER}/completion",
+                json=payload,
+                stream=True,
+                timeout=TIMEOUT_SECS,
+            ) as resp:
+                resp.raise_for_status()
+                for line in resp.iter_lines():
+                    if not line:
+                        continue
+                    raw_line = line.decode("utf-8") if isinstance(line, bytes) else line
+                    if raw_line.startswith("data:"):
+                        raw_line = raw_line[5:].strip()
+                    try:
+                        chunk = json.loads(raw_line)
+                    except json.JSONDecodeError:
+                        continue
+                    token = chunk.get("content", "")
+                    if not token:
+                        continue
+                    # Block schema leaks token-by-token
+                    if _NARRATIVE_RE.search(token):
+                        continue
+                    full_text.append(token)
+                    yield f'data: {json.dumps({"token": token})}\n\n'
+                    if chunk.get("stop"):
+                        break
+        except requests.exceptions.ConnectionError:
+            yield 'data: {"error": "llama-server not running"}\n\n'
+        except Exception as e:
+            logger.error(f"[BitNet] Stream error: {e}")
+            yield f'data: {json.dumps({"error": str(e)})}\n\n'
+        finally:
+            # Cache the assembled narrative
+            if full_text:
+                assembled = "".join(full_text).strip()
+                _narrative_cache[cache_key] = {
+                    "payload": {"narrative": assembled},
+                    "ts": time.time(),
+                }
+            yield 'data: [DONE]\n\n'
+
+    stream_resp = Response(stream_with_context(_generate()), mimetype="text/event-stream")
+    stream_resp.headers["X-Accel-Buffering"] = "no"
+    stream_resp.headers["Cache-Control"]     = "no-cache"
+    return stream_resp
 
 
 # ── WhatsApp generator ────────────────────────────────────────

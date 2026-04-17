@@ -49,6 +49,8 @@
         .input-filter { background: #111f1c; border: 1px solid #1e2e2a; color: #e2e8f0; border-radius: 8px; padding: 8px 10px; font-size: 12px; width: 100%; outline: none; }
 
         label { font-size: 11px; }
+        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+        .ai-cursor { display:inline-block; animation:blink 1s step-start infinite; color:#38ada9; }
     </style>
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
@@ -367,28 +369,67 @@
     };
 
     function generateSummary() {
-        const el = document.getElementById('ai-summary-text');
+        const el       = document.getElementById('ai-summary-text');
         const retryBtn = document.getElementById('ai-retry-btn');
-        el.innerHTML = '<span class="text-slate-400 italic">Generating summary…</span>';
+        el.innerHTML = '<span class="text-slate-400 italic">Generating summary<span class="ai-cursor">▋</span></span>';
         retryBtn.classList.add('hidden');
+        streamNarrative('/ai/narrative/stream', AI_STATS, el, retryBtn);
+    }
 
-        fetch('/ai/narrative', {
+    // ── Shared streaming narrative helper ─────────────────────
+    function streamNarrative(url, stats, el, retryBtn) {
+        let text = '';
+        el.innerHTML = '<span class="ai-cursor">▋</span>';
+
+        fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ stats: AI_STATS })
-        })
-        .then(r => r.json())
-        .then(d => {
-            if (d.narrative) {
-                el.textContent = d.narrative;
-            } else {
-                el.innerHTML = '<span class="text-slate-400 italic">Could not generate summary.</span>';
-                retryBtn.classList.remove('hidden');
+            body: JSON.stringify({ stats })
+        }).then(resp => {
+            if (!resp.ok) throw new Error('Server error ' + resp.status);
+            const reader  = resp.body.getReader();
+            const decoder = new TextDecoder();
+            let   buf     = '';
+
+            function pump() {
+                return reader.read().then(({ done, value }) => {
+                    if (done) {
+                        // Remove cursor on finish
+                        el.innerHTML = text || '<span class="text-slate-400 italic">Could not generate summary.</span>';
+                        if (!text && retryBtn) retryBtn.classList.remove('hidden');
+                        return;
+                    }
+                    buf += decoder.decode(value, { stream: true });
+                    const lines = buf.split('\n');
+                    buf = lines.pop(); // keep partial line
+                    for (const line of lines) {
+                        if (!line.startsWith('data:')) continue;
+                        const payload = line.slice(5).trim();
+                        if (payload === '[DONE]') {
+                            el.innerHTML = text || '<span class="text-slate-400 italic">No summary available.</span>';
+                            if (!text && retryBtn) retryBtn.classList.remove('hidden');
+                            return;
+                        }
+                        try {
+                            const d = JSON.parse(payload);
+                            if (d.error) {
+                                el.innerHTML = `<span class="text-red-400 italic">${d.error}</span>`;
+                                if (retryBtn) retryBtn.classList.remove('hidden');
+                                return;
+                            }
+                            if (d.token) {
+                                text += d.token;
+                                el.innerHTML = text + '<span class="ai-cursor">▋</span>';
+                            }
+                        } catch (_) {}
+                    }
+                    return pump();
+                });
             }
-        })
-        .catch(() => {
+            return pump();
+        }).catch(err => {
             el.innerHTML = '<span class="text-red-400 italic">AI server not reachable.</span>';
-            retryBtn.classList.remove('hidden');
+            if (retryBtn) retryBtn.classList.remove('hidden');
         });
     }
 
