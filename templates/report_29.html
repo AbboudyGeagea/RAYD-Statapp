@@ -428,7 +428,7 @@
             }
             return pump();
         }).catch(err => {
-            el.innerHTML = '<span class="text-red-400 italic">AI server not reachable.</span>';
+            el.innerHTML = '<span class="text-red-400 italic">AI server not reachable: ' + err.message + '</span>';
             if (retryBtn) retryBtn.classList.remove('hidden');
         });
     }

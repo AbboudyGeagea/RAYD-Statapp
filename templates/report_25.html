@@ -1846,7 +1846,7 @@
             el.innerHTML = '<span class="ai-cursor">▋</span>';
             fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({stats}) })
             .then(resp => {
-                if (!resp.ok) throw new Error('Server error');
+                if (!resp.ok) throw new Error('Server error ' + resp.status);
                 const reader = resp.body.getReader(), decoder = new TextDecoder();
                 let buf = '';
                 function pump() {
@@ -1858,13 +1858,17 @@
                             if (!line.startsWith('data:')) continue;
                             const p = line.slice(5).trim();
                             if (p === '[DONE]') { el.innerHTML = text || '<span class="text-zinc-500 italic">No summary available.</span>'; return; }
-                            try { const d = JSON.parse(p); if (d.token) { text += d.token; el.innerHTML = text + '<span class="ai-cursor">▋</span>'; } } catch(_) {}
+                            try {
+                                const d = JSON.parse(p);
+                                if (d.error) { el.innerHTML = '<span class="text-red-400 italic">AI: ' + d.error + '</span>'; if (retryBtn) retryBtn.classList.remove('hidden'); return; }
+                                if (d.token) { text += d.token; el.innerHTML = text + '<span class="ai-cursor">▋</span>'; }
+                            } catch(_) {}
                         }
                         return pump();
                     });
                 }
                 return pump();
-            }).catch(() => { el.innerHTML = '<span class="text-red-400 italic">AI server not reachable.</span>'; if (retryBtn) retryBtn.classList.remove('hidden'); });
+            }).catch(err => { el.innerHTML = '<span class="text-red-400 italic">AI server not reachable: ' + err.message + '</span>'; if (retryBtn) retryBtn.classList.remove('hidden'); });
         }
         document.addEventListener('DOMContentLoaded', generateSummary25);
         {% endif %}
