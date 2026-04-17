@@ -1,7 +1,7 @@
 from flask import Blueprint, request, render_template, flash, redirect, url_for, jsonify, abort, Response
 from flask_login import login_required, current_user
 # Import the CLASS names from your db file
-from db import db, AETitleModalityMap, ProcedureDurationMap, DeviceException, DeviceWeeklySchedule
+from db import db, AETitleModalityMap, ProcedureDurationMap, DeviceException, DeviceWeeklySchedule, user_has_page
 import pandas as pd
 from datetime import datetime, timedelta
 import json
@@ -24,7 +24,7 @@ def get_or_create(model, **kwargs):
 @mapping_bp.route('/export/modality')
 @login_required
 def export_modality_csv():
-    if current_user.role != 'admin': return abort(403)
+    if not user_has_page(current_user, 'mapping'): return abort(403)
     from flask import current_app, jsonify
     from routes.registry import check_license_limit
     ok, msg = check_license_limit(current_app, 'export')
@@ -49,7 +49,7 @@ def export_modality_csv():
 @mapping_bp.route('/export/procedure')
 @login_required
 def export_procedure_csv():
-    if current_user.role != 'admin': return abort(403)
+    if not user_has_page(current_user, 'mapping'): return abort(403)
     from flask import current_app, jsonify
     from routes.registry import check_license_limit
     ok, msg = check_license_limit(current_app, 'export')
@@ -72,7 +72,7 @@ def export_procedure_csv():
 @mapping_bp.route('', methods=['GET'])
 @login_required
 def mapping_page():
-    if current_user.role != 'admin': return abort(403)
+    if not user_has_page(current_user, 'mapping'): return abort(403)
 
     modality_mappings = AETitleModalityMap.query.order_by(AETitleModalityMap.aetitle).all()
     duration_mappings = ProcedureDurationMap.query.order_by(ProcedureDurationMap.procedure_code).all()
@@ -218,6 +218,7 @@ def mapping_page():
 @mapping_bp.route('/upload/modality', methods=['POST'])
 @login_required
 def upload_modality_map():
+    if current_user.role != 'admin': return abort(403)
     file = request.files.get('file')
     if not file: return redirect(url_for('mapping.mapping_page'))
 
@@ -279,6 +280,7 @@ def upload_modality_map():
 @mapping_bp.route('/upload/procedure', methods=['POST'])
 @login_required
 def upload_procedure_map():
+    if current_user.role != 'admin': return abort(403)
     file = request.files.get('file')
     if not file: return redirect(url_for('mapping.mapping_page'))
 
@@ -327,6 +329,7 @@ def upload_procedure_map():
 @mapping_bp.route('/device/grid/save', methods=['POST'])
 @login_required
 def save_grid_changes():
+    if current_user.role != 'admin': return abort(403)
     data = request.get_json(force=True)
     updates = data.get('updates', [])
     try:
@@ -359,6 +362,7 @@ def save_grid_changes():
 @mapping_bp.route('/procedure/update', methods=['POST'])
 @login_required
 def update_single_procedure():
+    if current_user.role != 'admin': return abort(403)
     data = request.get_json(force=True)
     try:
         p_code = str(data['code']).strip().upper()

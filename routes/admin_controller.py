@@ -64,7 +64,7 @@ def admin_dashboard():
     for p in all_perms:
         page_perms.setdefault(p.user_id, {})[p.page_key] = p.is_enabled
 
-    page_keys = ['live_feed', 'hl7_orders', 'report_ai', 'bitnet', 'oru', 'patient_portal']
+    page_keys = ['live_feed', 'hl7_orders', 'report_ai', 'bitnet', 'oru', 'mapping', 'patient_portal']
 
     return render_template(
         'admin_panel.html',
@@ -296,6 +296,7 @@ def _get_user_page_columns():
         ('report_ai', 'AI Reports'),
         ('bitnet', 'AI Assistant'),
         ('oru', 'Report Intelligence'),
+        ('mapping', 'Modality Mapping'),
     ]
     if current_app.config.get('PATIENT_PORTAL_ENABLED', False):
         page_columns.append(('patient_portal', 'Patient Portal'))
@@ -304,10 +305,10 @@ def _get_user_page_columns():
 
 def _apply_role_default_permissions(user, role):
     default_map = {
-        'viewer': {'report_ai', 'oru'},
+        'viewer': {'live_feed', 'hl7_orders', 'report_ai', 'bitnet', 'oru', 'mapping'},
         'tec': {'hl7_orders'},
     }
-    allowed_keys = {'live_feed', 'hl7_orders', 'report_ai', 'bitnet', 'oru', 'patient_portal'}
+    allowed_keys = {'live_feed', 'hl7_orders', 'report_ai', 'bitnet', 'oru', 'patient_portal', 'mapping'}
     defaults = default_map.get(role, set())
 
     existing_perms = {p.page_key: p for p in UserPagePermission.query.filter_by(user_id=user.id).all()}
@@ -505,7 +506,7 @@ def set_demo_mode():
             db.session.add(user)
             db.session.flush()
             # Grant all page permissions to the new demo account — patient_portal is always excluded
-            for page_key in ['live_feed', 'hl7_orders', 'report_ai', 'bitnet', 'oru']:
+            for page_key in ['live_feed', 'hl7_orders', 'report_ai', 'bitnet', 'oru', 'mapping']:
                 db.session.add(UserPagePermission(user_id=user.id, page_key=page_key, is_enabled=True))
 
         # Always strip patient_portal from the demo user, even if previously granted manually
