@@ -137,6 +137,33 @@ def delete_saved_report(report_id):
 
 
 
+@super_report_bp.route("/viewer/super-report/snapshots")
+@login_required
+def super_report_snapshots():
+    """Return the latest pre-computed snapshot for each of the 3 standard periods."""
+    try:
+        rows = db.session.execute(text("""
+            SELECT DISTINCT ON (period_label)
+                period_label, period_start::text, period_end::text,
+                computed_at, narrative, status
+            FROM analytics_snapshots
+            ORDER BY period_label, computed_at DESC
+        """)).mappings().fetchall()
+
+        return jsonify([{
+            "period_label": r["period_label"],
+            "period_start": r["period_start"],
+            "period_end":   r["period_end"],
+            "computed_at":  r["computed_at"].strftime("%d %b %Y %H:%M") if r["computed_at"] else None,
+            "narrative":    r["narrative"] or "",
+            "status":       r["status"],
+        } for r in rows])
+
+    except Exception as e:
+        logger.error(f"Snapshots error: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
 @super_report_bp.route("/viewer/super-report/filters")
 @login_required
 def super_report_filters():
@@ -360,6 +387,45 @@ def _collect_data(start, end, filters):
         FROM etl_didb_studies s {mj} {pj} WHERE {where}
     """), params).mappings().fetchone()
 
+    # ── TAT & reporting (null-safe — columns populated by ETL) ────
+    tat = db.session.execute(text(f"""
+        SELECT
+            ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (
+                ORDER BY EXTRACT(EPOCH FROM (s.rep_final_timestamp - s.insert_time)) / 60.0
+            )::numeric, 1) AS median_tat_min,
+            COUNT(*) FILTER (WHERE s.rep_final_timestamp IS NOT NULL) AS reported_count
+        FROM etl_didb_studies s {mj} {pj}
+        WHERE {where} AND s.insert_time IS NOT NULL
+    """), params).mappings().fetchone()
+
+    tat_by_mod = db.session.execute(text(f"""
+        SELECT COALESCE(m.modality, s.study_modality, 'Unknown') AS modality,
+               ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (
+                   ORDER BY EXTRACT(EPOCH FROM (s.rep_final_timestamp - s.insert_time)) / 60.0
+               )::numeric, 1) AS median_tat_min,
+               COUNT(*) AS cnt
+        FROM etl_didb_studies s {mj} {pj}
+        WHERE {where}
+          AND s.rep_final_timestamp IS NOT NULL
+          AND s.insert_time IS NOT NULL
+        GROUP BY 1 ORDER BY median_tat_min DESC LIMIT 5
+    """), params).mappings().fetchall()
+
+    # ── Daily study volume (time series for charts) ───────────────
+    daily_series = db.session.execute(text(f"""
+        SELECT s.study_date::text AS date, COUNT(*) AS cnt
+        FROM etl_didb_studies s {mj} {pj} WHERE {where}
+        GROUP BY s.study_date ORDER BY s.study_date
+    """), params).mappings().fetchall()
+
+    # ── Studies per modality (full breakdown) ─────────────────────
+    modality_series = db.session.execute(text(f"""
+        SELECT COALESCE(m.modality, s.study_modality, 'Unknown') AS modality,
+               COUNT(*) AS cnt
+        FROM etl_didb_studies s {mj} {pj} WHERE {where}
+        GROUP BY 1 ORDER BY cnt DESC LIMIT 15
+    """), params).mappings().fetchall()
+
     return {
         "kpis":        dict(kpis),
         "orders":      dict(orders),
@@ -370,8 +436,15 @@ def _collect_data(start, end, filters):
             "peak_count":     dict(peak).get("peak_count") if peak else 0,
             "top_modalities": [dict(r) for r in top_mods],
         },
-        "physicians":  [dict(r) for r in physicians],
-        "demographics": dict(demo),
+        "physicians":    [dict(r) for r in physicians],
+        "demographics":  dict(demo),
+        "tat": {
+            "median_tat_min": float(tat.get("median_tat_min") or 0) if tat else 0,
+            "reported_count": int(tat.get("reported_count") or 0) if tat else 0,
+            "by_modality":    [dict(r) for r in tat_by_mod],
+        },
+        "daily_series":    [dict(r) for r in daily_series],
+        "modality_series": [dict(r) for r in modality_series],
     }
 
 
@@ -412,6 +485,7 @@ def _generate_narrative(cur, prev, start, end, cmp_start, cmp_end, delta):
     cv     = cur["volume"]
     cd     = cur["demographics"]
     cp     = cur["physicians"]
+    ct     = cur.get("tat", {})
 
     s_chg  = _pct(ck.get("total_studies"),  pk.get("total_studies"))
     pt_chg = _pct(ck.get("total_patients"), pk.get("total_patients"))
@@ -481,6 +555,39 @@ def _generate_narrative(cur, prev, start, end, cmp_start, cmp_end, delta):
         demo_bullets.append(f"Average patient age: {float(avg_age):.1f} years (range {int(cd.get('min_age') or 0)}–{int(cd.get('max_age') or 0)})")
     if demo_bullets:
         sections.append({"icon": "bi-people", "color": "#f472b6", "title": "Patient Demographics", "bullets": demo_bullets})
+
+    # ── TAT & Reporting ───────────────────────────────────────
+    tat_bullets = []
+    median_tat  = float(ct.get("median_tat_min") or 0)
+    reported    = int(ct.get("reported_count") or 0)
+    total_st    = int(ck.get("total_studies") or 1)
+    if median_tat > 0:
+        tat_h = median_tat / 60
+        if median_tat > 1440:
+            tat_bullets.append(f"Median TAT: {tat_h:.1f} hours — exceeds 24-hour reporting target ⚠")
+        elif median_tat > 480:
+            tat_bullets.append(f"Median TAT: {tat_h:.1f} hours — above the 8-hour inpatient guideline")
+        else:
+            tat_bullets.append(f"Median TAT: {median_tat:.0f} minutes — within acceptable benchmark")
+    if reported > 0:
+        cov = round(reported / total_st * 100, 1)
+        tat_bullets.append(
+            f"Reporting coverage: {cov}% ({_fmt(reported)} of {_fmt(total_st)} studies signed)"
+        )
+        if cov < 70:
+            tat_bullets.append("Coverage below 70% — significant reporting backlog detected ⚠")
+        elif cov < 90:
+            tat_bullets.append("Coverage below 90% target — minor backlog present")
+    for row in (ct.get("by_modality") or [])[:3]:
+        m_tat = float(row.get("median_tat_min") or 0)
+        if m_tat > 0:
+            tat_bullets.append(
+                f"{row['modality']}: median {m_tat/60:.1f}h TAT ({_fmt(row['cnt'])} studies)"
+            )
+    if not tat_bullets:
+        tat_bullets.append("TAT data not yet available — ETL reporting timestamps pending")
+    sections.append({"icon": "bi-clock-history", "color": "#f59e0b",
+                     "title": "TAT & Reporting", "bullets": tat_bullets})
 
     # ── Storage ───────────────────────────────────────────────
     storage_bullets = []

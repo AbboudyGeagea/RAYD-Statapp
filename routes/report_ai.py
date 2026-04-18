@@ -61,11 +61,6 @@ def _detect_anomalies(values, threshold=2.0, dates=None):
     return [bool(abs(v - mean) > threshold * std) for v in values]
 
 
-def _pct_change(current, previous):
-    if not previous or previous == 0:
-        return None
-    return round((current - previous) / previous * 100, 1)
-
 
 def _generate_explanation(section, data):
     """Generate plain-language explanation for each section."""
@@ -88,17 +83,13 @@ def _generate_explanation(section, data):
     elif section == "volume":
         avg = data.get("avg_daily", 0)
         trend_slope = data.get("slope", 0)
-        prev_pct = data.get("vs_prev_pct")
         exp = f"Average daily study volume is {avg:.0f} studies. "
         if trend_slope > 0:
-            exp += f"Volume is trending upward (+{trend_slope} studies/day). "
+            exp += f"Volume is trending upward (+{trend_slope} studies/day)."
         elif trend_slope < 0:
-            exp += f"Volume is trending downward ({trend_slope} studies/day). "
+            exp += f"Volume is trending downward ({trend_slope} studies/day)."
         else:
-            exp += "Volume is stable. "
-        if prev_pct is not None:
-            direction = "up" if prev_pct >= 0 else "down"
-            exp += f"Compared to the same period last year, volume is {direction} {abs(prev_pct)}%."
+            exp += "Volume is stable."
         explanations["volume"] = exp
 
     elif section == "utilization":
@@ -164,23 +155,12 @@ def _get_storage_intelligence(start, end):
     if daily_growth > 0:
         days_to_full = int(remaining / daily_growth)
 
-    # Compare with same period last year
-    one_year_ago_start = (pd.to_datetime(start) - timedelta(days=365)).strftime('%Y-%m-%d')
-    one_year_ago_end   = (pd.to_datetime(end)   - timedelta(days=365)).strftime('%Y-%m-%d')
-    prev_row = db.session.execute(text("""
-        SELECT AVG(total_gb) FROM summary_storage_daily
-        WHERE study_date BETWEEN :s AND :e
-    """), {"s": one_year_ago_start, "e": one_year_ago_end}).fetchone()
-    prev_avg  = float(prev_row[0]) if prev_row and prev_row[0] else None
-    vs_prev   = _pct_change(current_gb, prev_avg)
-
     data = {
         "current_gb": current_gb,
         "daily_growth_gb": round(daily_growth, 3),
         "days_to_full": days_to_full,
         "capacity_gb": capacity_gb,
         "r2": r2,
-        "vs_prev_pct": vs_prev,
         "chart": {
             "historical_dates": dates,
             "historical_vals":  values,
@@ -211,17 +191,7 @@ def _get_volume_intelligence(start, end):
     anomalies = _detect_anomalies(values, dates=dates)
 
     avg_daily = round(np.mean(values), 1)
-
-    # Same period last year
-    one_year_ago_start = (pd.to_datetime(start) - timedelta(days=365)).strftime('%Y-%m-%d')
-    one_year_ago_end   = (pd.to_datetime(end)   - timedelta(days=365)).strftime('%Y-%m-%d')
-    prev_rows = db.session.execute(text("""
-        SELECT COUNT(*) FROM etl_didb_studies
-        WHERE study_date BETWEEN :s AND :e
-    """), {"s": one_year_ago_start, "e": one_year_ago_end}).fetchone()
-    prev_total = int(prev_rows[0]) if prev_rows else None
-    cur_total  = sum(values)
-    vs_prev    = _pct_change(cur_total, prev_total)
+    cur_total = sum(values)
 
     # Modality breakdown — prefer procedure's true modality, fall back to AE map
     mod_rows = db.session.execute(text("""
@@ -240,8 +210,6 @@ def _get_volume_intelligence(start, end):
         "total": cur_total,
         "slope": slope,
         "r2": r2,
-        "vs_prev_pct": vs_prev,
-        "vs_prev_total": prev_total,
         "modality_split": [{"name": r.modality or "UNMAPPED", "value": int(r.cnt)} for r in mod_rows],
         "chart": {
             "historical_dates": dates,
@@ -403,22 +371,6 @@ def _get_physician_intelligence(start, end):
     for r in phys_mod_rows:
         phys_modality_map.setdefault(r[0], []).append({"modality": r[1] or "UNMAPPED", "count": int(r[2])})
 
-    # Same period last year for comparison
-    one_year_ago_start = (pd.to_datetime(start) - timedelta(days=365)).strftime('%Y-%m-%d')
-    one_year_ago_end   = (pd.to_datetime(end)   - timedelta(days=365)).strftime('%Y-%m-%d')
-    prev_rows = db.session.execute(text("""
-        SELECT
-            COALESCE(NULLIF(TRIM(CONCAT_WS(' ',
-                referring_physician_first_name,
-                referring_physician_last_name)), ''), 'Unknown') as physician,
-            COUNT(*) as cnt
-        FROM etl_didb_studies
-        WHERE study_date BETWEEN :s AND :e
-          AND referring_physician_first_name IS NOT NULL
-        GROUP BY 1
-    """), {"s": one_year_ago_start, "e": one_year_ago_end}).fetchall()
-    prev_lookup = {r[0]: int(r[1]) for r in prev_rows}
-
     physician_data = []
     churning = []
     growing  = []
@@ -436,9 +388,6 @@ def _get_physician_intelligence(start, end):
         else:
             f_dates, f_vals, r2, slope = [], [], 0, 0
 
-        prev_total = prev_lookup.get(physician)
-        vs_prev    = _pct_change(total, prev_total)
-
         if slope < -0.5 and len(counts) >= 2:
             churning.append(physician)
         elif slope > 0.5 and len(counts) >= 2:
@@ -448,8 +397,6 @@ def _get_physician_intelligence(start, end):
             "name":         physician,
             "total":        total,
             "slope":        slope,
-            "vs_prev":      vs_prev,
-            "prev_total":   prev_total,
             "modality_mix": phys_modality_map.get(physician, []),
             "chart": {
                 "months":         months,

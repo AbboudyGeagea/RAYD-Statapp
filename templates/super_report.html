@@ -56,6 +56,14 @@
         @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
         @media (max-width: 900px) { .narrative-box { grid-template-columns: 1fr; } }
 
+        /* Daily Briefing */
+        .briefing-tab { background: transparent; color: #64748b; }
+        .briefing-tab:hover { background: rgba(96,165,250,0.1); color: #60a5fa; }
+        .briefing-tab.active-tab { background: rgba(96,165,250,0.15); color: #60a5fa; border: 1px solid rgba(96,165,250,0.3) !important; }
+        .briefing-pre { white-space: pre-wrap; font-family: 'Inter', monospace; font-size: 12px; line-height: 1.7; color: #cbd5e1; }
+        .briefing-alert { color: #f87171; font-weight: 700; }
+        .briefing-section-head { color: #f59e0b; font-weight: 900; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; }
+
         /* Light mode */
         body.light { background: #f0f4f8 !important; color: #1a202c !important; }
         body.light .card { background: #ffffff !important; border-color: #e2e8f0 !important; }
@@ -194,6 +202,37 @@
 
         <!-- Main content -->
         <main class="flex-1 overflow-y-auto p-6 bg-[#181f1c] space-y-5">
+
+            <!-- Daily Briefing Card -->
+            <div class="card" id="daily-briefing-card">
+                <div style="padding:12px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <i class="bi bi-lightning-charge-fill" style="color:#60a5fa;"></i>
+                        <span style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:0.12em;color:#60a5fa;">Daily Briefing</span>
+                        <span id="briefing-updated" style="font-size:9px;font-weight:700;color:#475569;margin-left:4px;"></span>
+                    </div>
+                    <div style="display:flex;gap:4px;" id="briefing-tabs">
+                        <button onclick="showBriefing('last_30d')" id="tab-last_30d"
+                                class="briefing-tab active-tab"
+                                style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.08em;padding:3px 10px;border-radius:5px;border:none;cursor:pointer;transition:all 0.15s;">
+                            Last 30d
+                        </button>
+                        <button onclick="showBriefing('last_90d')" id="tab-last_90d"
+                                class="briefing-tab"
+                                style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.08em;padding:3px 10px;border-radius:5px;border:none;cursor:pointer;transition:all 0.15s;">
+                            Last 90d
+                        </button>
+                        <button onclick="showBriefing('ytd')" id="tab-ytd"
+                                class="briefing-tab"
+                                style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.08em;padding:3px 10px;border-radius:5px;border:none;cursor:pointer;transition:all 0.15s;">
+                            YTD
+                        </button>
+                    </div>
+                </div>
+                <div id="briefing-body" style="padding:16px 18px;min-height:60px;">
+                    <p style="color:#475569;font-size:11px;font-style:italic;">Loading briefing...</p>
+                </div>
+            </div>
 
             <!-- Conflict Patients Card -->
             <div class="card" style="border-left:3px solid #f59e0b;">
@@ -867,9 +906,74 @@
         t._to = setTimeout(() => t.style.opacity = '0', 2500);
     }
 
+    // ── Daily Briefing ────────────────────────────────────────────────
+    window._briefings = {};
+
+    async function loadBriefings() {
+        try {
+            const rows = await fetch('/viewer/super-report/snapshots').then(r => r.json());
+            if (rows.error || !Array.isArray(rows) || !rows.length) {
+                document.getElementById('briefing-body').innerHTML =
+                    '<p style="color:#475569;font-size:11px;font-style:italic;">No briefing available yet — runs nightly at 05:15.</p>';
+                return;
+            }
+            rows.forEach(r => { window._briefings[r.period_label] = r; });
+
+            // Show first available tab
+            const order = ['last_30d','last_90d','ytd'];
+            const first = order.find(k => window._briefings[k]) || rows[0].period_label;
+            showBriefing(first);
+        } catch(e) {
+            document.getElementById('briefing-body').innerHTML =
+                '<p style="color:#f87171;font-size:11px;">Could not load briefing.</p>';
+        }
+    }
+
+    function showBriefing(label) {
+        // Update tab styles
+        ['last_30d','last_90d','ytd'].forEach(k => {
+            const t = document.getElementById(`tab-${k}`);
+            if (t) t.classList.toggle('active-tab', k === label);
+        });
+
+        const snap = window._briefings[label];
+        const body = document.getElementById('briefing-body');
+        const upd  = document.getElementById('briefing-updated');
+
+        if (!snap) {
+            body.innerHTML = '<p style="color:#475569;font-size:11px;font-style:italic;">No snapshot for this period yet.</p>';
+            upd.textContent = '';
+            return;
+        }
+
+        upd.textContent = snap.computed_at ? `Updated ${snap.computed_at}` : '';
+
+        // Render narrative as styled pre block, highlight ALERTS section
+        const lines = (snap.narrative || '').split('\n');
+        let html = '';
+        let inAlerts = false;
+        lines.forEach(line => {
+            if (line.startsWith('ALERTS')) {
+                inAlerts = true;
+                html += `<div class="briefing-section-head" style="margin-top:10px;">${escHtml(line)}</div>`;
+            } else if (line.startsWith('DAILY BRIEFING')) {
+                html += `<div style="font-size:11px;font-weight:900;color:#e2e8f0;margin-bottom:8px;">${escHtml(line)}</div>`;
+                inAlerts = false;
+            } else if (inAlerts && line.startsWith('—')) {
+                html += `<div class="briefing-alert" style="font-size:12px;padding:1px 0;">${escHtml(line)}</div>`;
+            } else if (line === '') {
+                html += '<div style="height:6px;"></div>';
+            } else {
+                html += `<div class="briefing-pre">${escHtml(line)}</div>`;
+            }
+        });
+        body.innerHTML = html || '<p style="color:#475569;font-size:11px;font-style:italic;">Empty briefing.</p>';
+    }
+
     // ── Init ──────────────────────────────────────────────────────────
     loadFilters();
     loadPresets();
+    loadBriefings();
 
     // ── Theme toggle ───────────────────────────────────────────────────
     function toggleTheme() {

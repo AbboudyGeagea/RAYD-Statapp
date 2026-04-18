@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from flask import Blueprint, render_template, request, Response
 from flask_login import login_required
 from sqlalchemy import text
@@ -66,30 +66,22 @@ def get_report_data(start, end):
 def report_27():
     today = date.today()
     go_live = get_go_live_date() or date(2025, 1, 1)
-    
-    # Primary Range
+
     start_a = request.form.get("start_date", go_live.strftime('%Y-%m-%d'))
-    end_a = request.form.get("end_date", today.strftime('%Y-%m-%d'))
-    # Comparison Range
-    # Comparison ends the day before go_live to avoid overlap with primary period
-    start_b = request.form.get("comp_start_date", (go_live - timedelta(days=30)).strftime('%Y-%m-%d'))
-    end_b = request.form.get("comp_end_date", (go_live - timedelta(days=1)).strftime('%Y-%m-%d'))
+    end_a   = request.form.get("end_date",   today.strftime('%Y-%m-%d'))
 
     run_report = request.method == "POST"
     data = {}
 
     if run_report:
         df_a = get_report_data(start_a, end_a)
-        df_b = get_report_data(start_b, end_b)
 
         if not df_a.empty:
-            # Duration IQR filter (exclude NULL, 0-min entries, and statistical outliers)
             df_a['duration_minutes'] = pd.to_numeric(df_a['duration_minutes'], errors='coerce')
             dur_raw = df_a[df_a['duration_minutes'] > 0]['duration_minutes']
             if len(dur_raw) > 0:
                 q1, q3 = dur_raw.quantile(0.25), dur_raw.quantile(0.75)
                 iqr = q3 - q1
-                # Only remove upper outliers — short durations are valid procedures
                 dur_clean = dur_raw[dur_raw <= q3 + 1.5 * iqr]
                 avg_duration = round(dur_clean.mean(), 1)
                 duration_outliers_removed = int(len(dur_raw) - len(dur_clean))
@@ -97,38 +89,21 @@ def report_27():
                 avg_duration = 0.0
                 duration_outliers_removed = 0
 
-            # Audit Metrics
             data['audit'] = {
-                "total": len(df_a),
-                "orphans": int(len(df_a[df_a['has_study'] == False])),
-                "matches": int(df_a['match'].sum()),
-                "mismatches": int(len(df_a) - df_a['match'].sum()),
-                "avg_duration": avg_duration,
+                "total":                     len(df_a),
+                "orphans":                   int(len(df_a[df_a['has_study'] == False])),
+                "matches":                   int(df_a['match'].sum()),
+                "mismatches":                int(len(df_a) - df_a['match'].sum()),
+                "avg_duration":              avg_duration,
                 "duration_outliers_removed": duration_outliers_removed,
-                "hourly": df_a['scheduled_datetime'].dt.hour.value_counts().sort_index().to_dict(),
-                "status_mix": df_a['order_status'].value_counts().to_dict(),
-                "ae_mix": df_a['storing_ae'].fillna('Unknown').value_counts().to_dict()
-            }
-            
-            # Comparison Metrics (observed=False handles categorical gaps)
-            vol_a = len(df_a)
-            vol_b = len(df_b) if not df_b.empty else 0
-            delta = vol_a - vol_b
-            delta_pct = round(delta / vol_b * 100, 1) if vol_b > 0 else 0.0
-            # Flag as significant if change exceeds 15% — meaningful operational shift
-            delta_significant = abs(delta_pct) >= 15
-
-            data['growth'] = {
-                "vol_a": vol_a,
-                "vol_b": vol_b,
-                "delta_pct": delta_pct,
-                "delta_significant": delta_significant,
-                "demo": df_a.groupby(['age_group', 'sex'], observed=False).size().unstack(fill_value=0).to_dict('index')
+                "hourly":                    df_a['scheduled_datetime'].dt.hour.value_counts().sort_index().to_dict(),
+                "status_mix":                df_a['order_status'].value_counts().to_dict(),
+                "ae_mix":                    df_a['storing_ae'].fillna('Unknown').value_counts().to_dict(),
+                "demo":                      df_a.groupby(['age_group', 'sex'], observed=False).size().unstack(fill_value=0).to_dict('index'),
             }
 
     return render_template("report_27.html", data=data, run_report=run_report,
-                           display_start=start_a, display_end=end_a,
-                           comp_start=start_b, comp_end=end_b)
+                           display_start=start_a, display_end=end_a)
 
 @report_27_bp.route("/report/27/export", methods=["POST"])
 @login_required

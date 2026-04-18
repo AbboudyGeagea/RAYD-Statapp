@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y \
     libaio1t64 \
     libaio-dev \
     tzdata \
+    cron \
     && rm -rf /var/lib/apt/lists/*
 
 # 2. Set the working directory inside the container
@@ -23,6 +24,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 4. Copy the rest of the application code
 COPY . .
 
+# 4b. Install analytics crontab and entrypoint
+COPY scripts/analytics_cron /etc/cron.d/analytics
+RUN chmod 0644 /etc/cron.d/analytics && crontab /etc/cron.d/analytics
+RUN chmod +x /app/scripts/entrypoint.sh
+
 # 5. Set Environment Variables
 # LD_LIBRARY_PATH must point to the folder we map in docker-compose.yml
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -32,6 +38,5 @@ ENV LD_LIBRARY_PATH=/opt/oracle/instantclient_21_13
 # 6. Expose the internal port (Nginx will handle 443 externally)
 EXPOSE 8080
 
-# 7. Start the application using Gunicorn
-# We use --workers 1 to prevent multiple 5 AM ETL triggers
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "1", "--threads", "4", "--timeout", "300", "app:create_app()"]
+# 7. Start via entrypoint (cron daemon + gunicorn)
+CMD ["/app/scripts/entrypoint.sh"]
