@@ -302,36 +302,12 @@ NARRATIVE_TTL = 600
 @bitnet_bp.route("/ai/narrative", methods=["POST"])
 @login_required
 def narrative():
+    from utils.narrative_engine import diagnose
     body  = request.get_json(force=True)
     stats = body.get("stats", {})
     if not stats:
         return jsonify({"error": "No stats provided"}), 400
-
-    # Cache check — same stats within 10 min returns instantly
-    cache_key = hashlib.md5(json.dumps(stats, sort_keys=True).encode()).hexdigest()
-    now = time.time()
-    hit = _narrative_cache.get(cache_key)
-    if hit and (now - hit["ts"]) < NARRATIVE_TTL:
-        return jsonify(hit["payload"])
-
-    facts_lines = [f"- {k.replace('_', ' ').title()}: {v}" for k, v in stats.items()]
-    facts = "\n".join(facts_lines)
-
-    system = (
-        "You are a radiology department analyst. "
-        "Write 3 concise sentences summarising the key findings from the statistics below. "
-        "Be direct. Use only the numbers provided. No SQL, no code, no lists."
-    )
-
-    raw = _run_inference(system, f"Statistics:\n{facts}\n\nSummary:", max_tokens=150)
-
-    if _NARRATIVE_RE.search(raw):
-        logger.warning(f"[BitNet] Schema leak in narrative: {raw[:200]}")
-        raw = "Unable to generate narrative — please review the statistics directly."
-
-    payload = {"narrative": raw}
-    _narrative_cache[cache_key] = {"payload": payload, "ts": now}
-    return jsonify(payload)
+    return jsonify({"narrative": diagnose(stats)})
 
 
 # ── Narrative streaming endpoint ──────────────────────────────
@@ -354,40 +330,8 @@ def narrative_stream():
             yield 'data: [DONE]\n\n'
         return Response(stream_with_context(_no_stats()), mimetype="text/event-stream")
 
-    cache_key = hashlib.md5(json.dumps(stats, sort_keys=True).encode()).hexdigest()
-    now       = time.time()
-    hit       = _narrative_cache.get(cache_key)
-
-    # ── Cache hit or fresh inference ──────────────────────────
-    if hit and (now - hit["ts"]) < NARRATIVE_TTL:
-        narrative_text = hit["payload"]["narrative"]
-        logger.debug(f"[BitNet/stream] cache hit, replaying {len(narrative_text)} chars")
-    else:
-        facts_lines = [f"- {k.replace('_', ' ').title()}: {v}" for k, v in stats.items()]
-        facts       = "\n".join(facts_lines)
-        system = (
-            "You are a radiology department analyst. "
-            "Write 3 concise sentences summarising the key findings. "
-            "Be direct. Use only the numbers provided. No SQL, no code, no lists."
-        )
-        raw = _run_inference(system, f"Statistics:\n{facts}\n\nSummary:", max_tokens=120)
-        logger.debug(f"[BitNet/stream] inference returned: {raw[:100]!r}")
-
-        if raw.startswith("ERROR:"):
-            def _err(msg=raw):
-                yield f'data: {json.dumps({"error": msg})}\n\n'
-                yield 'data: [DONE]\n\n'
-            r = Response(stream_with_context(_err()), mimetype="text/event-stream")
-            r.headers["X-Accel-Buffering"] = "no"
-            r.headers["Cache-Control"]     = "no-cache"
-            return r
-
-        if _NARRATIVE_RE.search(raw):
-            logger.warning(f"[BitNet/stream] schema leak filtered: {raw[:100]}")
-            raw = "Unable to generate narrative — please review the statistics directly."
-
-        narrative_text = raw.strip() or "No summary could be generated for this data."
-        _narrative_cache[cache_key] = {"payload": {"narrative": narrative_text}, "ts": now}
+    from utils.narrative_engine import diagnose
+    narrative_text = diagnose(stats)
 
     # ── Stream word-by-word (typewriter effect) ───────────────
     words = narrative_text.split(" ")
