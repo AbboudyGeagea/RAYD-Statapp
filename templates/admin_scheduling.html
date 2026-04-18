@@ -34,10 +34,21 @@
         .grid-cell.has-appt { background: #1c2824; }
         .appt-card { border-radius: 0.5rem; padding: 0.35rem 0.5rem; margin-bottom: 3px; font-size: 11px; line-height: 1.3; cursor: pointer; transition: opacity 0.15s; }
         .appt-card:hover { opacity: 0.85; }
-        .appt-card.manual { background: rgba(96,165,250,0.12); border-left: 3px solid #60a5fa; }
-        .appt-card.etl    { background: rgba(52,211,153,0.10); border-left: 3px solid #34d399; }
-        .appt-card.er     { background: rgba(239,68,68,0.15);  border-left: 3px solid #ef4444; }
-        .appt-card.ip     { background: rgba(251,191,36,0.12); border-left: 3px solid #fbbf24; }
+        .appt-card.manual    { background: rgba(96,165,250,0.12);  border-left: 3px solid #60a5fa; }
+        .appt-card.hl7       { background: rgba(167,139,250,0.12); border-left: 3px solid #a78bfa; }
+        .appt-card.hl7.cancelled { opacity: 0.5; }
+        .appt-card.hl7.cancelled .appt-name,
+        .appt-card.hl7.cancelled .appt-proc { text-decoration: line-through; color: #64748b !important; }
+        .appt-card.er        { background: rgba(239,68,68,0.15);   border-left: 3px solid #ef4444; }
+        .appt-card.ip        { background: rgba(251,191,36,0.12);  border-left: 3px solid #fbbf24; }
+        /* HL7 modal */
+        #hl7-modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:50; align-items:center; justify-content:center; }
+        #hl7-modal.open { display:flex; }
+        #hl7-modal-box { background:#1e2a26; border:1px solid #334155; border-radius:1.25rem; padding:2rem; width:100%; max-width:480px; position:relative; }
+        .modal-field-label { font-size:9px; font-weight:800; text-transform:uppercase; letter-spacing:.1em; color:#475569; margin-bottom:6px; display:block; }
+        .modal-input { background:#141b19; border:1px solid #334155; color:#e2e8f0; padding:.7rem 1rem; border-radius:.75rem; width:100%; font-size:.85rem; outline:none; transition:border-color .2s; }
+        .modal-input:focus { border-color:#a78bfa; }
+        .modal-input:disabled { opacity:.4; cursor:not-allowed; }
         .badge-mod { display: inline-block; font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.1em; padding: 2px 6px; border-radius: 4px; background: #1e293b; color: #94a3b8; }
         .chip { display: inline-flex; align-items: center; gap: 6px; padding: 0.35rem 0.75rem; border-radius: 999px; font-size: 11px; font-weight: 700; }
         .er-highlight { border-color: #dc2626 !important; background: rgba(220,38,38,0.08); }
@@ -128,7 +139,51 @@
                         {% endif %}
                     </div>
 
-                    {% if not modalities %}
+                    <!-- Unscheduled HL7 worklist -->
+                    {% if unscheduled %}
+                    <div class="mb-5">
+                        <button onclick="toggleWorklist()" id="worklist-btn"
+                            class="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-violet-400 hover:text-violet-300 transition-colors mb-3">
+                            <i class="bi bi-inbox-fill"></i>
+                            Unscheduled Orders
+                            <span class="px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-300 text-[10px]">{{ unscheduled|length }}</span>
+                            <i class="bi bi-chevron-down" id="worklist-chevron"></i>
+                        </button>
+                        <div id="worklist-panel" class="card" style="padding:0;overflow:hidden;">
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-left" style="font-size:11px;">
+                                    <thead>
+                                        <tr style="border-bottom:1px solid #1e2a26;background:#1a2420;">
+                                            {% for col in ['Patient','Procedure','Modality','Physician','Accession','Received',''] %}
+                                            <th style="padding:8px 14px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:#475569;">{{ col }}</th>
+                                            {% endfor %}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for u in unscheduled %}
+                                        <tr style="border-bottom:1px solid #1e2a26;" onmouseover="this.style.background='rgba(167,139,250,0.05)'" onmouseout="this.style.background=''">
+                                            <td style="padding:9px 14px;color:#e2e8f0;font-weight:700;">{{ u.name }}</td>
+                                            <td style="padding:9px 14px;color:#94a3b8;max-width:200px;" class="truncate">{{ u.procedure }}</td>
+                                            <td style="padding:9px 14px;"><span class="badge-mod">{{ u.modality }}</span></td>
+                                            <td style="padding:9px 14px;color:#64748b;">{{ u.physician or '—' }}</td>
+                                            <td style="padding:9px 14px;color:#64748b;font-family:monospace;font-size:10px;">{{ u.accession or '—' }}</td>
+                                            <td style="padding:9px 14px;color:#475569;font-size:10px;">{{ u.received }}</td>
+                                            <td style="padding:9px 14px;">
+                                                <button onclick="openHl7Modal({{ u.id }}, '{{ u.name|e }}', '{{ u.procedure|e }}', '{{ u.modality }}', '{{ u.physician|e }}', '', '{{ view_date_str }}T08:00')"
+                                                    class="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest bg-violet-500/10 text-violet-300 border border-violet-500/20 hover:bg-violet-500/20 transition-colors">
+                                                    Schedule
+                                                </button>
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    {% if not modalities and not unscheduled %}
                     <!-- Empty state -->
                     <div class="card text-center py-16">
                         <i class="bi bi-calendar-x text-4xl text-slate-600"></i>
@@ -139,53 +194,59 @@
                     </div>
                     {% else %}
                     <!-- Grid -->
-                    <div class="card" style="padding: 0; overflow: hidden;">
-                        <div class="overflow-auto" style="max-height: calc(100vh - 280px);">
-                            <table class="w-full border-collapse" style="min-width: {{ (modalities|length) * 180 + 70 }}px;">
+                    <div class="card" style="padding:0;overflow:hidden;">
+                        <div class="overflow-auto" style="max-height:calc(100vh - 300px);">
+                            <table class="w-full border-collapse" style="min-width:{{ (modalities|length) * 180 + 70 }}px;">
                                 <thead>
                                     <tr>
-                                        <th class="grid-header" style="width:70px; text-align:left; padding-left:0.75rem;">Time</th>
+                                        <th class="grid-header" style="width:70px;text-align:left;padding-left:.75rem;">Time</th>
                                         {% for mod in modalities %}
                                         <th class="grid-header" style="min-width:180px;">
                                             {{ mod }}
-                                            <span class="ml-1 text-slate-500 font-normal normal-case tracking-normal">
-                                                ({{ mod_counts.get(mod, 0) }})
-                                            </span>
+                                            <span class="ml-1 text-slate-500 font-normal normal-case tracking-normal">({{ mod_counts.get(mod, 0) }})</span>
                                         </th>
                                         {% endfor %}
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {% for slot in time_slots %}
-                                    {% if slot.has_any or loop.index % 2 == 1 %}
-                                    <tr class="{{ 'bg-[#1a2420]/60' if loop.index % 2 == 0 else '' }}">
+                                    <tr class="{{ 'bg-[#1a2420]/40' if loop.index % 2 == 0 else '' }}">
                                         <td class="time-label">{{ slot.label }}</td>
                                         {% for mod in modalities %}
                                         {% set appts = slot.row[mod] %}
                                         <td class="grid-cell {{ 'has-appt' if appts else '' }}">
                                             {% for appt in appts %}
-                                            <div class="appt-card {{ 'er' if appt.class == 'ER' else ('ip' if appt.class == 'IP' else ('manual' if appt.source == 'manual' else 'etl')) }}"
-                                                 {% if appt.source == 'manual' %}
-                                                 onclick="editEntry({{ appt.id }}, '{{ view_date_str }}')"
-                                                 title="Click to edit"
-                                                 {% endif %}>
-                                                <div class="font-bold text-white truncate" style="max-width:160px;">{{ appt.name }}</div>
-                                                <div class="text-slate-400 truncate" style="max-width:160px; font-size:10px;">{{ appt.procedure }}</div>
+                                            {% if appt.source == 'hl7' %}
+                                            <div class="appt-card hl7 {{ 'cancelled' if appt.cancelled else '' }}"
+                                                 onclick="openHl7Modal({{ appt.id }}, '{{ appt.name|e }}', '{{ appt.procedure|e }}', '{{ appt.modality }}', '{{ appt.ref|e }}', '{{ appt.status }}', '{{ view_date_str }}T{{ appt.time }}')"
+                                                 title="{{ 'Cancelled — click to reschedule' if appt.cancelled else 'Click to reschedule' }}" style="cursor:pointer;">
+                                                <div class="appt-name font-bold truncate" style="color:{{ '#64748b' if appt.cancelled else '#c4b5fd' }};max-width:160px;">{{ appt.name }}</div>
+                                                <div class="appt-proc truncate" style="color:#64748b;max-width:160px;font-size:10px;">{{ appt.procedure }}</div>
                                                 <div class="flex items-center gap-1 mt-1">
-                                                    <span style="font-size:9px; color:#64748b;">{{ appt.time }}</span>
-                                                    {% if appt.class in ('ER','IP') %}
-                                                    <span class="px-1 rounded text-[8px] font-black uppercase {{ 'bg-red-500/20 text-red-300' if appt.class == 'ER' else 'bg-amber-500/20 text-amber-300' }}">{{ appt.class }}</span>
-                                                    {% endif %}
-                                                    {% if appt.source == 'etl' %}
-                                                    <span class="px-1 rounded text-[8px] font-black uppercase bg-emerald-500/10 text-emerald-400">HIS</span>
+                                                    <span style="font-size:9px;color:#64748b;">{{ appt.time }}</span>
+                                                    <span style="font-size:8px;font-weight:900;padding:1px 5px;border-radius:3px;background:rgba(167,139,250,0.12);color:#a78bfa;text-transform:uppercase;">HL7</span>
+                                                    {% if appt.cancelled %}
+                                                    <span style="font-size:8px;font-weight:900;padding:1px 5px;border-radius:3px;background:rgba(239,68,68,0.12);color:#f87171;text-transform:uppercase;">{{ appt.status }}</span>
                                                     {% endif %}
                                                 </div>
                                             </div>
+                                            {% else %}
+                                            <div class="appt-card {{ 'er' if appt.class == 'ER' else ('ip' if appt.class == 'IP' else 'manual') }}"
+                                                 onclick="editEntry({{ appt.id }}, '{{ view_date_str }}')" title="Click to edit" style="cursor:pointer;">
+                                                <div class="font-bold text-white truncate" style="max-width:160px;">{{ appt.name }}</div>
+                                                <div class="text-slate-400 truncate" style="max-width:160px;font-size:10px;">{{ appt.procedure }}</div>
+                                                <div class="flex items-center gap-1 mt-1">
+                                                    <span style="font-size:9px;color:#64748b;">{{ appt.time }}</span>
+                                                    {% if appt.class in ('ER','IP') %}
+                                                    <span class="px-1 rounded text-[8px] font-black uppercase {{ 'bg-red-500/20 text-red-300' if appt.class == 'ER' else 'bg-amber-500/20 text-amber-300' }}">{{ appt.class }}</span>
+                                                    {% endif %}
+                                                </div>
+                                            </div>
+                                            {% endif %}
                                             {% endfor %}
                                         </td>
                                         {% endfor %}
                                     </tr>
-                                    {% endif %}
                                     {% endfor %}
                                 </tbody>
                             </table>
@@ -365,6 +426,68 @@
         </main>
     </div>
 
+    <!-- HL7 Reschedule Modal -->
+    <div id="hl7-modal" onclick="if(event.target===this)closeHl7Modal()">
+        <div id="hl7-modal-box">
+            <div class="flex items-center justify-between mb-5">
+                <div>
+                    <h3 style="color:#c4b5fd;font-size:14px;font-weight:900;text-transform:uppercase;letter-spacing:.08em;">HL7 Order</h3>
+                    <p style="color:#475569;font-size:10px;margin-top:2px;">Only the scheduled date &amp; time can be edited.</p>
+                </div>
+                <button onclick="closeHl7Modal()" style="color:#475569;font-size:18px;line-height:1;background:none;border:none;cursor:pointer;">✕</button>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4 mb-4">
+                <div>
+                    <span class="modal-field-label">Patient</span>
+                    <input id="hl7-f-name" class="modal-input" disabled>
+                </div>
+                <div>
+                    <span class="modal-field-label">Modality</span>
+                    <input id="hl7-f-modality" class="modal-input" disabled>
+                </div>
+                <div class="col-span-2">
+                    <span class="modal-field-label">Procedure</span>
+                    <input id="hl7-f-procedure" class="modal-input" disabled>
+                </div>
+                <div>
+                    <span class="modal-field-label">Physician</span>
+                    <input id="hl7-f-physician" class="modal-input" disabled>
+                </div>
+                <div>
+                    <span class="modal-field-label">Status</span>
+                    <input id="hl7-f-status" class="modal-input" disabled>
+                </div>
+            </div>
+
+            <div style="border-top:1px solid #1e293b;padding-top:1rem;margin-bottom:1rem;">
+                <span class="modal-field-label" style="color:#a78bfa;">Scheduled Date &amp; Time</span>
+                <div class="flex gap-2">
+                    <input id="hl7-f-datetime" type="datetime-local" class="modal-input" style="flex:1;border-color:#4c1d95;">
+                    <button onclick="suggestSlot()" id="suggest-btn"
+                        style="padding:.7rem 1rem;border-radius:.75rem;background:rgba(167,139,250,0.1);border:1px solid rgba(167,139,250,0.3);color:#a78bfa;font-size:11px;font-weight:800;white-space:nowrap;cursor:pointer;transition:all .2s;"
+                        onmouseover="this.style.background='rgba(167,139,250,0.2)'" onmouseout="this.style.background='rgba(167,139,250,0.1)'">
+                        <i class="bi bi-magic"></i> Suggest
+                    </button>
+                </div>
+                <p id="suggest-hint" style="font-size:10px;color:#475569;margin-top:5px;display:none;"></p>
+            </div>
+
+            <div class="flex gap-3">
+                <button onclick="saveHl7Reschedule()"
+                    style="flex:1;padding:.75rem;border-radius:.85rem;background:#a78bfa;color:#1e1b4b;font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.08em;cursor:pointer;border:none;transition:opacity .2s;"
+                    onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+                    <i class="bi bi-floppy-fill mr-1"></i> Save
+                </button>
+                <button onclick="closeHl7Modal()"
+                    style="padding:.75rem 1.5rem;border-radius:.85rem;background:transparent;color:#64748b;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;cursor:pointer;border:1px solid #1e293b;transition:border-color .2s;"
+                    onmouseover="this.style.borderColor='#334155'" onmouseout="this.style.borderColor='#1e293b'">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+
     <script>
         const PANELS = ['grid','form','all'];
         function showTab(name) {
@@ -394,6 +517,89 @@
             const card = document.getElementById('scheduling-card');
             const val  = document.getElementById('patientClassSelect').value;
             card.classList.toggle('er-highlight', val === 'ER');
+        }
+
+        // ── Worklist toggle ──────────────────────────────────────────────────
+        function toggleWorklist() {
+            const panel   = document.getElementById('worklist-panel');
+            const chevron = document.getElementById('worklist-chevron');
+            const hidden  = panel.style.display === 'none';
+            panel.style.display   = hidden ? '' : 'none';
+            chevron.className = hidden ? 'bi bi-chevron-up' : 'bi bi-chevron-down';
+        }
+
+        // ── HL7 Modal ────────────────────────────────────────────────────────
+        let _hl7ActiveId   = null;
+        let _hl7Modality   = null;
+        let _hl7ActiveDate = null;
+
+        function openHl7Modal(id, name, procedure, modality, physician, status, currentDt) {
+            _hl7ActiveId   = id;
+            _hl7Modality   = modality;
+            _hl7ActiveDate = currentDt ? currentDt.slice(0, 10) : '{{ view_date_str }}';
+
+            document.getElementById('hl7-f-name').value      = name;
+            document.getElementById('hl7-f-procedure').value = procedure;
+            document.getElementById('hl7-f-modality').value  = modality;
+            document.getElementById('hl7-f-physician').value = physician || '—';
+            document.getElementById('hl7-f-status').value    = status || '—';
+            document.getElementById('hl7-f-datetime').value  = currentDt || '';
+            document.getElementById('suggest-hint').style.display = 'none';
+            document.getElementById('hl7-modal').classList.add('open');
+        }
+
+        function closeHl7Modal() {
+            document.getElementById('hl7-modal').classList.remove('open');
+            _hl7ActiveId = null;
+        }
+
+        async function suggestSlot() {
+            if (!_hl7ActiveId || !_hl7Modality) return;
+            const btn  = document.getElementById('suggest-btn');
+            const hint = document.getElementById('suggest-hint');
+            btn.textContent = '…';
+            btn.disabled = true;
+            try {
+                const params = new URLSearchParams({
+                    modality:   _hl7Modality,
+                    date:       _hl7ActiveDate,
+                    exclude_id: _hl7ActiveId,
+                });
+                const res  = await fetch(`/admin/scheduling/suggest?${params}`);
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    document.getElementById('hl7-f-datetime').value = data.suggested;
+                    hint.textContent = `Best slot: ${data.label} — ${data.load} order${data.load !== 1 ? 's' : ''} already booked.`;
+                    hint.style.color = '#a78bfa';
+                } else {
+                    hint.textContent = 'No suggestion available.';
+                    hint.style.color = '#f87171';
+                }
+            } catch {
+                hint.textContent = 'Error fetching suggestion.';
+                hint.style.color = '#f87171';
+            }
+            hint.style.display = 'block';
+            btn.innerHTML = '<i class="bi bi-magic"></i> Suggest';
+            btn.disabled = false;
+        }
+
+        async function saveHl7Reschedule() {
+            if (!_hl7ActiveId) return;
+            const dt = document.getElementById('hl7-f-datetime').value;
+            if (!dt) { alert('Please select a date and time.'); return; }
+            const res  = await fetch(`/admin/scheduling/hl7/${_hl7ActiveId}/reschedule`, {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body:    JSON.stringify({ scheduled_datetime: dt }),
+            });
+            const data = await res.json();
+            if (data.status === 'ok') {
+                closeHl7Modal();
+                window.location.reload();
+            } else {
+                alert(data.message || 'Failed to save.');
+            }
         }
 
         document.addEventListener('DOMContentLoaded', () => {

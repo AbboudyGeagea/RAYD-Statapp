@@ -279,29 +279,54 @@
             </div>
         </div>
 
-        <!-- Avg Age per Procedure (searchable) -->
+        <!-- Age Distribution per Procedure (Box Plot) -->
         <div class="card">
-            <div class="card-header text-sky-400 flex items-center justify-between">
-                Average Patient Age per Procedure Code (Top 20)
-                {% if data.age_proc_outliers and data.age_proc_outliers > 0 %}
-                <span class="outlier-badge" title="Ages outside 0–110 years were excluded to prevent skewed averages">
-                    <i class="bi bi-funnel-fill"></i> {{ data.age_proc_outliers }} outlier{{ 's' if data.age_proc_outliers != 1 }} removed
-                </span>
-                {% endif %}
+            <div class="flex items-start justify-between mb-1">
+                <div>
+                    <div class="card-header text-sky-400 flex items-center gap-3">
+                        Age Distribution per Procedure Code
+                        {% if data.age_proc_outliers and data.age_proc_outliers > 0 %}
+                        <span class="outlier-badge" title="Ages outside 0–110 years were excluded to prevent skewed averages">
+                            <i class="bi bi-funnel-fill"></i> {{ data.age_proc_outliers }} outlier{{ 's' if data.age_proc_outliers != 1 }} removed
+                        </span>
+                        {% endif %}
+                    </div>
+                    <div class="card-desc">Age spread for the top 20 procedure codes by volume — whiskers = min/max, box = IQR (Q1–Q3), line = median. <span style="color:#f59e0b;">◆</span> = mean.</div>
+                </div>
+                <div class="flex items-center gap-4 shrink-0 ml-6 mt-1">
+                    <span style="display:inline-flex;align-items:center;gap:5px;font-size:10px;color:#64748b;font-weight:700;">
+                        <span style="display:inline-block;width:14px;height:10px;background:rgba(56,189,248,0.15);border:1.5px solid #38bdf8;border-radius:2px;"></span>IQR
+                    </span>
+                    <span style="display:inline-flex;align-items:center;gap:5px;font-size:10px;color:#64748b;font-weight:700;">
+                        <span style="display:inline-block;width:2px;height:12px;background:#34d399;border-radius:1px;"></span>Median
+                    </span>
+                    <span style="display:inline-flex;align-items:center;gap:5px;font-size:10px;color:#64748b;font-weight:700;">
+                        <span style="color:#f59e0b;font-size:13px;line-height:1;">◆</span>Mean
+                    </span>
+                </div>
             </div>
-            <div class="card-desc">Mean patient age for the 20 most-performed procedure codes. Use the search box below to filter the full list.</div>
-            <div id="c_proc_age" class="chart-container"></div>
-            <div style="padding:16px 20px;border-top:1px solid #1e293b;">
-                <input id="proc-search" type="text" placeholder="Search procedure codes…"
-                    oninput="filterProcTable(this.value)"
-                    style="background:#0f172a;border:1px solid #1e293b;color:white;padding:8px 12px;border-radius:6px;width:100%;font-size:12px;outline:none;">
-                <div style="overflow-x:auto;margin-top:12px;">
-                    <table id="proc-table" style="width:100%;border-collapse:collapse;font-size:12px;">
+
+            <div id="c_proc_age" style="height:540px;width:100%;margin-top:8px;"></div>
+
+            <div style="border-top:1px solid #1e293b;margin-top:8px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px 10px;">
+                    <span style="font-size:9px;color:#475569;font-weight:800;text-transform:uppercase;letter-spacing:.1em;">Full Detail</span>
+                    <input id="proc-search" type="text" placeholder="Search procedure…"
+                        oninput="filterProcTable(this.value)"
+                        style="background:#0f172a;border:1px solid #1e293b;color:#e2e8f0;padding:6px 12px;border-radius:6px;width:200px;font-size:11px;outline:none;transition:border-color .2s;"
+                        onfocus="this.style.borderColor='#334155'" onblur="this.style.borderColor='#1e293b'">
+                </div>
+                <div style="overflow-x:auto;">
+                    <table id="proc-table" style="width:100%;border-collapse:collapse;font-size:11px;">
                         <thead>
                             <tr style="border-bottom:1px solid #1e293b;">
-                                <th style="text-align:left;padding:8px 12px;color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.06em;">Procedure Code</th>
-                                <th style="text-align:right;padding:8px 12px;color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.06em;">Avg Age</th>
-                                <th style="text-align:right;padding:8px 12px;color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.06em;">Studies</th>
+                                <th style="text-align:left;padding:7px 14px;color:#475569;font-size:9px;text-transform:uppercase;letter-spacing:.09em;font-weight:800;">Procedure</th>
+                                <th style="text-align:right;padding:7px 14px;color:#475569;font-size:9px;text-transform:uppercase;letter-spacing:.09em;font-weight:800;">n</th>
+                                <th style="text-align:right;padding:7px 14px;color:#475569;font-size:9px;text-transform:uppercase;letter-spacing:.09em;font-weight:800;">Min</th>
+                                <th style="text-align:center;padding:7px 24px;color:#475569;font-size:9px;text-transform:uppercase;letter-spacing:.09em;font-weight:800;">Range</th>
+                                <th style="text-align:right;padding:7px 14px;color:#34d399;font-size:9px;text-transform:uppercase;letter-spacing:.09em;font-weight:800;">Median</th>
+                                <th style="text-align:right;padding:7px 14px;color:#f59e0b;font-size:9px;text-transform:uppercase;letter-spacing:.09em;font-weight:800;">Mean</th>
+                                <th style="text-align:right;padding:7px 14px;color:#475569;font-size:9px;text-transform:uppercase;letter-spacing:.09em;font-weight:800;">Max</th>
                             </tr>
                         </thead>
                         <tbody id="proc-tbody"></tbody>
@@ -567,31 +592,90 @@
                 }]
             });
 
-            // 7. Avg age per procedure code (top 20 chart)
-            const procCodes = d.proc_age.map(p => p.code).reverse();
-            const procAges  = d.proc_age.map(p => p.avg_age).reverse();
+            // 7. Age distribution per procedure code — boxplot + mean scatter
+            const procSorted = [...d.proc_age].sort((a, b) => a.p50 - b.p50);
+            const _procCodes = procSorted.map(p => p.code);
+            const _boxData   = procSorted.map(p => [p.min_age, p.p25, p.p50, p.p75, p.max_age]);
+            const _avgPoints = procSorted.map((p, i) => [p.avg_age, i]);
+
             echarts.init(document.getElementById('c_proc_age')).setOption({
-                tooltip: { trigger: 'item', formatter: p => `${p.name}<br/>Avg Age: <b>${p.value} yrs</b>` },
-                grid: { left: '3%', right: '5%', top: '5%', bottom: '5%', containLabel: true },
-                xAxis: { type: 'value', splitLine: { lineStyle: { color: '#111827' } }, axisLabel: { color: '#64748b', fontSize: 10 } },
-                yAxis: { type: 'category', data: procCodes, axisLabel: { color: '#64748b', fontSize: 10 } },
-                series: [{
-                    type: 'bar', data: procAges,
-                    itemStyle: { color: '#38bdf8', borderRadius: [0, 4, 4, 0] },
-                    label: { show: true, position: 'right', color: '#38bdf8', fontSize: 10, formatter: v => v.value + ' yrs' }
-                }]
+                backgroundColor: 'transparent',
+                tooltip: {
+                    trigger: 'item',
+                    backgroundColor: '#1e293b',
+                    borderColor: '#334155',
+                    borderWidth: 1,
+                    padding: [10, 14],
+                    textStyle: { color: '#e2e8f0', fontSize: 11 },
+                    formatter(p) {
+                        const item = procSorted[p.dataIndex] ?? procSorted[p.value?.[1]];
+                        if (!item) return '';
+                        return `<div style="font-weight:800;color:#e2e8f0;margin-bottom:7px;font-size:12px;">${item.code}</div>`
+                            + `<div style="display:grid;grid-template-columns:auto auto;gap:3px 16px;font-size:11px;">`
+                            + `<span style="color:#64748b;">Studies</span><b style="color:#60a5fa;">${item.cnt}</b>`
+                            + `<span style="color:#64748b;">Min</span><span>${item.min_age} yrs</span>`
+                            + `<span style="color:#64748b;">Q1</span><span>${item.p25} yrs</span>`
+                            + `<span style="color:#34d399;font-weight:800;">Median</span><b style="color:#34d399;">${item.p50} yrs</b>`
+                            + `<span style="color:#64748b;">Q3</span><span>${item.p75} yrs</span>`
+                            + `<span style="color:#64748b;">Max</span><span>${item.max_age} yrs</span>`
+                            + `<span style="color:#f59e0b;">Mean</span><b style="color:#f59e0b;">${item.avg_age} yrs</b>`
+                            + `</div>`;
+                    }
+                },
+                grid: { left: '1%', right: '5%', top: '2%', bottom: '4%', containLabel: true },
+                xAxis: {
+                    type: 'value', min: 0, max: 100, interval: 10,
+                    name: 'Age (yrs)', nameLocation: 'end',
+                    nameTextStyle: { color: '#334155', fontSize: 9, padding: [0, 0, 0, 6] },
+                    splitLine: { lineStyle: { color: '#1e293b', type: 'dashed' } },
+                    axisLabel: { color: '#475569', fontSize: 9 },
+                    axisLine: { lineStyle: { color: '#1e293b' } },
+                    axisTick: { show: false }
+                },
+                yAxis: {
+                    type: 'category', data: _procCodes,
+                    axisLabel: { color: '#94a3b8', fontSize: 10, fontFamily: 'monospace', width: 130, overflow: 'truncate' },
+                    axisLine: { lineStyle: { color: '#1e293b' } },
+                    splitLine: { lineStyle: { color: '#0f172a' } }
+                },
+                series: [
+                    {
+                        name: 'Distribution', type: 'boxplot', data: _boxData,
+                        itemStyle: { color: 'rgba(56,189,248,0.12)', borderColor: '#38bdf8', borderWidth: 1.5 },
+                        emphasis: { itemStyle: { color: 'rgba(56,189,248,0.22)', borderColor: '#7dd3fc', borderWidth: 2 } },
+                        boxWidth: ['35%', '50%']
+                    },
+                    {
+                        name: 'Mean', type: 'scatter', data: _avgPoints,
+                        symbolSize: 9, symbol: 'diamond',
+                        itemStyle: { color: '#f59e0b', shadowBlur: 8, shadowColor: 'rgba(245,158,11,0.45)' },
+                        encode: { x: 0, y: 1 }, z: 10
+                    }
+                ]
             });
 
-            // Searchable proc table (full list)
-            const _allProcs = d.proc_age;
+            // Searchable detail table
+            const _allProcs = [...d.proc_age].sort((a, b) => b.p50 - a.p50);
             function renderProcTable(rows) {
-                document.getElementById('proc-tbody').innerHTML = rows.map(p =>
-                    `<tr style="border-bottom:1px solid #0f172a;" onmouseover="this.style.background='#0f172a'" onmouseout="this.style.background=''">
-                        <td style="padding:8px 12px;color:#e2e8f0;font-family:monospace;">${p.code}</td>
-                        <td style="padding:8px 12px;text-align:right;color:#f59e0b;font-weight:700;">${p.avg_age} yrs</td>
-                        <td style="padding:8px 12px;text-align:right;color:#64748b;">${p.cnt}</td>
-                    </tr>`
-                ).join('');
+                document.getElementById('proc-tbody').innerHTML = rows.map(p => {
+                    const rangeBar =
+                        `<div style="position:relative;height:10px;background:#0f172a;border-radius:3px;min-width:140px;">` +
+                        `<div style="position:absolute;top:4px;left:${p.min_age}%;width:${p.max_age - p.min_age}%;height:2px;background:#1e293b;border-radius:1px;"></div>` +
+                        `<div style="position:absolute;top:2px;left:${p.p25}%;width:${p.p75 - p.p25}%;height:6px;background:rgba(56,189,248,0.2);border:1px solid rgba(56,189,248,0.45);border-radius:2px;"></div>` +
+                        `<div style="position:absolute;top:1px;left:calc(${p.p50}% - 1px);width:2px;height:8px;background:#34d399;border-radius:1px;"></div>` +
+                        `</div>`;
+                    return `<tr style="border-bottom:1px solid #0f172a;transition:background .15s;"
+                                onmouseover="this.style.background='rgba(30,41,59,0.5)'"
+                                onmouseout="this.style.background=''">
+                        <td style="padding:9px 14px;color:#94a3b8;font-family:monospace;font-size:10px;">${p.code}</td>
+                        <td style="padding:9px 14px;text-align:right;color:#60a5fa;font-weight:700;">${p.cnt}</td>
+                        <td style="padding:9px 14px;text-align:right;color:#475569;">${p.min_age}</td>
+                        <td style="padding:9px 24px;">${rangeBar}</td>
+                        <td style="padding:9px 14px;text-align:right;color:#34d399;font-weight:800;">${p.p50}</td>
+                        <td style="padding:9px 14px;text-align:right;color:#f59e0b;font-weight:700;">${p.avg_age}</td>
+                        <td style="padding:9px 14px;text-align:right;color:#475569;">${p.max_age}</td>
+                    </tr>`;
+                }).join('');
             }
             function filterProcTable(q) {
                 renderProcTable(_allProcs.filter(p => p.code.toLowerCase().includes(q.toLowerCase())));

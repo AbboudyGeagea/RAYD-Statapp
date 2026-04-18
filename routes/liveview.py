@@ -1,5 +1,5 @@
-from flask import Blueprint, render_template, jsonify, request
-from flask_login import login_required
+from flask import Blueprint, render_template, jsonify, request, abort
+from flask_login import login_required, current_user
 from sqlalchemy import text
 from db import db
 from datetime import date
@@ -7,15 +7,22 @@ from datetime import date
 liveview_bp = Blueprint('liveview', __name__, url_prefix='/liveview')
 
 
+def _admin_only():
+    if current_user.role != 'admin':
+        abort(403)
+
+
 @liveview_bp.route('/')
 @login_required
 def liveview():
+    _admin_only()
     return render_template('liveview.html')
 
 
 @liveview_bp.route('/rooms')
 @login_required
 def liveview_rooms():
+    _admin_only()
     """Return list of rooms for the room selector."""
     rows = db.session.execute(text("""
         SELECT aetitle, modality, room_name
@@ -32,6 +39,7 @@ def liveview_rooms():
 @liveview_bp.route('/data')
 @login_required
 def liveview_data():
+    _admin_only()
     today = date.today().isoformat()
     ae_filter = request.args.get('ae', '').strip()
 

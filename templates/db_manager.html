@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | DB Manager</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        :root { --accent: #60a5fa; }
+        body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; }
+        body.light { background: #f0f4f8; color: #1a202c; }
+        body.light aside, body.light header { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        body.light .sidebar-item { color: #4a5568; }
+        body.light .sidebar-item:hover, body.light .sidebar-item.active { background: #e2e8f0 !important; color: #2b6cb0 !important; }
+        body.light .card { background: #ffffff; border-color: #e2e8f0; }
+        body.light .inp { background: #f8fafc !important; border-color: #e2e8f0 !important; color: #1a202c !important; }
+        .sidebar-item { transition: all 0.2s; border-radius: 0.75rem; margin-bottom: 0.25rem; cursor: pointer; text-decoration: none !important; color: #94a3b8; }
+        .sidebar-item:hover { background: #1d2522; color: var(--accent) !important; }
+        .sidebar-item.active { background: #1d2522; color: var(--accent) !important; border-left: 4px solid var(--accent); }
+        .card { background: #232b28; border-radius: 1.25rem; border: 1px solid #28332e; }
+        .inp { background: #141b19; border: 1px solid #334155; color: #e2e8f0; padding: .75rem 1rem; border-radius: .75rem; width: 100%; font-size: .85rem; outline: none; transition: border-color .2s; }
+        .inp:focus { border-color: var(--accent); }
+        .inp:disabled { opacity: .4; cursor: not-allowed; }
+        .lbl { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .1em; color: #475569; margin-bottom: 5px; display: block; }
+        .tab-btn { background: #141b19; border: 1px solid #334155; color: #94a3b8; padding: .6rem 1.25rem; border-radius: 999px; font-size: .7rem; font-weight: 900; text-transform: uppercase; letter-spacing: .15em; transition: all .2s; cursor: pointer; }
+        .tab-btn.active { background: #60a5fa; border-color: #60a5fa; color: #0f172a; }
+        .btn-primary { padding: .65rem 1.25rem; background: #60a5fa; color: #0f172a; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; border-radius: .75rem; border: none; cursor: pointer; transition: opacity .2s; }
+        .btn-primary:hover { opacity: .85; }
+        .btn-ghost { padding: .65rem 1.25rem; background: transparent; color: #64748b; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; border-radius: .75rem; border: 1px solid #1e293b; cursor: pointer; transition: border-color .2s; }
+        .btn-ghost:hover { border-color: #334155; color: #94a3b8; }
+        .btn-danger { padding: .5rem 1rem; background: rgba(239,68,68,.1); color: #f87171; font-size: 10px; font-weight: 800; text-transform: uppercase; border-radius: .6rem; border: 1px solid rgba(239,68,68,.2); cursor: pointer; transition: all .2s; }
+        .btn-danger:hover { background: rgba(239,68,68,.2); }
+        .step-dot { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 900; flex-shrink: 0; }
+        .step-dot.done { background: rgba(52,211,153,.15); color: #34d399; border: 1.5px solid #34d399; }
+        .step-dot.active { background: rgba(96,165,250,.15); color: #60a5fa; border: 1.5px solid #60a5fa; }
+        .step-dot.idle { background: #1e293b; color: #475569; border: 1.5px solid #334155; }
+        /* Modal */
+        .modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 50; align-items: center; justify-content: center; }
+        .modal-bg.open { display: flex; }
+        .modal-box { background: #1e2a26; border: 1px solid #334155; border-radius: 1.25rem; padding: 2rem; width: 100%; max-width: 520px; max-height: 90vh; overflow-y: auto; position: relative; }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+    {% include '_header.html' %}
+    <div class="flex flex-1 overflow-hidden">
+        {% include '_sidebar.html' %}
+        <main class="flex-1 overflow-y-auto p-8 bg-[#181f1c]">
+            <div class="max-w-7xl mx-auto">
+
+                <!-- Header -->
+                <div class="flex items-center justify-between mb-6">
+                    <div>
+                        <h2 class="text-white text-2xl font-black uppercase tracking-tight">DB Manager</h2>
+                        <p class="text-slate-500 text-xs mt-1">Configure connections, discover schemas, map or provision databases</p>
+                    </div>
+                </div>
+
+                <!-- Tabs -->
+                <div class="flex gap-2 mb-6">
+                    <button id="tb-conn"    class="tab-btn active" onclick="showTab('conn')">Connections</button>
+                    <button id="tb-disco"   class="tab-btn"        onclick="showTab('disco')">Discovery &amp; Mapping</button>
+                    <button id="tb-maps"    class="tab-btn"        onclick="showTab('maps')">Saved Mappings</button>
+                </div>
+
+                <!-- ══ TAB: CONNECTIONS ══════════════════════════════════════ -->
+                <div id="panel-conn">
+
+                    <!-- Driver status bar -->
+                    <div class="card p-4 mb-5">
+                        <p class="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-3">Driver Status</p>
+                        <div class="flex flex-wrap gap-3">
+                            {% for key, d in drivers.items() %}
+                            <div class="flex items-center gap-2 px-3 py-2 rounded-xl border {{ 'border-emerald-500/20 bg-emerald-500/5' if d.available else 'border-[#1e293b] bg-[#141b19]' }}">
+                                <span class="w-2 h-2 rounded-full {{ 'bg-emerald-400' if d.available else 'bg-slate-600' }}"></span>
+                                <span class="text-xs font-bold {{ 'text-emerald-300' if d.available else 'text-slate-500' }}">{{ d.label }}</span>
+                                {% if not d.available %}
+                                <button onclick="installDriver('{{ d.pip }}', '{{ key }}', this)"
+                                    class="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded bg-[#60a5fa]/10 text-[#60a5fa] border border-[#60a5fa]/20 hover:bg-[#60a5fa]/20 transition-colors">
+                                    Install
+                                </button>
+                                {% endif %}
+                                {% if d.get('note') %}
+                                <span class="text-[9px] text-slate-600" title="{{ d.note }}"><i class="bi bi-info-circle"></i></span>
+                                {% endif %}
+                            </div>
+                            {% endfor %}
+                        </div>
+                        <div id="driver-log" class="hidden mt-3 p-3 bg-[#0f172a] rounded-lg font-mono text-[10px] text-slate-400 max-h-24 overflow-y-auto"></div>
+                    </div>
+
+                    <!-- Connections table -->
+                    <div class="card mb-5" style="padding:0;overflow:hidden;">
+                        <div class="px-6 py-4 border-b border-[#28332e] flex items-center justify-between">
+                            <h3 class="text-white font-black uppercase tracking-tight text-sm">Configured Connections</h3>
+                            <button onclick="openAddModal()" class="btn-primary text-[10px] px-3 py-1.5">
+                                <i class="bi bi-plus-lg mr-1"></i> Add Connection
+                            </button>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left">
+                                <thead>
+                                    <tr class="border-b border-[#28332e] bg-[#1a2420]">
+                                        {% for col in ['','Name','Type','Host','Owner / Schema','Port','Status',''] %}
+                                        <th class="px-4 py-3 text-[9px] font-black uppercase tracking-[.15em] text-[#475569]">{{ col }}</th>
+                                        {% endfor %}
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-[#1e2a26]">
+                                    {% for c in connections %}
+                                    <tr class="hover:bg-[#1d2522]/50 transition-all">
+                                        <td class="px-4 py-3 w-8">
+                                            {% if c.name == primary_conn %}
+                                            <span title="Primary PACS — protected" class="text-amber-400 text-sm"><i class="bi bi-star-fill"></i></span>
+                                            {% endif %}
+                                        </td>
+                                        <td class="px-4 py-3 font-bold text-sm">{{ c.name }}</td>
+                                        <td class="px-4 py-3">
+                                            <span style="font-size:9px;font-weight:900;padding:2px 8px;border-radius:4px;text-transform:uppercase;
+                                                {% if 'oracle' in (c.db_type or '') %}background:rgba(245,158,11,.12);color:#f59e0b;
+                                                {% elif 'postgres' in (c.db_type or '') %}background:rgba(96,165,250,.12);color:#60a5fa;
+                                                {% elif 'mysql' in (c.db_type or '') %}background:rgba(52,211,153,.12);color:#34d399;
+                                                {% else %}background:rgba(167,139,250,.12);color:#a78bfa;{% endif %}">
+                                                {{ c.db_type or '—' }}
+                                            </span>
+                                        </td>
+                                        <td class="px-4 py-3 text-sm text-slate-400 font-mono">{{ c.host or '—' }}</td>
+                                        <td class="px-4 py-3 text-sm text-slate-400">{{ c.owner or '—' }}</td>
+                                        <td class="px-4 py-3 text-sm text-slate-500">{{ c.port or '—' }}</td>
+                                        <td class="px-4 py-3">
+                                            <span id="status-{{ c.id }}" class="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-[#1e293b] text-slate-500">Untested</span>
+                                        </td>
+                                        <td class="px-4 py-3">
+                                            <div class="flex items-center gap-2">
+                                                <button onclick="testConn({{ c.id }})"
+                                                    class="text-[9px] font-black uppercase px-2 py-1 rounded bg-[#1e293b] border border-[#334155] text-slate-400 hover:border-[#60a5fa] hover:text-[#60a5fa] transition-colors">
+                                                    Test
+                                                </button>
+                                                <button onclick="openEditModal({{ c|tojson|e }})"
+                                                    class="text-[9px] font-black uppercase px-2 py-1 rounded bg-[#1e293b] border border-[#334155] text-slate-400 hover:border-[#60a5fa] hover:text-[#60a5fa] transition-colors">
+                                                    Edit
+                                                </button>
+                                                <button onclick="openDiscoTab('{{ c.name }}', '{{ c.owner or '' }}')"
+                                                    class="text-[9px] font-black uppercase px-2 py-1 rounded bg-violet-500/10 border border-violet-500/20 text-violet-300 hover:bg-violet-500/20 transition-colors">
+                                                    Discover
+                                                </button>
+                                                {% if c.name != primary_conn %}
+                                                <button onclick="deleteConn({{ c.id }}, '{{ c.name }}')" class="btn-danger text-[9px] py-1 px-2">Del</button>
+                                                {% endif %}
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                    {% if not connections %}
+                                    <tr><td colspan="8" class="px-4 py-10 text-slate-500 text-center text-sm">No connections configured.</td></tr>
+                                    {% endif %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ══ TAB: DISCOVERY ════════════════════════════════════════ -->
+                <div id="panel-disco" class="hidden">
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+                        <!-- Step sidebar -->
+                        <div class="space-y-3">
+                            {% for n, label, desc in [
+                                ('1','Discover','Connect and extract schema'),
+                                ('2','Auto-Map','Match source → RAYD columns'),
+                                ('3','Apply','Map to existing or provision new')
+                            ] %}
+                            <div id="step-block-{{ n }}" class="card p-4 flex items-start gap-3 {{ 'opacity-40' if n != '1' else '' }}">
+                                <div id="step-dot-{{ n }}" class="step-dot {{ 'active' if n == '1' else 'idle' }}">{{ n }}</div>
+                                <div>
+                                    <p class="font-black text-sm text-white">{{ label }}</p>
+                                    <p class="text-[10px] text-slate-500 mt-0.5">{{ desc }}</p>
+                                </div>
+                            </div>
+                            {% endfor %}
+
+                            <!-- System type selector (shown at step 2+) -->
+                            <div id="systype-block" class="card p-4 hidden">
+                                <span class="lbl">System Type</span>
+                                <select id="sel-systype" class="inp">
+                                    <option value="">— Select —</option>
+                                    {% for st in system_types %}
+                                    <option value="{{ st.key }}">{{ st.label }}</option>
+                                    {% endfor %}
+                                </select>
+                                <button onclick="runAutoMap()" class="btn-primary w-full mt-3 text-[10px]">
+                                    <i class="bi bi-magic mr-1"></i> Auto-Map
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Main panel -->
+                        <div class="lg:col-span-2 space-y-4">
+
+                            <!-- Step 1: Discover form -->
+                            <div id="step1-panel" class="card p-5">
+                                <p class="text-xs font-black uppercase tracking-widest text-[#60a5fa] mb-4">Step 1 — Discover Schema</p>
+                                <div class="grid grid-cols-2 gap-4 mb-4">
+                                    <div>
+                                        <span class="lbl">Connection</span>
+                                        <select id="disco-conn" class="inp">
+                                            <option value="">— Select —</option>
+                                            {% for c in connections %}
+                                            <option value="{{ c.name }}" data-owner="{{ c.owner or '' }}">{{ c.name }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <span class="lbl">Schema Owner</span>
+                                        <input id="disco-owner" class="inp" placeholder="e.g. MEDISTORE">
+                                    </div>
+                                </div>
+                                <button onclick="runDiscovery()" class="btn-primary">
+                                    <i class="bi bi-search mr-1"></i> Discover
+                                </button>
+                                <div id="disco-status" class="mt-3 text-xs text-slate-500 hidden"></div>
+                            </div>
+
+                            <!-- Step 2: Discovery results -->
+                            <div id="step2-panel" class="card p-5 hidden">
+                                <p class="text-xs font-black uppercase tracking-widest text-[#60a5fa] mb-1">Step 2 — Discovery Results</p>
+                                <p id="disco-summary" class="text-slate-400 text-xs mb-4"></p>
+                                <div id="table-tree" class="space-y-2 max-h-80 overflow-y-auto pr-1"></div>
+                                <p class="text-[10px] text-slate-600 mt-3">Select a system type on the left, then click Auto-Map.</p>
+                            </div>
+
+                            <!-- Step 3: Mapping results -->
+                            <div id="step3-panel" class="card p-5 hidden">
+                                <p class="text-xs font-black uppercase tracking-widest text-[#60a5fa] mb-1">Step 3 — Mapping Review</p>
+                                <div id="map-stats" class="flex gap-4 mb-4 text-xs"></div>
+                                <div id="map-tables" class="space-y-3 max-h-72 overflow-y-auto pr-1"></div>
+
+                                <!-- Target action -->
+                                <div class="mt-4 p-4 rounded-xl bg-[#141b19] border border-[#1e293b] space-y-3">
+                                    <p class="text-[10px] font-black uppercase tracking-widest text-slate-500">Apply Action</p>
+                                    <div class="flex gap-3">
+                                        <label class="flex items-center gap-2 cursor-pointer">
+                                            <input type="radio" name="target_action" value="provision" checked class="accent-[#60a5fa]">
+                                            <span class="text-xs font-bold text-slate-300">Provision new DB</span>
+                                        </label>
+                                        <label class="flex items-center gap-2 cursor-pointer">
+                                            <input type="radio" name="target_action" value="map" class="accent-[#60a5fa]">
+                                            <span class="text-xs font-bold text-slate-300">Map to existing</span>
+                                        </label>
+                                    </div>
+                                    <div id="map-target-row" class="hidden">
+                                        <span class="lbl">Target connection name</span>
+                                        <select id="map-target-conn" class="inp">
+                                            {% for c in connections %}
+                                            <option value="{{ c.name }}">{{ c.name }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <textarea id="map-notes" class="inp text-xs" rows="2" placeholder="Notes (optional)"></textarea>
+                                    <div class="flex gap-3">
+                                        <button onclick="saveAndApply()" class="btn-primary">
+                                            <i class="bi bi-floppy-fill mr-1"></i> Save &amp; Apply
+                                        </button>
+                                        <button onclick="saveOnly()" class="btn-ghost">Save Draft</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ══ TAB: MAPPINGS ═════════════════════════════════════════ -->
+                <div id="panel-maps" class="hidden">
+                    <div class="card" style="padding:0;overflow:hidden;">
+                        <div class="px-6 py-4 border-b border-[#28332e]">
+                            <h3 class="text-white font-black uppercase tracking-tight text-sm">Saved Mappings</h3>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left">
+                                <thead>
+                                    <tr class="border-b border-[#28332e] bg-[#1a2420]">
+                                        {% for col in ['Connection','Owner','System','Target','Action','Status','Updated',''] %}
+                                        <th class="px-4 py-3 text-[9px] font-black uppercase tracking-[.15em] text-[#475569]">{{ col }}</th>
+                                        {% endfor %}
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-[#1e2a26]">
+                                    {% for m in mappings %}
+                                    <tr class="hover:bg-[#1d2522]/50 transition-all">
+                                        <td class="px-4 py-3 font-bold text-sm">{{ m.connection_name }}</td>
+                                        <td class="px-4 py-3 text-sm text-slate-400">{{ m.schema_owner or '—' }}</td>
+                                        <td class="px-4 py-3 text-sm text-slate-400">{{ m.system_type or '—' }}</td>
+                                        <td class="px-4 py-3 text-sm text-slate-400 font-mono text-xs">{{ m.target_db or '—' }}</td>
+                                        <td class="px-4 py-3">
+                                            <span style="font-size:9px;font-weight:900;padding:2px 7px;border-radius:4px;text-transform:uppercase;
+                                                {% if m.target_action == 'provision' %}background:rgba(96,165,250,.12);color:#60a5fa;
+                                                {% else %}background:rgba(52,211,153,.12);color:#34d399;{% endif %}">
+                                                {{ m.target_action or 'provision' }}
+                                            </span>
+                                        </td>
+                                        <td class="px-4 py-3">
+                                            <span style="font-size:9px;font-weight:900;padding:2px 7px;border-radius:4px;text-transform:uppercase;
+                                                {% if m.status == 'confirmed' %}background:rgba(52,211,153,.12);color:#34d399;
+                                                {% else %}background:rgba(245,158,11,.12);color:#f59e0b;{% endif %}">
+                                                {{ m.status }}
+                                            </span>
+                                        </td>
+                                        <td class="px-4 py-3 text-xs text-slate-500">{{ m.updated_at | string | truncate(16, True, '') }}</td>
+                                        <td class="px-4 py-3">
+                                            <div class="flex gap-2">
+                                                {% if m.status != 'confirmed' %}
+                                                <button onclick="confirmMapping({{ m.id }})"
+                                                    class="text-[9px] font-black uppercase px-2 py-1 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 hover:bg-emerald-500/20 transition-colors">
+                                                    Confirm
+                                                </button>
+                                                {% endif %}
+                                                <button onclick="deleteMapping({{ m.id }})" class="btn-danger text-[9px] py-1 px-2">Del</button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                    {% if not mappings %}
+                                    <tr><td colspan="8" class="px-4 py-10 text-slate-500 text-center text-sm">No mappings yet.</td></tr>
+                                    {% endif %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <!-- Add/Edit Connection Modal -->
+    <div id="conn-modal" class="modal-bg" onclick="if(event.target===this)closeConnModal()">
+        <div class="modal-box">
+            <div class="flex items-center justify-between mb-5">
+                <h3 id="conn-modal-title" class="text-white font-black uppercase tracking-tight text-sm">Add Connection</h3>
+                <button onclick="closeConnModal()" class="text-slate-500 text-lg leading-none border-none bg-none cursor-pointer">✕</button>
+            </div>
+            <input type="hidden" id="conn-edit-id" value="">
+
+            <div class="grid grid-cols-2 gap-4 mb-4">
+                <div id="name-field">
+                    <span class="lbl">Name <span class="text-rose-400">*</span></span>
+                    <input id="cf-name" class="inp" placeholder="e.g. medistore_ris">
+                </div>
+                <div>
+                    <span class="lbl">DB Type <span class="text-rose-400">*</span></span>
+                    <select id="cf-dbtype" class="inp" onchange="onDbTypeChange()">
+                        <option value="">— Select —</option>
+                        <option value="oracle">Oracle</option>
+                        <option value="postgres">PostgreSQL</option>
+                        <option value="mysql">MySQL</option>
+                        <option value="mssql">SQL Server</option>
+                    </select>
+                </div>
+                <div>
+                    <span class="lbl">Host / IP <span class="text-rose-400">*</span></span>
+                    <input id="cf-host" class="inp" placeholder="10.0.0.5">
+                </div>
+                <div>
+                    <span class="lbl">Port</span>
+                    <input id="cf-port" class="inp" placeholder="auto">
+                </div>
+                <div>
+                    <span class="lbl" id="lbl-sid">SID / Database</span>
+                    <input id="cf-sid" class="inp" placeholder="e.g. mst1 or mydb">
+                </div>
+                <div>
+                    <span class="lbl">Schema Owner</span>
+                    <input id="cf-owner" class="inp" placeholder="e.g. MEDISTORE or public">
+                </div>
+                <div>
+                    <span class="lbl">Username</span>
+                    <input id="cf-username" class="inp" placeholder="sys">
+                </div>
+                <div>
+                    <span class="lbl">Password</span>
+                    <input id="cf-password" type="password" class="inp" placeholder="leave blank to keep">
+                </div>
+                <div id="mode-field" class="hidden">
+                    <span class="lbl">Mode</span>
+                    <select id="cf-mode" class="inp">
+                        <option value="">Normal</option>
+                        <option value="SYSDBA">SYSDBA</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="flex gap-3 mt-2">
+                <button onclick="saveConn()" class="btn-primary">Save Connection</button>
+                <button onclick="closeConnModal()" class="btn-ghost">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    // ── State ─────────────────────────────────────────────────────────────────
+    let _discoDumpFile    = null;
+    let _discoConnName    = null;
+    let _discoOwner       = null;
+    let _mappingJson      = null;
+
+    // ── Tabs ──────────────────────────────────────────────────────────────────
+    function showTab(name) {
+        ['conn','disco','maps'].forEach(t => {
+            document.getElementById('panel-'+t).classList.toggle('hidden', t !== name);
+            document.getElementById('tb-'+t).classList.toggle('active', t === name);
+        });
+    }
+
+    // ── Driver install ────────────────────────────────────────────────────────
+    async function installDriver(pip, key, btn) {
+        const log = document.getElementById('driver-log');
+        log.classList.remove('hidden');
+        log.textContent = `Installing ${pip}…`;
+        btn.disabled = true; btn.textContent = '…';
+        try {
+            const res  = await fetch('/admin/db-manager/drivers/install', {
+                method: 'POST', headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({pip})
+            });
+            const data = await res.json();
+            if (data.ok) {
+                log.textContent = `✓ ${pip} installed. Reload the page to activate.`;
+                log.style.color = '#34d399';
+            } else {
+                log.textContent = `✗ ${data.error || 'Install failed'}`;
+                log.style.color = '#f87171';
+                btn.disabled = false; btn.textContent = 'Install';
+            }
+        } catch(e) {
+            log.textContent = `✗ ${e}`;
+            log.style.color = '#f87171';
+            btn.disabled = false; btn.textContent = 'Install';
+        }
+    }
+
+    // ── Connection test ───────────────────────────────────────────────────────
+    async function testConn(id) {
+        const el = document.getElementById('status-'+id);
+        el.textContent = '…'; el.className = 'text-[9px] font-black uppercase px-2 py-0.5 rounded bg-[#1e293b] text-slate-400';
+        const res  = await fetch(`/admin/db-manager/connections/${id}/test`, {method:'POST'});
+        const data = await res.json();
+        if (data.ok) {
+            el.textContent = 'OK';
+            el.className = 'text-[9px] font-black uppercase px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400';
+        } else {
+            el.textContent = 'Error';
+            el.className = 'text-[9px] font-black uppercase px-2 py-0.5 rounded bg-rose-500/10 text-rose-400';
+            el.title = data.message || '';
+        }
+    }
+
+    // ── Connection modal ──────────────────────────────────────────────────────
+    function openAddModal() {
+        document.getElementById('conn-modal-title').textContent = 'Add Connection';
+        document.getElementById('conn-edit-id').value = '';
+        document.getElementById('name-field').style.display = '';
+        ['cf-name','cf-host','cf-port','cf-sid','cf-owner','cf-username','cf-password'].forEach(id => {
+            document.getElementById(id).value = '';
+        });
+        document.getElementById('cf-dbtype').value = '';
+        document.getElementById('cf-mode').value   = '';
+        document.getElementById('mode-field').classList.add('hidden');
+        document.getElementById('conn-modal').classList.add('open');
+    }
+
+    function openEditModal(c) {
+        document.getElementById('conn-modal-title').textContent = `Edit — ${c.name}`;
+        document.getElementById('conn-edit-id').value  = c.id;
+        document.getElementById('cf-name').value       = c.name;
+        document.getElementById('cf-dbtype').value     = c.db_type || '';
+        document.getElementById('cf-host').value       = c.host || '';
+        document.getElementById('cf-port').value       = c.port || '';
+        document.getElementById('cf-sid').value        = c.sid || '';
+        document.getElementById('cf-owner').value      = c.owner || '';
+        document.getElementById('cf-username').value   = c.username || '';
+        document.getElementById('cf-password').value   = '';
+        document.getElementById('cf-mode').value       = c.mode || '';
+        const isPrimary = c.name === '{{ primary_conn }}';
+        document.getElementById('name-field').style.display   = 'none';
+        ['cf-dbtype','cf-sid','cf-username'].forEach(id => {
+            document.getElementById(id).disabled = isPrimary;
+        });
+        document.getElementById('mode-field').classList.toggle('hidden', (c.db_type||'') !== 'oracle');
+        document.getElementById('conn-modal').classList.add('open');
+    }
+
+    function closeConnModal() {
+        document.getElementById('conn-modal').classList.remove('open');
+        ['cf-dbtype','cf-sid','cf-username'].forEach(id => {
+            document.getElementById(id).disabled = false;
+        });
+    }
+
+    function onDbTypeChange() {
+        const t = document.getElementById('cf-dbtype').value;
+        document.getElementById('mode-field').classList.toggle('hidden', t !== 'oracle');
+        const portDefaults = {oracle:'1521', postgres:'5432', mysql:'3306', mssql:'1433'};
+        if (portDefaults[t]) document.getElementById('cf-port').placeholder = portDefaults[t];
+        document.getElementById('lbl-sid').textContent = t === 'oracle' ? 'SID' : 'Database Name';
+    }
+
+    async function saveConn() {
+        const editId = document.getElementById('conn-edit-id').value;
+        const body = {
+            name:     document.getElementById('cf-name').value.trim(),
+            db_type:  document.getElementById('cf-dbtype').value,
+            host:     document.getElementById('cf-host').value.trim(),
+            port:     document.getElementById('cf-port').value || null,
+            sid:      document.getElementById('cf-sid').value.trim(),
+            owner:    document.getElementById('cf-owner').value.trim(),
+            username: document.getElementById('cf-username').value.trim(),
+            password: document.getElementById('cf-password').value,
+            mode:     document.getElementById('cf-mode').value,
+        };
+        const url = editId
+            ? `/admin/db-manager/connections/${editId}/update`
+            : '/admin/db-manager/connections/add';
+        const res  = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+        const data = await res.json();
+        if (data.ok) { window.location.reload(); }
+        else { alert(data.error || 'Failed to save.'); }
+    }
+
+    async function deleteConn(id, name) {
+        if (!confirm(`Delete connection "${name}"? This cannot be undone.`)) return;
+        const res  = await fetch(`/admin/db-manager/connections/${id}/delete`, {method:'POST'});
+        const data = await res.json();
+        if (data.ok) window.location.reload();
+        else alert(data.error || 'Failed to delete.');
+    }
+
+    // ── Discovery ─────────────────────────────────────────────────────────────
+    function openDiscoTab(connName, owner) {
+        showTab('disco');
+        document.getElementById('disco-conn').value  = connName;
+        document.getElementById('disco-owner').value = owner;
+    }
+
+    document.getElementById('disco-conn').addEventListener('change', function() {
+        const opt   = this.options[this.selectedIndex];
+        const owner = opt.dataset.owner || '';
+        if (owner) document.getElementById('disco-owner').value = owner;
+    });
+
+    async function runDiscovery() {
+        const conn  = document.getElementById('disco-conn').value;
+        const owner = document.getElementById('disco-owner').value.trim();
+        if (!conn || !owner) { alert('Select a connection and enter a schema owner.'); return; }
+
+        const status = document.getElementById('disco-status');
+        status.textContent = 'Connecting and scanning schema…';
+        status.classList.remove('hidden');
+
+        const res  = await fetch('/admin/db-manager/discover', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({connection_name: conn, schema_owner: owner})
+        });
+        const data = await res.json();
+        if (!data.ok) {
+            status.textContent = `✗ ${data.error}`;
+            status.style.color = '#f87171';
+            return;
+        }
+
+        _discoDumpFile = data.file;
+        _discoConnName = conn;
+        _discoOwner    = owner;
+
+        status.textContent = `✓ Found ${data.table_count} tables, ${data.column_count} columns.`;
+        status.style.color = '#34d399';
+
+        // Build table tree
+        document.getElementById('disco-summary').textContent =
+            `${data.table_count} tables · ${data.column_count} columns`;
+        const tree = document.getElementById('table-tree');
+        tree.innerHTML = data.tables_summary.map(t => `
+            <div style="background:#141b19;border:1px solid #1e293b;border-radius:.6rem;padding:.5rem .75rem;font-size:11px;display:flex;justify-content:space-between;align-items:center;">
+                <span style="color:#94a3b8;font-family:monospace;">${t.name}</span>
+                <span style="color:#475569;font-size:10px;">${t.columns} cols${t.rows !== null ? ` · ${t.rows} rows` : ''}</span>
+            </div>`).join('');
+
+        // Show step 2
+        document.getElementById('step2-panel').classList.remove('hidden');
+        document.getElementById('systype-block').classList.remove('hidden');
+        setStep(2);
+    }
+
+    async function runAutoMap() {
+        const sysType = document.getElementById('sel-systype').value;
+        if (!sysType) { alert('Select a system type first.'); return; }
+        if (!_discoDumpFile) { alert('Run discovery first.'); return; }
+
+        const res  = await fetch('/admin/db-manager/auto-map', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({dump_file: _discoDumpFile, system_type: sysType})
+        });
+        const data = await res.json();
+        if (!data.ok) { alert(data.error || 'Auto-map failed.'); return; }
+
+        _mappingJson = data.mapping;
+
+        // Stats
+        const s = data.stats;
+        document.getElementById('map-stats').innerHTML =
+            `<span style="color:#34d399;font-weight:800;">${s.mapped_columns} mapped</span>` +
+            `<span style="color:#f59e0b;font-weight:800;">${s.unmapped_sources} unmatched source</span>` +
+            `<span style="color:#f87171;font-weight:800;">${s.unmapped_targets} missing target</span>`;
+
+        // Table breakdown
+        document.getElementById('map-tables').innerHTML = data.mapping.tables.map(t => `
+            <div style="background:#141b19;border:1px solid #1e293b;border-radius:.6rem;padding:.6rem .8rem;">
+                <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                    <span style="font-size:11px;font-weight:700;color:#e2e8f0;">${t.source_table} → ${t.target_table}</span>
+                    <span style="font-size:9px;color:#34d399;font-weight:800;">${t.columns.length} mapped</span>
+                </div>
+                <div style="font-size:10px;color:#475569;">${t.columns.slice(0,4).map(c=>`${c.source}→${c.target}`).join(' · ')}${t.columns.length > 4 ? ' …' : ''}</div>
+            </div>`).join('');
+
+        document.getElementById('step3-panel').classList.remove('hidden');
+        setStep(3);
+    }
+
+    document.querySelectorAll('input[name="target_action"]').forEach(r => {
+        r.addEventListener('change', () => {
+            document.getElementById('map-target-row').classList.toggle('hidden', r.value !== 'map');
+        });
+    });
+
+    async function _submitMapping(confirm) {
+        const action = document.querySelector('input[name="target_action"]:checked').value;
+        const body = {
+            connection_name: _discoConnName,
+            schema_owner:    _discoOwner,
+            dump_file:       _discoDumpFile,
+            mapping_json:    _mappingJson,
+            system_type:     document.getElementById('sel-systype').value,
+            target_action:   action,
+            notes:           document.getElementById('map-notes').value,
+        };
+        const saveRes  = await fetch('/admin/db-manager/mapping/save', {
+            method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+        });
+        const saveData = await saveRes.json();
+        if (!saveData.ok) { alert(saveData.error || 'Save failed.'); return; }
+        if (confirm) { window.location = '/admin/db-manager?tab=maps'; }
+        else { showTab('maps'); window.location.reload(); }
+    }
+
+    function saveAndApply() { _submitMapping(true); }
+    function saveOnly()     { _submitMapping(false); }
+
+    // ── Mapping actions ───────────────────────────────────────────────────────
+    async function confirmMapping(id) {
+        if (!confirm('Confirm and apply this mapping?')) return;
+        const res  = await fetch(`/admin/db-manager/mapping/${id}/confirm`, {method:'POST'});
+        const data = await res.json();
+        if (data.ok) window.location.reload();
+        else alert(data.error || 'Failed.');
+    }
+
+    async function deleteMapping(id) {
+        if (!confirm('Delete this mapping?')) return;
+        const res  = await fetch(`/admin/db-manager/mapping/${id}/delete`, {method:'POST'});
+        const data = await res.json();
+        if (data.ok) window.location.reload();
+        else alert(data.error || 'Failed.');
+    }
+
+    // ── Step helpers ──────────────────────────────────────────────────────────
+    function setStep(n) {
+        for (let i = 1; i <= 3; i++) {
+            const dot   = document.getElementById(`step-dot-${i}`);
+            const block = document.getElementById(`step-block-${i}`);
+            if (i < n)  { dot.className = 'step-dot done'; dot.innerHTML = '<i class="bi bi-check-lg"></i>'; block.style.opacity = '1'; }
+            else if (i === n) { dot.className = 'step-dot active'; dot.textContent = i; block.style.opacity = '1'; }
+            else         { dot.className = 'step-dot idle'; dot.textContent = i; block.style.opacity = '.4'; }
+        }
+    }
+
+    // ── Init ──────────────────────────────────────────────────────────────────
+    document.addEventListener('DOMContentLoaded', () => {
+        const tab = new URLSearchParams(location.search).get('tab');
+        if (tab) showTab(tab);
+        applyTheme("{{ ui_theme }}");
+    });
+
+    function applyTheme(t) { document.body.classList.toggle('light', t === 'light'); }
+    function toggleTheme() {
+        const next = document.body.classList.contains('light') ? 'dark' : 'light';
+        applyTheme(next);
+        fetch('/user/theme', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({theme:next})});
+    }
+    </script>
+</body>
+</html>

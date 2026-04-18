@@ -218,10 +218,18 @@ def report_22():
         """), params).fetchone()
         age_phys_outliers = int(age_phys_counts[0] or 0) - int(age_phys_counts[1] or 0)
 
-        # 2f. Average age per procedure code (top 20 by volume, outliers removed)
+        # 2f. Age distribution per procedure code (top 20 by volume, outliers removed)
         res_proc_age = db.session.execute(text(f"""
             {cte}
-            SELECT procedure_code, ROUND(AVG(age_at_exam)::numeric, 1) as avg_age, COUNT(*) as cnt
+            SELECT
+                procedure_code,
+                ROUND(AVG(age_at_exam)::numeric, 1)                                           AS avg_age,
+                ROUND(MIN(age_at_exam)::numeric, 1)                                           AS min_age,
+                ROUND(MAX(age_at_exam)::numeric, 1)                                           AS max_age,
+                ROUND(PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY age_at_exam)::numeric, 1) AS p25,
+                ROUND(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY age_at_exam)::numeric, 1) AS p50,
+                ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY age_at_exam)::numeric, 1) AS p75,
+                COUNT(*)                                                                       AS cnt
             FROM base_data {where}
             AND procedure_code IS NOT NULL
             AND age_at_exam BETWEEN 0 AND 110
@@ -366,7 +374,7 @@ def report_22():
                 ]
             },
             "phys_age": [{"name": r[0], "avg_age": float(r[1]) if r[1] else 0} for r in res_phys_age],
-            "proc_age": [{"code": r[0], "avg_age": float(r[1]) if r[1] else 0, "cnt": r[2]} for r in res_proc_age],
+            "proc_age": [{"code": r[0], "avg_age": float(r[1]) if r[1] else 0, "min_age": float(r[2]) if r[2] else 0, "max_age": float(r[3]) if r[3] else 0, "p25": float(r[4]) if r[4] else 0, "p50": float(r[5]) if r[5] else 0, "p75": float(r[6]) if r[6] else 0, "cnt": int(r[7])} for r in res_proc_age],
             "age_phys_outliers": age_phys_outliers,
             "age_proc_outliers": age_proc_outliers,
             "gender_excluded": gender_excluded,

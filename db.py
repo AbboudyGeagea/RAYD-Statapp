@@ -190,8 +190,9 @@ class DBParams(db.Model):
     username = db.Column(String(50))
     password = db.Column(String(100))
     port = db.Column(Integer)
-    sid = db.Column(String(50))
+    sid = db.Column(String(50))      # Oracle SID  /  database name for PG·MySQL·MSSQL
     mode = db.Column(String(50))
+    owner = db.Column(String(100))   # schema owner (e.g. MEDISTORE)
     created_at = db.Column(DateTime, server_default=func.now())
     updated_at = db.Column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -284,20 +285,15 @@ class SchedulingEntry(db.Model):
     created_at = db.Column(DateTime, server_default=func.now())
     updated_at = db.Column(DateTime, server_default=func.now(), onupdate=func.now())
 
-VIEWER_DEFAULT_PAGES = frozenset([
-    'live_feed', 'hl7_orders', 'report_ai', 'bitnet', 'oru', 'mapping',
-])
+ALL_FEATURE_KEYS = [
+    'live_feed', 'hl7_orders', 'report_ai', 'bitnet', 'oru', 'mapping', 'patient_portal',
+]
 
 def user_has_page(user, page_key):
-    """Returns True if the user can access the given page. Admins always can.
-    Non-admins get access by default for pages in VIEWER_DEFAULT_PAGES unless
-    an explicit UserPagePermission record disables it."""
     if user.role == 'admin':
         return True
     perm = UserPagePermission.query.filter_by(user_id=user.id, page_key=page_key).first()
-    if perm is not None:
-        return perm.is_enabled
-    return page_key in VIEWER_DEFAULT_PAGES
+    return perm.is_enabled if perm is not None else False
 
 class OruReport(db.Model):
     __tablename__ = 'hl7_oru_reports'

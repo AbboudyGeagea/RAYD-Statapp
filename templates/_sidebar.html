@@ -48,10 +48,10 @@
            title="User Management">
             <i class="bi bi-people-fill flex-shrink-0" style="color:#60a5fa;"></i> User Management
         </a>
-        <a href="{{ url_for('admin.oracle_config') }}"
-           class="sidebar-item {% if request.endpoint == 'admin.oracle_config' %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
-           title="Oracle DB Config">
-            <i class="bi bi-database-fill-gear flex-shrink-0" style="color:#f97316;"></i> Oracle DB Config
+        <a href="{{ url_for('db_manager.db_manager_page') }}"
+           class="sidebar-item {% if request.endpoint and request.endpoint.startswith('db_manager.') %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
+           title="DB Manager">
+            <i class="bi bi-database-fill-gear flex-shrink-0" style="color:#f97316;"></i> DB Manager
             {% if not oracle_configured %}
             <span style="font-size:8px;font-weight:900;padding:1px 6px;border-radius:4px;background:rgba(239,68,68,0.15);color:#f87171;text-transform:uppercase;letter-spacing:0.08em;">!</span>
             {% endif %}
@@ -66,22 +66,15 @@
            title="Modality / Procedures Config">
             <i class="bi bi-calendar-week flex-shrink-0" style="color:#a78bfa;"></i> Modality / Procedures Config
         </a>
-        <a href="{{ url_for('adapter_mapper.adapter_mapper_page') }}"
-           class="sidebar-item {% if request.endpoint and request.endpoint.startswith('adapter_mapper.') %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
-           title="Adapter Mapper">
-            <i class="bi bi-diagram-3-fill flex-shrink-0" style="color:#34d399;"></i> Adapter Mapper
-        </a>
         {% endif %}
 
         {% if current_user.role == 'admin' or current_user|user_has_page('live_feed') %}
-        {% if config.LIVE_FEED_ENABLED %}
         <a href="{{ url_for('live_feed.live_page') }}" target="_blank"
            class="sidebar-item {% if request.endpoint and request.endpoint.startswith('live_feed.') %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
            title="Live AE Status">
             <i class="bi bi-activity flex-shrink-0" style="color:#22c55e;"></i> Live AE Status
             <span style="font-size:8px;font-weight:900;padding:1px 6px;border-radius:4px;background:rgba(34,197,94,0.15);color:#22c55e;text-transform:uppercase;letter-spacing:0.08em;">LIVE</span>
         </a>
-        {% endif %}
         {% endif %}
 
         {% if current_user.role == 'admin' or current_user|user_has_page('hl7_orders') %}
@@ -105,7 +98,7 @@
         </a>
         {% endif %}
 
-        {% if config.get('PATIENT_PORTAL_ENABLED', False) and current_user.username != demo_user and (current_user.role == 'admin' or current_user|user_has_page('patient_portal')) %}
+        {% if current_user.username != demo_user and (current_user.role == 'admin' or current_user|user_has_page('patient_portal')) %}
         <a href="{{ url_for('portal_admin.portal_users') }}"
            class="sidebar-item {% if request.endpoint and request.endpoint.startswith('portal_admin.') %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
            title="Patient Portal">
@@ -137,7 +130,6 @@
            title="AI Teaching Center">
             <i class="bi bi-mortarboard-fill flex-shrink-0" style="color:#a78bfa;"></i> AI Teaching Center
         </a>
-        {% endif %}
         {% endif %}
         {% endif %}
 

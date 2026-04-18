@@ -208,35 +208,63 @@ def scheduling_page():
             'ref':       e.referring_physician,
         })
 
-    # Source 2: ETL orders from HIS
+    # Source 2: HL7 orders from HIS (scheduled for this day, all statuses)
+    unscheduled = []
     try:
-        etl_rows = db.session.execute(text("""
-            SELECT o.order_dbid, o.proc_text, o.proc_id,
-                   o.scheduled_datetime, o.order_status, o.modality,
-                   o.patient_dbid, o.order_control
-            FROM etl_orders o
-            WHERE DATE(o.scheduled_datetime) = :d
-              AND (o.order_status IS NULL OR o.order_status NOT IN ('CA','X','DC'))
-            ORDER BY o.scheduled_datetime
+        hl7_rows = db.session.execute(text("""
+            SELECT id, patient_name, patient_id, procedure_code, procedure_text,
+                   modality, scheduled_datetime, ordering_physician, order_status, accession_number
+            FROM hl7_orders
+            WHERE DATE(scheduled_datetime) = :d
+            ORDER BY scheduled_datetime
         """), {"d": view_date}).fetchall()
 
-        for r in etl_rows:
+        for r in hl7_rows:
             if not r.scheduled_datetime:
                 continue
             dt = r.scheduled_datetime
+            status = (r.order_status or '').upper()
             appointments.append({
-                'source':    'etl',
-                'id':        r.order_dbid,
+                'source':    'hl7',
+                'id':        r.id,
                 'time':      dt.strftime('%H:%M'),
                 'hour_slot': dt.hour * 60 + (30 if dt.minute >= 30 else 0),
                 'modality':  (r.modality or 'OT').strip().upper(),
-                'name':      f"ID: {r.patient_dbid or '—'}",
-                'procedure': (r.proc_text or r.proc_id or '—')[:60],
+                'name':      r.patient_name or f"ID: {r.patient_id or '—'}",
+                'procedure': (r.procedure_text or r.procedure_code or '—')[:60],
                 'class':     'OP',
-                'ref':       r.order_control or '',
+                'ref':       r.ordering_physician or '',
+                'status':    status,
+                'accession': r.accession_number or '',
+                'cancelled': status in ('CA', 'DC'),
             })
+
+        # Unscheduled HL7 orders (no scheduled_datetime) — worklist
+        unscheduled_rows = db.session.execute(text("""
+            SELECT id, patient_name, patient_id, procedure_code, procedure_text,
+                   modality, ordering_physician, order_status, accession_number, received_at
+            FROM hl7_orders
+            WHERE scheduled_datetime IS NULL
+              AND (order_status IS NULL OR order_status NOT IN ('CA','DC'))
+            ORDER BY received_at DESC
+            LIMIT 100
+        """)).fetchall()
+
+        unscheduled = [
+            {
+                'id':        r.id,
+                'name':      r.patient_name or f"ID: {r.patient_id or '—'}",
+                'procedure': (r.procedure_text or r.procedure_code or '—')[:60],
+                'modality':  (r.modality or 'OT').strip().upper(),
+                'physician': r.ordering_physician or '',
+                'status':    (r.order_status or ''),
+                'accession': r.accession_number or '',
+                'received':  r.received_at.strftime('%H:%M') if r.received_at else '',
+            }
+            for r in unscheduled_rows
+        ]
     except Exception:
-        pass  # etl_orders may not exist on fresh installs
+        pass
 
     # Build grid: time_slot (minutes) → modality → [appointments]
     from collections import defaultdict
@@ -250,9 +278,9 @@ def scheduling_page():
             modalities_set.append(mod)
     modalities_set.sort()
 
-    # Time slots 07:00 – 20:30 in 30-min intervals
+    # Time slots 00:00 – 23:30 (full 24 h)
     time_slots = []
-    for h in range(7, 21):
+    for h in range(0, 24):
         for m in (0, 30):
             minutes = h * 60 + m
             label   = f"{h:02d}:{m:02d}"
@@ -282,46 +310,118 @@ def scheduling_page():
         time_slots=time_slots,
         modalities=modalities_set,
         appointments=appointments,
+        unscheduled=unscheduled,
         mod_counts=mod_counts,
         class_counts=class_counts,
         total_count=len(appointments),
     )
 
 
+@admin_bp.route('/scheduling/hl7/<int:hl7_id>/reschedule', methods=['POST'])
+@login_required
+def reschedule_hl7(hl7_id):
+    if current_user.role != 'admin':
+        return abort(403)
+    data = request.get_json()
+    new_dt_str = (data or {}).get('scheduled_datetime', '')
+    try:
+        new_dt = datetime.strptime(new_dt_str, '%Y-%m-%dT%H:%M')
+    except (ValueError, TypeError):
+        return jsonify({'status': 'error', 'message': 'Invalid datetime'}), 400
+    db.session.execute(
+        text("UPDATE hl7_orders SET scheduled_datetime = :dt WHERE id = :id"),
+        {'dt': new_dt, 'id': hl7_id}
+    )
+    db.session.commit()
+    return jsonify({'status': 'ok', 'scheduled_datetime': new_dt.strftime('%Y-%m-%dT%H:%M')})
+
+
+@admin_bp.route('/scheduling/suggest', methods=['GET'])
+@login_required
+def suggest_hl7_slot():
+    if current_user.role != 'admin':
+        return abort(403)
+    modality   = request.args.get('modality', '').strip().upper()
+    date_str   = request.args.get('date', datetime.now().strftime('%Y-%m-%d'))
+    exclude_id = request.args.get('exclude_id', type=int) or -1
+    try:
+        view_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+    except ValueError:
+        return jsonify({'status': 'error', 'message': 'Invalid date'}), 400
+
+    day_start = datetime.combine(view_date, datetime.min.time())
+    day_end   = datetime.combine(view_date, datetime.max.time())
+    slot_counts = {}
+
+    manual_rows = db.session.execute(text("""
+        SELECT procedure_datetime FROM scheduling_entries
+        WHERE modality_type = :mod AND procedure_datetime BETWEEN :s AND :e
+    """), {'mod': modality, 's': day_start, 'e': day_end}).fetchall()
+    for r in manual_rows:
+        slot = r.procedure_datetime.hour * 60 + (30 if r.procedure_datetime.minute >= 30 else 0)
+        slot_counts[slot] = slot_counts.get(slot, 0) + 1
+
+    hl7_rows = db.session.execute(text("""
+        SELECT scheduled_datetime FROM hl7_orders
+        WHERE UPPER(modality) = :mod
+          AND scheduled_datetime BETWEEN :s AND :e
+          AND (order_status IS NULL OR order_status NOT IN ('CA','DC'))
+          AND id != :excl
+    """), {'mod': modality, 's': day_start, 'e': day_end, 'excl': exclude_id}).fetchall()
+    for r in hl7_rows:
+        if r.scheduled_datetime:
+            slot = r.scheduled_datetime.hour * 60 + (30 if r.scheduled_datetime.minute >= 30 else 0)
+            slot_counts[slot] = slot_counts.get(slot, 0) + 1
+
+    best_slot, best_count = None, float('inf')
+    for h in range(7, 20):
+        for m in (0, 30):
+            minutes = h * 60 + m
+            cnt = slot_counts.get(minutes, 0)
+            if cnt < best_count:
+                best_count, best_slot = cnt, minutes
+
+    if best_slot is None:
+        return jsonify({'status': 'error', 'message': 'No slots found'}), 404
+
+    bh, bm = best_slot // 60, best_slot % 60
+    suggested = datetime.combine(view_date, datetime.min.time()).replace(hour=bh, minute=bm)
+    return jsonify({
+        'status':    'ok',
+        'suggested': suggested.strftime('%Y-%m-%dT%H:%M'),
+        'label':     suggested.strftime('%H:%M'),
+        'load':      best_count,
+    })
+
+
 def _get_user_page_columns():
-    from flask import current_app
-    page_columns = [
-        ('live_feed', 'Live AE Status'),
-        ('hl7_orders', 'HL7 Orders'),
-        ('report_ai', 'AI Reports'),
-        ('bitnet', 'AI Assistant'),
-        ('oru', 'Report Intelligence'),
-        ('mapping', 'Modality Mapping'),
+    return [
+        ('live_feed',      'Live AE Status'),
+        ('hl7_orders',     'HL7 Orders'),
+        ('report_ai',      'AI Reports'),
+        ('bitnet',         'AI Assistant'),
+        ('oru',            'Report Intelligence'),
+        ('mapping',        'Modality Mapping'),
+        ('patient_portal', 'Patient Portal'),
     ]
-    if current_app.config.get('PATIENT_PORTAL_ENABLED', False):
-        page_columns.append(('patient_portal', 'Patient Portal'))
-    return page_columns
 
 
 def _apply_role_default_permissions(user, role):
-    default_map = {
-        'viewer': {'live_feed', 'hl7_orders', 'report_ai', 'bitnet', 'oru', 'mapping'},
-        'tec': {'hl7_orders'},
-    }
-    allowed_keys = {'live_feed', 'hl7_orders', 'report_ai', 'bitnet', 'oru', 'patient_portal', 'mapping'}
-    defaults = default_map.get(role, set())
+    from db import ALL_FEATURE_KEYS
+    defaults = {
+        'viewer': set(ALL_FEATURE_KEYS),
+        'tec':    {'hl7_orders', 'live_feed'},
+    }.get(role, set())
 
     existing_perms = {p.page_key: p for p in UserPagePermission.query.filter_by(user_id=user.id).all()}
 
-    for page_key in allowed_keys:
+    for page_key in ALL_FEATURE_KEYS:
         desired = page_key in defaults
         perm = existing_perms.get(page_key)
         if perm:
             perm.is_enabled = desired
-        elif desired:
-            db.session.add(UserPagePermission(user_id=user.id, page_key=page_key, is_enabled=True))
-
-    # keep any extra, unsupported page permissions untouched
+        else:
+            db.session.add(UserPagePermission(user_id=user.id, page_key=page_key, is_enabled=desired))
 
 
 @admin_bp.route('/users')
@@ -410,51 +510,10 @@ def delete_user():
     return jsonify({'status': 'ok'})
 
 
-@admin_bp.route('/oracle-config', endpoint='oracle_config', methods=['GET', 'POST'])
+@admin_bp.route('/oracle-config', endpoint='oracle_config')
 @login_required
 def oracle_config():
-    if current_user.role != 'admin':
-        return abort(403)
-
-    from utils.crypto import encrypt
-
-    # Always work with the canonical oracle_PACS row
-    existing = db.session.execute(
-        text("SELECT * FROM db_params WHERE name = 'oracle_PACS'")
-    ).mappings().fetchone()
-
-    if request.method == 'POST':
-        host     = (request.form.get('host')     or '').strip()
-        password = (request.form.get('password') or '').strip()
-
-        if not host:
-            flash("Host / IP is required.", "danger")
-        else:
-            # Keep existing password if none supplied
-            if password:
-                enc_password = encrypt(password)
-            else:
-                enc_password = existing['password'] if existing else ''
-
-            if existing:
-                db.session.execute(text("""
-                    UPDATE db_params
-                    SET host=:host, password=:password, updated_at=NOW()
-                    WHERE name = 'oracle_PACS'
-                """), {"host": host, "password": enc_password})
-            else:
-                # Row missing (shouldn't happen after migration 0004) — recreate it
-                db.session.execute(text("""
-                    INSERT INTO db_params
-                        (name, db_role, db_type, host, port, sid, username, password, mode)
-                    VALUES
-                        ('oracle_PACS', 'source', 'oracle', :host, 1521, 'mst1', 'sys', :password, 'SYSDBA')
-                """), {"host": host, "password": enc_password})
-            db.session.commit()
-            flash("Oracle host updated. You can now trigger ETL.", "success")
-            return redirect(url_for('admin.oracle_config'))
-
-    return render_template('admin_oracle_config.html', cfg=existing)
+    return redirect(url_for('db_manager.db_manager_page'))
 
 
 @admin_bp.route('/sync-mappings', methods=['POST'])

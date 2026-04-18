@@ -1,11 +1,10 @@
 """
-Schema Discovery — connects to a foreign Oracle DB (via db_params),
-extracts all table/column metadata for a given schema owner,
-and saves the result as a JSON file in ETL_JOBS/schema_dumps/.
+Schema Discovery — connects to any supported foreign DB (Oracle, PostgreSQL, MySQL, MSSQL),
+extracts table/column metadata for a given schema owner, and saves as JSON.
 
-Usage (from Flask route):
+Usage:
     from ETL_JOBS.schema_discovery import run_discovery
-    result = run_discovery(connection_name='oracle_PACS', schema_owner='MEDISTORE')
+    result = run_discovery(pg_engine, connection_name='oracle_PACS', schema_owner='MEDISTORE')
 """
 
 import os
@@ -13,12 +12,9 @@ import json
 import logging
 from datetime import datetime
 
-import oracledb
-
 logger = logging.getLogger("SCHEMA_DISCOVERY")
 
 # ── Target schema we want to map TO ─────────────────────────────────────────
-# This is what Claude reads to understand what columns we need.
 TARGET_SCHEMA = {
     "studies": {
         "table": "etl_didb_studies",
@@ -45,13 +41,13 @@ TARGET_SCHEMA = {
             "referring_physician_last_name":  {"type": "string", "required": False, "description": "Referring physician last name"},
             "report_status":            {"type": "string",    "required": False, "description": "Report status"},
             "order_status":             {"type": "string",    "required": False, "description": "Order status"},
-            "insert_time":              {"type": "timestamp", "required": True,  "description": "When the record was inserted — used as high-water mark for incremental sync"},
+            "insert_time":              {"type": "timestamp", "required": True,  "description": "When the record was inserted — high-water mark for incremental sync"},
             "last_update":              {"type": "timestamp", "required": False, "description": "Last modification timestamp"},
             "reading_physician_first_name":  {"type": "string", "required": False, "description": "Reading radiologist first name"},
             "reading_physician_last_name":   {"type": "string", "required": False, "description": "Reading radiologist last name"},
             "signing_physician_first_name":  {"type": "string", "required": False, "description": "Signing radiologist first name"},
             "signing_physician_last_name":   {"type": "string", "required": False, "description": "Signing radiologist last name"},
-            "study_has_report":         {"type": "boolean",   "required": False, "description": "Whether the study has a report (Y/N or true/false)"},
+            "study_has_report":         {"type": "boolean",   "required": False, "description": "Whether the study has a report"},
             "rep_prelim_timestamp":     {"type": "timestamp", "required": False, "description": "Preliminary report timestamp"},
             "rep_prelim_signed_by":     {"type": "string",    "required": False, "description": "Who signed the preliminary report"},
             "rep_final_signed_by":      {"type": "string",    "required": False, "description": "Who signed the final report"},
@@ -64,130 +60,306 @@ TARGET_SCHEMA = {
         "table": "etl_patient_view",
         "description": "Patient demographics",
         "columns": {
-            "patient_db_uid": {"type": "integer",   "required": True,  "description": "Unique patient identifier (primary key)"},
-            "id":             {"type": "string",    "required": False, "description": "Patient external / HIS ID"},
-            "fallback_id":    {"type": "string",    "required": False, "description": "Fallback patient ID used for matching"},
-            "birth_date":     {"type": "date",      "required": False, "description": "Patient date of birth"},
-            "sex":            {"type": "string",    "required": False, "description": "Patient sex (M / F / O)"},
-            "number_of_patient_studies": {"type": "integer", "required": False, "description": "Total study count for this patient"},
+            "patient_db_uid": {"type": "integer", "required": True,  "description": "Unique patient identifier"},
+            "id":             {"type": "string",  "required": False, "description": "Patient external / HIS ID"},
+            "fallback_id":    {"type": "string",  "required": False, "description": "Fallback patient ID"},
+            "birth_date":     {"type": "date",    "required": False, "description": "Patient date of birth"},
+            "sex":            {"type": "string",  "required": False, "description": "Patient sex (M / F / O)"},
+            "number_of_patient_studies": {"type": "integer", "required": False, "description": "Total study count"},
         }
     },
     "orders": {
         "table": "etl_orders",
         "description": "Radiology orders / scheduled procedures",
         "columns": {
-            "study_db_uid":       {"type": "integer",   "required": True,  "description": "Study reference (foreign key to studies)"},
+            "study_db_uid":       {"type": "integer",   "required": True,  "description": "Study reference"},
             "proc_id":            {"type": "string",    "required": False, "description": "Procedure code"},
             "scheduled_datetime": {"type": "timestamp", "required": False, "description": "Scheduled exam date and time"},
-            "order_status":       {"type": "string",    "required": False, "description": "Order status (CA=cancelled, CM=completed, etc.)"},
+            "order_status":       {"type": "string",    "required": False, "description": "Order status"},
             "insert_time":        {"type": "timestamp", "required": False, "description": "Order insert timestamp"},
         }
     },
 }
 
 
-def _get_oracle_params(pg_engine, connection_name):
-    """Read connection params from db_params table."""
+# ── Driver availability ──────────────────────────────────────────────────────
+
+DRIVER_REGISTRY = {
+    'oracle': {
+        'label': 'Oracle',       'pip': 'oracledb',
+        'import': 'oracledb',    'color': '#f59e0b',
+        'icon': 'bi-database-fill',
+    },
+    'postgres': {
+        'label': 'PostgreSQL',   'pip': 'psycopg2-binary',
+        'import': 'psycopg2',    'color': '#60a5fa',
+        'icon': 'bi-database',
+    },
+    'mysql': {
+        'label': 'MySQL',        'pip': 'pymysql',
+        'import': 'pymysql',     'color': '#34d399',
+        'icon': 'bi-database',
+    },
+    'mssql': {
+        'label': 'SQL Server',   'pip': 'pyodbc',
+        'import': 'pyodbc',      'color': '#a78bfa',
+        'icon': 'bi-microsoft',
+        'note': 'Also requires unixodbc system library',
+    },
+}
+
+
+def check_drivers():
+    """Return driver availability status for all supported DB types."""
+    status = {}
+    for key, info in DRIVER_REGISTRY.items():
+        try:
+            __import__(info['import'])
+            status[key] = {**info, 'available': True}
+        except ImportError:
+            status[key] = {**info, 'available': False}
+    return status
+
+
+# ── Connection helpers ───────────────────────────────────────────────────────
+
+def _get_conn_row(pg_engine, connection_name):
     from sqlalchemy import text
     with pg_engine.connect() as conn:
         row = conn.execute(
-            text("SELECT host, port, sid, username, password, mode FROM db_params WHERE name = :n"),
+            text("SELECT * FROM db_params WHERE name = :n"),
             {"n": connection_name}
-        ).fetchone()
+        ).mappings().fetchone()
     if not row:
-        raise ValueError(f"No db_params entry found for connection '{connection_name}'")
-    return row
+        raise ValueError(f"No db_params entry for '{connection_name}'")
+    return dict(row)
 
 
-def _connect_oracle(params):
+def _make_foreign_conn(row):
+    """Open a raw DB-API connection to the foreign DB described by a db_params row."""
     from utils.crypto import decrypt
-    host, port, sid, username, password, mode = params
-    dsn = oracledb.makedsn(host, int(port or 1521), sid=sid)
-    kwargs = {"user": username, "password": decrypt(password), "dsn": dsn}
-    if mode and mode.upper() == 'SYSDBA':
-        kwargs["mode"] = oracledb.SYSDBA
-    return oracledb.connect(**kwargs)
+    db_type  = (row.get('db_type') or '').lower()
+    host     = row.get('host') or ''
+    port     = row.get('port')
+    sid      = row.get('sid') or ''       # Oracle SID  /  database name for others
+    username = row.get('username') or ''
+    password = decrypt(row['password']) if row.get('password') else ''
+    mode     = (row.get('mode') or '').upper()
 
+    if 'oracle' in db_type:
+        import oracledb
+        dsn    = oracledb.makedsn(host, int(port or 1521), sid=sid)
+        kwargs = {"user": username, "password": password, "dsn": dsn}
+        if mode == 'SYSDBA':
+            kwargs["mode"] = oracledb.SYSDBA
+        return 'oracle', oracledb.connect(**kwargs)
+
+    if 'postgres' in db_type or db_type in ('pg', 'postgresql'):
+        import psycopg2
+        return 'postgres', psycopg2.connect(
+            host=host, port=int(port or 5432),
+            database=sid, user=username, password=password
+        )
+
+    if 'mysql' in db_type:
+        import pymysql
+        return 'mysql', pymysql.connect(
+            host=host, port=int(port or 3306),
+            database=sid, user=username, password=password
+        )
+
+    if 'mssql' in db_type or 'sqlserver' in db_type:
+        import pyodbc
+        cs = (f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+              f"SERVER={host},{int(port or 1433)};DATABASE={sid};"
+              f"UID={username};PWD={password}")
+        return 'mssql', pyodbc.connect(cs, timeout=5)
+
+    raise ValueError(f"Unsupported db_type: '{db_type}'")
+
+
+def test_connection(pg_engine, connection_name):
+    """Attempt to open and immediately close a connection. Returns (ok, message)."""
+    try:
+        row = _get_conn_row(pg_engine, connection_name)
+        _, conn = _make_foreign_conn(row)
+        conn.close()
+        return True, "Connection successful"
+    except Exception as e:
+        return False, str(e)
+
+
+# ── Vendor-specific discovery queries ────────────────────────────────────────
+
+def _discover_oracle(conn, schema_owner):
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT c.table_name, c.column_name, c.data_type,
+                   c.nullable, c.data_length, c.data_precision,
+                   c.column_id, NVL(t.num_rows, -1) AS num_rows
+            FROM   all_tab_columns c
+            LEFT JOIN all_tables t
+                   ON t.table_name = c.table_name AND t.owner = c.owner
+            WHERE  c.owner = UPPER(:owner)
+            ORDER  BY c.table_name, c.column_id
+        """, {"owner": schema_owner.upper()})
+        rows = cursor.fetchall()
+    finally:
+        cursor.close()
+
+    tables = {}
+    for table_name, col_name, data_type, nullable, data_length, data_precision, col_id, num_rows in rows:
+        if table_name not in tables:
+            tables[table_name] = {"name": table_name, "row_count": int(num_rows) if num_rows >= 0 else None, "columns": []}
+        tables[table_name]["columns"].append({
+            "name": col_name, "type": data_type,
+            "nullable": nullable == 'Y',
+            "length": int(data_length) if data_length else None,
+            "precision": int(data_precision) if data_precision else None,
+            "position": int(col_id),
+        })
+    return tables
+
+
+def _discover_postgres(conn, schema_owner):
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT table_name, column_name, data_type, is_nullable,
+                   character_maximum_length, numeric_precision, ordinal_position
+            FROM   information_schema.columns
+            WHERE  table_schema = %s
+            ORDER  BY table_name, ordinal_position
+        """, (schema_owner,))
+        rows = cursor.fetchall()
+    finally:
+        cursor.close()
+
+    tables = {}
+    for table_name, col_name, data_type, is_nullable, char_len, num_prec, ordinal in rows:
+        if table_name not in tables:
+            tables[table_name] = {"name": table_name, "row_count": None, "columns": []}
+        tables[table_name]["columns"].append({
+            "name": col_name, "type": data_type,
+            "nullable": is_nullable == 'YES',
+            "length": int(char_len) if char_len else None,
+            "precision": int(num_prec) if num_prec else None,
+            "position": int(ordinal),
+        })
+    return tables
+
+
+def _discover_mysql(conn, schema_owner):
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE,
+                   CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION, ORDINAL_POSITION
+            FROM   information_schema.COLUMNS
+            WHERE  TABLE_SCHEMA = %s
+            ORDER  BY TABLE_NAME, ORDINAL_POSITION
+        """, (schema_owner,))
+        rows = cursor.fetchall()
+    finally:
+        cursor.close()
+
+    tables = {}
+    for table_name, col_name, data_type, is_nullable, char_len, num_prec, ordinal in rows:
+        if table_name not in tables:
+            tables[table_name] = {"name": table_name, "row_count": None, "columns": []}
+        tables[table_name]["columns"].append({
+            "name": col_name, "type": data_type,
+            "nullable": is_nullable == 'YES',
+            "length": int(char_len) if char_len else None,
+            "precision": int(num_prec) if num_prec else None,
+            "position": int(ordinal),
+        })
+    return tables
+
+
+def _discover_mssql(conn, schema_owner):
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT t.name, c.name, tp.name,
+                   CASE c.is_nullable WHEN 1 THEN 'YES' ELSE 'NO' END,
+                   c.max_length, c.precision, c.column_id
+            FROM   sys.tables t
+            JOIN   sys.columns c  ON c.object_id = t.object_id
+            JOIN   sys.types   tp ON tp.user_type_id = c.user_type_id
+            WHERE  SCHEMA_NAME(t.schema_id) = ?
+            ORDER  BY t.name, c.column_id
+        """, schema_owner)
+        rows = cursor.fetchall()
+    finally:
+        cursor.close()
+
+    tables = {}
+    for table_name, col_name, data_type, is_nullable, char_len, num_prec, col_id in rows:
+        if table_name not in tables:
+            tables[table_name] = {"name": table_name, "row_count": None, "columns": []}
+        tables[table_name]["columns"].append({
+            "name": col_name, "type": data_type,
+            "nullable": is_nullable == 'YES',
+            "length": int(char_len) if char_len else None,
+            "precision": int(num_prec) if num_prec else None,
+            "position": int(col_id),
+        })
+    return tables
+
+
+# ── Public entry point ───────────────────────────────────────────────────────
 
 def run_discovery(pg_engine, connection_name, schema_owner, output_dir=None):
     """
-    Discover the schema of a foreign Oracle DB and save to JSON.
+    Discover the schema of any configured foreign DB and save to JSON.
     Returns: dict with keys 'file', 'table_count', 'column_count', 'tables_summary'
     """
     if output_dir is None:
-        base = os.path.dirname(os.path.abspath(__file__))
-        output_dir = os.path.join(base, 'schema_dumps')
+        output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'schema_dumps')
     os.makedirs(output_dir, exist_ok=True)
 
     logger.info(f"Discovering schema: connection={connection_name}, owner={schema_owner}")
 
-    params = _get_oracle_params(pg_engine, connection_name)
-    conn   = _connect_oracle(params)
-    cursor = conn.cursor()
+    row              = _get_conn_row(pg_engine, connection_name)
+    db_type_key, conn = _make_foreign_conn(row)
+
+    dispatch = {
+        'oracle':   _discover_oracle,
+        'postgres': _discover_postgres,
+        'mysql':    _discover_mysql,
+        'mssql':    _discover_mssql,
+    }
+    discover_fn = dispatch.get(db_type_key)
+    if not discover_fn:
+        conn.close()
+        raise ValueError(f"No discovery handler for db_type '{db_type_key}'")
 
     try:
-        # ── Pull all columns for the schema owner ────────────────────────
-        cursor.execute("""
-            SELECT
-                c.table_name,
-                c.column_name,
-                c.data_type,
-                c.nullable,
-                c.data_length,
-                c.data_precision,
-                c.column_id,
-                NVL(t.num_rows, -1) AS num_rows
-            FROM all_tab_columns c
-            LEFT JOIN all_tables t
-                   ON t.table_name = c.table_name
-                  AND t.owner      = c.owner
-            WHERE c.owner = UPPER(:owner)
-            ORDER BY c.table_name, c.column_id
-        """, {"owner": schema_owner.upper()})
-
-        rows = cursor.fetchall()
-
+        tables = discover_fn(conn, schema_owner)
     finally:
-        cursor.close()
         conn.close()
 
-    if not rows:
-        raise ValueError(f"No tables found for schema owner '{schema_owner}'. Check the owner name.")
-
-    # ── Group by table ───────────────────────────────────────────────────
-    tables = {}
-    for table_name, col_name, data_type, nullable, data_length, data_precision, col_id, num_rows in rows:
-        if table_name not in tables:
-            tables[table_name] = {
-                "name":       table_name,
-                "row_count":  int(num_rows) if num_rows >= 0 else None,
-                "columns":    []
-            }
-        tables[table_name]["columns"].append({
-            "name":      col_name,
-            "type":      data_type,
-            "nullable":  nullable == 'Y',
-            "length":    int(data_length) if data_length else None,
-            "precision": int(data_precision) if data_precision else None,
-            "position":  int(col_id),
-        })
+    if not tables:
+        raise ValueError(f"No tables found for schema owner '{schema_owner}'.")
 
     tables_list = sorted(tables.values(), key=lambda t: t["name"])
 
     dump = {
-        "connection_name":  connection_name,
-        "schema_owner":     schema_owner.upper(),
-        "discovered_at":    datetime.now().isoformat(),
-        "table_count":      len(tables_list),
-        "column_count":     sum(len(t["columns"]) for t in tables_list),
-        "target_schema":    TARGET_SCHEMA,
-        "tables":           tables_list,
+        "connection_name": connection_name,
+        "schema_owner":    schema_owner.upper(),
+        "db_type":         db_type_key,
+        "discovered_at":   datetime.now().isoformat(),
+        "table_count":     len(tables_list),
+        "column_count":    sum(len(t["columns"]) for t in tables_list),
+        "target_schema":   TARGET_SCHEMA,
+        "tables":          tables_list,
     }
 
-    timestamp  = datetime.now().strftime('%Y%m%d_%H%M%S')
-    filename   = f"{connection_name}_{schema_owner}_{timestamp}.json"
-    filepath   = os.path.join(output_dir, filename)
-
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    filename  = f"{connection_name}_{schema_owner}_{timestamp}.json"
+    filepath  = os.path.join(output_dir, filename)
     with open(filepath, 'w') as f:
         json.dump(dump, f, indent=2, default=str)
 

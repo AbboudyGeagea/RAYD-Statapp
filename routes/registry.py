@@ -28,7 +28,7 @@ from routes.docs             import docs_bp
 from routes.er_dashboard     import er_bp
 from routes.liveview         import liveview_bp
 from routes.oru_analytics    import oru_bp
-from routes.adapter_mapper   import adapter_mapper_bp
+from routes.db_manager       import db_manager_bp
 
 logger = logging.getLogger("REGISTRY")
 
@@ -250,7 +250,7 @@ def register_blueprints(app):
         'oru_analytics':   (oru_bp,              {}, [('/oru',                         'ORU Analytics')]),
         'saved_reports':   (saved_reports_bp,    {'url_prefix': '/saved'}, []),
         'hl7_orders':      (hl7_orders_bp,       {}, [('/hl7/orders',                  'HL7 Orders')]),
-        'adapter_mapper':  (adapter_mapper_bp,   {}, [('/admin/adapters',              'Adapter Mapper')]),
+        'adapter_mapper':  (db_manager_bp,        {}, [('/admin/db-manager',            'DB Manager')]),
         'super_report':    (super_report_bp,     {}, [('/viewer/super-report-page',    'Super Report'),
                                                       ('/viewer/super-report',         'Super Report')]),
     }
