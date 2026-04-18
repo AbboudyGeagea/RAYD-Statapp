@@ -55,6 +55,9 @@ def _ensure_mappings_table():
     db.session.execute(text(
         "ALTER TABLE db_params ADD COLUMN IF NOT EXISTS owner VARCHAR(100)"
     ))
+    db.session.execute(text(
+        "ALTER TABLE db_params ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()"
+    ))
     db.session.commit()
 
 
