@@ -464,6 +464,8 @@ def report_ai():
     )).fetchone()
     storage_capacity_gb = float(cap_row[0]) if cap_row else 10240.0
 
+    ui_theme = getattr(current_user, "ui_theme", None) or "dark"
+
     return render_template(
         "report_ai.html",
         data=data,
@@ -471,7 +473,8 @@ def report_ai():
         display_start=start,
         display_end=end,
         active_tab=active_tab,
-        storage_capacity_gb=storage_capacity_gb
+        storage_capacity_gb=storage_capacity_gb,
+        ui_theme=ui_theme,
     )
 
 
