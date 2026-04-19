@@ -462,6 +462,7 @@ def get_gold_standard_data(form_data):
                    ON UPPER(TRIM(o.procedure_code)) = UPPER(TRIM(p.procedure_code))
             WHERE o.scheduled_datetime IS NOT NULL
               AND o.scheduled_datetime::date BETWEEN :start AND :end
+              {"AND UPPER(TRIM(o.modality)) IN :modalities" if "modalities" in params else ""}
             ORDER BY o.modality, o.scheduled_datetime
         """), params).mappings().fetchall()
 
@@ -692,6 +693,40 @@ def export_report_25():
         data['raw_df'].drop(columns=['study_date_dt'], errors='ignore').to_excel(writer, index=False, sheet_name='RawData')
     output.seek(0)
     return send_file(output, as_attachment=True, download_name=f"RAYD_PRO_Export_{date.today()}.xlsx")
+
+@report_25_bp.route("/report/25/export-technician", methods=["POST"])
+@login_required
+def export_technician_25():
+    from flask import current_app, jsonify
+    from routes.registry import check_license_limit
+    ok, msg = check_license_limit(current_app, 'export')
+    if not ok:
+        return jsonify({"error": msg}), 403
+    data, _, _ = get_gold_standard_data(request.form)
+    if not data:
+        return "Error", 400
+    tech = data.get('tech_data', {})
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        # Summary
+        if tech.get('summary'):
+            pd.DataFrame([tech['summary']]).to_excel(writer, index=False, sheet_name='Summary')
+        # By Technician
+        if tech.get('by_technician'):
+            pd.DataFrame(tech['by_technician']).to_excel(writer, index=False, sheet_name='By Technician')
+        # By Modality
+        if tech.get('by_modality'):
+            pd.DataFrame(tech['by_modality']).to_excel(writer, index=False, sheet_name='By Modality')
+        # Flagged exams
+        if tech.get('flagged'):
+            df_flagged = pd.DataFrame(tech['flagged'])
+            df_flagged['flags'] = df_flagged['flags'].apply(lambda x: ', '.join(x))
+            df_flagged.to_excel(writer, index=False, sheet_name='Flagged')
+        # Never done
+        if tech.get('never_done'):
+            pd.DataFrame(tech['never_done']).to_excel(writer, index=False, sheet_name='Never Done')
+    output.seek(0)
+    return send_file(output, as_attachment=True, download_name=f"RAYD_Tech_TAT_{date.today()}.xlsx")
 
 @report_25_bp.route("/report/25/save-shifts", methods=["POST"])
 @login_required
