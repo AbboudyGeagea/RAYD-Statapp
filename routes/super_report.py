@@ -638,20 +638,22 @@ def _generate_narrative(cur, prev, start, end, cmp_start, cmp_end, delta):
     # ── Clinical Insights (statistical signal engine) ─────────────────
     try:
         dept_signals = run_dept_insights(cur, prev)
+        severity_order = {"critical": 0, "warning": 1, "info": 2}
+        dept_signals.sort(key=lambda s: severity_order.get(s.get("severity", "info"), 2))
         if dept_signals:
-            severity_order = {"critical": 0, "warning": 1, "info": 2}
-            dept_signals.sort(key=lambda s: severity_order.get(s.get("severity", "info"), 2))
             insight_bullets = []
             for s in dept_signals:
                 icon = {"critical": "⚠", "warning": "▲", "info": "ℹ"}.get(s.get("severity", "info"), "•")
-                insight_bullets.append(f"{icon} [{s.get('entity', '')}] {s.get('message', '')}")
-            sections.append({
-                "icon": "bi-lightbulb",
-                "color": "#fbbf24",
-                "title": "Clinical Insights",
-                "bullets": insight_bullets,
-                "signals": dept_signals,   # structured for future hyperlinks
-            })
+                insight_bullets.append(f"{icon} {s.get('message', '')}")
+        else:
+            insight_bullets = ["All department metrics within normal thresholds — no anomalies detected."]
+        sections.append({
+            "icon": "bi-lightbulb",
+            "color": "#fbbf24",
+            "title": "Clinical Insights",
+            "bullets": insight_bullets,
+            "signals": dept_signals,
+        })
     except Exception as _ins_e:
         logger.warning(f"Clinical insights error: {_ins_e}")
 

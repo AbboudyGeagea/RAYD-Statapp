@@ -446,6 +446,7 @@ def get_gold_standard_data(form_data):
         'flagged': [],
         'never_done': [],
     }
+    _tech_completed_df = pd.DataFrame()   # captured for insights engine
     try:
         from datetime import datetime as _dt
         _now = _dt.utcnow()
@@ -477,6 +478,7 @@ def get_gold_standard_data(form_data):
 
             completed = tdf[tdf['done_at'].notna()].copy()
             pending   = tdf[tdf['done_at'].isna()].copy()
+            _tech_completed_df = completed
 
             # ── Overlap detection: done_at falls after the next exam started ──
             overlap_accessions = set()
@@ -614,24 +616,8 @@ def get_gold_standard_data(form_data):
     tech_insights = []
     rad_insights  = []
     try:
-        if tech_data.get('flagged') is not None:
-            # Rebuild completed_df subset for insight engine
-            _tech_rows = db.session.execute(text(f"""
-                SELECT o.done_by, o.done_at, o.scheduled_datetime,
-                       COALESCE(p.duration_minutes, 30) AS proc_duration, o.modality
-                FROM hl7_orders o
-                LEFT JOIN procedure_duration_map p
-                       ON UPPER(TRIM(o.procedure_code)) = UPPER(TRIM(p.procedure_code))
-                WHERE o.done_at IS NOT NULL
-                  AND o.scheduled_datetime::date BETWEEN :start AND :end
-                  {"AND UPPER(TRIM(o.modality)) IN :modalities" if "modalities" in params else ""}
-            """), params).mappings().fetchall()
-            if _tech_rows:
-                _tdf = pd.DataFrame(_tech_rows)
-                _tdf['done_at'] = pd.to_datetime(_tdf['done_at'], errors='coerce')
-                _tdf['scheduled_datetime'] = pd.to_datetime(_tdf['scheduled_datetime'])
-                _tdf['tat_min'] = (_tdf['done_at'] - _tdf['scheduled_datetime']).dt.total_seconds() / 60
-                tech_insights = run_tech_insights(_tdf)
+        if not _tech_completed_df.empty:
+            tech_insights = run_tech_insights(_tech_completed_df)
     except Exception as _ie:
         print(f"Tech insights error: {_ie}")
 
