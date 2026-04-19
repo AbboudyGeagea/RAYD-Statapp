@@ -436,141 +436,70 @@ def get_gold_standard_data(form_data):
     except Exception:
         pass
 
-    # ── Reporting Phase TAT (PACS arrival → reporting milestones) ────────────
-    tech_data = {'summary': {}, 'by_radiologist': [], 'by_modality': [], 'studies': []}
+    # ── Technician TAT (scheduled_datetime → done_at from HL7 orders) ──────────
+    tech_data = {'summary': {}, 'by_technician': [], 'by_modality': [], 'slowest': []}
     try:
-        phase_rows = db.session.execute(text(f"""
+        tech_rows = db.session.execute(text("""
             SELECT
-                s.accession_number,
-                s.study_date::text                                                      AS study_date,
-                COALESCE(m.modality, s.study_modality, 'Unknown')                       AS modality,
-                NULLIF(TRIM(CONCAT(
-                    COALESCE(s.signing_physician_first_name,''), ' ',
-                    COALESCE(s.signing_physician_last_name,'')
-                )), '')                                                                  AS radiologist,
-                s.rep_prelim_timestamp,
-                s.rep_transcribed_timestamp,
-                s.rep_final_timestamp,
-                CASE WHEN s.rep_prelim_timestamp IS NOT NULL
-                     THEN ROUND(EXTRACT(EPOCH FROM (
-                         s.rep_prelim_timestamp - s.insert_time
-                     )) / 60.0, 1)
-                END AS to_prelim_min,
-                CASE WHEN s.rep_transcribed_timestamp IS NOT NULL
-                      AND s.rep_prelim_timestamp IS NOT NULL
-                     THEN ROUND(EXTRACT(EPOCH FROM (
-                         s.rep_transcribed_timestamp - s.rep_prelim_timestamp
-                     )) / 60.0, 1)
-                END AS to_transcribed_min,
-                CASE WHEN s.rep_final_timestamp IS NOT NULL
-                      AND s.rep_transcribed_timestamp IS NOT NULL
-                     THEN ROUND(EXTRACT(EPOCH FROM (
-                         s.rep_final_timestamp - s.rep_transcribed_timestamp
-                     )) / 60.0, 1)
-                END AS to_final_min,
-                CASE WHEN s.rep_final_timestamp IS NOT NULL
-                     THEN ROUND(EXTRACT(EPOCH FROM (
-                         s.rep_final_timestamp - s.insert_time
-                     )) / 60.0, 1)
-                END AS total_tat_min
-            FROM etl_didb_studies s
-            LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
-            WHERE s.study_date BETWEEN :start AND :end
-              AND s.insert_time IS NOT NULL
-              AND COALESCE(m.modality, s.study_modality, 'Unknown') != 'SR'
-              {_sec_filters}
+                o.accession_number,
+                o.modality,
+                o.done_by,
+                o.scheduled_datetime,
+                o.done_at,
+                ROUND(EXTRACT(EPOCH FROM (o.done_at - o.scheduled_datetime)) / 60.0, 1) AS tat_min
+            FROM hl7_orders o
+            WHERE o.done_at IS NOT NULL
+              AND o.scheduled_datetime IS NOT NULL
+              AND o.done_at > o.scheduled_datetime
+              AND o.scheduled_datetime::date BETWEEN :start AND :end
+            ORDER BY tat_min DESC
         """), params).mappings().fetchall()
 
-        def _safe(val, default=0):
-            try:
-                v = float(val)
-                return default if (v != v or v == float('inf') or v == float('-inf')) else round(v, 1)
-            except Exception:
-                return default
+        if tech_rows:
+            tdf = pd.DataFrame(tech_rows)
+            tdf['tat_min'] = pd.to_numeric(tdf['tat_min'], errors='coerce')
+            tdf = tdf[(tdf['tat_min'] > 0) & (tdf['tat_min'] < 1440)]
 
-        def _valid(df, col):
-            return df[(df[col] > 0) & (df[col] < 2880)]
+            if len(tdf):
+                tech_data['summary'] = {
+                    'total_exams': len(tdf),
+                    'avg_tat':     round(float(tdf['tat_min'].mean()), 1),
+                    'median_tat':  round(float(tdf['tat_min'].median()), 1),
+                }
 
-        if phase_rows:
-            phase_df = pd.DataFrame(phase_rows)
-            for col in ['to_prelim_min', 'to_transcribed_min', 'to_final_min', 'total_tat_min']:
-                phase_df[col] = pd.to_numeric(phase_df[col], errors='coerce')
+                for tech, gdf in tdf[tdf['done_by'].notna()].groupby('done_by'):
+                    if len(gdf) < 2:
+                        continue
+                    tech_data['by_technician'].append({
+                        'name':       str(tech),
+                        'count':      len(gdf),
+                        'avg_tat':    round(float(gdf['tat_min'].mean()), 1),
+                        'median_tat': round(float(gdf['tat_min'].median()), 1),
+                    })
+                tech_data['by_technician'].sort(key=lambda x: x['avg_tat'])
 
-            pv   = _valid(phase_df, 'to_prelim_min')
-            tv   = _valid(phase_df, 'to_transcribed_min')
-            fv   = _valid(phase_df, 'to_final_min')
-            totv = _valid(phase_df, 'total_tat_min')
+                for mod, gdf in tdf[tdf['modality'].notna()].groupby('modality'):
+                    tech_data['by_modality'].append({
+                        'modality':   str(mod),
+                        'count':      len(gdf),
+                        'avg_tat':    round(float(gdf['tat_min'].mean()), 1),
+                        'median_tat': round(float(gdf['tat_min'].median()), 1),
+                    })
+                tech_data['by_modality'].sort(key=lambda x: x['avg_tat'])
 
-            tech_data['summary'] = {
-                'total_studies':      len(phase_df),
-                'reported':           int(phase_df['rep_final_timestamp'].notna().sum()),
-                'prelim_count':       int(phase_df['rep_prelim_timestamp'].notna().sum()),
-                'transcribed_count':  int(phase_df['rep_transcribed_timestamp'].notna().sum()),
-                'avg_to_prelim':      _safe(pv['to_prelim_min'].mean())        if len(pv)   else 0,
-                'median_to_prelim':   _safe(pv['to_prelim_min'].median())      if len(pv)   else 0,
-                'avg_to_transcribed': _safe(tv['to_transcribed_min'].mean())   if len(tv)   else 0,
-                'avg_to_final':       _safe(fv['to_final_min'].mean())         if len(fv)   else 0,
-                'avg_total_tat':      _safe(totv['total_tat_min'].mean())      if len(totv) else 0,
-                'median_total_tat':   _safe(totv['total_tat_min'].median())    if len(totv) else 0,
-            }
-
-            # By radiologist (min 3 studies)
-            for rad, rdf in phase_df[phase_df['radiologist'].notna()].groupby('radiologist'):
-                if len(rdf) < 3:
-                    continue
-                rv   = _valid(rdf, 'to_prelim_min')
-                tv_r = _valid(rdf, 'to_transcribed_min')
-                fv_r = _valid(rdf, 'to_final_min')
-                tot  = _valid(rdf, 'total_tat_min')
-                tech_data['by_radiologist'].append({
-                    'name':               str(rad),
-                    'count':              len(rdf),
-                    'avg_to_prelim':      _safe(rv['to_prelim_min'].mean())        if len(rv)   else None,
-                    'avg_to_transcribed': _safe(tv_r['to_transcribed_min'].mean()) if len(tv_r) else None,
-                    'avg_to_final':       _safe(fv_r['to_final_min'].mean())       if len(fv_r) else None,
-                    'avg_total_tat':      _safe(tot['total_tat_min'].mean())       if len(tot)  else None,
-                    'median_total_tat':   _safe(tot['total_tat_min'].median())     if len(tot)  else None,
-                })
-            tech_data['by_radiologist'].sort(
-                key=lambda x: x['avg_total_tat'] if x['avg_total_tat'] is not None else 9999
-            )
-
-            # By modality
-            for mod, mdf in phase_df.groupby('modality'):
-                if str(mod) in ('Unknown', 'SR'):
-                    continue
-                rv   = _valid(mdf, 'to_prelim_min')
-                tv_m = _valid(mdf, 'to_transcribed_min')
-                fv_m = _valid(mdf, 'to_final_min')
-                tot  = _valid(mdf, 'total_tat_min')
-                tech_data['by_modality'].append({
-                    'modality':           str(mod),
-                    'count':              len(mdf),
-                    'avg_to_prelim':      _safe(rv['to_prelim_min'].mean())        if len(rv)   else None,
-                    'avg_to_transcribed': _safe(tv_m['to_transcribed_min'].mean()) if len(tv_m) else None,
-                    'avg_to_final':       _safe(fv_m['to_final_min'].mean())       if len(fv_m) else None,
-                    'avg_total_tat':      _safe(tot['total_tat_min'].mean())       if len(tot)  else None,
-                })
-            tech_data['by_modality'].sort(
-                key=lambda x: x['avg_total_tat'] if x['avg_total_tat'] is not None else 9999
-            )
-
-            # Slowest 200 studies by total TAT
-            for _, r in totv.nlargest(200, 'total_tat_min').iterrows():
-                tech_data['studies'].append({
-                    'accession':          str(r.get('accession_number') or ''),
-                    'study_date':         str(r.get('study_date') or '')[:10],
-                    'modality':           str(r.get('modality') or ''),
-                    'radiologist':        str(r['radiologist']) if pd.notna(r.get('radiologist')) else '',
-                    'to_prelim_min':      float(r['to_prelim_min'])      if pd.notna(r.get('to_prelim_min'))      else None,
-                    'to_transcribed_min': float(r['to_transcribed_min']) if pd.notna(r.get('to_transcribed_min')) else None,
-                    'to_final_min':       float(r['to_final_min'])       if pd.notna(r.get('to_final_min'))       else None,
-                    'total_tat_min':      float(r['total_tat_min'])      if pd.notna(r.get('total_tat_min'))      else None,
-                })
+                for _, r in tdf.nlargest(50, 'tat_min').iterrows():
+                    tech_data['slowest'].append({
+                        'accession':    str(r.get('accession_number') or ''),
+                        'modality':     str(r.get('modality') or ''),
+                        'technician':   str(r['done_by']) if pd.notna(r.get('done_by')) else '',
+                        'scheduled_at': r['scheduled_datetime'].strftime('%Y-%m-%d %H:%M') if r.get('scheduled_datetime') else '',
+                        'done_at':      r['done_at'].strftime('%H:%M') if r.get('done_at') else '',
+                        'tat_min':      float(r['tat_min']),
+                    })
 
     except Exception as _e:
         db.session.rollback()
-        print(f"Reporting phase TAT error: {_e}")
+        print(f"Technician TAT error: {_e}")
 
     result = ({
         "summary": {
