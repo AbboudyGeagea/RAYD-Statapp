@@ -436,66 +436,146 @@ def get_gold_standard_data(form_data):
     except Exception:
         pass
 
-    # ── Technician TAT (scheduled_datetime → done_at from HL7 orders) ──────────
-    tech_data = {'summary': {}, 'by_technician': [], 'by_modality': [], 'slowest': []}
+    # ── Technician monitoring (HL7 orders — 5 flag categories) ─────────────────
+    tech_data = {
+        'summary': {},
+        'by_technician': [],
+        'by_modality': [],
+        'flagged': [],
+        'never_done': [],
+    }
     try:
+        from datetime import datetime as _dt
+        _now = _dt.utcnow()
+
         tech_rows = db.session.execute(text("""
             SELECT
                 o.accession_number,
                 o.modality,
+                o.procedure_code,
                 o.done_by,
                 o.scheduled_datetime,
                 o.done_at,
-                ROUND(EXTRACT(EPOCH FROM (o.done_at - o.scheduled_datetime)) / 60.0, 1) AS tat_min
+                COALESCE(p.duration_minutes, 30) AS proc_duration
             FROM hl7_orders o
-            WHERE o.done_at IS NOT NULL
-              AND o.scheduled_datetime IS NOT NULL
-              AND o.done_at > o.scheduled_datetime
+            LEFT JOIN procedure_duration_map p
+                   ON UPPER(TRIM(o.procedure_code)) = UPPER(TRIM(p.procedure_code))
+            WHERE o.scheduled_datetime IS NOT NULL
               AND o.scheduled_datetime::date BETWEEN :start AND :end
-            ORDER BY tat_min DESC
+            ORDER BY o.modality, o.scheduled_datetime
         """), params).mappings().fetchall()
 
         if tech_rows:
             tdf = pd.DataFrame(tech_rows)
-            tdf['tat_min'] = pd.to_numeric(tdf['tat_min'], errors='coerce')
-            tdf = tdf[(tdf['tat_min'] > 0) & (tdf['tat_min'] < 1440)]
+            tdf['proc_duration'] = pd.to_numeric(tdf['proc_duration'], errors='coerce').fillna(30)
+            tdf['scheduled_datetime'] = pd.to_datetime(tdf['scheduled_datetime'])
+            tdf['done_at'] = pd.to_datetime(tdf['done_at'], errors='coerce')
+            tdf['tat_min'] = (tdf['done_at'] - tdf['scheduled_datetime']).dt.total_seconds() / 60.0
 
-            if len(tdf):
-                tech_data['summary'] = {
-                    'total_exams': len(tdf),
-                    'avg_tat':     round(float(tdf['tat_min'].mean()), 1),
-                    'median_tat':  round(float(tdf['tat_min'].median()), 1),
-                }
+            completed = tdf[tdf['done_at'].notna()].copy()
+            pending   = tdf[tdf['done_at'].isna()].copy()
 
-                for tech, gdf in tdf[tdf['done_by'].notna()].groupby('done_by'):
-                    if len(gdf) < 2:
-                        continue
-                    tech_data['by_technician'].append({
-                        'name':       str(tech),
-                        'count':      len(gdf),
-                        'avg_tat':    round(float(gdf['tat_min'].mean()), 1),
-                        'median_tat': round(float(gdf['tat_min'].median()), 1),
-                    })
-                tech_data['by_technician'].sort(key=lambda x: x['avg_tat'])
+            # ── Overlap detection: done_at falls after the next exam started ──
+            overlap_accessions = set()
+            for mod, grp in completed.groupby('modality'):
+                grp = grp.sort_values('scheduled_datetime').reset_index()
+                for i in range(len(grp) - 1):
+                    cur  = grp.iloc[i]
+                    nxt  = grp.iloc[i + 1]
+                    if pd.notna(cur['done_at']) and cur['done_at'] > nxt['scheduled_datetime']:
+                        overlap_accessions.add(cur['accession_number'])
 
-                for mod, gdf in tdf[tdf['modality'].notna()].groupby('modality'):
-                    tech_data['by_modality'].append({
-                        'modality':   str(mod),
-                        'count':      len(gdf),
-                        'avg_tat':    round(float(gdf['tat_min'].mean()), 1),
-                        'median_tat': round(float(gdf['tat_min'].median()), 1),
-                    })
-                tech_data['by_modality'].sort(key=lambda x: x['avg_tat'])
+            # ── Flag each completed exam ──────────────────────────────────────
+            flagged_rows = []
+            for _, r in completed.iterrows():
+                flags = []
+                tat   = r['tat_min']
+                dur   = float(r['proc_duration'])
+                if pd.isna(tat):
+                    continue
+                if tat < 0:
+                    flags.append('before_scheduled')
+                elif tat < dur * 0.5:
+                    flags.append('too_early')
+                if r['accession_number'] in overlap_accessions:
+                    flags.append('overlap')
+                if tat > dur * 2:
+                    flags.append('too_late')
+                flagged_rows.append({
+                    'accession':    str(r.get('accession_number') or ''),
+                    'modality':     str(r.get('modality') or ''),
+                    'procedure':    str(r.get('procedure_code') or ''),
+                    'technician':   str(r['done_by']) if pd.notna(r.get('done_by')) else '',
+                    'scheduled_at': r['scheduled_datetime'].strftime('%Y-%m-%d %H:%M'),
+                    'done_at':      r['done_at'].strftime('%H:%M'),
+                    'tat_min':      round(float(tat), 1),
+                    'proc_duration': int(dur),
+                    'flags':        flags,
+                })
+            tech_data['flagged'] = sorted([r for r in flagged_rows if r['flags']], key=lambda x: len(x['flags']), reverse=True)
 
-                for _, r in tdf.nlargest(50, 'tat_min').iterrows():
-                    tech_data['slowest'].append({
+            # ── Never done: past due with no done_at ──────────────────────────
+            for _, r in pending.iterrows():
+                deadline = r['scheduled_datetime'] + pd.Timedelta(minutes=float(r['proc_duration']))
+                if deadline < pd.Timestamp(_now):
+                    tech_data['never_done'].append({
                         'accession':    str(r.get('accession_number') or ''),
                         'modality':     str(r.get('modality') or ''),
-                        'technician':   str(r['done_by']) if pd.notna(r.get('done_by')) else '',
-                        'scheduled_at': r['scheduled_datetime'].strftime('%Y-%m-%d %H:%M') if r.get('scheduled_datetime') else '',
-                        'done_at':      r['done_at'].strftime('%H:%M') if r.get('done_at') else '',
-                        'tat_min':      float(r['tat_min']),
+                        'procedure':    str(r.get('procedure_code') or ''),
+                        'scheduled_at': r['scheduled_datetime'].strftime('%Y-%m-%d %H:%M'),
+                        'overdue_min':  round((pd.Timestamp(_now) - deadline).total_seconds() / 60, 1),
                     })
+
+            # ── Summary counts ────────────────────────────────────────────────
+            flagged_accessions = {r['accession'] for r in tech_data['flagged']}
+            tech_data['summary'] = {
+                'total_scheduled':       len(tdf),
+                'total_completed':       len(completed),
+                'never_done':            len(tech_data['never_done']),
+                'flag_before_scheduled': sum(1 for r in tech_data['flagged'] if 'before_scheduled' in r['flags']),
+                'flag_too_early':        sum(1 for r in tech_data['flagged'] if 'too_early'        in r['flags']),
+                'flag_overlap':          sum(1 for r in tech_data['flagged'] if 'overlap'          in r['flags']),
+                'flag_too_late':         sum(1 for r in tech_data['flagged'] if 'too_late'         in r['flags']),
+            }
+
+            # ── Daily trend ───────────────────────────────────────────────────
+            daily_trend = []
+            if len(completed):
+                completed = completed.copy()
+                completed['_date'] = completed['scheduled_datetime'].dt.date
+                for day, gdf in completed.groupby('_date'):
+                    tats = gdf['tat_min'].dropna()
+                    daily_trend.append({
+                        'date':     str(day),
+                        'avg_tat':  round(float(tats.mean()), 1) if len(tats) else 0,
+                        'count':    len(gdf),
+                        'flags':    int(gdf['accession_number'].isin(flagged_accessions).sum()),
+                    })
+                daily_trend.sort(key=lambda x: x['date'])
+            tech_data['daily_trend'] = daily_trend
+
+            # ── By technician (completed only) ────────────────────────────────
+            for tech, gdf in completed[completed['done_by'].notna()].groupby('done_by'):
+                tats = gdf['tat_min'].dropna()
+                tech_data['by_technician'].append({
+                    'name':       str(tech),
+                    'count':      len(gdf),
+                    'avg_tat':    round(float(tats.mean()), 1) if len(tats) else None,
+                    'median_tat': round(float(tats.median()), 1) if len(tats) else None,
+                    'flags':      sum(1 for r in tech_data['flagged'] if r['technician'] == str(tech) and r['flags']),
+                })
+            tech_data['by_technician'].sort(key=lambda x: x['avg_tat'] if x['avg_tat'] is not None else 9999)
+
+            # ── By modality ───────────────────────────────────────────────────
+            for mod, gdf in completed[completed['modality'].notna()].groupby('modality'):
+                tats = gdf['tat_min'].dropna()
+                tech_data['by_modality'].append({
+                    'modality':   str(mod),
+                    'count':      len(gdf),
+                    'avg_tat':    round(float(tats.mean()), 1) if len(tats) else None,
+                    'median_tat': round(float(tats.median()), 1) if len(tats) else None,
+                })
+            tech_data['by_modality'].sort(key=lambda x: x['avg_tat'] if x['avg_tat'] is not None else 9999)
 
     except Exception as _e:
         db.session.rollback()
