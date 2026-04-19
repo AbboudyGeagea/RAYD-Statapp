@@ -175,6 +175,7 @@ def get_gold_standard_data(form_data):
             r_df_valid = r_df[r_df['total_tat_min'] > 0]
             rad_cards.append({
                 "name": rad,
+                "count": int(len(r_df)),
                 "overall": round(r_df_valid['total_tat_min'].mean(), 1) if len(r_df_valid) > 0 else 0.0,
                 "tat_median": round(float(r_df[r_df['total_tat_min'] > 0]['total_tat_min'].median()), 1) if (r_df['total_tat_min'] > 0).any() else 0.0,
                 "total_rvu": round(r_df['rvu'].sum(), 1),

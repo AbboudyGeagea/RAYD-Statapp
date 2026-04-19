@@ -201,8 +201,8 @@
             <!-- ── DEPARTMENT PULSE ───────────────────────────────────────── -->
             {% set _reported = data.rad_cards | map(attribute='count') | sum %}
             {% set _coverage = (_reported / data.summary.total * 100) | round | int if data.summary.total > 0 else 0 %}
-            {% set _tat = data.summary.tat_median | float %}
-            {% set _hs  = data.summary.high_stress_count | int %}
+            {% set _tat = (data.summary.tat_median or 0) | float %}
+            {% set _hs  = (data.summary.high_stress_count or 0) | int %}
             <div id="pulse-bar" class="flex items-center gap-3 mb-8 flex-wrap">
                 <span class="text-[9px] font-black text-zinc-600 uppercase tracking-widest shrink-0">Dept. Pulse</span>
 
@@ -210,7 +210,7 @@
                 <button onclick="switchTab('ops')" class="pulse-pill bg-zinc-800/60 border border-white/10 hover:border-white/20">
                     <i class="bi bi-layers-fill text-zinc-400"></i>
                     <span class="pulse-label">Volume</span>
-                    <span class="pulse-value text-white">{{ data.summary.total | int | format_commas if data.summary.total > 999 else data.summary.total }}</span>
+                    <span class="pulse-value text-white">{{ data.summary.total | int }}</span>
                     <span class="pulse-sub">studies</span>
                 </button>
 
