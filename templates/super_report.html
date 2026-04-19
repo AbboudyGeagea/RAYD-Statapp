@@ -280,6 +280,14 @@
                     <div id="super-demographics" class="grid grid-cols-2 md:grid-cols-4 gap-3"></div>
                 </div>
 
+                <!-- Clinical Insights -->
+                <div class="card p-5" id="super-insights-card" style="display:none">
+                    <h4 class="text-yellow-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2">
+                        <i class="bi bi-lightbulb-fill"></i> Clinical Insights
+                    </h4>
+                    <div id="super-insights" class="space-y-2"></div>
+                </div>
+
             </div>
 
             <!-- Empty state -->
@@ -572,7 +580,12 @@
 
         document.getElementById('period-label').textContent =
             `${d.delta_days} days · comparing to ${d.cmp_start} → ${d.cmp_end}`;
-        renderNarrative(d.narrative);
+
+        // Split Clinical Insights out of narrative before typewriter renders it
+        const insightsSection = (d.narrative || []).find(s => s.title === 'Clinical Insights');
+        const narrativeOnly   = (d.narrative || []).filter(s => s.title !== 'Clinical Insights');
+        renderNarrative(narrativeOnly);
+        renderInsights(insightsSection);
 
         // KPIs
         const kpis = [
@@ -695,6 +708,41 @@
             typeChar();
         }
         typeNextBullet();
+    }
+
+    // ── Clinical Insights renderer ────────────────────────────────────
+    function renderInsights(sec) {
+        const card = document.getElementById('super-insights-card');
+        const box  = document.getElementById('super-insights');
+        if (!sec || !sec.signals) { card.style.display = 'none'; return; }
+
+        const signals = sec.signals || [];
+        card.style.display = '';
+
+        if (!signals.length) {
+            box.innerHTML = `<div class="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                <i class="bi bi-check-circle-fill text-emerald-400 shrink-0"></i>
+                <p class="text-xs text-emerald-300">All department metrics within normal thresholds — no anomalies detected.</p>
+            </div>`;
+            return;
+        }
+
+        const sevMap = {
+            critical: { bg: 'bg-rose-500/10',   border: 'border-rose-500/25',   icon: 'bi-exclamation-triangle-fill text-rose-400',   label: 'text-rose-300' },
+            warning:  { bg: 'bg-amber-500/10',  border: 'border-amber-500/25',  icon: 'bi-exclamation-circle-fill text-amber-400',    label: 'text-amber-300' },
+            info:     { bg: 'bg-blue-500/10',   border: 'border-blue-500/20',   icon: 'bi-info-circle-fill text-blue-400',            label: 'text-blue-300' },
+        };
+
+        box.innerHTML = signals.map(s => {
+            const st = sevMap[s.severity] || sevMap.info;
+            return `<div class="flex items-start gap-2 px-3 py-2 rounded-lg ${st.bg} border ${st.border}">
+                <i class="bi ${st.icon} mt-0.5 shrink-0"></i>
+                <div>
+                    <p class="text-[10px] font-black ${st.label} uppercase">${escHtml(s.entity||'')}</p>
+                    <p class="text-xs text-zinc-300 leading-relaxed">${escHtml(s.message||'')}</p>
+                </div>
+            </div>`;
+        }).join('');
     }
 
     // ── Helpers ───────────────────────────────────────────────────────
