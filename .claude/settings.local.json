@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(xargs grep *)",
-      "Bash(find \"/d/Intermedic/Statistics app/RAYD-Statapp/RAYD-Statapp\" -type f -name \"*.py\" -not -path \"*/venv/*\" -exec grep -l \"APScheduler\\\\|scheduler\\\\|add_job\" {} \\\\;)"
+      "Bash(find \"/d/Intermedic/Statistics app/RAYD-Statapp/RAYD-Statapp\" -type f -name \"*.py\" -not -path \"*/venv/*\" -exec grep -l \"APScheduler\\\\|scheduler\\\\|add_job\" {} \\\\;)",
+      "Bash(grep -B1 \"pass$\")"
     ]
   }
 }

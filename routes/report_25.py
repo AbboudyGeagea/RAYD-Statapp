@@ -374,7 +374,7 @@ def get_gold_standard_data(form_data):
         for bucket, modality, cnt in aging_rows:
             unread_aging.append({'bucket': bucket, 'modality': modality, 'cnt': int(cnt)})
     except Exception:
-        pass
+        db.session.rollback()
 
     # Studies per shift
     shift_breakdown = []
@@ -404,7 +404,7 @@ def get_gold_standard_data(form_data):
         for shift, modality, cnt in shift_rows:
             shift_breakdown.append({'shift': shift, 'modality': modality, 'cnt': int(cnt)})
     except Exception:
-        pass
+        db.session.rollback()
 
     # Addendum rate by radiologist
     addendum_data = {'overall_pct': 0.0, 'by_rad': []}
@@ -434,7 +434,7 @@ def get_gold_standard_data(form_data):
         overall_pct = round(total_addenda / total_studies * 100, 1) if total_studies > 0 else 0.0
         addendum_data = {'overall_pct': overall_pct, 'total_addenda': total_addenda, 'by_rad': by_rad}
     except Exception:
-        pass
+        db.session.rollback()
 
     # ── Technician monitoring (HL7 orders — 5 flag categories) ─────────────────
     tech_data = {
