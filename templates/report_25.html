@@ -427,17 +427,45 @@
                     <p class="text-xs font-black text-yellow-500 uppercase tracking-widest">Statistical Insights</p>
                     <div class="space-y-2">
                         {% for sig in data.rad_insights %}
-                        <div class="flex items-start gap-2 px-3 py-2 rounded-lg
-                            {% if sig.severity == 'critical' %}bg-rose-500/10 border border-rose-500/25
-                            {% elif sig.severity == 'warning' %}bg-amber-500/10 border border-amber-500/25
-                            {% else %}bg-blue-500/10 border border-blue-500/20{% endif %}">
-                            <i class="bi {% if sig.severity == 'critical' %}bi-exclamation-triangle-fill text-rose-400
-                                {% elif sig.severity == 'warning' %}bi-exclamation-circle-fill text-amber-400
-                                {% else %}bi-info-circle-fill text-blue-400{% endif %} mt-0.5 shrink-0"></i>
-                            <div>
-                                <p class="text-[10px] font-black {% if sig.severity == 'critical' %}text-rose-300{% elif sig.severity == 'warning' %}text-amber-300{% else %}text-blue-300{% endif %} uppercase">{{ sig.entity }}</p>
-                                <p class="text-xs text-zinc-300 leading-relaxed">{{ sig.message }}</p>
+                        {% set loop_id = 'rad-sig-' ~ loop.index %}
+                        <div class="rounded-lg border
+                            {% if sig.severity == 'critical' %}bg-rose-500/10 border-rose-500/25
+                            {% elif sig.severity == 'warning' %}bg-amber-500/10 border-amber-500/25
+                            {% else %}bg-blue-500/10 border-blue-500/20{% endif %}">
+                            <div class="flex items-start gap-2 px-3 py-2
+                                {% if sig.evidence and sig.evidence|length > 0 %}cursor-pointer{% endif %}"
+                                {% if sig.evidence and sig.evidence|length > 0 %}onclick="toggleEvidence('{{ loop_id }}')"{% endif %}>
+                                <i class="bi {% if sig.severity == 'critical' %}bi-exclamation-triangle-fill text-rose-400
+                                    {% elif sig.severity == 'warning' %}bi-exclamation-circle-fill text-amber-400
+                                    {% else %}bi-info-circle-fill text-blue-400{% endif %} mt-0.5 shrink-0"></i>
+                                <div class="flex-1">
+                                    <p class="text-[10px] font-black {% if sig.severity == 'critical' %}text-rose-300{% elif sig.severity == 'warning' %}text-amber-300{% else %}text-blue-300{% endif %} uppercase">{{ sig.entity }}</p>
+                                    <p class="text-xs text-zinc-300 leading-relaxed">{{ sig.message }}</p>
+                                </div>
+                                {% if sig.evidence and sig.evidence|length > 0 %}
+                                <i id="{{ loop_id }}-icon" class="bi bi-chevron-down text-zinc-500 text-[10px] mt-1 shrink-0 transition-transform"></i>
+                                {% endif %}
                             </div>
+                            {% if sig.evidence and sig.evidence|length > 0 %}
+                            <div id="{{ loop_id }}" class="hidden px-3 pb-2">
+                                <table class="w-full text-[10px] border-collapse">
+                                    <thead><tr class="text-zinc-500 uppercase">
+                                        <th class="text-left py-1 pr-3 font-black">Accession</th>
+                                        <th class="text-left py-1 pr-3 font-black">Radiologist</th>
+                                        <th class="text-left py-1 font-black">Time</th>
+                                    </tr></thead>
+                                    <tbody>
+                                    {% for ev in sig.evidence %}
+                                    <tr class="border-t border-white/5 text-zinc-300">
+                                        <td class="py-1 pr-3 font-mono">{{ ev.accession or '—' }}</td>
+                                        <td class="py-1 pr-3">{{ ev.user or '—' }}</td>
+                                        <td class="py-1">{{ ev.time or '—' }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                            {% endif %}
                         </div>
                         {% endfor %}
                     </div>
@@ -1011,17 +1039,47 @@
                     <p class="text-xs font-black text-yellow-500 uppercase tracking-widest">Statistical Insights</p>
                     <div class="space-y-2">
                         {% for sig in data.tech_insights %}
-                        <div class="flex items-start gap-2 px-3 py-2 rounded-lg
-                            {% if sig.severity == 'critical' %}bg-rose-500/10 border border-rose-500/25
-                            {% elif sig.severity == 'warning' %}bg-amber-500/10 border border-amber-500/25
-                            {% else %}bg-blue-500/10 border border-blue-500/20{% endif %}">
-                            <i class="bi {% if sig.severity == 'critical' %}bi-exclamation-triangle-fill text-rose-400
-                                {% elif sig.severity == 'warning' %}bi-exclamation-circle-fill text-amber-400
-                                {% else %}bi-info-circle-fill text-blue-400{% endif %} mt-0.5 shrink-0"></i>
-                            <div>
-                                <p class="text-[10px] font-black {% if sig.severity == 'critical' %}text-rose-300{% elif sig.severity == 'warning' %}text-amber-300{% else %}text-blue-300{% endif %} uppercase">{{ sig.entity }}</p>
-                                <p class="text-xs text-zinc-300 leading-relaxed">{{ sig.message }}</p>
+                        {% set loop_id = 'tech-sig-' ~ loop.index %}
+                        <div class="rounded-lg border
+                            {% if sig.severity == 'critical' %}bg-rose-500/10 border-rose-500/25
+                            {% elif sig.severity == 'warning' %}bg-amber-500/10 border-amber-500/25
+                            {% else %}bg-blue-500/10 border-blue-500/20{% endif %}">
+                            <div class="flex items-start gap-2 px-3 py-2
+                                {% if sig.evidence and sig.evidence|length > 0 %}cursor-pointer{% endif %}"
+                                {% if sig.evidence and sig.evidence|length > 0 %}onclick="toggleEvidence('{{ loop_id }}')"{% endif %}>
+                                <i class="bi {% if sig.severity == 'critical' %}bi-exclamation-triangle-fill text-rose-400
+                                    {% elif sig.severity == 'warning' %}bi-exclamation-circle-fill text-amber-400
+                                    {% else %}bi-info-circle-fill text-blue-400{% endif %} mt-0.5 shrink-0"></i>
+                                <div class="flex-1">
+                                    <p class="text-[10px] font-black {% if sig.severity == 'critical' %}text-rose-300{% elif sig.severity == 'warning' %}text-amber-300{% else %}text-blue-300{% endif %} uppercase">{{ sig.entity }}</p>
+                                    <p class="text-xs text-zinc-300 leading-relaxed">{{ sig.message }}</p>
+                                </div>
+                                {% if sig.evidence and sig.evidence|length > 0 %}
+                                <i id="{{ loop_id }}-icon" class="bi bi-chevron-down text-zinc-500 text-[10px] mt-1 shrink-0 transition-transform"></i>
+                                {% endif %}
                             </div>
+                            {% if sig.evidence and sig.evidence|length > 0 %}
+                            <div id="{{ loop_id }}" class="hidden px-3 pb-2">
+                                <table class="w-full text-[10px] border-collapse">
+                                    <thead><tr class="text-zinc-500 uppercase">
+                                        <th class="text-left py-1 pr-3 font-black">Accession</th>
+                                        <th class="text-left py-1 pr-3 font-black">Technician</th>
+                                        <th class="text-left py-1 pr-3 font-black">Modality</th>
+                                        <th class="text-left py-1 font-black">Time</th>
+                                    </tr></thead>
+                                    <tbody>
+                                    {% for ev in sig.evidence %}
+                                    <tr class="border-t border-white/5 text-zinc-300">
+                                        <td class="py-1 pr-3 font-mono">{{ ev.accession or '—' }}</td>
+                                        <td class="py-1 pr-3">{{ ev.user or '—' }}</td>
+                                        <td class="py-1 pr-3">{{ ev.modality or '—' }}</td>
+                                        <td class="py-1">{{ ev.time or '—' }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                            {% endif %}
                         </div>
                         {% endfor %}
                     </div>
@@ -1319,6 +1377,14 @@
         function scrollToSection(id) {
             const el = document.getElementById(id);
             if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        function toggleEvidence(id) {
+            const el   = document.getElementById(id);
+            const icon = document.getElementById(id + '-icon');
+            if (!el) return;
+            const hidden = el.classList.toggle('hidden');
+            if (icon) icon.style.transform = hidden ? '' : 'rotate(180deg)';
         }
 
         window._techCharts = {};

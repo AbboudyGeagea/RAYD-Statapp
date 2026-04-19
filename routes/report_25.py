@@ -210,7 +210,8 @@ def get_gold_standard_data(form_data):
                     s.rep_final_signed_by,
                     'Unknown'
                 ) AS radiologist,
-                s.rep_final_timestamp
+                s.rep_final_timestamp,
+                s.accession_number
             FROM etl_didb_studies s
             {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
             WHERE s.rep_final_timestamp IS NOT NULL
@@ -220,7 +221,7 @@ def get_gold_standard_data(form_data):
         """), params).fetchall()
 
         if ts_rows:
-            ts_df = pd.DataFrame(ts_rows, columns=['radiologist', 'ts'])
+            ts_df = pd.DataFrame(ts_rows, columns=['radiologist', 'ts', 'accession_number'])
             ts_df['ts']        = pd.to_datetime(ts_df['ts'])
             ts_df['work_date'] = ts_df['ts'].dt.date
             ts_df['hour']      = ts_df['ts'].dt.hour
@@ -624,7 +625,7 @@ def get_gold_standard_data(form_data):
     try:
         _signing_df = None
         if ts_rows:
-            _signing_df = pd.DataFrame(ts_rows, columns=['radiologist', 'ts'])
+            _signing_df = pd.DataFrame(ts_rows, columns=['radiologist', 'ts', 'accession_number'])
         rad_insights = run_rad_insights(rad_cards, _signing_df)
     except Exception as _ie:
         print(f"Rad insights error: {_ie}")
