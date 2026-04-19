@@ -16,6 +16,7 @@ from flask import Blueprint, request, jsonify, render_template
 from flask_login import login_required, current_user
 from sqlalchemy import text
 from db import db
+from routes.insights_engine import run_dept_insights
 
 logger = logging.getLogger("SUPER_REPORT")
 super_report_bp = Blueprint("super_report", __name__)
@@ -633,5 +634,25 @@ def _generate_narrative(cur, prev, start, end, cmp_start, cmp_end, delta):
         sections.append({"icon": "bi-exclamation-triangle", "color": "#f87171", "title": "Alerts & Anomalies", "bullets": alerts})
     else:
         sections.append({"icon": "bi-check-circle", "color": "#34d399", "title": "Alerts & Anomalies", "bullets": ["No critical anomalies detected — all key metrics within normal ranges"]})
+
+    # ── Clinical Insights (statistical signal engine) ─────────────────
+    try:
+        dept_signals = run_dept_insights(cur, prev)
+        if dept_signals:
+            severity_order = {"critical": 0, "warning": 1, "info": 2}
+            dept_signals.sort(key=lambda s: severity_order.get(s.get("severity", "info"), 2))
+            insight_bullets = []
+            for s in dept_signals:
+                icon = {"critical": "⚠", "warning": "▲", "info": "ℹ"}.get(s.get("severity", "info"), "•")
+                insight_bullets.append(f"{icon} [{s.get('entity', '')}] {s.get('message', '')}")
+            sections.append({
+                "icon": "bi-lightbulb",
+                "color": "#fbbf24",
+                "title": "Clinical Insights",
+                "bullets": insight_bullets,
+                "signals": dept_signals,   # structured for future hyperlinks
+            })
+    except Exception as _ins_e:
+        logger.warning(f"Clinical insights error: {_ins_e}")
 
     return sections

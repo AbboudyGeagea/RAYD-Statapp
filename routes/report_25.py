@@ -7,6 +7,7 @@ from flask_login import login_required
 from sqlalchemy import text
 from db import db, get_etl_cutoff_date
 from routes.report_cache import cache_get, cache_put
+from routes.insights_engine import run_tech_insights, run_rad_insights
 
 report_25_bp = Blueprint("report_25", __name__)
 
@@ -196,6 +197,7 @@ def get_gold_standard_data(form_data):
 
     # ── Signing pattern per radiologist ───────────────────────────────
     shift_patterns = {}
+    ts_rows = []
     try:
         _BREAK_MIN = 20
         ts_rows = db.session.execute(text(f"""
@@ -555,32 +557,91 @@ def get_gold_standard_data(form_data):
                 daily_trend.sort(key=lambda x: x['date'])
             tech_data['daily_trend'] = daily_trend
 
+            def _skew_insight(avg, median):
+                """Return a plain-English warning if avg/median diverge significantly."""
+                if avg is None or median is None or median == 0:
+                    return None
+                ratio = avg / median
+                if ratio >= 2.0:
+                    return f"Avg is {ratio:.1f}× the median — a small number of very slow exams are inflating the average. Investigate outliers."
+                if ratio >= 1.5:
+                    return f"Avg is {ratio:.1f}× the median — some delayed exams are pulling the average up."
+                return None
+
             # ── By technician (completed only) ────────────────────────────────
             for tech, gdf in completed[completed['done_by'].notna()].groupby('done_by'):
                 tats = gdf['tat_min'].dropna()
+                avg    = round(float(tats.mean()),   1) if len(tats) else None
+                median = round(float(tats.median()), 1) if len(tats) else None
                 tech_data['by_technician'].append({
                     'name':       str(tech),
                     'count':      len(gdf),
-                    'avg_tat':    round(float(tats.mean()), 1) if len(tats) else None,
-                    'median_tat': round(float(tats.median()), 1) if len(tats) else None,
+                    'avg_tat':    avg,
+                    'median_tat': median,
                     'flags':      sum(1 for r in tech_data['flagged'] if r['technician'] == str(tech) and r['flags']),
+                    'insight':    _skew_insight(avg, median),
                 })
             tech_data['by_technician'].sort(key=lambda x: x['avg_tat'] if x['avg_tat'] is not None else 9999)
 
             # ── By modality ───────────────────────────────────────────────────
             for mod, gdf in completed[completed['modality'].notna()].groupby('modality'):
                 tats = gdf['tat_min'].dropna()
+                avg    = round(float(tats.mean()),   1) if len(tats) else None
+                median = round(float(tats.median()), 1) if len(tats) else None
                 tech_data['by_modality'].append({
                     'modality':   str(mod),
                     'count':      len(gdf),
-                    'avg_tat':    round(float(tats.mean()), 1) if len(tats) else None,
-                    'median_tat': round(float(tats.median()), 1) if len(tats) else None,
+                    'avg_tat':    avg,
+                    'median_tat': median,
+                    'insight':    _skew_insight(avg, median),
                 })
             tech_data['by_modality'].sort(key=lambda x: x['avg_tat'] if x['avg_tat'] is not None else 9999)
+
+            # ── Department-level insight ──────────────────────────────────────
+            all_tats = completed['tat_min'].dropna()
+            if len(all_tats):
+                dept_avg    = round(float(all_tats.mean()),   1)
+                dept_median = round(float(all_tats.median()), 1)
+                tech_data['summary']['avg_tat']    = dept_avg
+                tech_data['summary']['median_tat'] = dept_median
+                tech_data['summary']['dept_insight'] = _skew_insight(dept_avg, dept_median)
 
     except Exception as _e:
         db.session.rollback()
         print(f"Technician TAT error: {_e}")
+
+    # ── Statistical insights (pure Python — no external calls) ───────────
+    tech_insights = []
+    rad_insights  = []
+    try:
+        if tech_data.get('flagged') is not None:
+            # Rebuild completed_df subset for insight engine
+            _tech_rows = db.session.execute(text(f"""
+                SELECT o.done_by, o.done_at, o.scheduled_datetime,
+                       COALESCE(p.duration_minutes, 30) AS proc_duration, o.modality
+                FROM hl7_orders o
+                LEFT JOIN procedure_duration_map p
+                       ON UPPER(TRIM(o.procedure_code)) = UPPER(TRIM(p.procedure_code))
+                WHERE o.done_at IS NOT NULL
+                  AND o.scheduled_datetime::date BETWEEN :start AND :end
+                  {"AND UPPER(TRIM(o.modality)) IN :modalities" if "modalities" in params else ""}
+            """), params).mappings().fetchall()
+            if _tech_rows:
+                _tdf = pd.DataFrame(_tech_rows)
+                _tdf['done_at'] = pd.to_datetime(_tdf['done_at'], errors='coerce')
+                _tdf['scheduled_datetime'] = pd.to_datetime(_tdf['scheduled_datetime'])
+                _tdf['tat_min'] = (_tdf['done_at'] - _tdf['scheduled_datetime']).dt.total_seconds() / 60
+                tech_insights = run_tech_insights(_tdf)
+    except Exception as _ie:
+        print(f"Tech insights error: {_ie}")
+
+    try:
+        _signing_df = None
+        if ts_rows:
+            _signing_df = pd.DataFrame(ts_rows, columns=['radiologist', 'ts'])
+        rad_insights = run_rad_insights(rad_cards, _signing_df)
+    except Exception as _ie:
+        print(f"Rad insights error: {_ie}")
 
     result = ({
         "summary": {
@@ -630,6 +691,8 @@ def get_gold_standard_data(form_data):
         "addendum_data":   addendum_data,
         "shift_patterns":  shift_patterns,
         "tech_data":       tech_data,
+        "tech_insights":   tech_insights,
+        "rad_insights":    rad_insights,
     }, start, end)
     cache_put(25, form_data, result)
     return result
