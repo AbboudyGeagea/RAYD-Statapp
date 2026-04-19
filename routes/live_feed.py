@@ -218,6 +218,7 @@ def live_status():
         })
 
     except Exception as e:
+        db.session.rollback()
         logger.error(f"Live status error: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
@@ -284,6 +285,7 @@ def live_tat():
         })
 
     except Exception as e:
+        db.session.rollback()
         logger.error(f"TAT error: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
@@ -331,6 +333,7 @@ def live_orphans():
         return jsonify({"orphans": orphans, "count": len(orphans)})
 
     except Exception as e:
+        db.session.rollback()
         logger.error(f"Orphans error: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
@@ -354,6 +357,7 @@ def live_version():
         latest = row[0] if row and row[0] else None
         return jsonify({"version": latest.isoformat() if latest else "none"})
     except Exception as e:
+        db.session.rollback()
         return jsonify({"version": "none", "error": str(e)})
 
 
