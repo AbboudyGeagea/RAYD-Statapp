@@ -977,7 +977,14 @@
                 <!-- Daily TAT Trend -->
                 {% if data.tech_data.daily_trend and data.tech_data.daily_trend|length > 1 %}
                 <div class="glass-card space-y-2">
-                    <p class="text-xs font-black text-blue-500 uppercase tracking-widest">Daily TAT Trend</p>
+                    <div class="flex items-center justify-between">
+                        <p class="text-xs font-black text-blue-500 uppercase tracking-widest">Daily TAT Trend</p>
+                        <button type="button" onclick="downloadChartPNG('chart-tech-trend', 'tech_trend')"
+                                class="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-zinc-800 border border-white/10 text-[10px] font-black text-zinc-400 hover:text-white transition-all uppercase">
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                            PNG
+                        </button>
+                    </div>
                     <div id="chart-tech-trend" style="height:220px;"></div>
                 </div>
                 {% endif %}
@@ -1254,6 +1261,17 @@
             if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
 
+        window._techCharts = {};
+        function downloadChartPNG(elId, name) {
+            const c = window._techCharts[elId];
+            if (!c) return;
+            const url = c.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#111413' });
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `RAYD_${name}_${new Date().toISOString().slice(0,10)}.png`;
+            a.click();
+        }
+
         function switchTab(t) {
             $('.tab-content').addClass('hidden');
             $(`#tab-${t}`).removeClass('hidden');
@@ -1306,6 +1324,7 @@
                 const trend = (d.tech_data || {}).daily_trend || [];
                 if (trend.length > 1) {
                     const tc = echarts.init(trendEl);
+                    window._techCharts['chart-tech-trend'] = tc;
                     const markPoints = trend
                         .map((r, i) => r.flags > 0 ? { coord: [i, r.avg_tat], value: r.flags + ' flag' + (r.flags > 1 ? 's' : ''), itemStyle: { color: '#f43f5e' } } : null)
                         .filter(Boolean);

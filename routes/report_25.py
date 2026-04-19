@@ -706,27 +706,29 @@ def export_technician_25():
     if not data:
         return "Error", 400
     tech = data.get('tech_data', {})
+
+    sections = []
+    if tech.get('summary'):
+        sections.append(pd.DataFrame([tech['summary']]).assign(_section='Summary'))
+    if tech.get('by_technician'):
+        sections.append(pd.DataFrame(tech['by_technician']).assign(_section='By Technician'))
+    if tech.get('by_modality'):
+        sections.append(pd.DataFrame(tech['by_modality']).assign(_section='By Modality'))
+    if tech.get('flagged'):
+        df_f = pd.DataFrame(tech['flagged'])
+        df_f['flags'] = df_f['flags'].apply(lambda x: ', '.join(x))
+        sections.append(df_f.assign(_section='Flagged'))
+    if tech.get('never_done'):
+        sections.append(pd.DataFrame(tech['never_done']).assign(_section='Never Done'))
+
+    if not sections:
+        return "No data", 400
+
     output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        # Summary
-        if tech.get('summary'):
-            pd.DataFrame([tech['summary']]).to_excel(writer, index=False, sheet_name='Summary')
-        # By Technician
-        if tech.get('by_technician'):
-            pd.DataFrame(tech['by_technician']).to_excel(writer, index=False, sheet_name='By Technician')
-        # By Modality
-        if tech.get('by_modality'):
-            pd.DataFrame(tech['by_modality']).to_excel(writer, index=False, sheet_name='By Modality')
-        # Flagged exams
-        if tech.get('flagged'):
-            df_flagged = pd.DataFrame(tech['flagged'])
-            df_flagged['flags'] = df_flagged['flags'].apply(lambda x: ', '.join(x))
-            df_flagged.to_excel(writer, index=False, sheet_name='Flagged')
-        # Never done
-        if tech.get('never_done'):
-            pd.DataFrame(tech['never_done']).to_excel(writer, index=False, sheet_name='Never Done')
+    pd.concat(sections, ignore_index=True).to_csv(output, index=False)
     output.seek(0)
-    return send_file(output, as_attachment=True, download_name=f"RAYD_Tech_TAT_{date.today()}.xlsx")
+    return send_file(output, mimetype='text/csv', as_attachment=True,
+                     download_name=f"RAYD_Tech_TAT_{date.today()}.csv")
 
 @report_25_bp.route("/report/25/save-shifts", methods=["POST"])
 @login_required

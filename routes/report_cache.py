@@ -94,31 +94,40 @@ def get_filter_options(db) -> dict:
     # One consolidated query — single round trip for everything from small
     # lookup tables; DISTINCT on large tables grouped into one CTE so PG
     # only scans etl_didb_studies once.
-    row = db.session.execute(text("""
-        WITH s AS MATERIALIZED (
-            SELECT DISTINCT patient_class, patient_location, study_status, storing_ae
-            FROM etl_didb_studies
-            WHERE patient_class IS NOT NULL
-               OR patient_location IS NOT NULL
-               OR study_status    IS NOT NULL
-               OR storing_ae      IS NOT NULL
-        )
-        SELECT
-            (SELECT JSON_AGG(v ORDER BY v) FROM (SELECT DISTINCT patient_class  AS v FROM s WHERE patient_class  IS NOT NULL) x) AS classes,
-            (SELECT JSON_AGG(v ORDER BY v) FROM (SELECT DISTINCT patient_location AS v FROM s WHERE patient_location IS NOT NULL) x) AS locations,
-            (SELECT JSON_AGG(v ORDER BY v) FROM (SELECT DISTINCT study_status   AS v FROM s WHERE study_status    IS NOT NULL) x) AS statuses,
-            (SELECT JSON_AGG(v ORDER BY v) FROM (SELECT DISTINCT storing_ae     AS v FROM s WHERE storing_ae      IS NOT NULL) x) AS aetitles,
-            (SELECT JSON_AGG(v ORDER BY v) FROM (SELECT DISTINCT modality FROM aetitle_modality_map WHERE modality IS NOT NULL) x) AS modalities,
-            (SELECT JSON_AGG(v ORDER BY v) FROM (SELECT DISTINCT sex AS v FROM etl_patient_view WHERE sex IS NOT NULL) x) AS sex_values
-    """)).fetchone()
+    data = {"classes": [], "locations": [], "statuses": [], "aetitles": [], "modalities": [], "sex_values": []}
 
-    data = {
-        "classes":    row[0] or [],
-        "locations":  row[1] or [],
-        "statuses":   row[2] or [],
-        "aetitles":   row[3] or [],
-        "modalities": row[4] or [],
-        "sex_values": row[5] or [],
-    }
+    try:
+        row = db.session.execute(text("""
+            WITH s AS MATERIALIZED (
+                SELECT DISTINCT patient_class, patient_location, study_status, storing_ae
+                FROM etl_didb_studies
+                WHERE patient_class IS NOT NULL
+                   OR patient_location IS NOT NULL
+                   OR study_status    IS NOT NULL
+                   OR storing_ae      IS NOT NULL
+            )
+            SELECT
+                (SELECT JSON_AGG(v ORDER BY v) FROM (SELECT DISTINCT patient_class    AS v FROM s WHERE patient_class    IS NOT NULL) x) AS classes,
+                (SELECT JSON_AGG(v ORDER BY v) FROM (SELECT DISTINCT patient_location AS v FROM s WHERE patient_location IS NOT NULL) x) AS locations,
+                (SELECT JSON_AGG(v ORDER BY v) FROM (SELECT DISTINCT study_status     AS v FROM s WHERE study_status     IS NOT NULL) x) AS statuses,
+                (SELECT JSON_AGG(v ORDER BY v) FROM (SELECT DISTINCT storing_ae       AS v FROM s WHERE storing_ae       IS NOT NULL) x) AS aetitles,
+                (SELECT JSON_AGG(v ORDER BY v) FROM (SELECT DISTINCT modality FROM aetitle_modality_map WHERE modality IS NOT NULL) x) AS modalities
+        """)).fetchone()
+        data["classes"]    = row[0] or []
+        data["locations"]  = row[1] or []
+        data["statuses"]   = row[2] or []
+        data["aetitles"]   = row[3] or []
+        data["modalities"] = row[4] or []
+    except Exception:
+        db.session.rollback()
+
+    try:
+        row2 = db.session.execute(text(
+            "SELECT JSON_AGG(v ORDER BY v) FROM (SELECT DISTINCT sex AS v FROM etl_patient_view WHERE sex IS NOT NULL) x"
+        )).fetchone()
+        data["sex_values"] = row2[0] or []
+    except Exception:
+        db.session.rollback()
+
     _store[_FILTER_KEY] = {"data": data, "ts": time.time()}
     return data
