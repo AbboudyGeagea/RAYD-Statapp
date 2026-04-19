@@ -1,4 +1,10 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(python -c ' *)",
+      "Bash(python -c \"import py_compile; py_compile.compile\\('d:/Intermedic/Statistics app/RAYD-Statapp/routes/report_25.py', doraise=True\\); print\\('Python OK'\\)\")"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {
@@ -10,11 +16,6 @@
           }
         ]
       }
-    ]
-  },
-  "permissions": {
-    "allow": [
-      "Bash(python -c ' *)"
     ]
   }
 }

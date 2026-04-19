@@ -25,8 +25,17 @@
         .outlier-badge { display:inline-flex; align-items:center; gap:4px; background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.4); color:#f59e0b; border-radius:999px; padding:2px 10px; font-size:10px; font-weight:700; cursor:pointer; position:relative; }
         .outlier-badge .tooltip { display:none; position:absolute; top:calc(100% + 6px); right:0; background:#1c1917; border:1px solid rgba(245,158,11,0.4); color:#fde68a; font-size:10px; padding:6px 10px; border-radius:8px; white-space:nowrap; z-index:100; }
         .outlier-badge:hover .tooltip { display:block; }
-        .tab-btn { font-size: 13px; font-weight: 800; text-transform: uppercase; color: #71717a; padding: 24px 0; border-bottom: 3px solid transparent; transition: 0.3s; cursor: pointer; }
+        .tab-btn { font-size: 13px; font-weight: 800; text-transform: uppercase; color: #71717a; padding: 24px 0; border-bottom: 3px solid transparent; transition: 0.3s; cursor: pointer; display:flex; align-items:center; gap:6px; }
         .tab-btn.active { color: #3b82f6; border-bottom: 3px solid #3b82f6; }
+        .tab-badge { display:inline-flex; align-items:center; justify-content:center; min-width:16px; height:16px; padding:0 4px; border-radius:8px; background:#ef4444; color:#fff; font-size:9px; font-weight:900; line-height:1; }
+        .pulse-pill { display:inline-flex; align-items:center; gap:6px; padding:6px 14px; border-radius:12px; border:1px solid; cursor:pointer; transition:all 0.2s; font-size:11px; }
+        .pulse-pill:hover { filter:brightness(1.15); transform:translateY(-1px); }
+        .rad-sort-btn { padding:2px 8px; border-radius:6px; border:1px solid transparent; cursor:pointer; transition:all 0.15s; color:#52525b; }
+        .rad-sort-btn:hover { color:#94a3b8; border-color:#3f3f46; }
+        .rad-sort-btn.active { color:#60a5fa; border-color:#3b82f6; background:rgba(59,130,246,0.08); }
+        .pulse-label { font-weight:700; color:#71717a; text-transform:uppercase; font-size:9px; letter-spacing:0.08em; }
+        .pulse-value { font-weight:900; font-size:13px; }
+        .pulse-sub { font-size:9px; color:#52525b; font-style:italic; }
         .sidebar-label { font-size: 11px; font-weight: 800; color: #52525b; text-transform: uppercase; margin-bottom: 8px; display: block; }
         .input-dark { background: #000; border: 1px solid #27272a; color: #fff; border-radius: 12px; padding: 12px; width: 100%; font-size: 13px; }
         .select2-container--default .select2-selection--multiple { background: #000 !important; border: 1px solid #27272a !important; min-height: 45px !important; border-radius: 12px !important; }
@@ -189,7 +198,75 @@
         <div class="flex-1 overflow-y-auto p-10">
             {% if run_report %}
 
+            <!-- ── DEPARTMENT PULSE ───────────────────────────────────────── -->
+            {% set _reported = data.rad_cards | map(attribute='count') | sum %}
+            {% set _coverage = (_reported / data.summary.total * 100) | round | int if data.summary.total > 0 else 0 %}
+            {% set _tat = data.summary.tat_median | float %}
+            {% set _hs  = data.summary.high_stress_count | int %}
+            <div id="pulse-bar" class="flex items-center gap-3 mb-8 flex-wrap">
+                <span class="text-[9px] font-black text-zinc-600 uppercase tracking-widest shrink-0">Dept. Pulse</span>
 
+                <!-- Volume -->
+                <button onclick="switchTab('ops')" class="pulse-pill bg-zinc-800/60 border border-white/10 hover:border-white/20">
+                    <i class="bi bi-layers-fill text-zinc-400"></i>
+                    <span class="pulse-label">Volume</span>
+                    <span class="pulse-value text-white">{{ data.summary.total | int | format_commas if data.summary.total > 999 else data.summary.total }}</span>
+                    <span class="pulse-sub">studies</span>
+                </button>
+
+                <!-- Median TAT -->
+                <button onclick="switchTab('ops')" class="pulse-pill
+                    {% if _tat > 1440 %}bg-rose-500/15 border-rose-500/40
+                    {% elif _tat > 480 %}bg-amber-500/15 border-amber-500/40
+                    {% elif _tat > 0 %}bg-emerald-500/10 border-emerald-500/30
+                    {% else %}bg-zinc-800/60 border-white/10{% endif %}">
+                    <i class="bi bi-clock-history
+                        {% if _tat > 1440 %}text-rose-400{% elif _tat > 480 %}text-amber-400{% else %}text-emerald-400{% endif %}"></i>
+                    <span class="pulse-label">Median TAT</span>
+                    <span class="pulse-value
+                        {% if _tat > 1440 %}text-rose-400{% elif _tat > 480 %}text-amber-400{% else %}text-white{% endif %}">
+                        {% if _tat > 0 %}{{ (_tat / 60) | round(1) }}h{% else %}—{% endif %}
+                    </span>
+                    <span class="pulse-sub">
+                        {% if _tat > 1440 %}above 24h!{% elif _tat > 480 %}above 8h{% else %}on target{% endif %}
+                    </span>
+                </button>
+
+                <!-- ER Wait -->
+                <button onclick="switchTab('ops')" class="pulse-pill bg-zinc-800/60 border border-white/10 hover:border-white/20">
+                    <i class="bi bi-activity text-blue-400"></i>
+                    <span class="pulse-label">ER Avg TAT</span>
+                    <span class="pulse-value text-blue-300">{{ data.summary.er_wait }}</span>
+                    <span class="pulse-sub">emergency</span>
+                </button>
+
+                <!-- High-stress AEs -->
+                <button onclick="switchTab('infra')" class="pulse-pill
+                    {% if _hs >= 3 %}bg-rose-500/15 border-rose-500/40
+                    {% elif _hs >= 1 %}bg-amber-500/15 border-amber-500/40
+                    {% else %}bg-emerald-500/10 border-emerald-500/30{% endif %}">
+                    <i class="bi bi-exclamation-triangle-fill
+                        {% if _hs >= 3 %}text-rose-400{% elif _hs >= 1 %}text-amber-400{% else %}text-emerald-400{% endif %}"></i>
+                    <span class="pulse-label">Stressed AEs</span>
+                    <span class="pulse-value
+                        {% if _hs >= 3 %}text-rose-400{% elif _hs >= 1 %}text-amber-400{% else %}text-emerald-400{% endif %}">{{ _hs }}</span>
+                    <span class="pulse-sub">{% if _hs == 0 %}all healthy{% else %}&gt;85% util{% endif %}</span>
+                </button>
+
+                <!-- Reporting coverage -->
+                <button onclick="switchTab('clinical')" class="pulse-pill
+                    {% if _coverage < 60 %}bg-rose-500/15 border-rose-500/40
+                    {% elif _coverage < 80 %}bg-amber-500/15 border-amber-500/40
+                    {% else %}bg-emerald-500/10 border-emerald-500/30{% endif %}">
+                    <i class="bi bi-file-earmark-check-fill
+                        {% if _coverage < 60 %}text-rose-400{% elif _coverage < 80 %}text-amber-400{% else %}text-emerald-400{% endif %}"></i>
+                    <span class="pulse-label">Coverage</span>
+                    <span class="pulse-value
+                        {% if _coverage < 60 %}text-rose-400{% elif _coverage < 80 %}text-amber-400{% else %}text-white{% endif %}">{{ _coverage }}%</span>
+                    <span class="pulse-sub">reported</span>
+                </button>
+            </div>
+            <!-- ── END PULSE ──────────────────────────────────────────────── -->
 
             <!-- ── OPERATIONS TAB ─────────────────────────────────────────── -->
             <div id="tab-ops" class="tab-content hidden space-y-10">
@@ -391,6 +468,17 @@
             <!-- ── RADIOLOGISTS TAB ───────────────────────────────────────── -->
             <div id="tab-clinical" class="tab-content hidden space-y-6">
 
+                <!-- Statistical Insights — top of tab, populated via BG fetch -->
+                {% if run_report %}
+                <div id="rad-insights-wrapper">
+                    <div class="flex items-center gap-2 px-4 py-3 rounded-xl bg-zinc-800/40 border border-white/5 text-zinc-600" id="rad-insights-loading">
+                        <i class="bi bi-hourglass-split animate-pulse text-sm"></i>
+                        <span class="text-[11px] font-black uppercase tracking-widest">Computing statistical insights…</span>
+                    </div>
+                    <div class="space-y-2 mt-0" id="rad-insights-panel"></div>
+                </div>
+                {% endif %}
+
                 <p class="section-desc">
                     Radiologist performance heatmap — avg TAT per radiologist × modality. Darker = slower. Hover for detail.
                 </p>
@@ -400,40 +488,148 @@
                     <div id="chart-rad-tat-heatmap" style="height: {{ [data.rad_cards|length * 52 + 100, 300]|max }}px;"></div>
                 </div>
 
-                <!-- Peer comparison strip -->
-                <div class="glass-card">
-                    <p class="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-4">Peer Comparison — Avg TAT &amp; RVU</p>
-                    <div class="space-y-3">
-                        {% for rad in data.rad_cards | sort(attribute='overall') %}
-                        <div class="flex items-center gap-3">
-                            <span class="text-xs text-zinc-400 w-36 truncate shrink-0">{{ rad.name }}</span>
-                            <div class="flex-1 bg-white/5 rounded-full h-2 relative">
-                                <div class="h-2 rounded-full {% if rad.tat_percentile <= 33 %}bg-emerald-500{% elif rad.tat_percentile <= 66 %}bg-blue-500{% else %}bg-rose-500{% endif %}"
-                                     style="width:{{ [rad.overall / (data.rad_cards | map(attribute='overall') | max) * 100, 100] | min | round | int }}%"></div>
-                            </div>
-                            <span class="text-xs font-black w-14 text-right
-                                {% if rad.tat_percentile <= 33 %}text-emerald-400
-                                {% elif rad.tat_percentile <= 66 %}text-blue-400
-                                {% else %}text-rose-400{% endif %}">{{ rad.overall }}m</span>
-                            <span class="text-[10px] text-amber-500 w-20 text-right">{{ rad.total_rvu }} RVU</span>
+                <!-- Peer Ranking Table — JS rendered for sort + drilldown -->
+                <div class="glass-card" id="rad-peer-card">
+                    <div class="flex items-center justify-between mb-3">
+                        <p class="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Peer Ranking</p>
+                        <div class="flex gap-2 text-[9px] text-zinc-600 uppercase font-black">
+                            Sort:
+                            <button class="rad-sort-btn active" data-key="overall" onclick="sortRadTable('overall',this)">Avg TAT</button>
+                            <button class="rad-sort-btn" data-key="tat_median" onclick="sortRadTable('tat_median',this)">Median</button>
+                            <button class="rad-sort-btn" data-key="count" onclick="sortRadTable('count',this)">Studies</button>
+                            <button class="rad-sort-btn" data-key="total_rvu" onclick="sortRadTable('total_rvu',this)">RVU</button>
                         </div>
-                        {% endfor %}
                     </div>
+                    <div id="rad-peer-table"></div>
                 </div>
 
-                <!-- Statistical Insights: Radiologists — populated via BG fetch -->
-                {% if run_report %}
-                <div class="glass-card space-y-2" id="rad-insights-wrapper" style="display:none">
-                    <p class="text-xs font-black text-yellow-500 uppercase tracking-widest">Statistical Insights</p>
-                    <div class="space-y-2" id="rad-insights-panel"></div>
-                </div>
-                {% endif %}
-
+                <!-- Radiologist table + heatmap JS -->
                 <script>
                 (function(){
                     const RAD_CARDS = {{ data.rad_cards | tojson }};
                     const rads = RAD_CARDS.map(r => r.name);
                     const modsSet = new Set();
+
+                    // ── Peer Ranking Table ─────────────────────────────────
+                    let _sortKey = 'overall', _sortAsc = true;
+
+                    function tatColor(pct) {
+                        if (pct === null || pct === undefined) return 'text-zinc-500';
+                        if (pct <= 33) return 'text-emerald-400';
+                        if (pct <= 66) return 'text-blue-400';
+                        return 'text-rose-400';
+                    }
+                    function tatBg(pct) {
+                        if (pct === null || pct === undefined) return '';
+                        if (pct <= 33) return 'bg-emerald-500';
+                        if (pct <= 66) return 'bg-blue-500';
+                        return 'bg-rose-500';
+                    }
+                    function buildDrilldown(r) {
+                        const allMods = {};
+                        r.drilldown.forEach(loc => loc.mods.forEach(m => {
+                            if (!allMods[m.m]) allMods[m.m] = {sum:0, cnt:0, rvu:0};
+                            allMods[m.m].sum += m.avg * m.count;
+                            allMods[m.m].cnt += m.count;
+                            allMods[m.m].rvu += m.rvu;
+                        }));
+                        const rows = Object.entries(allMods)
+                            .map(([mod, v]) => ({mod, avg: Math.round(v.sum/v.cnt), cnt: v.cnt, rvu: Math.round(v.rvu*10)/10}))
+                            .sort((a,b) => a.avg - b.avg);
+                        if (!rows.length) return '<p class="text-[10px] text-zinc-600 px-2 py-2">No modality data.</p>';
+                        return `<table class="w-full text-[10px] border-collapse mt-1">
+                            <thead><tr class="text-zinc-500 uppercase text-[9px]">
+                                <th class="text-left py-1 pr-4 font-black">Modality</th>
+                                <th class="text-right py-1 pr-4 font-black">Avg TAT</th>
+                                <th class="text-right py-1 pr-4 font-black">Studies</th>
+                                <th class="text-right py-1 font-black">RVU</th>
+                            </tr></thead>
+                            <tbody>${rows.map(m => `<tr class="border-t border-white/5">
+                                <td class="py-1 pr-4 font-bold text-blue-300">${m.mod}</td>
+                                <td class="py-1 pr-4 text-right font-mono font-black text-white">${m.avg}m</td>
+                                <td class="py-1 pr-4 text-right text-zinc-400">${m.cnt}</td>
+                                <td class="py-1 text-right text-amber-500">${m.rvu}</td>
+                            </tr>`).join('')}</tbody>
+                        </table>`;
+                    }
+
+                    function renderRadTable() {
+                        const sorted = [...RAD_CARDS].sort((a,b) => {
+                            const va = a[_sortKey] ?? 0, vb = b[_sortKey] ?? 0;
+                            return _sortAsc ? va - vb : vb - va;
+                        });
+                        const maxOvr = Math.max(...RAD_CARDS.map(r => r.overall || 0));
+                        const container = document.getElementById('rad-peer-table');
+                        if (!container) return;
+                        container.innerHTML = `<table class="w-full text-left" style="border-collapse:separate;border-spacing:0;">
+                            <thead><tr class="text-[9px] font-black text-zinc-500 uppercase tracking-wider">
+                                <th class="pb-3 pr-2 w-8">#</th>
+                                <th class="pb-3 pr-4">Radiologist</th>
+                                <th class="pb-3 pr-4 text-right">Avg TAT</th>
+                                <th class="pb-3 pr-4 text-right">Median</th>
+                                <th class="pb-3 pr-4 text-right">Studies</th>
+                                <th class="pb-3 pr-4 text-right">RVU</th>
+                                <th class="pb-3 pr-4">Bar</th>
+                                <th class="pb-3 w-6"></th>
+                            </tr></thead>
+                            <tbody id="rad-table-body">
+                            ${sorted.map((r, i) => {
+                                const pct = r.tat_percentile;
+                                const barW = maxOvr > 0 ? Math.min(Math.round(r.overall / maxOvr * 100), 100) : 0;
+                                return `<tr class="border-t border-white/5 hover:bg-white/[0.02] transition-colors" id="rad-row-${r.name.replace(/\s+/g,'_')}">
+                                    <td class="py-2 pr-2 text-[10px] font-black text-zinc-600">${i+1}</td>
+                                    <td class="py-2 pr-4 text-xs font-bold text-zinc-200 max-w-[160px] truncate">${r.name}</td>
+                                    <td class="py-2 pr-4 text-right text-xs font-black font-mono ${tatColor(pct)}">${r.overall}m</td>
+                                    <td class="py-2 pr-4 text-right text-xs font-mono text-zinc-400">${r.tat_median != null ? r.tat_median+'m' : '—'}</td>
+                                    <td class="py-2 pr-4 text-right text-xs text-zinc-400">${r.count}</td>
+                                    <td class="py-2 pr-4 text-right text-xs text-amber-500">${r.total_rvu}</td>
+                                    <td class="py-2 pr-4">
+                                        <div class="w-24 bg-white/5 rounded-full h-1.5">
+                                            <div class="h-1.5 rounded-full ${tatBg(pct)}" style="width:${barW}%"></div>
+                                        </div>
+                                    </td>
+                                    <td class="py-2 text-right">
+                                        <button onclick="toggleRadDrill(this,'rad-drill-${i}')" class="text-zinc-600 hover:text-blue-400 transition-colors text-xs" title="Modality breakdown">
+                                            <i class="bi bi-chevron-down" id="rad-drill-icon-${i}"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                                <tr id="rad-drill-${i}" class="hidden bg-[#0c0f0e]">
+                                    <td colspan="8" class="px-4 pb-3">${buildDrilldown(r)}</td>
+                                </tr>`;
+                            }).join('')}
+                            </tbody>
+                        </table>`;
+                    }
+
+                    window.sortRadTable = function(key, btn) {
+                        if (_sortKey === key) { _sortAsc = !_sortAsc; }
+                        else { _sortKey = key; _sortAsc = true; }
+                        document.querySelectorAll('.rad-sort-btn').forEach(b => b.classList.remove('active'));
+                        btn.classList.add('active');
+                        renderRadTable();
+                    };
+
+                    window.toggleRadDrill = function(btn, rowId) {
+                        const row = document.getElementById(rowId);
+                        const icon = btn.querySelector('i');
+                        if (!row) return;
+                        const hidden = row.classList.toggle('hidden');
+                        if (icon) icon.style.transform = hidden ? '' : 'rotate(180deg)';
+                    };
+
+                    window.highlightRadRow = function(radName) {
+                        document.querySelectorAll('[id^="rad-row-"]').forEach(r => r.classList.remove('ring-1','ring-blue-500','bg-blue-500/5'));
+                        const id = 'rad-row-' + radName.replace(/\s+/g,'_');
+                        const row = document.getElementById(id);
+                        if (row) {
+                            row.classList.add('ring-1','ring-blue-500','bg-blue-500/5');
+                            row.scrollIntoView({behavior:'smooth', block:'nearest'});
+                        }
+                    };
+
+                    renderRadTable();
+                    // ── End Peer Table ─────────────────────────────────────
                     RAD_CARDS.forEach(r => r.drilldown.forEach(loc => loc.mods.forEach(m => modsSet.add(m.m))));
                     const mods = [...modsSet].sort();
 
@@ -501,6 +697,18 @@
                         }],
                     });
                     window.addEventListener('resize', () => c.resize());
+
+                    // Click heatmap cell → scroll to + highlight that radiologist's row in the table
+                    c.on('click', function(params) {
+                        if (!params.data) return;
+                        const radName = rads[params.data[1]];
+                        if (radName && typeof window.highlightRadRow === 'function') {
+                            window.highlightRadRow(radName);
+                            // Scroll peer card into view
+                            const card = document.getElementById('rad-peer-card');
+                            if (card) card.scrollIntoView({behavior:'smooth', block:'start'});
+                        }
+                    });
                 })();
                 </script>
 
@@ -1742,6 +1950,30 @@
             fetch('/user/theme', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({theme: next}) });
         }
 
+        // ── Tab badges — called after BG fetch ──────────────────────────────
+        function updateTabBadges(bg) {
+            function setBadge(btnId, count, severity) {
+                const btn = document.getElementById(btnId);
+                if (!btn || count === 0) return;
+                const existing = btn.querySelector('.tab-badge');
+                if (existing) existing.remove();
+                const badge = document.createElement('span');
+                badge.className = 'tab-badge';
+                badge.style.background = severity === 'critical' ? '#ef4444' : '#f59e0b';
+                badge.textContent = count > 99 ? '99+' : count;
+                btn.appendChild(badge);
+            }
+            // Radiologist tab: count critical + warning rad insights
+            const radIssues = (bg.rad_insights || []).filter(s => s.severity === 'critical' || s.severity === 'warning').length;
+            setBadge('btn-clinical', radIssues, radIssues > 0 && (bg.rad_insights||[]).some(s=>s.severity==='critical') ? 'critical' : 'warning');
+            // Technician tab: flag count from tech_data summary
+            const td = bg.tech_data || {};
+            const ts = td.summary || {};
+            const techFlags = (ts.flag_before_scheduled||0) + (ts.flag_too_early||0) + (ts.flag_overlap||0) + (ts.flag_too_late||0) + (ts.never_done||0);
+            const techSeverity = (ts.never_done||0) > 0 || (ts.flag_before_scheduled||0) > 0 ? 'critical' : 'warning';
+            setBadge('btn-technicians', techFlags, techSeverity);
+        }
+
         // ── Tech trend chart (called after BG injects tech tab HTML) ─────────
         function initTechTrendChart() {
             const trendEl = document.getElementById('chart-tech-trend');
@@ -1800,12 +2032,12 @@
                     if (bg.shift_patterns && typeof window.renderShiftPatterns === 'function') {
                         window.renderShiftPatterns(bg.shift_patterns);
                     }
-                    // Update rad insights panel (if exists)
-                    if (bg.rad_insights && bg.rad_insights.length > 0) {
-                        const wrapper = document.getElementById('rad-insights-wrapper');
-                        if (wrapper) wrapper.style.display = '';
-                        const panel = document.getElementById('rad-insights-panel');
-                        if (panel) {
+                    // Update rad insights panel
+                    const loadingSkeleton = document.getElementById('rad-insights-loading');
+                    if (loadingSkeleton) loadingSkeleton.remove();
+                    const panel = document.getElementById('rad-insights-panel');
+                    if (panel) {
+                        if (bg.rad_insights && bg.rad_insights.length > 0) {
                             panel.innerHTML = bg.rad_insights.map((s, i) => {
                                 const color = s.severity === 'critical' ? 'rose' : s.severity === 'warning' ? 'amber' : 'blue';
                                 const icon  = s.severity === 'critical' ? 'bi-exclamation-triangle-fill' : s.severity === 'warning' ? 'bi-exclamation-circle-fill' : 'bi-info-circle-fill';
@@ -1823,10 +2055,18 @@
                                         ${s.evidence&&s.evidence.length?`<i id="bg-rad-sig-${i}-icon" class="bi bi-chevron-down text-zinc-500 text-[10px] mt-1 shrink-0 transition-transform"></i>`:''}
                                     </div>${evHtml}</div>`;
                             }).join('');
+                        } else {
+                            panel.innerHTML = `<div class="flex items-center gap-2 text-emerald-500 text-xs font-black"><i class="bi bi-check-circle-fill"></i> No statistical anomalies detected for this period.</div>`;
                         }
                     }
+                    // Update tab badges
+                    updateTabBadges(bg);
                 })
-                .catch(err => console.warn('BG fetch failed:', err));
+                .catch(err => {
+                    const sk = document.getElementById('rad-insights-loading');
+                    if (sk) sk.remove();
+                    console.warn('BG fetch failed:', err);
+                });
         })();
         {% endif %}
 
