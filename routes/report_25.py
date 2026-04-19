@@ -448,7 +448,7 @@ def get_gold_standard_data(form_data):
         from datetime import datetime as _dt
         _now = _dt.utcnow()
 
-        tech_rows = db.session.execute(text("""
+        tech_rows = db.session.execute(text(f"""
             SELECT
                 o.accession_number,
                 o.modality,
