@@ -10,7 +10,6 @@ RUN apt-get update && apt-get install -y \
     libaio1t64 \
     libaio-dev \
     tzdata \
-    cron \
     && rm -rf /var/lib/apt/lists/*
 
 # 2. Set the working directory inside the container
@@ -24,9 +23,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 4. Copy the rest of the application code
 COPY . .
 
-# 4b. Install analytics crontab and entrypoint
-COPY scripts/analytics_cron /etc/cron.d/analytics
-RUN chmod 0644 /etc/cron.d/analytics && crontab /etc/cron.d/analytics
+# 4b. Install entrypoint
 RUN chmod +x /app/scripts/entrypoint.sh
 
 # 5. Set Environment Variables

@@ -1,6 +1,0 @@
-# /etc/cron.d/analytics  — nightly analytics job
-# Runs at 5:15 AM daily, after ETL jobs complete (max 5 min runtime)
-SHELL=/bin/bash
-PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
-
-15 5 * * * root . /etc/cron_env && cd /app && python ETL_JOBS/daily_analytics.py >> /var/log/analytics_cron.log 2>&1

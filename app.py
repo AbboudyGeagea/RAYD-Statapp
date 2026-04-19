@@ -530,6 +530,24 @@ def create_app():
         replace_existing=True
     )
 
+    def scheduled_analytics():
+        with app.app_context():
+            try:
+                from ETL_JOBS.daily_analytics import run as run_analytics
+                logger.info(f"⏰ [5:30 AM] Daily analytics snapshot starting: {datetime.now()}")
+                run_analytics(engine=db.engine)
+                logger.info("✅ [5:30 AM] Daily analytics snapshot complete.")
+            except Exception as e:
+                logger.error(f"🛑 [5:30 AM] Daily analytics failed: {e}", exc_info=True)
+
+    scheduler.add_job(
+        func=scheduled_analytics,
+        trigger=CronTrigger(hour=5, minute=30),
+        id='daily_analytics_snapshot',
+        name='Daily Analytics Snapshot',
+        replace_existing=True
+    )
+
     # Only start scheduler and HL7 listener when running as server, not manual ETL
     manual_mode = len(sys.argv) > 1 and sys.argv[1] == '-m'
     if not manual_mode:

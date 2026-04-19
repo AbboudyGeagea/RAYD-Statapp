@@ -38,17 +38,14 @@ logger = logging.getLogger(__name__)
 # ── DB connection ─────────────────────────────────────────────────────────────
 
 def _engine():
-    url = os.environ.get("DATABASE_URL")
+    url = os.environ.get("DATABASE_URL") or os.environ.get("SQLALCHEMY_DATABASE_URI")
     if not url:
-        # Try reading from instance/config.py as fallback
-        cfg_path = os.path.join(ROOT, "instance", "config.py")
-        if os.path.exists(cfg_path):
-            glb = {}
-            with open(cfg_path) as f:
-                exec(f.read(), glb)
-            url = glb.get("SQLALCHEMY_DATABASE_URI") or glb.get("DATABASE_URL")
-    if not url:
-        raise RuntimeError("DATABASE_URL not set and instance/config.py not found.")
+        user   = os.environ.get("POSTGRES_USER", "etl_user")
+        pw     = os.environ.get("POSTGRES_PASSWORD", "")
+        host   = os.environ.get("POSTGRES_HOST", "db")
+        port   = os.environ.get("POSTGRES_PORT", "5432")
+        dbname = os.environ.get("POSTGRES_DB", "etl_db")
+        url    = f"postgresql://{user}:{pw}@{host}:{port}/{dbname}"
     return create_engine(url, pool_pre_ping=True)
 
 
@@ -289,8 +286,8 @@ CREATE INDEX IF NOT EXISTS idx_snapshots_label_time
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-def run():
-    engine = _engine()
+def run(engine=None):
+    engine = engine or _engine()
     with engine.connect() as conn:
         conn.execute(text(_ENSURE_TABLE))
         conn.commit()

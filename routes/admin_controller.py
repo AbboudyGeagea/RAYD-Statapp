@@ -579,6 +579,34 @@ def set_demo_mode():
     return jsonify({'status': 'ok'})
 
 
+@admin_bp.route('/etl/trigger-phase9', methods=['POST'])
+@login_required
+def trigger_phase9():
+    if current_user.role != 'admin':
+        return abort(403)
+    try:
+        import logging, io
+        from ETL_JOBS.etl_phase9_clustering import run_phase9_clustering
+
+        # Capture log output so we can return it
+        log_buf = io.StringIO()
+        handler = logging.StreamHandler(log_buf)
+        handler.setLevel(logging.DEBUG)
+        logger = logging.getLogger('phase9_manual')
+        logger.setLevel(logging.DEBUG)
+        logger.addHandler(handler)
+
+        with db.engine.connect() as conn:
+            run_phase9_clustering(conn, logger)
+            conn.commit()
+
+        logger.removeHandler(handler)
+        return jsonify({"status": "success", "log": log_buf.getvalue()})
+    except Exception as e:
+        import traceback
+        return jsonify({"status": "error", "message": str(e), "trace": traceback.format_exc()}), 500
+
+
 @admin_bp.route('/etl/trigger', methods=['POST'])
 @login_required
 def trigger_etl():
