@@ -195,95 +195,9 @@ def get_gold_standard_data(form_data):
     print(f"STEP 4: Final Summary RVU: {df['rvu'].sum()}")
     print("--- [DIAGNOSTIC END] ---\n")
 
-    # ── Signing pattern per radiologist ───────────────────────────────
+    # shift_patterns and ts_rows are deferred to /report/25/bg (background endpoint)
     shift_patterns = {}
     ts_rows = []
-    try:
-        _BREAK_MIN = 20
-        ts_rows = db.session.execute(text(f"""
-            SELECT
-                COALESCE(
-                    NULLIF(TRIM(CONCAT(
-                        COALESCE(s.signing_physician_first_name, ''), ' ',
-                        COALESCE(s.signing_physician_last_name,  '')
-                    )), ''),
-                    s.rep_final_signed_by,
-                    'Unknown'
-                ) AS radiologist,
-                s.rep_final_timestamp,
-                s.accession_number
-            FROM etl_didb_studies s
-            {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
-            WHERE s.rep_final_timestamp IS NOT NULL
-              AND s.rep_final_timestamp::date BETWEEN :start AND :end
-              {_sec_filters}
-            ORDER BY 1, 2
-        """), params).fetchall()
-
-        if ts_rows:
-            ts_df = pd.DataFrame(ts_rows, columns=['radiologist', 'ts', 'accession_number'])
-            ts_df['ts']        = pd.to_datetime(ts_df['ts'])
-            ts_df['work_date'] = ts_df['ts'].dt.date
-            ts_df['hour']      = ts_df['ts'].dt.hour
-            ts_df['dow']       = ts_df['ts'].dt.dayofweek  # 0=Mon
-
-            def _h_to_hhmm(h):
-                hh = int(h); mm = int(round((h - hh) * 60))
-                return f"{hh:02d}:{mm:02d}"
-
-            for rad, rdf in ts_df.groupby('radiologist'):
-                if rad.strip() in ('Unknown', ''):
-                    continue
-                rdf = rdf.sort_values('ts')
-
-                hm = rdf.groupby(['dow', 'hour']).size().reset_index(name='cnt')
-                heatmap = [[int(r['hour']), int(r['dow']), int(r['cnt'])] for _, r in hm.iterrows()]
-                hm_max  = int(hm['cnt'].max()) if not hm.empty else 1
-
-                arrivals, departures, break_cnts, break_durs = [], [], [], []
-                daily_log = []
-
-                for work_date, ddf in rdf.groupby('work_date'):
-                    times = ddf['ts'].sort_values().tolist()
-                    first, last = times[0], times[-1]
-                    arr_h = first.hour + first.minute / 60
-                    dep_h = last.hour  + last.minute  / 60
-                    arrivals.append(arr_h)
-                    departures.append(dep_h)
-
-                    breaks = []
-                    for i in range(1, len(times)):
-                        gap = (times[i] - times[i - 1]).total_seconds() / 60
-                        if gap >= _BREAK_MIN:
-                            dur = round(gap)
-                            icon = '☕' if dur <= 35 else ('🚬' if dur <= 70 else '🏃')
-                            kind = 'Coffee' if dur <= 35 else ('Long break' if dur <= 70 else 'Disappeared')
-                            breaks.append({'start': times[i-1].strftime('%H:%M'),
-                                           'end':   times[i].strftime('%H:%M'),
-                                           'duration': dur, 'icon': icon, 'kind': kind})
-                    break_cnts.append(len(breaks))
-                    break_durs.extend([b['duration'] for b in breaks])
-                    daily_log.append({
-                        'date': str(work_date), 'dow': first.strftime('%a'),
-                        'arrival': first.strftime('%H:%M'), 'departure': last.strftime('%H:%M'),
-                        'studies': len(times),
-                        'span_h': round(dep_h - arr_h, 1),
-                        'breaks': breaks,
-                    })
-
-                wd = len(daily_log)
-                shift_patterns[rad] = {
-                    'avg_arrival':    _h_to_hhmm(sum(arrivals)   / len(arrivals))   if arrivals   else '—',
-                    'avg_departure':  _h_to_hhmm(sum(departures) / len(departures)) if departures else '—',
-                    'avg_breaks_day': round(sum(break_cnts) / wd, 1)                if wd         else 0,
-                    'avg_break_dur':  int(round(sum(break_durs) / len(break_durs))) if break_durs else 0,
-                    'working_days':   wd,
-                    'heatmap':        heatmap,
-                    'hm_max':         hm_max,
-                    'daily_log':      daily_log[-60:],   # cap at 60 most recent days
-                }
-    except Exception as _e:
-        print(f"Shift pattern error: {_e}")
 
     # ── New analytics ─────────────────────────────────────────────────
     tat_hist, ae_tat, rvu_tat, outlier_studies, global_mean_tat = [], [], [], [], 0.0
@@ -439,196 +353,13 @@ def get_gold_standard_data(form_data):
     except Exception:
         db.session.rollback()
 
-    # ── Technician monitoring (HL7 orders — 5 flag categories) ─────────────────
+    # tech_data and insights are deferred to /report/25/bg (background endpoint)
     tech_data = {
-        'summary': {},
-        'by_technician': [],
-        'by_modality': [],
-        'flagged': [],
-        'never_done': [],
+        'summary': {}, 'by_technician': [], 'by_modality': [],
+        'flagged': [], 'never_done': [], 'daily_trend': [],
     }
-    _tech_completed_df = pd.DataFrame()   # captured for insights engine
-    try:
-        from datetime import datetime as _dt
-        _now = _dt.utcnow()
-
-        tech_rows = db.session.execute(text(f"""
-            SELECT
-                o.accession_number,
-                o.modality,
-                o.procedure_code,
-                o.done_by,
-                o.scheduled_datetime,
-                o.done_at,
-                COALESCE(p.duration_minutes, 30) AS proc_duration
-            FROM hl7_orders o
-            LEFT JOIN procedure_duration_map p
-                   ON UPPER(TRIM(o.procedure_code)) = UPPER(TRIM(p.procedure_code))
-            WHERE o.scheduled_datetime IS NOT NULL
-              AND o.scheduled_datetime::date BETWEEN :start AND :end
-              {"AND UPPER(TRIM(o.modality)) IN :modalities" if "modalities" in params else ""}
-            ORDER BY o.modality, o.scheduled_datetime
-        """), params).mappings().fetchall()
-
-        if tech_rows:
-            tdf = pd.DataFrame(tech_rows)
-            tdf['proc_duration'] = pd.to_numeric(tdf['proc_duration'], errors='coerce').fillna(30)
-            tdf['scheduled_datetime'] = pd.to_datetime(tdf['scheduled_datetime'])
-            tdf['done_at'] = pd.to_datetime(tdf['done_at'], errors='coerce')
-            tdf['tat_min'] = (tdf['done_at'] - tdf['scheduled_datetime']).dt.total_seconds() / 60.0
-
-            completed = tdf[tdf['done_at'].notna()].copy()
-            pending   = tdf[tdf['done_at'].isna()].copy()
-            _tech_completed_df = completed
-
-            # ── Overlap detection: done_at falls after the next exam started ──
-            overlap_accessions = set()
-            for mod, grp in completed.groupby('modality'):
-                grp = grp.sort_values('scheduled_datetime').reset_index()
-                for i in range(len(grp) - 1):
-                    cur  = grp.iloc[i]
-                    nxt  = grp.iloc[i + 1]
-                    if pd.notna(cur['done_at']) and cur['done_at'] > nxt['scheduled_datetime']:
-                        overlap_accessions.add(cur['accession_number'])
-
-            # ── Flag each completed exam ──────────────────────────────────────
-            flagged_rows = []
-            for _, r in completed.iterrows():
-                flags = []
-                tat   = r['tat_min']
-                dur   = float(r['proc_duration'])
-                if pd.isna(tat):
-                    continue
-                if tat < 0:
-                    flags.append('before_scheduled')
-                elif tat < dur * 0.5:
-                    flags.append('too_early')
-                if r['accession_number'] in overlap_accessions:
-                    flags.append('overlap')
-                if tat > dur * 2:
-                    flags.append('too_late')
-                flagged_rows.append({
-                    'accession':    str(r.get('accession_number') or ''),
-                    'modality':     str(r.get('modality') or ''),
-                    'procedure':    str(r.get('procedure_code') or ''),
-                    'technician':   str(r['done_by']) if pd.notna(r.get('done_by')) else '',
-                    'scheduled_at': r['scheduled_datetime'].strftime('%Y-%m-%d %H:%M'),
-                    'done_at':      r['done_at'].strftime('%H:%M'),
-                    'tat_min':      round(float(tat), 1),
-                    'proc_duration': int(dur),
-                    'flags':        flags,
-                })
-            tech_data['flagged'] = sorted([r for r in flagged_rows if r['flags']], key=lambda x: len(x['flags']), reverse=True)
-
-            # ── Never done: past due with no done_at ──────────────────────────
-            for _, r in pending.iterrows():
-                deadline = r['scheduled_datetime'] + pd.Timedelta(minutes=float(r['proc_duration']))
-                if deadline < pd.Timestamp(_now):
-                    tech_data['never_done'].append({
-                        'accession':    str(r.get('accession_number') or ''),
-                        'modality':     str(r.get('modality') or ''),
-                        'procedure':    str(r.get('procedure_code') or ''),
-                        'scheduled_at': r['scheduled_datetime'].strftime('%Y-%m-%d %H:%M'),
-                        'overdue_min':  round((pd.Timestamp(_now) - deadline).total_seconds() / 60, 1),
-                    })
-
-            # ── Summary counts ────────────────────────────────────────────────
-            flagged_accessions = {r['accession'] for r in tech_data['flagged']}
-            tech_data['summary'] = {
-                'total_scheduled':       len(tdf),
-                'total_completed':       len(completed),
-                'never_done':            len(tech_data['never_done']),
-                'flag_before_scheduled': sum(1 for r in tech_data['flagged'] if 'before_scheduled' in r['flags']),
-                'flag_too_early':        sum(1 for r in tech_data['flagged'] if 'too_early'        in r['flags']),
-                'flag_overlap':          sum(1 for r in tech_data['flagged'] if 'overlap'          in r['flags']),
-                'flag_too_late':         sum(1 for r in tech_data['flagged'] if 'too_late'         in r['flags']),
-            }
-
-            # ── Daily trend ───────────────────────────────────────────────────
-            daily_trend = []
-            if len(completed):
-                completed = completed.copy()
-                completed['_date'] = completed['scheduled_datetime'].dt.date
-                for day, gdf in completed.groupby('_date'):
-                    tats = gdf['tat_min'].dropna()
-                    daily_trend.append({
-                        'date':     str(day),
-                        'avg_tat':  round(float(tats.mean()), 1) if len(tats) else 0,
-                        'count':    len(gdf),
-                        'flags':    int(gdf['accession_number'].isin(flagged_accessions).sum()),
-                    })
-                daily_trend.sort(key=lambda x: x['date'])
-            tech_data['daily_trend'] = daily_trend
-
-            def _skew_insight(avg, median):
-                """Return a plain-English warning if avg/median diverge significantly."""
-                if avg is None or median is None or median == 0:
-                    return None
-                ratio = avg / median
-                if ratio >= 2.0:
-                    return f"Avg is {ratio:.1f}× the median — a small number of very slow exams are inflating the average. Investigate outliers."
-                if ratio >= 1.5:
-                    return f"Avg is {ratio:.1f}× the median — some delayed exams are pulling the average up."
-                return None
-
-            # ── By technician (completed only) ────────────────────────────────
-            for tech, gdf in completed[completed['done_by'].notna()].groupby('done_by'):
-                tats = gdf['tat_min'].dropna()
-                avg    = round(float(tats.mean()),   1) if len(tats) else None
-                median = round(float(tats.median()), 1) if len(tats) else None
-                tech_data['by_technician'].append({
-                    'name':       str(tech),
-                    'count':      len(gdf),
-                    'avg_tat':    avg,
-                    'median_tat': median,
-                    'flags':      sum(1 for r in tech_data['flagged'] if r['technician'] == str(tech) and r['flags']),
-                    'insight':    _skew_insight(avg, median),
-                })
-            tech_data['by_technician'].sort(key=lambda x: x['avg_tat'] if x['avg_tat'] is not None else 9999)
-
-            # ── By modality ───────────────────────────────────────────────────
-            for mod, gdf in completed[completed['modality'].notna()].groupby('modality'):
-                tats = gdf['tat_min'].dropna()
-                avg    = round(float(tats.mean()),   1) if len(tats) else None
-                median = round(float(tats.median()), 1) if len(tats) else None
-                tech_data['by_modality'].append({
-                    'modality':   str(mod),
-                    'count':      len(gdf),
-                    'avg_tat':    avg,
-                    'median_tat': median,
-                    'insight':    _skew_insight(avg, median),
-                })
-            tech_data['by_modality'].sort(key=lambda x: x['avg_tat'] if x['avg_tat'] is not None else 9999)
-
-            # ── Department-level insight ──────────────────────────────────────
-            all_tats = completed['tat_min'].dropna()
-            if len(all_tats):
-                dept_avg    = round(float(all_tats.mean()),   1)
-                dept_median = round(float(all_tats.median()), 1)
-                tech_data['summary']['avg_tat']    = dept_avg
-                tech_data['summary']['median_tat'] = dept_median
-                tech_data['summary']['dept_insight'] = _skew_insight(dept_avg, dept_median)
-
-    except Exception as _e:
-        db.session.rollback()
-        print(f"Technician TAT error: {_e}")
-
-    # ── Statistical insights (pure Python — no external calls) ───────────
     tech_insights = []
     rad_insights  = []
-    try:
-        if not _tech_completed_df.empty:
-            tech_insights = run_tech_insights(_tech_completed_df)
-    except Exception as _ie:
-        print(f"Tech insights error: {_ie}")
-
-    try:
-        _signing_df = None
-        if ts_rows:
-            _signing_df = pd.DataFrame(ts_rows, columns=['radiologist', 'ts', 'accession_number'])
-        rad_insights = run_rad_insights(rad_cards, _signing_df)
-    except Exception as _ie:
-        print(f"Rad insights error: {_ie}")
 
     result = ({
         "summary": {
@@ -683,6 +414,309 @@ def get_gold_standard_data(form_data):
     }, start, end)
     cache_put(25, form_data, result)
     return result
+
+def compute_bg_data(form_data):
+    """Compute the deferred heavy sections: tech_data, shift_patterns, and insights."""
+    from routes.report_cache import cache_get, cache_put
+    cached = cache_get(9925, form_data)
+    if cached is not None:
+        return cached
+
+    go_live = get_etl_cutoff_date()
+    start = form_data.get("start_date") or (go_live.strftime("%Y-%m-%d") if go_live else "2024-01-01")
+    end   = form_data.get("end_date") or date.today().strftime("%Y-%m-%d")
+
+    params = {"start": start, "end": end}
+    if form_data.get("class_enabled") == "on" and form_data.getlist("patient_class"):
+        params["classes"] = tuple(form_data.getlist("patient_class"))
+    if form_data.get("mod_enabled") == "on" and form_data.getlist("modality"):
+        params["modalities"] = tuple(form_data.getlist("modality"))
+    if form_data.get("ae_enabled") == "on" and form_data.getlist("aetitle"):
+        params["aetitles"] = tuple(form_data.getlist("aetitle"))
+    if form_data.get("loc_enabled") == "on" and form_data.getlist("patient_location"):
+        params["locations"] = tuple(form_data.getlist("patient_location"))
+
+    _sec_filters = ""
+    if "classes"    in params: _sec_filters += " AND s.patient_class IN :classes"
+    if "modalities" in params: _sec_filters += " AND UPPER(TRIM(m.modality)) IN :modalities"
+    if "aetitles"   in params: _sec_filters += " AND s.storing_ae IN :aetitles"
+    if "locations"  in params: _sec_filters += " AND s.patient_location IN :locations"
+    _sec_needs_mod_join = "modalities" in params
+
+    # ── Shift patterns + signing timestamps ──────────────────────────────
+    shift_patterns = {}
+    ts_rows = []
+    try:
+        _BREAK_MIN = 20
+        ts_rows = db.session.execute(text(f"""
+            SELECT
+                COALESCE(
+                    NULLIF(TRIM(CONCAT(
+                        COALESCE(s.signing_physician_first_name, ''), ' ',
+                        COALESCE(s.signing_physician_last_name,  '')
+                    )), ''),
+                    s.rep_final_signed_by,
+                    'Unknown'
+                ) AS radiologist,
+                s.rep_final_timestamp,
+                s.accession_number
+            FROM etl_didb_studies s
+            {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
+            WHERE s.rep_final_timestamp IS NOT NULL
+              AND s.rep_final_timestamp::date BETWEEN :start AND :end
+              {_sec_filters}
+            ORDER BY 1, 2
+        """), params).fetchall()
+
+        if ts_rows:
+            ts_df = pd.DataFrame(ts_rows, columns=['radiologist', 'ts', 'accession_number'])
+            ts_df['ts']        = pd.to_datetime(ts_df['ts'])
+            ts_df['work_date'] = ts_df['ts'].dt.date
+            ts_df['hour']      = ts_df['ts'].dt.hour
+            ts_df['dow']       = ts_df['ts'].dt.dayofweek
+
+            def _h_to_hhmm(h):
+                hh = int(h); mm = int(round((h - hh) * 60))
+                return f"{hh:02d}:{mm:02d}"
+
+            for rad, rdf in ts_df.groupby('radiologist'):
+                if rad.strip() in ('Unknown', ''):
+                    continue
+                rdf = rdf.sort_values('ts')
+                hm = rdf.groupby(['dow', 'hour']).size().reset_index(name='cnt')
+                heatmap = [[int(r['hour']), int(r['dow']), int(r['cnt'])] for _, r in hm.iterrows()]
+                hm_max  = int(hm['cnt'].max()) if not hm.empty else 1
+                arrivals, departures, break_cnts, break_durs = [], [], [], []
+                daily_log = []
+                for work_date, ddf in rdf.groupby('work_date'):
+                    times = ddf['ts'].sort_values().tolist()
+                    first, last = times[0], times[-1]
+                    arr_h = first.hour + first.minute / 60
+                    dep_h = last.hour  + last.minute  / 60
+                    arrivals.append(arr_h)
+                    departures.append(dep_h)
+                    breaks = []
+                    for i in range(1, len(times)):
+                        gap = (times[i] - times[i - 1]).total_seconds() / 60
+                        if gap >= _BREAK_MIN:
+                            dur = round(gap)
+                            icon = '☕' if dur <= 35 else ('🚬' if dur <= 70 else '🏃')
+                            kind = 'Coffee' if dur <= 35 else ('Long break' if dur <= 70 else 'Disappeared')
+                            breaks.append({'start': times[i-1].strftime('%H:%M'),
+                                           'end':   times[i].strftime('%H:%M'),
+                                           'duration': dur, 'icon': icon, 'kind': kind})
+                    break_cnts.append(len(breaks))
+                    break_durs.extend([b['duration'] for b in breaks])
+                    daily_log.append({
+                        'date': str(work_date), 'dow': first.strftime('%a'),
+                        'arrival': first.strftime('%H:%M'), 'departure': last.strftime('%H:%M'),
+                        'studies': len(times),
+                        'span_h': round(dep_h - arr_h, 1),
+                        'breaks': breaks,
+                    })
+                wd = len(daily_log)
+                shift_patterns[rad] = {
+                    'avg_arrival':    _h_to_hhmm(sum(arrivals)   / len(arrivals))   if arrivals   else '—',
+                    'avg_departure':  _h_to_hhmm(sum(departures) / len(departures)) if departures else '—',
+                    'avg_breaks_day': round(sum(break_cnts) / wd, 1)                if wd         else 0,
+                    'avg_break_dur':  int(round(sum(break_durs) / len(break_durs))) if break_durs else 0,
+                    'working_days':   wd,
+                    'heatmap':        heatmap,
+                    'hm_max':         hm_max,
+                    'daily_log':      daily_log[-60:],
+                }
+    except Exception as _e:
+        db.session.rollback()
+        print(f"BG shift pattern error: {_e}")
+
+    # ── Technician monitoring ─────────────────────────────────────────────
+    tech_data = {
+        'summary': {}, 'by_technician': [], 'by_modality': [],
+        'flagged': [], 'never_done': [], 'daily_trend': [],
+    }
+    _tech_completed_df = pd.DataFrame()
+    try:
+        from datetime import datetime as _dt
+        _now = _dt.utcnow()
+
+        tech_rows = db.session.execute(text(f"""
+            SELECT
+                o.accession_number, o.modality, o.procedure_code, o.done_by,
+                o.scheduled_datetime, o.done_at,
+                COALESCE(p.duration_minutes, 30) AS proc_duration
+            FROM hl7_orders o
+            LEFT JOIN procedure_duration_map p
+                   ON UPPER(TRIM(o.procedure_code)) = UPPER(TRIM(p.procedure_code))
+            WHERE o.scheduled_datetime IS NOT NULL
+              AND o.scheduled_datetime::date BETWEEN :start AND :end
+              {"AND UPPER(TRIM(o.modality)) IN :modalities" if "modalities" in params else ""}
+            ORDER BY o.modality, o.scheduled_datetime
+        """), params).mappings().fetchall()
+
+        if tech_rows:
+            tdf = pd.DataFrame(tech_rows)
+            tdf['proc_duration']      = pd.to_numeric(tdf['proc_duration'], errors='coerce').fillna(30)
+            tdf['scheduled_datetime'] = pd.to_datetime(tdf['scheduled_datetime'])
+            tdf['done_at']            = pd.to_datetime(tdf['done_at'], errors='coerce')
+            tdf['tat_min']            = (tdf['done_at'] - tdf['scheduled_datetime']).dt.total_seconds() / 60.0
+
+            completed = tdf[tdf['done_at'].notna()].copy()
+            pending   = tdf[tdf['done_at'].isna()].copy()
+            _tech_completed_df = completed
+
+            overlap_accessions = set()
+            for mod, grp in completed.groupby('modality'):
+                grp = grp.sort_values('scheduled_datetime').reset_index()
+                for i in range(len(grp) - 1):
+                    cur, nxt = grp.iloc[i], grp.iloc[i + 1]
+                    if pd.notna(cur['done_at']) and cur['done_at'] > nxt['scheduled_datetime']:
+                        overlap_accessions.add(cur['accession_number'])
+
+            flagged_rows = []
+            for _, r in completed.iterrows():
+                flags = []
+                tat, dur = r['tat_min'], float(r['proc_duration'])
+                if pd.isna(tat): continue
+                if tat < 0: flags.append('before_scheduled')
+                elif tat < dur * 0.5: flags.append('too_early')
+                if r['accession_number'] in overlap_accessions: flags.append('overlap')
+                if tat > dur * 2: flags.append('too_late')
+                flagged_rows.append({
+                    'accession':    str(r.get('accession_number') or ''),
+                    'modality':     str(r.get('modality') or ''),
+                    'procedure':    str(r.get('procedure_code') or ''),
+                    'technician':   str(r['done_by']) if pd.notna(r.get('done_by')) else '',
+                    'scheduled_at': r['scheduled_datetime'].strftime('%Y-%m-%d %H:%M'),
+                    'done_at':      r['done_at'].strftime('%H:%M'),
+                    'tat_min':      round(float(tat), 1),
+                    'proc_duration': int(dur),
+                    'flags':        flags,
+                })
+            tech_data['flagged'] = sorted([r for r in flagged_rows if r['flags']], key=lambda x: len(x['flags']), reverse=True)
+
+            for _, r in pending.iterrows():
+                deadline = r['scheduled_datetime'] + pd.Timedelta(minutes=float(r['proc_duration']))
+                if deadline < pd.Timestamp(_now):
+                    tech_data['never_done'].append({
+                        'accession':    str(r.get('accession_number') or ''),
+                        'modality':     str(r.get('modality') or ''),
+                        'procedure':    str(r.get('procedure_code') or ''),
+                        'scheduled_at': r['scheduled_datetime'].strftime('%Y-%m-%d %H:%M'),
+                        'overdue_min':  round((pd.Timestamp(_now) - deadline).total_seconds() / 60, 1),
+                    })
+
+            flagged_accessions = {r['accession'] for r in tech_data['flagged']}
+            tech_data['summary'] = {
+                'total_scheduled':       len(tdf),
+                'total_completed':       len(completed),
+                'never_done':            len(tech_data['never_done']),
+                'flag_before_scheduled': sum(1 for r in tech_data['flagged'] if 'before_scheduled' in r['flags']),
+                'flag_too_early':        sum(1 for r in tech_data['flagged'] if 'too_early'        in r['flags']),
+                'flag_overlap':          sum(1 for r in tech_data['flagged'] if 'overlap'          in r['flags']),
+                'flag_too_late':         sum(1 for r in tech_data['flagged'] if 'too_late'         in r['flags']),
+            }
+
+            daily_trend = []
+            if len(completed):
+                completed = completed.copy()
+                completed['_date'] = completed['scheduled_datetime'].dt.date
+                for day, gdf in completed.groupby('_date'):
+                    tats = gdf['tat_min'].dropna()
+                    daily_trend.append({
+                        'date':    str(day),
+                        'avg_tat': round(float(tats.mean()), 1) if len(tats) else 0,
+                        'count':   len(gdf),
+                        'flags':   int(gdf['accession_number'].isin(flagged_accessions).sum()),
+                    })
+                daily_trend.sort(key=lambda x: x['date'])
+            tech_data['daily_trend'] = daily_trend
+
+            def _skew_insight(avg, median):
+                if avg is None or median is None or median == 0: return None
+                ratio = avg / median
+                if ratio >= 2.0: return f"Avg is {ratio:.1f}× the median — outliers inflating average."
+                if ratio >= 1.5: return f"Avg is {ratio:.1f}× the median — some delayed exams pulling up average."
+                return None
+
+            for tech, gdf in completed[completed['done_by'].notna()].groupby('done_by'):
+                tats = gdf['tat_min'].dropna()
+                avg    = round(float(tats.mean()),   1) if len(tats) else None
+                median = round(float(tats.median()), 1) if len(tats) else None
+                tech_data['by_technician'].append({
+                    'name': str(tech), 'count': len(gdf),
+                    'avg_tat': avg, 'median_tat': median,
+                    'flags': sum(1 for r in tech_data['flagged'] if r['technician'] == str(tech) and r['flags']),
+                    'insight': _skew_insight(avg, median),
+                })
+            tech_data['by_technician'].sort(key=lambda x: x['avg_tat'] if x['avg_tat'] is not None else 9999)
+
+            for mod, gdf in completed[completed['modality'].notna()].groupby('modality'):
+                tats = gdf['tat_min'].dropna()
+                avg    = round(float(tats.mean()),   1) if len(tats) else None
+                median = round(float(tats.median()), 1) if len(tats) else None
+                tech_data['by_modality'].append({
+                    'modality': str(mod), 'count': len(gdf),
+                    'avg_tat': avg, 'median_tat': median,
+                    'insight': _skew_insight(avg, median),
+                })
+            tech_data['by_modality'].sort(key=lambda x: x['avg_tat'] if x['avg_tat'] is not None else 9999)
+
+            all_tats = completed['tat_min'].dropna()
+            if len(all_tats):
+                dept_avg    = round(float(all_tats.mean()),   1)
+                dept_median = round(float(all_tats.median()), 1)
+                tech_data['summary']['avg_tat']      = dept_avg
+                tech_data['summary']['median_tat']   = dept_median
+                tech_data['summary']['dept_insight'] = _skew_insight(dept_avg, dept_median)
+
+    except Exception as _e:
+        db.session.rollback()
+        print(f"BG technician error: {_e}")
+
+    # ── Insights ──────────────────────────────────────────────────────────
+    tech_insights = []
+    rad_insights  = []
+    try:
+        if not _tech_completed_df.empty:
+            tech_insights = run_tech_insights(_tech_completed_df)
+    except Exception as _ie:
+        print(f"BG tech insights error: {_ie}")
+    try:
+        _signing_df = None
+        if ts_rows:
+            _signing_df = pd.DataFrame(ts_rows, columns=['radiologist', 'ts', 'accession_number'])
+        # rad_cards come from main cache — retrieve to compute skew+batch_signing
+        main_cached = cache_get(25, form_data)
+        rad_cards = main_cached[0].get('rad_cards', []) if main_cached and main_cached[0] else []
+        rad_insights = run_rad_insights(rad_cards, _signing_df)
+    except Exception as _ie:
+        print(f"BG rad insights error: {_ie}")
+
+    result = {
+        'shift_patterns': shift_patterns,
+        'tech_data':      tech_data,
+        'tech_insights':  tech_insights,
+        'rad_insights':   rad_insights,
+    }
+    cache_put(9925, form_data, result)
+    return result
+
+
+@report_25_bp.route("/report/25/bg", methods=["POST"])
+@login_required
+def report_25_bg():
+    from flask import jsonify, render_template as rt
+    bg = compute_bg_data(request.form)
+    tech_html = rt('_tech_tab.html',
+                   tech_data=bg['tech_data'],
+                   tech_insights=bg['tech_insights'])
+    return jsonify({
+        "tech_html":      tech_html,
+        "tech_data":      bg['tech_data'],
+        "shift_patterns": bg['shift_patterns'],
+        "rad_insights":   bg['rad_insights'],
+    })
+
 
 @report_25_bp.route("/report/25", methods=["GET", "POST"])
 @login_required
@@ -752,10 +786,9 @@ def export_technician_25():
     ok, msg = check_license_limit(current_app, 'export')
     if not ok:
         return jsonify({"error": msg}), 403
-    data, _, _ = get_gold_standard_data(request.form)
-    if not data:
-        return "Error", 400
-    tech = data.get('tech_data', {})
+    get_gold_standard_data(request.form)  # ensure main cache is warm
+    bg = compute_bg_data(request.form)
+    tech = bg.get('tech_data', {})
 
     sections = []
     if tech.get('summary'):

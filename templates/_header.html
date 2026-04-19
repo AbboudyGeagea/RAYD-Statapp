@@ -32,7 +32,7 @@
 // Called once per page. Fetches /api/filter-options (server-cached 5 min),
 // then populates every <select data-filter-key="KEY"> on the page.
 // Selected values that were POSTed back are preserved via data-selected.
-(function () {
+document.addEventListener('DOMContentLoaded', function () {
     const selects = document.querySelectorAll('select[data-filter-key]');
     if (!selects.length) return;
 
@@ -40,10 +40,10 @@
         .then(r => r.json())
         .then(opts => {
             selects.forEach(sel => {
-                const key      = sel.dataset.filterKey;          // e.g. "classes"
+                const key      = sel.dataset.filterKey;
                 const values   = opts[key] || [];
                 const selected = (sel.dataset.selected || '').split('||').filter(Boolean);
-                const current  = [...sel.options].map(o => o.value); // keep any static options
+                const current  = [...sel.options].map(o => o.value);
 
                 values.forEach(v => {
                     if (current.includes(v)) return;
@@ -53,7 +53,6 @@
                     sel.appendChild(o);
                 });
 
-                // Re-init Select2 if present
                 if (window.$ && $(sel).data('select2')) {
                     $(sel).trigger('change');
                 } else if (window.$ && $(sel).hasClass('select2-js')) {
@@ -61,6 +60,6 @@
                 }
             });
         })
-        .catch(() => {}); // silently ignore — filters remain empty, form still works
-}());
+        .catch(() => {});
+});
 </script>
