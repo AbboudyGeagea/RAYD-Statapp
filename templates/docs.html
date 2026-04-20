@@ -74,6 +74,7 @@
                             <a href="#report22" class="toc-link">Report 22 — Flow & Churn</a>
                             <a href="#report23" class="toc-link">Report 23 — Population Intel</a>
                             <a href="#report25" class="toc-link">Report 25 — Operations</a>
+                            <a href="#report25-journey" class="toc-link" style="padding-left:20px;font-size:11px;">↳ Patient Journey</a>
                             <a href="#report27" class="toc-link">Report 27 — Audit & Compare</a>
                             <a href="#report29" class="toc-link">Report 29 — Storage Audit</a>
                             <a href="#reportai" class="toc-link">Report AI — Predictive</a>
@@ -719,6 +720,42 @@
                                         <li><strong class="text-slate-200">Flagged Exams Table</strong> — scrollable table of abnormal exams with accession, procedure, modality, technician, actual vs expected time, and timestamp</li>
                                     </ul>
                                     <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> The first objective measurement of technician efficiency in the department. "Too short" flags may indicate skipped protocol steps or premature completion clicks. "Too long" flags surface bottlenecks — patient delays, equipment issues, or training needs. The per-procedure comparison reveals which exam types consistently deviate from expectations, enabling targeted procedure duration recalibration or workflow review. Combined with radiologist TAT from the same report, provides a complete study lifecycle view.</p></div>
+                                </div>
+                            </div>
+
+                            <!-- Efficiency Intel Tab -->
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-kpi"><i class="bi bi-speedometer2"></i> KPI Row</span>
+                                    <span class="tag tag-bar"><i class="bi bi-bar-chart"></i> Bar</span>
+                                    <span class="tag tag-scatter"><i class="bi bi-diagram-2"></i> Scatter</span>
+                                    <span class="font-bold text-sm text-white">Efficiency Intelligence Hub</span>
+                                    <span class="tag" style="background:rgba(96,165,250,0.1);color:#60a5fa;">Efficiency Intel tab</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> A consolidated efficiency view combining three KPI cards — Top Efficient AE (highest RVU-per-utilisation ratio), TAT Outlier Count (procedures exceeding 1.5× the median TAT), and High-Stress AE Count (devices above 85% utilisation). Two charts visualise the data: a <strong>Modality Efficiency Score</strong> horizontal bar (RVU generated per 1% of utilisation capacity, ranked by modality), and the <strong>Stress vs Output</strong> scatter (utilisation % on X, total RVU on Y, one dot per AE device). The TAT Distribution Histogram and RVU vs TAT scatter also appear here for cross-reference.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Efficiency Score = total RVU ÷ utilisation % per modality group, normalised so all modalities can be ranked on a common scale. The scatter uses the same device-level data as the Operations tab. TAT outliers use an <strong>IQR-based threshold</strong> (procedure mean TAT > 1.5× median TAT) rather than the global mean — making detection more robust to skewed distributions driven by a small number of extreme cases.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Reframes device performance from volume to value — a modality with high utilisation but low RVU is consuming capacity without proportionate revenue contribution. The IQR-based TAT outlier detection is a statistically sounder alternative to the mean-based threshold used in the Operations tab; it is less affected by extreme outliers pulling the mean upward.</p></div>
+                                </div>
+                            </div>
+
+                            <!-- Patient Journey Tab -->
+                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
+                                <div class="flex items-center gap-3">
+                                    <span class="tag tag-line"><i class="bi bi-person-lines-fill"></i> Timeline</span>
+                                    <span class="font-bold text-sm text-white">Patient Journey — Full Study Lifecycle Trace</span>
+                                    <span class="tag" style="background:rgba(96,165,250,0.1);color:#60a5fa;">Patient Journey tab</span>
+                                </div>
+                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
+                            </div>
+                            <div class="section-body">
+                                <div class="chart-item">
+                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> A chronological event timeline for any individual patient or accession, tracing every milestone from order receipt through to the final signed report. Events displayed include: Order Received, Exam Scheduled, Exam Completed by Technician (with technician name), Arrived in PACS, Preliminary Report, Transcribed, and Final Report Signed (with radiologist name). The elapsed time between each consecutive event is shown in minutes, making every delay in the pathway immediately visible.</p>
+                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Search by Patient ID or Accession Number — partial matches are supported and up to 15 results are returned. The API (<code class="text-blue-400 bg-blue-400/10 px-1 rounded">/report/25/patient-journey</code>) runs two batch queries: one against <code class="text-blue-400 bg-blue-400/10 px-1 rounded">etl_didb_studies</code> for PACS arrival and report timestamps, and one against <code class="text-blue-400 bg-blue-400/10 px-1 rounded">hl7_orders</code> for order, schedule, and technician completion data (<code class="text-blue-400 bg-blue-400/10 px-1 rounded">done_at</code> and <code class="text-blue-400 bg-blue-400/10 px-1 rounded">done_by</code> populated by the Live Feed "Done" button). All events are merged, sorted chronologically, and inter-event gaps are computed in Python — no additional DB calls per event.</p>
+                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Collapses what would normally require cross-referencing three separate systems (RIS, PACS, reporting system) into a single lookup. A manager investigating a delayed report can determine in seconds exactly where the bottleneck occurred — was it the technician's exam duration, the study sitting unread in PACS, or the radiologist's reporting queue? This is the platform's primary root-cause investigation tool for individual case delays, and complements the aggregate TAT views in the Operations and Efficiency tabs with per-encounter granularity.</p></div>
                                 </div>
                             </div>
 

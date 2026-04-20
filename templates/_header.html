@@ -49,14 +49,22 @@ document.addEventListener('DOMContentLoaded', function () {
                     if (current.includes(v)) return;
                     const o = document.createElement('option');
                     o.value = v; o.textContent = v;
-                    if (selected.includes(v)) o.selected = true;
                     sel.appendChild(o);
                 });
 
-                if (window.$ && $(sel).data('select2')) {
-                    $(sel).trigger('change');
-                } else if (window.$ && $(sel).hasClass('select2-js')) {
+                if (window.$ && $(sel).hasClass('select2-js')) {
+                    // Select2 initialized before options arrived — destroy and
+                    // re-init so it picks up the newly added option elements.
+                    if ($(sel).data('select2')) $(sel).select2('destroy');
                     $(sel).select2();
+                    const validSel = selected.filter(v => values.includes(v));
+                    if (validSel.length) $(sel).val(validSel).trigger('change');
+                } else {
+                    // Plain <select>: mark previously chosen values as selected.
+                    selected.forEach(v => {
+                        const opt = [...sel.options].find(o => o.value === v);
+                        if (opt) opt.selected = true;
+                    });
                 }
             });
         })
