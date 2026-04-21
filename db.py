@@ -301,9 +301,11 @@ class OruReport(db.Model):
     procedure_code   = db.Column(String(100))
     procedure_name   = db.Column(Text)
     modality         = db.Column(String(20))
-    physician_id     = db.Column(String(100))   # anonymised — ID only, no name
-    report_text      = db.Column(Text)           # all OBX text concatenated
-    impression_text  = db.Column(Text)           # OBX segments tagged as impression
+    physician_id     = db.Column(String(100))
+    patient_id       = db.Column(String(100))
+    accession_number = db.Column(String(100))
+    report_text      = db.Column(Text)
+    impression_text  = db.Column(Text)
     result_datetime  = db.Column(DateTime)
     received_at      = db.Column(DateTime, server_default=func.now())
 

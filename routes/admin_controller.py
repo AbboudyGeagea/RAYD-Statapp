@@ -425,6 +425,10 @@ def _apply_role_default_permissions(user, role):
         else:
             db.session.add(UserPagePermission(user_id=user.id, page_key=page_key, is_enabled=desired))
 
+    if role == 'viewer':
+        from routes.viewer_controller import seed_report_access
+        seed_report_access(user.id)
+
 
 @admin_bp.route('/users')
 @login_required

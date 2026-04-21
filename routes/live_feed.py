@@ -228,8 +228,10 @@ def live_status():
 @login_required
 def live_tat():
     """
-    Returns today's completed exam TAT stats.
-    TAT = done_at − scheduled_datetime (clock starts when the order was scheduled).
+    Returns today's completed exam TAT stats (two sources):
+      Done TAT      = done_at      - scheduled_datetime  (technician manual done)
+      PACS Done TAT = pacs_done_at - scheduled_datetime  (PACS/scanner confirmation)
+    A row appears if either done_at or pacs_done_at is set for today.
     """
     if not user_has_page(current_user, 'live_feed'):
         abort(403)
@@ -244,18 +246,26 @@ def live_tat():
                 o.scheduled_datetime,
                 o.done_at,
                 o.done_by,
-                EXTRACT(EPOCH FROM (o.done_at - o.scheduled_datetime)) / 60.0 AS wait_minutes
+                o.pacs_done_at,
+                CASE WHEN o.done_at IS NOT NULL AND o.done_at > o.scheduled_datetime
+                     THEN EXTRACT(EPOCH FROM (o.done_at - o.scheduled_datetime)) / 60.0
+                END AS done_tat_min,
+                CASE WHEN o.pacs_done_at IS NOT NULL AND o.pacs_done_at > o.scheduled_datetime
+                     THEN EXTRACT(EPOCH FROM (o.pacs_done_at - o.scheduled_datetime)) / 60.0
+                END AS pacs_tat_min
             FROM hl7_orders o
-            WHERE o.done_at::date = CURRENT_DATE
-              AND o.scheduled_datetime IS NOT NULL
-              AND o.done_at IS NOT NULL
-              AND o.done_at > o.scheduled_datetime
-            ORDER BY o.done_at DESC
+            WHERE o.scheduled_datetime IS NOT NULL
+              AND (
+                  (o.done_at IS NOT NULL      AND o.done_at::date      = CURRENT_DATE)
+               OR (o.pacs_done_at IS NOT NULL AND o.pacs_done_at::date = CURRENT_DATE)
+              )
+            ORDER BY GREATEST(COALESCE(o.done_at, '-infinity'), COALESCE(o.pacs_done_at, '-infinity')) DESC
         """)).mappings().fetchall()
 
         exams = []
         for r in rows:
-            mins = float(r["wait_minutes"] or 0)
+            done_tat  = float(r["done_tat_min"])  if r["done_tat_min"]  is not None else None
+            pacs_tat  = float(r["pacs_tat_min"])  if r["pacs_tat_min"]  is not None else None
             exams.append({
                 "message_id":       r["message_id"],
                 "patient_id":       r["patient_id"] or "—",
@@ -265,23 +275,35 @@ def live_tat():
                 "scheduled_at":     r["scheduled_datetime"].strftime("%H:%M") if r["scheduled_datetime"] else "—",
                 "done_at":          r["done_at"].strftime("%H:%M") if r["done_at"] else "—",
                 "done_by":          r["done_by"] or "—",
-                "wait_minutes":     round(mins, 1),
+                "pacs_done_at":     r["pacs_done_at"].strftime("%H:%M") if r["pacs_done_at"] else "—",
+                "done_tat_min":     round(done_tat, 1) if done_tat is not None else None,
+                "pacs_tat_min":     round(pacs_tat, 1) if pacs_tat is not None else None,
+                # Legacy field — keep for any callers that still read wait_minutes
+                "wait_minutes":     round(done_tat, 1) if done_tat is not None else (
+                                    round(pacs_tat, 1) if pacs_tat is not None else None),
             })
 
-        if exams:
-            wait_vals = [e["wait_minutes"] for e in exams]
-            avg_wait  = round(sum(wait_vals) / len(wait_vals), 1)
-            min_wait  = round(min(wait_vals), 1)
-            max_wait  = round(max(wait_vals), 1)
-        else:
-            avg_wait = min_wait = max_wait = None
+        done_vals = [e["done_tat_min"] for e in exams if e["done_tat_min"] is not None]
+        pacs_vals = [e["pacs_tat_min"] for e in exams if e["pacs_tat_min"] is not None]
+
+        def _stats(vals):
+            if not vals: return None, None, None
+            return round(sum(vals)/len(vals), 1), round(min(vals), 1), round(max(vals), 1)
+
+        avg_done, min_done, max_done = _stats(done_vals)
+        avg_pacs, min_pacs, max_pacs = _stats(pacs_vals)
 
         return jsonify({
-            "exams":     exams,
-            "count":     len(exams),
-            "avg_wait":  avg_wait,
-            "min_wait":  min_wait,
-            "max_wait":  max_wait,
+            "exams":      exams,
+            "count":      len(exams),
+            # Done TAT stats
+            "avg_wait":   avg_done,
+            "min_wait":   min_done,
+            "max_wait":   max_done,
+            # PACS Done TAT stats
+            "avg_pacs":   avg_pacs,
+            "min_pacs":   min_pacs,
+            "max_pacs":   max_pacs,
         })
 
     except Exception as e:

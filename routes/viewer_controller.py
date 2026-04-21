@@ -9,6 +9,23 @@ from routes.report_registry import get_report
 viewer_bp = Blueprint('viewer', __name__, url_prefix='/viewer')
 
 
+def seed_report_access(user_id):
+    """Grant access to every ReportTemplate for a user, skipping existing rows."""
+    from db import ReportTemplate
+    all_reports = ReportTemplate.query.filter_by(is_base=True).all()
+    existing_ids = {
+        r.report_template_id
+        for r in ReportAccessControl.query.filter_by(user_id=user_id).all()
+    }
+    new_rows = [
+        ReportAccessControl(user_id=user_id, report_template_id=r.report_id, is_enabled=True)
+        for r in all_reports if r.report_id not in existing_ids
+    ]
+    if new_rows:
+        db.session.bulk_save_objects(new_rows)
+        db.session.commit()
+
+
 @viewer_bp.route('/')
 @login_required
 def index():
@@ -28,6 +45,8 @@ def viewer_dashboard():
     if is_admin:
         reports = ReportTemplate.query.filter_by(is_base=True).all()
     else:
+        # Auto-seed any missing access rows so existing viewers aren't locked out.
+        seed_report_access(current_user.id)
         reports = (
             db.session.query(ReportTemplate)
             .join(

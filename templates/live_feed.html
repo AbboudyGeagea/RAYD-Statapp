@@ -234,25 +234,31 @@
         <!-- ── Patient Waiting Time TAT ───────────────────────────────────── -->
         <div id="tat-panel" class="mt-6" style="display:none;">
             <div style="background:#111714;border:1px solid #1a2420;border-radius:16px;padding:20px;">
-                <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center justify-between mb-4" style="flex-wrap:wrap;gap:12px;">
                     <div>
-                        <h2 style="color:#e2e8f0;font-weight:900;font-size:13px;text-transform:uppercase;letter-spacing:0.08em;">Patient Waiting Time — Today</h2>
-                        <p style="color:#475569;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.15em;margin-top:2px;">Scheduled → Exam Completed</p>
+                        <h2 style="color:#e2e8f0;font-weight:900;font-size:13px;text-transform:uppercase;letter-spacing:0.08em;">Technician TAT — Today</h2>
+                        <p style="color:#475569;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.15em;margin-top:2px;">Scheduled → Done &amp; PACS Done</p>
                     </div>
-                    <div class="flex gap-4" id="tat-stats">
-                        <div style="text-align:center;">
-                            <p style="font-size:22px;font-weight:900;color:#60a5fa;" id="tat-avg">—</p>
-                            <p style="font-size:9px;font-weight:900;color:#475569;text-transform:uppercase;letter-spacing:0.12em;">Avg min</p>
+                    <div style="display:flex;gap:20px;flex-wrap:wrap;">
+                        <!-- Done TAT stats -->
+                        <div style="border-left:2px solid #60a5fa;padding-left:12px;">
+                            <p style="font-size:9px;font-weight:900;color:#60a5fa;text-transform:uppercase;letter-spacing:0.15em;margin-bottom:4px;">Done TAT (manual)</p>
+                            <div style="display:flex;gap:16px;">
+                                <div style="text-align:center;"><p style="font-size:18px;font-weight:900;color:#60a5fa;" id="tat-avg">—</p><p style="font-size:9px;color:#475569;font-weight:800;text-transform:uppercase;">Avg</p></div>
+                                <div style="text-align:center;"><p style="font-size:18px;font-weight:900;color:#4ade80;" id="tat-min">—</p><p style="font-size:9px;color:#475569;font-weight:800;text-transform:uppercase;">Min</p></div>
+                                <div style="text-align:center;"><p style="font-size:18px;font-weight:900;color:#f87171;" id="tat-max">—</p><p style="font-size:9px;color:#475569;font-weight:800;text-transform:uppercase;">Max</p></div>
+                            </div>
                         </div>
-                        <div style="text-align:center;">
-                            <p style="font-size:22px;font-weight:900;color:#4ade80;" id="tat-min">—</p>
-                            <p style="font-size:9px;font-weight:900;color:#475569;text-transform:uppercase;letter-spacing:0.12em;">Min</p>
+                        <!-- PACS Done TAT stats -->
+                        <div style="border-left:2px solid #a78bfa;padding-left:12px;">
+                            <p style="font-size:9px;font-weight:900;color:#a78bfa;text-transform:uppercase;letter-spacing:0.15em;margin-bottom:4px;">PACS Done TAT</p>
+                            <div style="display:flex;gap:16px;">
+                                <div style="text-align:center;"><p style="font-size:18px;font-weight:900;color:#a78bfa;" id="pacs-avg">—</p><p style="font-size:9px;color:#475569;font-weight:800;text-transform:uppercase;">Avg</p></div>
+                                <div style="text-align:center;"><p style="font-size:18px;font-weight:900;color:#4ade80;" id="pacs-min">—</p><p style="font-size:9px;color:#475569;font-weight:800;text-transform:uppercase;">Min</p></div>
+                                <div style="text-align:center;"><p style="font-size:18px;font-weight:900;color:#f87171;" id="pacs-max">—</p><p style="font-size:9px;color:#475569;font-weight:800;text-transform:uppercase;">Max</p></div>
+                            </div>
                         </div>
-                        <div style="text-align:center;">
-                            <p style="font-size:22px;font-weight:900;color:#f87171;" id="tat-max">—</p>
-                            <p style="font-size:9px;font-weight:900;color:#475569;text-transform:uppercase;letter-spacing:0.12em;">Max</p>
-                        </div>
-                        <div style="text-align:center;">
+                        <div style="text-align:center;align-self:center;">
                             <p style="font-size:22px;font-weight:900;color:#94a3b8;" id="tat-count">—</p>
                             <p style="font-size:9px;font-weight:900;color:#475569;text-transform:uppercase;letter-spacing:0.12em;">Exams</p>
                         </div>
@@ -269,7 +275,9 @@
                                 <th style="padding:6px 10px;text-align:left;">Scheduled</th>
                                 <th style="padding:6px 10px;text-align:left;">Done</th>
                                 <th style="padding:6px 10px;text-align:left;">By</th>
-                                <th style="padding:6px 10px;text-align:right;">Wait (min)</th>
+                                <th style="padding:6px 10px;text-align:right;color:#60a5fa;">Done TAT</th>
+                                <th style="padding:6px 10px;text-align:left;">PACS Done</th>
+                                <th style="padding:6px 10px;text-align:right;color:#a78bfa;">PACS TAT</th>
                             </tr>
                         </thead>
                         <tbody id="tat-tbody"></tbody>
@@ -642,23 +650,30 @@ async function loadTat() {
         document.getElementById('tat-avg').textContent   = data.avg_wait != null ? data.avg_wait : '—';
         document.getElementById('tat-min').textContent   = data.min_wait != null ? data.min_wait : '—';
         document.getElementById('tat-max').textContent   = data.max_wait != null ? data.max_wait : '—';
+        document.getElementById('pacs-avg').textContent  = data.avg_pacs != null ? data.avg_pacs : '—';
+        document.getElementById('pacs-min').textContent  = data.min_pacs != null ? data.min_pacs : '—';
+        document.getElementById('pacs-max').textContent  = data.max_pacs != null ? data.max_pacs : '—';
         document.getElementById('tat-count').textContent = data.count;
 
+        const tatColor  = m => m == null ? '#475569' : m <= 30 ? '#4ade80' : m <= 60 ? '#fbbf24' : '#f87171';
+        const tatCell   = (m, accent) => m != null
+            ? `<span style="font-weight:900;color:${tatColor(m)};">${m}</span> <span style="color:#475569;font-size:9px;">min</span>`
+            : `<span style="color:#334155;">—</span>`;
+
         const tbody = document.getElementById('tat-tbody');
-        tbody.innerHTML = data.exams.map(e => {
-            const mins = e.wait_minutes;
-            const color = mins <= 30 ? '#4ade80' : mins <= 60 ? '#fbbf24' : '#f87171';
-            return `<tr style="border-bottom:1px solid #1a2420;">
+        tbody.innerHTML = data.exams.map(e => `
+            <tr style="border-bottom:1px solid #1a2420;">
                 <td style="padding:7px 10px;color:#94a3b8;font-family:monospace;">${escHtml(e.patient_id)}</td>
                 <td style="padding:7px 10px;color:#64748b;font-family:monospace;font-size:10px;">${escHtml(e.accession_number)}</td>
-                <td style="padding:7px 10px;color:#94a3b8;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHtml(e.procedure_text)}">${escHtml(e.procedure_text)}</td>
+                <td style="padding:7px 10px;color:#94a3b8;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHtml(e.procedure_text)}">${escHtml(e.procedure_text)}</td>
                 <td style="padding:7px 10px;"><span style="background:#1e293b;color:#94a3b8;border-radius:4px;padding:2px 7px;font-size:9px;font-weight:700;">${escHtml(e.modality)}</span></td>
                 <td style="padding:7px 10px;color:#64748b;font-family:monospace;">${escHtml(e.scheduled_at)}</td>
                 <td style="padding:7px 10px;color:#64748b;font-family:monospace;">${escHtml(e.done_at)}</td>
                 <td style="padding:7px 10px;color:#64748b;font-size:10px;">${escHtml(e.done_by)}</td>
-                <td style="padding:7px 10px;text-align:right;font-weight:900;color:${color};">${mins}</td>
-            </tr>`;
-        }).join('');
+                <td style="padding:7px 10px;text-align:right;">${tatCell(e.done_tat_min)}</td>
+                <td style="padding:7px 10px;color:#64748b;font-family:monospace;">${escHtml(e.pacs_done_at)}</td>
+                <td style="padding:7px 10px;text-align:right;">${tatCell(e.pacs_tat_min)}</td>
+            </tr>`).join('');
     } catch(e) { console.error('TAT load failed:', e); }
 }
 

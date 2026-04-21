@@ -77,6 +77,11 @@ def register():
                         is_enabled=(page_key in defaults)
                     ))
 
+            if role == 'viewer':
+                from routes.viewer_controller import seed_report_access
+                db.session.flush()
+                seed_report_access(new_user.id)
+
             db.session.commit()
 
             flash('Registration successful!', 'success')

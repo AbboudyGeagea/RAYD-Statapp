@@ -1,7 +1,7 @@
 import re
 import json
 from collections import Counter
-from flask import Blueprint, render_template, jsonify, request
+from flask import Blueprint, render_template, jsonify, request, abort
 from flask_login import login_required, current_user
 from sqlalchemy import text
 from db import db
@@ -53,6 +53,17 @@ CRITICAL = [
     'appendicitis','ischemia','ischaemia','neoplasm','metastasis','metastases',
     'occlusion','stenosis','dissection','embolism','pneumonia','effusion',
 ]
+
+def _get_all_critical_keywords():
+    """Return CRITICAL list merged with any custom keywords stored in settings."""
+    try:
+        rows = db.session.execute(
+            text("SELECT key FROM settings WHERE key LIKE 'oru_crit:%'")
+        ).fetchall()
+        custom = [r[0][len('oru_crit:'):].lower() for r in rows]
+    except Exception:
+        custom = []
+    return list(set(CRITICAL) | set(custom))
 
 # ── Normal classifiers ────────────────────────────────────────────────────────
 NORMAL_PHRASES = [
@@ -328,7 +339,8 @@ def oru_data():
 
     rows = db.session.execute(text(f"""
         SELECT procedure_code, procedure_name, modality,
-               physician_id, report_text, impression_text, received_at
+               physician_id, patient_id, accession_number,
+               report_text, impression_text, result_datetime, received_at
         FROM hl7_oru_reports
         WHERE {where_sql}
         ORDER BY received_at DESC
@@ -360,20 +372,29 @@ def oru_data():
     ]
 
     # ── Critical findings (most recent 20) ───────────────────────────────────
+    custom_kws = _get_all_critical_keywords()
     critical_log = []
     for r in rows:
         txt = _best_text(r)
         hits = _matched_diagnoses(txt)
+        if not hits and custom_kws:
+            tl = txt.lower()
+            hits = [kw for kw in custom_kws if kw in tl]
         if hits:
             sec = _parse_sections(txt)
             critical_log.append({
-                'procedure':   (r.procedure_name or r.procedure_code or '—').strip(),
-                'modality':    (r.modality or '—').upper(),
-                'keywords':    hits[:5],
-                'received_at': r.received_at.strftime('%Y-%m-%d %H:%M') if r.received_at else '—',
-                'technique':   sec['technique'][:180],
-                'findings':    sec['findings'][:300],
-                'conclusion':  sec['conclusion'][:220],
+                'procedure':        (r.procedure_name or r.procedure_code or '—').strip(),
+                'modality':         (r.modality or '—').upper(),
+                'keywords':         hits[:5],
+                'patient_id':       r.patient_id or '—',
+                'accession_number': r.accession_number or '—',
+                'date':             r.result_datetime.strftime('%Y-%m-%d') if r.result_datetime else (
+                                    r.received_at.strftime('%Y-%m-%d') if r.received_at else '—'),
+                'physician_id':     r.physician_id or '—',
+                'received_at':      r.received_at.strftime('%Y-%m-%d %H:%M') if r.received_at else '—',
+                'technique':        sec['technique'][:180],
+                'findings':         sec['findings'][:300],
+                'conclusion':       sec['conclusion'][:220],
             })
     critical_log = critical_log[:20]
 
@@ -724,3 +745,59 @@ def nlp_results():
             mod: dict(cnts) for mod, cnts in cls_by_mod.items()
         },
     })
+
+
+# ── Custom Critical Keywords management ────────────────────────────────────────
+
+@oru_bp.route('/critical-keywords')
+@login_required
+def get_critical_keywords():
+    from db import user_has_page
+    if current_user.role != 'admin' and not user_has_page(current_user, 'oru'):
+        abort(403)
+    try:
+        rows = db.session.execute(
+            text("SELECT key FROM settings WHERE key LIKE 'oru_crit:%' ORDER BY key")
+        ).fetchall()
+        custom = [r[0][len('oru_crit:'):] for r in rows]
+    except Exception:
+        custom = []
+    return jsonify({'builtin': CRITICAL, 'custom': custom})
+
+
+@oru_bp.route('/critical-keywords', methods=['POST'])
+@login_required
+def add_critical_keyword():
+    if current_user.role != 'admin':
+        abort(403)
+    data = request.get_json(silent=True) or {}
+    word = (data.get('word') or '').strip().lower()
+    if not word or len(word) > 80:
+        return jsonify({'error': 'Invalid keyword'}), 400
+    key = f'oru_crit:{word}'
+    try:
+        db.session.execute(
+            text("INSERT INTO settings (key, value) VALUES (:k, '1') ON CONFLICT (key) DO NOTHING"),
+            {'k': key}
+        )
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+    return jsonify({'ok': True, 'word': word})
+
+
+@oru_bp.route('/critical-keywords/<path:word>', methods=['DELETE'])
+@login_required
+def delete_critical_keyword(word):
+    if current_user.role != 'admin':
+        abort(403)
+    word = word.strip().lower()
+    key = f'oru_crit:{word}'
+    try:
+        db.session.execute(text("DELETE FROM settings WHERE key = :k"), {'k': key})
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+    return jsonify({'ok': True})

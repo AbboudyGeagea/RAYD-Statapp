@@ -401,24 +401,25 @@
 
 <!-- ── HL7 Parser Modal ── -->
 <div id="hl7ParserOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:2000;align-items:center;justify-content:center;">
-  <div style="background:#13161e;border:1px solid #252a38;border-radius:10px;width:90%;max-width:900px;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;">
+  <div style="background:#13161e;border:1px solid #252a38;border-radius:10px;width:92%;max-width:980px;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;">
     <!-- Header -->
-    <div style="padding:16px 20px;border-bottom:1px solid #1e2330;display:flex;align-items:center;justify-content:space-between;">
-      <div>
+    <div style="padding:14px 20px;border-bottom:1px solid #1e2330;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
+      <div style="display:flex;align-items:center;gap:16px;">
         <span style="font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;color:#eef0f5;">HL7 Message Parser</span>
-        <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#5a6070;margin-left:12px;">Paste a raw ORM^O01 message to validate field mapping for this deployment</span>
+        <div style="display:flex;gap:2px;background:#0d0f14;border:1px solid #1e2330;border-radius:5px;padding:2px;">
+          <button id="tabParseBtn" onclick="switchParserTab('parse')" style="background:#0077a8;color:#fff;border:none;padding:5px 14px;border-radius:3px;font-family:'IBM Plex Mono',monospace;font-size:10px;cursor:pointer;letter-spacing:0.05em;">Parse</button>
+          <button id="tabMapBtn" onclick="switchParserTab('mappings')" style="background:none;color:#5a6070;border:none;padding:5px 14px;border-radius:3px;font-family:'IBM Plex Mono',monospace;font-size:10px;cursor:pointer;letter-spacing:0.05em;">Field Mappings</button>
+        </div>
       </div>
       <button onclick="closeHl7Parser()" style="background:none;border:none;color:#5a6070;font-size:18px;cursor:pointer;line-height:1;">&times;</button>
     </div>
-    <!-- Body -->
-    <div style="display:flex;flex:1;overflow:hidden;">
-      <!-- Left: textarea -->
+    <!-- Parse Tab -->
+    <div id="tabPaneparse" style="display:flex;flex:1;overflow:hidden;">
       <div style="width:42%;border-right:1px solid #1e2330;padding:16px;display:flex;flex-direction:column;gap:10px;">
         <label style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#5a6070;text-transform:uppercase;letter-spacing:0.1em;">Raw HL7 Message</label>
         <textarea id="hl7RawInput" placeholder="MSH|^~\&|PHILIPS|DEPT||20240101120000||ORM^O01|MSG001|P|2.5&#10;PID|1||PAT001^^^MRN||DOE^JOHN||19800101|M&#10;ORC|NW|ORD001||||||||||DR. SMITH&#10;OBR|1|ORD001||CT001^CT HEAD W/WO CONTRAST|||||||||||DR. SMITH||||||||CT" style="flex:1;background:#0d0f14;border:1px solid #252a38;border-radius:4px;color:#c8cdd8;font-family:'IBM Plex Mono',monospace;font-size:11px;padding:10px;resize:none;outline:none;line-height:1.6;min-height:280px;"></textarea>
         <button onclick="parseHl7()" style="background:#0077a8;color:#fff;border:none;padding:8px;border-radius:4px;font-family:'IBM Plex Mono',monospace;font-size:11px;cursor:pointer;letter-spacing:0.05em;">Parse Message</button>
       </div>
-      <!-- Right: results -->
       <div style="flex:1;padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:12px;">
         <div id="hl7ParseStatus" style="display:none;"></div>
         <div id="hl7ParseResults" style="display:none;">
@@ -439,9 +440,37 @@
         <div id="hl7EmptyState" style="text-align:center;padding:60px 20px;color:#5a6070;">
           <div style="font-size:32px;margin-bottom:12px;opacity:0.4;">⌗</div>
           <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;">Paste an HL7 message and click Parse</div>
-          <div style="font-size:11px;margin-top:6px;opacity:0.6;">Segments: MSH · PID · ORC · OBR</div>
+          <div style="font-size:11px;margin-top:6px;opacity:0.6;">Uses active field mappings</div>
         </div>
       </div>
+    </div>
+    <!-- Mappings Tab -->
+    <div id="tabPanemappings" style="display:none;flex:1;flex-direction:column;overflow-y:auto;padding:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-shrink:0;">
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#5a6070;">Configure which HL7 segment/field/component maps to each hl7_orders column</span>
+        <div style="display:flex;gap:8px;">
+          {% if current_user.role == 'admin' %}
+          <button onclick="addMappingRow()" style="background:#252a38;color:#c8cdd8;border:1px solid #333a4d;padding:5px 12px;border-radius:4px;font-family:'IBM Plex Mono',monospace;font-size:10px;cursor:pointer;">+ Add Row</button>
+          <button onclick="saveFieldMap()" style="background:#00c896;color:#000;border:none;padding:5px 14px;border-radius:4px;font-family:'IBM Plex Mono',monospace;font-size:10px;cursor:pointer;font-weight:600;">Save Mappings</button>
+          {% endif %}
+        </div>
+      </div>
+      <div id="mapSaveStatus" style="display:none;margin-bottom:10px;"></div>
+      <table style="width:100%;border-collapse:collapse;font-size:11px;">
+        <thead>
+          <tr style="border-bottom:2px solid #252a38;">
+            <th style="text-align:left;padding:6px 8px;font-family:'IBM Plex Mono',monospace;font-size:9px;color:#5a6070;text-transform:uppercase;letter-spacing:0.1em;width:80px;">Segment</th>
+            <th style="text-align:left;padding:6px 8px;font-family:'IBM Plex Mono',monospace;font-size:9px;color:#5a6070;text-transform:uppercase;letter-spacing:0.1em;width:70px;">Field #</th>
+            <th style="text-align:left;padding:6px 8px;font-family:'IBM Plex Mono',monospace;font-size:9px;color:#5a6070;text-transform:uppercase;letter-spacing:0.1em;width:100px;">Component #</th>
+            <th style="text-align:left;padding:6px 8px;font-family:'IBM Plex Mono',monospace;font-size:9px;color:#5a6070;text-transform:uppercase;letter-spacing:0.1em;">DB Column</th>
+            <th style="text-align:left;padding:6px 8px;font-family:'IBM Plex Mono',monospace;font-size:9px;color:#5a6070;text-transform:uppercase;letter-spacing:0.1em;">Label</th>
+            {% if current_user.role == 'admin' %}
+            <th style="width:36px;"></th>
+            {% endif %}
+          </tr>
+        </thead>
+        <tbody id="mappingsBody"></tbody>
+      </table>
     </div>
   </div>
 </div>
@@ -598,27 +627,31 @@
   setInterval(refreshOrders, 30000);
 
   // ── HL7 Parser ──────────────────────────────────────────────────────────────
-  const HL7_FIELD_MAP = [
-    { seg:'MSH', fi:9,  ci:0, label:'Message Type',        db:'message_type' },
-    { seg:'MSH', fi:10, ci:-1,label:'Message Control ID',  db:'message_id' },
-    { seg:'PID', fi:3,  ci:0, label:'Patient ID',          db:'patient_id' },
-    { seg:'PID', fi:5,  ci:0, label:'Patient Family Name', db:'patient_name (last)' },
-    { seg:'PID', fi:5,  ci:1, label:'Patient Given Name',  db:'patient_name (first)' },
-    { seg:'PID', fi:7,  ci:-1,label:'Date of Birth',       db:'date_of_birth' },
-    { seg:'PID', fi:8,  ci:-1,label:'Gender',              db:'gender' },
-    { seg:'ORC', fi:1,  ci:-1,label:'Order Control',       db:'order_status' },
-    { seg:'ORC', fi:2,  ci:0, label:'Placer Order #',      db:'placer_order_number' },
-    { seg:'OBR', fi:2,  ci:0, label:'Accession Number',    db:'accession_number' },
-    { seg:'OBR', fi:4,  ci:0, label:'Procedure Code',      db:'procedure_code' },
-    { seg:'OBR', fi:4,  ci:1, label:'Procedure Text',      db:'procedure_text' },
-    { seg:'OBR', fi:16, ci:0, label:'Ordering Physician',  db:'ordering_physician' },
-    { seg:'OBR', fi:24, ci:-1,label:'Modality (Diag Svc)', db:'modality' },
-    { seg:'OBR', fi:36, ci:-1,label:'Scheduled DateTime',  db:'scheduled_datetime' },
+  const DB_COLUMNS = [
+    'message_type','message_id','patient_id','patient_name','date_of_birth','gender',
+    'accession_number','placer_order_number','procedure_code','procedure_text',
+    'modality','scheduled_datetime','ordering_physician','order_status',
+    'patient_class','patient_location'
   ];
 
+  const KNOWN_SEGS = ['MSH','PID','PV1','ORC','OBR','OBX'];
+  const IS_ADMIN = {{ 'true' if current_user.role == 'admin' else 'false' }};
+
+  let HL7_FIELD_MAP = [];
+
+  async function loadFieldMap() {
+    try {
+      const res = await fetch('/hl7-orders/field-map');
+      const data = await res.json();
+      HL7_FIELD_MAP = data.mappings || [];
+    } catch(e) {
+      console.warn('Could not load field map:', e);
+    }
+  }
+
   function openHl7Parser() {
-    const el = document.getElementById('hl7ParserOverlay');
-    el.style.display = 'flex';
+    document.getElementById('hl7ParserOverlay').style.display = 'flex';
+    loadFieldMap();
   }
 
   function closeHl7Parser() {
@@ -629,18 +662,105 @@
     if (e.target === this) closeHl7Parser();
   });
 
+  function switchParserTab(tab) {
+    const isMap = tab === 'mappings';
+    const pParse = document.getElementById('tabPaneparse');
+    const pMap   = document.getElementById('tabPanemappings');
+    pParse.style.display = isMap ? 'none' : 'flex';
+    pMap.style.display   = isMap ? 'flex' : 'none';
+    const activeStyle   = 'background:#0077a8;color:#fff;border:none;padding:5px 14px;border-radius:3px;font-family:IBM Plex Mono,monospace;font-size:10px;cursor:pointer;letter-spacing:0.05em;';
+    const inactiveStyle = 'background:none;color:#5a6070;border:none;padding:5px 14px;border-radius:3px;font-family:IBM Plex Mono,monospace;font-size:10px;cursor:pointer;letter-spacing:0.05em;';
+    document.getElementById('tabParseBtn').style.cssText = isMap ? inactiveStyle : activeStyle;
+    document.getElementById('tabMapBtn').style.cssText   = isMap ? activeStyle : inactiveStyle;
+    if (isMap) renderMappingsTable();
+  }
+
+  // ── Mappings tab ─────────────────────────────────────────────────────────
+
+  function renderMappingsTable() {
+    const tbody = document.getElementById('mappingsBody');
+    tbody.innerHTML = '';
+    HL7_FIELD_MAP.forEach((m, idx) => {
+      const segOpts = KNOWN_SEGS.map(s => `<option value="${s}"${m.seg===s?' selected':''}>${s}</option>`).join('');
+      const dbOpts  = DB_COLUMNS.map(c => `<option value="${c}"${m.db===c?' selected':''}>${c}</option>`).join('');
+      tbody.innerHTML += `
+        <tr style="border-bottom:1px solid #1e2330;">
+          <td style="padding:5px 8px;">
+            ${IS_ADMIN
+              ? `<select onchange="updateMapping(${idx},'seg',this.value)" style="background:#0d0f14;border:1px solid #252a38;color:#c8cdd8;font-family:'IBM Plex Mono',monospace;font-size:10px;padding:3px;border-radius:3px;">${segOpts}</select>`
+              : `<span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#00b4d8;">${m.seg}</span>`}
+          </td>
+          <td style="padding:5px 8px;">
+            ${IS_ADMIN
+              ? `<input type="number" value="${m.fi}" onchange="updateMapping(${idx},'fi',+this.value)" style="width:52px;background:#0d0f14;border:1px solid #252a38;color:#c8cdd8;font-family:'IBM Plex Mono',monospace;font-size:10px;padding:3px 5px;border-radius:3px;">`
+              : `<span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#5a6070;">${m.fi}</span>`}
+          </td>
+          <td style="padding:5px 8px;">
+            ${IS_ADMIN
+              ? `<input type="number" value="${m.ci}" onchange="updateMapping(${idx},'ci',+this.value)" title="-1 = whole field, 0+ = component index" style="width:60px;background:#0d0f14;border:1px solid #252a38;color:#c8cdd8;font-family:'IBM Plex Mono',monospace;font-size:10px;padding:3px 5px;border-radius:3px;">`
+              : `<span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#5a6070;">${m.ci < 0 ? 'whole' : m.ci}</span>`}
+          </td>
+          <td style="padding:5px 8px;">
+            ${IS_ADMIN
+              ? `<select onchange="updateMapping(${idx},'db',this.value)" style="background:#0d0f14;border:1px solid #252a38;color:#c8cdd8;font-family:'IBM Plex Mono',monospace;font-size:10px;padding:3px;border-radius:3px;">${dbOpts}</select>`
+              : `<span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#00b4d8;">${m.db}</span>`}
+          </td>
+          <td style="padding:5px 8px;">
+            ${IS_ADMIN
+              ? `<input type="text" value="${(m.label||'').replace(/"/g,'&quot;')}" onchange="updateMapping(${idx},'label',this.value)" style="width:150px;background:#0d0f14;border:1px solid #252a38;color:#c8cdd8;font-family:'IBM Plex Mono',monospace;font-size:10px;padding:3px 5px;border-radius:3px;">`
+              : `<span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#5a6070;">${m.label||''}</span>`}
+          </td>
+          ${IS_ADMIN ? `<td style="padding:5px 8px;text-align:center;"><button onclick="deleteMappingRow(${idx})" style="background:none;border:none;color:#e05c5c;font-size:15px;cursor:pointer;line-height:1;">&times;</button></td>` : ''}
+        </tr>`;
+    });
+  }
+
+  function updateMapping(idx, key, val) {
+    HL7_FIELD_MAP[idx][key] = val;
+  }
+
+  function addMappingRow() {
+    HL7_FIELD_MAP.push({seg:'MSH', fi:1, ci:-1, label:'', db:'message_type'});
+    renderMappingsTable();
+  }
+
+  function deleteMappingRow(idx) {
+    HL7_FIELD_MAP.splice(idx, 1);
+    renderMappingsTable();
+  }
+
+  async function saveFieldMap() {
+    const statusEl = document.getElementById('mapSaveStatus');
+    try {
+      const res  = await fetch('/hl7-orders/field-map', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({mappings: HL7_FIELD_MAP})
+      });
+      const data = await res.json();
+      if (data.ok) {
+        statusEl.style.cssText = 'display:block;padding:8px 12px;border-radius:4px;background:rgba(0,200,150,0.08);border:1px solid rgba(0,200,150,0.3);font-family:IBM Plex Mono,monospace;font-size:11px;color:#00c896;';
+        statusEl.textContent = 'Mappings saved.';
+      } else {
+        throw new Error(data.error || 'Server error');
+      }
+    } catch(e) {
+      statusEl.style.cssText = 'display:block;padding:8px 12px;border-radius:4px;background:rgba(224,92,92,0.08);border:1px solid rgba(224,92,92,0.3);font-family:IBM Plex Mono,monospace;font-size:11px;color:#e05c5c;';
+      statusEl.textContent = 'Save failed: ' + e.message;
+    }
+    setTimeout(() => { statusEl.style.display = 'none'; }, 3000);
+  }
+
+  // ── Parse tab ────────────────────────────────────────────────────────────
+
   function parseHl7() {
     const raw = document.getElementById('hl7RawInput').value.trim();
     document.getElementById('hl7EmptyState').style.display = 'none';
     document.getElementById('hl7ParseStatus').style.display = 'none';
     document.getElementById('hl7ParseResults').style.display = 'none';
 
-    if (!raw) {
-      showParseStatus('error', 'No message pasted.');
-      return;
-    }
+    if (!raw) { showParseStatus('error', 'No message pasted.'); return; }
 
-    // Normalize line endings: HL7 uses \r, \n, or \r\n
     const lines = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').filter(l => l.trim());
     const segments = {};
     for (const line of lines) {
@@ -649,28 +769,22 @@
       segments[seg].push(line.split('|'));
     }
 
-    if (!segments['MSH']) {
-      showParseStatus('error', 'Invalid HL7 — MSH segment not found.');
-      return;
-    }
+    if (!segments['MSH']) { showParseStatus('error', 'Invalid HL7 — MSH segment not found.'); return; }
 
     const msgType = getHl7Val(segments, 'MSH', 9, 0) || '—';
-    showParseStatus('ok', 'Parsed · Message type: <strong>' + msgType + '</strong> · Segments found: <strong>' + Object.keys(segments).join(', ') + '</strong>');
+    showParseStatus('ok', 'Parsed · Message type: <strong>' + msgType + '</strong> · Segments: <strong>' + Object.keys(segments).join(', ') + '</strong>');
 
     const tbody = document.getElementById('hl7ParseBody');
     tbody.innerHTML = '';
-    let missing = 0;
 
     for (const m of HL7_FIELD_MAP) {
-      const val = getHl7Val(segments, m.seg, m.fi, m.ci);
+      const val    = getHl7Val(segments, m.seg, m.fi, m.ci);
       const hasSeg = !!segments[m.seg];
       const hasVal = val !== null && val !== '' && val !== undefined;
       const status = !hasSeg ? 'no-seg' : !hasVal ? 'empty' : 'ok';
-      if (status !== 'ok') missing++;
-
       tbody.innerHTML += `
         <tr style="border-bottom:1px solid #1e2330;">
-          <td style="padding:6px 8px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:#5a6070;">${m.seg}-${m.fi}${m.ci >= 0 ? '.'+m.ci : ''}<br><span style="color:#3a4050;font-size:9px;">${m.label}</span></td>
+          <td style="padding:6px 8px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:#5a6070;">${m.seg}-${m.fi}${m.ci >= 0 ? '.'+m.ci : ''}<br><span style="color:#3a4050;font-size:9px;">${m.label||''}</span></td>
           <td style="padding:6px 8px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:#00b4d8;">${m.db}</td>
           <td style="padding:6px 8px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#eef0f5;max-width:200px;overflow:hidden;text-overflow:ellipsis;" title="${val||''}">${hasVal ? val : '<span style="color:#3a4050;">—</span>'}</td>
           <td style="padding:6px 8px;text-align:center;">
@@ -681,7 +795,6 @@
         </tr>`;
     }
 
-    // Show raw segment dump
     let segDump = '<div style="margin-top:4px;"><label style="font-family:IBM Plex Mono,monospace;font-size:9px;color:#3a4050;text-transform:uppercase;letter-spacing:0.1em;">All Segments</label>';
     for (const [seg, rows] of Object.entries(segments)) {
       segDump += `<div style="margin-top:8px;"><span style="font-family:IBM Plex Mono,monospace;font-size:9px;color:#5a6070;">${seg}</span><div style="font-family:IBM Plex Mono,monospace;font-size:10px;color:#3a4050;padding:4px 0 0 8px;">`;
@@ -698,7 +811,6 @@
   function getHl7Val(segments, seg, fieldIdx, compIdx) {
     if (!segments[seg] || !segments[seg][0]) return null;
     const fields = segments[seg][0];
-    // MSH is special: MSH.1 = field separator (index 1 in array), so fieldIdx maps directly
     const f = fields[fieldIdx] || '';
     if (compIdx < 0) return f || null;
     const parts = f.split('^');
@@ -708,7 +820,7 @@
   function showParseStatus(type, msg) {
     const el = document.getElementById('hl7ParseStatus');
     const colors = { ok: '#00c896', error: '#e05c5c', warn: '#f4b942' };
-    const bg = { ok: 'rgba(0,200,150,0.08)', error: 'rgba(224,92,92,0.08)', warn: 'rgba(244,185,66,0.08)' };
+    const bg     = { ok: 'rgba(0,200,150,0.08)', error: 'rgba(224,92,92,0.08)', warn: 'rgba(244,185,66,0.08)' };
     el.style.cssText = `display:block;padding:8px 12px;border-radius:4px;border:1px solid ${colors[type]}40;background:${bg[type]};font-family:'IBM Plex Mono',monospace;font-size:11px;color:${colors[type]};`;
     el.innerHTML = msg;
   }

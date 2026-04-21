@@ -309,17 +309,53 @@
 
         <!-- Critical findings log -->
         <div class="card full-width">
-          <div class="card-title"><i class="bi bi-exclamation-triangle-fill" style="color:#f87171;"></i>Critical Findings Log <span style="font-weight:400;color:#4b7a63;">(most recent 20)</span></div>
+          <div class="card-title" style="justify-content:space-between;">
+            <span><i class="bi bi-exclamation-triangle-fill" style="color:#f87171;"></i>Critical Findings Log <span style="font-weight:400;color:#4b7a63;">(most recent 20)</span></span>
+            {% if current_user.role == 'admin' %}
+            <button onclick="toggleKeywordsPanel()" style="background:#1a211e;border:1px solid #1e2d27;color:#94a3b8;padding:5px 12px;border-radius:6px;font-size:10px;font-weight:700;cursor:pointer;letter-spacing:0.1em;text-transform:uppercase;">
+              <i class="bi bi-tags-fill"></i> Manage Keywords
+            </button>
+            {% endif %}
+          </div>
+
+          {% if current_user.role == 'admin' %}
+          <!-- Keywords management panel (admin only) -->
+          <div id="keywords-panel" style="display:none;background:#0f1512;border:1px solid #1e2d27;border-radius:8px;padding:14px 16px;margin-bottom:14px;">
+            <div style="font-size:9px;font-weight:800;letter-spacing:0.2em;text-transform:uppercase;color:#4b7a63;margin-bottom:10px;">Critical Keywords Dictionary</div>
+            <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap;align-items:center;">
+              <input id="new-kw-input" type="text" placeholder="Add keyword (e.g. tamponade)…"
+                style="background:#1a211e;border:1px solid #1e2d27;color:#e2e8f0;padding:6px 12px;border-radius:6px;font-size:12px;font-weight:600;outline:none;flex:1;min-width:180px;"
+                onkeydown="if(event.key==='Enter') addKeyword()">
+              <button onclick="addKeyword()"
+                style="background:#1a211e;border:1px solid #34d399;color:#34d399;padding:6px 16px;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;">
+                <i class="bi bi-plus-circle"></i> Add
+              </button>
+            </div>
+            <div style="margin-bottom:8px;">
+              <span style="font-size:10px;font-weight:700;color:#4b7a63;">Custom Keywords</span>
+              <div id="custom-kw-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;min-height:22px;">
+                <span style="font-size:10px;color:#475569;font-style:italic;">Loading…</span>
+              </div>
+            </div>
+            <details style="margin-top:8px;">
+              <summary style="font-size:10px;font-weight:700;color:#4b7a63;cursor:pointer;">Built-in keywords (read-only)</summary>
+              <div id="builtin-kw-chips" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;"></div>
+            </details>
+          </div>
+          {% endif %}
+
           <div id="critical-wrap" style="overflow-x:auto;">
             <div class="empty-state" id="critical-empty">No critical findings in selected period.</div>
             <table class="crit-table" id="critical-table" style="display:none;">
               <thead>
                 <tr>
-                  <th>Received</th>
+                  <th>Date</th>
+                  <th>Patient ID</th>
+                  <th>Accession #</th>
+                  <th>Reporter</th>
                   <th>Procedure</th>
                   <th>Modality</th>
                   <th>Diagnoses</th>
-                  <th>Technique</th>
                   <th>Résultats</th>
                   <th>Conclusion</th>
                 </tr>
@@ -782,17 +818,84 @@ function buildCritical(log) {
   empty.style.display = 'none';
   table.style.display = 'table';
 
-  const cell = s => esc(s) ? `<span class="snippet">${esc(s)}</span>` : `<em style="color:#475569">—</em>`;
+  const cell    = s => (s && s !== '—') ? `<span class="snippet">${esc(s)}</span>` : `<em style="color:#475569">—</em>`;
+  const id_cell = s => (s && s !== '—') ? `<span style="font-family:monospace;font-size:11px;color:#e2e8f0;">${esc(s)}</span>` : `<em style="color:#475569">—</em>`;
   tbody.innerHTML = log.map(r => `
     <tr>
-      <td style="color:#64748b;white-space:nowrap;">${esc(r.received_at)}</td>
+      <td style="color:#64748b;white-space:nowrap;font-size:11px;">${esc(r.date || r.received_at)}</td>
+      <td>${id_cell(r.patient_id)}</td>
+      <td>${id_cell(r.accession_number)}</td>
+      <td style="color:#a78bfa;font-size:11px;font-weight:700;">${esc(r.physician_id || '—')}</td>
       <td><span class="proc-tag">${esc(r.procedure || '—')}</span></td>
       <td style="color:${modColor(r.modality)};font-weight:800;font-size:11px;">${esc(r.modality)}</td>
       <td>${(r.keywords||[]).map(k => `<span class="keyword-badge">${esc(k)}</span>`).join('')}</td>
-      <td style="max-width:160px;">${cell(r.technique)}</td>
       <td style="max-width:260px;">${cell(r.findings)}</td>
       <td style="max-width:200px;">${cell(r.conclusion)}</td>
     </tr>`).join('');
+}
+
+// ── Keywords management (admin only) ────────────────────────────────────────
+let _kwPanelLoaded = false;
+
+function toggleKeywordsPanel() {
+  const panel = document.getElementById('keywords-panel');
+  if (!panel) return;
+  const shown = panel.style.display !== 'none';
+  panel.style.display = shown ? 'none' : 'block';
+  if (!shown && !_kwPanelLoaded) { loadKeywords(); _kwPanelLoaded = true; }
+}
+
+function loadKeywords() {
+  fetch('/oru/critical-keywords')
+    .then(r => r.json())
+    .then(d => {
+      renderCustomChips(d.custom || []);
+      const builtinWrap = document.getElementById('builtin-kw-chips');
+      if (builtinWrap) {
+        builtinWrap.innerHTML = (d.builtin || []).map(k =>
+          `<span style="background:#1a211e;border:1px solid #1e2d27;color:#64748b;padding:3px 8px;border-radius:4px;font-size:10px;font-weight:700;">${esc(k)}</span>`
+        ).join('');
+      }
+    }).catch(e => console.warn('keywords load', e));
+}
+
+function renderCustomChips(list) {
+  const wrap = document.getElementById('custom-kw-chips');
+  if (!wrap) return;
+  if (!list.length) {
+    wrap.innerHTML = '<span style="font-size:10px;color:#475569;font-style:italic;">No custom keywords yet.</span>';
+    return;
+  }
+  wrap.innerHTML = list.map(k => `
+    <span style="display:inline-flex;align-items:center;gap:5px;background:#2d1414;border:1px solid #7f1d1d;color:#fca5a5;padding:3px 10px;border-radius:100px;font-size:11px;font-weight:700;">
+      ${esc(k)}
+      <button onclick="deleteKeyword('${esc(k)}')" style="background:none;border:none;color:#f87171;cursor:pointer;padding:0;font-size:12px;line-height:1;">&times;</button>
+    </span>`).join('');
+}
+
+function addKeyword() {
+  const input = document.getElementById('new-kw-input');
+  const word = (input.value || '').trim().toLowerCase();
+  if (!word) return;
+  fetch('/oru/critical-keywords', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({word})
+  }).then(r => r.json()).then(d => {
+    if (d.error) { alert('Error: ' + d.error); return; }
+    input.value = '';
+    _kwPanelLoaded = false;
+    loadKeywords();
+  }).catch(e => alert('Request failed: ' + e));
+}
+
+function deleteKeyword(word) {
+  fetch('/oru/critical-keywords/' + encodeURIComponent(word), {method: 'DELETE'})
+    .then(r => r.json()).then(d => {
+      if (d.error) { alert('Error: ' + d.error); return; }
+      _kwPanelLoaded = false;
+      loadKeywords();
+    }).catch(e => alert('Request failed: ' + e));
 }
 
 // ── Main loader ──────────────────────────────────────────────────────────────

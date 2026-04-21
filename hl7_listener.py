@@ -29,6 +29,7 @@ INSERT_SQL = """
         procedure_code, procedure_text,
         modality, scheduled_datetime,
         ordering_physician, order_status,
+        patient_class, patient_location,
         raw_message, received_at
     ) VALUES (
         :message_id, :message_datetime, :message_type,
@@ -37,6 +38,7 @@ INSERT_SQL = """
         :procedure_code, :procedure_text,
         :modality, :scheduled_datetime,
         :ordering_physician, :order_status,
+        :patient_class, :patient_location,
         :raw_message, :received_at
     )
     ON CONFLICT (message_id) DO UPDATE SET
@@ -53,10 +55,18 @@ INSERT_SQL = """
         scheduled_datetime = EXCLUDED.scheduled_datetime,
         ordering_physician = EXCLUDED.ordering_physician,
         order_status       = EXCLUDED.order_status,
+        patient_class      = EXCLUDED.patient_class,
+        patient_location   = EXCLUDED.patient_location,
         raw_message        = EXCLUDED.raw_message,
         received_at        = EXCLUDED.received_at
 """
 
+
+PACS_UPDATE_SQL = """
+    UPDATE hl7_orders
+       SET pacs_done_at = :pacs_done_at
+     WHERE accession_number = :accession_number
+"""
 
 SCN_INSERT_SQL = """
     INSERT INTO hl7_scn_studies (
@@ -143,9 +153,11 @@ def _component(field_val, index, default=None):
 ORU_INSERT_SQL = """
     INSERT INTO hl7_oru_reports
         (procedure_code, procedure_name, modality, physician_id,
+         patient_id, accession_number,
          report_text, impression_text, result_datetime, received_at)
     VALUES
         (:procedure_code, :procedure_name, :modality, :physician_id,
+         :patient_id, :accession_number,
          :report_text, :impression_text, :result_datetime, :received_at)
     ON CONFLICT DO NOTHING
 """
@@ -173,18 +185,26 @@ def parse_oru_r01(raw_message):
     segments = [s.strip() for s in text.split('\r') if s.strip()]
 
     msh = _seg(segments, 'MSH')
+    pid = _seg(segments, 'PID')
     obr = _seg(segments, 'OBR')
 
     msg_type = _field(msh, 8, '')
     if 'ORU' not in msg_type:
         return None
 
+    # ── PID: patient identifier ──────────────────────────────────────────────
+    pid_raw    = _field(pid, 3, '')
+    patient_id = _component(pid_raw, 0) or None
+
     # ── OBR: procedure & timing ───────────────────────────────────────────────
-    proc_raw       = _field(obr, 4, '')
-    procedure_code = _component(proc_raw, 0)
-    procedure_name = _component(proc_raw, 1) or _component(proc_raw, 2)
-    modality       = _field(obr, 24) or _field(obr, 19) or _field(obr, 17)
-    result_dt      = _parse_hl7_datetime(_field(obr, 22) or _field(obr, 7))
+    proc_raw         = _field(obr, 4, '')
+    procedure_code   = _component(proc_raw, 0)
+    procedure_name   = _component(proc_raw, 1) or _component(proc_raw, 2)
+    modality         = _field(obr, 24) or _field(obr, 19) or _field(obr, 17)
+    result_dt        = _parse_hl7_datetime(_field(obr, 22) or _field(obr, 7))
+    # Accession: OBR-3 (filler order number) component 1
+    acc_raw          = _field(obr, 3, '')
+    accession_number = _component(acc_raw, 0) or None
 
     # Physician: OBR-32 (principal result interpreter) — ID component only
     phys_raw     = _field(obr, 32, '')
@@ -222,6 +242,8 @@ def parse_oru_r01(raw_message):
         'procedure_name':  procedure_name,
         'modality':        modality,
         'physician_id':    physician_id,
+        'patient_id':      patient_id,
+        'accession_number': accession_number,
         'report_text':     '\n'.join(report_parts) or None,
         'impression_text': '\n'.join(impression_parts) or None,
         'result_datetime': result_dt,
@@ -246,6 +268,7 @@ def parse_orm_o01(raw_message):
 
     msh = _seg(segments, 'MSH')
     pid = _seg(segments, 'PID')
+    pv1 = _seg(segments, 'PV1')
     orc = _seg(segments, 'ORC')
     obr = _seg(segments, 'OBR')
 
@@ -287,13 +310,19 @@ def parse_orm_o01(raw_message):
     modality = _field(obr, 24) or _field(obr, 19) or _field(obr, 17)
 
     scheduled_datetime = _parse_hl7_datetime(
-        _field(obr, 7) or _field(obr, 36) or _field(obr, 6)
+        _component(_field(obr, 7, ''), 0) or _component(_field(orc, 7, ''), 3)
+        or _field(obr, 36) or _field(obr, 6)
     )
 
     if not ordering_physician:
         ordering_physician = _format_name(_field(obr, 16, ''))
 
-    patient_class = _field(pid, 18)
+    # ── PV1 — Patient class and location ────────────────────────────────────
+    # PV1-2: patient class (I=Inpatient, O=Outpatient, E=Emergency, etc.)
+    # PV1-3: assigned patient location — component 1 is the nurse unit (e.g. ER, ICU)
+    # Fall back to PID-18 for patient_class if PV1 is absent (some HIS omit PV1)
+    patient_class    = _field(pv1, 2) or _field(pid, 18) or None
+    patient_location = (_component(_field(pv1, 3, ''), 0) or None)
 
     return {
         "message_id":         message_id,
@@ -304,6 +333,7 @@ def parse_orm_o01(raw_message):
         "date_of_birth":      dob,
         "gender":             gender,
         "patient_class":      patient_class,
+        "patient_location":   patient_location,
         "accession_number":   accession_number or None,
         "placer_order_number":placer_order_number or None,
         "procedure_code":     procedure_code,
@@ -314,6 +344,38 @@ def parse_orm_o01(raw_message):
         "order_status":       order_status,
         "raw_message":        raw_message,
         "received_at":        datetime.now(),
+    }
+
+
+def parse_pacs_completion(raw_message):
+    """
+    Detect and parse a PACS study-completion ORM^O01.
+    Identified by ORC-1 = 'SC'  AND  ORC-5 = 'CM'.
+    Extracts patient_id (PID-3), accession_number (OBR-3), and pacs_done_at (MSH-7).
+    Returns a dict on success, or None if this is not a PACS completion.
+    """
+    text     = raw_message.replace('\r\n', '\r').replace('\n', '\r')
+    segments = [s.strip() for s in text.split('\r') if s.strip()]
+
+    msh = _seg(segments, 'MSH')
+    orc = _seg(segments, 'ORC')
+
+    if _field(orc, 1) != 'SC' or _field(orc, 5) != 'CM':
+        return None
+
+    pid            = _seg(segments, 'PID')
+    obr            = _seg(segments, 'OBR')
+    patient_id     = _component(_field(pid, 3, ''), 0) or None
+    accession_number = _component(_field(obr, 3, ''), 0) or None
+    pacs_done_at   = _parse_hl7_datetime(_field(msh, 6))
+
+    if not accession_number:
+        return None
+
+    return {
+        'patient_id':       patient_id,
+        'accession_number': accession_number,
+        'pacs_done_at':     pacs_done_at or datetime.now(),
     }
 
 
@@ -396,73 +458,109 @@ def _handle_client(conn, addr, app):
                             )
 
                     else:
-                        # ── ORM^O01: radiology order ──────────────────────
-                        parsed = parse_orm_o01(raw_message)
+                        # ── ORM^O01 — check PACS completion first ────────
+                        pacs = parse_pacs_completion(raw_message)
 
-                        if parsed:
+                        if pacs:
+                            # PACS study-complete: update pacs_done_at on the
+                            # existing order row and write to hl7_scn_studies.
                             with app.app_context():
                                 from sqlalchemy import text
                                 from db import db
                                 try:
-                                    db.session.execute(text(INSERT_SQL), parsed)
-                                    db.session.execute(
-                                        text("SELECT pg_notify('hl7_new_order', :mid)"),
-                                        {"mid": str(parsed.get("message_id") or "")}
-                                    )
+                                    db.session.execute(text(PACS_UPDATE_SQL), pacs)
+                                    # Also upsert into hl7_scn_studies so liveview picks it up
+                                    scn_data = {
+                                        'accession_number': pacs['accession_number'],
+                                        'patient_id':       pacs['patient_id'],
+                                        'patient_name':     None,
+                                        'procedure_code':   None,
+                                        'procedure_text':   None,
+                                        'modality':         None,
+                                        'storing_ae':       None,
+                                        'patient_class':    None,
+                                        'study_datetime':   pacs['pacs_done_at'],
+                                        'order_status':     'CM',
+                                        'received_at':      datetime.now(),
+                                    }
+                                    db.session.execute(text(SCN_INSERT_SQL), scn_data)
                                     db.session.commit()
                                 except Exception:
                                     db.session.rollback()
                                     raise
-
                             logger.info(
-                                f"✅ HL7 stored | msg_id={parsed['message_id']} "
-                                f"| patient={parsed['patient_id']} "
-                                f"| accession={parsed['accession_number']}"
+                                f"✅ PACS completion | accession={pacs['accession_number']} "
+                                f"| pacs_done_at={pacs['pacs_done_at']}"
                             )
 
-                            # ── SCN: Study Complete → feed liveview ──────
-                            if parsed.get('order_status') in ('CM', 'SC'):
-                                scn_data = {
-                                    'accession_number': parsed.get('accession_number'),
-                                    'patient_id':       parsed.get('patient_id'),
-                                    'patient_name':     parsed.get('patient_name'),
-                                    'procedure_code':   parsed.get('procedure_code'),
-                                    'procedure_text':   parsed.get('procedure_text'),
-                                    'modality':         parsed.get('modality'),
-                                    'storing_ae':       _field(_seg(segments, 'OBR'), 21) or _field(_seg(segments, 'OBR'), 24),
-                                    'patient_class':    parsed.get('patient_class'),
-                                    'study_datetime':   parsed.get('scheduled_datetime') or datetime.now(),
-                                    'order_status':     parsed.get('order_status'),
-                                    'received_at':      datetime.now(),
-                                }
-                                if scn_data['accession_number']:
-                                    with app.app_context():
-                                        from sqlalchemy import text as _t
-                                        from db import db as _db
-                                        try:
-                                            _db.session.execute(_t(SCN_INSERT_SQL), scn_data)
-                                            _db.session.commit()
-                                            logger.info(
-                                                f"✅ SCN stored | accession={scn_data['accession_number']} "
-                                                f"| modality={scn_data['modality']}"
-                                            )
-                                        except Exception as scn_err:
-                                            _db.session.rollback()
-                                            logger.warning(f"⚠ SCN insert error: {scn_err}")
+                        else:
+                            # ── Regular ORM^O01: new/updated HIS order ───
+                            parsed = parse_orm_o01(raw_message)
 
-                            try:
-                                from routes.portal_bp import process_orm_for_portal
+                            if parsed:
                                 with app.app_context():
-                                    process_orm_for_portal(
-                                        raw_message,
-                                        parsed.get('accession_number', '')
-                                    )
+                                    from sqlalchemy import text
+                                    from db import db
+                                    try:
+                                        db.session.execute(text(INSERT_SQL), parsed)
+                                        db.session.execute(
+                                            text("SELECT pg_notify('hl7_new_order', :mid)"),
+                                            {"mid": str(parsed.get("message_id") or "")}
+                                        )
+                                        db.session.commit()
+                                    except Exception:
+                                        db.session.rollback()
+                                        raise
+
                                 logger.info(
-                                    f"✅ Portal hook fired | "
-                                    f"accession={parsed.get('accession_number')}"
+                                    f"✅ HL7 stored | msg_id={parsed['message_id']} "
+                                    f"| patient={parsed['patient_id']} "
+                                    f"| accession={parsed['accession_number']}"
                                 )
-                            except Exception as portal_err:
-                                logger.warning(f"⚠ Portal hook error: {portal_err}")
+
+                                # SCN path for HIS-originated CM/SC status changes
+                                if parsed.get('order_status') in ('CM', 'SC'):
+                                    scn_data = {
+                                        'accession_number': parsed.get('accession_number'),
+                                        'patient_id':       parsed.get('patient_id'),
+                                        'patient_name':     parsed.get('patient_name'),
+                                        'procedure_code':   parsed.get('procedure_code'),
+                                        'procedure_text':   parsed.get('procedure_text'),
+                                        'modality':         parsed.get('modality'),
+                                        'storing_ae':       _field(_seg(segments, 'OBR'), 21) or _field(_seg(segments, 'OBR'), 24),
+                                        'patient_class':    parsed.get('patient_class'),
+                                        'study_datetime':   parsed.get('scheduled_datetime') or datetime.now(),
+                                        'order_status':     parsed.get('order_status'),
+                                        'received_at':      datetime.now(),
+                                    }
+                                    if scn_data['accession_number']:
+                                        with app.app_context():
+                                            from sqlalchemy import text as _t
+                                            from db import db as _db
+                                            try:
+                                                _db.session.execute(_t(SCN_INSERT_SQL), scn_data)
+                                                _db.session.commit()
+                                                logger.info(
+                                                    f"✅ SCN stored | accession={scn_data['accession_number']} "
+                                                    f"| modality={scn_data['modality']}"
+                                                )
+                                            except Exception as scn_err:
+                                                _db.session.rollback()
+                                                logger.warning(f"⚠ SCN insert error: {scn_err}")
+
+                                try:
+                                    from routes.portal_bp import process_orm_for_portal
+                                    with app.app_context():
+                                        process_orm_for_portal(
+                                            raw_message,
+                                            parsed.get('accession_number', '')
+                                        )
+                                    logger.info(
+                                        f"✅ Portal hook fired | "
+                                        f"accession={parsed.get('accession_number')}"
+                                    )
+                                except Exception as portal_err:
+                                    logger.warning(f"⚠ Portal hook error: {portal_err}")
 
                     ack = _build_ack(msh, ACK_AA)
 

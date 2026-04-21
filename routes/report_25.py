@@ -544,7 +544,8 @@ def compute_bg_data(form_data):
         tech_rows = db.session.execute(text(f"""
             SELECT
                 o.accession_number, o.modality, o.procedure_code, o.done_by,
-                o.scheduled_datetime, o.done_at,
+                o.scheduled_datetime, o.done_at, o.pacs_done_at,
+                o.patient_class, o.patient_location,
                 COALESCE(p.duration_minutes, 30) AS proc_duration
             FROM hl7_orders o
             LEFT JOIN procedure_duration_map p
@@ -559,12 +560,44 @@ def compute_bg_data(form_data):
             tdf = pd.DataFrame(tech_rows)
             tdf['proc_duration']      = pd.to_numeric(tdf['proc_duration'], errors='coerce').fillna(30)
             tdf['scheduled_datetime'] = pd.to_datetime(tdf['scheduled_datetime'])
-            tdf['done_at']            = pd.to_datetime(tdf['done_at'], errors='coerce')
-            tdf['tat_min']            = (tdf['done_at'] - tdf['scheduled_datetime']).dt.total_seconds() / 60.0
+            tdf['done_at']            = pd.to_datetime(tdf['done_at'],      errors='coerce')
+            tdf['pacs_done_at']       = pd.to_datetime(tdf['pacs_done_at'], errors='coerce')
+            tdf['tat_min']            = (tdf['done_at']      - tdf['scheduled_datetime']).dt.total_seconds() / 60.0
+            tdf['pacs_tat_min']       = (tdf['pacs_done_at'] - tdf['scheduled_datetime']).dt.total_seconds() / 60.0
 
             completed = tdf[tdf['done_at'].notna()].copy()
             pending   = tdf[tdf['done_at'].isna()].copy()
             _tech_completed_df = completed
+
+            # Pre-index ER orders: modality → list of (scheduled_datetime, patient_class, accession)
+            # An order is "ER" if patient_location = 'ER' (case-insensitive)
+            if 'patient_location' not in tdf.columns:
+                tdf['patient_location'] = None
+            if 'patient_class' not in tdf.columns:
+                tdf['patient_class'] = None
+            er_rows = tdf[tdf['patient_location'].str.upper().eq('ER').fillna(False)].copy()
+            er_by_modality = {}
+            for _, er in er_rows.iterrows():
+                er_by_modality.setdefault(str(er['modality'] or '').upper(), []).append(er)
+
+            def _find_concurrent_er(row):
+                """Return list of ER accessions whose scheduled_datetime falls inside row's exam window."""
+                if pd.isna(row.get('done_at')):
+                    return []
+                mod   = str(row.get('modality') or '').upper()
+                t0    = row['scheduled_datetime']
+                t1    = row['done_at']
+                acc   = row.get('accession_number')
+                found = []
+                for er in er_by_modality.get(mod, []):
+                    if er['accession_number'] == acc:
+                        continue
+                    if t0 <= er['scheduled_datetime'] <= t1:
+                        found.append({
+                            'accession':     str(er['accession_number'] or ''),
+                            'patient_class': str(er['patient_class'] or ''),
+                        })
+                return found
 
             overlap_accessions = set()
             for mod, grp in completed.groupby('modality'):
@@ -583,16 +616,22 @@ def compute_bg_data(form_data):
                 elif tat < dur * 0.5: flags.append('too_early')
                 if r['accession_number'] in overlap_accessions: flags.append('overlap')
                 if tat > dur * 2: flags.append('too_late')
+                pacs_tat     = r.get('pacs_tat_min')
+                er_concurrent = _find_concurrent_er(r) if 'too_late' in flags else []
                 flagged_rows.append({
-                    'accession':    str(r.get('accession_number') or ''),
-                    'modality':     str(r.get('modality') or ''),
-                    'procedure':    str(r.get('procedure_code') or ''),
-                    'technician':   str(r['done_by']) if pd.notna(r.get('done_by')) else '',
-                    'scheduled_at': r['scheduled_datetime'].strftime('%Y-%m-%d %H:%M'),
-                    'done_at':      r['done_at'].strftime('%H:%M'),
-                    'tat_min':      round(float(tat), 1),
-                    'proc_duration': int(dur),
-                    'flags':        flags,
+                    'accession':      str(r.get('accession_number') or ''),
+                    'modality':       str(r.get('modality') or ''),
+                    'procedure':      str(r.get('procedure_code') or ''),
+                    'technician':     str(r['done_by']) if pd.notna(r.get('done_by')) else '',
+                    'patient_class':  str(r.get('patient_class') or ''),
+                    'scheduled_at':   r['scheduled_datetime'].strftime('%Y-%m-%d %H:%M'),
+                    'done_at':        r['done_at'].strftime('%H:%M'),
+                    'tat_min':        round(float(tat), 1),
+                    'pacs_done_at':   r['pacs_done_at'].strftime('%H:%M') if pd.notna(r.get('pacs_done_at')) else None,
+                    'pacs_tat_min':   round(float(pacs_tat), 1) if pd.notna(pacs_tat) else None,
+                    'proc_duration':  int(dur),
+                    'flags':          flags,
+                    'er_concurrent':  er_concurrent,
                 })
             tech_data['flagged'] = sorted([r for r in flagged_rows if r['flags']], key=lambda x: len(x['flags']), reverse=True)
 

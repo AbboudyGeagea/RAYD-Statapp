@@ -377,12 +377,20 @@ def create_app():
                     procedure_name   TEXT,
                     modality         VARCHAR(20),
                     physician_id     VARCHAR(100),
+                    patient_id       VARCHAR(100),
+                    accession_number VARCHAR(100),
                     report_text      TEXT,
                     impression_text  TEXT,
                     result_datetime  TIMESTAMP,
                     received_at      TIMESTAMP DEFAULT NOW()
                 )
             """))
+            db.session.execute(text(
+                "ALTER TABLE hl7_oru_reports ADD COLUMN IF NOT EXISTS patient_id VARCHAR(100)"
+            ))
+            db.session.execute(text(
+                "ALTER TABLE hl7_oru_reports ADD COLUMN IF NOT EXISTS accession_number VARCHAR(100)"
+            ))
             db.session.commit()
         except Exception as e:
             db.session.rollback()
@@ -421,6 +429,20 @@ def create_app():
         except Exception as e:
             db.session.rollback()
             logger.warning(f"[Migration] hl7_scn_studies: {e}")
+
+    # --- MIGRATION: pacs_done_at on hl7_orders ---
+    with app.app_context():
+        try:
+            db.session.execute(text(
+                "ALTER TABLE hl7_orders ADD COLUMN IF NOT EXISTS pacs_done_at TIMESTAMP"
+            ))
+            db.session.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_hl7_orders_pacs_done_at ON hl7_orders (pacs_done_at)"
+            ))
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            logger.warning(f"[Migration] hl7_orders.pacs_done_at: {e}")
 
     # --- MIGRATION: patient portal password_hash column ---
     with app.app_context():

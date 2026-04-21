@@ -199,7 +199,9 @@
                     <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Technician</th>
                     <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Scheduled</th>
                     <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Done At</th>
-                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right">TAT</th>
+                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right text-blue-400">Done TAT</th>
+                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">PACS Done</th>
+                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right text-purple-400">PACS TAT</th>
                     <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right">Expected</th>
                     <th class="pb-3 sticky top-0 bg-[#111413] z-10">Flags</th>
                 </tr>
@@ -212,7 +214,11 @@
                     <td class="py-2 pr-4 text-xs font-bold text-blue-400">{{ s.technician or '--' }}</td>
                     <td class="py-2 pr-4 text-xs text-zinc-500">{{ s.scheduled_at }}</td>
                     <td class="py-2 pr-4 text-xs text-zinc-500">{{ s.done_at }}</td>
-                    <td class="py-2 pr-4 text-right text-xs font-mono font-bold {{ 'text-rose-400' if s.tat_min < 0 else 'text-white' }}">{{ '%.1f'|format(s.tat_min) }}m</td>
+                    <td class="py-2 pr-4 text-right text-xs font-mono font-bold {{ 'text-rose-400' if s.tat_min < 0 else 'text-blue-300' }}">{{ '%.1f'|format(s.tat_min) }}m</td>
+                    <td class="py-2 pr-4 text-xs text-zinc-500 font-mono">{{ s.pacs_done_at or '—' }}</td>
+                    <td class="py-2 pr-4 text-right text-xs font-mono font-bold text-purple-300">
+                        {% if s.pacs_tat_min is not none %}{{ '%.1f'|format(s.pacs_tat_min) }}m{% else %}—{% endif %}
+                    </td>
                     <td class="py-2 pr-4 text-right text-xs font-mono text-zinc-500">{{ s.proc_duration }}m</td>
                     <td class="py-2">
                         <div class="flex flex-wrap gap-1">
@@ -220,6 +226,11 @@
                             {% if 'too_early' in s.flags %}<span class="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-400 text-[9px] font-bold">TOO EARLY</span>{% endif %}
                             {% if 'overlap' in s.flags %}<span class="px-1.5 py-0.5 rounded bg-orange-500/20 border border-orange-500/40 text-orange-400 text-[9px] font-bold">OVERLAP</span>{% endif %}
                             {% if 'too_late' in s.flags %}<span class="px-1.5 py-0.5 rounded bg-purple-500/20 border border-purple-500/40 text-purple-400 text-[9px] font-bold">TOO LATE</span>{% endif %}
+                            {% if s.er_concurrent %}
+                            <span class="px-1.5 py-0.5 rounded bg-red-900/40 border border-red-500/50 text-red-300 text-[9px] font-bold" title="ER patient on same modality during this exam window&#10;{% for e in s.er_concurrent %}{{ e.accession }}{% if e.patient_class %} ({{ e.patient_class }}){% endif %}{% if not loop.last %}, {% endif %}{% endfor %}">
+                                ⚡ ER CONCURRENT
+                            </span>
+                            {% endif %}
                         </div>
                     </td>
                 </tr>
