@@ -286,7 +286,7 @@ class SchedulingEntry(db.Model):
     updated_at = db.Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 ALL_FEATURE_KEYS = [
-    'live_feed', 'hl7_orders', 'report_ai', 'bitnet', 'oru', 'mapping', 'patient_portal',
+    'live_feed', 'hl7_orders', 'report_ai', 'bitnet', 'oru', 'mapping', 'patient_portal', 'scheduling',
 ]
 
 def user_has_page(user, page_key):

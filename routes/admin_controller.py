@@ -86,8 +86,9 @@ def admin_dashboard():
 @admin_bp.route('/scheduling', endpoint='scheduling_page', methods=['GET', 'POST'])
 @login_required
 def scheduling_page():
-    if current_user.role != 'admin':
-        flash("Admin access required.", "danger")
+    from db import user_has_page
+    if current_user.role != 'admin' and not user_has_page(current_user, 'scheduling'):
+        flash("Access denied.", "danger")
         return redirect(url_for('viewer.viewer_dashboard'))
 
     # Ensure table exists
@@ -403,6 +404,7 @@ def _get_user_page_columns():
         ('oru',            'Report Intelligence'),
         ('mapping',        'Modality Mapping'),
         ('patient_portal', 'Patient Portal'),
+        ('scheduling',     'Scheduling'),
     ]
 
 

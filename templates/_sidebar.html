@@ -56,15 +56,18 @@
             <span style="font-size:8px;font-weight:900;padding:1px 6px;border-radius:4px;background:rgba(239,68,68,0.15);color:#f87171;text-transform:uppercase;letter-spacing:0.08em;">!</span>
             {% endif %}
         </a>
-        <a href="{{ url_for('admin.scheduling_page') }}" target="_blank"
-           class="sidebar-item {% if request.endpoint == 'admin.scheduling_page' %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
-           title="Scheduling">
-            <i class="bi bi-calendar3-range flex-shrink-0" style="color:#38bdf8;"></i> Scheduling
-        </a>
         <a href="{{ url_for('mapping.mapping_page') }}"
            class="sidebar-item {% if request.endpoint and request.endpoint.startswith('mapping.') %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
            title="Modality / Procedures Config">
             <i class="bi bi-calendar-week flex-shrink-0" style="color:#a78bfa;"></i> Modality / Procedures Config
+        </a>
+        {% endif %}
+
+        {% if current_user.role == 'admin' or current_user|user_has_page('scheduling') %}
+        <a href="{{ url_for('admin.scheduling_page') }}"
+           class="sidebar-item {% if request.endpoint == 'admin.scheduling_page' %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
+           title="Scheduling">
+            <i class="bi bi-calendar3-range flex-shrink-0" style="color:#38bdf8;"></i> Scheduling
         </a>
         {% endif %}
 
