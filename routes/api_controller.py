@@ -9,7 +9,7 @@ api_bp = Blueprint('api', __name__, url_prefix='/api')
 
 
 @api_bp.route('/filter-options')
-@auth_required
+@login_required
 def filter_options():
     """
     Returns all dropdown values used by report filter panels.
