@@ -83,8 +83,9 @@ document.addEventListener('DOMContentLoaded', function () {
     if (!selects.length) return;
 
     fetch('/api/filter-options')
-        .then(r => r.json())
+        .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
         .then(opts => {
+            if (opts.error) { console.warn('[filter-options]', opts.error); }
             selects.forEach(sel => {
                 const key      = sel.dataset.filterKey;
                 const values   = opts[key] || [];
@@ -114,6 +115,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
             });
         })
-        .catch(() => {});
+        .catch(err => console.warn('[filter-options]', err));
 });
 </script>

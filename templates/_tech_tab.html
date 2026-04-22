@@ -126,7 +126,9 @@
                     <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Technician</th>
                     <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right">Exams</th>
                     <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right">Avg TAT</th>
-                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right">Median TAT</th>
+                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right">Med TAT</th>
+                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right" title="PACS Done At TAT">Avg PACS TAT</th>
+                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right" title="PACS Done At TAT">Med PACS TAT</th>
                     <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right">Flags</th>
                     <th class="pb-3 sticky top-0 bg-[#111413] z-10">Insight</th>
                 </tr>
@@ -138,6 +140,8 @@
                     <td class="py-2 pr-4 text-xs text-right text-zinc-400">{{ t.count }}</td>
                     <td class="py-2 pr-4 text-right text-xs font-mono font-bold text-white">{{ '%.1f'|format(t.avg_tat) if t.avg_tat is not none else '--' }}m</td>
                     <td class="py-2 pr-4 text-right text-xs font-mono text-zinc-400">{{ '%.1f'|format(t.median_tat) if t.median_tat is not none else '--' }}m</td>
+                    <td class="py-2 pr-4 text-right text-xs font-mono font-bold text-cyan-400">{{ '%.1f'|format(t.avg_pacs_tat) if t.avg_pacs_tat is not none else '--' }}m</td>
+                    <td class="py-2 pr-4 text-right text-xs font-mono text-cyan-600">{{ '%.1f'|format(t.median_pacs_tat) if t.median_pacs_tat is not none else '--' }}m</td>
                     <td class="py-2 pr-4 text-right">
                         {% if t.flags > 0 %}<span class="px-2 py-0.5 rounded bg-rose-500/15 border border-rose-500/30 text-rose-400 text-[10px] font-bold">{{ t.flags }}</span>{% else %}<span class="text-xs text-zinc-600">—</span>{% endif %}
                     </td>
@@ -163,7 +167,9 @@
                     <th class="pb-3 pr-4">Modality</th>
                     <th class="pb-3 pr-4 text-right">Exams</th>
                     <th class="pb-3 pr-4 text-right">Avg TAT</th>
-                    <th class="pb-3 pr-4 text-right">Median TAT</th>
+                    <th class="pb-3 pr-4 text-right">Med TAT</th>
+                    <th class="pb-3 pr-4 text-right" title="PACS Done At TAT">Avg PACS TAT</th>
+                    <th class="pb-3 pr-4 text-right" title="PACS Done At TAT">Med PACS TAT</th>
                     <th class="pb-3">Insight</th>
                 </tr>
             </thead>
@@ -174,6 +180,8 @@
                     <td class="py-2 pr-4 text-xs text-right text-zinc-400">{{ m.count }}</td>
                     <td class="py-2 pr-4 text-right text-xs font-mono font-bold text-white">{{ '%.1f'|format(m.avg_tat) if m.avg_tat is not none else '--' }}m</td>
                     <td class="py-2 pr-4 text-right text-xs font-mono text-zinc-400">{{ '%.1f'|format(m.median_tat) if m.median_tat is not none else '--' }}m</td>
+                    <td class="py-2 pr-4 text-right text-xs font-mono font-bold text-cyan-400">{{ '%.1f'|format(m.avg_pacs_tat) if m.avg_pacs_tat is not none else '--' }}m</td>
+                    <td class="py-2 pr-4 text-right text-xs font-mono text-cyan-600">{{ '%.1f'|format(m.median_pacs_tat) if m.median_pacs_tat is not none else '--' }}m</td>
                     <td class="py-2">{% if m.insight %}<span class="text-[10px] text-amber-400">⚠ {{ m.insight }}</span>{% endif %}</td>
                 </tr>
                 {% endfor %}
