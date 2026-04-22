@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify, session, url_for
 from functools import wraps
 from datetime import datetime
 from flask_login import login_required
-from db import get_report_data, get_etl_cutoff_date, db
+from db import get_etl_cutoff_date, db
 
 # Define the Blueprint
 api_bp = Blueprint('api', __name__, url_prefix='/api')
@@ -84,8 +84,7 @@ def get_reports_data():
 
     # --- Data Retrieval ---
     try:
-        # Call the core data fetching function (defined in db.py)
-        # This function should execute the relevant SQL templates.
+        from db import get_report_data
         report_data = get_report_data(start_date, end_date, report_ids)
         
         # Structure the final response

@@ -444,6 +444,26 @@ def create_app():
             db.session.rollback()
             logger.warning(f"[Migration] hl7_orders.pacs_done_at: {e}")
 
+    # --- MIGRATION: patient_class + patient_location on hl7_orders ---
+    with app.app_context():
+        try:
+            db.session.execute(text(
+                "ALTER TABLE hl7_orders ADD COLUMN IF NOT EXISTS patient_class VARCHAR(50)"
+            ))
+            db.session.execute(text(
+                "ALTER TABLE hl7_orders ADD COLUMN IF NOT EXISTS patient_location VARCHAR(100)"
+            ))
+            db.session.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_hl7_orders_patient_class ON hl7_orders (patient_class)"
+            ))
+            db.session.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_hl7_orders_patient_location ON hl7_orders (patient_location)"
+            ))
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            logger.warning(f"[Migration] hl7_orders.patient_class/location: {e}")
+
     # --- MIGRATION: patient portal password_hash column ---
     with app.app_context():
         try:

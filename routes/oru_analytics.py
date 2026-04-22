@@ -381,8 +381,8 @@ def oru_data():
             tl = txt.lower()
             hits = [kw for kw in custom_kws if kw in tl]
         if hits:
-            sec = _parse_sections(txt)
             critical_log.append({
+                'procedure_code':   (r.procedure_code or '—').upper().strip(),
                 'procedure':        (r.procedure_name or r.procedure_code or '—').strip(),
                 'modality':         (r.modality or '—').upper(),
                 'keywords':         hits[:5],
@@ -392,9 +392,6 @@ def oru_data():
                                     r.received_at.strftime('%Y-%m-%d') if r.received_at else '—'),
                 'physician_id':     r.physician_id or '—',
                 'received_at':      r.received_at.strftime('%Y-%m-%d %H:%M') if r.received_at else '—',
-                'technique':        sec['technique'][:180],
-                'findings':         sec['findings'][:300],
-                'conclusion':       sec['conclusion'][:220],
             })
     critical_log = critical_log[:20]
 

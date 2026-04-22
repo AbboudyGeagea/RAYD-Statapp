@@ -7,7 +7,7 @@
 <header class="bg-[#232b28] border-b border-[#28332e] px-6 py-3 flex items-center justify-between shadow-md z-30 relative flex-shrink-0">
     <!-- Left: Logo -->
     <div class="flex items-center gap-3">
-        <button onclick="window.print()" title="Print / Export PDF"
+        <button onclick="printMainContent()" title="Print / Export PDF"
             class="p-2 rounded-lg hover:bg-[#2a3530] transition-colors text-[#34d399] text-lg">
             <i class="bi bi-printer-fill"></i>
         </button>
@@ -27,7 +27,53 @@
         </button>
     </div>
 </header>
+<style>
+@media print {
+    header, aside { display: none !important; }
+    body {
+        display: block !important;
+        height: auto !important;
+        min-height: 0 !important;
+        overflow: visible !important;
+        background: white !important;
+        color: black !important;
+    }
+    body > div {
+        display: block !important;
+        height: auto !important;
+        min-height: 0 !important;
+        overflow: visible !important;
+    }
+    main {
+        display: block !important;
+        width: 100% !important;
+        height: auto !important;
+        min-height: 0 !important;
+        overflow: visible !important;
+        padding: 0 !important;
+    }
+}
+</style>
 <script>
+// ── Print main content only ───────────────────────────────────────────────
+function printMainContent() {
+    const main = document.querySelector('main');
+    if (!main) { window.print(); return; }
+
+    const styles = [...document.querySelectorAll('link[rel="stylesheet"], style')]
+        .map(el => el.outerHTML).join('\n');
+
+    const pw = window.open('', '_blank', 'width=900,height=700');
+    pw.document.write(
+        '<!DOCTYPE html><html><head><meta charset="utf-8">' + styles +
+        '<style>body{background:white;color:black;padding:20px;}</style>' +
+        '</head><body>' + main.innerHTML + '</body></html>'
+    );
+    pw.document.close();
+    pw.focus();
+    pw.onload = function() { pw.print(); };
+}
+
 // ── Async filter-option loader ────────────────────────────────────────────
 // Called once per page. Fetches /api/filter-options (server-cached 5 min),
 // then populates every <select data-filter-key="KEY"> on the page.

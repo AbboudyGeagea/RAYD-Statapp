@@ -276,9 +276,9 @@
 {% endif %}
 
 {% else %}
-<div id="tech-loading-state" class="glass-card text-center py-12 text-zinc-500">
-    <i class="bi bi-hourglass-split text-4xl mb-3 block opacity-40 animate-pulse"></i>
-    <p class="font-black text-sm">Loading technician data…</p>
-    <p class="text-[11px] mt-2 text-zinc-600">Analysing HL7 orders in the background.</p>
+<div class="glass-card text-center py-12 text-zinc-500">
+    <i class="bi bi-inbox text-4xl mb-3 block opacity-40"></i>
+    <p class="font-black text-sm">No technician data for this period</p>
+    <p class="text-[11px] mt-2 text-zinc-600">No HL7 orders with <span style="font-family:monospace;color:#60a5fa;background:rgba(96,165,250,0.1);padding:0 4px;border-radius:3px;">scheduled_datetime</span> found in the selected date range.</p>
 </div>
 {% endif %}

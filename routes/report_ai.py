@@ -426,7 +426,7 @@ def _get_physician_intelligence(start, end):
 @report_ai_bp.route("/report/ai", methods=["GET", "POST"])
 @login_required
 def report_ai():
-    if not user_has_page(current_user, 'report_ai'):
+    if current_user.role not in ('admin', 'viewer') and not user_has_page(current_user, 'report_ai'):
         abort(403)
     go_live = get_go_live_date() or date(2025, 1, 1)
     today   = date.today()

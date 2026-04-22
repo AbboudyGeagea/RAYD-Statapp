@@ -15,6 +15,7 @@ import routes.report_25   # noqa: F401
 import routes.report_27   # noqa: F401
 import routes.report_29   # noqa: F401
 from routes.report_registry import get_all_reports, get_report_ids
+from routes.api_controller   import api_bp
 from routes.hl7_orders       import hl7_orders_bp
 from routes.etl_gear_route   import etl_gear_bp
 from routes.report_ai        import report_ai_bp
@@ -221,6 +222,7 @@ def register_blueprints(app):
             pass
 
     # ── Core (always registered) ──────────────────────────────
+    app.register_blueprint(api_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(admin_bp,         url_prefix='/admin')
     app.register_blueprint(viewer_bp,        url_prefix='/viewer')

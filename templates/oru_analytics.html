@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-treemap@2.3.0/dist/chartjs-chart-treemap.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
   :root { --bg:#181f1c; --card:#1a211e; --border:#1e2d27; --text:#e2e8f0; --muted:#64748b; }
   body { background:var(--bg); color:var(--text); margin:0; font-family:'Inter',system-ui,sans-serif; }
@@ -308,14 +309,19 @@
         </div>
 
         <!-- Critical findings log -->
-        <div class="card full-width">
+        <div class="card full-width" id="critical-card">
           <div class="card-title" style="justify-content:space-between;">
             <span><i class="bi bi-exclamation-triangle-fill" style="color:#f87171;"></i>Critical Findings Log <span style="font-weight:400;color:#4b7a63;">(most recent 20)</span></span>
-            {% if current_user.role == 'admin' %}
-            <button onclick="toggleKeywordsPanel()" style="background:#1a211e;border:1px solid #1e2d27;color:#94a3b8;padding:5px 12px;border-radius:6px;font-size:10px;font-weight:700;cursor:pointer;letter-spacing:0.1em;text-transform:uppercase;">
-              <i class="bi bi-tags-fill"></i> Manage Keywords
-            </button>
-            {% endif %}
+            <div style="display:flex;gap:8px;align-items:center;">
+              <button onclick="exportCriticalPNG()" id="critical-png-btn" class="export-btn" style="display:none;">
+                <i class="bi bi-image"></i> Export PNG
+              </button>
+              {% if current_user.role == 'admin' %}
+              <button onclick="toggleKeywordsPanel()" style="background:#1a211e;border:1px solid #1e2d27;color:#94a3b8;padding:5px 12px;border-radius:6px;font-size:10px;font-weight:700;cursor:pointer;letter-spacing:0.1em;text-transform:uppercase;">
+                <i class="bi bi-tags-fill"></i> Manage Keywords
+              </button>
+              {% endif %}
+            </div>
           </div>
 
           {% if current_user.role == 'admin' %}
@@ -349,15 +355,11 @@
             <table class="crit-table" id="critical-table" style="display:none;">
               <thead>
                 <tr>
-                  <th>Date</th>
-                  <th>Patient ID</th>
-                  <th>Accession #</th>
+                  <th>Date Reported</th>
                   <th>Reporter</th>
-                  <th>Procedure</th>
-                  <th>Modality</th>
-                  <th>Diagnoses</th>
-                  <th>Résultats</th>
-                  <th>Conclusion</th>
+                  <th>Procedure Code</th>
+                  <th>Critical Words</th>
+                  <th>Accession #</th>
                 </tr>
               </thead>
               <tbody id="critical-body"></tbody>
@@ -806,32 +808,51 @@ function buildDonut(normal, abnormal) {
 
 // ── Critical table ───────────────────────────────────────────────────────────
 function buildCritical(log) {
-  const empty = document.getElementById('critical-empty');
-  const table = document.getElementById('critical-table');
-  const tbody = document.getElementById('critical-body');
+  const empty  = document.getElementById('critical-empty');
+  const table  = document.getElementById('critical-table');
+  const tbody  = document.getElementById('critical-body');
+  const pngBtn = document.getElementById('critical-png-btn');
 
   if (!log || !log.length) {
-    empty.style.display = 'block';
-    table.style.display = 'none';
+    empty.style.display  = 'block';
+    table.style.display  = 'none';
+    if (pngBtn) pngBtn.style.display = 'none';
     return;
   }
   empty.style.display = 'none';
   table.style.display = 'table';
+  if (pngBtn) pngBtn.style.display = '';
 
-  const cell    = s => (s && s !== '—') ? `<span class="snippet">${esc(s)}</span>` : `<em style="color:#475569">—</em>`;
-  const id_cell = s => (s && s !== '—') ? `<span style="font-family:monospace;font-size:11px;color:#e2e8f0;">${esc(s)}</span>` : `<em style="color:#475569">—</em>`;
+  const mono = s => (s && s !== '—')
+    ? `<span style="font-family:monospace;font-size:11px;color:#e2e8f0;">${esc(s)}</span>`
+    : `<em style="color:#475569">—</em>`;
+
   tbody.innerHTML = log.map(r => `
     <tr>
-      <td style="color:#64748b;white-space:nowrap;font-size:11px;">${esc(r.date || r.received_at)}</td>
-      <td>${id_cell(r.patient_id)}</td>
-      <td>${id_cell(r.accession_number)}</td>
+      <td style="white-space:nowrap;font-size:11px;color:#64748b;">${esc(r.date || r.received_at)}</td>
       <td style="color:#a78bfa;font-size:11px;font-weight:700;">${esc(r.physician_id || '—')}</td>
-      <td><span class="proc-tag">${esc(r.procedure || '—')}</span></td>
-      <td style="color:${modColor(r.modality)};font-weight:800;font-size:11px;">${esc(r.modality)}</td>
-      <td>${(r.keywords||[]).map(k => `<span class="keyword-badge">${esc(k)}</span>`).join('')}</td>
-      <td style="max-width:260px;">${cell(r.findings)}</td>
-      <td style="max-width:200px;">${cell(r.conclusion)}</td>
+      <td><span class="proc-tag">${esc(r.procedure_code || r.procedure || '—')}</span></td>
+      <td>${(r.keywords||[]).map(k => `<span class="keyword-badge">${esc(k)}</span>`).join('') || '<em style="color:#475569">—</em>'}</td>
+      <td>${mono(r.accession_number)}</td>
     </tr>`).join('');
+}
+
+function exportCriticalPNG() {
+  const card = document.getElementById('critical-card');
+  if (!card || typeof html2canvas === 'undefined') return;
+  const btn = document.getElementById('critical-png-btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Capturing…'; }
+  html2canvas(card, { backgroundColor: '#1a211e', scale: 2, useCORS: true, logging: false })
+    .then(canvas => {
+      const a = document.createElement('a');
+      a.download = 'critical_findings_' + new Date().toISOString().slice(0, 10) + '.png';
+      a.href = canvas.toDataURL('image/png');
+      a.click();
+    })
+    .catch(e => console.warn('PNG export failed:', e))
+    .finally(() => {
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-image"></i> Export PNG'; }
+    });
 }
 
 // ── Keywords management (admin only) ────────────────────────────────────────

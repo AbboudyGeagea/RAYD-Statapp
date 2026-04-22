@@ -2065,6 +2065,14 @@
                 .catch(err => {
                     const sk = document.getElementById('rad-insights-loading');
                     if (sk) sk.remove();
+                    const techBody = document.getElementById('tech-tab-body');
+                    if (techBody) {
+                        techBody.innerHTML = `<div class="glass-card text-center py-12 text-zinc-500">
+                            <i class="bi bi-exclamation-triangle text-3xl mb-3 block opacity-40"></i>
+                            <p class="font-black text-sm">Could not load technician data</p>
+                            <p class="text-[11px] mt-2 text-zinc-600">Background compute failed — check server logs.</p>
+                        </div>`;
+                    }
                     console.warn('BG fetch failed:', err);
                 });
         })();
