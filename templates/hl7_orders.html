@@ -342,6 +342,107 @@
   ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track { background: var(--bg); }
   ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+  /* ── Link column ── */
+  .btn-link-order {
+    background: rgba(0,180,216,0.08);
+    border: 1px solid rgba(0,180,216,0.25);
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 3px 10px;
+    border-radius: 3px;
+    cursor: pointer;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+    transition: background 0.15s;
+  }
+  .btn-link-order:hover { background: rgba(0,180,216,0.18); }
+
+  .linked-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(0,200,150,0.08);
+    border: 1px solid rgba(0,200,150,0.25);
+    color: var(--green);
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 3px 8px;
+    border-radius: 3px;
+    white-space: nowrap;
+  }
+
+  /* ── Link modal ── */
+  #linkModalOverlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.75);
+    z-index: 3000;
+    align-items: center;
+    justify-content: center;
+  }
+  #linkModalOverlay.open { display: flex; }
+  #linkModal {
+    background: #13161e;
+    border: 1px solid #252a38;
+    border-radius: 10px;
+    width: 92%;
+    max-width: 680px;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .lm-header {
+    padding: 14px 20px;
+    border-bottom: 1px solid #1e2330;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .lm-title {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 600;
+    color: #eef0f5;
+  }
+  .lm-body { padding: 16px 20px; overflow-y: auto; flex: 1; }
+  .lm-candidate {
+    border: 1px solid #252a38;
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s;
+  }
+  .lm-candidate:hover { background: rgba(255,255,255,0.03); border-color: var(--accent2); }
+  .lm-candidate.score-strong { border-left: 3px solid var(--green); }
+  .lm-candidate.score-partial { border-left: 3px solid var(--yellow); }
+  .lm-candidate.score-possible { border-left: 3px solid var(--text-dim); }
+  .lm-score-pill {
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    flex-shrink: 0;
+  }
+  .pill-strong  { background: rgba(0,200,150,0.12);  color: var(--green);  border: 1px solid rgba(0,200,150,0.3);  }
+  .pill-partial { background: rgba(244,185,66,0.12); color: var(--yellow); border: 1px solid rgba(244,185,66,0.3); }
+  .pill-possible{ background: rgba(90,96,112,0.15);  color: var(--text-dim); border: 1px solid var(--border2); }
+  .lm-cand-info { flex: 1; min-width: 0; }
+  .lm-cand-acc  { font-family: var(--mono); font-size: 12px; color: #eef0f5; }
+  .lm-cand-meta { font-size: 11px; color: var(--text-dim); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lm-cand-signals { font-family: var(--mono); font-size: 10px; color: var(--text-dim); white-space: nowrap; flex-shrink: 0; }
 </style>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
@@ -475,6 +576,21 @@
   </div>
 </div>
 
+<!-- ── Link Modal ── -->
+<div id="linkModalOverlay">
+  <div id="linkModal">
+    <div class="lm-header">
+      <span class="lm-title">Link to PACS Study</span>
+      <button onclick="closeLinkModal()" style="background:none;border:none;color:#5a6070;font-size:18px;cursor:pointer;line-height:1;">&times;</button>
+    </div>
+    <div class="lm-body">
+      <div id="lmOrderInfo" style="background:#0d0f14;border:1px solid #1e2330;border-radius:4px;padding:12px 16px;margin-bottom:14px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#5a6070;line-height:1.6;"></div>
+      <div id="lmStatus"></div>
+      <div id="lmCandidates"></div>
+    </div>
+  </div>
+</div>
+
 <!-- ── Table ── -->
 <div class="main">
   <div class="table-wrap">
@@ -493,6 +609,7 @@
           <th>Scheduled</th>
           <th>Physician</th>
           <th>Status</th>
+          <th>Link</th>
         </tr>
       </thead>
       <tbody id="ordersBody">
@@ -544,6 +661,18 @@
             <span class="badge badge-{{ s if s in ['NW','CA','DC','SC','IP','CM'] else 'default' }}">
               {{ s or '—' }}
             </span>
+          </td>
+          <td>
+            {% if o.linked_accession_number %}
+              <span class="linked-badge" title="Linked by {{ o.linked_by or '?' }}">
+                <i class="bi bi-check-circle-fill"></i>{{ o.linked_accession_number }}
+              </span>
+            {% else %}
+              <button class="btn-link-order"
+                      onclick="openLinkModal({{ o.id }}, {{ (o.patient_id or '')|tojson }}, {{ (o.patient_name or '')|tojson }}, {{ ((o.date_of_birth.strftime('%Y-%m-%d')) if o.date_of_birth else '')|tojson }}, {{ (o.accession_number or '')|tojson }}, {{ (o.modality or '')|tojson }}, {{ (o.ordering_physician or '')|tojson }}, this)">
+                Link
+              </button>
+            {% endif %}
           </td>
         </tr>
         {% endfor %}
@@ -603,7 +732,11 @@
       const tbody = document.getElementById('ordersBody');
       if (!tbody) return;
 
-      tbody.innerHTML = data.orders.map(o => `
+      tbody.innerHTML = data.orders.map(o => {
+        const linkCell = o.linked_accession_number
+          ? `<span class="linked-badge" title="Linked by ${o.linked_by||'?'}"><i class="bi bi-check-circle-fill"></i>${o.linked_accession_number}</span>`
+          : `<button class="btn-link-order" onclick="openLinkModal(${o.id},${JSON.stringify(o.patient_id||'')},${JSON.stringify(o.patient_name||'')},${JSON.stringify(o.date_of_birth?o.date_of_birth.slice(0,10):'')},${JSON.stringify(o.accession_number||'')},${JSON.stringify(o.modality||'')},${JSON.stringify(o.ordering_physician||'')},this)">Link</button>`;
+        return `
         <tr>
           <td class="td-mono td-dim">${fmtTime(o.received_at)}</td>
           <td class="td-mono">${o.patient_id || '—'}</td>
@@ -616,8 +749,9 @@
           <td class="td-mono td-dim">${fmtDate(o.scheduled_datetime)}</td>
           <td>${o.ordering_physician || '—'}</td>
           <td><span class="${statusBadgeClass(o.order_status)}">${o.order_status || '—'}</span></td>
-        </tr>
-      `).join('');
+          <td>${linkCell}</td>
+        </tr>`;
+      }).join('');
     } catch(e) {
       console.warn('HL7 refresh failed:', e);
     }
@@ -823,6 +957,113 @@
     const bg     = { ok: 'rgba(0,200,150,0.08)', error: 'rgba(224,92,92,0.08)', warn: 'rgba(244,185,66,0.08)' };
     el.style.cssText = `display:block;padding:8px 12px;border-radius:4px;border:1px solid ${colors[type]}40;background:${bg[type]};font-family:'IBM Plex Mono',monospace;font-size:11px;color:${colors[type]};`;
     el.innerHTML = msg;
+  }
+
+  // ── Link modal ────────────────────────────────────────────────────────────
+
+  let _linkOrderId = null;
+  let _linkTriggerBtn = null;
+
+  function openLinkModal(orderId, patientId, patientName, dob, accession, modality, physician, triggerBtn) {
+    _linkOrderId    = orderId;
+    _linkTriggerBtn = triggerBtn;
+
+    const overlay = document.getElementById('linkModalOverlay');
+    const info    = document.getElementById('lmOrderInfo');
+    const status  = document.getElementById('lmStatus');
+    const cands   = document.getElementById('lmCandidates');
+
+    info.innerHTML =
+      `<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 20px;">` +
+      `<div><span style="color:#3a4050;font-size:9px;text-transform:uppercase;letter-spacing:0.1em;">Patient Name</span><br><strong style="color:#eef0f5;font-size:12px;">${patientName || '—'}</strong></div>` +
+      `<div><span style="color:#3a4050;font-size:9px;text-transform:uppercase;letter-spacing:0.1em;">Date of Birth</span><br><strong style="color:#eef0f5;">${dob || '—'}</strong></div>` +
+      `<div><span style="color:#3a4050;font-size:9px;text-transform:uppercase;letter-spacing:0.1em;">Referring Physician</span><br><strong style="color:#eef0f5;">${physician || '—'}</strong></div>` +
+      `<div><span style="color:#3a4050;font-size:9px;text-transform:uppercase;letter-spacing:0.1em;">Accession / Modality</span><br>` +
+      `<strong style="color:#eef0f5;">${accession || '—'}</strong>` +
+      (modality ? ` <span style="color:#00b4d8;font-family:'IBM Plex Mono',monospace;font-size:10px;margin-left:6px;">${modality}</span>` : '') +
+      `</div>` +
+      `</div>`;
+
+    status.innerHTML  = '<div style="color:#5a6070;font-family:\'IBM Plex Mono\',monospace;font-size:11px;padding:20px 0;text-align:center;">Searching PACS…</div>';
+    cands.innerHTML   = '';
+    overlay.classList.add('open');
+
+    fetch(`/hl7-orders/link-potential?order_id=${orderId}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) { _lmShowStatus('error', data.error); return; }
+        if (!data.candidates || !data.candidates.length) {
+          status.innerHTML = '<div style="text-align:center;padding:30px 0;color:#5a6070;font-size:12px;">No matching PACS studies found in ±7 days window.<br><span style="font-family:\'IBM Plex Mono\',monospace;font-size:10px;">Requires same modality + patient ID or near accession match.</span></div>';
+          return;
+        }
+        status.innerHTML = '';
+        cands.innerHTML  = data.candidates.map(c => {
+          const pid  = c.pid_match ? `<span style="color:var(--green);">✓ ID</span>` : `<span style="color:var(--text-dim);">✗ ID</span>`;
+          const acd  = c.acc_diff < 9999 ? (c.acc_diff <= 5 ? `<span style="color:var(--green);">Δacc=${c.acc_diff}</span>` : `<span style="color:var(--yellow);">Δacc=${c.acc_diff}</span>`) : '';
+          const dt   = c.insert_time ? c.insert_time.replace('T',' ').slice(0,16) : '';
+          return `
+          <div class="lm-candidate score-${c.score}" onclick="confirmLink(${orderId},'${c.study_db_uid}','${(c.accession||'').replace(/'/g,"\\'")}',this)">
+            <div class="lm-cand-info">
+              <div class="lm-cand-acc">${c.accession || '—'}</div>
+              <div class="lm-cand-meta">${c.patient_name || ''} &nbsp;·&nbsp; ${dt} &nbsp;·&nbsp; <span style="color:var(--accent);">${c.modality||''}</span></div>
+            </div>
+            <div class="lm-cand-signals">${pid} ${acd}</div>
+            <span class="lm-score-pill pill-${c.score}">${c.score}</span>
+          </div>`;
+        }).join('');
+      })
+      .catch(e => _lmShowStatus('error', 'Request failed: ' + e.message));
+  }
+
+  function closeLinkModal() {
+    document.getElementById('linkModalOverlay').classList.remove('open');
+    _linkOrderId    = null;
+    _linkTriggerBtn = null;
+  }
+
+  document.getElementById('linkModalOverlay').addEventListener('click', function(e) {
+    if (e.target === this) closeLinkModal();
+  });
+
+  function _lmShowStatus(type, msg) {
+    const colors = { ok:'#00c896', error:'#e05c5c' };
+    const bg     = { ok:'rgba(0,200,150,0.08)', error:'rgba(224,92,92,0.08)' };
+    document.getElementById('lmStatus').innerHTML =
+      `<div style="padding:8px 12px;border-radius:4px;border:1px solid ${colors[type]}40;background:${bg[type]};font-family:'IBM Plex Mono',monospace;font-size:11px;color:${colors[type]};margin-bottom:10px;">${msg}</div>`;
+  }
+
+  function confirmLink(orderId, studyDbUid, accession, el) {
+    el.style.opacity = '0.5';
+    el.style.pointerEvents = 'none';
+
+    fetch('/hl7-orders/link', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({order_id: orderId, study_db_uid: studyDbUid})
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.ok) {
+          _lmShowStatus('ok', `Linked to <strong>${data.linked_accession}</strong>`);
+          document.getElementById('lmCandidates').innerHTML = '';
+          // Update the trigger button in the table row
+          if (_linkTriggerBtn) {
+            const linkedAcc = data.linked_accession || accession;
+            _linkTriggerBtn.outerHTML =
+              `<span class="linked-badge"><i class="bi bi-check-circle-fill"></i>${linkedAcc}</span>`;
+          }
+          setTimeout(closeLinkModal, 1200);
+        } else {
+          el.style.opacity = '';
+          el.style.pointerEvents = '';
+          _lmShowStatus('error', data.error || 'Link failed');
+        }
+      })
+      .catch(e => {
+        el.style.opacity = '';
+        el.style.pointerEvents = '';
+        _lmShowStatus('error', 'Request failed: ' + e.message);
+      });
   }
 
   function applyTheme(theme) {
