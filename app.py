@@ -15,8 +15,6 @@ from flask_login import (
     LoginManager, logout_user,
     current_user, login_required
 )
-from flask_wtf.csrf import CSRFProtect, CSRFError
-from extensions import limiter
 
 from dotenv import load_dotenv
 from sqlalchemy.sql import text
@@ -34,7 +32,6 @@ from config import config as app_config
 from db import (
     db,
     init_db,
-    safe_identifier,
     User,
     ReportTemplate,
     ReportDimension,
@@ -69,7 +66,7 @@ def is_db_empty():
     try:
         for table in CRITICAL_TABLES:
             result = db.session.execute(
-                text(f"SELECT COUNT(*) FROM {safe_identifier(table)}")
+                text(f"SELECT COUNT(*) FROM {table}")
             ).scalar()
             if result == 0:
                 logger.warning(f"[Startup Check] Table '{table}' is empty — triggering initial ETL.")
@@ -110,25 +107,6 @@ def create_app():
     app.secret_key = os.environ.get("SECRET_KEY")
     if not app.secret_key:
         raise RuntimeError("SECRET_KEY environment variable is required")
-
-    # --- CSRF & RATE LIMITING ---
-    csrf = CSRFProtect(app)
-    limiter.init_app(app)
-
-    # Public / external-facing blueprints are exempt from CSRF.
-    # liveview: read-only TV screen (no cookies, no user state)
-    # portal:   patient-facing login with its own token auth
-    from routes.liveview import liveview_bp
-    from routes.portal_bp import portal_bp as _portal_bp
-    csrf.exempt(liveview_bp)
-    csrf.exempt(_portal_bp)
-
-    # Return 400 JSON for CSRF failures on API routes, redirect for page routes.
-    @app.errorhandler(CSRFError)
-    def csrf_error(e):
-        if request.is_json or request.path.startswith('/api/') or request.path.startswith('/ai/'):
-            return jsonify(error="CSRF token missing or invalid"), 400
-        return redirect(url_for('auth.login'))
 
     # --- LOAD FEATURE FLAGS FROM config.py ---
     app.config.from_object(app_config)

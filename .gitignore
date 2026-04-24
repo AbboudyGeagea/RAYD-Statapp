@@ -18,10 +18,3 @@ instance/
 .idea/
 .vscode/
 graphify-out/
-
-# Scratch / backup files that must never be committed
-Untitled Document 1
-app (copy).py
-RAYD-Statapp/
-*.bak
-*~

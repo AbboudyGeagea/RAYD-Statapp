@@ -1,16 +1,7 @@
 import os
-import re
 import sys
 import logging
 import oracledb
-
-_IDENTIFIER_RE = re.compile(r'^[a-z_][a-z0-9_]*$', re.IGNORECASE)
-
-def safe_identifier(name: str) -> str:
-    """Validate a SQL identifier contains only letters, digits, and underscores."""
-    if not _IDENTIFIER_RE.match(name):
-        raise ValueError(f"Invalid SQL identifier: {name!r}")
-    return name
 
 # 1. ORACLE MODERNIZATION
 sys.modules["cx_Oracle"] = oracledb 
@@ -84,11 +75,6 @@ def chunked_upsert(engine, table_name, col_names, data, constraint_col):
     """
     if not data:
         return
-
-    safe_identifier(table_name)
-    safe_identifier(constraint_col)
-    for col in col_names:
-        safe_identifier(col)
 
     cols_str   = ", ".join(col_names)
     placeholders = ", ".join([f":{col}" for col in col_names])
@@ -300,8 +286,7 @@ class SchedulingEntry(db.Model):
     updated_at = db.Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 ALL_FEATURE_KEYS = [
-    'live_feed', 'hl7_orders', 'report_ai', 'bitnet', 'oru', 'mapping',
-    'patient_portal', 'scheduling', 'report_22', 'report_25',
+    'live_feed', 'hl7_orders', 'report_ai', 'bitnet', 'oru', 'mapping', 'patient_portal', 'scheduling',
 ]
 
 def user_has_page(user, page_key):

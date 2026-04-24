@@ -87,43 +87,6 @@ _CRITICAL_WEIGHTS = {
     'tamponade': 5, 'pericardial': 2, 'aortic': 2, 'pulmonary': 1,
 }
 
-# ── Negation words (English + French) ────────────────────────────────────────
-_NEGATION_WORDS = frozenset({
-    # English
-    'no', 'not', 'without', 'negative', 'absent', 'absence', 'free',
-    'none', 'neither', 'nor', 'never', 'deny', 'denies', 'denied',
-    'exclude', 'excluded', 'ruled', 'unlikely', 'unremarkable',
-    # French
-    'pas', 'sans', 'aucun', 'aucune', 'negatif', 'absent', 'absente',
-    'ni', 'jamais', 'exclu', 'exclue', 'improbable',
-})
-
-_NEGATION_WINDOW = 5  # words to look back before a critical keyword
-
-
-def _is_negated(text_lower: str, keyword: str, window: int = _NEGATION_WINDOW) -> bool:
-    """
-    Return True if every occurrence of `keyword` in `text_lower` is preceded
-    by a negation word within `window` words.
-
-    A single un-negated occurrence is enough to return False (still critical).
-    Uses word-boundary matching so 'mass' does not match 'massive'.
-    """
-    words = re.findall(r"[^\W\d_]+|\d+", text_lower, re.UNICODE)
-    found_unnegated = False
-    for i, word in enumerate(words):
-        if word != keyword:
-            continue
-        context = words[max(0, i - window): i]
-        if not any(w in _NEGATION_WORDS for w in context):
-            found_unnegated = True
-            break
-    # keyword not present → not critical on this term
-    if not any(w == keyword for w in words):
-        return False
-    return not found_unnegated
-
-
 # ── Severity mapping ──────────────────────────────────────────────────────────
 _SEVERITY_MAP = {
     'normal':     1.0,
@@ -161,17 +124,13 @@ def classify_report(text: str) -> tuple[str, float]:
     if normal_hits >= 2:
         return 'normal', 1.0
 
-    # 2. Token-level critical scoring with negation detection
+    # 2. Token-level critical scoring
     tokens = _tokenize(text)
     tok_counter = Counter(tokens)
-    critical_score = 0
-    for tok, cnt in tok_counter.items():
-        weight = _CRITICAL_WEIGHTS.get(tok, 0)
-        if not weight:
-            continue
-        if _is_negated(lower, tok):
-            continue  # "no pneumothorax", "sans embolie", etc. → skip
-        critical_score += weight * min(cnt, 2)
+    critical_score = sum(
+        _CRITICAL_WEIGHTS.get(tok, 0) * min(cnt, 2)
+        for tok, cnt in tok_counter.items()
+    )
 
     if critical_score >= 5:
         severity = min(1.0 + critical_score * 0.4, 5.0)

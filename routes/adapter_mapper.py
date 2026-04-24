@@ -39,13 +39,14 @@ def _ensure_table():
             updated_at      TIMESTAMP DEFAULT NOW()
         )
     """))
-    # Add columns for existing deployments — hardcoded DDL, no f-strings
-    db.session.execute(text(
-        "ALTER TABLE adapter_mappings ADD COLUMN IF NOT EXISTS system_type VARCHAR(20)"
-    ))
-    db.session.execute(text(
-        "ALTER TABLE adapter_mappings ADD COLUMN IF NOT EXISTS target_db VARCHAR(100)"
-    ))
+    # Add columns for existing deployments
+    for col, typedef in [
+        ('system_type', 'VARCHAR(20)'),
+        ('target_db',   'VARCHAR(100)'),
+    ]:
+        db.session.execute(text(
+            f"ALTER TABLE adapter_mappings ADD COLUMN IF NOT EXISTS {col} {typedef}"
+        ))
     db.session.commit()
 
 
@@ -155,16 +156,12 @@ def auto_map_endpoint():
     dump_file   = (data.get('dump_file') or '').strip()
     system_type = (data.get('system_type') or '').strip().upper()
 
-    from werkzeug.utils import secure_filename as _sec
-    dump_file = _sec(dump_file or '')
-    if not dump_file:
+    if not dump_file or '..' in dump_file or '/' in dump_file:
         return jsonify({'error': 'Valid dump_file is required'}), 400
     if not system_type:
         return jsonify({'error': 'system_type is required'}), 400
 
     filepath = os.path.join(_DUMPS_DIR, dump_file)
-    if not os.path.abspath(filepath).startswith(os.path.abspath(_DUMPS_DIR)):
-        return jsonify({'error': 'Invalid file path'}), 400
     if not os.path.exists(filepath):
         return jsonify({'error': f'Dump file not found: {dump_file}'}), 404
 

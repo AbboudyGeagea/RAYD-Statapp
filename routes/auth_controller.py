@@ -4,7 +4,6 @@ from flask_login import login_user, logout_user, current_user
 from werkzeug.security import check_password_hash, generate_password_hash
 from sqlalchemy import text
 from db import User, UserPagePermission, db
-from extensions import limiter
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -21,7 +20,6 @@ def _get_demo_settings():
 
 
 @auth_bp.route('/register', methods=['GET', 'POST'])
-@limiter.limit("5 per minute")
 def register():
     demo_mode, _ = _get_demo_settings()
     if demo_mode:
@@ -98,7 +96,6 @@ def register():
     return render_template('register.html')
 
 @auth_bp.route('/login', methods=['GET', 'POST'])
-@limiter.limit("10 per minute")
 def login():
     if current_user.is_authenticated:
         dest = 'admin.admin_dashboard' if current_user.role == 'admin' else 'viewer.viewer_dashboard'

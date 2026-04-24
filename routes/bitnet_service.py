@@ -26,7 +26,7 @@ import psutil
 from flask import Blueprint, request, jsonify, render_template, abort, Response, stream_with_context
 from flask_login import login_required, current_user
 from sqlalchemy import text
-from db import db, AiFeedback, AiCorrection, user_has_page
+from db import db, AiFeedback, AiCorrection
 
 logger    = logging.getLogger("BITNET")
 bitnet_bp = Blueprint("bitnet", __name__)
@@ -181,8 +181,6 @@ def _run_inference(system: str, user_message: str, max_tokens: int = None) -> st
 @bitnet_bp.route("/ai/assistant")
 @login_required
 def assistant_page():
-    if not user_has_page(current_user, 'bitnet'):
-        abort(403)
     return render_template("ai_assistant.html")
 
 
@@ -190,8 +188,6 @@ def assistant_page():
 @bitnet_bp.route("/ai/cpu")
 @login_required
 def cpu_usage():
-    if not user_has_page(current_user, 'bitnet'):
-        abort(403)
     cores = psutil.cpu_percent(interval=0.2, percpu=True)
     return jsonify({"cores": cores, "total": psutil.cpu_percent()})
 
@@ -200,8 +196,6 @@ def cpu_usage():
 @bitnet_bp.route("/ai/health")
 @login_required
 def health():
-    if not user_has_page(current_user, 'bitnet'):
-        abort(403)
     try:
         resp = requests.get(f"{BITNET_SERVER}/health", timeout=5)
         data = resp.json()
@@ -219,8 +213,6 @@ def health():
 @bitnet_bp.route("/ai/chat", methods=["POST"])
 @login_required
 def chat():
-    if not user_has_page(current_user, 'bitnet'):
-        abort(403)
     _ensure_ai_tables()
     body    = request.get_json(force=True)
     message = (body.get("message") or "").strip()
@@ -310,8 +302,6 @@ NARRATIVE_TTL = 600
 @bitnet_bp.route("/ai/narrative", methods=["POST"])
 @login_required
 def narrative():
-    if not user_has_page(current_user, 'bitnet'):
-        abort(403)
     from utils.narrative_engine import diagnose
     body  = request.get_json(force=True)
     stats = body.get("stats", {})
@@ -332,8 +322,6 @@ def narrative_stream():
     Errors:  data: {"error": "message"}\n\n  then [DONE]
     Cache hit: replays stored text instantly (same typewriter feel).
     """
-    if not user_has_page(current_user, 'bitnet'):
-        abort(403)
     body  = request.get_json(force=True)
     stats = body.get("stats", {})
     if not stats:
@@ -363,8 +351,6 @@ def narrative_stream():
 @bitnet_bp.route("/ai/whatsapp", methods=["POST"])
 @login_required
 def whatsapp_message():
-    if not user_has_page(current_user, 'bitnet'):
-        abort(403)
     body     = request.get_json(force=True)
     patient  = body.get("patient_name", "")
     hospital = body.get("hospital_name", "المستشفى")
@@ -438,8 +424,6 @@ def _get_corrections(question: str) -> str:
 @bitnet_bp.route("/ai/feedback", methods=["POST"])
 @login_required
 def feedback():
-    if not user_has_page(current_user, 'bitnet'):
-        abort(403)
     body     = request.get_json(force=True)
     question = (body.get("question") or "").strip()
     response = (body.get("response") or "").strip()
@@ -574,8 +558,6 @@ def delete_correction(cid):
 @login_required
 def alerts():
     """Pure SQL anomaly detection — no AI inference."""
-    if not user_has_page(current_user, 'bitnet'):
-        abort(403)
     findings = []
     try:
         with db.engine.connect() as conn:

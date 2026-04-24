@@ -4,8 +4,7 @@
       "Bash(xargs grep *)",
       "Bash(find \"/d/Intermedic/Statistics app/RAYD-Statapp/RAYD-Statapp\" -type f -name \"*.py\" -not -path \"*/venv/*\" -exec grep -l \"APScheduler\\\\|scheduler\\\\|add_job\" {} \\\\;)",
       "Bash(grep -B1 \"pass$\")",
-      "Bash(python -c \"from routes.insights_engine import run_tech_insights, run_rad_insights, run_dept_insights; print\\('OK'\\)\")",
-      "Bash(python -c ' *)"
+      "Bash(python -c \"from routes.insights_engine import run_tech_insights, run_rad_insights, run_dept_insights; print\\('OK'\\)\")"
     ]
   }
 }

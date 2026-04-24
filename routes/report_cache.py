@@ -19,10 +19,7 @@ Usage:
 """
 import hashlib
 import json
-import logging
 import time
-
-logger = logging.getLogger("report_cache")
 
 _store: dict = {}
 _TTL = 300       # 5 minutes
@@ -94,25 +91,43 @@ def get_filter_options(db) -> dict:
     if entry and (time.time() - entry["ts"]) < _FILTER_TTL:
         return entry["data"]
 
-    def _distinct(sql):
-        try:
-            rows = db.session.execute(text(sql)).fetchall()
-            return sorted([r[0] for r in rows if r[0] is not None and str(r[0]).strip() != ''])
-        except Exception as e:
-            logger.error("filter_options query failed [%.80s]: %s", sql, e, exc_info=True)
-            db.session.rollback()
-            return []
+    # One consolidated query — single round trip for everything from small
+    # lookup tables; DISTINCT on large tables grouped into one CTE so PG
+    # only scans etl_didb_studies once.
+    data = {"classes": [], "locations": [], "statuses": [], "aetitles": [], "modalities": [], "sex_values": []}
 
-    data = {
-        "classes":    _distinct("SELECT DISTINCT patient_class   FROM etl_didb_studies   WHERE patient_class    IS NOT NULL"),
-        "locations":  _distinct("SELECT DISTINCT patient_location FROM etl_didb_studies  WHERE patient_location IS NOT NULL"),
-        "statuses":   _distinct("SELECT DISTINCT study_status    FROM etl_didb_studies   WHERE study_status     IS NOT NULL"),
-        "aetitles":   _distinct("SELECT DISTINCT storing_ae      FROM etl_didb_studies   WHERE storing_ae       IS NOT NULL"),
-        "modalities": _distinct("SELECT DISTINCT modality        FROM aetitle_modality_map WHERE modality       IS NOT NULL"),
-        "sex_values": _distinct("SELECT DISTINCT sex             FROM etl_patient_view   WHERE sex              IS NOT NULL"),
-    }
+    try:
+        row = db.session.execute(text("""
+            WITH s AS MATERIALIZED (
+                SELECT DISTINCT patient_class, patient_location, study_status, storing_ae
+                FROM etl_didb_studies
+                WHERE patient_class IS NOT NULL
+                   OR patient_location IS NOT NULL
+                   OR study_status    IS NOT NULL
+                   OR storing_ae      IS NOT NULL
+            )
+            SELECT
+                (SELECT JSON_AGG(v ORDER BY v) FROM (SELECT DISTINCT patient_class    AS v FROM s WHERE patient_class    IS NOT NULL) x) AS classes,
+                (SELECT JSON_AGG(v ORDER BY v) FROM (SELECT DISTINCT patient_location AS v FROM s WHERE patient_location IS NOT NULL) x) AS locations,
+                (SELECT JSON_AGG(v ORDER BY v) FROM (SELECT DISTINCT study_status     AS v FROM s WHERE study_status     IS NOT NULL) x) AS statuses,
+                (SELECT JSON_AGG(v ORDER BY v) FROM (SELECT DISTINCT storing_ae       AS v FROM s WHERE storing_ae       IS NOT NULL) x) AS aetitles,
+                (SELECT JSON_AGG(v ORDER BY v) FROM (SELECT DISTINCT modality FROM aetitle_modality_map WHERE modality IS NOT NULL) x) AS modalities
+        """)).fetchone()
+        data["classes"]    = row[0] or []
+        data["locations"]  = row[1] or []
+        data["statuses"]   = row[2] or []
+        data["aetitles"]   = row[3] or []
+        data["modalities"] = row[4] or []
+    except Exception:
+        db.session.rollback()
 
-    # Only cache when at least one key has data — never cache a complete failure
-    if any(data.values()):
-        _store[_FILTER_KEY] = {"data": data, "ts": time.time()}
+    try:
+        row2 = db.session.execute(text(
+            "SELECT JSON_AGG(v ORDER BY v) FROM (SELECT DISTINCT sex AS v FROM etl_patient_view WHERE sex IS NOT NULL) x"
+        )).fetchone()
+        data["sex_values"] = row2[0] or []
+    except Exception:
+        db.session.rollback()
+
+    _store[_FILTER_KEY] = {"data": data, "ts": time.time()}
     return data

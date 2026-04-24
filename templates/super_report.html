@@ -274,47 +274,10 @@
                     </div>
                 </div>
 
-                <!-- TAT & Reporting | Study Status -->
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div class="card p-5">
-                        <h4 class="text-amber-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-clock-history"></i> TAT & Reporting</h4>
-                        <div id="super-tat"></div>
-                    </div>
-                    <div class="card p-5">
-                        <h4 class="text-blue-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-pie-chart"></i> Study Status Breakdown</h4>
-                        <div id="super-status"></div>
-                    </div>
-                </div>
-
                 <!-- Demographics -->
                 <div class="card p-5">
                     <h4 class="text-pink-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-people"></i> Patient Demographics</h4>
                     <div id="super-demographics" class="grid grid-cols-2 md:grid-cols-4 gap-3"></div>
-                </div>
-
-                <!-- Radiologist Performance -->
-                <div class="card p-5">
-                    <h4 class="text-cyan-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-award"></i> Radiologist Performance</h4>
-                    <p class="text-[9px] text-slate-500 mb-3">Top signing physicians by reported volume — requires report timestamps</p>
-                    <div id="super-rad-perf"></div>
-                </div>
-
-                <!-- Monthly Trend | Return Rates -->
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div class="card p-5">
-                        <h4 class="text-indigo-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-calendar3"></i> Monthly Volume Trend</h4>
-                        <div id="super-monthly"></div>
-                    </div>
-                    <div class="card p-5">
-                        <h4 class="text-fuchsia-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-arrow-repeat"></i> Patient Return Rates</h4>
-                        <div id="super-return"></div>
-                    </div>
-                </div>
-
-                <!-- Physician Churn -->
-                <div class="card p-5" id="super-churn-card" style="display:none">
-                    <h4 class="text-orange-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-person-dash"></i> Physician Activity Changes</h4>
-                    <div id="super-churn"></div>
                 </div>
 
                 <!-- Clinical Insights -->
@@ -356,16 +319,16 @@
         { key:'order_modality',      label:'Order Modality' },
         { key:'order_control',       label:'Order Control' },
         { key:'series_modality',     label:'Series Modality' },
-    ];
-
-    // Large option sets — use searchable dropdowns
-    const SEARCH_FILTERS = [
         { key:'referring_physician', label:'Referring Physician' },
         { key:'signing_physician',   label:'Signing Physician' },
         { key:'procedure_code',      label:'Procedure Code' },
-        { key:'body_part',           label:'Body Part' },
-        { key:'protocol_name',       label:'Protocol Name' },
-        { key:'body_part_series',    label:'Body Part (Series)' },
+    ];
+
+    // These two use searchable dropdowns
+    const SEARCH_FILTERS = [
+        { key:'body_part',      label:'Body Part' },
+        { key:'protocol_name',  label:'Protocol Name' },
+        { key:'body_part_series', label:'Body Part (Series)' },
     ];
 
     // Stores all loaded filter data
@@ -679,115 +642,16 @@
 
         // Demographics
         const dm = cur.demographics, pdm = prev.demographics;
-        const clsBrk  = dm.class_breakdown  || [];
-        const pclsBrk = pdm.class_breakdown || [];
-        const pclsMap = {};
-        pclsBrk.forEach(c => { pclsMap[c.cls] = c.cnt; });
-        const clsColors = ['#f97316','#34d399','#a78bfa','#2dd4bf','#fb923c','#f472b6'];
-        const demoCards = [
-            {label:'Male',   val:fmt(dm.male),   chg:pct(dm.male,pdm.male),   color:'#60a5fa'},
-            {label:'Female', val:fmt(dm.female), chg:pct(dm.female,pdm.female), color:'#f472b6'},
-            ...clsBrk.slice(0,2).map((c,i) => ({
-                label: c.cls,
-                val:   fmt(c.cnt),
-                chg:   pct(c.cnt, pclsMap[c.cls]),
-                color: clsColors[i] || '#64748b',
-            })),
-        ];
-        document.getElementById('super-demographics').innerHTML = demoCards
-        .map(c=>`<div class="bg-[#141a17] rounded-xl p-4 border border-[#28332e]">
-            <p class="text-[10px] font-black uppercase tracking-widest mb-1" style="color:${c.color}">${escHtml(c.label)}</p>
+        document.getElementById('super-demographics').innerHTML = [
+            {label:'Male',       val:fmt(dm.male),       chg:pct(dm.male,pdm.male),       color:'#60a5fa'},
+            {label:'Female',     val:fmt(dm.female),     chg:pct(dm.female,pdm.female),   color:'#f472b6'},
+            {label:'Inpatient',  val:fmt(dm.inpatient),  chg:pct(dm.inpatient,pdm.inpatient),  color:'#f97316'},
+            {label:'Outpatient', val:fmt(dm.outpatient), chg:pct(dm.outpatient,pdm.outpatient),color:'#34d399'},
+        ].map(c=>`<div class="bg-[#141a17] rounded-xl p-4 border border-[#28332e]">
+            <p class="text-[10px] font-black uppercase tracking-widest mb-1" style="color:${c.color}">${c.label}</p>
             <p class="text-2xl font-black text-white font-mono">${c.val}</p>
             ${c.chg!==null?`<p style="font-size:9px;font-weight:700;color:${c.chg>=0?'#34d399':'#f87171'}">${c.chg>=0?'+':''}${c.chg}%</p>`:''}`
         +`</div>`).join('');
-
-        // TAT & Reporting
-        const tat = cur.tat || {}, ptat = prev.tat || {};
-        const tatTotal = parseInt(cur.kpis.total_studies || 0);
-        const tatRep   = parseInt(tat.reported_count || 0);
-        const tatCov   = tatTotal > 0 ? parseFloat((tatRep / tatTotal * 100).toFixed(1)) : null;
-        const tatMin   = parseFloat(tat.median_tat_min || 0);
-        const _fmtTat  = m => m <= 0 ? '—' : m > 60 ? (m/60).toFixed(1)+'h' : m.toFixed(0)+'min';
-        document.getElementById('super-tat').innerHTML =
-            row('Median TAT',       _fmtTat(tatMin), null) +
-            rowWarn('Coverage',     tatCov !== null ? tatCov+'%' : '—', tatCov !== null && tatCov < 85) +
-            row('Reported Studies', fmt(tat.reported_count), pct(tat.reported_count, ptat.reported_count)) +
-            subSection('TAT by Modality', (tat.by_modality||[]).map(m =>
-                row(m.modality, _fmtTat(parseFloat(m.median_tat_min||0)), null)
-            ).join(''));
-
-        // Study Status Breakdown
-        const statusTotal = parseInt(cur.kpis.total_studies || 1);
-        document.getElementById('super-status').innerHTML =
-            (cur.status_breakdown||[]).map(s => {
-                const p = Math.round(parseInt(s.cnt) / statusTotal * 100);
-                return `<div class="row-stat">
-                    <span class="lbl">${escHtml(s.status)}</span>
-                    <span class="val">${fmt(s.cnt)}<span style="font-size:9px;color:#64748b;margin-left:4px">(${p}%)</span></span>
-                </div>`;
-            }).join('') || '<p class="text-slate-600 text-xs">No data</p>';
-
-        // Radiologist Performance
-        const rads = cur.rad_perf || [];
-        document.getElementById('super-rad-perf').innerHTML = rads.length === 0
-            ? '<p class="text-slate-600 text-xs">No data — signing physician + report timestamps required</p>'
-            : `<div class="overflow-x-auto"><table style="width:100%;border-collapse:collapse;font-size:11px;">
-                <thead><tr>
-                    ${['Radiologist','Volume','Share','Median TAT'].map((h,i) =>
-                        `<th style="padding:4px 8px;color:#64748b;font-weight:700;font-size:9px;text-transform:uppercase;letter-spacing:0.08em;border-bottom:1px solid #1a2420;text-align:${i===0?'left':'right'}">${h}</th>`
-                    ).join('')}
-                </tr></thead>
-                <tbody>${rads.map(r => {
-                    const vol   = parseInt(r.volume||0);
-                    const share = statusTotal > 0 ? (vol/statusTotal*100).toFixed(1) : '—';
-                    const tm    = parseFloat(r.median_tat_min||0);
-                    const warn  = tm > 480;
-                    return `<tr style="border-bottom:1px solid #0f1a16">
-                        <td style="padding:5px 8px;color:#e2e8f0">${escHtml(r.radiologist)}</td>
-                        <td style="padding:5px 8px;text-align:right;color:#60a5fa;font-weight:700;font-family:monospace">${fmt(vol)}</td>
-                        <td style="padding:5px 8px;text-align:right;color:#64748b">${share}%</td>
-                        <td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:700;color:${warn?'#f59e0b':'#34d399'}">${_fmtTat(tm)}</td>
-                    </tr>`;
-                }).join('')}</tbody>
-               </table></div>`;
-
-        // Monthly Volume Trend
-        const months     = cur.monthly_trend  || [];
-        const prevMonths = prev.monthly_trend || [];
-        const prevMMap   = {};
-        prevMonths.forEach(m => { prevMMap[m.month] = m.cnt; });
-        document.getElementById('super-monthly').innerHTML =
-            months.length === 0
-                ? '<p class="text-slate-600 text-xs">No monthly data in selected range</p>'
-                : months.map(m => row(m.month, fmt(m.cnt), pct(m.cnt, prevMMap[m.month]))).join('');
-
-        // Patient Return Rates
-        const rr = cur.return_rates || {};
-        document.getElementById('super-return').innerHTML =
-            row('Total Patients',      fmt(rr.total_patients),    null) +
-            row('Repeat Patients',     fmt(rr.repeat_patients),   null) +
-            rowWarn('Repeat Rate', rr.repeat_pct != null ? rr.repeat_pct+'%' : '—', false) +
-            row('Avg Visits/Patient',  fmtD(rr.avg_visits_per_patient), null);
-
-        // Physician Churn
-        const churnData = d.churn || [];
-        const churnCard = document.getElementById('super-churn-card');
-        churnCard.style.display = churnData.length ? '' : 'none';
-        if (churnData.length) {
-            document.getElementById('super-churn').innerHTML =
-                `<p class="text-[9px] text-slate-500 mb-2">Referring physicians with &gt;20% volume drop vs prior period</p>` +
-                churnData.map(c => {
-                    const dp    = parseFloat(c.drop_pct||0);
-                    const color = dp < -50 ? '#f87171' : '#f59e0b';
-                    return `<div class="row-stat">
-                        <span class="lbl">${escHtml(c.physician)}</span>
-                        <span class="val">${fmt(c.curr_cnt)}
-                            <span style="font-size:9px;color:#64748b">vs ${fmt(c.prev_cnt)} prev</span>
-                            <span style="font-size:9px;font-weight:700;color:${color}">${dp.toFixed(1)}%</span>
-                        </span>
-                    </div>`;
-                }).join('');
-        }
     }
 
     // ── Narrative typewriter ──────────────────────────────────────────
