@@ -2,9 +2,9 @@ import io
 import csv
 from datetime import date
 from flask import Blueprint, render_template, request, Response
-from flask_login import login_required
+from flask_login import login_required, current_user
 from sqlalchemy import text
-from db import db, get_go_live_date
+from db import db, get_go_live_date, user_has_page
 
 report_22_bp = Blueprint("report_22", __name__)
 
@@ -39,6 +39,9 @@ def get_where_params(form):
 @report_22_bp.route("/report/22", methods=["GET", "POST"])
 @login_required
 def report_22():
+    if not user_has_page(current_user, 'report_22'):
+        from flask import abort
+        abort(403)
     go_live = get_go_live_date() or date(2025, 1, 1)
     today = date.today()
     start_date = request.form.get("start_date", go_live.strftime('%Y-%m-%d'))
@@ -396,7 +399,9 @@ def report_22():
 @report_22_bp.route("/report/22/status-drilldown", methods=["POST"])
 @login_required
 def status_drilldown_22():
-    """Return studies for a given status as JSON (for click-through on the status chart)."""
+    if not user_has_page(current_user, 'report_22'):
+        from flask import abort
+        abort(403)
     from flask import jsonify
     status = request.form.get("status", "")
     export = request.form.get("export") == "1"
@@ -460,6 +465,9 @@ def status_drilldown_22():
 @report_22_bp.route("/report/22/export", methods=["POST"])
 @login_required
 def export_report_22():
+    if not user_has_page(current_user, 'report_22'):
+        from flask import abort
+        abort(403)
     where, params = get_where_params(request.form)
     sql = text(f"""
         WITH base_data AS (

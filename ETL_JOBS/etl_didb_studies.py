@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime, timedelta
 from sqlalchemy import text
-from db import OracleConnector
+from db import OracleConnector, safe_identifier
 
 def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_live_date):
     job_name = "STUDIES_ETL"
@@ -33,7 +33,7 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
         # Get Max UID — determines FULL load vs INCREMENTAL load
         try:
             with pg_engine.connect() as conn:
-                val = conn.execute(text(f"SELECT MAX(study_db_uid) FROM {pg_table}")).fetchone()[0]
+                val = conn.execute(text(f"SELECT MAX(study_db_uid) FROM {safe_identifier(pg_table)}")).fetchone()[0]
                 max_uid = val if val else 0
         except:
             max_uid = 0

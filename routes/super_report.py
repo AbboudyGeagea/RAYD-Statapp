@@ -237,11 +237,13 @@ def super_report():
     try:
         current   = _collect_data(start, end, filters)
         previous  = _collect_data(cmp_start, cmp_end, filters)
-        narrative = _generate_narrative(current, previous, start, end, cmp_start, cmp_end, delta)
+        churn     = _compute_physician_churn(current["physicians"], previous["physicians"])
+        narrative = _generate_narrative(current, previous, churn, start, end, cmp_start, cmp_end, delta)
         return jsonify({
             "current":    current,
             "previous":   previous,
             "narrative":  narrative,
+            "churn":      churn,
             "cmp_start":  cmp_start,
             "cmp_end":    cmp_end,
             "delta_days": delta,
@@ -427,6 +429,52 @@ def _collect_data(start, end, filters):
         GROUP BY 1 ORDER BY cnt DESC LIMIT 15
     """), params).mappings().fetchall()
 
+    # ── Study status breakdown ─────────────────────────────────────
+    status_breakdown = db.session.execute(text(f"""
+        SELECT COALESCE(s.study_status, 'Unknown') AS status, COUNT(*) AS cnt
+        FROM etl_didb_studies s {mj} {pj} WHERE {where}
+        GROUP BY 1 ORDER BY cnt DESC
+    """), params).mappings().fetchall()
+
+    # ── Radiologist performance (signing physicians with TAT) ──────
+    rad_perf = db.session.execute(text(f"""
+        SELECT
+            TRIM(CONCAT(s.signing_physician_first_name,' ',s.signing_physician_last_name)) AS radiologist,
+            COUNT(*) AS volume,
+            ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (
+                ORDER BY EXTRACT(EPOCH FROM (s.rep_final_timestamp - s.insert_time)) / 60.0
+            )::numeric, 1) AS median_tat_min
+        FROM etl_didb_studies s {mj} {pj}
+        WHERE {where}
+          AND s.signing_physician_last_name IS NOT NULL AND s.signing_physician_last_name != ''
+          AND s.rep_final_timestamp IS NOT NULL AND s.insert_time IS NOT NULL
+        GROUP BY 1 ORDER BY volume DESC LIMIT 10
+    """), params).mappings().fetchall()
+
+    # ── Monthly volume trend ───────────────────────────────────────
+    monthly_trend = db.session.execute(text(f"""
+        SELECT TO_CHAR(DATE_TRUNC('month', s.study_date), 'YYYY-MM') AS month,
+               COUNT(*) AS cnt
+        FROM etl_didb_studies s {mj} {pj} WHERE {where}
+        GROUP BY 1 ORDER BY 1
+    """), params).mappings().fetchall()
+
+    # ── Patient repeat visit rate ──────────────────────────────────
+    return_rates_row = db.session.execute(text(f"""
+        WITH pt_counts AS (
+            SELECT s.patient_db_uid, COUNT(*) AS visits
+            FROM etl_didb_studies s {mj} {pj} WHERE {where}
+            GROUP BY s.patient_db_uid
+        )
+        SELECT
+            COUNT(*)                                        AS total_patients,
+            COUNT(*) FILTER (WHERE visits >= 2)             AS repeat_patients,
+            ROUND(COUNT(*) FILTER (WHERE visits >= 2) * 100.0
+                  / NULLIF(COUNT(*), 0), 1)                 AS repeat_pct,
+            ROUND(AVG(visits)::numeric, 2)                  AS avg_visits_per_patient
+        FROM pt_counts
+    """), params).mappings().fetchone()
+
     return {
         "kpis":        dict(kpis),
         "orders":      dict(orders),
@@ -446,7 +494,40 @@ def _collect_data(start, end, filters):
         },
         "daily_series":    [dict(r) for r in daily_series],
         "modality_series": [dict(r) for r in modality_series],
+        "status_breakdown": [dict(r) for r in status_breakdown],
+        "rad_perf":         [dict(r) for r in rad_perf],
+        "monthly_trend":    [dict(r) for r in monthly_trend],
+        "return_rates":     dict(return_rates_row) if return_rates_row else {},
     }
+
+
+# ─────────────────────────────────────────────
+#  PHYSICIAN CHURN
+# ─────────────────────────────────────────────
+
+def _compute_physician_churn(cur_physicians: list, prev_physicians: list) -> list:
+    """
+    Compare top referring physicians across two periods.
+    Returns up to 5 physicians with >20% volume drop, sorted worst-first.
+    Only considers physicians with ≥3 referrals in the prior period.
+    """
+    prev_map = {p["physician"]: int(p["cnt"]) for p in prev_physicians}
+    curr_map = {p["physician"]: int(p["cnt"]) for p in cur_physicians}
+    results = []
+    for phys, prev_cnt in prev_map.items():
+        if prev_cnt < 3:
+            continue
+        curr_cnt = curr_map.get(phys, 0)
+        drop_pct = round((curr_cnt - prev_cnt) / prev_cnt * 100, 1)
+        if drop_pct < -20:
+            results.append({
+                "physician": phys,
+                "prev_cnt":  prev_cnt,
+                "curr_cnt":  curr_cnt,
+                "drop_pct":  drop_pct,
+            })
+    results.sort(key=lambda x: x["drop_pct"])
+    return results[:5]
 
 
 # ─────────────────────────────────────────────
@@ -479,7 +560,7 @@ def _trend(p):
     return "flat"
 
 
-def _generate_narrative(cur, prev, start, end, cmp_start, cmp_end, delta):
+def _generate_narrative(cur, prev, churn, start, end, cmp_start, cmp_end, delta):
     ck, pk = cur["kpis"],    prev["kpis"]
     co, po = cur["orders"],  prev["orders"]
     cs, ps = cur["storage"], prev["storage"]
@@ -612,6 +693,34 @@ def _generate_narrative(cur, prev, start, end, cmp_start, cmp_end, delta):
     if comp_bullets:
         comp_bullets.insert(0, f"Comparing {start} → {end} against {cmp_start} → {cmp_end}")
         sections.append({"icon": "bi-arrow-left-right", "color": "#fb923c", "title": "Period Comparison", "bullets": comp_bullets})
+
+    # ── Physician Activity Changes ────────────────────────────────
+    if churn:
+        churn_bullets = ["Referring physicians with ≥20% volume drop vs prior period:"]
+        for c in churn:
+            churn_bullets.append(
+                f"{c['physician']}: {_fmt(c['curr_cnt'])} referrals "
+                f"(was {_fmt(c['prev_cnt'])}, {_fp(c['drop_pct'])})"
+            )
+        sections.append({
+            "icon": "bi-person-dash", "color": "#fb923c",
+            "title": "Physician Activity Changes", "bullets": churn_bullets,
+        })
+
+    # ── Patient Return Rates ──────────────────────────────────────
+    rr = cur.get("return_rates", {})
+    repeat_pct = rr.get("repeat_pct")
+    if repeat_pct is not None:
+        rr_bullets = [
+            f"Repeat patient rate: {float(repeat_pct):.1f}% of patients had 2+ visits in the period",
+            f"Average visits per patient: {float(rr.get('avg_visits_per_patient') or 0):.2f}",
+        ]
+        if float(repeat_pct) > 30:
+            rr_bullets.append("High repeat rate — consider chronic/follow-up case load when planning capacity")
+        sections.append({
+            "icon": "bi-arrow-repeat", "color": "#e879f9",
+            "title": "Patient Return Rates", "bullets": rr_bullets,
+        })
 
     # ── Alerts ────────────────────────────────────────────────
     alerts = []

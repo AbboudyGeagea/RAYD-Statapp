@@ -3,9 +3,9 @@ import pandas as pd
 import io
 from datetime import date
 from flask import Blueprint, render_template, request, send_file, url_for
-from flask_login import login_required
+from flask_login import login_required, current_user
 from sqlalchemy import text
-from db import db, get_etl_cutoff_date
+from db import db, get_etl_cutoff_date, user_has_page
 from routes.report_cache import cache_get, cache_put
 from routes.insights_engine import run_tech_insights, run_rad_insights
 
@@ -756,6 +756,9 @@ def compute_bg_data(form_data):
 @report_25_bp.route("/report/25/bg", methods=["POST"])
 @login_required
 def report_25_bg():
+    if not user_has_page(current_user, 'report_25'):
+        from flask import abort
+        abort(403)
     from flask import jsonify, render_template as rt
     bg = compute_bg_data(request.form)
     tech_html = rt('_tech_tab.html',
@@ -772,6 +775,9 @@ def report_25_bg():
 @report_25_bp.route("/report/25", methods=["GET", "POST"])
 @login_required
 def report_25():
+    if not user_has_page(current_user, 'report_25'):
+        from flask import abort
+        abort(403)
     # Filter options are loaded asynchronously via /api/filter-options after
     # page render — do NOT query here, as DISTINCT on etl_didb_studies blocks
     # the entire page load.
@@ -816,6 +822,9 @@ def report_25():
 @report_25_bp.route("/report/25/export", methods=["POST"])
 @login_required
 def export_report_25():
+    if not user_has_page(current_user, 'report_25'):
+        from flask import abort
+        abort(403)
     from flask import current_app, jsonify
     from routes.registry import check_license_limit
     ok, msg = check_license_limit(current_app, 'export')
@@ -832,6 +841,9 @@ def export_report_25():
 @report_25_bp.route("/report/25/export-technician", methods=["POST"])
 @login_required
 def export_technician_25():
+    if not user_has_page(current_user, 'report_25'):
+        from flask import abort
+        abort(403)
     from flask import current_app, jsonify
     from routes.registry import check_license_limit
     ok, msg = check_license_limit(current_app, 'export')
@@ -867,6 +879,9 @@ def export_technician_25():
 @report_25_bp.route("/report/25/save-shifts", methods=["POST"])
 @login_required
 def save_shifts_25():
+    if not user_has_page(current_user, 'report_25'):
+        from flask import abort
+        abort(403)
     from flask import redirect
     keys = ['morning_start', 'morning_end', 'afternoon_start', 'afternoon_end', 'night_start', 'night_end']
     for k in keys:
@@ -891,6 +906,9 @@ def save_shifts_25():
 @report_25_bp.route("/report/25/patient-journey")
 @login_required
 def patient_journey_api():
+    if not user_has_page(current_user, 'report_25'):
+        from flask import abort
+        abort(403)
     from flask import jsonify as _json
     from datetime import datetime as _dt
 

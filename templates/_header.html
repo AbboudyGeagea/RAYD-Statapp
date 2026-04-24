@@ -27,7 +27,42 @@
         </button>
     </div>
 </header>
+
+{# CSRF token available to all authenticated pages via window._csrf and auto-patched fetch #}
+<meta name="csrf-token" content="{{ csrf_token() }}">
+<script>
+(function() {
+    var token = document.querySelector('meta[name="csrf-token"]').content;
+    window._csrf = token;
+    var _orig = window.fetch;
+    window.fetch = function(url, opts) {
+        opts = opts || {};
+        var method = (opts.method || 'GET').toUpperCase();
+        if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+            opts.headers = Object.assign({'X-CSRFToken': token}, opts.headers || {});
+        }
+        return _orig.call(this, url, opts);
+    };
+})();
+</script>
+
 <style>
+/* ── Searchable filter dropdown (auto-upgrade for large option sets) ── */
+.fopt-wrap { position: relative; }
+.fopt-list {
+    position: absolute; top: 100%; left: 0; right: 0;
+    background: #0f172a; border: 1px solid #1e293b;
+    border-radius: 6px; max-height: 180px; overflow-y: auto;
+    z-index: 100; display: none; margin-top: 2px;
+}
+.fopt-list.fopt-open { display: block; }
+.fopt-item { padding: 6px 10px; font-size: 11px; color: #e2e8f0; cursor: pointer; }
+.fopt-item:hover, .fopt-item.fopt-sel { background: #1e293b; color: #60a5fa; }
+.fopt-item.fopt-hint { color: #475569; cursor: default; font-style: italic; }
+body.light .fopt-list { background: #ffffff; border-color: #e2e8f0; }
+body.light .fopt-item { color: #1a202c; }
+body.light .fopt-item:hover, body.light .fopt-item.fopt-sel { background: #f1f5f9; color: #2b6cb0; }
+
 @media print {
     header, aside { display: none !important; }
     body {
@@ -77,10 +112,70 @@ function printMainContent() {
 // ── Async filter-option loader ────────────────────────────────────────────
 // Called once per page. Fetches /api/filter-options (server-cached 5 min),
 // then populates every <select data-filter-key="KEY"> on the page.
+// Single selects with ≥15 options are auto-upgraded to a type-to-search UI.
 // Selected values that were POSTed back are preserved via data-selected.
 document.addEventListener('DOMContentLoaded', function () {
     const selects = document.querySelectorAll('select[data-filter-key]');
     if (!selects.length) return;
+
+    const FOPT_THRESHOLD = 15;
+
+    function _upgradeToSearchable(sel, vals, selectedVal) {
+        sel.style.display = 'none';
+
+        const wrap = document.createElement('div');
+        wrap.className = 'fopt-wrap';
+
+        const inp = document.createElement('input');
+        inp.type = 'text';
+        inp.className = sel.className;
+        inp.placeholder = 'Type to search…';
+        inp.autocomplete = 'off';
+        inp.value = selectedVal || '';
+
+        const list = document.createElement('div');
+        list.className = 'fopt-list';
+
+        wrap.appendChild(inp);
+        wrap.appendChild(list);
+        sel.parentNode.insertBefore(wrap, sel);
+
+        function renderList(q) {
+            const filtered = q
+                ? vals.filter(v => v.toLowerCase().includes(q.toLowerCase()))
+                : vals;
+            list.innerHTML = '';
+            filtered.slice(0, 100).forEach(function(v) {
+                const item = document.createElement('div');
+                item.className = 'fopt-item' + (v === sel.value ? ' fopt-sel' : '');
+                item.textContent = v;
+                item.addEventListener('mousedown', function(e) {
+                    e.preventDefault();
+                    sel.value = v;
+                    inp.value = v;
+                    list.classList.remove('fopt-open');
+                    renderList('');
+                    inp.value = v;
+                });
+                list.appendChild(item);
+            });
+            if (filtered.length > 100) {
+                const more = document.createElement('div');
+                more.className = 'fopt-item fopt-hint';
+                more.textContent = (filtered.length - 100) + ' more — type to narrow';
+                list.appendChild(more);
+            }
+            list.classList.toggle('fopt-open', list.children.length > 0);
+        }
+
+        inp.addEventListener('input',  function() { renderList(this.value); });
+        inp.addEventListener('focus',  function() { renderList(this.value); });
+        inp.addEventListener('blur',   function() {
+            setTimeout(function() { list.classList.remove('fopt-open'); }, 150);
+        });
+
+        if (selectedVal) sel.value = selectedVal;
+    }
 
     fetch('/api/filter-options')
         .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
@@ -100,14 +195,16 @@ document.addEventListener('DOMContentLoaded', function () {
                 });
 
                 if (window.$ && $(sel).hasClass('select2-js')) {
-                    // Select2 initialized before options arrived — destroy and
-                    // re-init so it picks up the newly added option elements.
+                    // Select2: destroy and re-init so it picks up the new options.
                     if ($(sel).data('select2')) $(sel).select2('destroy');
                     $(sel).select2();
                     const validSel = selected.filter(v => values.includes(v));
                     if (validSel.length) $(sel).val(validSel).trigger('change');
+                } else if (!sel.multiple && values.length >= FOPT_THRESHOLD) {
+                    // Large single-select: upgrade to searchable dropdown.
+                    _upgradeToSearchable(sel, values, selected[0] || '');
                 } else {
-                    // Plain <select>: mark previously chosen values as selected.
+                    // Small plain <select>: restore previously selected value.
                     selected.forEach(v => {
                         const opt = [...sel.options].find(o => o.value === v);
                         if (opt) opt.selected = true;
