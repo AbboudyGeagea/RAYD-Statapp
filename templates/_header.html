@@ -34,6 +34,8 @@
 (function() {
     var token = document.querySelector('meta[name="csrf-token"]').content;
     window._csrf = token;
+
+    // Patch fetch — adds X-CSRFToken header for all mutating AJAX calls
     var _orig = window.fetch;
     window.fetch = function(url, opts) {
         opts = opts || {};
@@ -43,6 +45,20 @@
         }
         return _orig.call(this, url, opts);
     };
+
+    // Inject hidden csrf_token field into every HTML POST form
+    // (covers report filter forms that submit natively, not via fetch)
+    document.addEventListener('DOMContentLoaded', function() {
+        document.querySelectorAll('form[method="POST"], form[method="post"]').forEach(function(form) {
+            if (!form.querySelector('[name="csrf_token"]')) {
+                var inp = document.createElement('input');
+                inp.type  = 'hidden';
+                inp.name  = 'csrf_token';
+                inp.value = token;
+                form.appendChild(inp);
+            }
+        });
+    });
 })();
 </script>
 

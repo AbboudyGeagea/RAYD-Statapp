@@ -382,13 +382,18 @@ def _collect_data(start, end, filters):
     demo = db.session.execute(text(f"""
         SELECT COUNT(*) FILTER (WHERE p.sex ILIKE 'M%') AS male,
                COUNT(*) FILTER (WHERE p.sex ILIKE 'F%') AS female,
-               COUNT(*) FILTER (WHERE s.patient_class ILIKE '%IN%') AS inpatient,
-               COUNT(*) FILTER (WHERE s.patient_class ILIKE '%OUT%' OR s.patient_class ILIKE '%AMB%') AS outpatient,
                ROUND(AVG(s.age_at_exam),1) AS avg_age,
                MIN(s.age_at_exam) AS min_age,
                MAX(s.age_at_exam) AS max_age
         FROM etl_didb_studies s {mj} {pj} WHERE {where}
     """), params).mappings().fetchone()
+
+    patient_class_breakdown = db.session.execute(text(f"""
+        SELECT COALESCE(s.patient_class, 'Unknown') AS cls, COUNT(*) AS cnt
+        FROM etl_didb_studies s {mj} {pj}
+        WHERE {where} AND s.patient_class IS NOT NULL AND s.patient_class != ''
+        GROUP BY 1 ORDER BY cnt DESC LIMIT 6
+    """), params).mappings().fetchall()
 
     # ── TAT & reporting (null-safe — columns populated by ETL) ────
     tat = db.session.execute(text(f"""
@@ -486,7 +491,7 @@ def _collect_data(start, end, filters):
             "top_modalities": [dict(r) for r in top_mods],
         },
         "physicians":    [dict(r) for r in physicians],
-        "demographics":  dict(demo),
+        "demographics":  {**dict(demo), "class_breakdown": [dict(r) for r in patient_class_breakdown]},
         "tat": {
             "median_tat_min": float(tat.get("median_tat_min") or 0) if tat else 0,
             "reported_count": int(tat.get("reported_count") or 0) if tat else 0,
@@ -624,14 +629,17 @@ def _generate_narrative(cur, prev, churn, start, end, cmp_start, cmp_end, delta)
     demo_bullets = []
     male   = float(cd.get("male") or 0)
     female = float(cd.get("female") or 0)
-    inp    = float(cd.get("inpatient") or 0)
-    outp   = float(cd.get("outpatient") or 0)
     tot_gen = male + female
     if tot_gen > 0:
         demo_bullets.append(f"Gender split: {round(male/tot_gen*100)}% male / {round(female/tot_gen*100)}% female")
-    tot_cls = inp + outp
-    if tot_cls > 0:
-        demo_bullets.append(f"Patient class: {round(inp/tot_cls*100)}% inpatient / {round(outp/tot_cls*100)}% outpatient")
+    cls_breakdown = cd.get("class_breakdown") or []
+    if cls_breakdown:
+        total_with_class = sum(int(c["cnt"]) for c in cls_breakdown)
+        top2 = cls_breakdown[:2]
+        cls_str = " / ".join(
+            f"{c['cls']} {round(int(c['cnt'])/total_with_class*100)}%" for c in top2
+        )
+        demo_bullets.append(f"Top patient classes: {cls_str}")
     avg_age = cd.get("avg_age")
     if avg_age:
         demo_bullets.append(f"Average patient age: {float(avg_age):.1f} years (range {int(cd.get('min_age') or 0)}–{int(cd.get('max_age') or 0)})")

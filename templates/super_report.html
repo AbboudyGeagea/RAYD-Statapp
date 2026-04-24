@@ -679,13 +679,24 @@
 
         // Demographics
         const dm = cur.demographics, pdm = prev.demographics;
-        document.getElementById('super-demographics').innerHTML = [
-            {label:'Male',       val:fmt(dm.male),       chg:pct(dm.male,pdm.male),       color:'#60a5fa'},
-            {label:'Female',     val:fmt(dm.female),     chg:pct(dm.female,pdm.female),   color:'#f472b6'},
-            {label:'Inpatient',  val:fmt(dm.inpatient),  chg:pct(dm.inpatient,pdm.inpatient),  color:'#f97316'},
-            {label:'Outpatient', val:fmt(dm.outpatient), chg:pct(dm.outpatient,pdm.outpatient),color:'#34d399'},
-        ].map(c=>`<div class="bg-[#141a17] rounded-xl p-4 border border-[#28332e]">
-            <p class="text-[10px] font-black uppercase tracking-widest mb-1" style="color:${c.color}">${c.label}</p>
+        const clsBrk  = dm.class_breakdown  || [];
+        const pclsBrk = pdm.class_breakdown || [];
+        const pclsMap = {};
+        pclsBrk.forEach(c => { pclsMap[c.cls] = c.cnt; });
+        const clsColors = ['#f97316','#34d399','#a78bfa','#2dd4bf','#fb923c','#f472b6'];
+        const demoCards = [
+            {label:'Male',   val:fmt(dm.male),   chg:pct(dm.male,pdm.male),   color:'#60a5fa'},
+            {label:'Female', val:fmt(dm.female), chg:pct(dm.female,pdm.female), color:'#f472b6'},
+            ...clsBrk.slice(0,2).map((c,i) => ({
+                label: c.cls,
+                val:   fmt(c.cnt),
+                chg:   pct(c.cnt, pclsMap[c.cls]),
+                color: clsColors[i] || '#64748b',
+            })),
+        ];
+        document.getElementById('super-demographics').innerHTML = demoCards
+        .map(c=>`<div class="bg-[#141a17] rounded-xl p-4 border border-[#28332e]">
+            <p class="text-[10px] font-black uppercase tracking-widest mb-1" style="color:${c.color}">${escHtml(c.label)}</p>
             <p class="text-2xl font-black text-white font-mono">${c.val}</p>
             ${c.chg!==null?`<p style="font-size:9px;font-weight:700;color:${c.chg>=0?'#34d399':'#f87171'}">${c.chg>=0?'+':''}${c.chg}%</p>`:''}`
         +`</div>`).join('');
