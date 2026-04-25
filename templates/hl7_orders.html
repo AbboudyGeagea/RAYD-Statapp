@@ -663,7 +663,7 @@
   const KNOWN_SEGS = ['MSH','PID','PV1','ORC','OBR','OBX'];
   const IS_ADMIN = {{ 'true' if current_user.role == 'admin' else 'false' }};
 
-  let HL7_FIELD_MAP = [];
+  var HL7_FIELD_MAP = [];
 
   async function loadFieldMap() {
     try {
@@ -814,9 +814,15 @@
 
     if (!raw) { showParseStatus('error', 'No message pasted.'); return; }
 
-    const lines = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').filter(l => l.trim());
+    // Normalize line endings; if segments arrived space-separated (HL7 \r stripped),
+    // re-split on the " XXX|" pattern before processing.
+    let normalized = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const realLines = normalized.split('\n').map(l => l.trim()).filter(l => /^[A-Z][A-Z0-9]{2}\|/.test(l));
+    if (realLines.length <= 1) {
+      normalized = normalized.replace(/ ([A-Z][A-Z0-9]{2}\|)/g, '\n$1');
+    }
     const segments = {};
-    for (const line of lines) {
+    for (const line of normalized.split('\n').map(l => l.trim()).filter(l => /^[A-Z][A-Z0-9]{2}\|/.test(l))) {
       const seg = line.slice(0, 3);
       if (!segments[seg]) segments[seg] = [];
       segments[seg].push(line.split('|'));
