@@ -1,3 +1,4 @@
+import os
 import re
 import json
 from collections import Counter
@@ -154,15 +155,13 @@ def _load_medspacy():
 
 def _affirmed_phrases(text):
     """
-    Process text through medspacy and return the set of phrase strings that are
-    affirmed (not negated, not historical). Falls back to rule-based detection
-    if medspacy failed to load.
+    Single-text wrapper — used for one-off lookups.
+    For bulk processing always prefer _affirmed_phrases_batch().
     """
     if not text:
         return set()
     t = text.lower()
     nlp = _load_medspacy()
-
     if nlp is not None:
         try:
             doc = nlp(t[:8000])
@@ -173,10 +172,138 @@ def _affirmed_phrases(text):
             }
         except Exception:
             pass
-
-    # Rule-based fallback
     return {phrase for phrase, _ in DIAGNOSES if _any_unnegated(t, phrase)} | \
            {kw for kw in CRITICAL if _any_unnegated(t, kw)}
+
+
+# 75% of available cores — leaves headroom for Flask, DB, and the AI server
+_NLP_WORKERS = max(1, int((os.cpu_count() or 4) * 0.75))
+
+
+def _affirmed_phrases_batch(texts):
+    """
+    Process a list of texts in one shot using nlp.pipe().
+    Saturates available CPU cores via n_process.
+    Returns a list of sets — one per input text — of affirmed phrase strings.
+    Falls back to rule-based if medspacy is unavailable or multiprocessing fails.
+    """
+    if not texts:
+        return []
+
+    cleaned = [(t or '').lower()[:8000] for t in texts]
+    nlp = _load_medspacy()
+
+    if nlp is not None:
+        def _docs_to_sets(docs):
+            return [
+                {ent.text.lower() for ent in doc.ents
+                 if not ent._.is_negated and not ent._.is_historical}
+                for doc in docs
+            ]
+        try:
+            return _docs_to_sets(
+                nlp.pipe(cleaned, batch_size=64, n_process=_NLP_WORKERS)
+            )
+        except Exception:
+            try:
+                return _docs_to_sets(
+                    nlp.pipe(cleaned, batch_size=64, n_process=1)
+                )
+            except Exception:
+                pass
+
+    # Rule-based fallback — still runs per-text but no repeated nlp() calls
+    def _rb(t):
+        return {phrase for phrase, _ in DIAGNOSES if _any_unnegated(t, phrase)} | \
+               {kw for kw in CRITICAL if _any_unnegated(t, kw)}
+    return [_rb(t) for t in cleaned]
+
+
+# Bump this string whenever the NLP model or DIAGNOSES vocabulary changes
+# so stale rows in hl7_oru_analysis can be detected and re-processed.
+_NLP_MODEL_VERSION = 'medspacy-v1'
+
+
+_NLP_CHUNK = 500
+
+
+def run_oru_nlp_batch():
+    """
+    Scheduled job (every 60 min): process unanalyzed hl7_oru_reports in chunks.
+    Checks cpu_guard between chunks — stops immediately if an AI request arrives.
+    Commits after each chunk so progress is never lost on an early exit.
+    """
+    from utils.cpu_guard import is_ai_active
+
+    if is_ai_active():
+        print("[ORU NLP] AI active at start — skipping this cycle.")
+        return
+
+    # Lower OS scheduling priority while running
+    try:
+        os.nice(10)
+    except Exception:
+        pass
+
+    try:
+        rows = db.session.execute(text("""
+            SELECT r.id, r.impression_text, r.report_text
+            FROM   hl7_oru_reports r
+            LEFT JOIN hl7_oru_analysis a ON a.report_id = r.id
+            WHERE  a.id IS NULL
+            ORDER  BY r.received_at DESC
+            LIMIT  2000
+        """)).fetchall()
+    except Exception as e:
+        print(f"[ORU NLP] Could not query pending reports: {e}")
+        return
+
+    if not rows:
+        return
+
+    total, committed = len(rows), 0
+
+    for chunk_start in range(0, total, _NLP_CHUNK):
+        if is_ai_active():
+            print(f"[ORU NLP] AI became active — stopped at {committed}/{total}, resuming next cycle.")
+            return
+
+        chunk         = rows[chunk_start:chunk_start + _NLP_CHUNK]
+        texts         = [(r.impression_text or r.report_text or '') for r in chunk]
+        affirmed_list = _affirmed_phrases_batch(texts)
+
+        for r, affirmed in zip(chunk, affirmed_list):
+            seen, labels = set(), []
+            for phrase, label in DIAGNOSES:
+                if label in _BENIGN_LABELS or label in seen:
+                    continue
+                if phrase in affirmed:
+                    seen.add(label)
+                    labels.append(label)
+            pg_array = '{' + ','.join(labels) + '}'
+            try:
+                db.session.execute(text("""
+                    INSERT INTO hl7_oru_analysis
+                        (report_id, affirmed_labels, is_critical, nlp_version, analyzed_at)
+                    VALUES
+                        (:rid, :labels::TEXT[], :critical, :ver, NOW())
+                    ON CONFLICT (report_id) DO NOTHING
+                """), {'rid': r.id, 'labels': pg_array,
+                       'critical': len(labels) > 0, 'ver': _NLP_MODEL_VERSION})
+            except Exception:
+                db.session.rollback()
+                continue
+
+        try:
+            db.session.commit()
+            committed += len(chunk)
+        except Exception as e:
+            db.session.rollback()
+            print(f"[ORU NLP] Commit error at chunk {chunk_start}: {e}")
+            return
+
+    print(f"[ORU NLP] Batch complete — {committed}/{total} reports analyzed.")
+
 
 # ── Diagnosis vocabulary: (match_phrase, canonical_label)
 # Multiple phrases can share the same label — counted per-report (not per-word)
@@ -301,18 +428,15 @@ DIAGNOSES = [
 
 # Deduplicate: for each canonical label keep count of reports mentioning it
 # (multiple phrases mapping to same label are OR'd per report, not summed)
-def _count_diagnoses(rows, top_n=50):
+def _count_diagnoses(affirmed_list, top_n=50):
     """
-    For each row scan impression_text (fallback: report_text).
-    Returns [{label, count}] sorted descending, limited to top_n.
-    Negated and historical mentions are excluded via medspacy (or rule-based fallback).
+    Count diagnosis labels across a list of pre-computed affirmed-phrase sets.
+    Expects output of _affirmed_phrases_batch() or all_affirmed built in oru_data().
     """
     label_counts = Counter()
-    for r in rows:
-        text = (r.impression_text or r.report_text or '')
-        if not text:
+    for affirmed in affirmed_list:
+        if not affirmed:
             continue
-        affirmed = _affirmed_phrases(text)
         seen_labels = set()
         for phrase, label in DIAGNOSES:
             if label in seen_labels:
@@ -447,21 +571,39 @@ def oru_data():
 
     where_sql = ' AND '.join(where)
 
+    # LEFT JOIN pre-computed analysis — analyzed rows skip NLP entirely
     rows = db.session.execute(text(f"""
-        SELECT procedure_code, procedure_name, modality,
-               physician_id, patient_id, accession_number,
-               report_text, impression_text, result_datetime, received_at
-        FROM hl7_oru_reports
-        WHERE {where_sql}
-        ORDER BY received_at DESC
+        SELECT r.procedure_code, r.procedure_name, r.modality,
+               r.physician_id, r.patient_id, r.accession_number,
+               r.report_text, r.impression_text, r.result_datetime, r.received_at,
+               a.affirmed_labels
+        FROM   hl7_oru_reports r
+        LEFT JOIN hl7_oru_analysis a ON a.report_id = r.id
+        WHERE  {where_sql.replace('received_at', 'r.received_at').replace('procedure_code', 'r.procedure_code')}
+        ORDER  BY r.received_at DESC
     """), params).fetchall()
 
     total        = len(rows)
     normal_count = sum(1 for r in rows if _is_normal(r.impression_text or r.report_text))
     abnormal_count = total - normal_count
 
-    # ── Diagnosis frequency (reports per finding) ────────────────────────────
-    cloud_words = _count_diagnoses(rows, top_n=top_n)
+    # ── Build affirmed-label sets — stored for analyzed rows, live NLP for pending ──
+    analyzed_affirmed = {
+        i: set(r.affirmed_labels)
+        for i, r in enumerate(rows)
+        if r.affirmed_labels is not None
+    }
+    pending_indices = [i for i, r in enumerate(rows) if r.affirmed_labels is None]
+    if pending_indices:
+        pending_texts    = [_best_text(rows[i]) for i in pending_indices]
+        pending_affirmed = _affirmed_phrases_batch(pending_texts)
+        for i, affirmed in zip(pending_indices, pending_affirmed):
+            analyzed_affirmed[i] = affirmed
+
+    all_affirmed = [analyzed_affirmed.get(i, set()) for i in range(len(rows))]
+
+    # ── Diagnosis frequency (word cloud) — purely from pre-computed sets ─────
+    cloud_words = _count_diagnoses(all_affirmed, top_n=top_n)
 
     # ── Modality breakdown ────────────────────────────────────────────────────
     mod_counter = Counter(
@@ -484,11 +626,17 @@ def oru_data():
     # ── Critical findings (most recent 20) ───────────────────────────────────
     custom_kws = _get_all_critical_keywords()
     critical_log = []
-    for r in rows:
-        txt = _best_text(r)
-        hits = _matched_diagnoses(txt)
+    for r, affirmed in zip(rows, all_affirmed):
+        seen, hits = set(), []
+        for phrase, label in DIAGNOSES:
+            if label in _BENIGN_LABELS or label in seen:
+                continue
+            if phrase in affirmed:
+                seen.add(label)
+                hits.append(label)
+        # Custom keywords: real-time text search — not stored in analysis table
         if not hits and custom_kws:
-            tl = txt.lower()
+            tl = (_best_text(r) or '').lower()
             hits = [kw for kw in custom_kws if _any_unnegated(tl, kw)]
         if hits:
             critical_log.append({

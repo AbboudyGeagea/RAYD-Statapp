@@ -10,9 +10,81 @@ import socket
 import threading
 import logging
 import re
+import time
+import json
 from datetime import datetime
 
 logger = logging.getLogger("HL7_LISTENER")
+
+# ── Dynamic field-map cache ───────────────────────────────────────────────────
+# Loaded from the settings table, refreshed every 5 minutes.
+# If the admin hasn't saved a custom map, we fall back to hardcoded parse logic.
+_fm_cache = None          # type: list
+_fm_loaded_at = 0.0       # type: float
+_FM_TTL = 300  # seconds
+
+
+def _load_field_map(app):
+    """Fetch hl7_field_map from settings. Returns list of dicts or None."""
+    try:
+        with app.app_context():
+            from sqlalchemy import text as _t
+            from db import db as _db
+            row = _db.session.execute(
+                _t("SELECT value FROM settings WHERE key = 'hl7_field_map'")
+            ).fetchone()
+            if row:
+                return json.loads(row[0])
+    except Exception:
+        pass
+    return None
+
+
+def _get_field_map(app):
+    global _fm_cache, _fm_loaded_at
+    if _fm_cache is None or (time.time() - _fm_loaded_at) > _FM_TTL:
+        result = _load_field_map(app)
+        if result is not None:
+            _fm_cache = result
+            _fm_loaded_at = time.time()
+    return _fm_cache
+
+
+_FM_DATE_COLS = {'message_datetime', 'date_of_birth', 'scheduled_datetime'}
+_FM_NAME_COLS = {'patient_name', 'ordering_physician'}
+
+
+def _apply_field_map(segments, parsed, field_map):
+    """
+    Overlay custom field-map entries on top of the hardcoded parsed dict.
+    Only overwrites fields that produce a non-empty value, so the hardcoded
+    fallbacks still apply for unmapped or empty positions.
+    `segments` is {seg_name: raw_segment_string, ...}.
+    """
+    for m in field_map:
+        seg_name = m.get('seg', '')
+        fi       = m.get('fi', 0)
+        ci       = m.get('ci', -1)
+        db_col   = m.get('db', '')
+        if not db_col or seg_name not in segments:
+            continue
+        fields = segments[seg_name].split('|')
+        raw = fields[fi].strip() if fi < len(fields) else ''
+        if ci >= 0:
+            parts = raw.split('^')
+            raw = parts[ci].strip() if ci < len(parts) else ''
+        if not raw:
+            continue
+        if db_col in _FM_DATE_COLS:
+            val = _parse_hl7_datetime(raw)
+        elif db_col in _FM_NAME_COLS:
+            val = _format_name(raw) or raw
+        else:
+            val = raw
+        if val:
+            parsed[db_col] = val
+    return parsed
+
 
 # ── MLLP framing constants ────────────────────────────────────────────────────
 MLLP_START  = b'\x0b'          # Vertical Tab  — start of block
@@ -498,6 +570,15 @@ def _handle_client(conn, addr, app):
                             parsed = parse_orm_o01(raw_message)
 
                             if parsed:
+                                # Apply any admin-saved field-map overrides.
+                                field_map = _get_field_map(app)
+                                if field_map:
+                                    seg_dict = {
+                                        s.split('|')[0]: s
+                                        for s in segments
+                                    }
+                                    parsed = _apply_field_map(seg_dict, parsed, field_map)
+
                                 with app.app_context():
                                     from sqlalchemy import text
                                     from db import db

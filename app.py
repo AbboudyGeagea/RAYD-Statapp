@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 from sqlalchemy.sql import text
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 import pytz
 
 # ---------------------------------------------------------
@@ -587,6 +588,22 @@ def create_app():
         trigger=CronTrigger(hour=5, minute=30),
         id='daily_analytics_snapshot',
         name='Daily Analytics Snapshot',
+        replace_existing=True
+    )
+
+    def scheduled_oru_nlp():
+        with app.app_context():
+            try:
+                from routes.oru_analytics import run_oru_nlp_batch
+                run_oru_nlp_batch()
+            except Exception as e:
+                logger.error(f"[ORU NLP] Batch job failed: {e}", exc_info=True)
+
+    scheduler.add_job(
+        func=scheduled_oru_nlp,
+        trigger=IntervalTrigger(minutes=60),
+        id='oru_nlp_analysis',
+        name='ORU NLP Analysis Cache',
         replace_existing=True
     )
 

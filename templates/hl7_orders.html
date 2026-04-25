@@ -839,14 +839,23 @@
     tbody.innerHTML = '';
 
     const selStyle = `background:#0d0f14;border:1px solid #252a38;color:#c8cdd8;font-family:'IBM Plex Mono',monospace;font-size:10px;padding:3px 5px;border-radius:3px;width:100%;max-width:240px;`;
-    const pathOpts = `<option value="">(not mapped)</option>` + allPaths.map(p => {
-      const preview = p.value.length > 30 ? p.value.slice(0, 30) + '…' : p.value;
-      return `<option value="${p.path}">${p.path} &nbsp;·&nbsp; ${preview}</option>`;
-    }).join('');
-
     const disabled = IS_ADMIN ? '' : ' disabled';
 
     for (const {col, label} of DB_COLS_META) {
+      // Pre-select the path that matches the saved field map for this column.
+      const savedMapping = getMappingForColumn(col);
+      const savedPath    = savedMapping ? pathKey(savedMapping) : '';
+
+      const colPathOpts = `<option value="">(not mapped)</option>` + allPaths.map(p => {
+        const preview = p.value.length > 30 ? p.value.slice(0, 30) + '…' : p.value;
+        const sel = p.path === savedPath ? ' selected' : '';
+        return `<option value="${p.path}"${sel}>${p.path} &nbsp;·&nbsp; ${preview}</option>`;
+      }).join('');
+
+      const mappedPath = allPaths.find(x => x.path === savedPath);
+      const initialVal = mappedPath ? mappedPath.value : '—';
+      const valColor   = mappedPath ? '#eef0f5' : '#3a4050';
+
       tbody.innerHTML += `
         <tr style="border-bottom:1px solid #1e2330;">
           <td style="padding:6px 8px;white-space:nowrap;">
@@ -855,10 +864,10 @@
           </td>
           <td style="padding:6px 8px;">
             <select id="map_${col}" onchange="onPathChange('${col}',this.value)" style="${selStyle}"${disabled}>
-              ${pathOpts}
+              ${colPathOpts}
             </select>
           </td>
-          <td style="padding:6px 8px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#3a4050;" id="val_${col}">—</td>
+          <td style="padding:6px 8px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:${valColor};" id="val_${col}">${initialVal}</td>
         </tr>`;
     }
 

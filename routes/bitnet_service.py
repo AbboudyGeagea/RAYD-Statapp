@@ -140,6 +140,8 @@ def _contains_hallucination(response: str) -> bool:
 
 # ── Llama 3.1 inference ───────────────────────────────────────
 def _run_inference(system: str, user_message: str, max_tokens: int = None) -> str:
+    from utils.cpu_guard import ai_start, ai_done
+    ai_start()
     prompt = (
         "<|begin_of_text|>"
         f"<|start_header_id|>system<|end_header_id|>\n{system}<|eot_id|>"
@@ -175,6 +177,8 @@ def _run_inference(system: str, user_message: str, max_tokens: int = None) -> st
     except Exception as e:
         logger.error(f"[BitNet] Inference error: {e}")
         return f"ERROR: {e}"
+    finally:
+        ai_done()
 
 
 # ── Pages ─────────────────────────────────────────────────────

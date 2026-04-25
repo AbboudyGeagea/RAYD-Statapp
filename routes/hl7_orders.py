@@ -8,15 +8,15 @@ import json
 hl7_orders_bp = Blueprint('hl7_orders', __name__)
 
 DEFAULT_FIELD_MAP = [
-    {"seg": "MSH", "fi": 9,  "ci": 0,  "label": "Message Type",        "db": "message_type"},
-    {"seg": "MSH", "fi": 10, "ci": -1, "label": "Message Control ID",  "db": "message_id"},
+    {"seg": "MSH", "fi": 8,  "ci": 0,  "label": "Message Type",        "db": "message_type"},
+    {"seg": "MSH", "fi": 9,  "ci": -1, "label": "Message Control ID",  "db": "message_id"},
     {"seg": "PID", "fi": 3,  "ci": 0,  "label": "Patient ID",          "db": "patient_id"},
     {"seg": "PID", "fi": 5,  "ci": 0,  "label": "Patient Family Name", "db": "patient_name"},
     {"seg": "PID", "fi": 7,  "ci": -1, "label": "Date of Birth",       "db": "date_of_birth"},
     {"seg": "PID", "fi": 8,  "ci": -1, "label": "Gender",              "db": "gender"},
-    {"seg": "ORC", "fi": 1,  "ci": -1, "label": "Order Control",       "db": "order_status"},
+    {"seg": "ORC", "fi": 5,  "ci": -1, "label": "Order Status",        "db": "order_status"},
     {"seg": "ORC", "fi": 2,  "ci": 0,  "label": "Placer Order #",      "db": "placer_order_number"},
-    {"seg": "OBR", "fi": 2,  "ci": 0,  "label": "Accession Number",    "db": "accession_number"},
+    {"seg": "OBR", "fi": 3,  "ci": 0,  "label": "Accession Number",    "db": "accession_number"},
     {"seg": "OBR", "fi": 4,  "ci": 0,  "label": "Procedure Code",      "db": "procedure_code"},
     {"seg": "OBR", "fi": 4,  "ci": 1,  "label": "Procedure Text",      "db": "procedure_text"},
     {"seg": "OBR", "fi": 16, "ci": 0,  "label": "Ordering Physician",  "db": "ordering_physician"},
