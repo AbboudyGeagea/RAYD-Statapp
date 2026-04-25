@@ -432,10 +432,9 @@
           <table style="width:100%;border-collapse:collapse;font-size:11px;">
             <thead>
               <tr style="border-bottom:1px solid #252a38;">
-                <th style="text-align:left;padding:6px 8px;font-family:'IBM Plex Mono',monospace;font-size:9px;color:#5a6070;text-transform:uppercase;letter-spacing:0.1em;width:140px;">DB Column</th>
+                <th style="text-align:left;padding:6px 8px;font-family:'IBM Plex Mono',monospace;font-size:9px;color:#5a6070;text-transform:uppercase;letter-spacing:0.1em;width:150px;">DB Column</th>
                 <th style="text-align:left;padding:6px 8px;font-family:'IBM Plex Mono',monospace;font-size:9px;color:#5a6070;text-transform:uppercase;letter-spacing:0.1em;">HL7 Field</th>
-                <th style="text-align:left;padding:6px 8px;font-family:'IBM Plex Mono',monospace;font-size:9px;color:#5a6070;text-transform:uppercase;letter-spacing:0.1em;width:150px;">Value</th>
-                <th style="text-align:center;padding:6px 8px;font-family:'IBM Plex Mono',monospace;font-size:9px;color:#5a6070;text-transform:uppercase;letter-spacing:0.1em;width:60px;">Status</th>
+                <th style="text-align:left;padding:6px 8px;font-family:'IBM Plex Mono',monospace;font-size:9px;color:#5a6070;text-transform:uppercase;letter-spacing:0.1em;">Value</th>
               </tr>
             </thead>
             <tbody id="hl7ParseBody"></tbody>
@@ -825,48 +824,23 @@
 
     if (!segments['MSH']) { showParseStatus('error', 'Invalid HL7 — MSH segment not found.'); return; }
 
-    const msgType = getHl7Val(segments, 'MSH', 9, 0) || getHl7Val(segments, 'MSH', 9, -1) || '—';
-    showParseStatus('ok', 'Parsed · Type: <strong>' + msgType + '</strong> · Segments: <strong>' + Object.keys(segments).join(', ') + '</strong>');
+    showParseStatus('ok', 'Segments found: <strong>' + Object.keys(segments).join(', ') + '</strong>');
 
     const allPaths = extractAllPaths(segments);
-    window._hl7Paths    = allPaths;
-    window._hl7Segments = segments;
+    window._hl7Paths = allPaths;
 
     const tbody = document.getElementById('hl7ParseBody');
     tbody.innerHTML = '';
 
     const selStyle = `background:#0d0f14;border:1px solid #252a38;color:#c8cdd8;font-family:'IBM Plex Mono',monospace;font-size:10px;padding:3px 5px;border-radius:3px;width:100%;max-width:240px;`;
-    const noneOpt  = `<option value="">(not mapped)</option>`;
-    const pathOptsBase = allPaths.map(p => {
-      const preview = p.value.length > 28 ? p.value.slice(0, 28) + '…' : p.value;
+    const pathOpts = `<option value="">(not mapped)</option>` + allPaths.map(p => {
+      const preview = p.value.length > 30 ? p.value.slice(0, 30) + '…' : p.value;
       return `<option value="${p.path}">${p.path} &nbsp;·&nbsp; ${preview}</option>`;
     }).join('');
 
+    const disabled = IS_ADMIN ? '' : ' disabled';
+
     for (const {col, label} of DB_COLS_META) {
-      const mapping     = getMappingForColumn(col);
-      const currentPath = mapping ? pathKey(mapping) : '';
-      const pathObj     = allPaths.find(p => p.path === currentPath);
-      const value       = pathObj ? pathObj.value : (mapping ? getHl7Val(segments, mapping.seg, mapping.fi, mapping.ci) : null);
-      const hasVal      = value !== null && value !== '' && value !== undefined;
-      const hasSeg      = mapping ? !!segments[mapping.seg] : false;
-      const status      = !mapping ? 'unmapped' : !hasSeg ? 'no-seg' : !hasVal ? 'empty' : 'ok';
-
-      const opts = noneOpt + allPaths.map(p => {
-        const preview = p.value.length > 28 ? p.value.slice(0, 28) + '…' : p.value;
-        return `<option value="${p.path}"${p.path === currentPath ? ' selected' : ''}>${p.path} &nbsp;·&nbsp; ${preview}</option>`;
-      }).join('');
-
-      const disabled = IS_ADMIN ? '' : ' disabled';
-      const valDisplay = hasVal
-        ? `<span style="color:#eef0f5;" title="${value.replace(/"/g,'&quot;')}">${value.length > 22 ? value.slice(0,22)+'…' : value}</span>`
-        : `<span style="color:#3a4050;">—</span>`;
-      const statusDisplay = {
-        ok:      '<span style="color:#00c896;font-size:14px;">✓</span>',
-        empty:   '<span style="color:#f4b942;font-size:11px;font-family:IBM Plex Mono,monospace;">empty</span>',
-        'no-seg':'<span style="color:#e05c5c;font-size:11px;font-family:IBM Plex Mono,monospace;">no seg</span>',
-        unmapped:'<span style="color:#3a4050;font-size:11px;font-family:IBM Plex Mono,monospace;">—</span>',
-      }[status];
-
       tbody.innerHTML += `
         <tr style="border-bottom:1px solid #1e2330;">
           <td style="padding:6px 8px;white-space:nowrap;">
@@ -875,11 +849,10 @@
           </td>
           <td style="padding:6px 8px;">
             <select id="map_${col}" onchange="onPathChange('${col}',this.value)" style="${selStyle}"${disabled}>
-              ${opts}
+              ${pathOpts}
             </select>
           </td>
-          <td style="padding:6px 8px;font-family:'IBM Plex Mono',monospace;font-size:11px;" id="val_${col}">${valDisplay}</td>
-          <td style="padding:6px 8px;text-align:center;" id="status_${col}">${statusDisplay}</td>
+          <td style="padding:6px 8px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#3a4050;" id="val_${col}">—</td>
         </tr>`;
     }
 
@@ -887,23 +860,12 @@
   }
 
   function onPathChange(col, pathVal) {
-    const paths   = window._hl7Paths || [];
-    const valEl   = document.getElementById('val_' + col);
-    const statEl  = document.getElementById('status_' + col);
-    if (!pathVal) {
-      valEl.innerHTML  = '<span style="color:#3a4050;">—</span>';
-      statEl.innerHTML = '<span style="color:#3a4050;font-size:11px;font-family:IBM Plex Mono,monospace;">—</span>';
-      return;
-    }
-    const p = paths.find(x => x.path === pathVal);
+    const valEl = document.getElementById('val_' + col);
+    if (!pathVal) { valEl.textContent = '—'; valEl.style.color = '#3a4050'; return; }
+    const p = (window._hl7Paths || []).find(x => x.path === pathVal);
     if (!p) return;
-    const v = p.value;
-    valEl.innerHTML  = v
-      ? `<span style="color:#eef0f5;" title="${v.replace(/"/g,'&quot;')}">${v.length > 22 ? v.slice(0,22)+'…' : v}</span>`
-      : '<span style="color:#3a4050;">—</span>';
-    statEl.innerHTML = v
-      ? '<span style="color:#00c896;font-size:14px;">✓</span>'
-      : '<span style="color:#f4b942;font-size:11px;font-family:IBM Plex Mono,monospace;">empty</span>';
+    valEl.textContent = p.value;
+    valEl.style.color = '#eef0f5';
   }
 
   function saveMappingFromParse() {
