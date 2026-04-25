@@ -103,6 +103,9 @@ def live_status():
             SELECT
                 o.message_id,
                 o.patient_id,
+                o.patient_name,
+                o.date_of_birth,
+                o.ordering_physician,
                 o.accession_number,
                 COALESCE(o.scheduled_datetime, o.received_at) AS scheduled_datetime,
                 o.procedure_text,
@@ -156,16 +159,20 @@ def live_status():
                 overrun        = mins_remaining < 0
 
                 if sched <= now:
+                    dob = o["date_of_birth"]
                     active_orders.append({
-                        "message_id":       o["message_id"],
-                        "patient_id":       o["patient_id"] or "—",
-                        "accession_number": o["accession_number"] or "—",
-                        "procedure_text":   o["procedure_text"] or o["procedure_code"] or "—",
-                        "procedure_code":   o["procedure_code"] or "",
-                        "unknown_code":     bool(o["unknown_code"]),
-                        "end_time":         end_time.strftime("%H:%M"),
-                        "mins_remaining":   mins_remaining,
-                        "overrun":          overrun,
+                        "message_id":          o["message_id"],
+                        "patient_id":          o["patient_id"] or "—",
+                        "patient_name":        o["patient_name"] or "—",
+                        "date_of_birth":       dob.strftime("%d-%m-%Y") if dob else "—",
+                        "referring_physician": o["ordering_physician"] or "—",
+                        "accession_number":    o["accession_number"] or "—",
+                        "procedure_text":      o["procedure_text"] or o["procedure_code"] or "—",
+                        "procedure_code":      o["procedure_code"] or "",
+                        "unknown_code":        bool(o["unknown_code"]),
+                        "end_time":            end_time.strftime("%H:%M"),
+                        "mins_remaining":      mins_remaining,
+                        "overrun":             overrun,
                     })
                     # Countdown to next non-overrun finish
                     if not overrun and mins_remaining > 0:

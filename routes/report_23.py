@@ -79,7 +79,7 @@ def report_23():
         "age_max": request.form.get("f_age_max"),
     }
 
-    metrics    = {"total_count": 0}
+    metrics    = {"total_count": 0, "multi_order_groups": 0, "multi_order_patients": 0, "multi_order_orders": 0}
     chart_json = {}
 
     if run_report and base_sql:
@@ -129,10 +129,35 @@ def report_23():
             GROUP BY 1, 2, 3
         """)
 
+        multi_order_sql = text(f"""
+            WITH base_data AS ({base_sql}),
+            mo_groups AS (
+                SELECT
+                    patient_db_uid,
+                    modality,
+                    study_date,
+                    COUNT(*) AS cnt
+                FROM base_data
+                WHERE study_date BETWEEN :s AND :e{extra_where}
+                GROUP BY patient_db_uid, modality, study_date
+                HAVING COUNT(*) > 1
+            )
+            SELECT
+                COALESCE(SUM(cnt), 0)         AS total_flagged_orders,
+                COUNT(*)                       AS flagged_groups,
+                COUNT(DISTINCT patient_db_uid) AS flagged_patients
+            FROM mo_groups
+        """)
+
         try:
             df_agg  = pd.DataFrame(db.session.execute(agg_sql,  params).fetchall())
             df_demo = pd.DataFrame(db.session.execute(demo_sql, params).fetchall())
             df_cube = pd.DataFrame(db.session.execute(cube_sql, params).fetchall())
+            df_mo   = pd.DataFrame(db.session.execute(multi_order_sql, params).fetchall())
+            if not df_mo.empty:
+                metrics["multi_order_groups"]   = int(df_mo.iloc[0]["flagged_groups"]       or 0)
+                metrics["multi_order_patients"] = int(df_mo.iloc[0]["flagged_patients"]     or 0)
+                metrics["multi_order_orders"]   = int(df_mo.iloc[0]["total_flagged_orders"] or 0)
 
             if not df_agg.empty:
                 metrics["total_count"] = len(df_agg)

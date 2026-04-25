@@ -442,13 +442,20 @@ function buildTile(t) {
                 onmouseout="this.style.background='rgba(74,222,128,0.08)'">
                 <i class="bi bi-check-lg"></i> Done
             </button>`;
-            return `<div class="${rowCls}" style="flex-direction:column;align-items:stretch;gap:6px;"${hidden ? ' style="display:none;"' : ''}>
+            return `<div class="${rowCls}" style="flex-direction:column;align-items:stretch;gap:5px;"${hidden ? ' style="display:none;"' : ''}>
                 <div style="display:flex;align-items:center;gap:6px;min-width:0;">
                     <i class="bi bi-person" style="color:#64748b;flex-shrink:0;"></i>
                     <span class="font-mono font-bold text-slate-300" style="flex-shrink:0;">${escHtml(o.patient_id)}</span>
                     <span class="font-mono text-slate-500" style="flex-shrink:0;font-size:10px;">${escHtml(o.accession_number)}</span>
                     <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#94a3b8;font-size:11px;flex:1;" title="${escHtml(o.procedure_text)}">${escHtml(o.procedure_text)}</span>
                     ${unknownBadge}
+                </div>
+                <div style="display:flex;align-items:center;gap:10px;font-size:10px;color:#475569;padding-left:2px;flex-wrap:wrap;">
+                    <span title="Patient name"><i class="bi bi-person-badge" style="margin-right:3px;"></i>${escHtml(o.patient_name)}</span>
+                    <span style="color:#1e293b;">·</span>
+                    <span title="Date of birth"><i class="bi bi-calendar3" style="margin-right:3px;"></i>${escHtml(o.date_of_birth)}</span>
+                    <span style="color:#1e293b;">·</span>
+                    <span title="Referring physician"><i class="bi bi-hospital" style="margin-right:3px;"></i>${escHtml(o.referring_physician)}</span>
                 </div>
                 <div style="display:flex;align-items:center;gap:6px;justify-content:space-between;">
                     ${timeBadge}
