@@ -4,7 +4,12 @@
       "Bash(xargs grep *)",
       "Bash(find \"/d/Intermedic/Statistics app/RAYD-Statapp/RAYD-Statapp\" -type f -name \"*.py\" -not -path \"*/venv/*\" -exec grep -l \"APScheduler\\\\|scheduler\\\\|add_job\" {} \\\\;)",
       "Bash(grep -B1 \"pass$\")",
-      "Bash(python -c \"from routes.insights_engine import run_tech_insights, run_rad_insights, run_dept_insights; print\\('OK'\\)\")"
+      "Bash(python -c \"from routes.insights_engine import run_tech_insights, run_rad_insights, run_dept_insights; print\\('OK'\\)\")",
+      "Bash(./bin/pip install *)",
+      "PowerShell(& \"d:\\\\Intermedic\\\\Statistics app\\\\RAYD-Statapp\\\\venv\\\\Scripts\\\\pip.exe\" install \"medspacy>=1.1.0\" 2>&1)",
+      "PowerShell(& \"d:\\\\Intermedic\\\\Statistics app\\\\RAYD-Statapp\\\\venv\\\\bin\\\\pip\" install \"medspacy>=1.1.0\" 2>&1)",
+      "Bash(\"d:/Intermedic/Statistics app/RAYD-Statapp/venv/bin/pip\" install \"medspacy>=1.1.0\")",
+      "Bash(\"/d/Intermedic/Statistics app/RAYD-Statapp/venv/bin/python3.10\" --version)"
     ]
   }
 }

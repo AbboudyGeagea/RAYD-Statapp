@@ -72,6 +72,112 @@ NORMAL_PHRASES = [
     'no pathological','no active disease','normal limits',
 ]
 
+# ── Rule-based negation fallback ─────────────────────────────────────────────
+# Used when medspacy is unavailable. Checks a backward character window within
+# the same sentence for any negation prefix before the matched keyword.
+NEGATION_PREFIXES = [
+    'no ', 'not ', 'without ', 'negative for ', 'negative ',
+    'no evidence of ', 'no evidence for ',
+    'no sign of ', 'no signs of ',
+    'no finding of ', 'no findings of ',
+    'no suggestion of ', 'no history of ',
+    'absence of ', 'absent ', 'free of ',
+    'ruled out', 'no acute ', 'no definite ', 'no demonstrable ',
+    'denies ', 'denied ', 'no identified ',
+]
+
+def _is_negated(t, match_start, window=80):
+    segment = t[max(0, match_start - window):match_start]
+    for sep in ('.', '\n', ';', '?', '!'):
+        last_sep = segment.rfind(sep)
+        if last_sep != -1:
+            segment = segment[last_sep + 1:]
+    return any(neg in segment for neg in NEGATION_PREFIXES)
+
+def _any_unnegated(t, keyword):
+    idx = t.find(keyword)
+    while idx != -1:
+        if not _is_negated(t, idx):
+            return True
+        idx = t.find(keyword, idx + len(keyword))
+    return False
+
+
+# ── MedSpaCy — loaded once at startup, falls back to rule-based if unavailable ─
+_NLP = None
+
+def _load_medspacy():
+    global _NLP
+    if _NLP is not None:
+        return _NLP
+    try:
+        import medspacy
+        from medspacy.target_matcher import TargetRule
+        from medspacy.context import ConTextRule
+
+        nlp = medspacy.load(enable=["sentencizer", "medspacy_target_matcher", "medspacy_context"])
+
+        # Register every phrase we track as a findable target
+        target_matcher = nlp.get_pipe("medspacy_target_matcher")
+        seen, rules = set(), []
+        for phrase, _ in DIAGNOSES:
+            if phrase not in seen:
+                rules.append(TargetRule(phrase, "FINDING"))
+                seen.add(phrase)
+        for kw in CRITICAL:
+            if kw not in seen:
+                rules.append(TargetRule(kw, "FINDING"))
+                seen.add(kw)
+        target_matcher.add(rules)
+
+        # Add French negation rules — default ConText only covers English
+        context = nlp.get_pipe("medspacy_context")
+        context.add([
+            ConTextRule("pas de",        "NEGATED_EXISTENCE", direction="FORWARD"),
+            ConTextRule("sans",          "NEGATED_EXISTENCE", direction="FORWARD"),
+            ConTextRule("absence de",    "NEGATED_EXISTENCE", direction="FORWARD"),
+            ConTextRule("aucun",         "NEGATED_EXISTENCE", direction="FORWARD"),
+            ConTextRule("aucune",        "NEGATED_EXISTENCE", direction="FORWARD"),
+            ConTextRule("négatif pour",  "NEGATED_EXISTENCE", direction="FORWARD"),
+            ConTextRule("négatif",       "NEGATED_EXISTENCE", direction="FORWARD"),
+            ConTextRule("non",           "NEGATED_EXISTENCE", direction="FORWARD"),
+            ConTextRule("exclu",         "NEGATED_EXISTENCE", direction="BIDIRECTIONAL"),
+            ConTextRule("écarté",        "NEGATED_EXISTENCE", direction="BIDIRECTIONAL"),
+        ])
+
+        _NLP = nlp
+        print("[ORU] MedSpaCy loaded — clinical NLP active.")
+    except Exception as e:
+        print(f"[ORU] MedSpaCy unavailable ({e}) — rule-based negation fallback active.")
+    return _NLP
+
+
+def _affirmed_phrases(text):
+    """
+    Process text through medspacy and return the set of phrase strings that are
+    affirmed (not negated, not historical). Falls back to rule-based detection
+    if medspacy failed to load.
+    """
+    if not text:
+        return set()
+    t = text.lower()
+    nlp = _load_medspacy()
+
+    if nlp is not None:
+        try:
+            doc = nlp(t[:8000])
+            return {
+                ent.text.lower()
+                for ent in doc.ents
+                if not ent._.is_negated and not ent._.is_historical
+            }
+        except Exception:
+            pass
+
+    # Rule-based fallback
+    return {phrase for phrase, _ in DIAGNOSES if _any_unnegated(t, phrase)} | \
+           {kw for kw in CRITICAL if _any_unnegated(t, kw)}
+
 # ── Diagnosis vocabulary: (match_phrase, canonical_label)
 # Multiple phrases can share the same label — counted per-report (not per-word)
 DIAGNOSES = [
@@ -199,16 +305,19 @@ def _count_diagnoses(rows, top_n=50):
     """
     For each row scan impression_text (fallback: report_text).
     Returns [{label, count}] sorted descending, limited to top_n.
-    Labels with count == 0 are excluded.
+    Negated and historical mentions are excluded via medspacy (or rule-based fallback).
     """
     label_counts = Counter()
     for r in rows:
-        text = (r.impression_text or r.report_text or '').lower()
+        text = (r.impression_text or r.report_text or '')
         if not text:
             continue
+        affirmed = _affirmed_phrases(text)
         seen_labels = set()
         for phrase, label in DIAGNOSES:
-            if label not in seen_labels and phrase in text:
+            if label in seen_labels:
+                continue
+            if phrase in affirmed:
                 seen_labels.add(label)
                 label_counts[label] += 1
     return [
@@ -286,17 +395,18 @@ def _best_text(row):
 
 def _matched_diagnoses(text):
     """
-    Return list of canonical diagnosis labels found in text, excluding benign ones.
+    Return list of canonical diagnosis labels affirmed in text, excluding benign ones.
+    Negated and historical mentions are excluded via medspacy (or rule-based fallback).
     Uses the same DIAGNOSES vocabulary as the treemap so both panels are consistent.
     """
     if not text:
         return []
-    t = text.lower()
+    affirmed = _affirmed_phrases(text)
     seen, found = set(), []
     for phrase, label in DIAGNOSES:
-        if label in _BENIGN_LABELS:
+        if label in _BENIGN_LABELS or label in seen:
             continue
-        if label not in seen and phrase in t:
+        if phrase in affirmed:
             seen.add(label)
             found.append(label)
     return found
@@ -379,7 +489,7 @@ def oru_data():
         hits = _matched_diagnoses(txt)
         if not hits and custom_kws:
             tl = txt.lower()
-            hits = [kw for kw in custom_kws if kw in tl]
+            hits = [kw for kw in custom_kws if _any_unnegated(tl, kw)]
         if hits:
             critical_log.append({
                 'procedure_code':   (r.procedure_code or '—').upper().strip(),
