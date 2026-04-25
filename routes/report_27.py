@@ -76,6 +76,31 @@ def report_27():
     if run_report:
         df_a = get_report_data(start_a, end_a)
 
+        mo_sql = text("""
+            WITH mo_groups AS (
+                SELECT
+                    patient_dbid,
+                    proc_id,
+                    DATE(scheduled_datetime) AS sched_date,
+                    COUNT(*) AS cnt
+                FROM etl_orders
+                WHERE scheduled_datetime BETWEEN :start AND :end
+                GROUP BY patient_dbid, proc_id, DATE(scheduled_datetime)
+                HAVING COUNT(*) > 1
+            )
+            SELECT
+                COALESCE(SUM(cnt), 0)         AS total_flagged_orders,
+                COUNT(*)                       AS flagged_groups,
+                COUNT(DISTINCT patient_dbid)   AS flagged_patients
+            FROM mo_groups
+        """)
+        mo_row = db.session.execute(mo_sql, {"start": start_a, "end": end_a}).fetchone()
+        data['multi_order'] = {
+            "orders":   int(mo_row.total_flagged_orders or 0),
+            "groups":   int(mo_row.flagged_groups       or 0),
+            "patients": int(mo_row.flagged_patients     or 0),
+        }
+
         if not df_a.empty:
             df_a['duration_minutes'] = pd.to_numeric(df_a['duration_minutes'], errors='coerce')
             dur_raw = df_a[df_a['duration_minutes'] > 0]['duration_minutes']

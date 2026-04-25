@@ -150,6 +150,38 @@
                 </div>
             </div>
 
+            <!-- Multi-Order Flag -->
+            {% if data.multi_order and data.multi_order.groups %}
+            <div class="data-card border-l-4 border-cyan-500">
+                <div class="card-header" style="color:#06b6d4;">
+                    <div class="flex items-center gap-2">
+                        <i class="bi bi-layers"></i>
+                        Multiple Orders Detected
+                        <span style="font-size:9px;font-weight:900;padding:2px 10px;border-radius:999px;background:rgba(6,182,212,0.12);color:#06b6d4;border:1px solid rgba(6,182,212,0.3);">
+                            {{ data.multi_order.groups }} group{{ 's' if data.multi_order.groups != 1 else '' }}
+                        </span>
+                    </div>
+                </div>
+                <div class="card-desc">
+                    Orders sharing the same <strong>patient</strong>, <strong>procedure code</strong>, and <strong>scheduled date</strong> — suggesting multiple RIS orders placed for a single visit. Included in the Orphan Orders count above.
+                </div>
+                <div class="grid grid-cols-3 gap-4 p-4">
+                    <div class="bg-[#020617] border border-slate-800 rounded-xl p-4 text-center">
+                        <p class="text-[9px] font-black text-slate-500 uppercase mb-1">Flagged Orders</p>
+                        <p class="text-2xl font-black text-cyan-400">{{ "{:,}".format(data.multi_order.orders) }}</p>
+                    </div>
+                    <div class="bg-[#020617] border border-slate-800 rounded-xl p-4 text-center">
+                        <p class="text-[9px] font-black text-slate-500 uppercase mb-1">Order Groups</p>
+                        <p class="text-2xl font-black text-cyan-300">{{ "{:,}".format(data.multi_order.groups) }}</p>
+                    </div>
+                    <div class="bg-[#020617] border border-slate-800 rounded-xl p-4 text-center">
+                        <p class="text-[9px] font-black text-slate-500 uppercase mb-1">Affected Patients</p>
+                        <p class="text-2xl font-black text-sky-400">{{ "{:,}".format(data.multi_order.patients) }}</p>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
             <!-- Row 1: Hourly + Match -->
             <div class="grid grid-cols-3 gap-6">
                 <div class="data-card col-span-2 flex flex-col" style="height:360px;">
