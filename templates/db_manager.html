@@ -136,7 +136,7 @@
                                                     class="text-[9px] font-black uppercase px-2 py-1 rounded bg-[#1e293b] border border-[#334155] text-slate-400 hover:border-[#60a5fa] hover:text-[#60a5fa] transition-colors">
                                                     Test
                                                 </button>
-                                                <button onclick="openEditModal({{ c|tojson|e }})"
+                                                <button data-conn='{{ c|tojson }}' onclick="openEditModal(JSON.parse(this.dataset.conn))"
                                                     class="text-[9px] font-black uppercase px-2 py-1 rounded bg-[#1e293b] border border-[#334155] text-slate-400 hover:border-[#60a5fa] hover:text-[#60a5fa] transition-colors">
                                                     Edit
                                                 </button>
