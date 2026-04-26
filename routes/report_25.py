@@ -40,7 +40,7 @@ def get_gold_standard_data(form_data):
     end = form_data.get("end_date") or date.today().strftime("%Y-%m-%d")
     
     params = {"start": start, "end": end}
-    where_clauses = ["study_date BETWEEN :start AND :end"]
+    where_clauses = ["study_date BETWEEN :start AND :end", "COALESCE(modality, '') != 'SR'"]
     
     if form_data.get("class_enabled") == "on" and form_data.getlist("patient_class"):
         where_clauses.append("patient_class IN :classes")

@@ -82,12 +82,14 @@ def daily_briefing():
                     END AS tat_min
                 FROM etl_didb_studies
                 WHERE study_date >= (SELECT d FROM latest) - 7
+                  AND COALESCE(study_modality, '') != 'SR'
             ),
             avg30 AS (
                 SELECT COALESCE(COUNT(*)::float / NULLIF(COUNT(DISTINCT study_date),0), 0) AS v
                 FROM etl_didb_studies
                 WHERE study_date BETWEEN (SELECT d FROM latest) - 30
                                      AND (SELECT d FROM latest) - 1
+                  AND COALESCE(study_modality, '') != 'SR'
             ),
             top_mod AS (
                 SELECT modality, COUNT(*) AS cnt

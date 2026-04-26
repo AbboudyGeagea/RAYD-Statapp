@@ -51,7 +51,7 @@ def _fetch_orders(date_str=None, modality=None, status=None):
 def _fetch_filter_options():
     """Get distinct modalities and statuses for filter dropdowns."""
     modalities = db.session.execute(
-        text("SELECT DISTINCT modality FROM hl7_orders WHERE modality IS NOT NULL ORDER BY modality")
+        text("SELECT DISTINCT modality FROM hl7_orders WHERE modality IS NOT NULL AND modality != 'SR' ORDER BY modality")
     ).fetchall()
     statuses = db.session.execute(
         text("SELECT DISTINCT order_status FROM hl7_orders WHERE order_status IS NOT NULL ORDER BY order_status")

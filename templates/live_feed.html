@@ -159,7 +159,7 @@
         <div class="modal-box" style="width:560px;max-height:80vh;overflow-y:auto;">
             <div>
                 <h2 class="text-white font-black text-base uppercase tracking-tight leading-none">Unmatched Orders Today</h2>
-                <p class="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Orders with no corresponding study in PACS. Use the Link button on the tile to resolve.</p>
+                <p class="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Orders with no corresponding study in PACS.</p>
             </div>
             <div id="orphan-list" class="flex flex-col gap-3 mt-2"></div>
             <button onclick="document.getElementById('orphan-modal').classList.add('hidden')"
@@ -426,15 +426,6 @@ function buildTile(t) {
             const linkedBadge = o.linked_accession_number
                 ? `<span class="badge badge-mins" title="Linked accession ${escHtml(o.linked_accession_number)}"><i class="bi bi-link-45deg"></i> Linked</span>`
                 : '';
-            const linkBtn = o.linked_accession_number
-                ? ''
-                : `<button onclick="openLinkModal('${escHtml(o.message_id)}')" title="Link this order"
-                    style="margin-left:auto;flex-shrink:0;background:rgba(56,189,248,0.08);border:1px solid rgba(56,189,248,0.2);
-                    color:#38bdf8;border-radius:6px;padding:2px 8px;font-size:10px;font-weight:800;cursor:pointer;
-                    transition:all .15s;" onmouseover="this.style.background='rgba(56,189,248,0.2)'"
-                    onmouseout="this.style.background='rgba(56,189,248,0.08)'>
-                    <i class="bi bi-link-45deg"></i> Link
-                </button>`;
             const doneBtn = `<button onclick="dismissOrder('${escHtml(o.message_id)}')" title="Mark exam as done"
                 style="margin-left:auto;flex-shrink:0;background:rgba(74,222,128,0.08);border:1px solid rgba(74,222,128,0.2);
                 color:#4ade80;border-radius:6px;padding:2px 8px;font-size:10px;font-weight:800;cursor:pointer;
@@ -461,7 +452,6 @@ function buildTile(t) {
                     ${timeBadge}
                     <div style="display:flex;gap:6px;align-items:center;">
                         ${linkedBadge}
-                        ${linkBtn}
                         ${doneBtn}
                     </div>
                 </div>

@@ -256,7 +256,10 @@ def super_report():
 # ─────────────────────────────────────────────
 
 def _build_where(start, end, filters):
-    clauses = ["s.study_date BETWEEN :start AND :end"]
+    clauses = [
+        "s.study_date BETWEEN :start AND :end",
+        "COALESCE(m.modality, s.study_modality, 'Unknown') != 'SR'",
+    ]
     params  = {"start": start, "end": end}
 
     multi = {

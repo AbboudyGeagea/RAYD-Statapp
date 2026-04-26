@@ -111,7 +111,7 @@ def get_filter_options(db) -> dict:
                 (SELECT JSON_AGG(v ORDER BY v) FROM (SELECT DISTINCT patient_location AS v FROM s WHERE patient_location IS NOT NULL) x) AS locations,
                 (SELECT JSON_AGG(v ORDER BY v) FROM (SELECT DISTINCT study_status     AS v FROM s WHERE study_status     IS NOT NULL) x) AS statuses,
                 (SELECT JSON_AGG(v ORDER BY v) FROM (SELECT DISTINCT storing_ae       AS v FROM s WHERE storing_ae       IS NOT NULL) x) AS aetitles,
-                (SELECT JSON_AGG(v ORDER BY v) FROM (SELECT DISTINCT modality FROM aetitle_modality_map WHERE modality IS NOT NULL) x) AS modalities
+                (SELECT JSON_AGG(v ORDER BY v) FROM (SELECT DISTINCT modality FROM aetitle_modality_map WHERE modality IS NOT NULL AND modality != 'SR') x) AS modalities
         """)).fetchone()
         data["classes"]    = row[0] or []
         data["locations"]  = row[1] or []
