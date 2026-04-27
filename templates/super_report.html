@@ -252,7 +252,7 @@
                 </div>
 
                 <!-- KPIs -->
-                <div id="super-kpis" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3"></div>
+                <div id="super-kpis" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-4 gap-3"></div>
 
                 <!-- Sections -->
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -277,7 +277,10 @@
                 <!-- Demographics -->
                 <div class="card p-5">
                     <h4 class="text-pink-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-people"></i> Patient Demographics</h4>
-                    <div id="super-demographics" class="grid grid-cols-2 md:grid-cols-4 gap-3"></div>
+                    <div id="super-demographics" class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4"></div>
+                    <p class="text-[9px] font-black uppercase tracking-widest text-slate-600 mb-2">All Patient Classes</p>
+                    <div id="super-pc-breakdown" class="flex flex-col gap-1.5"></div>
+                    <p class="text-[9px] text-slate-700 mt-2">Configure grouping: <code class="text-slate-500">settings → pc_inpatient / pc_outpatient</code></p>
                 </div>
 
                 <!-- Clinical Insights -->
@@ -588,25 +591,39 @@
         renderInsights(insightsSection);
 
         // KPIs
+        const ae  = (cur.ae_ops  || {});
+        const pae = (prev.ae_ops || {});
         const kpis = [
             {label:'Studies',    cur:cur.kpis.total_studies,  prev:prev.kpis.total_studies,  color:'#60a5fa', icon:'bi-journal-medical'},
             {label:'Patients',   cur:cur.kpis.total_patients, prev:prev.kpis.total_patients, color:'#34d399', icon:'bi-people'},
             {label:'Images',     cur:cur.kpis.total_images,   prev:prev.kpis.total_images,   color:'#a78bfa', icon:'bi-images'},
             {label:'Storage GB', cur:cur.storage.total_gb,    prev:prev.storage.total_gb,    color:'#2dd4bf', icon:'bi-hdd-stack'},
             {label:'Orders',     cur:cur.orders.total,        prev:prev.orders.total,        color:'#f97316', icon:'bi-clipboard2-pulse'},
+            {label:'Busiest AE', cur:ae.busiest_ae,           prev:null,                     color:'#818cf8', icon:'bi-broadcast',    isText:true, sub: ae.busiest_cnt ? fmt(ae.busiest_cnt)+' studies' : ''},
+            {label:'Idle AE',    cur:ae.idle_ae,              prev:null,                     color:'#f59e0b', icon:'bi-pause-circle', isText:true, sub: (ae.idle_cnt !== undefined && ae.idle_cnt !== null) ? fmt(ae.idle_cnt)+' studies' : ''},
+            {label:'ER Delayed', cur:ae.er_delayed,           prev:pae.er_delayed,           color:'#f87171', icon:'bi-activity',
+             title:'Non-ER studies with TAT above P75 on days with concurrent ER volume'},
         ];
         document.getElementById('super-kpis').innerHTML = kpis.map(k => {
-            const p = pct(k.cur, k.prev);
-            const badge = p !== null
-                ? `<span style="font-size:9px;font-weight:700;color:${p>=0?'#34d399':'#f87171'}">${p>=0?'+':''}${p}%</span>`
-                : '';
-            return `<div class="card kpi-card p-4" style="border-top-color:${k.color}">
+            let valHtml, badgeHtml;
+            if (k.isText) {
+                valHtml   = `<div class="text-sm font-black text-white truncate mt-1" title="${k.cur||''}">${escHtml(k.cur||'—')}</div>`;
+                badgeHtml = k.sub ? `<span style="font-size:9px;color:#64748b">${k.sub}</span>` : '';
+            } else {
+                const p = pct(k.cur, k.prev);
+                valHtml   = `<div class="text-xl font-black text-white font-mono">${fmt(k.cur)}</div>`;
+                badgeHtml = p !== null
+                    ? `<span style="font-size:9px;font-weight:700;color:${p>=0?'#34d399':'#f87171'}">${p>=0?'+':''}${p}%</span>`
+                    : '';
+            }
+            const titleAttr = k.title ? ` title="${escHtml(k.title)}"` : '';
+            return `<div class="card kpi-card p-4"${titleAttr} style="border-top-color:${k.color}">
                 <div class="flex items-center gap-2 mb-1">
                     <i class="bi ${k.icon}" style="color:${k.color};font-size:12px;"></i>
                     <span class="text-[9px] font-black uppercase tracking-widest text-slate-500">${k.label}</span>
                 </div>
-                <div class="text-xl font-black text-white font-mono">${fmt(k.cur)}</div>
-                <div class="mt-1">${badge}</div>
+                ${valHtml}
+                <div class="mt-1">${badgeHtml}</div>
             </div>`;
         }).join('');
 
@@ -652,6 +669,22 @@
             <p class="text-2xl font-black text-white font-mono">${c.val}</p>
             ${c.chg!==null?`<p style="font-size:9px;font-weight:700;color:${c.chg>=0?'#34d399':'#f87171'}">${c.chg>=0?'+':''}${c.chg}%</p>`:''}`
         +`</div>`).join('');
+
+        // Patient class breakdown
+        const pcb = dm.pc_breakdown || [];
+        const pcTotal = pcb.reduce((s, r) => s + (r.cnt||0), 0);
+        document.getElementById('super-pc-breakdown').innerHTML = pcb.length
+          ? pcb.map(r => {
+              const pct_ = pcTotal ? Math.round(r.cnt / pcTotal * 100) : 0;
+              return `<div class="flex items-center gap-2 text-xs">
+                <span class="font-mono font-black text-white w-20 shrink-0">${escHtml(r.class)}</span>
+                <div class="flex-1 bg-[#28332e] rounded-full h-1.5">
+                  <div class="h-1.5 rounded-full bg-[#34d399]" style="width:${pct_}%"></div>
+                </div>
+                <span class="text-slate-400 w-16 text-right shrink-0">${fmt(r.cnt)} <span class="text-slate-600">(${pct_}%)</span></span>
+              </div>`;
+            }).join('')
+          : '<p class="text-slate-600 text-xs">No patient class data</p>';
     }
 
     // ── Narrative typewriter ──────────────────────────────────────────

@@ -380,16 +380,92 @@ def _collect_data(start, end, filters):
         GROUP BY 1 ORDER BY cnt DESC LIMIT 10
     """), params).mappings().fetchall()
 
+    # ── Patient-class category mapping (configurable via settings table) ────
+    _pc_rows = db.session.execute(text(
+        "SELECT key, value FROM settings WHERE key IN ('pc_inpatient', 'pc_outpatient', 'pc_emergency')"
+    )).fetchall()
+    _pc_cfg = {r[0]: r[1] for r in _pc_rows}
+
+    def _pc_filter(cfg_key, default):
+        vals = [v.strip() for v in _pc_cfg.get(cfg_key, default).split(',') if v.strip()]
+        if not vals:
+            return 'FALSE'
+        safe = [v.replace("'", "''") for v in vals]
+        return "s.patient_class IN (" + ','.join(f"'{v}'" for v in safe) + ")"
+
+    inp_filter  = _pc_filter('pc_inpatient',  'I,IP,INPAT,INPATIENT,INN')
+    outp_filter = _pc_filter('pc_outpatient', 'O,OP,OUTPAT,OUTPATIENT,AMB,AMBULATORY')
+
     demo = db.session.execute(text(f"""
         SELECT COUNT(*) FILTER (WHERE p.sex ILIKE 'M%') AS male,
                COUNT(*) FILTER (WHERE p.sex ILIKE 'F%') AS female,
-               COUNT(*) FILTER (WHERE s.patient_class ILIKE '%IN%') AS inpatient,
-               COUNT(*) FILTER (WHERE s.patient_class ILIKE '%OUT%' OR s.patient_class ILIKE '%AMB%') AS outpatient,
+               COUNT(*) FILTER (WHERE {inp_filter}) AS inpatient,
+               COUNT(*) FILTER (WHERE {outp_filter}) AS outpatient,
                ROUND(AVG(s.age_at_exam),1) AS avg_age,
                MIN(s.age_at_exam) AS min_age,
                MAX(s.age_at_exam) AS max_age
         FROM etl_didb_studies s {mj} {pj} WHERE {where}
     """), params).mappings().fetchone()
+
+    pc_breakdown = db.session.execute(text(f"""
+        SELECT COALESCE(s.patient_class, 'Unknown') AS class, COUNT(*) AS cnt
+        FROM etl_didb_studies s {mj} {pj} WHERE {where}
+        GROUP BY 1 ORDER BY cnt DESC
+    """), params).mappings().fetchall()
+
+    er_filter = _pc_filter('pc_emergency', 'E,EP,ER,EMERGENCY,URG,URGENT')
+    _er_vals  = [v.strip() for v in _pc_cfg.get('pc_emergency', 'E,EP,ER,EMERGENCY,URG,URGENT').split(',') if v.strip()]
+
+    # Busiest AE title by study count in period
+    ae_busy_row = db.session.execute(text(f"""
+        SELECT s.storing_ae AS aetitle, COUNT(*) AS cnt
+        FROM etl_didb_studies s {mj} {pj}
+        WHERE {where} AND s.storing_ae IS NOT NULL
+        GROUP BY s.storing_ae ORDER BY cnt DESC LIMIT 1
+    """), params).mappings().fetchone()
+
+    # Most idle configured AE (fewest studies in period — includes 0-study AEs)
+    ae_idle_row = db.session.execute(text("""
+        SELECT am.aetitle, COALESCE(sub.cnt, 0) AS cnt
+        FROM aetitle_modality_map am
+        LEFT JOIN (
+            SELECT storing_ae, COUNT(*) AS cnt
+            FROM etl_didb_studies
+            WHERE study_date BETWEEN :start AND :end
+            GROUP BY storing_ae
+        ) sub ON sub.storing_ae = am.aetitle
+        ORDER BY cnt ASC LIMIT 1
+    """), {"start": start, "end": end}).mappings().fetchone()
+
+    # Non-ER studies with TAT > P75 on days that also had ER volume (resource contention proxy)
+    if _er_vals:
+        _er_in = ','.join(f"'{v.replace(chr(39), chr(39)*2)}'" for v in _er_vals)
+        er_delayed_row = db.session.execute(text(f"""
+            WITH er_days AS (
+                SELECT DISTINCT study_date FROM etl_didb_studies
+                WHERE study_date BETWEEN :start AND :end
+                  AND patient_class IN ({_er_in})
+            ),
+            p75 AS (
+                SELECT PERCENTILE_CONT(0.75) WITHIN GROUP (
+                    ORDER BY EXTRACT(EPOCH FROM (s.rep_final_timestamp - s.insert_time)) / 60.0
+                ) AS val
+                FROM etl_didb_studies s {mj} {pj}
+                WHERE {where}
+                  AND s.rep_final_timestamp IS NOT NULL AND s.insert_time IS NOT NULL
+            )
+            SELECT COUNT(*) AS cnt
+            FROM etl_didb_studies s {mj} {pj}
+            JOIN er_days ed ON s.study_date = ed.study_date
+            CROSS JOIN p75
+            WHERE {where}
+              AND NOT ({er_filter})
+              AND s.rep_final_timestamp IS NOT NULL AND s.insert_time IS NOT NULL
+              AND EXTRACT(EPOCH FROM (s.rep_final_timestamp - s.insert_time)) / 60.0 > p75.val
+        """), params).mappings().fetchone()
+        er_delayed = int(er_delayed_row.get("cnt") or 0) if er_delayed_row else 0
+    else:
+        er_delayed = 0
 
     # ── TAT & reporting (null-safe — columns populated by ETL) ────
     tat = db.session.execute(text(f"""
@@ -441,7 +517,14 @@ def _collect_data(start, end, filters):
             "top_modalities": [dict(r) for r in top_mods],
         },
         "physicians":    [dict(r) for r in physicians],
-        "demographics":  dict(demo),
+        "demographics":  {**dict(demo), "pc_breakdown": [dict(r) for r in pc_breakdown]},
+        "ae_ops": {
+            "busiest_ae":  ae_busy_row["aetitle"] if ae_busy_row else None,
+            "busiest_cnt": int(ae_busy_row["cnt"] or 0) if ae_busy_row else 0,
+            "idle_ae":     ae_idle_row["aetitle"] if ae_idle_row else None,
+            "idle_cnt":    int(ae_idle_row["cnt"] or 0) if ae_idle_row else 0,
+            "er_delayed":  er_delayed,
+        },
         "tat": {
             "median_tat_min": float(tat.get("median_tat_min") or 0) if tat else 0,
             "reported_count": int(tat.get("reported_count") or 0) if tat else 0,

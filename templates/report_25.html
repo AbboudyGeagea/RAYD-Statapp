@@ -1869,65 +1869,145 @@
         }
 
         function renderStudyJourney(s) {
-            const meta = [
-                s.study_date, s.modality,
-                s.patient_id   ? `PID: ${s.patient_id}`     : '',
-                s.patient_class ? `Class: ${s.patient_class}` : '',
-                s.patient_location ? `Loc: ${s.patient_location}` : '',
-                s.description,
-            ].filter(Boolean).join(' · ');
+            const esc = t => String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
+            // ── Total elapsed ─────────────────────────────────────────────
+            const totalMin = s.events.length > 1 ? (() => {
+                try {
+                    return Math.round((new Date(s.events[s.events.length-1].ts) - new Date(s.events[0].ts)) / 60000);
+                } catch(e) { return null; }
+            })() : null;
+
+            const accentClr = totalMin === null ? '#52525b'
+                : totalMin > 480 ? '#f87171'
+                : totalMin > 120 ? '#fbbf24'
+                : '#34d399';
+
+            const totalBadge = totalMin !== null
+                ? `<span style="padding:4px 10px;border-radius:8px;font-size:11px;font-family:monospace;font-weight:900;
+                       background:${accentClr}18;border:1px solid ${accentClr}44;color:${accentClr}">
+                       <i class="bi bi-clock" style="margin-right:3px;font-size:10px;"></i>${fmtGap(totalMin)} total
+                   </span>` : '';
+
+            // ── Header badges ─────────────────────────────────────────────
+            const pill = (txt, bg, txt_c, bd) =>
+                `<span style="padding:2px 8px;border-radius:6px;font-size:10px;font-weight:900;background:${bg};border:1px solid ${bd};color:${txt_c}">${esc(txt)}</span>`;
+            const badges = [
+                s.modality        ? pill(s.modality,        'rgba(59,130,246,0.15)', '#93c5fd', 'rgba(59,130,246,0.3)')  : '',
+                s.patient_class   ? pill(s.patient_class,   'rgba(139,92,246,0.15)', '#c4b5fd', 'rgba(139,92,246,0.3)') : '',
+                s.patient_location? pill(s.patient_location,'rgba(63,63,70,0.5)',    '#a1a1aa', 'rgba(100,100,115,0.4)'): '',
+                s.study_date      ? `<span style="font-size:10px;font-family:monospace;color:#52525b">${esc(s.study_date)}</span>` : '',
+            ].filter(Boolean).join('');
+
+            // ── Phase durations ───────────────────────────────────────────
+            const tsOf = type => { const e = s.events.find(x => x.type===type); return e?.ts ? new Date(e.ts) : null; };
+            const dMin = (a,b) => (a&&b) ? Math.round((b-a)/60000) : null;
+            const phases = [
+                { label:'Order → PACS',   min: dMin(tsOf('order_received'), tsOf('pacs_in'))  },
+                { label:'PACS → Prelim',  min: dMin(tsOf('pacs_in'),  tsOf('prelim'))          },
+                { label:'PACS → Final',   min: dMin(tsOf('pacs_in'),  tsOf('final'))           },
+                { label:'Prelim → Final', min: dMin(tsOf('prelim'),   tsOf('final'))           },
+            ].filter(p => p.min !== null && p.min >= 0);
+
+            const phClr = m => m > 240
+                ? { bg:'rgba(248,113,113,0.12)', bd:'rgba(248,113,113,0.3)', txt:'#f87171' }
+                : m > 60
+                ? { bg:'rgba(251,191,36,0.12)',  bd:'rgba(251,191,36,0.3)',  txt:'#fbbf24' }
+                : { bg:'rgba(52,211,153,0.12)',  bd:'rgba(52,211,153,0.3)',  txt:'#34d399' };
+
+            const phaseHtml = phases.length ? `
+                <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.06)">
+                    ${phases.map(p => { const c = phClr(p.min); return `
+                        <div style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 14px;border-radius:10px;
+                                    background:${c.bg};border:1px solid ${c.bd};min-width:88px;text-align:center">
+                            <span style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;color:${c.txt};opacity:0.75">${esc(p.label)}</span>
+                            <span style="font-size:16px;font-weight:900;font-family:monospace;color:${c.txt}">${fmtGap(p.min)}</span>
+                        </div>`; }).join('')}
+                </div>` : '';
+
+            // ── Progress track ────────────────────────────────────────────
+            let progressHtml = '';
+            if (s.events.length >= 2) {
+                try {
+                    const t0 = new Date(s.events[0].ts), t1 = new Date(s.events[s.events.length-1].ts);
+                    const span = t1 - t0;
+                    const dotClrs = { order_received:'#6366f1', scheduled:'#0ea5e9', tech_done:'#8b5cf6',
+                                      pacs_in:'#3b82f6', prelim:'#f59e0b', transcribed:'#f97316', final:'#22c55e' };
+                    const dots = s.events.map(ev => {
+                        if (!ev.ts) return '';
+                        const pct = span > 0 ? Math.round((new Date(ev.ts)-t0)/span*100) : 0;
+                        const col = dotClrs[ev.type] || '#71717a';
+                        const lbl = (JOURNEY_META[ev.type]||{}).label || ev.type;
+                        return `<div title="${esc(lbl)}: ${fmtTs(ev.ts)}"
+                            style="position:absolute;top:50%;transform:translateY(-50%);left:calc(${pct}% - 5px);
+                                   width:10px;height:10px;border-radius:50%;background:${col};
+                                   border:2px solid #111413;z-index:5;cursor:default;box-shadow:0 0 5px ${col}88"></div>`;
+                    }).join('');
+                    progressHtml = `
+                        <div style="position:relative;height:4px;background:rgba(255,255,255,0.06);border-radius:4px;margin:12px 6px 4px;overflow:visible">
+                            <div style="position:absolute;inset:0;border-radius:4px;background:linear-gradient(to right,rgba(99,102,241,0.35),${accentClr}55)"></div>
+                            ${dots}
+                        </div>`;
+                } catch(e) {}
+            }
+
+            // ── Timeline ──────────────────────────────────────────────────
             const timeline = s.events.map((ev, i) => {
-                const m = JOURNEY_META[ev.type] || { icon:'bi-dot', color:'text-zinc-500', bg:'bg-zinc-700/30', label: ev.label };
+                const m = JOURNEY_META[ev.type] || { icon:'bi-dot', color:'text-zinc-500', bg:'bg-zinc-700/30', label: ev.label || ev.type };
+                const gapBig  = ev.gap_min > 240;
+                const gapWarn = ev.gap_min > 60;
+
                 const gapHtml = (ev.gap_min !== null && ev.gap_min !== undefined && i > 0)
-                    ? `<div class="flex items-center gap-1 ml-6 my-0.5">
-                           <div class="w-px h-5 bg-white/10 ml-3.5"></div>
-                           <span class="text-[10px] font-mono ${ev.gap_min > 120 ? 'text-rose-400' : ev.gap_min > 60 ? 'text-amber-400' : 'text-zinc-500'}">${fmtGap(ev.gap_min)}</span>
-                       </div>` : (i > 0 ? '<div class="ml-6 my-0.5"><div class="w-px h-4 bg-white/10 ml-3.5"></div></div>' : '');
+                    ? `<div style="display:flex;align-items:center;gap:8px;margin:3px 0 3px 6px">
+                           <div style="width:1px;height:16px;background:rgba(255,255,255,0.1)"></div>
+                           <span style="padding:1px 7px;border-radius:4px;font-size:10px;font-family:monospace;font-weight:900;
+                               background:${gapBig?'rgba(248,113,113,0.12)':gapWarn?'rgba(251,191,36,0.1)':'transparent'};
+                               color:${gapBig?'#f87171':gapWarn?'#fbbf24':'#52525b'}">${fmtGap(ev.gap_min)}</span>
+                       </div>`
+                    : (i > 0 ? `<div style="margin:3px 0 3px 6px"><div style="width:1px;height:14px;background:rgba(255,255,255,0.08)"></div></div>` : '');
 
                 return `${gapHtml}
-                <div class="flex items-start gap-3">
-                    <div class="w-8 h-8 rounded-xl ${m.bg} border border-white/5 flex items-center justify-center shrink-0 mt-0.5">
-                        <i class="bi ${m.icon} ${m.color} text-sm"></i>
+                <div style="display:flex;align-items:flex-start;gap:12px">
+                    <div class="${m.bg} border border-white/5"
+                         style="width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+                        <i class="bi ${m.icon} ${m.color}" style="font-size:14px"></i>
                     </div>
-                    <div class="flex-1 min-w-0">
-                        <div class="flex items-baseline gap-2 flex-wrap">
-                            <span class="text-xs font-black ${m.color}">${ev.label || m.label}</span>
-                            ${ev.by ? `<span class="text-[10px] text-zinc-500">by <span class="text-zinc-300 font-bold">${ev.by}</span></span>` : ''}
+                    <div style="flex:1;min-width:0;padding:3px 0">
+                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                            <span class="text-xs font-black ${m.color}">${esc(ev.label || m.label)}</span>
+                            ${ev.by ? `<span style="font-size:10px;color:#71717a">· <span style="color:#a1a1aa;font-weight:700">${esc(ev.by)}</span></span>` : ''}
+                            ${ev.detail ? `<span style="font-size:10px;padding:1px 6px;border-radius:4px;background:rgba(255,255,255,0.04);color:#52525b">${esc(ev.detail)}</span>` : ''}
                         </div>
-                        <div class="flex items-center gap-3 mt-0.5">
-                            <span class="text-[10px] font-mono text-zinc-500">${fmtTs(ev.ts)}</span>
-                            ${ev.detail ? `<span class="text-[10px] text-zinc-600">${ev.detail}</span>` : ''}
-                        </div>
+                        <span style="font-size:10px;font-family:monospace;color:#52525b">${fmtTs(ev.ts)}</span>
                     </div>
                 </div>`;
             }).join('');
 
-            const totalMin = s.events.length > 1
-                ? (() => {
-                    try {
-                        const first = new Date(s.events[0].ts);
-                        const last  = new Date(s.events[s.events.length - 1].ts);
-                        return Math.round((last - first) / 60000);
-                    } catch(e) { return null; }
-                  })()
-                : null;
-
-            const totalBadge = totalMin !== null
-                ? `<span class="px-2 py-0.5 rounded text-[10px] font-mono font-black ${totalMin > 240 ? 'bg-rose-500/10 border border-rose-500/20 text-rose-400' : totalMin > 120 ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400' : 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400'}">${fmtGap(totalMin)} total</span>`
-                : '';
+            const descLine = s.description
+                ? `<p style="font-size:11px;color:#52525b;font-style:italic;margin-top:4px">${esc(s.description)}</p>` : '';
 
             return `
-            <div class="glass-card space-y-4">
-                <div class="flex items-start justify-between gap-4">
+            <div class="glass-card mb-4" style="border-left:3px solid ${accentClr};padding:20px 24px">
+                <!-- Header -->
+                <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px">
                     <div>
-                        <p class="text-sm font-black text-white font-mono">${s.accession}</p>
-                        <p class="text-[10px] text-zinc-500 mt-0.5">${meta}</p>
+                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+                            <span style="font-size:15px;font-weight:900;color:#fff;font-family:monospace">${esc(s.accession)}</span>
+                            ${totalBadge}
+                        </div>
+                        ${s.patient_id ? `<p style="font-size:10px;color:#52525b;font-family:monospace;margin-bottom:4px">Patient · ${esc(String(s.patient_id))}</p>` : ''}
+                        <div style="display:flex;flex-wrap:wrap;gap:4px">${badges}</div>
+                        ${descLine}
                     </div>
-                    ${totalBadge}
                 </div>
-                <div class="space-y-0 pl-1">${timeline}</div>
-                ${s.events.length === 0 ? '<p class="text-xs text-zinc-600 italic">No timeline events found for this study.</p>' : ''}
+
+                ${phaseHtml}
+                ${progressHtml}
+
+                <!-- Timeline -->
+                <div style="margin-top:16px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.05)">
+                    ${timeline || '<p style="font-size:11px;color:#52525b;font-style:italic;padding:8px 0">No timeline events found for this study.</p>'}
+                </div>
             </div>`;
         }
 
