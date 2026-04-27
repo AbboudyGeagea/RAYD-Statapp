@@ -30,6 +30,7 @@ from routes.er_dashboard     import er_bp
 from routes.liveview         import liveview_bp
 from routes.oru_analytics    import oru_bp
 from routes.db_manager       import db_manager_bp
+from routes.referring_intel  import referring_intel_bp
 
 logger = logging.getLogger("REGISTRY")
 
@@ -51,6 +52,7 @@ DEFAULT_LICENSE = {
     "export": True,
     "adapter_mapper": True,
     "super_report": True,
+    "referring_intel": True,
     "max_users": 0,          # 0 = unlimited
     "max_sessions": 0,       # 0 = unlimited concurrent sessions
     "expires": "",            # "" = never, else "YYYY-MM-DD"
@@ -255,6 +257,7 @@ def register_blueprints(app):
         'adapter_mapper':  (db_manager_bp,        {}, [('/admin/db-manager',            'DB Manager')]),
         'super_report':    (super_report_bp,     {}, [('/viewer/super-report-page',    'Super Report'),
                                                       ('/viewer/super-report',         'Super Report')]),
+        'referring_intel': (referring_intel_bp,  {}, [('/viewer/referring-intel',      'Referring Intel')]),
     }
     for feature, (bp, kwargs, fallbacks) in feature_map.items():
         if lic.get(feature, False):

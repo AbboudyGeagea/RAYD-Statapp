@@ -117,6 +117,14 @@
         </a>
         {% endif %}
 
+        {% if current_user.role == 'admin' or license.get('referring_intel') %}
+        <a href="{{ url_for('referring_intel.referring_intel_page') }}"
+           class="sidebar-item {% if request.endpoint and request.endpoint.startswith('referring_intel.') %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
+           title="Referring Intelligence">
+            <i class="bi bi-person-badge flex-shrink-0" style="color:#34d399;"></i> Referring Intel
+        </a>
+        {% endif %}
+
         {% if config.BITNET_ENABLED %}
         {% if current_user.role == 'admin' or current_user|user_has_page('bitnet') %}
         <div class="pt-4 pb-2">

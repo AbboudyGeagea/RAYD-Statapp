@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | Referring Intelligence</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">
+    <style>
+        :root { --bg:#0d1410; --surface:#151c18; --border:#1e2820; --accent:#34d399; }
+        * { box-sizing:border-box; margin:0; padding:0; }
+        body { font-family:'Inter',sans-serif; background:var(--bg); color:#d1fae5; height:100vh; overflow:hidden; }
+        ::-webkit-scrollbar { width:4px; } ::-webkit-scrollbar-thumb { background:#1e2820; border-radius:10px; }
+
+        .card  { background:var(--surface); border:1px solid var(--border); border-radius:14px; }
+        .kpi-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px 16px; }
+
+        /* Physician list */
+        .phy-row { display:flex; align-items:center; gap:10px; padding:8px 12px; border-radius:8px;
+                   cursor:pointer; transition:all 0.15s; border:1px solid transparent; }
+        .phy-row:hover  { background:#1a2820; border-color:#1e3028; }
+        .phy-row.active { background:#162820; border-color:#34d39940; }
+        .phy-bar { height:3px; border-radius:3px; background:linear-gradient(to right,#34d399,#059669); }
+
+        /* Tabs */
+        .detail-tab { font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:0.08em;
+                      color:#4b5563; padding:6px 14px; border-radius:8px; cursor:pointer; transition:all 0.15s;
+                      border:1px solid transparent; }
+        .detail-tab.active { color:#34d399; background:rgba(52,211,153,0.1); border-color:rgba(52,211,153,0.25); }
+        .detail-tab:hover:not(.active) { color:#9ca3af; background:rgba(255,255,255,0.04); }
+
+        /* Table */
+        .data-table { width:100%; border-collapse:collapse; font-size:11px; }
+        .data-table th { text-align:left; color:#4b5563; font-size:9px; font-weight:900; text-transform:uppercase;
+                         letter-spacing:0.08em; padding:6px 10px; border-bottom:1px solid #1e2820; }
+        .data-table td { padding:7px 10px; border-bottom:1px solid #111813; color:#9ca3af; }
+        .data-table tr:last-child td { border-bottom:none; }
+        .data-table tr:hover td { background:rgba(52,211,153,0.03); color:#d1fae5; }
+
+        /* Finding bars */
+        .finding-bar { height:5px; border-radius:3px; background:linear-gradient(to right,#34d399,#10b981); }
+
+        /* Light mode */
+        body.light { background:#f0f9f4 !important; color:#064e3b !important; }
+        body.light .card, body.light .kpi-card { background:#ffffff !important; border-color:#d1fae5 !important; }
+        body.light .phy-row:hover { background:#ecfdf5 !important; }
+        body.light .phy-row.active { background:#d1fae5 !important; border-color:#6ee7b7 !important; }
+        body.light .data-table th { color:#6b7280 !important; border-color:#d1fae5 !important; }
+        body.light .data-table td { color:#374151 !important; border-color:#ecfdf5 !important; }
+        body.light .data-table tr:hover td { background:rgba(52,211,153,0.07) !important; }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+    {% include '_header.html' %}
+
+    <div class="flex flex-1 overflow-hidden">
+
+        <!-- ── LEFT: Physician list ─────────────────────────────────────── -->
+        <aside class="w-72 shrink-0 flex flex-col border-r"
+               style="background:#0f1712;border-color:#1e2820;">
+
+            <!-- Search -->
+            <div class="p-3 border-b" style="border-color:#1e2820;">
+                <div class="relative">
+                    <i class="bi bi-search absolute left-3 top-1/2 -translate-y-1/2 text-xs" style="color:#4b5563;"></i>
+                    <input id="phy-search" type="text" placeholder="Search physicians…"
+                           class="w-full text-xs rounded-lg pl-8 pr-3 py-2 outline-none"
+                           style="background:#141c16;border:1px solid #1e2820;color:#d1fae5;font-family:'Inter',sans-serif;">
+                </div>
+                <div class="flex items-center justify-between mt-2">
+                    <span class="text-[9px] font-black uppercase tracking-widest" style="color:#4b5563;">
+                        <i class="bi bi-person-badge mr-1"></i>Referring Physicians
+                    </span>
+                    <span id="phy-count" class="text-[9px]" style="color:#4b5563;">—</span>
+                </div>
+            </div>
+
+            <!-- List -->
+            <div id="phy-list" class="flex-1 overflow-y-auto p-2 space-y-0.5">
+                <div class="text-center py-8" style="color:#374151;">
+                    <i class="bi bi-arrow-repeat animate-spin text-lg block mb-2" style="color:#34d399;"></i>
+                    <p class="text-xs">Loading…</p>
+                </div>
+            </div>
+
+            <!-- Period selector -->
+            <div class="p-3 border-t" style="border-color:#1e2820;">
+                <span class="text-[9px] font-black uppercase tracking-widest block mb-2" style="color:#4b5563;">History Window</span>
+                <div class="flex gap-1">
+                    <button onclick="setMonths(6)"  id="mo-6"  class="mo-btn flex-1 text-[9px] font-black uppercase py-1.5 rounded-lg" style="background:#1a2820;color:#4b5563;border:1px solid #1e2820;">6M</button>
+                    <button onclick="setMonths(12)" id="mo-12" class="mo-btn flex-1 text-[9px] font-black uppercase py-1.5 rounded-lg" style="background:rgba(52,211,153,0.12);color:#34d399;border:1px solid rgba(52,211,153,0.3);">12M</button>
+                    <button onclick="setMonths(24)" id="mo-24" class="mo-btn flex-1 text-[9px] font-black uppercase py-1.5 rounded-lg" style="background:#1a2820;color:#4b5563;border:1px solid #1e2820;">24M</button>
+                    <button onclick="setMonths(0)"  id="mo-0"  class="mo-btn flex-1 text-[9px] font-black uppercase py-1.5 rounded-lg" style="background:#1a2820;color:#4b5563;border:1px solid #1e2820;">All</button>
+                </div>
+            </div>
+        </aside>
+
+        <!-- ── RIGHT: Detail panel ──────────────────────────────────────── -->
+        <main class="flex-1 overflow-y-auto" style="background:var(--bg);">
+
+            <!-- Empty state -->
+            <div id="detail-empty" class="h-full flex flex-col items-center justify-center gap-5 opacity-30">
+                <i class="bi bi-person-badge text-6xl" style="color:#34d399;"></i>
+                <div class="text-center">
+                    <p class="text-xl font-black uppercase tracking-tight text-white">Referring Intelligence</p>
+                    <p class="text-sm mt-1" style="color:#4b5563;">Select a physician from the list to view their cohort analysis</p>
+                </div>
+            </div>
+
+            <!-- Loading -->
+            <div id="detail-loading" class="hidden h-full flex flex-col items-center justify-center gap-4">
+                <div class="relative w-12 h-12">
+                    <div class="absolute inset-0 border-4 rounded-full" style="border-color:#1e2820;"></div>
+                    <div class="absolute inset-0 border-4 border-t-emerald-400 rounded-full animate-spin"></div>
+                </div>
+                <p class="text-xs font-black uppercase tracking-widest" style="color:#34d399;">Analyzing cohort…</p>
+            </div>
+
+            <!-- Content -->
+            <div id="detail-content" class="hidden p-6 space-y-5">
+
+                <!-- ── Physician header ────────────────────────────────── -->
+                <div class="flex items-start justify-between gap-4">
+                    <div>
+                        <p class="text-[9px] font-black uppercase tracking-widest mb-1" style="color:#34d399;">
+                            <i class="bi bi-person-circle mr-1"></i>Referring Physician
+                        </p>
+                        <h2 id="ph-name" class="text-2xl font-black text-white"></h2>
+                        <p id="ph-meta" class="text-xs mt-1" style="color:#4b5563;"></p>
+                    </div>
+                    <div id="ph-trend-badge" class="text-right"></div>
+                </div>
+
+                <!-- ── KPI strip ──────────────────────────────────────── -->
+                <div id="ph-kpis" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3"></div>
+
+                <!-- ── Tab bar ────────────────────────────────────────── -->
+                <div class="flex gap-1 flex-wrap" id="detail-tabs">
+                    <div onclick="switchTab('volume')"   class="detail-tab active" id="dtab-volume">Volume</div>
+                    <div onclick="switchTab('tat')"      class="detail-tab" id="dtab-tat">TAT</div>
+                    <div onclick="switchTab('mix')"      class="detail-tab" id="dtab-mix">Case Mix</div>
+                    <div onclick="switchTab('findings')" class="detail-tab" id="dtab-findings">NLP Findings</div>
+                    <div onclick="switchTab('patients')" class="detail-tab" id="dtab-patients">Patients</div>
+                    <div onclick="switchTab('recent')"   class="detail-tab" id="dtab-recent">Recent Studies</div>
+                </div>
+
+                <!-- ── Tab: Volume ──────────────────────────────────── -->
+                <div id="dtab-content-volume" class="detail-panel space-y-4">
+                    <div class="card p-5">
+                        <p class="text-[9px] font-black uppercase tracking-widest mb-3" style="color:#34d399;">Monthly Study Volume</p>
+                        <div id="chart-volume" style="height:220px;"></div>
+                    </div>
+                </div>
+
+                <!-- ── Tab: TAT ─────────────────────────────────────── -->
+                <div id="dtab-content-tat" class="detail-panel hidden space-y-4">
+                    <div class="card p-5">
+                        <p class="text-[9px] font-black uppercase tracking-widest mb-3" style="color:#34d399;">Monthly Median TAT (minutes)</p>
+                        <div id="chart-tat" style="height:220px;"></div>
+                    </div>
+                </div>
+
+                <!-- ── Tab: Mix ─────────────────────────────────────── -->
+                <div id="dtab-content-mix" class="detail-panel hidden">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="card p-5">
+                            <p class="text-[9px] font-black uppercase tracking-widest mb-3" style="color:#34d399;">Modality Mix</p>
+                            <div id="chart-modality" style="height:240px;"></div>
+                        </div>
+                        <div class="card p-5">
+                            <p class="text-[9px] font-black uppercase tracking-widest mb-3" style="color:#34d399;">Body Parts</p>
+                            <div id="chart-body" style="height:240px;"></div>
+                        </div>
+                        <div class="card p-5">
+                            <p class="text-[9px] font-black uppercase tracking-widest mb-3" style="color:#34d399;">Patient Class</p>
+                            <div id="chart-class" style="height:200px;"></div>
+                        </div>
+                        <div class="card p-5">
+                            <p class="text-[9px] font-black uppercase tracking-widest mb-3" style="color:#34d399;">Patient Age Distribution</p>
+                            <div id="chart-age" style="height:200px;"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ── Tab: Findings ────────────────────────────────── -->
+                <div id="dtab-content-findings" class="detail-panel hidden">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="card p-5">
+                            <p class="text-[9px] font-black uppercase tracking-widest mb-1" style="color:#34d399;">Top NLP-Extracted Findings</p>
+                            <p class="text-[10px] mb-4" style="color:#374151;font-style:italic;">
+                                From HL7 ORU reports analyzed by the NLP worker — affirmed (non-negated) labels only.
+                            </p>
+                            <div id="findings-list" class="space-y-2"></div>
+                        </div>
+                        <div class="card p-5">
+                            <p class="text-[9px] font-black uppercase tracking-widest mb-4" style="color:#f87171;">Critical Findings</p>
+                            <div id="critical-box"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ── Tab: Patients ──────────────────────────────── -->
+                <div id="dtab-content-patients" class="detail-panel hidden">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <!-- Return rate cards -->
+                        <div class="card p-5 col-span-1">
+                            <p class="text-[9px] font-black uppercase tracking-widest mb-4" style="color:#34d399;">Patient Return Rate</p>
+                            <div id="return-stats" class="space-y-3"></div>
+                        </div>
+                        <!-- Age chart -->
+                        <div class="card p-5 col-span-2">
+                            <p class="text-[9px] font-black uppercase tracking-widest mb-3" style="color:#34d399;">Volume × Patients per Month</p>
+                            <div id="chart-pt-trend" style="height:200px;"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ── Tab: Recent ───────────────────────────────── -->
+                <div id="dtab-content-recent" class="detail-panel hidden">
+                    <div class="card p-5">
+                        <p class="text-[9px] font-black uppercase tracking-widest mb-3" style="color:#34d399;">Last 20 Studies</p>
+                        <div class="overflow-x-auto">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Accession</th>
+                                        <th>Modality</th>
+                                        <th>Description</th>
+                                        <th>Status</th>
+                                        <th>Class</th>
+                                        <th>TAT</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="recent-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+            </div><!-- /detail-content -->
+        </main>
+    </div>
+
+    <script>
+    // ── State ─────────────────────────────────────────────────────────
+    let _physicians = [];
+    let _activeMonths = 12;
+    let _activePhysician = null;
+    let _data = null;
+    let _charts = {};
+
+    const axisStyle = {
+        axisLabel: { color:'#4b5563', fontWeight:600, fontSize:11 },
+        splitLine:  { lineStyle:{ color:'#1a2420' } }
+    };
+
+    // ── Init ──────────────────────────────────────────────────────────
+    loadPhysicianList();
+
+    document.getElementById('phy-search').addEventListener('input', function() {
+        renderPhysicianList(this.value.trim().toLowerCase());
+    });
+
+    // ── Load physician list ───────────────────────────────────────────
+    async function loadPhysicianList() {
+        try {
+            const res = await fetch('/viewer/referring-intel/list');
+            _physicians = await res.json();
+            if (_physicians.error) throw new Error(_physicians.error);
+            document.getElementById('phy-count').textContent = _physicians.length + ' physicians';
+            renderPhysicianList('');
+        } catch(e) {
+            document.getElementById('phy-list').innerHTML =
+                `<p class="text-xs text-center py-4" style="color:#f87171;">Could not load physicians</p>`;
+        }
+    }
+
+    function renderPhysicianList(q) {
+        const list = document.getElementById('phy-list');
+        const filtered = q
+            ? _physicians.filter(p => p.physician.toLowerCase().includes(q))
+            : _physicians;
+
+        if (!filtered.length) {
+            list.innerHTML = `<p class="text-xs text-center py-6" style="color:#4b5563;">No match</p>`;
+            return;
+        }
+
+        const maxStudies = Math.max(...filtered.map(p => p.total_studies));
+        list.innerHTML = filtered.map(p => {
+            const barW = Math.round(p.total_studies / maxStudies * 100);
+            const isActive = p.physician === _activePhysician;
+            return `
+            <div class="phy-row ${isActive?'active':''}" onclick="selectPhysician('${escJs(p.physician)}')">
+                <div class="flex-1 min-w-0">
+                    <p class="text-xs font-bold truncate ${isActive?'text-emerald-300':'text-zinc-300'}">${esc(p.physician)}</p>
+                    <div class="flex items-center gap-2 mt-1">
+                        <div class="flex-1 h-1 rounded-full" style="background:#1a2820;">
+                            <div class="phy-bar" style="width:${barW}%"></div>
+                        </div>
+                        <span class="text-[9px] font-mono shrink-0" style="color:#4b5563;">${fmt(p.total_studies)}</span>
+                    </div>
+                </div>
+                <span class="text-[9px] shrink-0 font-mono" style="color:#4b5563;">${p.last_study||''}</span>
+            </div>`;
+        }).join('');
+    }
+
+    // ── Select physician ──────────────────────────────────────────────
+    async function selectPhysician(name) {
+        _activePhysician = name;
+        renderPhysicianList(document.getElementById('phy-search').value.trim().toLowerCase());
+
+        document.getElementById('detail-empty').classList.add('hidden');
+        document.getElementById('detail-content').classList.add('hidden');
+        document.getElementById('detail-loading').classList.remove('hidden');
+
+        try {
+            const res = await fetch(`/viewer/referring-intel/detail?physician=${encodeURIComponent(name)}&months=${_activeMonths}`);
+            _data = await res.json();
+            if (_data.error) throw new Error(_data.error);
+            renderDetail(_data);
+            document.getElementById('detail-loading').classList.add('hidden');
+            document.getElementById('detail-content').classList.remove('hidden');
+            switchTab('volume');
+        } catch(e) {
+            document.getElementById('detail-loading').classList.add('hidden');
+            document.getElementById('detail-empty').classList.remove('hidden');
+            document.getElementById('detail-empty').innerHTML =
+                `<div class="text-center"><i class="bi bi-exclamation-circle text-4xl" style="color:#f87171;"></i>
+                 <p class="text-sm mt-3 text-white">${esc(e.message)}</p></div>`;
+        }
+    }
+
+    // ── Months selector ───────────────────────────────────────────────
+    function setMonths(n) {
+        _activeMonths = n;
+        document.querySelectorAll('.mo-btn').forEach(b => {
+            const active = b.id === `mo-${n}`;
+            b.style.background = active ? 'rgba(52,211,153,0.12)' : '#1a2820';
+            b.style.color      = active ? '#34d399' : '#4b5563';
+            b.style.borderColor= active ? 'rgba(52,211,153,0.3)' : '#1e2820';
+        });
+        if (_activePhysician) selectPhysician(_activePhysician);
+    }
+
+    // ── Tab switching ─────────────────────────────────────────────────
+    function switchTab(t) {
+        document.querySelectorAll('.detail-tab').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.detail-panel').forEach(p => p.classList.add('hidden'));
+        document.getElementById(`dtab-${t}`).classList.add('active');
+        document.getElementById(`dtab-content-${t}`).classList.remove('hidden');
+        // Resize charts when their container becomes visible
+        setTimeout(() => {
+            Object.values(_charts).forEach(c => { try { c.resize(); } catch(e){} });
+        }, 50);
+    }
+
+    // ── Render all sections ───────────────────────────────────────────
+    function renderDetail(d) {
+        const k  = d.kpi || {};
+        const rs = d.return_stats || {};
+        const cr = d.critical || {};
+
+        // Header
+        document.getElementById('ph-name').textContent = d.physician;
+        document.getElementById('ph-meta').textContent =
+            [k.first_study && k.last_study ? `${k.first_study} → ${k.last_study}` : '',
+             k.reported_count ? `${fmt(k.reported_count)} reported` : ''
+            ].filter(Boolean).join(' · ');
+
+        // Trend badge (% of activity in last 30d vs overall pace)
+        const p30 = parseFloat(k.pct_last_30d || 0);
+        const expectedPct30 = _activeMonths > 0 ? Math.round(30 / (_activeMonths*30.5) * 100) : 0;
+        const trendDiff = p30 - expectedPct30;
+        document.getElementById('ph-trend-badge').innerHTML = _activeMonths > 0
+            ? `<span class="text-[9px] font-black uppercase tracking-widest block mb-1" style="color:#4b5563">Activity Trend</span>
+               <span class="text-lg font-black font-mono ${trendDiff >= 0 ? 'text-emerald-400':'text-rose-400'}">
+                   ${trendDiff >= 0 ? '↑' : '↓'} ${Math.abs(trendDiff).toFixed(0)}%
+               </span>
+               <span class="text-[9px] block" style="color:#4b5563">vs expected pace</span>` : '';
+
+        // KPI cards
+        const deptTat = d.dept_tat_min;
+        const phyTat  = parseFloat(k.median_tat_min || 0);
+        const tatDiff = deptTat ? Math.round(phyTat - deptTat) : null;
+        const crRate  = cr.total_reports > 0
+            ? Math.round(cr.critical_count / cr.total_reports * 100) : 0;
+        const retRate = rs.total_patients > 0
+            ? Math.round(rs.return_90d / rs.total_patients * 100) : 0;
+
+        const kpiCards = [
+            { icon:'bi-layers',        color:'#34d399', label:'Total Studies', val:fmt(k.total_studies) },
+            { icon:'bi-people',        color:'#60a5fa', label:'Unique Patients',val:fmt(k.total_patients) },
+            { icon:'bi-clock-history', color: phyTat && deptTat && phyTat > deptTat ? '#f87171' : '#34d399',
+              label:'Median TAT',
+              val: phyTat ? fmtTat(phyTat) : '—',
+              sub: tatDiff !== null ? `${tatDiff>=0?'+':''}${fmtTat(tatDiff)} vs dept` : '' },
+            { icon:'bi-arrow-repeat',  color: retRate > 30 ? '#f59e0b' : '#34d399',
+              label:'90d Return Rate',  val: retRate + '%',
+              sub: `${fmt(rs.return_90d||0)} patients` },
+            { icon:'bi-exclamation-diamond',
+              color: crRate > 10 ? '#f87171' : '#34d399',
+              label:'Critical Rate',   val: crRate + '%',
+              sub: `${fmt(cr.critical_count||0)} of ${fmt(cr.total_reports||0)}` },
+            { icon:'bi-calendar3',     color:'#a78bfa', label:'Last Study',
+              val: (k.last_study||'—').slice(0,10) },
+        ];
+        document.getElementById('ph-kpis').innerHTML = kpiCards.map(c => `
+            <div class="kpi-card" style="border-top:2px solid ${c.color}">
+                <div class="flex items-center gap-1.5 mb-2">
+                    <i class="bi ${c.icon}" style="color:${c.color};font-size:11px;"></i>
+                    <span class="text-[8px] font-black uppercase tracking-widest" style="color:#4b5563;">${c.label}</span>
+                </div>
+                <p class="text-lg font-black text-white font-mono">${c.val}</p>
+                ${c.sub ? `<p class="text-[9px] mt-0.5" style="color:#4b5563;">${c.sub}</p>` : ''}
+            </div>`).join('');
+
+        // ── Charts ────────────────────────────────────────────────────
+        renderVolumeChart(d);
+        renderTatChart(d);
+        renderMixCharts(d);
+        renderPtTrendChart(d);
+
+        // ── Findings ──────────────────────────────────────────────────
+        const maxF = d.findings.length ? Math.max(...d.findings.map(f => f.cnt)) : 1;
+        document.getElementById('findings-list').innerHTML = d.findings.length
+            ? d.findings.map(f => {
+                const w = Math.round(f.cnt / maxF * 100);
+                return `<div>
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="text-xs font-bold" style="color:#d1fae5;">${esc(f.label)}</span>
+                        <span class="text-[10px] font-mono" style="color:#4b5563;">${fmt(f.cnt)}</span>
+                    </div>
+                    <div class="h-1.5 rounded-full" style="background:#1a2820;">
+                        <div class="finding-bar" style="width:${w}%"></div>
+                    </div>
+                </div>`;
+              }).join('')
+            : '<p class="text-xs" style="color:#4b5563;font-style:italic;">No NLP data — reports may not be analyzed yet.</p>';
+
+        // ── Critical box ──────────────────────────────────────────────
+        const critClr = crRate > 15 ? '#f87171' : crRate > 5 ? '#f59e0b' : '#34d399';
+        document.getElementById('critical-box').innerHTML = `
+            <div class="text-center mb-4">
+                <p class="text-4xl font-black font-mono" style="color:${critClr}">${crRate}%</p>
+                <p class="text-[10px] font-bold uppercase mt-1" style="color:#4b5563;">of analyzed reports</p>
+            </div>
+            <div class="space-y-2 text-xs" style="color:#9ca3af;">
+                <div class="flex justify-between py-1.5 border-b" style="border-color:#1e2820;">
+                    <span>Analyzed reports</span><span class="font-mono text-white">${fmt(cr.total_reports)}</span>
+                </div>
+                <div class="flex justify-between py-1.5">
+                    <span>Critical findings</span><span class="font-mono" style="color:${critClr}">${fmt(cr.critical_count)}</span>
+                </div>
+            </div>
+            <p class="text-[9px] mt-4" style="color:#374151;font-style:italic;">
+                Critical = contains urgent finding per NLP critical keyword list.
+            </p>`;
+
+        // ── Return stats ──────────────────────────────────────────────
+        const retRows = [
+            { label:'30-day return',  cnt: rs.return_30d||0,  total: rs.total_patients||0 },
+            { label:'90-day return',  cnt: rs.return_90d||0,  total: rs.total_patients||0 },
+            { label:'1-year return',  cnt: rs.return_365d||0, total: rs.total_patients||0 },
+        ];
+        document.getElementById('return-stats').innerHTML = retRows.map(r => {
+            const pct = r.total > 0 ? Math.round(r.cnt / r.total * 100) : 0;
+            const clr = pct > 40 ? '#f59e0b' : pct > 20 ? '#60a5fa' : '#34d399';
+            return `<div>
+                <div class="flex justify-between mb-1">
+                    <span class="text-xs" style="color:#9ca3af;">${r.label}</span>
+                    <span class="text-xs font-bold font-mono" style="color:${clr}">${pct}%</span>
+                </div>
+                <div class="h-2 rounded-full" style="background:#1a2820;">
+                    <div class="h-2 rounded-full transition-all" style="width:${pct}%;background:${clr};"></div>
+                </div>
+                <p class="text-[9px] mt-0.5 text-right" style="color:#374151;">${fmt(r.cnt)} of ${fmt(r.total)} patients</p>
+            </div>`;
+        }).join('');
+
+        // ── Recent studies table ───────────────────────────────────────
+        document.getElementById('recent-tbody').innerHTML = d.recent.map(r => {
+            const tatOk  = r.tat_min && r.tat_min <= 480;
+            const tatWrn = r.tat_min && r.tat_min <= 1440 && r.tat_min > 480;
+            const tatClr = !r.tat_min ? '#374151' : tatOk ? '#34d399' : tatWrn ? '#f59e0b' : '#f87171';
+            return `<tr>
+                <td class="font-mono">${r.study_date||'—'}</td>
+                <td class="font-mono text-[10px]" style="color:#60a5fa;">${esc(r.accession_number||'—')}</td>
+                <td><span class="px-2 py-0.5 rounded text-[10px] font-black"
+                     style="background:rgba(96,165,250,0.1);color:#93c5fd;">${esc(r.modality||'—')}</span></td>
+                <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(r.description||'')}">${esc(r.description||'—')}</td>
+                <td><span class="text-[10px]" style="color:${r.report_status==='FINAL'?'#34d399':'#f59e0b'}">${esc(r.report_status||'—')}</span></td>
+                <td style="color:#9ca3af;">${esc(r.patient_class||'—')}</td>
+                <td class="font-mono" style="color:${tatClr}">${r.tat_min ? fmtTat(r.tat_min) : '—'}</td>
+            </tr>`;
+        }).join('');
+    }
+
+    // ── Chart: Volume ─────────────────────────────────────────────────
+    function renderVolumeChart(d) {
+        const el = document.getElementById('chart-volume');
+        if (!el) return;
+        if (_charts.volume) _charts.volume.dispose();
+        const c = echarts.init(el, null, {renderer:'canvas'});
+        _charts.volume = c;
+        const months = d.trend.map(r => r.month);
+        const studies = d.trend.map(r => r.studies);
+        c.setOption({
+            tooltip: { trigger:'axis' },
+            grid: { left:40, right:10, top:10, bottom:30 },
+            xAxis: { type:'category', data:months, ...axisStyle },
+            yAxis: { type:'value', ...axisStyle },
+            series: [{
+                type:'bar', data:studies, barMaxWidth:32,
+                itemStyle: { borderRadius:[4,4,0,0], color: p => {
+                    const max = Math.max(...studies);
+                    const ratio = p.value / max;
+                    if (ratio > 0.75) return '#34d399';
+                    if (ratio > 0.4)  return '#10b981';
+                    return '#065f46';
+                }},
+                label: { show:true, position:'top', color:'#4b5563', fontSize:10,
+                         formatter: p => p.value > 0 ? p.value : '' }
+            }]
+        });
+        window.addEventListener('resize', () => c.resize());
+    }
+
+    // ── Chart: TAT trend ──────────────────────────────────────────────
+    function renderTatChart(d) {
+        const el = document.getElementById('chart-tat');
+        if (!el) return;
+        if (_charts.tat) _charts.tat.dispose();
+        const c = echarts.init(el, null, {renderer:'canvas'});
+        _charts.tat = c;
+        const months = d.tat_trend.map(r => r.month);
+        const tats   = d.tat_trend.map(r => parseFloat(r.median_tat_min||0));
+        const dept   = d.dept_tat_min;
+        c.setOption({
+            tooltip: { trigger:'axis', formatter: p => {
+                const t = p[0]; return `${t.name}<br>TAT: ${fmtTat(t.value)}`;
+            }},
+            grid: { left:55, right:20, top:20, bottom:30 },
+            xAxis: { type:'category', data:months, ...axisStyle },
+            yAxis: { type:'value', name:'min', nameTextStyle:{color:'#4b5563',fontSize:10}, ...axisStyle },
+            series: [
+                {
+                    type:'line', smooth:true, data:tats,
+                    lineStyle:{ color:'#34d399', width:2 },
+                    itemStyle:{ color:'#34d399' },
+                    areaStyle:{ color:'rgba(52,211,153,0.08)' },
+                    markLine: dept ? { silent:true, lineStyle:{color:'#f59e0b',type:'dashed',width:1},
+                        data:[{ yAxis:dept, label:{formatter:`Dept ${fmtTat(dept)}`,color:'#f59e0b',fontSize:10} }] } : undefined
+                }
+            ]
+        });
+        window.addEventListener('resize', () => c.resize());
+    }
+
+    // ── Charts: Mix ───────────────────────────────────────────────────
+    function renderMixCharts(d) {
+        // Modality donut
+        const elMod = document.getElementById('chart-modality');
+        if (elMod) {
+            if (_charts.mod) _charts.mod.dispose();
+            const c = echarts.init(elMod, null, {renderer:'canvas'});
+            _charts.mod = c;
+            c.setOption({
+                tooltip:{ trigger:'item', formatter:'{b}: {c} ({d}%)' },
+                legend:{ textStyle:{color:'#4b5563',fontSize:10}, bottom:0, type:'scroll' },
+                series:[{ type:'pie', radius:['38%','65%'],
+                    data: d.modality.map(r=>({name:r.modality,value:r.cnt})),
+                    label:{ color:'#9ca3af', fontSize:10 },
+                    itemStyle:{ borderWidth:2, borderColor:'#151c18' }
+                }]
+            });
+            window.addEventListener('resize', () => c.resize());
+        }
+
+        // Body parts bar
+        const elBdy = document.getElementById('chart-body');
+        if (elBdy) {
+            if (_charts.body) _charts.body.dispose();
+            const c = echarts.init(elBdy, null, {renderer:'canvas'});
+            _charts.body = c;
+            const sorted = [...d.body_parts].sort((a,b)=>a.cnt-b.cnt);
+            c.setOption({
+                tooltip:{ trigger:'axis' },
+                grid:{ left:90, right:30, top:5, bottom:5 },
+                xAxis:{ type:'value', ...axisStyle },
+                yAxis:{ type:'category', data:sorted.map(r=>r.part), ...axisStyle },
+                series:[{ type:'bar', data:sorted.map(r=>r.cnt), barMaxWidth:18,
+                    itemStyle:{ borderRadius:[0,4,4,0], color:'#34d399' },
+                    label:{ show:true, position:'right', color:'#4b5563', fontSize:10 }
+                }]
+            });
+            window.addEventListener('resize', () => c.resize());
+        }
+
+        // Patient class donut
+        const elCls = document.getElementById('chart-class');
+        if (elCls) {
+            if (_charts.cls) _charts.cls.dispose();
+            const c = echarts.init(elCls, null, {renderer:'canvas'});
+            _charts.cls = c;
+            c.setOption({
+                tooltip:{ trigger:'item', formatter:'{b}: {c} ({d}%)' },
+                legend:{ textStyle:{color:'#4b5563',fontSize:10}, bottom:0, type:'scroll' },
+                series:[{ type:'pie', radius:['35%','60%'],
+                    data: d.patient_class.map(r=>({name:r.class, value:r.cnt})),
+                    label:{ color:'#9ca3af', fontSize:10 },
+                    itemStyle:{ borderWidth:2, borderColor:'#151c18' }
+                }]
+            });
+            window.addEventListener('resize', () => c.resize());
+        }
+
+        // Age distribution bar
+        const elAge = document.getElementById('chart-age');
+        if (elAge) {
+            if (_charts.age) _charts.age.dispose();
+            const c = echarts.init(elAge, null, {renderer:'canvas'});
+            _charts.age = c;
+            c.setOption({
+                tooltip:{ trigger:'axis' },
+                grid:{ left:40, right:10, top:10, bottom:30 },
+                xAxis:{ type:'category', data:d.age_dist.map(r=>r.bucket), ...axisStyle },
+                yAxis:{ type:'value', ...axisStyle },
+                series:[{ type:'bar', data:d.age_dist.map(r=>r.cnt), barMaxWidth:28,
+                    itemStyle:{ borderRadius:[4,4,0,0], color:'#60a5fa' }
+                }]
+            });
+            window.addEventListener('resize', () => c.resize());
+        }
+    }
+
+    // ── Chart: Patient trend ──────────────────────────────────────────
+    function renderPtTrendChart(d) {
+        const el = document.getElementById('chart-pt-trend');
+        if (!el) return;
+        if (_charts.ptt) _charts.ptt.dispose();
+        const c = echarts.init(el, null, {renderer:'canvas'});
+        _charts.ptt = c;
+        c.setOption({
+            tooltip:{ trigger:'axis' },
+            legend:{ data:['Studies','Patients'], textStyle:{color:'#4b5563',fontSize:10}, bottom:0 },
+            grid:{ left:40, right:10, top:10, bottom:40 },
+            xAxis:{ type:'category', data:d.trend.map(r=>r.month), ...axisStyle },
+            yAxis:{ type:'value', ...axisStyle },
+            series:[
+                { name:'Studies',  type:'bar',  data:d.trend.map(r=>r.studies),  barMaxWidth:20,
+                  itemStyle:{ borderRadius:[3,3,0,0], color:'rgba(52,211,153,0.7)' } },
+                { name:'Patients', type:'line', data:d.trend.map(r=>r.patients), smooth:true,
+                  lineStyle:{ color:'#60a5fa', width:2 }, itemStyle:{ color:'#60a5fa' } }
+            ]
+        });
+        window.addEventListener('resize', () => c.resize());
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────
+    function fmt(n)    { try { return parseInt(n).toLocaleString(); } catch(e) { return '—'; } }
+    function fmtTat(m) {
+        m = Math.round(m);
+        if (m < 60) return m + 'm';
+        const h = Math.floor(m/60), r = m%60;
+        return r > 0 ? `${h}h ${r}m` : `${h}h`;
+    }
+    function esc(s)    { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+    function escJs(s)  { return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+
+    // ── Theme ─────────────────────────────────────────────────────────
+    function toggleTheme() {
+        document.body.classList.toggle('light');
+        const i = document.getElementById('theme-icon');
+        if (i) i.className = document.body.classList.contains('light') ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
+        fetch('/user/theme', { method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({theme: document.body.classList.contains('light') ? 'light':'dark'}) });
+    }
+    fetch('/user/theme').then(r=>r.json()).then(d=>{
+        if (d.theme==='light') { document.body.classList.add('light'); const i=document.getElementById('theme-icon'); if(i) i.className='bi bi-sun-fill'; }
+    }).catch(()=>{});
+    </script>
+</body>
+</html>
