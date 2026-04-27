@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "rayd-postgres": {
+      "command": "bash",
+      "args": ["scripts/postgres_mcp.sh"]
+    },
+    "claude-flow": {
+      "command": "npx",
+      "args": ["claude-flow@alpha", "mcp", "start"]
+    }
+  }
+}

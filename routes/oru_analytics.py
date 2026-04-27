@@ -270,7 +270,7 @@ def _count_diagnoses(affirmed_list, top_n=50):
         for phrase, label in DIAGNOSES:
             if label in seen_labels:
                 continue
-            if phrase in affirmed:
+            if phrase in affirmed or label in affirmed:
                 seen_labels.add(label)
                 label_counts[label] += 1
     return [
@@ -460,7 +460,7 @@ def oru_data():
         for phrase, label in DIAGNOSES:
             if label in _BENIGN_LABELS or label in seen:
                 continue
-            if phrase in affirmed:
+            if phrase in affirmed or label in affirmed:
                 seen.add(label)
                 hits.append(label)
         # Custom keywords: real-time text search — not stored in analysis table
