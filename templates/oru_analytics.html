@@ -58,6 +58,34 @@
   .filter-bar select:focus, .filter-bar button:hover {
     border-color:#34d399; color:#34d399;
   }
+  /* Procedure combobox */
+  .proc-combo { position:relative; display:inline-block; }
+  .proc-combo input[type="text"] {
+    background:#1a211e; border:1px solid #1e2d27; color:#e2e8f0;
+    padding:7px 30px 7px 14px; border-radius:8px; font-size:12px; font-weight:600;
+    outline:none; width:220px; cursor:text;
+  }
+  .proc-combo input[type="text"]:focus { border-color:#34d399; color:#e2e8f0; }
+  .proc-combo input[type="text"]::placeholder { color:#64748b; }
+  .proc-dropdown {
+    position:absolute; top:calc(100% + 4px); left:0;
+    background:#1a211e; border:1px solid #1e2d27; border-radius:8px;
+    list-style:none; margin:0; padding:4px 0;
+    min-width:100%; max-height:260px; overflow-y:auto;
+    z-index:999; box-shadow:0 8px 24px rgba(0,0,0,0.5);
+  }
+  .proc-dropdown li {
+    padding:6px 14px; font-size:12px; color:#e2e8f0;
+    cursor:pointer; white-space:nowrap;
+  }
+  .proc-dropdown li:hover { background:#28332e; color:#34d399; }
+  .proc-dropdown li.selected { color:#34d399; }
+  .proc-dropdown li.no-match { color:#475569; cursor:default; font-style:italic; }
+  body.light .proc-combo input[type="text"] { background:#f8fafc; border-color:#e2e8f0; color:#1a202c; }
+  body.light .proc-combo input[type="text"]:focus { border-color:#34d399; }
+  body.light .proc-dropdown { background:#f8fafc; border-color:#e2e8f0; }
+  body.light .proc-dropdown li { color:#1a202c; }
+  body.light .proc-dropdown li:hover { background:#e2e8f0; color:#16a34a; }
   .btn-active { border-color:#34d399!important; color:#34d399!important; }
 
   /* Main grid */
@@ -173,12 +201,12 @@
 
       <!-- Filters -->
       <div class="filter-bar">
-        <select id="proc-filter">
-          <option value="">All Procedures</option>
-          {% for p in procedures %}
-          <option value="{{ p.code }}">{{ p.name or p.code }}</option>
-          {% endfor %}
-        </select>
+        <!-- Searchable procedure combobox -->
+        <div class="proc-combo" id="proc-combo-wrap">
+          <input type="text" id="proc-filter-input" placeholder="All Procedures" autocomplete="off" spellcheck="false">
+          <ul id="proc-dropdown" class="proc-dropdown" style="display:none"></ul>
+        </div>
+        <input type="hidden" id="proc-filter" value="">
 
         <select id="days-filter">
           <option value="7">Last 7 days</option>
@@ -1130,8 +1158,64 @@ function renderNLPKeywords(words) {
     }).join('') + '</div>';
 }
 
+// ── Procedure combobox ────────────────────────────────────────────────────────
+(function () {
+  const PROCS = [
+    { code: '', name: 'All Procedures' },
+    {% for p in procedures %}
+    { code: {{ p.code | tojson }}, name: {{ (p.name or p.code) | tojson }} },
+    {% endfor %}
+  ];
+
+  const wrap     = document.getElementById('proc-combo-wrap');
+  const input    = document.getElementById('proc-filter-input');
+  const dropdown = document.getElementById('proc-dropdown');
+  const hidden   = document.getElementById('proc-filter');
+
+  function render(q) {
+    const lq = (q || '').toLowerCase();
+    const matches = lq
+      ? PROCS.filter(p => p.name.toLowerCase().includes(lq) || p.code.toLowerCase().includes(lq))
+      : PROCS;
+    if (!matches.length) {
+      dropdown.innerHTML = '<li class="no-match">No match</li>';
+    } else {
+      dropdown.innerHTML = matches.map(p =>
+        `<li data-code="${p.code}" data-name="${p.name.replace(/"/g,'&quot;')}"
+             class="${p.code === hidden.value ? 'selected' : ''}">${p.name}</li>`
+      ).join('');
+    }
+    dropdown.style.display = 'block';
+  }
+
+  function select(code, name) {
+    hidden.value      = code;
+    input.value       = code ? name : '';
+    input.placeholder = code ? '' : 'All Procedures';
+    dropdown.style.display = 'none';
+    loadData();
+  }
+
+  input.addEventListener('focus', () => render(input.value));
+  input.addEventListener('input', () => render(input.value));
+
+  dropdown.addEventListener('mousedown', e => {
+    const li = e.target.closest('li[data-code]');
+    if (!li) return;
+    e.preventDefault();
+    select(li.dataset.code, li.dataset.name);
+  });
+
+  document.addEventListener('click', e => {
+    if (!wrap.contains(e.target) && dropdown.style.display !== 'none') {
+      const cur = PROCS.find(p => p.code === hidden.value);
+      input.value = cur && cur.code ? cur.name : '';
+      dropdown.style.display = 'none';
+    }
+  });
+})();
+
 // ── Boot ─────────────────────────────────────────────────────────────────────
-document.getElementById('proc-filter').addEventListener('change', loadData);
 document.getElementById('days-filter').addEventListener('change', loadData);
 loadData();
 checkNLPStatus();
