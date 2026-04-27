@@ -60,6 +60,28 @@ services:
       db:
         condition: service_healthy
 
+  rayd-nlp:
+    build: ./nlp_worker
+    container_name: rayd_nlp
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - TZ=${TZ:-Asia/Beirut}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_HOST=${POSTGRES_HOST:-db}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_DB=${POSTGRES_DB}
+    depends_on:
+      db:
+        condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   db:
     image: postgres:15
     container_name: rayd_db
