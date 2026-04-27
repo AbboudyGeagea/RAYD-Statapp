@@ -85,8 +85,12 @@ def referring_intel_detail():
                 MAX(s.study_date)::text             AS last_study,
                 ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (
                     ORDER BY EXTRACT(EPOCH FROM (s.rep_final_timestamp - s.insert_time)) / 60.0
+                ) FILTER (WHERE s.rep_final_timestamp IS NOT NULL
+                            AND s.insert_time IS NOT NULL
+                            AND s.rep_final_timestamp > s.insert_time
                 )::numeric, 1)                      AS median_tat_min,
-                COUNT(*) FILTER (WHERE s.rep_final_timestamp IS NOT NULL) AS reported_count,
+                COUNT(*) FILTER (WHERE s.study_has_report = TRUE
+                                    OR s.rep_final_timestamp IS NOT NULL) AS reported_count,
                 ROUND(
                     COUNT(*) FILTER (WHERE s.study_date >= CURRENT_DATE - INTERVAL '30 days')
                     * 100.0 / NULLIF(COUNT(*), 0), 1
@@ -96,14 +100,16 @@ def referring_intel_detail():
         """), p).mappings().fetchone()
 
         # Department median TAT baseline (last 90 days)
-        dept_tat = db.session.execute(text("""
+        dept_tat = db.session.execute(text(f"""
             SELECT ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (
-                ORDER BY EXTRACT(EPOCH FROM (rep_final_timestamp - insert_time)) / 60.0
+                ORDER BY EXTRACT(EPOCH FROM (s.rep_final_timestamp - s.insert_time)) / 60.0
             )::numeric, 1)
-            FROM etl_didb_studies
-            WHERE rep_final_timestamp IS NOT NULL
-              AND insert_time IS NOT NULL
-              AND study_date >= CURRENT_DATE - INTERVAL '90 days'
+            FROM etl_didb_studies s {_MJ}
+            WHERE s.rep_final_timestamp IS NOT NULL
+              AND s.insert_time IS NOT NULL
+              AND s.rep_final_timestamp > s.insert_time
+              AND s.study_date >= CURRENT_DATE - INTERVAL '90 days'
+              AND {_SR}
         """)).scalar()
 
         # ── Monthly volume trend ───────────────────────────────────────
@@ -130,6 +136,7 @@ def referring_intel_detail():
             WHERE {_PHY} = :physician AND {_SR}
               AND s.rep_final_timestamp IS NOT NULL
               AND s.insert_time IS NOT NULL
+              AND s.rep_final_timestamp > s.insert_time
               AND s.study_date >= CURRENT_DATE - (:months * INTERVAL '1 month')
             GROUP BY 1 ORDER BY 1
         """), p).mappings().fetchall()
@@ -181,26 +188,37 @@ def referring_intel_detail():
         """), p).mappings().fetchone()
 
         # ── Patient return rate ────────────────────────────────────────
+        # Only referrals from this physician within the selected period.
+        # COUNT(DISTINCT) per bucket ensures each patient is counted once
+        # regardless of how many return visits they had.
         return_stats = db.session.execute(text(f"""
-            WITH physician_patients AS (
-                SELECT DISTINCT patient_db_uid
-                FROM etl_didb_studies s
-                WHERE {_PHY} = :physician
+            WITH phy_visits AS (
+                SELECT DISTINCT s.patient_db_uid, s.study_date
+                FROM etl_didb_studies s {_MJ}
+                WHERE {_PHY} = :physician AND {_SR}
+                  AND s.study_date >= CURRENT_DATE - (:months * INTERVAL '1 month')
             ),
-            visits AS (
-                SELECT s.patient_db_uid, s.study_date,
-                       LAG(s.study_date) OVER (
-                           PARTITION BY s.patient_db_uid ORDER BY s.study_date
-                       ) AS prev_date
-                FROM etl_didb_studies s
-                JOIN physician_patients pp ON pp.patient_db_uid = s.patient_db_uid
+            gaps AS (
+                SELECT
+                    patient_db_uid,
+                    study_date,
+                    LAG(study_date) OVER (
+                        PARTITION BY patient_db_uid ORDER BY study_date
+                    ) AS prev_date
+                FROM phy_visits
             )
             SELECT
-                COUNT(DISTINCT patient_db_uid)                              AS total_patients,
-                COUNT(*) FILTER (WHERE (study_date - prev_date) <= 30)     AS return_30d,
-                COUNT(*) FILTER (WHERE (study_date - prev_date) <= 90)     AS return_90d,
-                COUNT(*) FILTER (WHERE (study_date - prev_date) <= 365)    AS return_365d
-            FROM visits
+                COUNT(DISTINCT patient_db_uid)                                    AS total_patients,
+                COUNT(DISTINCT patient_db_uid) FILTER (
+                    WHERE prev_date IS NOT NULL AND (study_date - prev_date) <= 30
+                )                                                                  AS return_30d,
+                COUNT(DISTINCT patient_db_uid) FILTER (
+                    WHERE prev_date IS NOT NULL AND (study_date - prev_date) <= 90
+                )                                                                  AS return_90d,
+                COUNT(DISTINCT patient_db_uid) FILTER (
+                    WHERE prev_date IS NOT NULL AND (study_date - prev_date) <= 365
+                )                                                                  AS return_365d
+            FROM gaps
         """), p).mappings().fetchone()
 
         # ── Patient class mix ──────────────────────────────────────────

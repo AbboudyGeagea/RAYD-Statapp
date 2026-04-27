@@ -19,7 +19,8 @@
       "Bash(where ollama *)",
       "Bash(python -m pip --version)",
       "Bash(python3 -m pip --version)",
-      "Bash(python3 -m pip install huggingface_hub -q)"
+      "Bash(python3 -m pip install huggingface_hub -q)",
+      "Bash(git config *)"
     ]
   }
 }

@@ -140,29 +140,6 @@ PACS_UPDATE_SQL = """
      WHERE accession_number = :accession_number
 """
 
-SCN_INSERT_SQL = """
-    INSERT INTO hl7_scn_studies (
-        accession_number, patient_id, patient_name,
-        procedure_code, procedure_text, modality, storing_ae,
-        patient_class, study_datetime, order_status, received_at
-    ) VALUES (
-        :accession_number, :patient_id, :patient_name,
-        :procedure_code, :procedure_text, :modality, :storing_ae,
-        :patient_class, :study_datetime, :order_status, :received_at
-    )
-    ON CONFLICT (accession_number) DO UPDATE SET
-        patient_id     = EXCLUDED.patient_id,
-        patient_name   = EXCLUDED.patient_name,
-        procedure_code = EXCLUDED.procedure_code,
-        procedure_text = EXCLUDED.procedure_text,
-        modality       = EXCLUDED.modality,
-        storing_ae     = EXCLUDED.storing_ae,
-        patient_class  = EXCLUDED.patient_class,
-        study_datetime = EXCLUDED.study_datetime,
-        order_status   = EXCLUDED.order_status,
-        received_at    = EXCLUDED.received_at
-"""
-
 # ── HL7 helpers ───────────────────────────────────────────────────────────────
 
 def _seg(segments, name):
@@ -534,28 +511,12 @@ def _handle_client(conn, addr, app):
                         pacs = parse_pacs_completion(raw_message)
 
                         if pacs:
-                            # PACS study-complete: update pacs_done_at on the
-                            # existing order row and write to hl7_scn_studies.
+                            # PACS study-complete: update pacs_done_at on the existing order row.
                             with app.app_context():
                                 from sqlalchemy import text
                                 from db import db
                                 try:
                                     db.session.execute(text(PACS_UPDATE_SQL), pacs)
-                                    # Also upsert into hl7_scn_studies so liveview picks it up
-                                    scn_data = {
-                                        'accession_number': pacs['accession_number'],
-                                        'patient_id':       pacs['patient_id'],
-                                        'patient_name':     None,
-                                        'procedure_code':   None,
-                                        'procedure_text':   None,
-                                        'modality':         None,
-                                        'storing_ae':       None,
-                                        'patient_class':    None,
-                                        'study_datetime':   pacs['pacs_done_at'],
-                                        'order_status':     'CM',
-                                        'received_at':      datetime.now(),
-                                    }
-                                    db.session.execute(text(SCN_INSERT_SQL), scn_data)
                                     db.session.commit()
                                 except Exception:
                                     db.session.rollback()
@@ -598,36 +559,6 @@ def _handle_client(conn, addr, app):
                                     f"| patient={parsed['patient_id']} "
                                     f"| accession={parsed['accession_number']}"
                                 )
-
-                                # SCN path for HIS-originated CM/SC status changes
-                                if parsed.get('order_status') in ('CM', 'SC'):
-                                    scn_data = {
-                                        'accession_number': parsed.get('accession_number'),
-                                        'patient_id':       parsed.get('patient_id'),
-                                        'patient_name':     parsed.get('patient_name'),
-                                        'procedure_code':   parsed.get('procedure_code'),
-                                        'procedure_text':   parsed.get('procedure_text'),
-                                        'modality':         parsed.get('modality'),
-                                        'storing_ae':       _field(_seg(segments, 'OBR'), 21) or _field(_seg(segments, 'OBR'), 24),
-                                        'patient_class':    parsed.get('patient_class'),
-                                        'study_datetime':   parsed.get('scheduled_datetime') or datetime.now(),
-                                        'order_status':     parsed.get('order_status'),
-                                        'received_at':      datetime.now(),
-                                    }
-                                    if scn_data['accession_number']:
-                                        with app.app_context():
-                                            from sqlalchemy import text as _t
-                                            from db import db as _db
-                                            try:
-                                                _db.session.execute(_t(SCN_INSERT_SQL), scn_data)
-                                                _db.session.commit()
-                                                logger.info(
-                                                    f"✅ SCN stored | accession={scn_data['accession_number']} "
-                                                    f"| modality={scn_data['modality']}"
-                                                )
-                                            except Exception as scn_err:
-                                                _db.session.rollback()
-                                                logger.warning(f"⚠ SCN insert error: {scn_err}")
 
                                 try:
                                     from routes.portal_bp import process_orm_for_portal

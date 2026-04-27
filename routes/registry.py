@@ -27,7 +27,6 @@ from routes.live_feed        import live_feed_bp
 from routes.preferences      import preferences_bp
 from routes.docs             import docs_bp
 from routes.er_dashboard     import er_bp
-from routes.liveview         import liveview_bp
 from routes.oru_analytics    import oru_bp
 from routes.db_manager       import db_manager_bp
 from routes.referring_intel  import referring_intel_bp
@@ -44,7 +43,6 @@ DEFAULT_LICENSE = {
     "er_dashboard": True,
     "patient_portal": True,
     "live_feed": True,
-    "liveview": True,
     "hl7_orders": True,
     "oru_analytics": True,
     "saved_reports": True,
@@ -69,7 +67,6 @@ TIER_PRESETS = {
         "er_dashboard": False,
         "patient_portal": False,
         "live_feed": True,
-        "liveview": True,
         "hl7_orders": True,
         "oru_analytics": False,
         "saved_reports": False,
@@ -89,7 +86,6 @@ TIER_PRESETS = {
         "er_dashboard": True,
         "patient_portal": False,
         "live_feed": True,
-        "liveview": True,
         "hl7_orders": True,
         "oru_analytics": True,
         "saved_reports": True,
@@ -250,7 +246,6 @@ def register_blueprints(app):
         'ai_report':       (report_ai_bp,       {}, [('/report/ai',                   'AI Report')]),
         'capacity_ladder': (capacity_ladder_bp,  {}, [('/viewer/capacity-ladder',      'Capacity Ladder')]),
         'er_dashboard':    (er_bp,               {}, [('/er',                          'ER Dashboard')]),
-        'liveview':        (liveview_bp,         {}, [('/liveview',                    'Live Dashboard')]),
         'oru_analytics':   (oru_bp,              {}, [('/oru',                         'ORU Analytics')]),
         'saved_reports':   (saved_reports_bp,    {'url_prefix': '/saved'}, []),
         'hl7_orders':      (hl7_orders_bp,       {}, [('/hl7/orders',                  'HL7 Orders')]),

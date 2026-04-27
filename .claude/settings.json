@@ -3,7 +3,10 @@
     "allow": [
       "Bash(python -c ' *)",
       "Bash(python -c \"import py_compile; py_compile.compile\\('d:/Intermedic/Statistics app/RAYD-Statapp/routes/report_25.py', doraise=True\\); print\\('Python OK'\\)\")",
-      "Bash(python -c \"import py_compile; py_compile.compile\\('d:/Intermedic/Statistics app/RAYD-Statapp/routes/report_25.py', doraise=True\\); print\\('OK'\\)\")"
+      "Bash(python -c \"import py_compile; py_compile.compile\\('d:/Intermedic/Statistics app/RAYD-Statapp/routes/report_25.py', doraise=True\\); print\\('OK'\\)\")",
+      "mcp__claude-flow__swarm_init",
+      "mcp__claude-flow__system_health",
+      "mcp__claude-flow__memory_store"
     ]
   },
   "hooks": {

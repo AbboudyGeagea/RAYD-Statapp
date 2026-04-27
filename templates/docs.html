@@ -87,7 +87,6 @@
                             <a href="#aiassistant" class="toc-link">AI Assistant</a>
                             <a href="#aiteaching" class="toc-link">AI Teaching Center</a>
                             <a href="#patientportal" class="toc-link">Patient Portal</a>
-                            <a href="#liveview" class="toc-link">Live Dashboard (Today)</a>
                             <a href="#superreport" class="toc-link">Super Report</a>
                         </nav>
                     </div>
@@ -1553,84 +1552,6 @@
                         </div>
                     </section>
 
-                    <!-- ══════════════════════════════════════════
-                         LIVEVIEW — TODAY'S LIVE DASHBOARD
-                    ══════════════════════════════════════════ -->
-                    <section id="liveview">
-                        <div class="flex items-center gap-3 mb-4">
-                            <span class="report-badge" style="background:rgba(34,197,94,0.12);color:#22c55e;border:1px solid rgba(34,197,94,0.25);">Live Today</span>
-                            <h2 class="text-lg font-black text-white tracking-tight">Live Dashboard — Today's Operations</h2>
-                        </div>
-                        <p class="text-slate-400 text-sm mb-5 leading-relaxed">A real-time operational dashboard powered exclusively by HL7 SCN (Study Complete Notification) messages received directly from PACS. Because it listens to live HL7 traffic rather than waiting for the nightly ETL, it reflects completions within seconds of a study being stored. Staff can filter by room to see only their own workload.</p>
-
-                        <div class="doc-card">
-
-                            <!-- Data source -->
-                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
-                                <div class="flex items-center gap-3">
-                                    <span class="tag tag-kpi"><i class="bi bi-broadcast"></i> HL7 SCN</span>
-                                    <span class="font-bold text-sm text-white">How Data Reaches This Page</span>
-                                </div>
-                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
-                            </div>
-                            <div class="section-body">
-                                <div class="chart-item">
-                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">Data source:</strong> PACS sends an HL7 ORM message with order status <code class="text-blue-400 bg-blue-400/10 px-1 rounded">ORC-5 = CM</code> or <code class="text-blue-400 bg-blue-400/10 px-1 rounded">SC</code> (Complete / Study Complete Notification) when a study is successfully stored. RAYD's built-in MLLP listener receives this message on port 6661, parses the patient ID, name, accession number, modality, AE title, and patient class (inpatient/outpatient from PID-18), then writes it to the <code class="text-blue-400 bg-blue-400/10 px-1 rounded">hl7_scn_studies</code> table in real time.</p>
-                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">Zero Oracle load:</strong> This page does not query Oracle at any point. All data comes from HL7 messages already in the local PostgreSQL database. This design eliminates any risk of placing additional load on the production PACS database during peak hours.</p>
-                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Traditional live dashboards either poll Oracle every few minutes (causing DB load) or wait for the overnight ETL (stale by hours). The SCN approach gives sub-minute freshness with no database impact — the only requirement is that PACS is configured to send ORM messages to RAYD's HL7 endpoint.</p></div>
-                                </div>
-                            </div>
-
-                            <!-- KPI strip -->
-                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
-                                <div class="flex items-center gap-3">
-                                    <span class="tag tag-kpi"><i class="bi bi-speedometer2"></i> KPI Strip</span>
-                                    <span class="font-bold text-sm text-white">Today's Core KPIs</span>
-                                </div>
-                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
-                            </div>
-                            <div class="section-body">
-                                <div class="chart-item">
-                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> Studies completed today, distinct patients seen, and — when patient class data is present in the SCN messages — inpatient and outpatient counts as separate cards. A data-date badge appears in amber if the most recent SCN is from a prior date (e.g. weekend maintenance mode), so staff are never misled into thinking they're seeing today's data when they are not.</p>
-                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Aggregates <code class="text-blue-400 bg-blue-400/10 px-1 rounded">hl7_scn_studies</code> for today's date. Inpatient/outpatient cards are shown conditionally only when the <code class="text-blue-400 bg-blue-400/10 px-1 rounded">patient_class</code> field is populated — if PACS does not send PID-18, those cards are hidden rather than showing misleading zeros.</p>
-                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> The duty manager gets a live count of completions without touching any report or filter. The inpatient/outpatient split helps predict downstream demand — a high inpatient ratio in the morning typically predicts a busier afternoon reporting load.</p></div>
-                                </div>
-                            </div>
-
-                            <!-- Room filter -->
-                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
-                                <div class="flex items-center gap-3">
-                                    <span class="tag tag-text"><i class="bi bi-funnel"></i> Filter</span>
-                                    <span class="font-bold text-sm text-white">Room Selector</span>
-                                </div>
-                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
-                            </div>
-                            <div class="section-body">
-                                <div class="chart-item">
-                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> A dropdown at the top of the dashboard listing all configured rooms by their plain name (e.g. <em>CT Room 1</em>, <em>MRI Suite A</em>). Selecting a room filters all KPIs and the study list to that room only. Selecting "All Rooms" returns to the site-wide view.</p>
-                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> Room names are read from the <code class="text-blue-400 bg-blue-400/10 px-1 rounded">room_name</code> field in <code class="text-blue-400 bg-blue-400/10 px-1 rounded">aetitle_modality_map</code>. The selected room's AE title is passed as a filter parameter to <code class="text-blue-400 bg-blue-400/10 px-1 rounded">/liveview/data?ae=</code>. DICOM AE titles are never exposed to the user — only the plain room names configured in the Modality / Procedures Config page appear in this list.</p>
-                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> Radiographers and technicians can view their own room's throughput without seeing data from other rooms. This is useful for self-monitoring against their own expected list and for reporting their room's count to a supervisor at end of shift.</p></div>
-                                </div>
-                            </div>
-
-                            <!-- Device utilisation -->
-                            <div class="section-header flex items-center justify-between" onclick="toggleSection(this)">
-                                <div class="flex items-center gap-3">
-                                    <span class="tag tag-kpi"><i class="bi bi-hdd-stack"></i> Device Cards</span>
-                                    <span class="font-bold text-sm text-white">Live Device Utilisation</span>
-                                </div>
-                                <i class="bi bi-chevron-down text-slate-500 transition-transform"></i>
-                            </div>
-                            <div class="section-body">
-                                <div class="chart-item">
-                                    <p class="text-slate-300 text-sm leading-relaxed"><strong class="text-white">What it shows:</strong> A card per active device showing its room name, modality, minutes used vs scheduled capacity, and a colour-coded utilisation bar (green &lt;60%, amber 60–85%, red &gt;85%).</p>
-                                    <p class="text-slate-300 text-sm leading-relaxed mt-2"><strong class="text-white">How it works:</strong> SCN completions are joined with <code class="text-blue-400 bg-blue-400/10 px-1 rounded">procedure_duration_map</code> to sum used minutes (defaulting to 15 min for unmapped procedures). Capacity is read from <code class="text-blue-400 bg-blue-400/10 px-1 rounded">device_weekly_schedule</code> for today's day-of-week. Any per-day overrides in <code class="text-blue-400 bg-blue-400/10 px-1 rounded">device_exceptions</code> take precedence over the standard schedule.</p>
-                                    <div class="value-box"><p><i class="bi bi-lightbulb-fill mr-1"></i> <strong>Added value:</strong> A device at 95% before lunch needs attention — either the list is running fast and can absorb add-on cases, or it is at risk of overrun. A device at 20% by midday may have had cancellations or a technical problem. This data used to require a phone call to the room; now it is visible site-wide in real time.</p></div>
-                                </div>
-                            </div>
-
-                        </div>
-                    </section>
 
                     <!-- ══════════════════════════════════════════
                          SUPER REPORT — CUSTOM REPORT BUILDER
