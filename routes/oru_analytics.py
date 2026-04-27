@@ -104,119 +104,27 @@ def _any_unnegated(t, keyword):
     return False
 
 
-# ── MedSpaCy — loaded once at startup, falls back to rule-based if unavailable ─
-_NLP = None
-
-def _load_medspacy():
-    global _NLP
-    if _NLP is not None:
-        return _NLP
-    try:
-        import medspacy
-        from medspacy.target_matcher import TargetRule
-        from medspacy.context import ConTextRule
-
-        nlp = medspacy.load(enable=["sentencizer", "medspacy_target_matcher", "medspacy_context"])
-
-        # Register every phrase we track as a findable target
-        target_matcher = nlp.get_pipe("medspacy_target_matcher")
-        seen, rules = set(), []
-        for phrase, _ in DIAGNOSES:
-            if phrase not in seen:
-                rules.append(TargetRule(phrase, "FINDING"))
-                seen.add(phrase)
-        for kw in CRITICAL:
-            if kw not in seen:
-                rules.append(TargetRule(kw, "FINDING"))
-                seen.add(kw)
-        target_matcher.add(rules)
-
-        # Add French negation rules — default ConText only covers English
-        context = nlp.get_pipe("medspacy_context")
-        context.add([
-            ConTextRule("pas de",        "NEGATED_EXISTENCE", direction="FORWARD"),
-            ConTextRule("sans",          "NEGATED_EXISTENCE", direction="FORWARD"),
-            ConTextRule("absence de",    "NEGATED_EXISTENCE", direction="FORWARD"),
-            ConTextRule("aucun",         "NEGATED_EXISTENCE", direction="FORWARD"),
-            ConTextRule("aucune",        "NEGATED_EXISTENCE", direction="FORWARD"),
-            ConTextRule("négatif pour",  "NEGATED_EXISTENCE", direction="FORWARD"),
-            ConTextRule("négatif",       "NEGATED_EXISTENCE", direction="FORWARD"),
-            ConTextRule("non",           "NEGATED_EXISTENCE", direction="FORWARD"),
-            ConTextRule("exclu",         "NEGATED_EXISTENCE", direction="BIDIRECTIONAL"),
-            ConTextRule("écarté",        "NEGATED_EXISTENCE", direction="BIDIRECTIONAL"),
-        ])
-
-        _NLP = nlp
-        print("[ORU] MedSpaCy loaded — clinical NLP active.")
-    except Exception as e:
-        print(f"[ORU] MedSpaCy unavailable ({e}) — rule-based negation fallback active.")
-    return _NLP
-
-
 def _affirmed_phrases(text):
-    """
-    Single-text wrapper — used for one-off lookups.
-    For bulk processing always prefer _affirmed_phrases_batch().
-    """
+    """Single-text rule-based lookup. Batch NLP is handled by the nlp-worker container."""
     if not text:
         return set()
-    t = text.lower()
-    nlp = _load_medspacy()
-    if nlp is not None:
-        try:
-            doc = nlp(t[:8000])
-            return {
-                ent.text.lower()
-                for ent in doc.ents
-                if not ent._.is_negated and not ent._.is_historical
-            }
-        except Exception:
-            pass
+    t = text.lower()[:8000]
     return {phrase for phrase, _ in DIAGNOSES if _any_unnegated(t, phrase)} | \
            {kw for kw in CRITICAL if _any_unnegated(t, kw)}
 
 
-# 75% of available cores — leaves headroom for Flask, DB, and the AI server
-_NLP_WORKERS = max(1, int((os.cpu_count() or 4) * 0.75))
-
-
 def _affirmed_phrases_batch(texts):
     """
-    Process a list of texts in one shot using nlp.pipe().
-    Saturates available CPU cores via n_process.
-    Returns a list of sets — one per input text — of affirmed phrase strings.
-    Falls back to rule-based if medspacy is unavailable or multiprocessing fails.
+    Rule-based fallback for any reports not yet processed by the nlp-worker container.
+    The worker handles medspaCy; this keeps the main app free of that dependency.
     """
     if not texts:
         return []
-
-    cleaned = [(t or '').lower()[:8000] for t in texts]
-    nlp = _load_medspacy()
-
-    if nlp is not None:
-        def _docs_to_sets(docs):
-            return [
-                {ent.text.lower() for ent in doc.ents
-                 if not ent._.is_negated and not ent._.is_historical}
-                for doc in docs
-            ]
-        try:
-            return _docs_to_sets(
-                nlp.pipe(cleaned, batch_size=64, n_process=_NLP_WORKERS)
-            )
-        except Exception:
-            try:
-                return _docs_to_sets(
-                    nlp.pipe(cleaned, batch_size=64, n_process=1)
-                )
-            except Exception:
-                pass
-
-    # Rule-based fallback — still runs per-text but no repeated nlp() calls
     def _rb(t):
+        t = (t or '').lower()[:8000]
         return {phrase for phrase, _ in DIAGNOSES if _any_unnegated(t, phrase)} | \
                {kw for kw in CRITICAL if _any_unnegated(t, kw)}
-    return [_rb(t) for t in cleaned]
+    return [_rb(t) for t in texts]
 
 
 # Bump this string whenever the NLP model or DIAGNOSES vocabulary changes
@@ -224,85 +132,6 @@ def _affirmed_phrases_batch(texts):
 _NLP_MODEL_VERSION = 'medspacy-v1'
 
 
-_NLP_CHUNK = 500
-
-
-def run_oru_nlp_batch():
-    """
-    Scheduled job (every 60 min): process unanalyzed hl7_oru_reports in chunks.
-    Checks cpu_guard between chunks — stops immediately if an AI request arrives.
-    Commits after each chunk so progress is never lost on an early exit.
-    """
-    from utils.cpu_guard import is_ai_active
-
-    if is_ai_active():
-        print("[ORU NLP] AI active at start — skipping this cycle.")
-        return
-
-    # Lower OS scheduling priority while running
-    try:
-        os.nice(10)
-    except Exception:
-        pass
-
-    try:
-        rows = db.session.execute(text("""
-            SELECT r.id, r.impression_text, r.report_text
-            FROM   hl7_oru_reports r
-            LEFT JOIN hl7_oru_analysis a ON a.report_id = r.id
-            WHERE  a.id IS NULL
-            ORDER  BY r.received_at DESC
-            LIMIT  2000
-        """)).fetchall()
-    except Exception as e:
-        print(f"[ORU NLP] Could not query pending reports: {e}")
-        return
-
-    if not rows:
-        return
-
-    total, committed = len(rows), 0
-
-    for chunk_start in range(0, total, _NLP_CHUNK):
-        if is_ai_active():
-            print(f"[ORU NLP] AI became active — stopped at {committed}/{total}, resuming next cycle.")
-            return
-
-        chunk         = rows[chunk_start:chunk_start + _NLP_CHUNK]
-        texts         = [(r.impression_text or r.report_text or '') for r in chunk]
-        affirmed_list = _affirmed_phrases_batch(texts)
-
-        for r, affirmed in zip(chunk, affirmed_list):
-            seen, labels = set(), []
-            for phrase, label in DIAGNOSES:
-                if label in _BENIGN_LABELS or label in seen:
-                    continue
-                if phrase in affirmed:
-                    seen.add(label)
-                    labels.append(label)
-            pg_array = '{' + ','.join(labels) + '}'
-            try:
-                db.session.execute(text("""
-                    INSERT INTO hl7_oru_analysis
-                        (report_id, affirmed_labels, is_critical, nlp_version, analyzed_at)
-                    VALUES
-                        (:rid, :labels::TEXT[], :critical, :ver, NOW())
-                    ON CONFLICT (report_id) DO NOTHING
-                """), {'rid': r.id, 'labels': pg_array,
-                       'critical': len(labels) > 0, 'ver': _NLP_MODEL_VERSION})
-            except Exception:
-                db.session.rollback()
-                continue
-
-        try:
-            db.session.commit()
-            committed += len(chunk)
-        except Exception as e:
-            db.session.rollback()
-            print(f"[ORU NLP] Commit error at chunk {chunk_start}: {e}")
-            return
-
-    print(f"[ORU NLP] Batch complete — {committed}/{total} reports analyzed.")
 
 
 # ── Diagnosis vocabulary: (match_phrase, canonical_label)

@@ -9,7 +9,17 @@
       "PowerShell(& \"d:\\\\Intermedic\\\\Statistics app\\\\RAYD-Statapp\\\\venv\\\\Scripts\\\\pip.exe\" install \"medspacy>=1.1.0\" 2>&1)",
       "PowerShell(& \"d:\\\\Intermedic\\\\Statistics app\\\\RAYD-Statapp\\\\venv\\\\bin\\\\pip\" install \"medspacy>=1.1.0\" 2>&1)",
       "Bash(\"d:/Intermedic/Statistics app/RAYD-Statapp/venv/bin/pip\" install \"medspacy>=1.1.0\")",
-      "Bash(\"/d/Intermedic/Statistics app/RAYD-Statapp/venv/bin/python3.10\" --version)"
+      "Bash(\"/d/Intermedic/Statistics app/RAYD-Statapp/venv/bin/python3.10\" --version)",
+      "Bash(ollama list *)",
+      "Bash(python3 -c \"import huggingface_hub; print\\('hf_hub ok'\\)\")",
+      "Read(//home/stats/**)",
+      "Bash(where python *)",
+      "Bash(where pip *)",
+      "Bash(where curl *)",
+      "Bash(where ollama *)",
+      "Bash(python -m pip --version)",
+      "Bash(python3 -m pip --version)",
+      "Bash(python3 -m pip install huggingface_hub -q)"
     ]
   }
 }

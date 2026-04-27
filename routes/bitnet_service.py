@@ -1,7 +1,7 @@
 """
 routes/bitnet_service.py
 ────────────────────────────────────────────────────────────────
-RAYD × Llama 3.1 8B — Anti-Hallucination AI Service  (v3 — final)
+RAYD × Qwen2.5-7B-Instruct — Anti-Hallucination AI Service  (v4)
 
 Architecture:
   1. Python detects intent from question keywords
@@ -138,15 +138,14 @@ def _contains_hallucination(response: str) -> bool:
     return bool(_HALLUCINATION_RE.search(response))
 
 
-# ── Llama 3.1 inference ───────────────────────────────────────
+# ── Qwen2.5 inference (ChatML format) ────────────────────────
 def _run_inference(system: str, user_message: str, max_tokens: int = None) -> str:
     from utils.cpu_guard import ai_start, ai_done
     ai_start()
     prompt = (
-        "<|begin_of_text|>"
-        f"<|start_header_id|>system<|end_header_id|>\n{system}<|eot_id|>"
-        f"<|start_header_id|>user<|end_header_id|>\n{user_message}<|eot_id|>"
-        "<|start_header_id|>assistant<|end_header_id|>\n"
+        f"<|im_start|>system\n{system}<|im_end|>\n"
+        f"<|im_start|>user\n{user_message}<|im_end|>\n"
+        "<|im_start|>assistant\n"
     )
 
     payload = {
@@ -155,8 +154,8 @@ def _run_inference(system: str, user_message: str, max_tokens: int = None) -> st
         "temperature":    0.1,
         "repeat_penalty": 1.15,
         "stop":           [
-            "<|eot_id|>", "<|end_of_text|>",
-            "<|start_header_id|>", "User:", "Human:", "Question:",
+            "<|im_end|>", "<|endoftext|>",
+            "<|im_start|>", "User:", "Human:", "Question:",
         ],
         "stream": False,
         "seed":   42,

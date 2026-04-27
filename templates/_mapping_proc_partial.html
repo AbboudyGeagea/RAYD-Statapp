@@ -1,0 +1,306 @@
+                    <!-- Upload -->
+                    <div class="card-custom p-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <h4 class="text-[10px] font-black text-[#60a5fa] uppercase tracking-[0.2em]">Bulk Import / Export</h4>
+                            <a href="{{ url_for('mapping.export_procedure_csv') }}"
+                               class="flex items-center gap-1.5 px-3 py-1.5 bg-[#1d2522] border border-[#28332e] rounded-lg text-[9px] font-black text-slate-400 hover:text-[#60a5fa] hover:border-[#60a5fa] transition uppercase tracking-widest">
+                                <i class="bi bi-download"></i> Export CSV
+                            </a>
+                        </div>
+                        <form action="{{ url_for('mapping.upload_procedure_map') }}" method="POST" enctype="multipart/form-data" id="procForm">
+                            <input type="file" name="file" id="procFile" class="hidden" onchange="document.getElementById('procForm').submit()">
+                            <div onclick="document.getElementById('procFile').click()" class="upload-zone p-5 flex items-center gap-4">
+                                <i class="bi bi-calculator text-2xl text-slate-500"></i>
+                                <div>
+                                    <div class="text-xs font-bold text-slate-400">Upload Procedure CSV</div>
+                                    <div class="text-[9px] text-slate-600 mt-0.5 uppercase">procedure_code · duration_minutes · rvu_value · modality</div>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+
+                <!-- ═══════════════════════════════════════════
+                     PROCEDURE CATALOG — grouped by modality
+                ═══════════════════════════════════════════ -->
+                <div class="space-y-4">
+                    <div class="flex items-center justify-between">
+                        <h2 class="text-2xl font-black text-[#e2e8f0] tracking-tight uppercase">Procedure Catalog</h2>
+                        <div class="flex items-center gap-3">
+                            <div class="relative">
+                                <i class="bi bi-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs"></i>
+                                <input type="text" x-model="procSearch" placeholder="Search codes..."
+                                       class="bg-[#232b28] border border-[#28332e] rounded-xl pl-9 pr-4 py-2 text-[10px] font-black text-[#60a5fa] focus:border-blue-400 outline-none w-56">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card-custom overflow-hidden">
+                        <div class="max-h-[680px] overflow-y-auto custom-scrollbar">
+
+                            {# Group procedures by modality #}
+                            {% set modalities_seen = [] %}
+                            {% for proc in duration_mappings %}
+                                {% set mod_key = proc.modality if proc.modality else '__UNMAPPED__' %}
+                                {% if mod_key not in modalities_seen %}
+                                    {% if modalities_seen.append(mod_key) %}{% endif %}
+                                {% endif %}
+                            {% endfor %}
+
+                            {% for mod_key in modalities_seen %}
+                                {% if mod_key == '__UNMAPPED__' %}
+                                    {% set group_procs = duration_mappings | rejectattr('modality') | list %}
+                                {% else %}
+                                    {% set group_procs = duration_mappings | selectattr('modality', 'equalto', mod_key) | list %}
+                                {% endif %}
+                                {% set conflict_count = group_procs | selectattr('procedure_code', 'in', conflict_codes) | list | length %}
+                                {% set fuzzy_count = namespace(val=0) %}
+                                {% for p in group_procs %}{% if p.procedure_code in fuzzy_map and not p.modality %}{% set fuzzy_count.val = fuzzy_count.val + 1 %}{% endif %}{% endfor %}
+
+                                <div x-data="{ open: {{ 'true' if loop.first else 'false' }} }">
+                                    <!-- Group header -->
+                                    <div class="mod-group-header" @click="open = !open">
+                                        <i class="bi text-[10px] transition-transform duration-200"
+                                           :class="open ? 'bi-chevron-down' : 'bi-chevron-right'"
+                                           style="color:#60a5fa"></i>
+                                        {% if mod_key == '__UNMAPPED__' %}
+                                        <span class="text-[11px] font-black text-slate-400 uppercase tracking-widest">Unmapped</span>
+                                        {% else %}
+                                        <span class="text-[11px] font-black text-white uppercase tracking-widest">{{ mod_key }}</span>
+                                        {% endif %}
+                                        <span class="text-[9px] font-bold text-slate-600 bg-[#141a17] px-2 py-0.5 rounded-full">{{ group_procs | length }} procedures</span>
+                                        {% if conflict_count > 0 %}
+                                        <span class="text-[9px] font-black text-orange-400 bg-orange-900/30 px-2 py-0.5 rounded-full">{{ conflict_count }} conflicts</span>
+                                        {% endif %}
+                                        {% if fuzzy_count.val > 0 %}
+                                        <span class="text-[9px] font-black text-blue-400 bg-blue-900/30 px-2 py-0.5 rounded-full">{{ fuzzy_count.val }} suggested</span>
+                                        {% endif %}
+                                    </div>
+
+                                    <!-- Group table -->
+                                    <div x-show="open" x-collapse>
+                                        <table class="w-full text-left">
+                                            <thead class="text-[9px] font-black text-slate-600 uppercase border-b border-[#28332e] bg-[#1a201e]">
+                                                <tr>
+                                                    <th class="px-6 py-3">Procedure Code</th>
+                                                    <th class="px-6 py-3 text-center">Modality</th>
+                                                    <th class="px-6 py-3 text-center">Duration (min)</th>
+                                                    <th class="px-6 py-3 text-center">RVU</th>
+                                                    <th class="px-6 py-3 text-right">Status</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody class="divide-y divide-[#28332e]/60">
+                                                {% for proc in group_procs %}
+                                                <tr class="hover:bg-white/5 transition {% if proc.procedure_code in conflict_codes %}bg-orange-900/10{% endif %}"
+                                                    x-show="!procSearch || '{{ proc.procedure_code }}'.includes(procSearch.toUpperCase())">
+
+                                                    <td class="px-6 py-3">
+                                                        <span class="font-mono text-xs font-bold text-white tracking-widest">{{ proc.procedure_code }}</span>
+                                                        {% if proc.procedure_code in conflict_codes %}
+                                                        <br><span class="text-[9px] text-orange-400 font-bold"><i class="bi bi-exclamation-triangle-fill"></i> Multiple modalities — please verify</span>
+                                                        {% for c in conflicts if c.procedure_code == proc.procedure_code %}
+                                                        <br><span class="text-[9px] text-orange-300">Found on: {{ c.modalities }} ({{ c.sample_count }} studies)</span>
+                                                        {% endfor %}
+                                                        {% elif proc.procedure_code in fuzzy_map and not proc.modality %}
+                                                        {% set fc = fuzzy_map[proc.procedure_code] %}
+                                                        <br><span class="text-[9px] text-blue-400 font-bold"><i class="bi bi-cpu"></i> AI Suggestion: {{ fc.suggested_modality }} ({{ (fc.match_score * 100)|int }}%)</span>
+                                                        {% endif %}
+                                                    </td>
+
+                                                    <td class="px-6 py-3 text-center">
+                                                        {% set fc = fuzzy_map.get(proc.procedure_code) %}
+                                                        <select @change="updateProcModality('{{ proc.procedure_code }}', $event.target.value, $event.target)"
+                                                                class="bg-[#1a2722] border text-white text-[10px] font-bold rounded px-2 py-1.5 outline-none focus:border-blue-400
+                                                                {% if proc.procedure_code in conflict_codes and not proc.modality %}border-orange-500
+                                                                {% elif fc and not proc.modality %}border-blue-500
+                                                                {% else %}border-[#28332e]{% endif %}">
+                                                            <option value="" {% if not proc.modality and not (fc and not proc.modality) %}selected{% endif %}>—</option>
+                                                            {% for mod in ['CT','MR','CR','DX','US','NM','PT','XA','RF','MG','DR','SC','OT'] %}
+                                                            <option value="{{ mod }}" {% if proc.modality == mod or (fc and not proc.modality and fc.suggested_modality == mod) %}selected{% endif %}>{{ mod }}</option>
+                                                            {% endfor %}
+                                                        </select>
+                                                    </td>
+
+                                                    <td class="px-6 py-3 text-center">
+                                                        <input type="number" value="{{ proc.duration_minutes }}"
+                                                               @change="updateProcData('{{ proc.procedure_code }}', $event.target.value, '{{ proc.rvu_value }}', '{{ proc.modality or '' }}', $event.target)"
+                                                               class="proc-input w-20 py-1.5">
+                                                    </td>
+
+                                                    <td class="px-6 py-3 text-center">
+                                                        <input type="number" step="0.1" value="{{ proc.rvu_value }}"
+                                                               @change="updateProcData('{{ proc.procedure_code }}', $event.target.closest('tr').querySelector('input[type=number]').value, $event.target.value, $event.target.closest('tr').querySelector('select').value, $event.target)"
+                                                               class="proc-input w-20 py-1.5">
+                                                    </td>
+
+                                                    <td class="px-6 py-3 text-right">
+                                                        {% if proc.procedure_code in conflict_codes and not proc.modality %}
+                                                        <span class="text-[9px] font-black uppercase px-2 py-1 rounded bg-orange-900/50 text-orange-400">Needs Review</span>
+                                                        {% elif proc.modality %}
+                                                        <span class="text-[9px] font-black uppercase px-2 py-1 rounded bg-emerald-900/50 text-emerald-400">Mapped</span>
+                                                        {% elif proc.procedure_code in fuzzy_map %}
+                                                        <span class="text-[9px] font-black uppercase px-2 py-1 rounded bg-blue-900/50 text-blue-400">Suggested</span>
+                                                        {% else %}
+                                                        <span class="text-[9px] font-black uppercase px-2 py-1 rounded bg-slate-800 text-slate-500">Auto</span>
+                                                        {% endif %}
+                                                    </td>
+                                                </tr>
+                                                {% endfor %}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            {% endfor %}
+
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ═══════════════════════════════════════════
+                     CANONICAL MAPPING
+                ═══════════════════════════════════════════ -->
+                <div class="space-y-6" id="canonical-section">
+
+                    <!-- Header -->
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h2 class="text-2xl font-black text-[#e2e8f0] tracking-tight uppercase">Canonical Mapping</h2>
+                            <p class="text-slate-500 text-xs mt-1">AI clusters similar procedure names. Review each member — approve ✓ or move ✗ to another cluster.</p>
+                        </div>
+                        <button onclick="addCluster()"
+                                class="flex items-center gap-2 px-4 py-2 bg-indigo-700 hover:bg-indigo-600 text-white text-[9px] font-black uppercase tracking-widest rounded-xl transition">
+                            <i class="bi bi-plus-lg"></i> Add Master Cluster
+                        </button>
+                    </div>
+
+                    <!-- ── Cluster Cards ── -->
+                    {% if ai_groups %}
+                    <div class="space-y-3" id="cluster-cards">
+                        {% for grp in ai_groups %}
+                        {%- set gid = grp.id -%}
+                        <div id="cluster-card-{{ gid }}" class="card-custom border border-indigo-900/30 overflow-hidden">
+
+                            <!-- Card header: master name + confidence + modality + delete -->
+                            <div class="flex items-center gap-3 px-5 py-3 bg-indigo-950/30 border-b border-indigo-900/20">
+                                <i class="bi bi-stars text-indigo-400 text-sm flex-shrink-0"></i>
+                                <input type="text"
+                                       id="cluster-name-{{ gid }}"
+                                       value="{{ grp.canonical_name or '' }}"
+                                       placeholder="Master cluster name…"
+                                       onblur="renameCluster({{ gid }}, this.value)"
+                                       class="flex-1 bg-transparent border-b border-indigo-700/40 focus:border-indigo-400 text-white text-sm font-black outline-none transition placeholder-slate-600 pb-0.5">
+                                <!-- Confidence bar -->
+                                {%- set pct = ((grp.cluster_confidence or 0) * 100) | int -%}
+                                <div class="flex items-center gap-1.5 flex-shrink-0">
+                                    <div class="w-12 h-1 bg-[#1d2522] rounded-full overflow-hidden">
+                                        <div class="h-full rounded-full {% if pct >= 85 %}bg-emerald-500{% elif pct >= 75 %}bg-indigo-500{% else %}bg-amber-500{% endif %}" style="width:{{ pct }}%"></div>
+                                    </div>
+                                    <span class="text-[9px] font-black text-slate-500">{{ pct }}%</span>
+                                </div>
+                                <!-- Modality -->
+                                <select onchange="setCanonicalModality({{ gid }}, this)"
+                                        class="bg-[#141a17] border border-[#28332e] focus:border-indigo-500 text-slate-300 rounded-lg px-2 py-1 text-[10px] font-black outline-none transition flex-shrink-0">
+                                    <option value="">Modality—</option>
+                                    {% for mod in ['CT','MR','CR','DX','US','NM','PT','XA','RF','MG','DR','SC','OT'] %}
+                                    <option value="{{ mod }}" {% if grp.group_modality == mod %}selected{% endif %}>{{ mod }}</option>
+                                    {% endfor %}
+                                </select>
+                                <button onclick="deleteAiGroup({{ gid }})"
+                                        class="flex-shrink-0 text-slate-600 hover:text-red-400 transition text-sm" title="Delete cluster">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
+
+                            <!-- Member rows -->
+                            <div class="divide-y divide-[#28332e]">
+                                {% for i in range(grp.member_codes | length) %}
+                                {%- set code = grp.member_codes[i] -%}
+                                {%- set desc = grp.member_descs[i] if grp.member_descs else code -%}
+                                {%- set approved = grp.member_approved[i] if grp.member_approved else none -%}
+                                <div id="member-{{ gid }}-{{ code }}" class="flex items-center gap-3 px-5 py-2.5 hover:bg-white/[0.03] transition group">
+                                    <!-- Code badge -->
+                                    <span class="canonical-badge bg-indigo-950/50 border border-indigo-800/30 text-indigo-300 flex-shrink-0">
+                                        <i class="bi bi-code text-indigo-600"></i> {{ code }}
+                                    </span>
+                                    <!-- Description -->
+                                    <span class="flex-1 text-xs text-slate-300 truncate" title="{{ desc }}">{{ desc }}</span>
+                                    <!-- Approve / Reject buttons -->
+                                    <div class="flex items-center gap-1.5 flex-shrink-0">
+                                        <button onclick="approveMember('{{ code }}', {{ gid }})"
+                                                title="Approve — this name belongs here"
+                                                class="w-7 h-7 flex items-center justify-center rounded-lg transition {% if approved %}bg-emerald-700 text-white{% else %}bg-[#1d2522] border border-[#28332e] text-slate-500 hover:border-emerald-500 hover:text-emerald-400{% endif %}">
+                                            <i class="bi bi-check-lg text-xs"></i>
+                                        </button>
+                                        <button onclick="toggleMovePanel('{{ code }}', {{ gid }})"
+                                                title="Reject — move to another cluster"
+                                                class="w-7 h-7 flex items-center justify-center rounded-lg bg-[#1d2522] border border-[#28332e] text-slate-500 hover:border-red-500 hover:text-red-400 transition">
+                                            <i class="bi bi-x-lg text-xs"></i>
+                                        </button>
+                                    </div>
+                                    <!-- Move panel (hidden by default) -->
+                                    <div id="move-{{ gid }}-{{ code }}" class="hidden flex items-center gap-2 flex-shrink-0">
+                                        <select id="move-sel-{{ gid }}-{{ code }}"
+                                                class="bg-[#141a17] border border-red-800/40 text-slate-300 rounded-lg px-2 py-1 text-[10px] font-bold outline-none">
+                                            <option value="">Move to…</option>
+                                            {% for other in ai_groups %}
+                                            {% if other.id != gid %}
+                                            <option value="{{ other.id }}">{{ other.canonical_name or ('Cluster ' + other.id | string) }}</option>
+                                            {% endif %}
+                                            {% endfor %}
+                                            <option value="new">+ New cluster</option>
+                                            <option value="unmapped">Unmapped</option>
+                                        </select>
+                                        <button onclick="doMove('{{ code }}', {{ gid }})"
+                                                class="px-2 py-1 bg-red-800 hover:bg-red-700 text-white text-[9px] font-black rounded-lg transition">
+                                            Move
+                                        </button>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+
+                    <!-- ── Unmapped ── -->
+                    <div id="unmapped-section">
+                        <div class="flex items-center gap-2 mb-2">
+                            <i class="bi bi-question-circle text-slate-500"></i>
+                            <span class="text-[9px] font-black uppercase tracking-widest text-slate-500">
+                                Unmapped — {{ unclustered_procs | length }} procedures not assigned to any cluster
+                            </span>
+                        </div>
+                        {% if unclustered_procs %}
+                        <div class="card-custom border border-[#28332e] overflow-hidden">
+                            <div class="max-h-64 overflow-y-auto custom-scrollbar divide-y divide-[#28332e]">
+                                {% for proc in unclustered_procs %}
+                                <div id="unc-{{ proc.procedure_code }}" class="flex items-center gap-3 px-5 py-2.5 hover:bg-white/[0.03] transition">
+                                    <span class="canonical-badge bg-[#1d2522] border border-[#28332e] text-slate-400 flex-shrink-0">
+                                        <i class="bi bi-code text-slate-600"></i> {{ proc.procedure_code }}
+                                    </span>
+                                    <span class="flex-1 text-xs text-slate-500 truncate" title="{{ proc.description }}">{{ proc.description }}</span>
+                                    {% if proc.modality %}
+                                    <span class="text-[9px] font-black text-slate-600">{{ proc.modality }}</span>
+                                    {% endif %}
+                                    <!-- Add to cluster -->
+                                    <select id="unc-sel-{{ proc.procedure_code }}"
+                                            onchange="addToCluster('{{ proc.procedure_code }}', this)"
+                                            class="bg-[#141a17] border border-[#28332e] hover:border-indigo-600 text-slate-500 rounded-lg px-2 py-1 text-[10px] font-bold outline-none transition flex-shrink-0">
+                                        <option value="">+ Add to…</option>
+                                        {% for grp in ai_groups %}
+                                        <option value="{{ grp.id }}">{{ grp.canonical_name or ('Cluster ' + grp.id | string) }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% else %}
+                        <div class="card-custom p-8 text-center">
+                            <i class="bi bi-check2-circle text-3xl text-emerald-500 mb-2 block"></i>
+                            <p class="text-slate-500 text-xs">All procedures are assigned to a cluster.</p>
+                        </div>
+                        {% endif %}
+                    </div>
+
+                </div><!-- end canonical-section -->

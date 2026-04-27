@@ -100,7 +100,7 @@ else
     prompt_val "POSTGRES_PASSWORD"  "PostgreSQL password"               "$(openssl rand -hex 16)"
     prompt_val "MASTER_ADMIN_KEY"   "Master admin registration key"     "$(openssl rand -hex 12)"
     prompt_val "TZ"                 "Timezone (e.g. Asia/Beirut)"       "Asia/Beirut"
-    prompt_val "BITNET_ENABLED"     "Enable BitNet AI? (true/false)"    "true"
+    prompt_val "BITNET_ENABLED"     "Enable Qwen AI assistant? (true/false)"    "true"
 
     ok ".env created."
 fi
@@ -473,39 +473,51 @@ INSERT INTO go_live_config (go_live_date) VALUES ('${GO_LIVE}');
 fi
 
 # ──────────────────────────────────────────────────────
-# STEP 7: llama-server systemd service (optional)
+# STEP 7: Qwen2.5-7B AI assistant setup (optional)
 # ──────────────────────────────────────────────────────
-info "Step 7/7 — BitNet AI / llama-server setup..."
+info "Step 7/7 — Qwen2.5-7B AI assistant setup..."
 
-BITNET_BIN="/home/stats/BitNet/build/bin/llama-server"
-BITNET_MODEL="/home/stats/BitNet/models/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf"
+# Clean up legacy BitNet / llama-server installation
+for old_svc in llama-server bitnet; do
+    if systemctl is-active --quiet "$old_svc" 2>/dev/null; then
+        info "Stopping legacy service: $old_svc"
+        systemctl stop "$old_svc" 2>/dev/null || true
+    fi
+    if systemctl is-enabled --quiet "$old_svc" 2>/dev/null; then
+        systemctl disable "$old_svc" 2>/dev/null || true
+    fi
+    if [ -f "/etc/systemd/system/${old_svc}.service" ]; then
+        rm -f "/etc/systemd/system/${old_svc}.service"
+        info "Removed legacy unit file: ${old_svc}.service"
+    fi
+done
+systemctl daemon-reload 2>/dev/null || true
 
-# Stop any existing instance cleanly before reinstalling
-if systemctl is-active --quiet llama-server 2>/dev/null; then
-    info "Stopping existing llama-server service..."
-    systemctl stop llama-server
+# Remove old Llama model to free disk space (~4.4 GB)
+OLD_MODEL="/home/stats/BitNet/models/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf"
+if [ -f "$OLD_MODEL" ]; then
+    info "Removing old Llama 3.1 model file..."
+    rm -f "$OLD_MODEL"
+    ok "Freed space from old model."
 fi
 
-if [ ! -f "$BITNET_BIN" ]; then
-    warn "llama-server binary not found at $BITNET_BIN"
-    warn "Run the BitNet build first (setup_bitnet.sh), then re-run this script."
-elif [ ! -f "$BITNET_MODEL" ]; then
-    warn "Model file not found at $BITNET_MODEL"
-    warn "Download the model first, then re-run this script."
-else
-    info "Installing llama-server systemd service..."
-    cp "${SCRIPT_DIR}/llama-server.service" /etc/systemd/system/llama-server.service
-    systemctl daemon-reload
-    systemctl enable llama-server
-    systemctl start llama-server
+# Remove old BitNet installation directory
+if [ -d "/opt/bitnet" ]; then
+    info "Removing /opt/bitnet..."
+    rm -rf "/opt/bitnet"
+    ok "Removed /opt/bitnet."
+fi
 
-    # Give it a moment and verify it came up
-    sleep 3
-    if systemctl is-active --quiet llama-server; then
-        ok "llama-server is running on port 8081."
-    else
-        warn "llama-server failed to start. Check: journalctl -u llama-server -n 50"
-    fi
+SETUP_SCRIPT="${SCRIPT_DIR}/scripts/setup_qwen_prod.sh"
+
+if [ "${BITNET_ENABLED:-true}" != "true" ]; then
+    warn "Qwen AI is disabled (BITNET_ENABLED=false). Skipping model setup."
+    warn "To enable later, set BITNET_ENABLED=true in .env and re-run this script."
+elif [ ! -f "$SETUP_SCRIPT" ]; then
+    warn "Setup script not found at $SETUP_SCRIPT — skipping Qwen setup."
+else
+    info "Running Qwen2.5-7B production setup (downloads ~4.4 GB model on first run)..."
+    bash "$SETUP_SCRIPT"
 fi
 
 # ──────────────────────────────────────────────────────

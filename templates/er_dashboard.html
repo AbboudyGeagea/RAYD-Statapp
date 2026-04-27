@@ -253,9 +253,10 @@ function renderKPIs(k) {
 
 function renderUnread(rows, sla) {
     const sec = document.getElementById('unread-section');
-    if (!rows.length) { sec.classList.add('hidden'); return; }
+    const filtered = rows.filter(r => (r.modality || '').toUpperCase() !== 'SR');
+    if (!filtered.length) { sec.classList.add('hidden'); return; }
     sec.classList.remove('hidden');
-    document.getElementById('unread-body').innerHTML = rows.map(r => {
+    document.getElementById('unread-body').innerHTML = filtered.map(r => {
         const w = Math.round(r.waiting_min);
         const cls = w > sla * 2 ? 'text-red-400 font-black' : w > sla ? 'text-amber-400 font-bold' : 'text-slate-300';
         return `<tr class="hover:bg-[#1d2522]/50">

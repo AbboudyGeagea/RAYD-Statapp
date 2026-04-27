@@ -114,6 +114,7 @@ def er_data():
             WHERE s.study_date = CURRENT_DATE
               AND (s.rep_final_timestamp IS NULL AND COALESCE(s.study_has_report, false) = false)
               AND {_ER_WHERE}
+              AND COALESCE(m.modality, s.study_modality, '') != 'SR'
             ORDER BY waiting_min DESC
             LIMIT 50
         """), {}).mappings().fetchall()

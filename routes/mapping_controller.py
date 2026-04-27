@@ -75,10 +75,9 @@ def mapping_page():
     if not user_has_page(current_user, 'mapping'): return abort(403)
 
     modality_mappings = AETitleModalityMap.query.order_by(AETitleModalityMap.aetitle).all()
-    duration_mappings = ProcedureDurationMap.query.order_by(ProcedureDurationMap.procedure_code).all()
-    
+
     today = datetime.now().date()
-    start_of_week = today - timedelta(days=today.weekday()) 
+    start_of_week = today - timedelta(days=today.weekday())
     end_of_week = start_of_week + timedelta(days=6)
 
     exceptions = DeviceException.query.filter(
@@ -87,12 +86,39 @@ def mapping_page():
     ).all()
 
     exceptions_lookup = {
-        f"{ex.aetitle.upper()}_{ex.exception_date.strftime('%Y-%m-%d')}": ex.actual_opening_minutes 
+        f"{ex.aetitle.upper()}_{ex.exception_date.strftime('%Y-%m-%d')}": ex.actual_opening_minutes
         for ex in exceptions
     }
-    
-    # Procedure-modality conflicts detected by ETL
+
+    # Fast count for the Procedures tab badge only — no etl_orders scan
     from sqlalchemy import text as _t
+    try:
+        review_count = db.session.execute(_t("""
+            SELECT (SELECT COUNT(*) FROM procedure_canonical_groups WHERE source = 'ai_suggested' AND approved = FALSE)
+                 + (SELECT COUNT(*) FROM procedure_duplicate_candidates WHERE status = 'pending') AS total
+        """)).scalar() or 0
+    except Exception:
+        review_count = 0
+
+    return render_template(
+        'mapping.html',
+        modality_mappings=modality_mappings,
+        exceptions_json=json.dumps(exceptions_lookup),
+        review_count=int(review_count),
+    )
+
+
+@mapping_bp.route('/procedures-tab')
+@login_required
+def procedures_tab():
+    """Lazy-loaded HTML fragment for the Procedures tab."""
+    if not user_has_page(current_user, 'mapping'): return abort(403)
+
+    from sqlalchemy import text as _t
+    import json as _json
+
+    duration_mappings = ProcedureDurationMap.query.order_by(ProcedureDurationMap.procedure_code).all()
+
     try:
         conflicts = db.session.execute(
             _t("SELECT procedure_code, modalities, sample_count FROM procedure_modality_conflicts ORDER BY sample_count DESC")
@@ -102,115 +128,71 @@ def mapping_page():
         conflicts = []
         conflict_codes = set()
 
-    # Fuzzy candidates (70-89% match) awaiting human confirmation
     try:
         fuzzy_candidates = db.session.execute(
             _t("SELECT procedure_code, suggested_modality, match_score, matched_via FROM procedure_fuzzy_candidates ORDER BY match_score DESC")
         ).fetchall()
         fuzzy_map = {f.procedure_code: f for f in fuzzy_candidates}
     except Exception:
-        fuzzy_candidates = []
         fuzzy_map = {}
 
-    # Canonical groups — human-confirmed groups (source='human' or approved=TRUE)
+    # Single etl_orders scan — proc_descs MATERIALIZED and shared by both sub-queries
     try:
-        raw_groups = db.session.execute(_t("""
-            SELECT g.id, g.canonical_name, g.approved, g.approved_by, g.approved_at,
-                   g.source, g.cluster_confidence,
-                   ARRAY_AGG(m.procedure_code ORDER BY m.procedure_code) AS member_codes,
-                   ARRAY_AGG(m.similarity_score ORDER BY m.procedure_code) AS scores,
-                   MODE() WITHIN GROUP (ORDER BY p.modality) AS group_modality
-            FROM procedure_canonical_groups g
-            JOIN procedure_canonical_members m ON m.group_id = g.id
-            LEFT JOIN procedure_duration_map p ON p.procedure_code = m.procedure_code
-            WHERE g.approved = TRUE OR g.source = 'human'
-            GROUP BY g.id, g.canonical_name, g.approved, g.approved_by, g.approved_at,
-                     g.source, g.cluster_confidence
-            ORDER BY g.approved ASC, g.detected_at DESC
-        """)).fetchall()
-        canonical_groups = [dict(r._mapping) for r in raw_groups]
-    except Exception:
-        canonical_groups = []
-
-    # AI-suggested groups — pending manager review, with member descriptions
-    try:
-        raw_ai = db.session.execute(_t("""
-            WITH proc_descs AS (
+        row = db.session.execute(_t("""
+            WITH proc_descs AS MATERIALIZED (
                 SELECT UPPER(TRIM(proc_id)) AS procedure_code,
                        MODE() WITHIN GROUP (ORDER BY UPPER(TRIM(proc_text))) AS proc_text
                 FROM etl_orders
                 WHERE proc_id IS NOT NULL AND TRIM(proc_id) != ''
                   AND proc_text IS NOT NULL AND TRIM(proc_text) != ''
                 GROUP BY UPPER(TRIM(proc_id))
+            ),
+            ai_agg AS (
+                SELECT g.id, g.canonical_name, g.cluster_confidence,
+                       ARRAY_AGG(m.procedure_code ORDER BY m.procedure_code)                    AS member_codes,
+                       ARRAY_AGG(COALESCE(d.proc_text, m.procedure_code) ORDER BY m.procedure_code) AS member_descs,
+                       ARRAY_AGG(m.member_approved ORDER BY m.procedure_code)                   AS member_approved,
+                       MODE() WITHIN GROUP (ORDER BY p.modality)                                AS group_modality
+                FROM procedure_canonical_groups g
+                JOIN procedure_canonical_members m ON m.group_id = g.id
+                LEFT JOIN procedure_duration_map p ON p.procedure_code = m.procedure_code
+                LEFT JOIN proc_descs d ON d.procedure_code = m.procedure_code
+                WHERE g.source = 'ai_suggested' AND g.approved = FALSE
+                GROUP BY g.id, g.canonical_name, g.cluster_confidence
             )
-            SELECT g.id, g.canonical_name, g.cluster_confidence,
-                   ARRAY_AGG(m.procedure_code   ORDER BY m.procedure_code) AS member_codes,
-                   ARRAY_AGG(COALESCE(d.proc_text, m.procedure_code) ORDER BY m.procedure_code) AS member_descs,
-                   ARRAY_AGG(m.member_approved   ORDER BY m.procedure_code) AS member_approved,
-                   MODE() WITHIN GROUP (ORDER BY p.modality) AS group_modality
-            FROM procedure_canonical_groups g
-            JOIN procedure_canonical_members m ON m.group_id = g.id
-            LEFT JOIN procedure_duration_map p ON p.procedure_code = m.procedure_code
-            LEFT JOIN proc_descs d ON d.procedure_code = m.procedure_code
-            WHERE g.source = 'ai_suggested' AND g.approved = FALSE
-            GROUP BY g.id, g.canonical_name, g.cluster_confidence
-            ORDER BY g.cluster_confidence DESC NULLS LAST
-        """)).fetchall()
-        ai_groups = [dict(r._mapping) for r in raw_ai]
+            SELECT
+                COALESCE(
+                    (SELECT json_agg(row_to_json(a) ORDER BY a.cluster_confidence DESC NULLS LAST) FROM ai_agg a),
+                    '[]'::json
+                ) AS ai_groups,
+                COALESCE(
+                    (SELECT json_agg(sub)
+                     FROM (
+                         SELECT p.procedure_code,
+                                COALESCE(d.proc_text, p.procedure_code) AS description,
+                                p.modality
+                         FROM procedure_duration_map p
+                         LEFT JOIN proc_descs d ON d.procedure_code = p.procedure_code
+                         WHERE p.procedure_code NOT IN (SELECT procedure_code FROM procedure_canonical_members)
+                         ORDER BY p.procedure_code
+                         LIMIT 300
+                     ) sub),
+                    '[]'::json
+                ) AS unclustered_procs
+        """)).fetchone()
+        ai_groups       = _json.loads(row[0]) if row and row[0] else []
+        unclustered_procs = _json.loads(row[1]) if row and row[1] else []
     except Exception:
         ai_groups = []
-
-    # Unclustered procedures — not assigned to any canonical group
-    try:
-        raw_unc = db.session.execute(_t("""
-            WITH proc_descs AS (
-                SELECT UPPER(TRIM(proc_id)) AS procedure_code,
-                       MODE() WITHIN GROUP (ORDER BY UPPER(TRIM(proc_text))) AS proc_text
-                FROM etl_orders
-                WHERE proc_id IS NOT NULL AND TRIM(proc_id) != ''
-                  AND proc_text IS NOT NULL AND TRIM(proc_text) != ''
-                GROUP BY UPPER(TRIM(proc_id))
-            )
-            SELECT p.procedure_code,
-                   COALESCE(d.proc_text, p.procedure_code) AS description,
-                   p.modality
-            FROM procedure_duration_map p
-            LEFT JOIN proc_descs d ON d.procedure_code = p.procedure_code
-            WHERE p.procedure_code NOT IN (
-                SELECT procedure_code FROM procedure_canonical_members
-            )
-            ORDER BY p.procedure_code
-            LIMIT 300
-        """)).fetchall()
-        unclustered_procs = [dict(r._mapping) for r in raw_unc]
-    except Exception:
         unclustered_procs = []
 
-    # Pending pairs — candidate duplicates awaiting human review
-    try:
-        pending_pairs = db.session.execute(_t("""
-            SELECT id, code_a, code_b,
-                   code_similarity, desc_similarity,
-                   desc_a, desc_b
-            FROM procedure_duplicate_candidates
-            WHERE status = 'pending'
-            ORDER BY desc_similarity DESC, code_similarity DESC
-        """)).fetchall()
-        pending_pairs = [dict(r._mapping) for r in pending_pairs]
-    except Exception:
-        pending_pairs = []
-
     return render_template(
-        'mapping.html',
-        modality_mappings=modality_mappings,
+        '_mapping_proc_partial.html',
         duration_mappings=duration_mappings,
-        exceptions_json=json.dumps(exceptions_lookup),
         conflicts=conflicts,
         conflict_codes=conflict_codes,
         fuzzy_map=fuzzy_map,
-        canonical_groups=canonical_groups,
         ai_groups=ai_groups,
-        pending_pairs=pending_pairs,
         unclustered_procs=unclustered_procs,
     )
 

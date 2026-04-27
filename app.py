@@ -591,21 +591,6 @@ def create_app():
         replace_existing=True
     )
 
-    def scheduled_oru_nlp():
-        with app.app_context():
-            try:
-                from routes.oru_analytics import run_oru_nlp_batch
-                run_oru_nlp_batch()
-            except Exception as e:
-                logger.error(f"[ORU NLP] Batch job failed: {e}", exc_info=True)
-
-    scheduler.add_job(
-        func=scheduled_oru_nlp,
-        trigger=IntervalTrigger(minutes=60),
-        id='oru_nlp_analysis',
-        name='ORU NLP Analysis Cache',
-        replace_existing=True
-    )
 
     # Only start scheduler and HL7 listener when running as server, not manual ETL
     manual_mode = len(sys.argv) > 1 and sys.argv[1] == '-m'

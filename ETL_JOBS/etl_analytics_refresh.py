@@ -86,6 +86,7 @@ def refresh_storage_summary():
                 etl_didb_raw_images.raw_image_db_uid == etl_image_locations.raw_image_db_uid,
             )
             .filter(etl_didb_studies.study_date >= go_live)
+            .filter(etl_didb_studies.study_modality != 'SR')
             .group_by(
                 etl_didb_studies.study_date,
                 etl_didb_studies.storing_ae,
