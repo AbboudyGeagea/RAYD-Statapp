@@ -465,7 +465,10 @@ def _handle_client(conn, addr, app):
 
                 raw_bytes   = buffer[start + 1:end]
                 buffer      = buffer[end + 2:]
-                raw_message = raw_bytes.decode('utf-8', errors='replace')
+                try:
+                    raw_message = raw_bytes.decode('utf-8')
+                except UnicodeDecodeError:
+                    raw_message = raw_bytes.decode('latin-1')
                 segments    = [s.strip() for s in raw_message.replace('\r\n','\r').replace('\n','\r').split('\r') if s.strip()]
                 msh         = _seg(segments, 'MSH')
 
