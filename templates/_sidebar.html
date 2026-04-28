@@ -169,10 +169,15 @@
 (function() {
     let _hl7Prev = parseInt(sessionStorage.getItem('hl7_count') || '-1');
 
+    const _hl7Url = "{{ url_for('hl7_orders.hl7_orders_page') }}";
+
     function _hl7Toast(n) {
         const t = document.createElement('div');
-        t.style.cssText = 'position:fixed;bottom:24px;right:24px;background:#1a2035;border:1px solid rgba(244,63,94,0.45);color:#f43f5e;padding:10px 18px;border-radius:8px;font-size:12px;font-weight:700;z-index:9999;box-shadow:0 4px 24px rgba(0,0,0,0.5);display:flex;align-items:center;gap:8px;';
-        t.innerHTML = '<i class="bi bi-clipboard2-pulse"></i> +' + n + ' new HL7 order' + (n > 1 ? 's' : '') + ' received';
+        t.style.cssText = 'position:fixed;bottom:24px;right:24px;background:#1a2035;border:1px solid rgba(244,63,94,0.45);color:#f43f5e;padding:10px 18px;border-radius:8px;font-size:12px;font-weight:700;z-index:9999;box-shadow:0 4px 24px rgba(0,0,0,0.5);display:flex;align-items:center;gap:8px;cursor:pointer;transition:filter 0.15s;';
+        t.innerHTML = '<i class="bi bi-clipboard2-pulse"></i> +' + n + ' new HL7 order' + (n > 1 ? 's' : '') + ' received<span style="margin-left:8px;font-size:10px;opacity:0.7;border-left:1px solid rgba(244,63,94,0.4);padding-left:8px;">View →</span>';
+        t.onmouseenter = () => t.style.filter = 'brightness(1.15)';
+        t.onmouseleave = () => t.style.filter = '';
+        t.onclick = () => window.location.href = _hl7Url;
         document.body.appendChild(t);
         setTimeout(() => { t.style.transition='opacity 0.4s'; t.style.opacity='0'; setTimeout(()=>t.remove(),400); }, 4000);
     }
