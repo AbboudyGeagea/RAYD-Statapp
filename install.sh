@@ -12,6 +12,22 @@ ok()    { echo -e "${GREEN}[OK]${NC}    $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error() { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 
+# ── Fixed PostgreSQL credentials (never changes across deployments) ────────────
+PG_USER="etl_user"
+PG_DB="etl_db"
+PG_PASSWORD="SecureCrynBabe"
+
+# ── Fixed app secret key (must match the key used to encrypt Oracle password) ──
+# WARNING: changing this will invalidate all encrypted DB passwords stored in db_params
+FIXED_SECRET_KEY="c0f1a2b3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1"
+
+# ── Fixed Oracle PACS credentials (only host changes per site) ────────────────
+ORACLE_PORT=1521
+ORACLE_SID="mst1"
+ORACLE_USER="sys"
+# Pre-encrypted with FIXED_SECRET_KEY above — update both together if password changes
+ORACLE_PASS_ENCRYPTED="gAAAAABp7K-egdXV1gJMKghGHJ3Iji-v81_fe1hL3EZ5krpgHT4YThnzsXVYUQkG_LJxfY8utazmYqc5EWPww7gh8D7LaI61VQ=="
+
 # Run SQL against the Postgres container
 pg_exec() {
     docker exec rayd_db psql -U "$PG_USER" -d "$PG_DB" -c "$1" -q
@@ -80,37 +96,37 @@ fi
 # ──────────────────────────────────────────────────────
 info "Step 3/7 — Setting up .env..."
 
-if [ -f ".env" ]; then
-    ok ".env already exists — skipping. Edit it manually if needed."
+if [ -f ".env" ] && grep -q "^SECRET_KEY=.\+" .env; then
+    ok ".env already exists with SECRET_KEY — skipping. Edit it manually if needed."
 else
-    cp .env.example .env
-
+    [ -f ".env" ] && warn ".env exists but is missing SECRET_KEY — regenerating..."
     echo ""
-    echo "  Please enter the required configuration values."
-    echo "  Press ENTER to keep the default shown in brackets."
-    echo ""
+    read -r -p "  Master admin registration key [auto-generate]: " MASTER_ADMIN_KEY
+    MASTER_ADMIN_KEY="${MASTER_ADMIN_KEY:-$(openssl rand -hex 12)}"
 
-    prompt_val() {
-        local key="$1" prompt="$2" default="$3" val
-        read -r -p "  ${prompt} [${default}]: " val
-        val="${val:-$default}"
-        sed -i "s|^${key}=.*|${key}=${val}|" .env
-    }
+    cat > .env <<EOF
+SECRET_KEY=${FIXED_SECRET_KEY}
+MASTER_ADMIN_KEY=${MASTER_ADMIN_KEY}
 
-    RANDOM_SECRET=$(openssl rand -hex 32)
-    prompt_val "SECRET_KEY"         "Flask SECRET_KEY"                  "$RANDOM_SECRET"
-    prompt_val "POSTGRES_PASSWORD"  "PostgreSQL password"               "$(openssl rand -hex 16)"
-    prompt_val "MASTER_ADMIN_KEY"   "Master admin registration key"     "$(openssl rand -hex 12)"
-    prompt_val "TZ"                 "Timezone (e.g. Asia/Beirut)"       "Asia/Beirut"
-    prompt_val "BITNET_ENABLED"     "Enable Qwen AI assistant? (true/false)"    "true"
+POSTGRES_USER=${PG_USER}
+POSTGRES_PASSWORD=${PG_PASSWORD}
+POSTGRES_HOST=db
+POSTGRES_PORT=5432
+POSTGRES_DB=${PG_DB}
+
+TZ=Asia/Beirut
+LIVE_FEED_ENABLED=true
+BITNET_ENABLED=true
+BITNET_SERVER=http://172.17.0.1:8081
+BITNET_TOKENS=200
+BITNET_TIMEOUT=120
+EOF
 
     ok ".env created."
 fi
 
-# Load .env so we can use the values in later steps
+# Load .env so later steps can read it
 set -a; source .env; set +a
-PG_USER="${POSTGRES_USER:-etl_user}"
-PG_DB="${POSTGRES_DB:-etl_db}"
 
 # ──────────────────────────────────────────────────────
 # STEP 4: SSL certificates (self-signed)
@@ -149,7 +165,6 @@ $COMPOSE down --remove-orphans 2>/dev/null || true
 $COMPOSE build --no-cache
 $COMPOSE up -d
 
-# Wait for Postgres to be healthy (up to 90s)
 info "Waiting for database to be ready..."
 WAIT=0
 until docker exec rayd_db pg_isready -U "$PG_USER" -d "$PG_DB" -q 2>/dev/null || [ $WAIT -ge 90 ]; do
@@ -157,7 +172,6 @@ until docker exec rayd_db pg_isready -U "$PG_USER" -d "$PG_DB" -q 2>/dev/null ||
 done
 docker exec rayd_db pg_isready -U "$PG_USER" -d "$PG_DB" -q 2>/dev/null || error "Database did not become ready in time. Check: $COMPOSE logs db"
 
-# Wait for rayd-app to be up
 WAIT=0
 until $COMPOSE ps | grep rayd_service | grep -q "Up" || [ $WAIT -ge 60 ]; do
     sleep 3; WAIT=$((WAIT+3))
@@ -172,9 +186,7 @@ ok "All containers are running."
 info "Step 6/7 — Configuring database..."
 
 # ── 6a. Truncate all ETL tables ───────────────────────
-echo ""
 info "Truncating all ETL tables (RESTART IDENTITY CASCADE)..."
-
 pg_exec "
 DO \$\$
 DECLARE
@@ -192,91 +204,16 @@ END \$\$;
 "
 ok "ETL tables truncated."
 
-# ── 6b. PostgreSQL credentials ────────────────────────
-echo ""
-echo "  ── PostgreSQL Credentials ──────────────────────"
-echo "  (Stored in .env — used by the app and the db container)"
-echo "  Press ENTER to keep current values."
-echo ""
-
-# Read current values from .env as defaults
-CUR_PG_USER="${POSTGRES_USER:-etl_user}"
-CUR_PG_DB="${POSTGRES_DB:-etl_db}"
-CUR_PG_PASSWORD="${POSTGRES_PASSWORD:-}"
-
-read -r -p "  PostgreSQL username [${CUR_PG_USER}]: " NEW_PG_USER
-NEW_PG_USER="${NEW_PG_USER:-$CUR_PG_USER}"
-
-read -r -p "  PostgreSQL database name [${CUR_PG_DB}]: " NEW_PG_DB
-NEW_PG_DB="${NEW_PG_DB:-$CUR_PG_DB}"
-
-read -r -s -p "  PostgreSQL password [keep current]: " NEW_PG_PASSWORD; echo ""
-NEW_PG_PASSWORD="${NEW_PG_PASSWORD:-$CUR_PG_PASSWORD}"
-while [ -z "$NEW_PG_PASSWORD" ]; do
-    read -r -s -p "  PostgreSQL password (required): " NEW_PG_PASSWORD; echo ""
-done
-
-# Update .env with new PG values
-sed -i "s|^POSTGRES_USER=.*|POSTGRES_USER=${NEW_PG_USER}|"     .env
-sed -i "s|^POSTGRES_DB=.*|POSTGRES_DB=${NEW_PG_DB}|"           .env
-sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${NEW_PG_PASSWORD}|" .env
-
-# Reload for pg_exec to pick up updated values
-PG_USER="$NEW_PG_USER"
-PG_DB="$NEW_PG_DB"
-
-# If credentials changed, restart containers to apply them
-if [[ "$NEW_PG_USER" != "$CUR_PG_USER" || "$NEW_PG_DB" != "$CUR_PG_DB" || "$NEW_PG_PASSWORD" != "$CUR_PG_PASSWORD" ]]; then
-    info "Restarting containers to apply new PostgreSQL credentials..."
-    $COMPOSE down --remove-orphans
-    $COMPOSE up -d
-    WAIT=0
-    until docker exec rayd_db pg_isready -U "$PG_USER" -d "$PG_DB" -q 2>/dev/null || [ $WAIT -ge 90 ]; do
-        sleep 3; WAIT=$((WAIT+3))
-    done
-    docker exec rayd_db pg_isready -U "$PG_USER" -d "$PG_DB" -q 2>/dev/null || error "Database did not become ready after restart."
-fi
-
-ok "PostgreSQL credentials saved (${NEW_PG_USER}@${NEW_PG_DB})."
-
-# ── 6c. PACS Oracle connection ────────────────────────
+# ── 6b. PACS Oracle connection ────────────────────────
 echo ""
 echo "  ── PACS Oracle Connection ──────────────────────"
-echo "  (Stored in db_params table as 'oracle_ris')"
+echo "  (All credentials are fixed — only the host IP changes per site)"
 echo ""
 
 read -r -p "  Oracle PACS host IP or hostname: " ORACLE_HOST
 while [ -z "$ORACLE_HOST" ]; do
     read -r -p "  Oracle PACS host IP or hostname (required): " ORACLE_HOST
 done
-
-read -r -p "  Oracle port [1521]: " ORACLE_PORT
-ORACLE_PORT="${ORACLE_PORT:-1521}"
-
-read -r -p "  Oracle SID: " ORACLE_SID
-while [ -z "$ORACLE_SID" ]; do
-    read -r -p "  Oracle SID (required): " ORACLE_SID
-done
-
-read -r -p "  Oracle username: " ORACLE_USER
-while [ -z "$ORACLE_USER" ]; do
-    read -r -p "  Oracle username (required): " ORACLE_USER
-done
-
-read -r -s -p "  Oracle password: " ORACLE_PASS; echo ""
-while [ -z "$ORACLE_PASS" ]; do
-    read -r -s -p "  Oracle password (required): " ORACLE_PASS; echo ""
-done
-
-# Encrypt Oracle password using the app's SECRET_KEY
-set -a; source .env; set +a
-ENCRYPTED_ORACLE_PASS=$(python3 -c "
-import sys, os, base64, hashlib
-os.environ['SECRET_KEY'] = '${SECRET_KEY}'
-sys.path.insert(0, '.')
-from utils.crypto import encrypt
-print(encrypt('${ORACLE_PASS}'))
-")
 
 pg_exec "
 INSERT INTO db_params (name, db_role, db_type, host, port, sid, username, password, mode)
@@ -288,7 +225,7 @@ VALUES (
     ${ORACLE_PORT},
     '${ORACLE_SID}',
     '${ORACLE_USER}',
-    '${ENCRYPTED_ORACLE_PASS}',
+    '${ORACLE_PASS_ENCRYPTED}',
     ''
 )
 ON CONFLICT (name) DO UPDATE SET
@@ -298,9 +235,9 @@ ON CONFLICT (name) DO UPDATE SET
     username = EXCLUDED.username,
     password = EXCLUDED.password;
 "
-ok "Oracle PACS connection saved (${ORACLE_USER}@${ORACLE_HOST}:${ORACLE_PORT}/${ORACLE_SID}) — password encrypted."
+ok "Oracle PACS connection saved (${ORACLE_USER}@${ORACLE_HOST}:${ORACLE_PORT}/${ORACLE_SID}) — password pre-encrypted."
 
-# ── 6d. License Tier ─────────────────────────────────
+# ── 6c. License Tier ─────────────────────────────────
 echo ""
 echo "  ── License Tier ──────────────────────────────────"
 echo "  1) Basic        — Report 22 only, 5 users, 2 sessions, 5k row cap"
@@ -318,7 +255,6 @@ case "$TIER_CHOICE" in
     *) TIER_KEY="enterprise" ;;
 esac
 
-# Build the license JSON using Python (access to TIER_PRESETS)
 PRESET_KEY="$TIER_KEY"
 if [[ "$TIER_KEY" == "custom" ]]; then PRESET_KEY="enterprise"; fi
 LICENSE_JSON=$(python3 -c "
@@ -335,7 +271,6 @@ if [[ "$TIER_KEY" == "custom" ]]; then
     echo "  $LICENSE_JSON" | python3 -m json.tool 2>/dev/null || echo "  $LICENSE_JSON"
     echo ""
 
-    # Let the user customise individual fields
     read -r -p "  Licensed report IDs (comma-separated, e.g. 22,23,25,27,29): " CUSTOM_REPORTS
     if [ -n "$CUSTOM_REPORTS" ]; then
         LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "
@@ -387,7 +322,6 @@ print(json.dumps(d))
 ")
     fi
 
-    # Toggle individual features
     for feat in ai_report capacity_ladder er_dashboard patient_portal live_feed liveview hl7_orders oru_analytics saved_reports bitnet_ai export adapter_mapper; do
         CURRENT=$(echo "$LICENSE_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('$feat', False))")
         read -r -p "  Enable $feat? (current: $CURRENT) [y/n/Enter=keep]: " TOGGLE
@@ -409,7 +343,6 @@ print(json.dumps(d))
     done
 fi
 
-# Write license to settings table
 pg_exec "
 INSERT INTO settings (key, value) VALUES ('license', '${LICENSE_JSON}')
 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
@@ -420,11 +353,11 @@ echo "  Final license:"
 echo "  $LICENSE_JSON" | python3 -m json.tool 2>/dev/null || echo "  $LICENSE_JSON"
 ok "License tier '${TIER_KEY}' saved."
 
-# ── 6e. Demo mode / Go-live date ──────────────────────
+# ── 6d. Demo mode / Go-live date ──────────────────────
 echo ""
 echo "  ── Deployment Type ─────────────────────────────"
 read -r -p "  Is this a demo installation? (y/N): " IS_DEMO
-IS_DEMO="${IS_DEMO,,}"  # lowercase
+IS_DEMO="${IS_DEMO,,}"
 
 if [[ "$IS_DEMO" == "y" || "$IS_DEMO" == "yes" ]]; then
 
@@ -460,7 +393,6 @@ ON CONFLICT (key) DO UPDATE SET value = 'false';
 "
     ok "Demo mode is OFF."
 
-    # Ask for go-live date — ETL pulls data starting from this date
     echo ""
     read -r -p "  Go-live date for ETL (YYYY-MM-DD) — ETL will pull data from this date onwards: " GO_LIVE
     while ! [[ "$GO_LIVE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; do
