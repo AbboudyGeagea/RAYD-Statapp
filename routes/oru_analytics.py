@@ -852,7 +852,8 @@ def get_critical_keywords():
 @oru_bp.route('/critical-keywords', methods=['POST'])
 @login_required
 def add_critical_keyword():
-    if current_user.role != 'admin':
+    from db import user_has_page
+    if current_user.role != 'admin' and not user_has_page(current_user, 'oru'):
         abort(403)
     data = request.get_json(silent=True) or {}
     word = (data.get('word') or '').strip().lower()
@@ -874,7 +875,8 @@ def add_critical_keyword():
 @oru_bp.route('/critical-keywords/<path:word>', methods=['DELETE'])
 @login_required
 def delete_critical_keyword(word):
-    if current_user.role != 'admin':
+    from db import user_has_page
+    if current_user.role != 'admin' and not user_has_page(current_user, 'oru'):
         abort(403)
     word = word.strip().lower()
     key = f'oru_crit:{word}'

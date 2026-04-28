@@ -343,6 +343,35 @@ def create_app():
     with app.app_context():
         try:
             db.session.execute(text("""
+                CREATE TABLE IF NOT EXISTS ai_nlp_cache (
+                    id              SERIAL PRIMARY KEY,
+                    source_id       INTEGER NOT NULL REFERENCES hl7_oru_reports(id) ON DELETE CASCADE,
+                    classification  VARCHAR(20),
+                    keywords        JSONB,
+                    cluster_id      INTEGER,
+                    cluster_label   TEXT,
+                    severity_score  NUMERIC(3,1),
+                    processed_at    TIMESTAMP DEFAULT NOW(),
+                    UNIQUE (source_id)
+                )
+            """))
+            db.session.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_nlp_classification ON ai_nlp_cache (classification)"
+            ))
+            db.session.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_nlp_cluster ON ai_nlp_cache (cluster_id)"
+            ))
+            db.session.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_oru_received ON hl7_oru_reports (received_at DESC)"
+            ))
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            logger.warning(f"[Migration] ai_nlp_cache: {e}")
+
+    with app.app_context():
+        try:
+            db.session.execute(text("""
                 CREATE TABLE IF NOT EXISTS hl7_oru_reports (
                     id               SERIAL PRIMARY KEY,
                     procedure_code   VARCHAR(100),
@@ -363,39 +392,10 @@ def create_app():
             db.session.execute(text(
                 "ALTER TABLE hl7_oru_reports ADD COLUMN IF NOT EXISTS accession_number VARCHAR(100)"
             ))
-            db.session.execute(text(
-                "CREATE INDEX IF NOT EXISTS idx_oru_received ON hl7_oru_reports (received_at DESC)"
-            ))
             db.session.commit()
         except Exception as e:
             db.session.rollback()
             logger.warning(f"[Migration] hl7_oru_reports: {e}")
-
-    with app.app_context():
-        try:
-            db.session.execute(text("""
-                CREATE TABLE IF NOT EXISTS ai_nlp_cache (
-                    id              SERIAL PRIMARY KEY,
-                    source_id       INTEGER NOT NULL REFERENCES hl7_oru_reports(id) ON DELETE CASCADE,
-                    classification  VARCHAR(20),
-                    keywords        JSONB,
-                    cluster_id      INTEGER,
-                    cluster_label   TEXT,
-                    severity_score  NUMERIC(3,1),
-                    processed_at    TIMESTAMP DEFAULT NOW(),
-                    UNIQUE (source_id)
-                )
-            """))
-            db.session.execute(text(
-                "CREATE INDEX IF NOT EXISTS idx_nlp_classification ON ai_nlp_cache (classification)"
-            ))
-            db.session.execute(text(
-                "CREATE INDEX IF NOT EXISTS idx_nlp_cluster ON ai_nlp_cache (cluster_id)"
-            ))
-            db.session.commit()
-        except Exception as e:
-            db.session.rollback()
-            logger.warning(f"[Migration] ai_nlp_cache: {e}")
 
     # --- MIGRATION: hl7_scn_studies (real-time completed studies) ---
     with app.app_context():
