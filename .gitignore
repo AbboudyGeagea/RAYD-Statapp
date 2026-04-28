@@ -19,3 +19,4 @@ instance/
 .vscode/
 graphify-out/
 RAYD-Statapp/
+.last_req_hash

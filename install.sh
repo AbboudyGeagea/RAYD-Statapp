@@ -162,7 +162,20 @@ fi
 info "Step 5/7 — Building and starting Docker containers..."
 
 $COMPOSE down --remove-orphans 2>/dev/null || true
-$COMPOSE build
+
+# Only reinstall Python packages if requirements.txt changed since last build
+REQ_HASH=$(md5sum requirements.txt 2>/dev/null | awk '{print $1}')
+LAST_HASH=$(cat .last_req_hash 2>/dev/null || echo "")
+
+if [ "$REQ_HASH" != "$LAST_HASH" ]; then
+    info "requirements.txt changed — installing packages..."
+    $COMPOSE build
+    echo "$REQ_HASH" > .last_req_hash
+else
+    ok "Python packages unchanged — skipping pip install."
+    $COMPOSE build  # rebuilds app code only; pip layer served from Docker cache
+fi
+
 $COMPOSE up -d
 
 info "Waiting for database to be ready..."
