@@ -162,7 +162,7 @@ fi
 info "Step 5/7 — Building and starting Docker containers..."
 
 $COMPOSE down --remove-orphans 2>/dev/null || true
-$COMPOSE build --no-cache
+$COMPOSE build
 $COMPOSE up -d
 
 info "Waiting for database to be ready..."
