@@ -31,7 +31,7 @@ if command -v llama-server &>/dev/null; then
     echo "[1/4] llama-server found at $LLAMA_BIN — skipping build"
 else
     echo "[1/4] llama-server not found — building llama.cpp from source..."
-    apt-get update -qq
+    apt-get update -qq 2>&1 | grep -v "^W:" || true
     apt-get install -y -qq build-essential cmake git
 
     BUILD_DIR="/opt/llama.cpp"
