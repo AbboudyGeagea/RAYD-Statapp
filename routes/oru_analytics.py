@@ -479,6 +479,7 @@ def oru_data():
                                     r.received_at.strftime('%Y-%m-%d') if r.received_at else '—'),
                 'physician_id':     r.physician_id or '—',
                 'received_at':      r.received_at.strftime('%Y-%m-%d %H:%M') if r.received_at else '—',
+                'report_text':      (r.impression_text or r.report_text or '').strip(),
             })
     critical_log = critical_log[:20]
 
@@ -836,8 +837,7 @@ def nlp_results():
 @oru_bp.route('/critical-keywords')
 @login_required
 def get_critical_keywords():
-    from db import user_has_page
-    if current_user.role != 'admin' and not user_has_page(current_user, 'oru'):
+    if current_user.role not in ('admin', 'viewer', 'viewer2'):
         abort(403)
     try:
         rows = db.session.execute(
@@ -852,8 +852,7 @@ def get_critical_keywords():
 @oru_bp.route('/critical-keywords', methods=['POST'])
 @login_required
 def add_critical_keyword():
-    from db import user_has_page
-    if current_user.role != 'admin' and not user_has_page(current_user, 'oru'):
+    if current_user.role not in ('admin', 'viewer', 'viewer2'):
         abort(403)
     data = request.get_json(silent=True) or {}
     word = (data.get('word') or '').strip().lower()
@@ -875,8 +874,7 @@ def add_critical_keyword():
 @oru_bp.route('/critical-keywords/<path:word>', methods=['DELETE'])
 @login_required
 def delete_critical_keyword(word):
-    from db import user_has_page
-    if current_user.role != 'admin' and not user_has_page(current_user, 'oru'):
+    if current_user.role not in ('admin', 'viewer', 'viewer2'):
         abort(403)
     word = word.strip().lower()
     key = f'oru_crit:{word}'

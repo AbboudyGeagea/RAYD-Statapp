@@ -385,6 +385,7 @@
                 <tr>
                   <th>Date Reported</th>
                   <th>Reporter</th>
+                  <th>PID</th>
                   <th>Procedure Code</th>
                   <th>Critical Words</th>
                   <th>Accession #</th>
@@ -855,14 +856,32 @@ function buildCritical(log) {
     ? `<span style="font-family:monospace;font-size:11px;color:#e2e8f0;">${esc(s)}</span>`
     : `<em style="color:#475569">—</em>`;
 
-  tbody.innerHTML = log.map(r => `
-    <tr>
+  tbody.innerHTML = log.map((r, i) => {
+    const hasText = r.report_text && r.report_text.trim();
+    const detailId = `crit-detail-${i}`;
+    const mainRow = `
+    <tr style="cursor:${hasText ? 'pointer' : 'default'};" onclick="${hasText ? `toggleCritDetail('${detailId}')` : ''}">
       <td style="white-space:nowrap;font-size:11px;color:#64748b;">${esc(r.date || r.received_at)}</td>
       <td style="color:#a78bfa;font-size:11px;font-weight:700;">${esc(r.physician_id || '—')}</td>
+      <td style="font-family:monospace;font-size:11px;color:#60a5fa;">${esc(r.patient_id || '—')}</td>
       <td><span class="proc-tag">${esc(r.procedure_code || r.procedure || '—')}</span></td>
       <td>${(r.keywords||[]).map(k => `<span class="keyword-badge">${esc(k)}</span>`).join('') || '<em style="color:#475569">—</em>'}</td>
-      <td>${mono(r.accession_number)}</td>
-    </tr>`).join('');
+      <td>${mono(r.accession_number)}${hasText ? ' <span style="color:#4b7a63;font-size:9px;vertical-align:middle;">▼</span>' : ''}</td>
+    </tr>`;
+    const detailRow = hasText ? `
+    <tr id="${detailId}" style="display:none;">
+      <td colspan="6" style="padding:8px 16px 12px;background:#0d1510;border-bottom:1px solid #1a211e;">
+        <pre style="margin:0;white-space:pre-wrap;font-size:11px;color:#94a3b8;line-height:1.6;font-family:inherit;">${esc(r.report_text)}</pre>
+      </td>
+    </tr>` : '';
+    return mainRow + detailRow;
+  }).join('');
+}
+
+function toggleCritDetail(id) {
+  const row = document.getElementById(id);
+  if (!row) return;
+  row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
 }
 
 function exportCriticalPNG() {

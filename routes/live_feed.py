@@ -235,13 +235,20 @@ def live_status():
 @login_required
 def live_tat():
     """
-    Returns today's completed exam TAT stats (two sources):
+    Returns completed exam TAT stats (two sources) for a given date (defaults to today).
       Done TAT      = done_at      - scheduled_datetime  (technician manual done)
       PACS Done TAT = pacs_done_at - scheduled_datetime  (PACS/scanner confirmation)
-    A row appears if either done_at or pacs_done_at is set for today.
+    A row appears if either done_at or pacs_done_at is set for the target date.
+    Accepts optional ?date=YYYY-MM-DD query parameter.
     """
     if not user_has_page(current_user, 'live_feed'):
         abort(403)
+    from datetime import date as _date
+    raw_date = request.args.get('date', '').strip()
+    try:
+        target_date = str(_date.fromisoformat(raw_date)) if raw_date else str(_date.today())
+    except ValueError:
+        target_date = str(_date.today())
     try:
         rows = db.session.execute(text("""
             SELECT
@@ -263,11 +270,11 @@ def live_tat():
             FROM hl7_orders o
             WHERE o.scheduled_datetime IS NOT NULL
               AND (
-                  (o.done_at IS NOT NULL      AND o.done_at::date      = CURRENT_DATE)
-               OR (o.pacs_done_at IS NOT NULL AND o.pacs_done_at::date = CURRENT_DATE)
+                  (o.done_at IS NOT NULL      AND o.done_at::date      = :target_date)
+               OR (o.pacs_done_at IS NOT NULL AND o.pacs_done_at::date = :target_date)
               )
             ORDER BY GREATEST(COALESCE(o.done_at, '-infinity'), COALESCE(o.pacs_done_at, '-infinity')) DESC
-        """)).mappings().fetchall()
+        """), {'target_date': target_date}).mappings().fetchall()
 
         exams = []
         for r in rows:

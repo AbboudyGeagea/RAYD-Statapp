@@ -235,9 +235,14 @@
         <div id="tat-panel" class="mt-6" style="display:none;">
             <div style="background:#111714;border:1px solid #1a2420;border-radius:16px;padding:20px;">
                 <div class="flex items-center justify-between mb-4" style="flex-wrap:wrap;gap:12px;">
-                    <div>
-                        <h2 style="color:#e2e8f0;font-weight:900;font-size:13px;text-transform:uppercase;letter-spacing:0.08em;">Technician TAT — Today</h2>
-                        <p style="color:#475569;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.15em;margin-top:2px;">Scheduled → Done &amp; PACS Done</p>
+                    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+                        <div>
+                            <h2 style="color:#e2e8f0;font-weight:900;font-size:13px;text-transform:uppercase;letter-spacing:0.08em;">Technician TAT</h2>
+                            <p style="color:#475569;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.15em;margin-top:2px;">Scheduled → Done &amp; PACS Done</p>
+                        </div>
+                        <input type="date" id="tat-date-picker"
+                               style="background:#0d1510;border:1px solid #1e2d27;border-radius:8px;color:#94a3b8;font-size:11px;font-weight:700;padding:5px 10px;cursor:pointer;outline:none;"
+                               onchange="loadTat()">
                     </div>
                     <div style="display:flex;gap:20px;flex-wrap:wrap;">
                         <!-- Done TAT stats -->
@@ -639,7 +644,10 @@ function escHtml(s) {
 // ── Patient Waiting Time TAT ──────────────────────────────────────────
 async function loadTat() {
     try {
-        const res  = await fetch('/viewer/live/tat');
+        const picker = document.getElementById('tat-date-picker');
+        if (picker && !picker.value) picker.value = new Date().toISOString().slice(0, 10);
+        const dateParam = picker ? picker.value : new Date().toISOString().slice(0, 10);
+        const res  = await fetch('/viewer/live/tat?date=' + encodeURIComponent(dateParam));
         const data = await res.json();
         if (data.error || !data.count) { document.getElementById('tat-panel').style.display = 'none'; return; }
 

@@ -24,7 +24,7 @@ def get_or_create(model, **kwargs):
 @mapping_bp.route('/export/modality')
 @login_required
 def export_modality_csv():
-    if not user_has_page(current_user, 'mapping'): return abort(403)
+    if current_user.role not in ('admin', 'viewer', 'viewer2') and not user_has_page(current_user, 'mapping'): return abort(403)
     from flask import current_app, jsonify
     from routes.registry import check_license_limit
     ok, msg = check_license_limit(current_app, 'export')
@@ -49,7 +49,7 @@ def export_modality_csv():
 @mapping_bp.route('/export/procedure')
 @login_required
 def export_procedure_csv():
-    if not user_has_page(current_user, 'mapping'): return abort(403)
+    if current_user.role not in ('admin', 'viewer', 'viewer2') and not user_has_page(current_user, 'mapping'): return abort(403)
     from flask import current_app, jsonify
     from routes.registry import check_license_limit
     ok, msg = check_license_limit(current_app, 'export')
@@ -72,7 +72,7 @@ def export_procedure_csv():
 @mapping_bp.route('', methods=['GET'])
 @login_required
 def mapping_page():
-    if not user_has_page(current_user, 'mapping'): return abort(403)
+    if current_user.role not in ('admin', 'viewer', 'viewer2') and not user_has_page(current_user, 'mapping'): return abort(403)
 
     modality_mappings = AETitleModalityMap.query.order_by(AETitleModalityMap.aetitle).all()
 
@@ -112,7 +112,7 @@ def mapping_page():
 @login_required
 def procedures_tab():
     """Lazy-loaded HTML fragment for the Procedures tab."""
-    if not user_has_page(current_user, 'mapping'): return abort(403)
+    if current_user.role not in ('admin', 'viewer', 'viewer2') and not user_has_page(current_user, 'mapping'): return abort(403)
 
     from sqlalchemy import text as _t
     import json as _json

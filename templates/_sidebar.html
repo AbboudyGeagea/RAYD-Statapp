@@ -179,7 +179,7 @@
         t.onmouseleave = () => t.style.filter = '';
         t.onclick = () => window.location.href = _hl7Url;
         document.body.appendChild(t);
-        setTimeout(() => { t.style.transition='opacity 0.4s'; t.style.opacity='0'; setTimeout(()=>t.remove(),400); }, 4000);
+        setTimeout(() => { t.style.transition='opacity 0.4s'; t.style.opacity='0'; setTimeout(()=>t.remove(),400); }, 10000);
     }
 
     async function _hl7Poll() {
