@@ -94,7 +94,11 @@ else
         local key="$1" prompt="$2" default="$3" val
         read -r -p "  ${prompt} [${default}]: " val
         val="${val:-$default}"
-        sed -i "s|^${key}=.*|${key}=${val}|" .env
+        if grep -q "^${key}=" .env; then
+            sed -i "s|^${key}=.*|${key}=${val}|" .env
+        else
+            echo "${key}=${val}" >> .env
+        fi
     }
 
     RANDOM_SECRET=$(openssl rand -hex 32)
