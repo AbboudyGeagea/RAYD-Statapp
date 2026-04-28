@@ -4,13 +4,10 @@ FROM python:3.11-slim
 # 1. Install system dependencies
 # libaio1 and libaio-dev are required for the Oracle Instant Client
 # libpq-dev is required for the PostgreSQL connection
-RUN apt-get update && apt-get install -y \
-    libpq-dev \
-    gcc \
-    libaio1t64 \
-    libaio-dev \
-    tzdata \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && \
+    apt-get install -y libpq-dev gcc libaio-dev tzdata && \
+    ( apt-get install -y libaio1t64 2>/dev/null || apt-get install -y libaio1 2>/dev/null || true ) && \
+    rm -rf /var/lib/apt/lists/*
 
 # 2. Set the working directory inside the container
 WORKDIR /app
