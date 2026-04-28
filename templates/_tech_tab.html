@@ -70,25 +70,25 @@
         <p class="text-3xl font-black text-emerald-400">{{ ts.total_completed }}</p>
         <p class="text-[10px] text-zinc-600">marked done</p>
     </div>
-    <div class="glass-card flex flex-col items-center cursor-pointer" onclick="scrollToSection('tech-never-done')">
+    <div class="glass-card flex flex-col items-center">
         <p class="text-[10px] font-black text-zinc-500 uppercase">Never Done</p>
         <p class="text-3xl font-black {{ 'text-rose-400' if ts.never_done > 0 else 'text-zinc-600' }}">{{ ts.never_done }}</p>
         <p class="text-[10px] text-zinc-600">past due, no mark</p>
     </div>
-    <div class="glass-card flex flex-col items-center cursor-pointer" onclick="scrollToSection('tech-flagged')">
+    <div class="glass-card flex flex-col items-center">
         <p class="text-[10px] font-black text-zinc-500 uppercase">Before Scheduled</p>
         <p class="text-3xl font-black {{ 'text-rose-400' if ts.flag_before_scheduled > 0 else 'text-zinc-600' }}">{{ ts.flag_before_scheduled }}</p>
-        <p class="text-[10px] text-zinc-600">done_at &lt; scheduled</p>
+        <p class="text-[10px] text-zinc-600">done before scheduled</p>
     </div>
-    <div class="glass-card flex flex-col items-center cursor-pointer" onclick="scrollToSection('tech-flagged')">
+    <div class="glass-card flex flex-col items-center">
         <p class="text-[10px] font-black text-zinc-500 uppercase">Too Early</p>
         <p class="text-3xl font-black {{ 'text-amber-400' if ts.flag_too_early > 0 else 'text-zinc-600' }}">{{ ts.flag_too_early }}</p>
-        <p class="text-[10px] text-zinc-600">&lt; 50% of duration</p>
+        <p class="text-[10px] text-zinc-600">under 50% of expected time</p>
     </div>
-    <div class="glass-card flex flex-col items-center cursor-pointer" onclick="scrollToSection('tech-flagged')">
+    <div class="glass-card flex flex-col items-center">
         <p class="text-[10px] font-black text-zinc-500 uppercase">Overlap / Too Late</p>
         <p class="text-3xl font-black {{ 'text-amber-400' if (ts.flag_overlap + ts.flag_too_late) > 0 else 'text-zinc-600' }}">{{ ts.flag_overlap + ts.flag_too_late }}</p>
-        <p class="text-[10px] text-zinc-600">concurrent or &gt;2× duration</p>
+        <p class="text-[10px] text-zinc-600">concurrent or over 2× expected</p>
     </div>
 </div>
 
@@ -192,17 +192,6 @@
 </div>
 {% endif %}
 
-<script>
-function toggleTechMod(id, row) {
-    const sub  = document.getElementById(id);
-    const icon = document.getElementById(id + '-icon');
-    if (!sub) return;
-    const open = sub.style.display !== 'none';
-    sub.style.display = open ? 'none' : 'table-row';
-    if (icon && icon.textContent.trim()) icon.textContent = open ? '▶' : '▼';
-}
-</script>
-
 <!-- By Modality -->
 {% if tech_data.by_modality %}
 <div class="space-y-3">
@@ -245,46 +234,69 @@ function toggleTechMod(id, row) {
         <table class="w-full text-left" style="border-collapse:separate; border-spacing:0;">
             <thead>
                 <tr class="text-[10px] font-black text-zinc-500 uppercase tracking-wider">
+                    <th class="pb-3 pr-1 sticky top-0 bg-[#111413] z-10 w-4"></th>
                     <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Accession</th>
-                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Mod.</th>
+                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Type</th>
                     <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Technician</th>
                     <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Scheduled</th>
                     <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Done At</th>
                     <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right text-blue-400">Done TAT</th>
-                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">PACS Done</th>
-                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right text-purple-400">PACS TAT</th>
+                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Scanner Done</th>
+                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right text-purple-400">Scanner TAT</th>
                     <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right">Expected</th>
-                    <th class="pb-3 sticky top-0 bg-[#111413] z-10">Flags</th>
+                    <th class="pb-3 sticky top-0 bg-[#111413] z-10">Issues</th>
                 </tr>
             </thead>
             <tbody>
                 {% for s in tech_data.flagged %}
-                <tr class="border-t border-white/5">
+                {% set fid = 'flag-er-' ~ loop.index %}
+                <tr class="border-t border-white/5 {{ 'cursor-pointer hover:bg-white/[0.02]' if s.er_concurrent else '' }}"
+                    {{ ('onclick="toggleFlagER(\'' ~ fid ~ '\')"') if s.er_concurrent else '' }}>
+                    <td class="py-2 pr-1 text-[10px] text-red-400" id="{{ fid }}-icon">
+                        {% if s.er_concurrent %}▶{% endif %}
+                    </td>
                     <td class="py-2 pr-4 text-xs font-mono text-zinc-400">{{ s.accession }}</td>
                     <td class="py-2 pr-4 text-xs text-zinc-400">{{ s.modality }}</td>
-                    <td class="py-2 pr-4 text-xs font-bold text-blue-400">{{ s.technician or '--' }}</td>
+                    <td class="py-2 pr-4 text-xs font-bold text-blue-400">{{ s.technician or '—' }}</td>
                     <td class="py-2 pr-4 text-xs text-zinc-500">{{ s.scheduled_at }}</td>
                     <td class="py-2 pr-4 text-xs text-zinc-500">{{ s.done_at }}</td>
-                    <td class="py-2 pr-4 text-right text-xs font-mono font-bold {{ 'text-rose-400' if s.tat_min < 0 else 'text-blue-300' }}">{{ '%.1f'|format(s.tat_min) }}m</td>
+                    <td class="py-2 pr-4 text-right text-xs font-mono font-bold {{ 'text-rose-400' if s.tat_min < 0 else 'text-blue-300' }}">{{ '%.1f'|format(s.tat_min) }} min</td>
                     <td class="py-2 pr-4 text-xs text-zinc-500 font-mono">{{ s.pacs_done_at or '—' }}</td>
                     <td class="py-2 pr-4 text-right text-xs font-mono font-bold text-purple-300">
-                        {% if s.pacs_tat_min is not none %}{{ '%.1f'|format(s.pacs_tat_min) }}m{% else %}—{% endif %}
+                        {% if s.pacs_tat_min is not none %}{{ '%.1f'|format(s.pacs_tat_min) }} min{% else %}—{% endif %}
                     </td>
-                    <td class="py-2 pr-4 text-right text-xs font-mono text-zinc-500">{{ s.proc_duration }}m</td>
+                    <td class="py-2 pr-4 text-right text-xs font-mono text-zinc-500">{{ s.proc_duration }} min</td>
                     <td class="py-2">
                         <div class="flex flex-wrap gap-1">
-                            {% if 'before_scheduled' in s.flags %}<span class="px-1.5 py-0.5 rounded bg-rose-500/20 border border-rose-500/40 text-rose-400 text-[9px] font-bold">BEFORE SCHED.</span>{% endif %}
+                            {% if 'before_scheduled' in s.flags %}<span class="px-1.5 py-0.5 rounded bg-rose-500/20 border border-rose-500/40 text-rose-400 text-[9px] font-bold">BEFORE TIME</span>{% endif %}
                             {% if 'too_early' in s.flags %}<span class="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-400 text-[9px] font-bold">TOO EARLY</span>{% endif %}
                             {% if 'overlap' in s.flags %}<span class="px-1.5 py-0.5 rounded bg-orange-500/20 border border-orange-500/40 text-orange-400 text-[9px] font-bold">OVERLAP</span>{% endif %}
                             {% if 'too_late' in s.flags %}<span class="px-1.5 py-0.5 rounded bg-purple-500/20 border border-purple-500/40 text-purple-400 text-[9px] font-bold">TOO LATE</span>{% endif %}
                             {% if s.er_concurrent %}
-                            <span class="px-1.5 py-0.5 rounded bg-red-900/40 border border-red-500/50 text-red-300 text-[9px] font-bold" title="ER patient on same modality during this exam window&#10;{% for e in s.er_concurrent %}{{ e.accession }}{% if e.patient_class %} ({{ e.patient_class }}){% endif %}{% if not loop.last %}, {% endif %}{% endfor %}">
-                                ⚡ ER CONCURRENT
+                            <span class="px-1.5 py-0.5 rounded bg-red-900/40 border border-red-500/50 text-red-300 text-[9px] font-bold">
+                                ⚡ ER OVERLAP ({{ s.er_concurrent|length }}) — click to expand
                             </span>
                             {% endif %}
                         </div>
                     </td>
                 </tr>
+                {% if s.er_concurrent %}
+                <tr id="{{ fid }}" style="display:none;" class="bg-red-950/20">
+                    <td></td>
+                    <td colspan="10" class="pt-1 pb-3 pl-2">
+                        <p class="text-[9px] font-black text-red-400 uppercase tracking-wider mb-2">ER patients on the same scanner during this exam window:</p>
+                        <div class="flex flex-wrap gap-2">
+                            {% for e in s.er_concurrent %}
+                            <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-red-500/25 bg-red-950/30">
+                                <span class="text-[9px] font-black text-red-400 uppercase">⚡ ER</span>
+                                <span class="text-[10px] font-mono text-zinc-300">{{ e.accession }}</span>
+                                {% if e.patient_class %}<span class="text-[9px] text-zinc-500">{{ e.patient_class }}</span>{% endif %}
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </td>
+                </tr>
+                {% endif %}
                 {% endfor %}
             </tbody>
         </table>
@@ -294,34 +306,57 @@ function toggleTechMod(id, row) {
 
 <!-- Never Done -->
 {% if tech_data.never_done %}
+{% set nd_total = tech_data.never_done|length %}
 <div id="tech-never-done" class="space-y-3">
     <p class="text-xs font-black text-rose-500 uppercase tracking-widest">
         Never Marked Done
-        <span class="ml-2 px-2 py-0.5 rounded bg-rose-500/10 border border-rose-500/20 text-rose-400 text-[10px]">{{ tech_data.never_done|length }} overdue</span>
+        <span class="ml-2 px-2 py-0.5 rounded bg-rose-500/10 border border-rose-500/20 text-rose-400 text-[10px]">{{ nd_total }} overdue</span>
     </p>
-    <div class="glass-card overflow-x-auto" style="max-height:360px; overflow-y:auto;">
+    <div class="glass-card overflow-x-auto">
         <table class="w-full text-left" style="border-collapse:separate; border-spacing:0;">
             <thead>
                 <tr class="text-[10px] font-black text-zinc-500 uppercase tracking-wider">
                     <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Accession</th>
-                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Mod.</th>
+                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Type</th>
                     <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Procedure</th>
                     <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Scheduled</th>
                     <th class="pb-3 sticky top-0 bg-[#111413] z-10 text-right">Overdue By</th>
                 </tr>
             </thead>
             <tbody>
-                {% for s in tech_data.never_done %}
+                {% for s in tech_data.never_done[:10] %}
                 <tr class="border-t border-white/5">
                     <td class="py-2 pr-4 text-xs font-mono text-zinc-400">{{ s.accession }}</td>
                     <td class="py-2 pr-4 text-xs text-zinc-400">{{ s.modality }}</td>
                     <td class="py-2 pr-4 text-xs text-zinc-500">{{ s.procedure }}</td>
                     <td class="py-2 pr-4 text-xs text-zinc-500">{{ s.scheduled_at }}</td>
-                    <td class="py-2 text-right text-xs font-mono font-bold text-rose-400">{{ '%.0f'|format(s.overdue_min) }}m overdue</td>
+                    <td class="py-2 text-right text-xs font-mono font-bold text-rose-400">{{ '%.0f'|format(s.overdue_min) }} min overdue</td>
                 </tr>
                 {% endfor %}
             </tbody>
+            {% if nd_total > 10 %}
+            <tbody id="never-done-extra" style="display:none;">
+                {% for s in tech_data.never_done[10:] %}
+                <tr class="border-t border-white/5">
+                    <td class="py-2 pr-4 text-xs font-mono text-zinc-400">{{ s.accession }}</td>
+                    <td class="py-2 pr-4 text-xs text-zinc-400">{{ s.modality }}</td>
+                    <td class="py-2 pr-4 text-xs text-zinc-500">{{ s.procedure }}</td>
+                    <td class="py-2 pr-4 text-xs text-zinc-500">{{ s.scheduled_at }}</td>
+                    <td class="py-2 text-right text-xs font-mono font-bold text-rose-400">{{ '%.0f'|format(s.overdue_min) }} min overdue</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+            {% endif %}
         </table>
+        {% if nd_total > 10 %}
+        <div class="pt-3 pb-1 text-center">
+            <button id="never-done-show-more"
+                onclick="document.getElementById('never-done-extra').style.display=''; this.style.display='none';"
+                class="text-[10px] font-black text-rose-400 uppercase tracking-wider hover:text-rose-300 transition-colors px-4 py-1.5 rounded-lg border border-rose-500/20 hover:border-rose-500/40">
+                Show {{ nd_total - 10 }} more overdue exams ▼
+            </button>
+        </div>
+        {% endif %}
     </div>
 </div>
 {% endif %}

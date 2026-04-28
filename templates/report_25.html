@@ -1312,6 +1312,24 @@
             if (icon) icon.style.transform = hidden ? '' : 'rotate(180deg)';
         }
 
+        function toggleTechMod(id) {
+            const sub  = document.getElementById(id);
+            const icon = document.getElementById(id + '-icon');
+            if (!sub) return;
+            const open = sub.style.display !== 'none';
+            sub.style.display = open ? 'none' : 'table-row';
+            if (icon && icon.textContent.trim()) icon.textContent = open ? '▶' : '▼';
+        }
+
+        function toggleFlagER(id) {
+            const sub  = document.getElementById(id);
+            const icon = document.getElementById(id + '-icon');
+            if (!sub) return;
+            const open = sub.style.display !== 'none';
+            sub.style.display = open ? 'none' : 'table-row';
+            if (icon) icon.textContent = open ? '▶' : '▼';
+        }
+
         window._techCharts = {};
         function downloadChartPNG(elId, name) {
             const c = window._techCharts[elId];
