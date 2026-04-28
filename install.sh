@@ -272,12 +272,12 @@ while [ -z "$ORACLE_PASS" ]; do
     read -r -s -p "  Oracle password (required): " ORACLE_PASS; echo ""
 done
 
-# Encrypt Oracle password using the app's SECRET_KEY
+# Encrypt Oracle password using the app's SECRET_KEY (runs inside container where Flask is installed)
 set -a; source .env; set +a
-ENCRYPTED_ORACLE_PASS=$(python3 -c "
-import sys, os, base64, hashlib
+ENCRYPTED_ORACLE_PASS=$(docker exec rayd_service python3 -c "
+import sys, os
 os.environ['SECRET_KEY'] = '${SECRET_KEY}'
-sys.path.insert(0, '.')
+sys.path.insert(0, '/app')
 from utils.crypto import encrypt
 print(encrypt('${ORACLE_PASS}'))
 ")
@@ -322,27 +322,34 @@ case "$TIER_CHOICE" in
     *) TIER_KEY="enterprise" ;;
 esac
 
-# Build the license JSON using Python (access to TIER_PRESETS)
-PRESET_KEY="$TIER_KEY"
-if [[ "$TIER_KEY" == "custom" ]]; then PRESET_KEY="enterprise"; fi
-LICENSE_JSON=$(python3 -c "
-import sys, json
-sys.path.insert(0, '.')
-from routes.registry import TIER_PRESETS
-print(json.dumps(TIER_PRESETS['${PRESET_KEY}']))
-")
+# Build the license JSON — inlined to avoid requiring Flask on the host
+ALL_REPORTS='[22,23,25,27,29]'
+case "$TIER_KEY" in
+    basic)
+        LICENSE_JSON='{"tier":"basic","reports":[22],"ai_report":false,"capacity_ladder":false,"er_dashboard":false,"patient_portal":false,"live_feed":true,"hl7_orders":true,"oru_analytics":false,"saved_reports":false,"bitnet_ai":false,"export":false,"adapter_mapper":false,"super_report":false,"referring_intel":false,"max_users":5,"max_sessions":2,"expires":"","max_studies_per_report":5000}'
+        ;;
+    professional)
+        LICENSE_JSON="{\"tier\":\"professional\",\"reports\":${ALL_REPORTS},\"ai_report\":false,\"capacity_ladder\":true,\"er_dashboard\":true,\"patient_portal\":false,\"live_feed\":true,\"hl7_orders\":true,\"oru_analytics\":true,\"saved_reports\":true,\"bitnet_ai\":false,\"export\":true,\"adapter_mapper\":false,\"super_report\":true,\"referring_intel\":false,\"max_users\":0,\"max_sessions\":0,\"expires\":\"\",\"max_studies_per_report\":0}"
+        ;;
+    *)  # enterprise and custom both start from enterprise
+        LICENSE_JSON="{\"tier\":\"enterprise\",\"reports\":${ALL_REPORTS},\"ai_report\":true,\"capacity_ladder\":true,\"er_dashboard\":true,\"patient_portal\":true,\"live_feed\":true,\"hl7_orders\":true,\"oru_analytics\":true,\"saved_reports\":true,\"bitnet_ai\":true,\"export\":true,\"adapter_mapper\":true,\"super_report\":true,\"referring_intel\":true,\"max_users\":0,\"max_sessions\":0,\"expires\":\"\",\"max_studies_per_report\":0}"
+        ;;
+esac
 
 if [[ "$TIER_KEY" == "custom" ]]; then
     echo ""
     echo "  Starting from enterprise tier. Edit the JSON below."
     echo "  Current license JSON:"
-    echo "  $LICENSE_JSON" | python3 -m json.tool 2>/dev/null || echo "  $LICENSE_JSON"
+    echo "  $LICENSE_JSON" | docker exec -i rayd_service python3 -m json.tool 2>/dev/null || echo "  $LICENSE_JSON"
     echo ""
 
-    # Let the user customise individual fields
+    # Helper: update a JSON field via the container's python3
+    json_set() { echo "$1" | docker exec -i rayd_service python3 -c "import sys,json; d=json.load(sys.stdin); d['$2']=$3; print(json.dumps(d))"; }
+
     read -r -p "  Licensed report IDs (comma-separated, e.g. 22,23,25,27,29): " CUSTOM_REPORTS
     if [ -n "$CUSTOM_REPORTS" ]; then
-        LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "
+        REPORTS_LIST="[$(echo "$CUSTOM_REPORTS" | tr ',' '\n' | grep -E '^[0-9]+$' | tr '\n' ',' | sed 's/,$//')]"
+        LICENSE_JSON=$(echo "$LICENSE_JSON" | docker exec -i rayd_service python3 -c "
 import sys, json
 d = json.load(sys.stdin)
 d['reports'] = [int(x.strip()) for x in '${CUSTOM_REPORTS}'.split(',') if x.strip().isdigit()]
@@ -352,63 +359,25 @@ print(json.dumps(d))
     fi
 
     read -r -p "  Max users (0 = unlimited): " CUSTOM_MAX_USERS
-    if [ -n "$CUSTOM_MAX_USERS" ]; then
-        LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-d['max_users'] = int('${CUSTOM_MAX_USERS}') if '${CUSTOM_MAX_USERS}'.isdigit() else 0
-print(json.dumps(d))
-")
-    fi
+    [[ -n "$CUSTOM_MAX_USERS" ]] && LICENSE_JSON=$(json_set "$LICENSE_JSON" max_users "${CUSTOM_MAX_USERS:-0}")
 
     read -r -p "  Max concurrent sessions (0 = unlimited): " CUSTOM_MAX_SESS
-    if [ -n "$CUSTOM_MAX_SESS" ]; then
-        LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-d['max_sessions'] = int('${CUSTOM_MAX_SESS}') if '${CUSTOM_MAX_SESS}'.isdigit() else 0
-print(json.dumps(d))
-")
-    fi
+    [[ -n "$CUSTOM_MAX_SESS" ]] && LICENSE_JSON=$(json_set "$LICENSE_JSON" max_sessions "${CUSTOM_MAX_SESS:-0}")
 
     read -r -p "  Expiry date (YYYY-MM-DD, blank = never): " CUSTOM_EXPIRY
-    if [ -n "$CUSTOM_EXPIRY" ]; then
-        LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-d['expires'] = '${CUSTOM_EXPIRY}'
-print(json.dumps(d))
-")
-    fi
+    [[ -n "$CUSTOM_EXPIRY" ]] && LICENSE_JSON=$(json_set "$LICENSE_JSON" expires "\"${CUSTOM_EXPIRY}\"")
 
     read -r -p "  Max studies per report (0 = unlimited): " CUSTOM_STUDY_CAP
-    if [ -n "$CUSTOM_STUDY_CAP" ]; then
-        LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-d['max_studies_per_report'] = int('${CUSTOM_STUDY_CAP}') if '${CUSTOM_STUDY_CAP}'.isdigit() else 0
-print(json.dumps(d))
-")
-    fi
+    [[ -n "$CUSTOM_STUDY_CAP" ]] && LICENSE_JSON=$(json_set "$LICENSE_JSON" max_studies_per_report "${CUSTOM_STUDY_CAP:-0}")
 
     # Toggle individual features
-    for feat in ai_report capacity_ladder er_dashboard patient_portal live_feed liveview hl7_orders oru_analytics saved_reports bitnet_ai export adapter_mapper; do
-        CURRENT=$(echo "$LICENSE_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('$feat', False))")
+    for feat in ai_report capacity_ladder er_dashboard patient_portal live_feed hl7_orders oru_analytics saved_reports bitnet_ai export adapter_mapper super_report referring_intel; do
+        CURRENT=$(echo "$LICENSE_JSON" | docker exec -i rayd_service python3 -c "import sys,json; print(json.load(sys.stdin).get('$feat', False))")
         read -r -p "  Enable $feat? (current: $CURRENT) [y/n/Enter=keep]: " TOGGLE
         if [[ "${TOGGLE,,}" == "y" ]]; then
-            LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-d['$feat'] = True
-print(json.dumps(d))
-")
+            LICENSE_JSON=$(json_set "$LICENSE_JSON" "$feat" True)
         elif [[ "${TOGGLE,,}" == "n" ]]; then
-            LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-d['$feat'] = False
-print(json.dumps(d))
-")
+            LICENSE_JSON=$(json_set "$LICENSE_JSON" "$feat" False)
         fi
     done
 fi
