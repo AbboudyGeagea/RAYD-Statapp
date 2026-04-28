@@ -58,7 +58,7 @@ else
 
     # Install huggingface_hub if needed
     if ! python3 -c "import huggingface_hub" 2>/dev/null; then
-        pip3 install -q huggingface_hub
+        python3 -m pip install -q huggingface_hub
     fi
 
     python3 - <<PYEOF
