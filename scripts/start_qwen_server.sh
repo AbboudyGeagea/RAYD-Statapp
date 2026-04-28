@@ -8,9 +8,9 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-MODEL_DIR="${MODEL_DIR:-/home/stats/BitNet}"
+MODEL_DIR="${MODEL_DIR:-/home/stats/Qwen}"
 MODEL_FILE="Qwen2.5-7B-Instruct-Q4_K_M.gguf"
-PORT="${BITNET_PORT:-8081}"
+PORT="${QWEN_PORT:-8081}"
 THREADS="${THREADS:-$(nproc)}"
 
 if [ ! -f "$MODEL_DIR/$MODEL_FILE" ]; then

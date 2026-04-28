@@ -5,7 +5,7 @@
 #
 # What this does:
 #   1. Installs llama.cpp (builds from source if binary not found)
-#   2. Downloads Qwen2.5-7B-Instruct-Q4_K_M.gguf → /home/stats/BitNet/
+#   2. Downloads Qwen2.5-7B-Instruct-Q4_K_M.gguf → /home/stats/Qwen/
 #   3. Installs a systemd service (qwen-server) that starts on boot
 #   4. Starts the service immediately
 #
@@ -14,7 +14,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-MODEL_DIR="/home/stats/BitNet"
+MODEL_DIR="/home/stats/Qwen"
 MODEL_FILE="Qwen2.5-7B-Instruct-Q4_K_M.gguf"
 MODEL_REPO="bartowski/Qwen2.5-7B-Instruct-GGUF"
 PORT=8081

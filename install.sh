@@ -55,7 +55,9 @@ if [ -d "$ORACLE_DIR" ]; then
     ok "Oracle Instant Client 21.13 already installed at $ORACLE_DIR"
 else
     warn "Oracle Instant Client not found. Installing..."
-    apt-get update -qq && apt-get install -y -qq libaio1t64 libaio-dev unzip wget
+    apt-get update -qq
+    apt-get install -y -qq libaio-dev unzip wget
+    apt-get install -y -qq libaio1t64 2>/dev/null || apt-get install -y -qq libaio1 2>/dev/null || warn "libaio not found — Oracle client may not work. Install libaio1 or libaio1t64 manually."
 
     mkdir -p /opt/oracle
     cd /opt/oracle
@@ -511,7 +513,7 @@ fi
 SETUP_SCRIPT="${SCRIPT_DIR}/scripts/setup_qwen_prod.sh"
 
 if [ "${BITNET_ENABLED:-true}" != "true" ]; then
-    warn "Qwen AI is disabled (BITNET_ENABLED=false). Skipping model setup."
+    warn "Qwen AI assistant is disabled. Skipping model setup."
     warn "To enable later, set BITNET_ENABLED=true in .env and re-run this script."
 elif [ ! -f "$SETUP_SCRIPT" ]; then
     warn "Setup script not found at $SETUP_SCRIPT — skipping Qwen setup."

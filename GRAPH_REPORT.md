@@ -12,7 +12,7 @@
 ## Community Hubs (Navigation)
 - [[_COMMUNITY_App Factory & Config|App Factory & Config]]
 - [[_COMMUNITY_Admin Controller|Admin Controller]]
-- [[_COMMUNITY_AI  BitNet Service|AI / BitNet Service]]
+- [[_COMMUNITY_AI  Qwen Service|AI / Qwen Service]]
 - [[_COMMUNITY_Database Models (copy)|Database Models (copy)]]
 - [[_COMMUNITY_HL7 Listener & Parser|HL7 Listener & Parser]]
 - [[_COMMUNITY_Mapping Controller|Mapping Controller]]
@@ -106,7 +106,7 @@ Nodes (58): Config, create_app(), get_db_uri_from_db(), Uses raw psycopg2 to fet
 Cohesion: 0.07
 Nodes (18): _get_demo_settings(), login(), register(), check_license_limit(), check_report_licensed(), get_study_limit(), _load_license(), Read license JSON from settings table. Falls back to full access. (+10 more)
 
-### Community 2 - "AI / BitNet Service"
+### Community 2 - "AI / Qwen Service"
 Cohesion: 0.1
 Nodes (23): admin_feedback_list(), alerts(), _build_context(), chat(), _contains_hallucination(), _ensure_ai_tables(), _fetch_base_context(), _get_corrections() (+15 more)
 
