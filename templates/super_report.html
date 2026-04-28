@@ -56,10 +56,11 @@
         @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
         @media (max-width: 900px) { .narrative-box { grid-template-columns: 1fr; } }
 
+        /* Tab buttons */
+        .tab-btn { font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; color:#64748b; padding:10px 16px; border-bottom:3px solid transparent; border-top:none; border-left:none; border-right:none; background:none; cursor:pointer; transition:all 0.2s; display:flex; align-items:center; gap:6px; white-space:nowrap; border-radius:8px 8px 0 0; }
+        .tab-btn:hover { color:#94a3b8; background:rgba(255,255,255,0.03); }
+        .tab-btn.active { color:#60a5fa; border-bottom-color:#60a5fa; background:rgba(96,165,250,0.06); }
         /* Daily Briefing */
-        .briefing-tab { background: transparent; color: #64748b; }
-        .briefing-tab:hover { background: rgba(96,165,250,0.1); color: #60a5fa; }
-        .briefing-tab.active-tab { background: rgba(96,165,250,0.15); color: #60a5fa; border: 1px solid rgba(96,165,250,0.3) !important; }
         .briefing-pre { white-space: pre-wrap; font-family: 'Inter', monospace; font-size: 12px; line-height: 1.7; color: #cbd5e1; }
         .briefing-alert { color: #f87171; font-weight: 700; }
         .briefing-section-head { color: #f59e0b; font-weight: 900; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; }
@@ -78,6 +79,7 @@
         body.light .narrative-section ul li { color: #475569 !important; border-color: #e2e8f0 !important; }
         body.light .sidebar-item { color: #4a5568 !important; }
         body.light .sidebar-item:hover, body.light .sidebar-item.active { background: #e2e8f0 !important; color: #2b6cb0 !important; }
+        body.light aside, body.light header { background:#ffffff !important; border-color:#e2e8f0 !important; }
     </style>
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
@@ -88,7 +90,7 @@
     <div class="flex flex-1 overflow-hidden">
 
         <!-- Filter Sidebar -->
-        <aside id="filter-sidebar" class="shrink-0 bg-[#1a2420] border-r border-[#28332e] flex flex-col transition-all duration-300 z-10" style="width:240px;">
+        <aside id="filter-sidebar" class="shrink-0 flex-shrink-0 bg-[#1a2420] border-r border-[#28332e] flex flex-col transition-all duration-300 z-10" style="width:240px;">
 
             <!-- Header -->
             <div class="flex items-center justify-between px-4 py-3 border-b border-[#28332e] shrink-0">
@@ -182,19 +184,13 @@
                         <span id="briefing-updated" style="font-size:9px;font-weight:700;color:#475569;margin-left:4px;"></span>
                     </div>
                     <div style="display:flex;gap:4px;" id="briefing-tabs">
-                        <button onclick="showBriefing('last_30d')" id="tab-last_30d"
-                                class="briefing-tab active-tab"
-                                style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.08em;padding:3px 10px;border-radius:5px;border:none;cursor:pointer;transition:all 0.15s;">
+                        <button onclick="showBriefing('last_30d')" id="tab-last_30d" class="tab-btn active">
                             Last 30d
                         </button>
-                        <button onclick="showBriefing('last_90d')" id="tab-last_90d"
-                                class="briefing-tab"
-                                style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.08em;padding:3px 10px;border-radius:5px;border:none;cursor:pointer;transition:all 0.15s;">
+                        <button onclick="showBriefing('last_90d')" id="tab-last_90d" class="tab-btn">
                             Last 90d
                         </button>
-                        <button onclick="showBriefing('ytd')" id="tab-ytd"
-                                class="briefing-tab"
-                                style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.08em;padding:3px 10px;border-radius:5px;border:none;cursor:pointer;transition:all 0.15s;">
+                        <button onclick="showBriefing('ytd')" id="tab-ytd" class="tab-btn">
                             YTD
                         </button>
                     </div>
@@ -984,7 +980,7 @@
         // Update tab styles
         ['last_30d','last_90d','ytd'].forEach(k => {
             const t = document.getElementById(`tab-${k}`);
-            if (t) t.classList.toggle('active-tab', k === label);
+            if (t) t.classList.toggle('active', k === label);
         });
 
         const snap = window._briefings[label];

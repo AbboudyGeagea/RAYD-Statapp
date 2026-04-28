@@ -6,7 +6,7 @@
     },
     "claude-flow": {
       "command": "npx",
-      "args": ["claude-flow@alpha", "mcp", "start"]
+      "args": ["--prefer-offline", "claude-flow@alpha", "mcp", "start"]
     }
   }
 }

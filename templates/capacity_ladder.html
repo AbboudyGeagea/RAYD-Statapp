@@ -11,10 +11,11 @@
         * { box-sizing:border-box; margin:0; padding:0; }
         body { font-family:'Inter',sans-serif; background:var(--bg); color:#e2e8f0; height:100vh; overflow:hidden; }
         body { transition: background 0.2s, color 0.2s; }
-        body.light { background: #f0f4f8 !important; color: #1a202c !important; }
-        body.light aside, body.light header { background: #ffffff !important; border-color: #e2e8f0 !important; }
-        body.light .sidebar-item { color: #4a5568 !important; }
-        body.light .sidebar-item:hover, body.light .sidebar-item.active { background: #e2e8f0 !important; color: #2b6cb0 !important; }
+        body.light { background:#f0f4f8 !important; color:#1a202c !important; }
+        body.light aside, body.light header { background:#ffffff !important; border-color:#e2e8f0 !important; }
+        body.light .sidebar-item { color:#4a5568 !important; }
+        body.light .sidebar-item:hover, body.light .sidebar-item.active { background:#e2e8f0 !important; color:#2b6cb0 !important; }
+        body.light .input-dark { background:#ffffff !important; border-color:#e2e8f0 !important; color:#1a202c !important; }
         ::-webkit-scrollbar { width:4px; height:4px; }
         ::-webkit-scrollbar-thumb { background:#28332e; border-radius:10px; }
         .sidebar-item { transition:all 0.2s; border-radius:0.75rem; margin-bottom:0.25rem; text-decoration:none!important; color:#94a3b8; display:flex; align-items:center; gap:12px; padding:10px 16px; font-size:14px; font-weight:700; }
@@ -32,10 +33,10 @@
         .badge-red    { background:rgba(239,68,68,0.15);  color:#ef4444; }
         .badge-gray   { background:rgba(100,116,139,0.15);color:#64748b; }
         .badge-blue   { background:rgba(96,165,250,0.15); color:#60a5fa; }
-        .strat-tab { flex:1; padding:9px 4px; text-align:center; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.07em; color:#64748b; cursor:pointer; border-bottom:2px solid transparent; transition:all 0.2s; white-space:nowrap; }
-        .strat-tab:hover { color:#e2e8f0; }
-        .strat-tab.active-base      { color:#60a5fa; border-bottom-color:#60a5fa; }
-        .strat-tab.active-optimizer { color:#10b981; border-bottom-color:#10b981; }
+        /* Unified tab button */
+        .tab-btn { font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; color:#64748b; padding:10px 0; border-bottom:3px solid transparent; border-top:none; border-left:none; border-right:none; background:none; cursor:pointer; transition:all 0.2s; display:flex; align-items:center; gap:6px; white-space:nowrap; }
+        .tab-btn:hover { color:#94a3b8; }
+        .tab-btn.active { color:#60a5fa; border-bottom-color:#60a5fa; }
         /* Slider */
         .opt-slider { -webkit-appearance:none; appearance:none; width:100%; height:5px; border-radius:4px; outline:none; cursor:pointer; }
         .opt-slider::-webkit-slider-thumb { -webkit-appearance:none; width:16px; height:16px; border-radius:50%; background:#10b981; cursor:pointer; box-shadow:0 0 6px rgba(16,185,129,0.5); }
@@ -57,58 +58,11 @@
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
 
-    <header class="bg-[#232b28] border-b border-[#28332e] px-8 py-4 flex items-center justify-center shadow-md z-30 shrink-0 relative">
-        <button onclick="toggleTheme()" title="Toggle light/dark mode" class="p-2 rounded-lg transition-colors absolute right-4 top-1/2 -translate-y-1/2" style="color:#60a5fa;font-size:1.1rem;">
-            <i id="theme-icon" class="bi bi-moon-fill"></i>
-        </button>
-        <div class="flex items-center gap-5">
-            <img src="{{ url_for('static', filename='RAYD.png') }}" class="h-12 w-auto opacity-90">
-            <div class="flex flex-col items-center">
-                <div class="h-px w-52 bg-gradient-to-r from-transparent via-[#60a5fa] to-transparent mb-1.5"></div>
-                <p class="text-[9px] font-black text-[#60a5fa] uppercase tracking-[0.35em]">Reliable Analytics for Your Department</p>
-                <div class="h-px w-52 bg-gradient-to-r from-transparent via-[#60a5fa] to-transparent mt-1.5"></div>
-            </div>
-        </div>
-    </header>
+    {% include '_header.html' %}
 
     <div class="flex flex-1 overflow-hidden">
 
-        <aside class="w-64 bg-[#232b28] border-r border-[#28332e] flex flex-col p-5 shadow-xl z-20 shrink-0">
-            <div class="flex items-center gap-3 mb-8 px-2">
-                <div class="bg-[#60a5fa] p-2.5 rounded-xl text-white shadow-lg shadow-blue-400/20"><i class="bi bi-cpu-fill text-xl"></i></div>
-                <div>
-                    <h1 class="font-black text-[#e2e8f0] tracking-tighter uppercase leading-none text-xl">RAYD</h1>
-                    <p class="text-[9px] font-black text-[#60a5fa] uppercase tracking-widest mt-1">Intelligence Hub</p>
-                </div>
-            </div>
-            <nav class="flex-1 space-y-1">
-                <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-3">Main Menu</p>
-                <a href="{{ url_for('viewer.viewer_dashboard') }}" class="sidebar-item"><i class="bi bi-speedometer2"></i> Viewer Dashboard</a>
-                {% if current_user.role == 'admin' %}
-                <a href="{{ url_for('admin.admin_dashboard') }}" class="sidebar-item"><i class="bi bi-cpu"></i> ETL Control Room</a>
-                <a href="{{ url_for('mapping.mapping_page') }}" class="sidebar-item"><i class="bi bi-calendar-week"></i> Modality / Procedures Config</a>
-                {% endif %}
-                <div class="pt-3 pb-1"><p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-2">RIS</p></div>
-                {% if current_user.role == 'admin' %}
-                <a href="{{ url_for('live_feed.live_page') }}" target="_blank" class="sidebar-item">
-                    <i class="bi bi-activity"></i> Live Modality Status
-                    <span style="font-size:8px;font-weight:900;padding:1px 6px;border-radius:4px;background:rgba(34,197,94,0.15);color:#22c55e;text-transform:uppercase;letter-spacing:0.08em;margin-left:auto;">LIVE</span>
-                </a>
-                <a href="{{ url_for('hl7_orders.hl7_orders_page') }}" class="sidebar-item"><i class="bi bi-clipboard2-pulse"></i> HL7 Orders</a>
-                <a href="{{ url_for('portal_admin.portal_users') }}" target="_blank" class="sidebar-item"><i class="bi bi-person-vcard"></i> Patient Portal</a>
-                {% endif %}
-                {% if config.BITNET_ENABLED %}
-                <div class="pt-3 pb-1"><p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-2">AI</p></div>
-                <a href="{{ url_for('bitnet.assistant_page') }}" class="sidebar-item"><i class="bi bi-stars"></i> AI Assistant</a>
-                {% endif %}
-            </nav>
-            <div class="mt-auto p-4 bg-[#181f1c] rounded-2xl border border-[#28332e]">
-                <p class="text-[10px] uppercase text-slate-500 font-bold mb-1">System Health</p>
-                <p class="text-xs text-green-400 font-mono flex items-center gap-2">
-                    <span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span> All Systems Operational
-                </p>
-            </div>
-        </aside>
+        {% include '_sidebar.html' %}
 
         <main class="flex-1 overflow-hidden flex flex-col">
 
@@ -183,9 +137,9 @@
                     </div>
 
                     <!-- Strategy tabs -->
-                    <div class="flex border-b border-[#28332e] shrink-0">
-                        <div class="strat-tab active-base"      data-cls="base"      onclick="showBase(this)">📅 Schedule</div>
-                        <div class="strat-tab"                  data-cls="optimizer" onclick="showOptimizer(this)" id="stab-optimizer">⚙️ Optimizer</div>
+                    <div class="flex border-b border-[#28332e] px-4 gap-6 shrink-0">
+                        <button class="tab-btn active" data-cls="base"      onclick="showBase(this)">📅 Schedule</button>
+                        <button class="tab-btn"        data-cls="optimizer" onclick="showOptimizer(this)" id="stab-optimizer">⚙️ Optimizer</button>
                     </div>
 
                     <!-- Optimizer bar (hidden for base) -->
@@ -228,6 +182,8 @@
         </main>
     </div>
 
+    {% include '_footer.html' %}
+
     <div class="tooltip" id="tooltip"></div>
     <div class="toast"   id="toast"></div>
 
@@ -244,6 +200,28 @@ const OPT_BD = '#10b981';
 const OPT_TX = '#6ee7b7';
 
 document.getElementById('ladder-date').value = new Date().toISOString().split('T')[0];
+
+// ── Theme ─────────────────────────────────────────────────────────────
+function toggleTheme() {
+    document.body.classList.toggle('light');
+    const icon = document.getElementById('theme-icon');
+    if (icon) icon.className = document.body.classList.contains('light') ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
+    localStorage.setItem('theme', document.body.classList.contains('light') ? 'light' : 'dark');
+}
+document.addEventListener('DOMContentLoaded', () => {
+    if (localStorage.getItem('theme') === 'light') {
+        document.body.classList.add('light');
+        const icon = document.getElementById('theme-icon');
+        if (icon) icon.className = 'bi bi-sun-fill';
+    }
+});
+
+function applyTheme(theme) {
+    document.body.classList.toggle('light', theme === 'light');
+    const icon = document.getElementById('theme-icon');
+    if (icon) icon.className = theme === 'light' ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
+}
+applyTheme("{{ ui_theme }}");
 
 // ── Overview ──────────────────────────────────────────────────────────
 async function loadOverview() {
@@ -290,9 +268,8 @@ async function drillDown(aetitle) {
 
     // Reset to base tab
     _optActive = false; _candidates = []; _gaps = [];
-    document.querySelectorAll('.strat-tab').forEach(t =>
-        t.classList.remove('active-base','active-optimizer'));
-    document.querySelector('[data-cls="base"]').classList.add('active-base');
+    document.querySelectorAll('.tab-btn').forEach(t => t.classList.remove('active'));
+    document.querySelector('[data-cls="base"]').classList.add('active');
     setVis('strat-bar', false);
 
     try {
@@ -326,9 +303,8 @@ async function drillDown(aetitle) {
 // ── Tab switching ─────────────────────────────────────────────────────
 function showBase(el) {
     _optActive = false;
-    document.querySelectorAll('.strat-tab').forEach(t =>
-        t.classList.remove('active-base','active-optimizer'));
-    el.classList.add('active-base');
+    document.querySelectorAll('.tab-btn').forEach(t => t.classList.remove('active'));
+    el.classList.add('active');
     setVis('strat-bar', false);
     renderTimeline(null);
 }
@@ -336,9 +312,8 @@ function showBase(el) {
 function showOptimizer(el) {
     if (!_candidates.length) { toast('No candidate procedures available','warn'); return; }
     _optActive = true;
-    document.querySelectorAll('.strat-tab').forEach(t =>
-        t.classList.remove('active-base','active-optimizer'));
-    el.classList.add('active-optimizer');
+    document.querySelectorAll('.tab-btn').forEach(t => t.classList.remove('active'));
+    el.classList.add('active');
     setVis('strat-bar', true);
     onSlider(document.getElementById('opt-slider').value);
 }
@@ -530,18 +505,6 @@ function escHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&
 function escJs(s) { return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
 
 loadOverview();
-
-function applyTheme(theme) {
-    document.body.classList.toggle('light', theme === 'light');
-    const icon = document.getElementById('theme-icon');
-    if (icon) icon.className = theme === 'light' ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
-}
-applyTheme("{{ ui_theme }}");
-function toggleTheme() {
-    const next = document.body.classList.contains('light') ? 'dark' : 'light';
-    applyTheme(next);
-    fetch('/user/theme', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({theme: next}) });
-}
 </script>
 </body>
 </html>

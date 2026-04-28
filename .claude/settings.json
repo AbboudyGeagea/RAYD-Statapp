@@ -7,7 +7,16 @@
       "mcp__claude-flow__swarm_init",
       "mcp__claude-flow__system_health",
       "mcp__claude-flow__memory_store",
-      "mcp__claude-flow__config_set"
+      "mcp__claude-flow__config_set",
+      "PowerShell(Get-ChildItem \"$env:APPDATA\\\\Claude\\\\claude-code\" | Select-Object Name, LastWriteTime | Format-Table -AutoSize)",
+      "PowerShell(Get-ChildItem \"$env:APPDATA\\\\Claude\\\\claude-code\\\\2.1.119\" | Select-Object Name, LastWriteTime | Format-Table -AutoSize)",
+      "PowerShell(Get-Content \"$env:APPDATA\\\\Claude\\\\logs\\\\main.log\" -Tail 80 | Select-String -Pattern \"mcp|claude-flow|ruflo|error|Error|MCP\" | Select-Object -Last 40 | ForEach-Object { $_.Line })",
+      "PowerShell(Get-Content \"$env:APPDATA\\\\Claude\\\\logs\\\\main.log\" -Tail 200 | Select-String -Pattern \"mcp|MCP|claude.flow|ruflo\" -CaseSensitive:$false | ForEach-Object { $_.Line })",
+      "Bash(npx claude-flow@alpha mcp start)",
+      "Bash(echo \"EXIT:$?\")",
+      "Read(//tmp/**)",
+      "PowerShell(npm config get prefix 2>&1)",
+      "PowerShell(npm config get cache 2>&1)"
     ]
   },
   "hooks": {

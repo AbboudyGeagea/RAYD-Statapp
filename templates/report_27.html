@@ -7,27 +7,26 @@
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap');
-        body { font-family: 'Plus Jakarta Sans', sans-serif; background: #020617; color: #f8fafc; height: 100vh; overflow: hidden; }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
+        body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; height: 100vh; overflow: hidden; }
         body { transition: background 0.2s, color 0.2s; }
         body.light { background: #f0f4f8 !important; color: #1a202c !important; }
         body.light aside, body.light header { background: #ffffff !important; border-color: #e2e8f0 !important; }
         body.light .sidebar-item { color: #4a5568 !important; }
         body.light .sidebar-item:hover, body.light .sidebar-item.active { background: #e2e8f0 !important; color: #2b6cb0 !important; }
-        body.light .data-card { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        body.light .input-dark { background: #ffffff !important; border-color: #e2e8f0 !important; color: #1a202c !important; }
+        body.light .card, body.light .data-card { background: #ffffff !important; border-color: #e2e8f0 !important; }
         .outlier-badge { display:inline-flex; align-items:center; gap:4px; background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.4); color:#f59e0b; border-radius:999px; padding:2px 9px; font-size:10px; font-weight:700; cursor:pointer; position:relative; }
         .outlier-badge .tooltip { display:none; position:absolute; top:calc(100% + 6px); left:0; background:#1c1917; border:1px solid rgba(245,158,11,0.4); color:#fde68a; font-size:10px; padding:6px 10px; border-radius:8px; white-space:nowrap; z-index:100; }
         .outlier-badge:hover .tooltip { display:block; }
-        body.light .input-dark { background: #ffffff !important; border-color: #e2e8f0 !important; color: #1a202c !important; }
         body.light .btn-csv { background: #f0fdf4 !important; border-color: #bbf7d0 !important; color: #16a34a !important; }
-        body.light aside { background: #ffffff !important; border-color: #e2e8f0 !important; }
-        .input-dark { background: #0f172a; border: 1px solid #334155; color: white; border-radius: 6px; padding: 8px; font-size: 12px; width: 100%; outline: none; transition: border 0.2s; }
-        .input-dark:focus { border-color: #38ada9; }
-        .data-card { background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; overflow: hidden; }
+        .input-dark { background: #181f1c; border: 1px solid #28332e; color: #e2e8f0; border-radius: 8px; padding: 8px 10px; font-size: 12px; width: 100%; outline: none; transition: border 0.15s; }
+        .input-dark:focus { border-color: #60a5fa; }
+        .data-card { background: #232b28; border: 1px solid #28332e; border-radius: 12px; overflow: hidden; }
         .card-header {
             padding: 13px 16px;
-            border-bottom: 1px solid #1e293b;
-            background: rgba(30, 41, 59, 0.3);
+            border-bottom: 1px solid #28332e;
+            background: rgba(35, 43, 40, 0.5);
             font-size: 11px; font-weight: 800; color: #94a3b8;
             text-transform: uppercase; letter-spacing: 0.05em;
             display: flex; align-items: center; justify-content: space-between;
@@ -35,35 +34,39 @@
         .card-desc {
             padding: 9px 16px;
             font-size: 12px; color: #475569; font-style: italic; line-height: 1.55;
-            background: #080f1e; border-bottom: 1px solid #0f172a;
+            background: #1a2420; border-bottom: 1px solid #181f1c;
         }
         .section-desc {
             font-size: 13px; color: #475569; font-style: italic; line-height: 1.6;
-            padding: 11px 14px; background: rgba(56,173,169,0.05);
-            border-left: 3px solid #38ada9; border-radius: 0 8px 8px 0;
+            padding: 11px 14px; background: rgba(96,165,250,0.05);
+            border-left: 3px solid #60a5fa; border-radius: 0 8px 8px 0;
         }
+        .sidebar-label { font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; display: block; }
+        .tab-btn { font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; color:#64748b; padding:10px 0; border-bottom:3px solid transparent; border-top:none; border-left:none; border-right:none; background:none; cursor:pointer; transition:all 0.2s; display:flex; align-items:center; gap:6px; white-space:nowrap; }
+        .tab-btn:hover { color:#94a3b8; }
+        .tab-btn.active { color:#60a5fa; border-bottom-color:#60a5fa; }
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #28332e; border-radius: 10px; }
         .export-png-btn {
             display: inline-flex; align-items: center; gap: 4px;
             font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em;
-            color: #334155; border: 1px solid #1e293b; border-radius: 5px;
-            padding: 3px 8px; background: #020617; cursor: pointer; transition: all 0.15s;
+            color: #64748b; border: 1px solid #28332e; border-radius: 5px;
+            padding: 3px 8px; background: #181f1c; cursor: pointer; transition: all 0.15s;
             white-space: nowrap;
         }
-        .export-png-btn:hover { color: #38ada9; border-color: #38ada9; }
+        .export-png-btn:hover { color: #60a5fa; border-color: #60a5fa; }
         .btn-csv {
             width: 100%; padding: 10px; border-radius: 8px;
-            background: #0c1a1a; border: 1px solid #1e3a3a;
-            color: #38ada9; font-size: 11px; font-weight: 900;
+            background: #1a2420; border: 1px solid #28332e;
+            color: #60a5fa; font-size: 11px; font-weight: 900;
             text-transform: uppercase; letter-spacing: 0.08em;
             cursor: pointer; transition: all 0.15s;
             display: flex; align-items: center; justify-content: center; gap: 6px;
         }
-        .btn-csv:hover { background: #0f2020; border-color: #38ada9; }
+        .btn-csv:hover { background: #232b28; border-color: #60a5fa; }
         label { font-size: 11px; }
         @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
-        .ai-cursor { display:inline-block; animation:blink 1s step-start infinite; color:#38ada9; }
+        .ai-cursor { display:inline-block; animation:blink 1s step-start infinite; color:#60a5fa; }
         @media print {
             aside, header button, form button[type=submit], .card-desc, nav { display: none !important; }
             body { overflow: visible !important; background: #fff !important; color: #000 !important; }
@@ -80,24 +83,24 @@
     <div class="flex flex-1 overflow-hidden">
 
         <!-- Sidebar -->
-        <aside class="w-72 bg-[#0f172a] border-r border-slate-800 p-6 overflow-y-auto custom-scrollbar flex flex-col gap-6">
+        <aside class="w-64 bg-[#1a2420] border-r border-[#28332e] flex flex-col p-5 overflow-y-auto flex-shrink-0 custom-scrollbar gap-6">
             <form method="POST" class="space-y-5">
                 <!-- Primary range -->
                 <div>
-                    <label class="font-black text-[#38ada9] uppercase block mb-2 tracking-widest">Audit Timeline</label>
+                    <label class="font-black text-[#60a5fa] uppercase block mb-2 tracking-widest">Audit Timeline</label>
                     <input type="date" name="start_date" class="input-dark mb-2" value="{{ display_start }}">
                     <input type="date" name="end_date" class="input-dark" value="{{ display_end }}">
                 </div>
 
 
-                <button type="submit" class="w-full py-3 bg-[#38ada9] hover:bg-[#2d8e8a] text-white font-black rounded-lg uppercase text-[11px] tracking-widest transition-all">
+                <button type="submit" style="background:#60a5fa; color:#0a1628; font-weight:900; font-size:10px; text-transform:uppercase; letter-spacing:0.08em; border-radius:10px; padding:12px; width:100%; border:none; cursor:pointer; transition:filter 0.15s;" onmouseover="this.style.filter='brightness(1.1)'" onmouseout="this.style.filter=''">
                     Run Analysis
                 </button>
             </form>
 
             <!-- CSV Export — shown only after report runs -->
             {% if run_report and data %}
-            <div class="border-t border-slate-800 pt-5 space-y-3">
+            <div class="border-t border-[#28332e] pt-5 space-y-3">
                 <label class="font-black text-slate-500 uppercase block tracking-widest">Export Data</label>
                 <form method="POST" action="{{ url_for('report_27.export_report_27') }}">
                     <input type="hidden" name="start_date" value="{{ display_start }}">
@@ -118,7 +121,7 @@
         </aside>
 
         <!-- Main content -->
-        <main class="flex-1 overflow-y-auto p-6 bg-[#020617] custom-scrollbar space-y-6">
+        <main class="flex-1 overflow-y-auto p-6 bg-[#181f1c] custom-scrollbar space-y-6">
             {% if run_report and data %}
 
             <!-- Section description -->
@@ -166,15 +169,15 @@
                     Orders sharing the same <strong>patient</strong>, <strong>procedure code</strong>, and <strong>scheduled date</strong> — suggesting multiple RIS orders placed for a single visit. Included in the Orphan Orders count above.
                 </div>
                 <div class="grid grid-cols-3 gap-4 p-4">
-                    <div class="bg-[#020617] border border-slate-800 rounded-xl p-4 text-center">
+                    <div class="bg-[#181f1c] border border-[#28332e] rounded-xl p-4 text-center">
                         <p class="text-[9px] font-black text-slate-500 uppercase mb-1">Flagged Orders</p>
                         <p class="text-2xl font-black text-cyan-400">{{ "{:,}".format(data.multi_order.orders) }}</p>
                     </div>
-                    <div class="bg-[#020617] border border-slate-800 rounded-xl p-4 text-center">
+                    <div class="bg-[#181f1c] border border-[#28332e] rounded-xl p-4 text-center">
                         <p class="text-[9px] font-black text-slate-500 uppercase mb-1">Order Groups</p>
                         <p class="text-2xl font-black text-cyan-300">{{ "{:,}".format(data.multi_order.groups) }}</p>
                     </div>
-                    <div class="bg-[#020617] border border-slate-800 rounded-xl p-4 text-center">
+                    <div class="bg-[#181f1c] border border-[#28332e] rounded-xl p-4 text-center">
                         <p class="text-[9px] font-black text-slate-500 uppercase mb-1">Affected Patients</p>
                         <p class="text-2xl font-black text-sky-400">{{ "{:,}".format(data.multi_order.patients) }}</p>
                     </div>
@@ -259,7 +262,7 @@
             </div>
 
             {% else %}
-            <div class="h-full flex items-center justify-center text-slate-800 font-black text-4xl uppercase tracking-[0.2em]">
+            <div class="h-full flex items-center justify-center text-slate-700 font-black text-4xl uppercase tracking-[0.2em]">
                 Select Analysis Range
             </div>
             {% endif %}
@@ -277,7 +280,7 @@
         function exportChart(id, filename) {
             const instance = chartInstances[id];
             if (!instance) return;
-            const url = instance.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#0f172a' });
+            const url = instance.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#232b28' });
             const a = document.createElement('a');
             a.href = url;
             a.download = `${filename}_{{ display_start }}_to_{{ display_end }}.png`;
@@ -289,7 +292,7 @@
 
         if (raw) {
             const axisLabel  = { color: '#64748b', fontSize: 12, fontWeight: 600 };
-            const splitLine  = { lineStyle: { color: '#1e293b' } };
+            const splitLine  = { lineStyle: { color: '#28332e' } };
 
             // Match Pie
             const cMatch = echarts.init(document.getElementById('chart_match'));
@@ -323,10 +326,10 @@
                 series: [{
                     data: Object.values(raw.audit.hourly), type: 'line', smooth: true,
                     areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                        { offset: 0, color: '#38ada9' }, { offset: 1, color: 'transparent' }
+                        { offset: 0, color: '#60a5fa' }, { offset: 1, color: 'transparent' }
                     ])},
-                    lineStyle: { width: 3, color: '#38ada9' },
-                    itemStyle: { color: '#38ada9' }
+                    lineStyle: { width: 3, color: '#60a5fa' },
+                    itemStyle: { color: '#60a5fa' }
                 }]
             });
             registerChart('chart_hourly', cHourly);

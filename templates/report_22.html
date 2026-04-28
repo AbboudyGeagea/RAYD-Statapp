@@ -8,27 +8,28 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
-        body { background: #020617; color: #f8fafc; font-family: 'Inter', sans-serif; }
+        body { background: #181f1c; color: #e2e8f0; font-family: 'Inter', sans-serif; }
         body { transition: background 0.2s, color 0.2s; }
         body.light { background: #f0f4f8 !important; color: #1a202c !important; }
         body.light aside, body.light header { background: #ffffff !important; border-color: #e2e8f0 !important; }
         body.light .sidebar-item { color: #4a5568 !important; }
         body.light .sidebar-item:hover, body.light .sidebar-item.active { background: #e2e8f0 !important; color: #2b6cb0 !important; }
-        body.light .card, body.light .data-card { background: #ffffff !important; border-color: #e2e8f0 !important; }
         body.light .input-dark { background: #ffffff !important; border-color: #e2e8f0 !important; color: #1a202c !important; }
-        body.light aside { background: #ffffff !important; border-color: #e2e8f0 !important; }
-        .input-dark { background: #0f172a; border: 1px solid #1e293b; color: white; padding: 10px; border-radius: 6px; width: 100%; font-size: 11px; }
+        body.light .card, body.light .data-card { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        .input-dark { background: #181f1c; border: 1px solid #28332e; color: #e2e8f0; border-radius: 8px; padding: 8px 10px; font-size: 12px; width: 100%; outline: none; transition: border 0.15s; }
+        .input-dark:focus { border-color: #60a5fa; }
         .input-dark:disabled { opacity: 0.3; cursor: not-allowed; }
-        .card { background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; margin-bottom: 24px; transition: all 0.3s ease; overflow: hidden; }
-        .card:hover { border-color: #38ada9; }
-        .card-header { padding: 14px 20px; border-bottom: 1px solid #1e293b; font-size: 10px; font-weight: 900; color: #38ada9; text-transform: uppercase; letter-spacing: 1px; }
-        .card-desc { padding: 8px 20px; font-size: 10px; color: #475569; font-style: italic; border-bottom: 1px solid #0f172a; background: #080f1e; }
+        .card { background: #232b28; border: 1px solid #28332e; border-radius: 12px; margin-bottom: 24px; transition: all 0.3s ease; overflow: hidden; }
+        .card:hover { border-color: #60a5fa; }
+        .card-header { padding: 14px 20px; border-bottom: 1px solid #28332e; font-size: 10px; font-weight: 900; color: #60a5fa; text-transform: uppercase; letter-spacing: 1px; }
+        .card-desc { padding: 8px 20px; font-size: 10px; color: #475569; font-style: italic; border-bottom: 1px solid #181f1c; background: #1a2420; }
         .tree-container { height: 600px; width: 100%; }
         .chart-container { height: 380px; width: 100%; padding: 20px; }
         .risk-badge { font-size: 9px; font-weight: 900; padding: 2px 8px; border-radius: 4px; text-transform: uppercase; }
+        .sidebar-label { font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; display: block; }
         label { font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase; margin-bottom: 4px; display: block; }
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 10px; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-thumb { background: #28332e; border-radius: 10px; }
         .outlier-badge { font-size: 9px; font-weight: 800; padding: 2px 7px; border-radius: 4px; background: rgba(251,191,36,0.12); color: #fbbf24; border: 1px solid rgba(251,191,36,0.25); cursor: help; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
         @media print {
             aside, header button, form button[type=submit], .card-desc, nav { display: none !important; }
@@ -38,14 +39,17 @@
             .chart-container, .tree-container { height: 320px !important; }
         }
         @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
-        .ai-cursor { display:inline-block; animation:blink 1s step-start infinite; color:#38ada9; }
+        .tab-btn { font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; color:#64748b; padding:10px 0; border-bottom:3px solid transparent; border-top:none; border-left:none; border-right:none; background:none; cursor:pointer; transition:all 0.2s; display:flex; align-items:center; gap:6px; white-space:nowrap; }
+        .tab-btn:hover { color:#94a3b8; }
+        .tab-btn.active { color:#60a5fa; border-bottom-color:#60a5fa; }
+        .ai-cursor { display:inline-block; animation:blink 1s step-start infinite; color:#60a5fa; }
     </style>
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
     {% include '_header.html' %}
     <div class="flex flex-1 overflow-hidden">
-    <aside class="w-80 border-r border-slate-800 p-6 flex flex-col gap-6 overflow-y-auto bg-[#020617]">
-        <h1 class="font-black text-[#38ada9] text-xl tracking-tighter uppercase italic">Operations</h1>
+    <aside class="w-64 bg-[#1a2420] border-r border-[#28332e] flex flex-col p-5 overflow-y-auto flex-shrink-0">
+        <h1 class="font-black text-[#60a5fa] text-xl tracking-tighter uppercase italic">Operations</h1>
         <form method="POST" class="space-y-5">
             <div>
                 <label>Timeframe</label>
@@ -87,11 +91,11 @@
                 </div>
             </div>
 
-            <button type="submit" class="w-full bg-[#38ada9] py-4 rounded-xl font-black text-[10px] uppercase tracking-widest hover:brightness-110 transition-all mt-4 text-white">Update Dashboard</button>
+            <button type="submit" style="background:#60a5fa; color:#0a1628; font-weight:900; font-size:10px; text-transform:uppercase; letter-spacing:0.08em; border-radius:10px; padding:12px; width:100%; border:none; cursor:pointer; transition:filter 0.15s;" onmouseover="this.style.filter='brightness(1.1)'" onmouseout="this.style.filter=''">Update Dashboard</button>
         </form>
     </aside>
 
-    <main class="flex-1 p-10 overflow-y-auto bg-[#020617] space-y-8">
+    <main class="flex-1 p-10 overflow-y-auto bg-[#181f1c] space-y-8">
         {% if run_report %}
 
 
@@ -286,18 +290,18 @@
 
             <div id="c_proc_age" style="height:540px;width:100%;margin-top:8px;"></div>
 
-            <div style="border-top:1px solid #1e293b;margin-top:8px;">
+            <div style="border-top:1px solid #28332e;margin-top:8px;">
                 <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px 10px;">
                     <span style="font-size:9px;color:#475569;font-weight:800;text-transform:uppercase;letter-spacing:.1em;">Full Detail</span>
                     <input id="proc-search" type="text" placeholder="Search procedure…"
                         oninput="filterProcTable(this.value)"
-                        style="background:#0f172a;border:1px solid #1e293b;color:#e2e8f0;padding:6px 12px;border-radius:6px;width:200px;font-size:11px;outline:none;transition:border-color .2s;"
-                        onfocus="this.style.borderColor='#334155'" onblur="this.style.borderColor='#1e293b'">
+                        style="background:#181f1c;border:1px solid #28332e;color:#e2e8f0;padding:6px 12px;border-radius:6px;width:200px;font-size:11px;outline:none;transition:border-color .2s;"
+                        onfocus="this.style.borderColor='#60a5fa'" onblur="this.style.borderColor='#28332e'">
                 </div>
                 <div style="overflow-x:auto;">
                     <table id="proc-table" style="width:100%;border-collapse:collapse;font-size:11px;">
                         <thead>
-                            <tr style="border-bottom:1px solid #1e293b;">
+                            <tr style="border-bottom:1px solid #28332e;">
                                 <th style="text-align:left;padding:7px 14px;color:#475569;font-size:9px;text-transform:uppercase;letter-spacing:.09em;font-weight:800;">Procedure</th>
                                 <th style="text-align:right;padding:7px 14px;color:#475569;font-size:9px;text-transform:uppercase;letter-spacing:.09em;font-weight:800;">n</th>
                                 <th style="text-align:right;padding:7px 14px;color:#475569;font-size:9px;text-transform:uppercase;letter-spacing:.09em;font-weight:800;">Min</th>
@@ -369,34 +373,34 @@
 
     <!-- Status Drilldown Panel -->
     <div id="status-drilldown-overlay" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.65);backdrop-filter:blur(4px);" onclick="if(event.target===this)closeDrilldown()">
-        <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#0f172a;border:1px solid #1e293b;border-radius:16px;width:90%;max-width:1000px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,0.6);">
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 24px;border-bottom:1px solid #1e293b;flex-shrink:0;">
+        <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#232b28;border:1px solid #28332e;border-radius:16px;width:90%;max-width:1000px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,0.6);">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 24px;border-bottom:1px solid #28332e;flex-shrink:0;">
                 <div>
-                    <p id="drilldown-title" style="font-size:13px;font-weight:900;color:#f1f5f9;text-transform:uppercase;letter-spacing:0.08em;"></p>
+                    <p id="drilldown-title" style="font-size:13px;font-weight:900;color:#e2e8f0;text-transform:uppercase;letter-spacing:0.08em;"></p>
                     <p id="drilldown-sub" style="font-size:11px;color:#475569;margin-top:2px;"></p>
                 </div>
                 <div style="display:flex;gap:10px;align-items:center;">
-                    <button id="drilldown-export-btn" onclick="exportDrilldown()" style="font-size:10px;font-weight:800;padding:6px 14px;border-radius:8px;background:rgba(56,173,169,0.15);border:1px solid rgba(56,173,169,0.3);color:#38ada9;cursor:pointer;text-transform:uppercase;letter-spacing:0.06em;">
+                    <button id="drilldown-export-btn" onclick="exportDrilldown()" style="font-size:10px;font-weight:800;padding:6px 14px;border-radius:8px;background:rgba(96,165,250,0.15);border:1px solid rgba(96,165,250,0.3);color:#60a5fa;cursor:pointer;text-transform:uppercase;letter-spacing:0.06em;">
                         Export CSV
                     </button>
                     <button onclick="closeDrilldown()" style="font-size:18px;color:#475569;background:none;border:none;cursor:pointer;line-height:1;">&times;</button>
                 </div>
             </div>
-            <div style="padding:12px 24px;border-bottom:1px solid #0f172a;flex-shrink:0;">
+            <div style="padding:12px 24px;border-bottom:1px solid #28332e;flex-shrink:0;">
                 <input id="drilldown-search" type="text" placeholder="Search patient ID, physician, procedure..." oninput="filterDrilldown(this.value)"
-                    style="width:100%;background:#020617;border:1px solid #1e293b;border-radius:8px;padding:8px 12px;color:#f1f5f9;font-size:12px;outline:none;">
+                    style="width:100%;background:#181f1c;border:1px solid #28332e;border-radius:8px;padding:8px 12px;color:#e2e8f0;font-size:12px;outline:none;">
             </div>
             <div style="overflow-y:auto;flex:1;">
                 <table style="width:100%;border-collapse:collapse;font-size:12px;">
-                    <thead style="position:sticky;top:0;background:#0f172a;z-index:1;">
+                    <thead style="position:sticky;top:0;background:#232b28;z-index:1;">
                         <tr>
-                            <th style="text-align:left;padding:10px 14px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:#475569;border-bottom:1px solid #1e293b;">Study UID</th>
-                            <th style="text-align:left;padding:10px 14px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:#475569;border-bottom:1px solid #1e293b;">Patient ID</th>
-                            <th style="text-align:left;padding:10px 14px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:#475569;border-bottom:1px solid #1e293b;">Date</th>
-                            <th style="text-align:left;padding:10px 14px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:#475569;border-bottom:1px solid #1e293b;">Modality</th>
-                            <th style="text-align:left;padding:10px 14px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:#475569;border-bottom:1px solid #1e293b;">Procedure</th>
-                            <th style="text-align:left;padding:10px 14px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:#475569;border-bottom:1px solid #1e293b;">AE</th>
-                            <th style="text-align:left;padding:10px 14px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:#475569;border-bottom:1px solid #1e293b;">Physician</th>
+                            <th style="text-align:left;padding:10px 14px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:#475569;border-bottom:1px solid #28332e;">Study UID</th>
+                            <th style="text-align:left;padding:10px 14px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:#475569;border-bottom:1px solid #28332e;">Patient ID</th>
+                            <th style="text-align:left;padding:10px 14px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:#475569;border-bottom:1px solid #28332e;">Date</th>
+                            <th style="text-align:left;padding:10px 14px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:#475569;border-bottom:1px solid #28332e;">Modality</th>
+                            <th style="text-align:left;padding:10px 14px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:#475569;border-bottom:1px solid #28332e;">Procedure</th>
+                            <th style="text-align:left;padding:10px 14px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:#475569;border-bottom:1px solid #28332e;">AE</th>
+                            <th style="text-align:left;padding:10px 14px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:#475569;border-bottom:1px solid #28332e;">Physician</th>
                         </tr>
                     </thead>
                     <tbody id="drilldown-tbody"></tbody>
@@ -410,7 +414,7 @@
     <!-- Data Quality Modal -->
     {% if run_report %}
     <div id="dq-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);" onclick="if(event.target===this)hideDQModal()">
-        <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#1e293b;border:1px solid #334155;border-radius:16px;padding:28px 32px;min-width:420px;max-width:560px;box-shadow:0 24px 60px rgba(0,0,0,0.5);">
+        <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#232b28;border:1px solid #28332e;border-radius:16px;padding:28px 32px;min-width:420px;max-width:560px;box-shadow:0 24px 60px rgba(0,0,0,0.5);">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;">
                 <div style="display:flex;align-items:center;gap:10px;">
                     <span style="background:rgba(251,191,36,0.15);border:1px solid rgba(251,191,36,0.3);border-radius:8px;padding:6px 10px;font-size:16px;">⚠</span>
@@ -466,9 +470,9 @@
                 </div>
                 {% endif %}
             </div>
-            <div style="margin-top:18px;padding-top:14px;border-top:1px solid #334155;display:flex;justify-content:space-between;align-items:center;">
+            <div style="margin-top:18px;padding-top:14px;border-top:1px solid #28332e;display:flex;justify-content:space-between;align-items:center;">
                 <p style="font-size:10px;color:#475569;">Excluded records are not deleted — they remain in raw exports.</p>
-                <button onclick="hideDQModal()" style="padding:6px 18px;background:#38ada9;color:#fff;border:none;border-radius:8px;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:0.06em;">Close</button>
+                <button onclick="hideDQModal()" style="padding:6px 18px;background:#60a5fa;color:#0a1628;border:none;border-radius:8px;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:0.06em;">Close</button>
             </div>
         </div>
     </div>
@@ -477,7 +481,7 @@
     {% set total_dq = (data.gender_excluded or 0) + (data.age_excl_negative or 0) + (data.age_phys_outliers or 0) + (data.age_proc_outliers or 0) %}
     {% if total_dq > 0 %}
     <button onclick="showDQModal()" title="Data quality issues detected — click to review"
-        style="position:fixed;bottom:24px;right:24px;z-index:1000;background:#1e293b;border:1px solid rgba(251,191,36,0.4);border-radius:12px;padding:10px 16px;cursor:pointer;display:flex;align-items:center;gap:8px;box-shadow:0 4px 20px rgba(0,0,0,0.4);">
+        style="position:fixed;bottom:24px;right:24px;z-index:1000;background:#232b28;border:1px solid rgba(251,191,36,0.4);border-radius:12px;padding:10px 16px;cursor:pointer;display:flex;align-items:center;gap:8px;box-shadow:0 4px 20px rgba(0,0,0,0.4);">
         <span style="font-size:14px;">⚠</span>
         <span style="font-size:10px;font-weight:900;color:#fbbf24;text-transform:uppercase;letter-spacing:0.06em;">{{ total_dq }} records excluded</span>
         <span style="font-size:9px;color:#64748b;font-weight:600;">view details</span>
@@ -497,10 +501,10 @@
                     type: 'tree', data: d.tree_data,
                     top: '5%', bottom: '15%', layout: 'vertical',
                     symbol: 'emptyCircle', symbolSize: 8, initialTreeDepth: 2,
-                    label: { position: 'top', rotate: 0, align: 'center', fontSize: 12, color: '#38ada9', fontWeight: 'bold' },
-                    leaves: { label: { position: 'bottom', rotate: 0, align: 'center', fontSize: 10, color: '#f8fafc' } },
-                    lineStyle: { color: '#1e293b', width: 1.5, curveness: 0.5 },
-                    itemStyle: { color: '#38ada9' }
+                    label: { position: 'top', rotate: 0, align: 'center', fontSize: 12, color: '#60a5fa', fontWeight: 'bold' },
+                    leaves: { label: { position: 'bottom', rotate: 0, align: 'center', fontSize: 10, color: '#e2e8f0' } },
+                    lineStyle: { color: '#28332e', width: 1.5, curveness: 0.5 },
+                    itemStyle: { color: '#60a5fa' }
                 }]
             });
 
@@ -541,7 +545,7 @@
             });
 
             // 5. Physician → Modality stacked bar
-            const modColors = ['#38ada9','#8b5cf6','#f59e0b','#10b981','#3b82f6','#ec4899','#f87171','#34d399','#a78bfa','#fb923c'];
+            const modColors = ['#60a5fa','#8b5cf6','#f59e0b','#10b981','#3b82f6','#ec4899','#f87171','#34d399','#a78bfa','#fb923c'];
             echarts.init(document.getElementById('c_phys_mod')).setOption({
                 tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
                 legend: { bottom: 0, textStyle: { color: '#94a3b8', fontSize: 10 } },
@@ -580,8 +584,8 @@
                 backgroundColor: 'transparent',
                 tooltip: {
                     trigger: 'item',
-                    backgroundColor: '#1e293b',
-                    borderColor: '#334155',
+                    backgroundColor: '#232b28',
+                    borderColor: '#28332e',
                     borderWidth: 1,
                     padding: [10, 14],
                     textStyle: { color: '#e2e8f0', fontSize: 11 },
@@ -604,17 +608,17 @@
                 xAxis: {
                     type: 'value', min: 0, max: 100, interval: 10,
                     name: 'Age (yrs)', nameLocation: 'end',
-                    nameTextStyle: { color: '#334155', fontSize: 9, padding: [0, 0, 0, 6] },
-                    splitLine: { lineStyle: { color: '#1e293b', type: 'dashed' } },
+                    nameTextStyle: { color: '#28332e', fontSize: 9, padding: [0, 0, 0, 6] },
+                    splitLine: { lineStyle: { color: '#28332e', type: 'dashed' } },
                     axisLabel: { color: '#475569', fontSize: 9 },
-                    axisLine: { lineStyle: { color: '#1e293b' } },
+                    axisLine: { lineStyle: { color: '#28332e' } },
                     axisTick: { show: false }
                 },
                 yAxis: {
                     type: 'category', data: _procCodes,
                     axisLabel: { color: '#94a3b8', fontSize: 10, fontFamily: 'monospace', width: 130, overflow: 'truncate' },
-                    axisLine: { lineStyle: { color: '#1e293b' } },
-                    splitLine: { lineStyle: { color: '#0f172a' } }
+                    axisLine: { lineStyle: { color: '#28332e' } },
+                    splitLine: { lineStyle: { color: '#181f1c' } }
                 },
                 series: [
                     {
@@ -637,13 +641,13 @@
             function renderProcTable(rows) {
                 document.getElementById('proc-tbody').innerHTML = rows.map(p => {
                     const rangeBar =
-                        `<div style="position:relative;height:10px;background:#0f172a;border-radius:3px;min-width:140px;">` +
-                        `<div style="position:absolute;top:4px;left:${p.min_age}%;width:${p.max_age - p.min_age}%;height:2px;background:#1e293b;border-radius:1px;"></div>` +
+                        `<div style="position:relative;height:10px;background:#181f1c;border-radius:3px;min-width:140px;">` +
+                        `<div style="position:absolute;top:4px;left:${p.min_age}%;width:${p.max_age - p.min_age}%;height:2px;background:#28332e;border-radius:1px;"></div>` +
                         `<div style="position:absolute;top:2px;left:${p.p25}%;width:${p.p75 - p.p25}%;height:6px;background:rgba(56,189,248,0.2);border:1px solid rgba(56,189,248,0.45);border-radius:2px;"></div>` +
                         `<div style="position:absolute;top:1px;left:calc(${p.p50}% - 1px);width:2px;height:8px;background:#34d399;border-radius:1px;"></div>` +
                         `</div>`;
-                    return `<tr style="border-bottom:1px solid #0f172a;transition:background .15s;"
-                                onmouseover="this.style.background='rgba(30,41,59,0.5)'"
+                    return `<tr style="border-bottom:1px solid #28332e;transition:background .15s;"
+                                onmouseover="this.style.background='rgba(40,51,46,0.5)'"
                                 onmouseout="this.style.background=''">
                         <td style="padding:9px 14px;color:#94a3b8;font-family:monospace;font-size:10px;">${p.code}</td>
                         <td style="padding:9px 14px;text-align:right;color:#60a5fa;font-weight:700;">${p.cnt}</td>
@@ -696,8 +700,8 @@
                 yAxis: { type: 'value', splitLine: { lineStyle: { color: '#111827' } }, axisLabel: style },
                 series: [{
                     data: d.age_values, type: 'line', smooth: true,
-                    areaStyle: { color: 'rgba(56, 173, 169, 0.2)' },
-                    itemStyle: { color: '#38ada9' },
+                    areaStyle: { color: 'rgba(96, 165, 250, 0.2)' },
+                    itemStyle: { color: '#60a5fa' },
                     lineStyle: { width: 3 }
                 }]
             });
@@ -760,11 +764,11 @@
             if (!rows.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
             empty.style.display = 'none';
             tbody.innerHTML = rows.map(r => `
-                <tr style="border-bottom:1px solid #0f172a;">
+                <tr style="border-bottom:1px solid #28332e;">
                     <td style="padding:9px 14px;font-family:monospace;font-size:11px;color:#64748b;">${r.uid || '—'}</td>
-                    <td style="padding:9px 14px;font-weight:700;color:#f1f5f9;">${r.patient_id || '—'}</td>
+                    <td style="padding:9px 14px;font-weight:700;color:#e2e8f0;">${r.patient_id || '—'}</td>
                     <td style="padding:9px 14px;color:#94a3b8;">${r.date}</td>
-                    <td style="padding:9px 14px;"><span style="background:rgba(56,173,169,0.15);color:#38ada9;font-size:10px;font-weight:800;padding:2px 8px;border-radius:4px;">${r.modality}</span></td>
+                    <td style="padding:9px 14px;"><span style="background:rgba(96,165,250,0.15);color:#60a5fa;font-size:10px;font-weight:800;padding:2px 8px;border-radius:4px;">${r.modality}</span></td>
                     <td style="padding:9px 14px;color:#cbd5e1;font-size:11px;">${r.procedure}</td>
                     <td style="padding:9px 14px;color:#64748b;font-size:11px;">${r.ae}</td>
                     <td style="padding:9px 14px;color:#94a3b8;font-size:11px;">${r.physician}</td>

@@ -11,8 +11,8 @@
     <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap');
-        body { background: #080a09; color: #d1d1d6; font-family: 'Plus Jakarta Sans', sans-serif; overflow: hidden; font-size: 14px; }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
+        body { background: #181f1c; color: #e2e8f0; font-family: 'Inter', sans-serif; overflow: hidden; font-size: 14px; }
         body { transition: background 0.2s, color 0.2s; }
         body.light { background: #f0f4f8 !important; color: #1a202c !important; }
         body.light aside, body.light header { background: #ffffff !important; border-color: #e2e8f0 !important; }
@@ -20,51 +20,52 @@
         body.light .sidebar-item:hover, body.light .sidebar-item.active { background: #e2e8f0 !important; color: #2b6cb0 !important; }
         body.light .glass-card { background: #ffffff !important; border-color: #e2e8f0 !important; }
         body.light .input-dark { background: #ffffff !important; border-color: #e2e8f0 !important; color: #1a202c !important; }
-        body.light aside { background: #ffffff !important; border-color: #e2e8f0 !important; }
-        .glass-card { background: #111413; border: 1px solid rgba(255,255,255,0.08); border-radius: 1.5rem; padding: 24px; }
+        .glass-card { background: #232b28; border: 1px solid #28332e; border-radius: 1.5rem; padding: 24px; }
         .outlier-badge { display:inline-flex; align-items:center; gap:4px; background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.4); color:#f59e0b; border-radius:999px; padding:2px 10px; font-size:10px; font-weight:700; cursor:pointer; position:relative; }
         .outlier-badge .tooltip { display:none; position:absolute; top:calc(100% + 6px); right:0; background:#1c1917; border:1px solid rgba(245,158,11,0.4); color:#fde68a; font-size:10px; padding:6px 10px; border-radius:8px; white-space:nowrap; z-index:100; }
         .outlier-badge:hover .tooltip { display:block; }
-        .tab-btn { font-size: 13px; font-weight: 800; text-transform: uppercase; color: #71717a; padding: 24px 0; border-bottom: 3px solid transparent; transition: 0.3s; cursor: pointer; display:flex; align-items:center; gap:6px; }
-        .tab-btn.active { color: #3b82f6; border-bottom: 3px solid #3b82f6; }
+        .tab-btn { font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; color:#64748b; padding:10px 0; border-bottom:3px solid transparent; border-top:none; border-left:none; border-right:none; background:none; cursor:pointer; transition:all 0.2s; display:flex; align-items:center; gap:6px; white-space:nowrap; }
+        .tab-btn:hover { color:#94a3b8; }
+        .tab-btn.active { color:#60a5fa; border-bottom-color:#60a5fa; }
         .tab-badge { display:inline-flex; align-items:center; justify-content:center; min-width:16px; height:16px; padding:0 4px; border-radius:8px; background:#ef4444; color:#fff; font-size:9px; font-weight:900; line-height:1; }
         .pulse-pill { display:inline-flex; align-items:center; gap:6px; padding:6px 14px; border-radius:12px; border:1px solid; cursor:pointer; transition:all 0.2s; font-size:11px; }
         .pulse-pill:hover { filter:brightness(1.15); transform:translateY(-1px); }
         .rad-sort-btn { padding:2px 8px; border-radius:6px; border:1px solid transparent; cursor:pointer; transition:all 0.15s; color:#52525b; }
         .rad-sort-btn:hover { color:#94a3b8; border-color:#3f3f46; }
-        .rad-sort-btn.active { color:#60a5fa; border-color:#3b82f6; background:rgba(59,130,246,0.08); }
+        .rad-sort-btn.active { color:#60a5fa; border-color:#60a5fa; background:rgba(96,165,250,0.08); }
         .pulse-label { font-weight:700; color:#71717a; text-transform:uppercase; font-size:9px; letter-spacing:0.08em; }
         .pulse-value { font-weight:900; font-size:13px; }
         .pulse-sub { font-size:9px; color:#52525b; font-style:italic; }
-        .sidebar-label { font-size: 11px; font-weight: 800; color: #52525b; text-transform: uppercase; margin-bottom: 8px; display: block; }
-        .input-dark { background: #000; border: 1px solid #27272a; color: #fff; border-radius: 12px; padding: 12px; width: 100%; font-size: 13px; }
-        .select2-container--default .select2-selection--multiple { background: #000 !important; border: 1px solid #27272a !important; min-height: 45px !important; border-radius: 12px !important; }
+        .sidebar-label { font-size:10px; font-weight:800; color:#64748b; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:6px; display:block; }
+        .input-dark { background:#181f1c; border:1px solid #28332e; color:#e2e8f0; border-radius:8px; padding:8px 10px; font-size:12px; width:100%; outline:none; transition:border 0.15s; }
+        .input-dark:focus { border-color:#60a5fa; }
+        .select2-container--default .select2-selection--multiple { background: #181f1c !important; border: 1px solid #28332e !important; min-height: 45px !important; border-radius: 12px !important; }
         ::-webkit-scrollbar { width: 4px; }
-        ::-webkit-scrollbar-thumb { background: #3b82f6; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb { background: #28332e; border-radius: 10px; }
         .util-badge { font-family: 'Monaco', monospace; transition: all 0.2s; }
         .util-badge:hover { transform: scale(1.1); filter: brightness(1.2); }
 
         /* Chart card with description */
-        .chart-card { background: #111413; border: 1px solid rgba(255,255,255,0.08); border-radius: 1.5rem; overflow: hidden; display: flex; flex-direction: column; }
+        .chart-card { background: #232b28; border: 1px solid #28332e; border-radius: 1.5rem; overflow: hidden; display: flex; flex-direction: column; }
         .chart-card-header { padding: 18px 24px 0 24px; display: flex; align-items: center; justify-content: space-between; }
         .chart-card-title { font-size: 12px; font-weight: 800; color: #52525b; text-transform: uppercase; letter-spacing: 0.08em; }
         .chart-card-desc { padding: 8px 24px 12px 24px; font-size: 13px; color: #52525b; font-style: italic; line-height: 1.5; border-bottom: 1px solid rgba(255,255,255,0.05); }
         .chart-card-body { padding: 16px; flex: 1; }
 
         /* Section description strip */
-        .section-desc { font-size: 13px; color: #52525b; font-style: italic; line-height: 1.6; margin-bottom: 20px; padding: 12px 16px; background: rgba(255,255,255,0.02); border-left: 3px solid #3b82f6; border-radius: 0 8px 8px 0; }
+        .section-desc { font-size: 13px; color: #64748b; font-style: italic; line-height: 1.6; margin-bottom: 20px; padding: 12px 16px; background: rgba(96,165,250,0.06); border-left: 3px solid #60a5fa; border-radius: 0 8px 8px 0; }
 
         /* PNG export button */
         .export-png-btn {
             display: inline-flex; align-items: center; gap: 4px;
             font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em;
-            color: #3f3f46; border: 1px solid #27272a; border-radius: 6px;
-            padding: 4px 10px; background: #080a09; cursor: pointer; transition: all 0.15s;
+            color: #3f3f46; border: 1px solid #28332e; border-radius: 6px;
+            padding: 4px 10px; background: #181f1c; cursor: pointer; transition: all 0.15s;
             white-space: nowrap;
         }
-        .export-png-btn:hover { color: #3b82f6; border-color: #3b82f6; }
+        .export-png-btn:hover { color: #60a5fa; border-color: #60a5fa; }
         @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
-        .ai-cursor { display:inline-block; animation:blink 1s step-start infinite; color:#38ada9; }
+        .ai-cursor { display:inline-block; animation:blink 1s step-start infinite; color:#60a5fa; }
         @media print {
             aside, header button, form button[type=submit], .card-desc, nav { display: none !important; }
             body { overflow: visible !important; background: #fff !important; color: #000 !important; }
@@ -78,12 +79,7 @@
     {% include '_header.html' %}
     <div class="flex flex-1 overflow-hidden">
 
-    <aside class="w-80 bg-[#111413] border-r border-white/5 p-8 flex flex-col">
-        <div class="mb-10">
-            <h1 class="text-2xl font-extrabold text-white tracking-tighter">RAYD <span class="text-blue-500 text-sm">PRO</span></h1>
-            <p class="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">v2.5 Intelligence</p>
-        </div>
-
+    <aside class="w-64 bg-[#1a2420] border-r border-[#28332e] p-5 flex flex-col overflow-y-auto flex-shrink-0">
         <form id="mainForm" method="POST" class="space-y-6 flex-1 overflow-y-auto pr-2">
             <input type="hidden" name="active_tab" id="active_tab_input" value="{{ active_tab }}">
 
@@ -164,7 +160,7 @@
     </aside>
 
     <main class="flex-1 flex flex-col overflow-hidden">
-        <header class="h-20 border-b border-white/5 flex items-center justify-between px-10 bg-[#080a09]/95 backdrop-blur-xl z-10 shrink-0">
+        <header class="h-20 border-b border-[#28332e] flex items-center justify-between px-10 bg-[#181f1c]/95 backdrop-blur-xl z-10 shrink-0">
             <nav class="flex space-x-12 h-full">
                 <div onclick="switchTab('ops')"      class="tab-btn" id="btn-ops">Operations</div>
                 <div onclick="switchTab('infra')"    class="tab-btn" id="btn-infra">Infrastructure</div>
@@ -594,7 +590,7 @@
                                         </button>
                                     </td>
                                 </tr>
-                                <tr id="rad-drill-${i}" class="hidden bg-[#0c0f0e]">
+                                <tr id="rad-drill-${i}" class="hidden bg-[#181f1c]">
                                     <td colspan="8" class="px-4 pb-3">${buildDrilldown(r)}</td>
                                 </tr>`;
                             }).join('')}
@@ -673,13 +669,13 @@
                         xAxis: {
                             type: 'category', data: mods,
                             axisLabel: { color: '#94a3b8', fontSize: 11, fontWeight: 'bold' },
-                            axisLine: { lineStyle: { color: '#27272a' } },
+                            axisLine: { lineStyle: { color: '#28332e' } },
                             splitLine: { show: false },
                         },
                         yAxis: {
                             type: 'category', data: rads,
                             axisLabel: { color: '#94a3b8', fontSize: 11 },
-                            axisLine: { lineStyle: { color: '#27272a' } },
+                            axisLine: { lineStyle: { color: '#28332e' } },
                             splitLine: { show: false },
                         },
                         visualMap: {
@@ -720,7 +716,7 @@
                         <button id="sp-mode-btn" onclick="toggleSpMode()"
                             title="Enhanced view"
                             class="text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full border transition-all"
-                            style="border-color:#27272a;color:#3f3f46;background:transparent;">
+                            style="border-color:#28332e;color:#3f3f46;background:transparent;">
                             &#9673; Enhanced View
                         </button>
                     </div>
@@ -786,7 +782,7 @@
                                     ? (info.avg_breaks_day >= 3 ? '#f43f5e' : info.avg_breaks_day >= 1.5 ? '#f59e0b' : '#34d399')
                                     : '#a1a1aa';
 
-                                card.style.borderTopColor = evil ? '#f43f5e' : '#2563eb';
+                                card.style.borderTopColor = evil ? '#f43f5e' : '#60a5fa';
 
                                 card.innerHTML = `
                                     <div class="flex items-start justify-between gap-4 mb-4 flex-wrap">
@@ -814,7 +810,7 @@
                                         </button>
                                         <div id="log-${idx}" class="hidden mt-3 overflow-y-auto" style="max-height:260px;">
                                             <table class="w-full text-[11px]">
-                                                <thead class="sticky top-0 bg-[#111413]">
+                                                <thead class="sticky top-0 bg-[#232b28]">
                                                     <tr class="border-b border-white/5 text-zinc-500 uppercase text-[9px]">
                                                         <th class="text-left py-2 pr-4">Date</th>
                                                         <th class="text-left py-2 pr-4">Day</th>
@@ -839,14 +835,14 @@
                                 _chart.setOption({
                                     animation: false,
                                     grid: { top:10, bottom:30, left:50, right:20 },
-                                    xAxis: { type:'category', data: HOURS, axisLabel:{fontSize:9, color:'#52525b'}, axisTick:{show:false}, axisLine:{lineStyle:{color:'#27272a'}} },
-                                    yAxis: { type:'category', data: DOW,   axisLabel:{fontSize:9, color:'#52525b'}, axisTick:{show:false}, axisLine:{lineStyle:{color:'#27272a'}} },
+                                    xAxis: { type:'category', data: HOURS, axisLabel:{fontSize:9, color:'#52525b'}, axisTick:{show:false}, axisLine:{lineStyle:{color:'#28332e'}} },
+                                    yAxis: { type:'category', data: DOW,   axisLabel:{fontSize:9, color:'#52525b'}, axisTick:{show:false}, axisLine:{lineStyle:{color:'#28332e'}} },
                                     visualMap: { show:false, min:0, max:info.hm_max, inRange:{ color: evil ? ['#0f172a','#1d4ed8','#f43f5e'] : ['#0f172a','#1d4ed8','#38bdf8'] } },
                                     tooltip: {
                                         formatter: p => `${DOW[p.data[1]]} ${HOURS[p.data[0]]}: <b>${p.data[2]}</b> signature${p.data[2]!==1?'s':''}`,
-                                        backgroundColor:'#1c1917', borderColor:'#27272a', textStyle:{color:'#e2e8f0',fontSize:11}
+                                        backgroundColor:'#1c1917', borderColor:'#28332e', textStyle:{color:'#e2e8f0',fontSize:11}
                                     },
-                                    series:[{ type:'heatmap', data: info.heatmap, itemStyle:{borderRadius:2, borderWidth:1, borderColor:'#080a09'} }]
+                                    series:[{ type:'heatmap', data: info.heatmap, itemStyle:{borderRadius:2, borderWidth:1, borderColor:'#181f1c'} }]
                                 });
 
                                 // table rows
@@ -915,7 +911,7 @@
                         card.insertBefore(label, card.firstChild);
 
                         html2canvas(card, {
-                            backgroundColor: '#111413',
+                            backgroundColor: '#232b28',
                             scale: 2,
                             useCORS: true,
                             logging: false,
@@ -950,7 +946,7 @@
                             btn.style.color = '#f43f5e';
                             btn.style.background = 'rgba(244,63,94,0.08)';
                         } else {
-                            btn.style.borderColor = '#27272a';
+                            btn.style.borderColor = '#28332e';
                             btn.style.color = '#3f3f46';
                             btn.style.background = 'transparent';
                         }
@@ -1290,7 +1286,7 @@
         function exportChart(id, filename) {
             const instance = chartInstances[id];
             if (!instance) return;
-            const url = instance.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#111413' });
+            const url = instance.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#232b28' });
             const a = document.createElement('a');
             a.href = url;
             a.download = `${filename}_{{ display_start }}_to_{{ display_end }}.png`;
@@ -1320,7 +1316,7 @@
         function downloadChartPNG(elId, name) {
             const c = window._techCharts[elId];
             if (!c) return;
-            const url = c.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#111413' });
+            const url = c.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#232b28' });
             const a = document.createElement('a');
             a.href = url;
             a.download = `RAYD_${name}_${new Date().toISOString().slice(0,10)}.png`;
@@ -1383,7 +1379,7 @@
                     tooltip: { trigger: 'axis' },
                     xAxis: { type: 'category', data: Object.keys(d.class_tat || {}), ...axisStyle },
                     yAxis: { type: 'value', name: 'Minutes', nameTextStyle: { color: '#52525b', fontSize: 11 }, ...axisStyle },
-                    series: [{ type: 'bar', data: Object.values(d.class_tat || {}), itemStyle: { color: '#3b82f6', borderRadius: [5,5,0,0] }, label: { show: true, position: 'top', color: '#fff', fontSize: 12 } }]
+                    series: [{ type: 'bar', data: Object.values(d.class_tat || {}), itemStyle: { color: '#60a5fa', borderRadius: [5,5,0,0] }, label: { show: true, position: 'top', color: '#fff', fontSize: 12 } }]
                 });
                 registerChart('chart-1', c1);
             }
@@ -1395,7 +1391,7 @@
                     tooltip: { trigger: 'axis' },
                     xAxis: { type: 'category', data: Object.keys(d.hourly_patterns || {}), name: 'Hour of Day', nameTextStyle: { color: '#52525b', fontSize: 11 }, ...axisStyle },
                     yAxis: { type: 'value', name: 'Studies', nameTextStyle: { color: '#52525b', fontSize: 11 }, ...axisStyle },
-                    series: [{ type: 'line', smooth: true, data: Object.values(d.hourly_patterns || {}), lineStyle: { width: 4, color: '#3b82f6' }, areaStyle: { color: 'rgba(59,130,246,0.1)' } }]
+                    series: [{ type: 'line', smooth: true, data: Object.values(d.hourly_patterns || {}), lineStyle: { width: 4, color: '#60a5fa' }, areaStyle: { color: 'rgba(96,165,250,0.1)' } }]
                 });
                 registerChart('chart-6', c6);
             }
@@ -1422,7 +1418,7 @@
                         type: 'text', left: 60, top: 10,
                         style: { text: `Pearson r = ${d.pearson_r}`, fontSize: 12, fill: '#71717a' }
                     }] : [],
-                    series: [{ type: 'scatter', data: d.correlation || [], itemStyle: { color: '#3b82f6', opacity: 0.4 }, symbolSize: 6 }]
+                    series: [{ type: 'scatter', data: d.correlation || [], itemStyle: { color: '#60a5fa', opacity: 0.4 }, symbolSize: 6 }]
                 });
                 registerChart('chart-7', c7);
             }
@@ -1457,7 +1453,7 @@
                                     const max = effData[0].score;
                                     const ratio = v / max;
                                     if (ratio > 0.75) return '#22c55e';
-                                    if (ratio > 0.4)  return '#3b82f6';
+                                    if (ratio > 0.4)  return '#60a5fa';
                                     return '#f59e0b';
                                 }
                             },
@@ -1502,7 +1498,7 @@
                                         const util = p.value[0];
                                         if (util > 85) return '#ef4444';
                                         if (util < 30) return '#f59e0b';
-                                        return '#3b82f6';
+                                        return '#60a5fa';
                                     },
                                     opacity: 0.8
                                 }
@@ -1531,8 +1527,8 @@
                         series: [{
                             type: 'bar', data: d.tat_hist.map(r => r.count),
                             itemStyle: { borderRadius: [5,5,0,0], color: p => {
-                                const colors = ['#22c55e','#22c55e','#3b82f6','#3b82f6','#f59e0b','#f59e0b','#ef4444','#ef4444'];
-                                return colors[p.dataIndex] || '#3b82f6';
+                                const colors = ['#22c55e','#22c55e','#60a5fa','#60a5fa','#f59e0b','#f59e0b','#ef4444','#ef4444'];
+                                return colors[p.dataIndex] || '#60a5fa';
                             }},
                             label: { show: true, position: 'top', color: '#71717a', fontSize: 10 }
                         }]
@@ -1686,7 +1682,7 @@
                         {
                             name: 'Avg TAT', type: 'bar',
                             data: d.modality_tat.map(r => r.avg),
-                            itemStyle: { borderRadius: [0,5,5,0], color: '#3b82f6' },
+                            itemStyle: { borderRadius: [0,5,5,0], color: '#60a5fa' },
                             label: { show: true, position: 'right', color: '#71717a', fontSize: 10, formatter: p => p.value + 'm' }
                         },
                         {
@@ -1711,7 +1707,7 @@
                     yAxis: { type: 'category', data: d.ae_tat.map(r => r.ae), ...axisStyle },
                     series: [{
                         type: 'bar', data: d.ae_tat.map(r => r.avg_tat),
-                        itemStyle: { borderRadius: [0,5,5,0], color: (p) => p.dataIndex < midpoint ? '#22c55e' : p.dataIndex > d.ae_tat.length - midpoint - 1 ? '#ef4444' : '#3b82f6' },
+                        itemStyle: { borderRadius: [0,5,5,0], color: (p) => p.dataIndex < midpoint ? '#22c55e' : p.dataIndex > d.ae_tat.length - midpoint - 1 ? '#ef4444' : '#60a5fa' },
                         label: { show: true, position: 'right', color: '#71717a', fontSize: 10, formatter: p => p.value + 'm' }
                     }]
                 });
@@ -1752,7 +1748,7 @@
                 if (d.shift_breakdown && d.shift_breakdown.length > 0 && document.getElementById('chart-shift-donut')) {
                     const shiftTotals = { Morning: 0, Afternoon: 0, Night: 0 };
                     d.shift_breakdown.forEach(r => { shiftTotals[r.shift] = (shiftTotals[r.shift] || 0) + r.cnt; });
-                    const shiftColors = { Morning: '#3b82f6', Afternoon: '#f59e0b', Night: '#6366f1' };
+                    const shiftColors = { Morning: '#60a5fa', Afternoon: '#f59e0b', Night: '#6366f1' };
                     const shiftData = Object.entries(shiftTotals)
                         .filter(([, v]) => v > 0)
                         .map(([k, v]) => ({ name: k, value: v, itemStyle: { color: shiftColors[k] } }));
@@ -1893,7 +1889,7 @@
             const pill = (txt, bg, txt_c, bd) =>
                 `<span style="padding:2px 8px;border-radius:6px;font-size:10px;font-weight:900;background:${bg};border:1px solid ${bd};color:${txt_c}">${esc(txt)}</span>`;
             const badges = [
-                s.modality        ? pill(s.modality,        'rgba(59,130,246,0.15)', '#93c5fd', 'rgba(59,130,246,0.3)')  : '',
+                s.modality        ? pill(s.modality,        'rgba(96,165,250,0.15)', '#93c5fd', 'rgba(96,165,250,0.3)')  : '',
                 s.patient_class   ? pill(s.patient_class,   'rgba(139,92,246,0.15)', '#c4b5fd', 'rgba(139,92,246,0.3)') : '',
                 s.patient_location? pill(s.patient_location,'rgba(63,63,70,0.5)',    '#a1a1aa', 'rgba(100,100,115,0.4)'): '',
                 s.study_date      ? `<span style="font-size:10px;font-family:monospace;color:#52525b">${esc(s.study_date)}</span>` : '',
@@ -1932,7 +1928,7 @@
                     const t0 = new Date(s.events[0].ts), t1 = new Date(s.events[s.events.length-1].ts);
                     const span = t1 - t0;
                     const dotClrs = { order_received:'#6366f1', scheduled:'#0ea5e9', tech_done:'#8b5cf6',
-                                      pacs_in:'#3b82f6', prelim:'#f59e0b', transcribed:'#f97316', final:'#22c55e' };
+                                      pacs_in:'#60a5fa', prelim:'#f59e0b', transcribed:'#f97316', final:'#22c55e' };
                     const dots = s.events.map(ev => {
                         if (!ev.ts) return '';
                         const pct = span > 0 ? Math.round((new Date(ev.ts)-t0)/span*100) : 0;
@@ -1941,7 +1937,7 @@
                         return `<div title="${esc(lbl)}: ${fmtTs(ev.ts)}"
                             style="position:absolute;top:50%;transform:translateY(-50%);left:calc(${pct}% - 5px);
                                    width:10px;height:10px;border-radius:50%;background:${col};
-                                   border:2px solid #111413;z-index:5;cursor:default;box-shadow:0 0 5px ${col}88"></div>`;
+                                   border:2px solid #232b28;z-index:5;cursor:default;box-shadow:0 0 5px ${col}88"></div>`;
                     }).join('');
                     progressHtml = `
                         <div style="position:relative;height:4px;background:rgba(255,255,255,0.06);border-radius:4px;margin:12px 6px 4px;overflow:visible">
@@ -2083,7 +2079,7 @@
                     { type: 'value', name: 'Exams', nameTextStyle: { color: '#52525b', fontSize: 10 }, splitLine: { show: false }, axisLabel: { color: '#52525b' } }
                 ],
                 series: [
-                    { name: 'Avg TAT (min)', type: 'line', smooth: true, yAxisIndex: 0, data: trend.map(r => r.avg_tat), lineStyle: { color: '#3b82f6', width: 2 }, itemStyle: { color: '#3b82f6' }, areaStyle: { color: 'rgba(59,130,246,0.08)' }, markPoint: { data: markPoints, symbol: 'pin', symbolSize: 36, label: { fontSize: 9, color: '#fff' } } },
+                    { name: 'Avg TAT (min)', type: 'line', smooth: true, yAxisIndex: 0, data: trend.map(r => r.avg_tat), lineStyle: { color: '#60a5fa', width: 2 }, itemStyle: { color: '#60a5fa' }, areaStyle: { color: 'rgba(96,165,250,0.08)' }, markPoint: { data: markPoints, symbol: 'pin', symbolSize: 36, label: { fontSize: 9, color: '#fff' } } },
                     { name: 'Exams', type: 'bar', yAxisIndex: 1, data: trend.map(r => r.count), itemStyle: { color: 'rgba(16,185,129,0.25)', borderRadius: [3,3,0,0] }, barMaxWidth: 24 }
                 ]
             });

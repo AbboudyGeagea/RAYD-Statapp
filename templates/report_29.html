@@ -8,49 +8,52 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
-        :root { --accent: #38ada9; }
-        body { font-family: 'Inter', sans-serif; background: #0d1a18; color: #e2e8f0; transition: background 0.2s, color 0.2s; }
-        aside { background: #111f1c; border-color: #1e2e2a; }
+        :root { --accent: #60a5fa; }
+        body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; transition: background 0.2s, color 0.2s; }
+        aside { background: #1a2420; border-color: #28332e; }
 
         /* Light mode overrides */
         body.light { background: #f0f4f8 !important; color: #1a202c !important; }
-        body.light aside { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        body.light aside, body.light header { background: #ffffff !important; border-color: #e2e8f0 !important; }
         body.light .sidebar-item { color: #4a5568 !important; }
         body.light .sidebar-item:hover, body.light .sidebar-item.active { background: #e2e8f0 !important; color: #2b6cb0 !important; }
-        body.light .card-custom { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        body.light .glass-card { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        body.light .input-dark { background: #ffffff !important; border-color: #e2e8f0 !important; color: #1a202c !important; }
         .outlier-badge { display:inline-flex; align-items:center; gap:4px; background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.4); color:#f59e0b; border-radius:999px; padding:2px 9px; font-size:10px; font-weight:700; cursor:pointer; position:relative; }
         .outlier-badge .tooltip { display:none; position:absolute; top:calc(100% + 6px); right:0; background:#1c1917; border:1px solid rgba(245,158,11,0.4); color:#fde68a; font-size:10px; padding:6px 10px; border-radius:8px; white-space:nowrap; z-index:100; }
         .outlier-badge:hover .tooltip { display:block; }
         body.light .card-desc { color: #64748b !important; border-color: #f1f5f9 !important; }
-        body.light .section-desc { background: #f0fdfc !important; color: #64748b !important; }
+        body.light .section-desc { background: #f0f9ff !important; color: #64748b !important; }
         body.light .export-png-btn { background: #f8fafc !important; border-color: #e2e8f0 !important; color: #64748b !important; }
-        body.light .btn-csv { background: #f0fdfc !important; border-color: #99f6e4 !important; color: #0d9488 !important; }
+        body.light .btn-csv { background: #eff6ff !important; border-color: #bfdbfe !important; color: #2563eb !important; }
         body.light .input-filter { background: #ffffff !important; border-color: #e2e8f0 !important; color: #1a202c !important; }
 
         .sidebar-item { transition: all 0.2s; border-radius: 0.75rem; margin-bottom: 0.25rem; cursor: pointer; }
-        .sidebar-item:hover { background: rgba(56,173,169,0.1); color: var(--accent); }
+        .sidebar-item:hover { background: rgba(96,165,250,0.1); color: var(--accent); }
 
-        .card-custom { background: #111f1c; border-radius: 1.5rem; border: 1px solid #1e2e2a; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.3); overflow: hidden; }
+        .card-custom { background: #232b28; border-radius: 1.5rem; border: 1px solid #28332e; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.3); overflow: hidden; }
         .chart-container { position: relative; height: 300px; width: 100%; padding: 0 16px 16px 16px; }
         .status-pill { padding: 2px 8px; border-radius: 9999px; font-size: 10px; font-weight: 900; text-transform: uppercase; }
 
         .card-header-row { padding: 18px 24px 0 24px; display: flex; align-items: center; justify-content: space-between; }
         .card-title { font-size: 11px; font-weight: 900; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.08em; }
-        .card-desc { padding: 8px 24px 14px 24px; font-size: 13px; color: #64748b; font-style: italic; line-height: 1.55; border-bottom: 1px solid #1e2e2a; }
+        .card-desc { padding: 8px 24px 14px 24px; font-size: 13px; color: #64748b; font-style: italic; line-height: 1.55; border-bottom: 1px solid #28332e; }
 
-        .section-desc { font-size: 13px; color: #64748b; font-style: italic; line-height: 1.6; padding: 12px 16px; background: rgba(56,173,169,0.08); border-left: 3px solid #38ada9; border-radius: 0 8px 8px 0; }
+        .section-desc { font-size: 13px; color: #64748b; font-style: italic; line-height: 1.6; padding: 12px 16px; background: rgba(96,165,250,0.06); border-left: 3px solid #60a5fa; border-radius: 0 8px 8px 0; }
 
-        .export-png-btn { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: #64748b; border: 1px solid #1e2e2a; border-radius: 5px; padding: 4px 10px; background: #0d1a18; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
-        .export-png-btn:hover { color: #38ada9; border-color: #38ada9; }
+        .export-png-btn { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: #64748b; border: 1px solid #28332e; border-radius: 5px; padding: 4px 10px; background: #181f1c; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
+        .export-png-btn:hover { color: #60a5fa; border-color: #60a5fa; }
 
-        .btn-csv { width: 100%; padding: 10px; border-radius: 10px; background: rgba(56,173,169,0.1); border: 1px solid #1e3a36; color: #38ada9; font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.06em; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; justify-content: center; gap: 6px; }
-        .btn-csv:hover { background: rgba(56,173,169,0.2); border-color: #38ada9; }
+        .btn-csv { width: 100%; padding: 10px; border-radius: 10px; background: rgba(96,165,250,0.1); border: 1px solid #28332e; color: #60a5fa; font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.06em; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; justify-content: center; gap: 6px; }
+        .btn-csv:hover { background: rgba(96,165,250,0.2); border-color: #60a5fa; }
 
-        .input-filter { background: #111f1c; border: 1px solid #1e2e2a; color: #e2e8f0; border-radius: 8px; padding: 8px 10px; font-size: 12px; width: 100%; outline: none; }
+        .input-filter { background: #181f1c; border: 1px solid #28332e; color: #e2e8f0; border-radius: 8px; padding: 8px 10px; font-size: 12px; width: 100%; outline: none; }
 
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-thumb { background: #28332e; border-radius: 10px; }
         label { font-size: 11px; }
         @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
-        .ai-cursor { display:inline-block; animation:blink 1s step-start infinite; color:#38ada9; }
+        .ai-cursor { display:inline-block; animation:blink 1s step-start infinite; color:#60a5fa; }
     </style>
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
@@ -60,36 +63,36 @@
     <div class="flex flex-1 overflow-hidden">
 
         <!-- Sidebar -->
-        <aside class="w-64 border-r flex flex-col p-5 shadow-sm z-20 gap-5 overflow-y-auto">
+        <aside class="w-64 bg-[#1a2420] border-r border-[#28332e] flex flex-col p-5 shadow-sm z-20 gap-5 overflow-y-auto flex-shrink-0">
             <nav class="space-y-1">
                 <a href="{{ url_for('viewer.viewer_dashboard') }}"
-                   class="sidebar-item flex items-center gap-3 px-4 py-3 text-xs font-black text-slate-500 uppercase tracking-widest border border-slate-100 mb-4 hover:border-teal-500/30">
-                    <i class="bi bi-arrow-left-square-fill text-teal-600 text-lg"></i> Dashboard
+                   class="sidebar-item flex items-center gap-3 px-4 py-3 text-xs font-black text-[#64748b] uppercase tracking-widest border border-[#28332e] mb-4 hover:border-[#60a5fa]/30">
+                    <i class="bi bi-arrow-left-square-fill text-[#60a5fa] text-lg"></i> Dashboard
                 </a>
             </nav>
 
             <form method="POST" action="{{ url_for('report_29.report_29') }}" class="space-y-4">
-                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Audit Controls</p>
+                <p class="text-[10px] font-black text-[#64748b] uppercase tracking-widest">Audit Controls</p>
                 <div>
-                    <label class="font-black text-teal-600 uppercase tracking-wider block mb-1">Start Date</label>
+                    <label class="font-black text-[#60a5fa] uppercase tracking-wider block mb-1">Start Date</label>
                     <input type="date" name="start_date" value="{{ display_start }}"
-                           class="w-full bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold p-2 focus:ring-2 focus:ring-teal-500 outline-none">
+                           class="w-full bg-[#181f1c] border border-[#28332e] rounded-lg text-xs font-bold p-2 text-[#e2e8f0] focus:ring-2 focus:ring-[#60a5fa] outline-none">
                 </div>
                 <div>
-                    <label class="font-black text-teal-600 uppercase tracking-wider block mb-1">End Date</label>
+                    <label class="font-black text-[#60a5fa] uppercase tracking-wider block mb-1">End Date</label>
                     <input type="date" name="end_date" value="{{ display_end }}"
-                           class="w-full bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold p-2 focus:ring-2 focus:ring-teal-500 outline-none">
+                           class="w-full bg-[#181f1c] border border-[#28332e] rounded-lg text-xs font-bold p-2 text-[#e2e8f0] focus:ring-2 focus:ring-[#60a5fa] outline-none">
                 </div>
                 <button type="submit"
-                        class="w-full py-3 bg-[#38ada9] text-white text-xs font-black uppercase tracking-widest rounded-xl shadow-lg hover:bg-teal-600 transition active:scale-95">
+                        class="w-full py-3 bg-[#60a5fa] text-white text-xs font-black uppercase tracking-widest rounded-xl shadow-lg hover:bg-blue-400 transition active:scale-95">
                     Run Analysis
                 </button>
             </form>
 
             <!-- CSV export — only after report runs -->
             {% if run_report %}
-            <div class="border-t border-slate-100 pt-4 space-y-3">
-                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Export Data</p>
+            <div class="border-t border-[#28332e] pt-4 space-y-3">
+                <p class="text-[10px] font-black text-[#64748b] uppercase tracking-widest">Export Data</p>
                 <form method="POST" action="{{ url_for('report_29.export_report_29') }}">
                     <input type="hidden" name="start_date" value="{{ display_start }}">
                     <input type="hidden" name="end_date" value="{{ display_end }}">
@@ -101,7 +104,7 @@
                         Download CSV
                     </button>
                 </form>
-                <p class="text-[11px] text-slate-400 italic leading-relaxed">
+                <p class="text-[11px] text-[#64748b] italic leading-relaxed">
                     Exports the full protocol density table — procedure code, modality, technician, study count, avg MB, and total GB.
                 </p>
             </div>
@@ -109,18 +112,18 @@
         </aside>
 
         <!-- Main -->
-        <main class="flex-1 overflow-y-auto p-10 bg-[#f8fafc]">
+        <main class="flex-1 overflow-y-auto p-10 bg-[#181f1c]">
             <div class="max-w-6xl mx-auto space-y-8">
 
                 <!-- Page title row -->
                 <div class="flex justify-between items-end">
                     <div>
-                        <h2 class="text-3xl font-black text-slate-800 uppercase tracking-tighter leading-none">{{ report_name }}</h2>
-                        <p class="text-slate-400 text-xs font-black uppercase tracking-[0.2em] mt-2">Target Capacity: 4.0 TB Standard</p>
+                        <h2 class="text-3xl font-black text-[#e2e8f0] uppercase tracking-tighter leading-none">{{ report_name }}</h2>
+                        <p class="text-[#64748b] text-xs font-black uppercase tracking-[0.2em] mt-2">Target Capacity: 4.0 TB Standard</p>
                     </div>
                     <div class="text-right">
-                        <span class="text-xs font-black text-slate-400 uppercase tracking-widest">Total Archive Size</span>
-                        <div class="text-3xl font-black text-[#38ada9] leading-none mt-1">
+                        <span class="text-xs font-black text-[#64748b] uppercase tracking-widest">Total Archive Size</span>
+                        <div class="text-3xl font-black text-[#60a5fa] leading-none mt-1">
                             {{ stats.total_tb }} <span class="text-sm">TB</span>
                         </div>
                     </div>
@@ -145,7 +148,7 @@
                         </div>
                         <div>
                             <p class="text-[10px] font-black text-red-500 uppercase tracking-widest">Storage Alert</p>
-                            <p class="text-sm font-black text-slate-700 uppercase tracking-tight mt-0.5">{{ alert.msg }}</p>
+                            <p class="text-sm font-black text-[#e2e8f0] uppercase tracking-tight mt-0.5">{{ alert.msg }}</p>
                         </div>
                     </div>
                     {% endfor %}
@@ -209,7 +212,7 @@
                     </div>
                     <div class="overflow-x-auto px-6 pb-6">
                         <table class="w-full text-left">
-                            <thead class="border-b border-slate-200 text-xs font-black text-slate-600 uppercase tracking-wider">
+                            <thead class="border-b border-[#28332e] text-xs font-black text-[#64748b] uppercase tracking-wider">
                                 <tr>
                                     <th class="pb-4 pr-4 pt-4">Procedure / Tech</th>
                                     <th class="pb-4 pr-4">Modality</th>
@@ -219,19 +222,19 @@
                                     <th class="pb-4 text-right">Total GB</th>
                                 </tr>
                             </thead>
-                            <tbody class="text-sm font-bold text-slate-600 divide-y divide-slate-50">
+                            <tbody class="text-sm font-bold text-[#94a3b8] divide-y divide-white/5">
                                 {% for row in table_data %}
-                                <tr class="hover:bg-slate-50/50 transition">
+                                <tr class="hover:bg-white/[0.02] transition">
                                     <td class="py-4">
-                                        <p class="uppercase font-black text-slate-800 text-sm">{{ row.procedure_code or 'UNKNOWN' }}</p>
-                                        <p class="text-xs text-slate-400 uppercase mt-0.5">Tech: {{ row.performing_technician or 'Unassigned' }}</p>
+                                        <p class="uppercase font-black text-[#e2e8f0] text-sm">{{ row.procedure_code or 'UNKNOWN' }}</p>
+                                        <p class="text-xs text-[#64748b] uppercase mt-0.5">Tech: {{ row.performing_technician or 'Unassigned' }}</p>
                                     </td>
                                     <td class="py-4">
-                                        <span class="px-2.5 py-1 bg-slate-100 text-slate-600 rounded text-xs font-black uppercase">
+                                        <span class="px-2.5 py-1 bg-white/5 text-[#94a3b8] rounded text-xs font-black uppercase">
                                             {{ row.modality }}
                                         </span>
                                     </td>
-                                    <td class="py-4 text-right text-slate-500 text-sm">{{ "{:,}".format(row.study_count) }}</td>
+                                    <td class="py-4 text-right text-[#64748b] text-sm">{{ "{:,}".format(row.study_count) }}</td>
                                     <td class="py-4 text-right text-sm">
                                         <span class="{% if row.avg_mb_per_study > 500 %}text-red-600 font-black{% elif row.avg_mb_per_study > 250 %}text-amber-600{% else %}text-emerald-600{% endif %}">
                                             {{ "{:,.1f}".format(row.avg_mb_per_study or 0) }} MB
@@ -246,7 +249,7 @@
                                             <span class="status-pill bg-emerald-100 text-emerald-600">Optimized</span>
                                         {% endif %}
                                     </td>
-                                    <td class="py-4 text-right text-slate-900 font-black text-sm">{{ "{:,.2f}".format(row.total_gb) }}</td>
+                                    <td class="py-4 text-right text-[#e2e8f0] font-black text-sm">{{ "{:,.2f}".format(row.total_gb) }}</td>
                                 </tr>
                                 {% endfor %}
                             </tbody>
@@ -255,12 +258,12 @@
                 </div>
 
                 {% else %}
-                <div class="h-96 flex flex-col items-center justify-center text-center card-custom border-dashed border-2 border-slate-200">
-                    <div class="bg-slate-50 p-6 rounded-full mb-4">
-                        <i class="bi bi-hdd-network text-4xl text-slate-300"></i>
+                <div class="h-96 flex flex-col items-center justify-center text-center card-custom border-dashed border-2 border-[#28332e]">
+                    <div class="bg-white/5 p-6 rounded-full mb-4">
+                        <i class="bi bi-hdd-network text-4xl text-[#64748b]"></i>
                     </div>
-                    <p class="text-slate-400 font-black uppercase tracking-[0.2em] text-sm">Ready for Storage Audit</p>
-                    <p class="text-slate-300 text-xs mt-2">Select a date range and click Run Analysis</p>
+                    <p class="text-[#64748b] font-black uppercase tracking-[0.2em] text-sm">Ready for Storage Audit</p>
+                    <p class="text-[#94a3b8] text-xs mt-2">Select a date range and click Run Analysis</p>
                 </div>
                 {% endif %}
 
@@ -296,7 +299,7 @@
             },
             y: {
                 grid: { display: false },
-                ticks: { color: '#1e293b', font: { size: 12, weight: 'bold' } }
+                ticks: { color: '#94a3b8', font: { size: 12, weight: 'bold' } }
             }
         }
     };
