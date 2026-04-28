@@ -204,6 +204,10 @@ END \$\$;
 "
 ok "ETL tables truncated."
 
+# ── 6a-2. Schema migrations ───────────────────────────
+pg_exec "ALTER TABLE public.settings ALTER COLUMN key TYPE TEXT, ALTER COLUMN value TYPE TEXT;"
+ok "settings table widened to TEXT."
+
 # ── 6b. PACS Oracle connection ────────────────────────
 echo ""
 echo "  ── PACS Oracle Connection ──────────────────────"

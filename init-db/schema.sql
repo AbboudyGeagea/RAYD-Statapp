@@ -720,8 +720,8 @@ ALTER SEQUENCE public.saved_reports_id_seq OWNED BY public.saved_reports.id;
 
 CREATE TABLE public.settings (
     id integer NOT NULL,
-    key character varying(100) NOT NULL,
-    value character varying(100) NOT NULL
+    key text NOT NULL,
+    value text NOT NULL
 );
 
 
