@@ -9,7 +9,7 @@ sys.modules["cx_Oracle"] = oracledb
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
 from sqlalchemy import text, BigInteger, ForeignKey, Numeric, Boolean, Integer, String, DateTime, Date, Text
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 
@@ -524,6 +524,18 @@ class FinancialAuditLog(db.Model):
     new_value   = db.Column(Numeric(8, 4))
     ip_address  = db.Column(Text)
     created_at  = db.Column(DateTime, server_default=func.now())
+
+class TechFlagAck(db.Model):
+    __tablename__        = 'tech_flag_acknowledgements'
+    id                   = db.Column(Integer, primary_key=True)
+    accession_number     = db.Column(Text, nullable=False)
+    flag_date            = db.Column(Date, nullable=False)
+    flags                = db.Column(ARRAY(Text), nullable=False, server_default='{}')
+    note                 = db.Column(Text)
+    acknowledged_by_id   = db.Column(Integer, ForeignKey('users.id', ondelete='SET NULL'))
+    acknowledged_by_name = db.Column(Text, nullable=False)
+    acknowledged_at      = db.Column(DateTime, nullable=False, server_default=func.now())
+    __table_args__       = (db.UniqueConstraint('accession_number', 'flag_date', name='uq_tfa_accession_date'),)
 
 # ----------------------------------------------------------------
 # 9. ALIASES (KEEPS CONTROLLERS HAPPY)

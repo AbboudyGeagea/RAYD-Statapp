@@ -1223,6 +1223,34 @@
 
             </div>
 
+            <!-- ── FLAG ACK MODAL ─────────────────────────────────────────── -->
+            <div id="ack-modal" style="display:none; position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,0.7); backdrop-filter:blur(4px);" class="flex items-center justify-center">
+                <div class="glass-card w-full max-w-md" style="border:1px solid rgba(255,255,255,0.12);">
+                    <div class="flex items-center justify-between mb-4">
+                        <p class="text-sm font-black text-emerald-400 uppercase tracking-wide">Acknowledge Flag</p>
+                        <button onclick="closeAckModal()" class="text-zinc-500 hover:text-white text-xl font-black leading-none">&times;</button>
+                    </div>
+                    <p class="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Accession</p>
+                    <p id="ack-modal-accession" class="text-xs font-mono text-zinc-300 mb-3"></p>
+                    <p class="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Flags</p>
+                    <div id="ack-modal-flags" class="flex flex-wrap gap-1 mb-4"></div>
+                    <p class="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Note <span class="normal-case text-zinc-600">(optional)</span></p>
+                    <textarea id="ack-modal-note" rows="3"
+                        class="w-full bg-[#111413] border border-[#28332e] text-zinc-300 text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-emerald-500/50 resize-none mb-4"
+                        placeholder="Add context or resolution note..."></textarea>
+                    <div class="flex gap-3">
+                        <button onclick="submitAck()"
+                            class="flex-1 py-2 rounded-lg bg-emerald-600/20 border border-emerald-500/40 text-emerald-400 text-xs font-bold hover:bg-emerald-600/30 transition-colors">
+                            Confirm Acknowledgement
+                        </button>
+                        <button onclick="closeAckModal()"
+                            class="px-4 py-2 rounded-lg border border-[#28332e] text-zinc-500 text-xs font-bold hover:text-zinc-300 transition-colors">
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+            </div>
+
             <!-- ── SHIFT CONFIG MODAL ─────────────────────────────────────── -->
             <div id="shift-config-modal" style="display:none; position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,0.7); backdrop-filter:blur(4px);" class="flex items-center justify-center">
                 <div class="glass-card w-full max-w-md" style="border:1px solid rgba(255,255,255,0.12);">
@@ -1339,6 +1367,118 @@
                 if (tr.dataset.child) { tr.style.display = 'none'; return; }
                 tr.style.display = (!date || tr.dataset.date === date) ? '' : 'none';
             });
+        }
+
+        // ── Flag acknowledgement ───────────────────────────────────────────
+        const _ACK_USER = "{{ current_user.username }}";
+        const _FLAG_BADGE = {
+            before_scheduled: '<span style="font-size:9px;font-weight:900;padding:2px 6px;border-radius:4px;background:rgba(244,63,94,0.2);color:#f87171;border:1px solid rgba(244,63,94,0.4)">BEFORE TIME</span>',
+            too_early:        '<span style="font-size:9px;font-weight:900;padding:2px 6px;border-radius:4px;background:rgba(245,158,11,0.2);color:#fbbf24;border:1px solid rgba(245,158,11,0.4)">TOO EARLY</span>',
+            overlap:          '<span style="font-size:9px;font-weight:900;padding:2px 6px;border-radius:4px;background:rgba(249,115,22,0.2);color:#fb923c;border:1px solid rgba(249,115,22,0.4)">OVERLAP</span>',
+            too_late:         '<span style="font-size:9px;font-weight:900;padding:2px 6px;border-radius:4px;background:rgba(167,139,250,0.2);color:#a78bfa;border:1px solid rgba(167,139,250,0.4)">TOO LATE</span>',
+        };
+        let _ackPending = {};
+
+        function showAckModal(btn) {
+            const idx      = btn.dataset.idx;
+            const accession = btn.dataset.accession;
+            const date     = btn.dataset.date;
+            const flags    = JSON.parse(btn.dataset.flags || '[]');
+            _ackPending = { idx, accession, date, flags };
+            document.getElementById('ack-modal-accession').textContent = accession;
+            document.getElementById('ack-modal-flags').innerHTML = flags.map(f => _FLAG_BADGE[f] || f).join(' ');
+            document.getElementById('ack-modal-note').value = '';
+            document.getElementById('ack-modal').style.display = 'flex';
+        }
+
+        function closeAckModal() {
+            document.getElementById('ack-modal').style.display = 'none';
+            _ackPending = {};
+        }
+
+        async function submitAck() {
+            const note = document.getElementById('ack-modal-note').value.trim();
+            try {
+                const r = await fetch('/api/tech/flag/acknowledge', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        accession: _ackPending.accession,
+                        flag_date: _ackPending.date,
+                        flags:     _ackPending.flags,
+                        note,
+                    }),
+                });
+                if (!r.ok) throw new Error();
+                closeAckModal();
+                _updateAckRow(_ackPending.idx, _ackPending.accession, _ackPending.date, _ackPending.flags, true, note);
+            } catch {
+                alert('Failed to acknowledge. Please try again.');
+            }
+        }
+
+        async function unAckFlag(btn) {
+            const idx      = btn.dataset.idx;
+            const accession = btn.dataset.accession;
+            const date     = btn.dataset.date;
+            try {
+                const r = await fetch('/api/tech/flag/unacknowledge', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ accession, flag_date: date }),
+                });
+                if (!r.ok) throw new Error();
+                _updateAckRow(idx, accession, date, [], false, '');
+            } catch {
+                alert('Failed to remove acknowledgement. Please try again.');
+            }
+        }
+
+        function _updateAckRow(idx, accession, date, flags, acked, note) {
+            const now    = new Date().toISOString().slice(0, 16).replace('T', ' ');
+            const safeAc = accession.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+            const stateEl = document.getElementById('ack-state-' + idx);
+            if (stateEl) {
+                if (acked) {
+                    stateEl.innerHTML = `<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-top:2px;">
+                        <span style="font-size:9px;font-weight:900;padding:2px 6px;border-radius:4px;background:rgba(16,185,129,0.15);color:#34d399;border:1px solid rgba(16,185,129,0.35);"
+                            title="Note: ${note || 'None'}">✓ ACK'd · ${_ACK_USER}</span>
+                        <button data-idx="${idx}" data-accession="${accession}" data-date="${date}"
+                            onclick="unAckFlag(this)"
+                            style="font-size:9px;font-weight:700;color:#52525b;text-decoration:underline;background:none;border:none;cursor:pointer;padding:0;"
+                            onmouseenter="this.style.color='#f87171'" onmouseleave="this.style.color='#52525b'">un-ack</button>
+                    </div>`;
+                } else {
+                    stateEl.innerHTML = `<button data-idx="${idx}" data-accession="${accession}" data-date="${date}"
+                        data-flags='${JSON.stringify(flags)}'
+                        onclick="showAckModal(this)"
+                        style="margin-top:2px;padding:2px 8px;font-size:9px;font-weight:700;border-radius:4px;border:1px solid rgba(245,158,11,0.3);color:#fbbf24;background:none;cursor:pointer;"
+                        onmouseenter="this.style.background='rgba(245,158,11,0.1)'"
+                        onmouseleave="this.style.background='none'">Ack</button>`;
+                }
+            }
+            const logRow = document.getElementById('ack-log-row-' + idx);
+            if (logRow) {
+                if (acked) {
+                    logRow.style.display = '';
+                    const nc = logRow.querySelector('.ack-note');
+                    const bc = logRow.querySelector('.ack-by');
+                    const ac = logRow.querySelector('.ack-at');
+                    if (nc) nc.textContent = note || '';
+                    if (bc) bc.textContent = _ACK_USER;
+                    if (ac) ac.textContent = now;
+                } else {
+                    logRow.style.display = 'none';
+                }
+            }
+            const tbody = document.getElementById('ack-log-tbody');
+            const emptyEl = document.getElementById('ack-log-empty');
+            const countEl = document.getElementById('ack-log-count');
+            if (tbody) {
+                const visible = tbody.querySelectorAll('tr:not([style*="display:none"])').length;
+                if (emptyEl) emptyEl.style.display = visible === 0 ? '' : 'none';
+                if (countEl) countEl.textContent = visible + " ack’d";
+            }
         }
 
         window._techCharts = {};

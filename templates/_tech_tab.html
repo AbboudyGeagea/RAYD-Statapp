@@ -292,6 +292,27 @@
                             </span>
                             {% endif %}
                         </div>
+                        {% if current_user.role in ('admin', 'viewer', 'viewer2') %}
+                        {% set ack = tech_data.ack_map.get(s.accession) %}
+                        <div id="ack-state-{{ loop.index }}" class="mt-1">
+                            {% if ack %}
+                            <div class="flex items-center gap-1 flex-wrap">
+                                <span class="px-1.5 py-0.5 rounded bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-[9px] font-bold"
+                                    title="Note: {{ ack.note or 'None' }}">✓ ACK'd · {{ ack.by }}</span>
+                                <button data-idx="{{ loop.index }}" data-accession="{{ s.accession }}" data-date="{{ s.scheduled_at[:10] }}"
+                                    onclick="unAckFlag(this)"
+                                    class="text-[9px] text-zinc-600 hover:text-rose-400 underline bg-transparent border-0 cursor-pointer p-0">un-ack</button>
+                            </div>
+                            {% else %}
+                            <button data-idx="{{ loop.index }}" data-accession="{{ s.accession }}" data-date="{{ s.scheduled_at[:10] }}"
+                                data-flags='{{ s.flags|tojson }}'
+                                onclick="showAckModal(this)"
+                                class="px-2 py-0.5 text-[9px] font-bold rounded border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 bg-transparent cursor-pointer">
+                                Ack
+                            </button>
+                            {% endif %}
+                        </div>
+                        {% endif %}
                     </td>
                 </tr>
                 {% if s.er_concurrent %}
@@ -314,6 +335,74 @@
                 {% endfor %}
             </tbody>
         </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Acknowledgements Log -->
+{% if tech_data.flagged %}
+<div class="space-y-3">
+    <p class="text-xs font-black text-emerald-500 uppercase tracking-widest">
+        Acknowledgements Log
+        <span id="ack-log-count" class="ml-2 px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px]">{{ tech_data.ack_map|length }} ack'd</span>
+    </p>
+    <div class="glass-card overflow-x-auto">
+        <div style="max-height:360px; overflow-y:auto;">
+        <table class="w-full text-left" style="border-collapse:separate; border-spacing:0;">
+            <thead>
+                <tr class="text-[10px] font-black text-zinc-500 uppercase tracking-wider">
+                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Accession</th>
+                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Modality</th>
+                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Technician</th>
+                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Date</th>
+                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Flags</th>
+                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Note</th>
+                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Ack'd by</th>
+                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Ack'd at</th>
+                    {% if current_user.role in ('admin', 'viewer', 'viewer2') %}
+                    <th class="pb-3 sticky top-0 bg-[#111413] z-10"></th>
+                    {% endif %}
+                </tr>
+            </thead>
+            <tbody id="ack-log-tbody">
+                {% for s in tech_data.flagged %}
+                {% set ack = tech_data.ack_map.get(s.accession) %}
+                <tr id="ack-log-row-{{ loop.index }}"
+                    style="{{ '' if ack else 'display:none;' }}"
+                    class="border-t border-white/5">
+                    <td class="py-2 pr-4 text-xs font-mono text-zinc-400">{{ s.accession }}</td>
+                    <td class="py-2 pr-4 text-xs text-zinc-400">{{ s.modality }}</td>
+                    <td class="py-2 pr-4 text-xs font-bold text-blue-400">{{ s.technician or '—' }}</td>
+                    <td class="py-2 pr-4 text-xs text-zinc-500">{{ s.scheduled_at[:10] }}</td>
+                    <td class="py-2 pr-4">
+                        <div class="flex flex-wrap gap-1">
+                            {% if 'before_scheduled' in s.flags %}<span class="px-1.5 py-0.5 rounded bg-rose-500/20 border border-rose-500/40 text-rose-400 text-[9px] font-bold">BEFORE TIME</span>{% endif %}
+                            {% if 'too_early' in s.flags %}<span class="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-400 text-[9px] font-bold">TOO EARLY</span>{% endif %}
+                            {% if 'overlap' in s.flags %}<span class="px-1.5 py-0.5 rounded bg-orange-500/20 border border-orange-500/40 text-orange-400 text-[9px] font-bold">OVERLAP</span>{% endif %}
+                            {% if 'too_late' in s.flags %}<span class="px-1.5 py-0.5 rounded bg-purple-500/20 border border-purple-500/40 text-purple-400 text-[9px] font-bold">TOO LATE</span>{% endif %}
+                        </div>
+                    </td>
+                    <td class="py-2 pr-4 text-xs text-zinc-400 ack-note">{{ ack.note if ack else '' }}</td>
+                    <td class="py-2 pr-4 text-xs text-emerald-400 font-bold ack-by">{{ ack.by if ack else '' }}</td>
+                    <td class="py-2 pr-4 text-xs text-zinc-500 font-mono ack-at">{{ ack.at if ack else '' }}</td>
+                    {% if current_user.role in ('admin', 'viewer', 'viewer2') %}
+                    <td class="py-2">
+                        <button data-idx="{{ loop.index }}" data-accession="{{ s.accession }}" data-date="{{ s.scheduled_at[:10] }}"
+                            onclick="unAckFlag(this)"
+                            class="text-[9px] font-bold px-2 py-1 rounded border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 bg-transparent cursor-pointer">
+                            Un-ack
+                        </button>
+                    </td>
+                    {% endif %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        <div id="ack-log-empty" style="{{ 'display:none' if tech_data.ack_map|length > 0 else '' }}"
+            class="py-8 text-center text-xs text-zinc-600">
+            No acknowledgements yet for this date range.
         </div>
     </div>
 </div>

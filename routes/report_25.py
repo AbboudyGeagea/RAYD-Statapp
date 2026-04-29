@@ -2,8 +2,9 @@ import json
 import pandas as pd
 import io
 from datetime import date
-from flask import Blueprint, render_template, request, send_file, url_for
-from flask_login import login_required
+from datetime import datetime
+from flask import Blueprint, render_template, request, send_file, url_for, jsonify, abort
+from flask_login import login_required, current_user
 from sqlalchemy import text
 from db import db, get_etl_cutoff_date
 from routes.report_cache import cache_get, cache_put
@@ -748,6 +749,24 @@ def compute_bg_data(form_data):
         db.session.rollback()
         print(f"BG technician error: {_e}")
 
+    # ── Acknowledgements for flagged exams ────────────────────────────────
+    try:
+        from db import TechFlagAck
+        acks = TechFlagAck.query.filter(
+            TechFlagAck.flag_date.between(start, end)
+        ).all()
+        tech_data['ack_map'] = {
+            a.accession_number: {
+                'by':   a.acknowledged_by_name,
+                'at':   a.acknowledged_at.strftime('%Y-%m-%d %H:%M'),
+                'note': a.note or '',
+            }
+            for a in acks
+        }
+    except Exception as _ae:
+        db.session.rollback()
+        tech_data['ack_map'] = {}
+
     # ── Insights ──────────────────────────────────────────────────────────
     tech_insights = []
     rad_insights  = []
@@ -1072,6 +1091,63 @@ def patient_journey_api():
     except Exception as e:
         db.session.rollback()
         return _json({'studies': [], 'error': str(e)}), 500
+
+
+# ── Flag acknowledgement API ───────────────────────────────────
+
+@report_25_bp.route('/api/tech/flag/acknowledge', methods=['POST'])
+@login_required
+def ack_tech_flag():
+    if current_user.role not in ('admin', 'viewer', 'viewer2'):
+        abort(403)
+    from db import TechFlagAck
+    data      = request.get_json(silent=True) or {}
+    accession = (data.get('accession') or '').strip()
+    flag_date = (data.get('flag_date') or '').strip()
+    flags     = data.get('flags', [])
+    note      = (data.get('note') or '').strip() or None
+    if not accession or not flag_date:
+        return jsonify({'error': 'Missing fields'}), 400
+    existing = TechFlagAck.query.filter_by(
+        accession_number=accession, flag_date=flag_date
+    ).first()
+    if existing:
+        existing.note                 = note
+        existing.acknowledged_by_id   = current_user.id
+        existing.acknowledged_by_name = current_user.username
+        existing.acknowledged_at      = datetime.utcnow()
+    else:
+        db.session.add(TechFlagAck(
+            accession_number=accession,
+            flag_date=flag_date,
+            flags=flags,
+            note=note,
+            acknowledged_by_id=current_user.id,
+            acknowledged_by_name=current_user.username,
+            acknowledged_at=datetime.utcnow(),
+        ))
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@report_25_bp.route('/api/tech/flag/unacknowledge', methods=['POST'])
+@login_required
+def unack_tech_flag():
+    if current_user.role not in ('admin', 'viewer', 'viewer2'):
+        abort(403)
+    from db import TechFlagAck
+    data      = request.get_json(silent=True) or {}
+    accession = (data.get('accession') or '').strip()
+    flag_date = (data.get('flag_date') or '').strip()
+    if not accession or not flag_date:
+        return jsonify({'error': 'Missing fields'}), 400
+    ack = TechFlagAck.query.filter_by(
+        accession_number=accession, flag_date=flag_date
+    ).first()
+    if ack:
+        db.session.delete(ack)
+        db.session.commit()
+    return jsonify({'ok': True})
 
 
 # ── Self-register ─────────────────────────────────────────────
