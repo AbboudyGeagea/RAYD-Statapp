@@ -1639,6 +1639,164 @@ CREATE TABLE public.scheduling_entries (
 ALTER TABLE public.scheduling_entries OWNER TO etl_user;
 
 --
+-- Tables added over time via app.py migrations and migration files.
+-- Included here so fresh installs work without relying on startup migration order.
+--
+
+CREATE TABLE IF NOT EXISTS hl7_oru_reports (
+    id               SERIAL PRIMARY KEY,
+    procedure_code   VARCHAR(100),
+    procedure_name   TEXT,
+    modality         VARCHAR(20),
+    physician_id     VARCHAR(100),
+    patient_id       VARCHAR(100),
+    accession_number VARCHAR(100),
+    report_text      TEXT,
+    impression_text  TEXT,
+    result_datetime  TIMESTAMP,
+    received_at      TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_oru_received ON hl7_oru_reports (received_at DESC);
+
+CREATE TABLE IF NOT EXISTS hl7_oru_analysis (
+    id              SERIAL PRIMARY KEY,
+    report_id       INTEGER NOT NULL REFERENCES hl7_oru_reports(id) ON DELETE CASCADE,
+    affirmed_labels TEXT[]  NOT NULL DEFAULT '{}',
+    is_critical     BOOLEAN NOT NULL DEFAULT FALSE,
+    nlp_version     TEXT,
+    analyzed_at     TIMESTAMP NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_oru_analysis_report UNIQUE (report_id)
+);
+CREATE INDEX IF NOT EXISTS idx_oru_analysis_report_id ON hl7_oru_analysis (report_id);
+CREATE INDEX IF NOT EXISTS idx_oru_analysis_critical  ON hl7_oru_analysis (is_critical);
+CREATE INDEX IF NOT EXISTS idx_oru_analysis_analyzed  ON hl7_oru_analysis (analyzed_at);
+
+CREATE TABLE IF NOT EXISTS ai_nlp_cache (
+    id              SERIAL PRIMARY KEY,
+    source_id       INTEGER NOT NULL REFERENCES hl7_oru_reports(id) ON DELETE CASCADE,
+    classification  VARCHAR(20),
+    keywords        JSONB,
+    cluster_id      INTEGER,
+    cluster_label   TEXT,
+    severity_score  NUMERIC(3,1),
+    processed_at    TIMESTAMP DEFAULT NOW(),
+    UNIQUE (source_id)
+);
+CREATE INDEX IF NOT EXISTS idx_nlp_classification ON ai_nlp_cache (classification);
+CREATE INDEX IF NOT EXISTS idx_nlp_cluster        ON ai_nlp_cache (cluster_id);
+
+CREATE TABLE IF NOT EXISTS hl7_scn_studies (
+    id               SERIAL PRIMARY KEY,
+    accession_number VARCHAR(100) UNIQUE,
+    patient_id       VARCHAR(100),
+    patient_name     TEXT,
+    procedure_code   VARCHAR(100),
+    procedure_text   TEXT,
+    modality         VARCHAR(20),
+    storing_ae       VARCHAR(100),
+    patient_class    VARCHAR(50),
+    study_datetime   TIMESTAMP,
+    order_status     VARCHAR(20) DEFAULT 'CM',
+    received_at      TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_scn_study_dt ON hl7_scn_studies (study_datetime DESC);
+CREATE INDEX IF NOT EXISTS idx_scn_modality  ON hl7_scn_studies (modality);
+
+CREATE TABLE IF NOT EXISTS procedure_modality_conflicts (
+    id             SERIAL PRIMARY KEY,
+    procedure_code VARCHAR UNIQUE,
+    modalities     TEXT,
+    sample_count   INTEGER,
+    detected_at    TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS procedure_fuzzy_candidates (
+    id                 SERIAL PRIMARY KEY,
+    procedure_code     VARCHAR UNIQUE,
+    suggested_modality VARCHAR(20),
+    match_score        NUMERIC(4,3),
+    matched_via        VARCHAR(20),
+    detected_at        TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS procedure_canonical_groups (
+    id                 SERIAL PRIMARY KEY,
+    canonical_name     VARCHAR(300),
+    approved           BOOLEAN DEFAULT FALSE,
+    approved_by        VARCHAR(100),
+    approved_at        TIMESTAMP,
+    detected_at        TIMESTAMP DEFAULT NOW(),
+    source             VARCHAR(20) DEFAULT 'human',
+    cluster_confidence NUMERIC(4,3)
+);
+
+CREATE TABLE IF NOT EXISTS procedure_canonical_members (
+    procedure_code   VARCHAR PRIMARY KEY,
+    group_id         INTEGER REFERENCES procedure_canonical_groups(id) ON DELETE CASCADE,
+    similarity_score NUMERIC(4,3),
+    member_approved  BOOLEAN DEFAULT NULL,
+    added_at         TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS procedure_duplicate_candidates (
+    id              SERIAL PRIMARY KEY,
+    code_a          VARCHAR,
+    code_b          VARCHAR,
+    code_similarity NUMERIC(4,3),
+    desc_similarity NUMERIC(4,3),
+    desc_a          TEXT,
+    desc_b          TEXT,
+    status          VARCHAR(10) DEFAULT 'pending',
+    group_id        INTEGER REFERENCES procedure_canonical_groups(id) ON DELETE SET NULL,
+    reviewed_at     TIMESTAMP,
+    detected_at     TIMESTAMP DEFAULT NOW(),
+    UNIQUE(code_a, code_b)
+);
+
+CREATE TABLE IF NOT EXISTS financial_config (
+    id          SERIAL PRIMARY KEY,
+    entity_type VARCHAR(20) NOT NULL,
+    entity_id   TEXT,
+    usd_per_rvu NUMERIC(8,4) NOT NULL,
+    notes       TEXT,
+    created_at  TIMESTAMP DEFAULT NOW(),
+    updated_at  TIMESTAMP DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_financial_config_global
+    ON financial_config (entity_type) WHERE entity_type = 'global';
+CREATE UNIQUE INDEX IF NOT EXISTS uq_financial_config_override
+    ON financial_config (entity_id) WHERE entity_id IS NOT NULL;
+INSERT INTO financial_config (entity_type, entity_id, usd_per_rvu, notes)
+    VALUES ('global', NULL, 40.0000, 'Default global rate')
+    ON CONFLICT DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS financial_audit_log (
+    id          SERIAL PRIMARY KEY,
+    user_id     INTEGER,
+    user_name   TEXT,
+    action      TEXT NOT NULL,
+    entity_type TEXT,
+    entity_id   TEXT,
+    old_value   NUMERIC(8,4),
+    new_value   NUMERIC(8,4),
+    ip_address  TEXT,
+    created_at  TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS tech_flag_acknowledgements (
+    id                   SERIAL PRIMARY KEY,
+    accession_number     TEXT NOT NULL,
+    flag_date            DATE NOT NULL,
+    flags                TEXT[] NOT NULL DEFAULT '{}',
+    note                 TEXT,
+    acknowledged_by_id   INT REFERENCES users(id) ON DELETE SET NULL,
+    acknowledged_by_name TEXT NOT NULL,
+    acknowledged_at      TIMESTAMP NOT NULL DEFAULT NOW(),
+    UNIQUE (accession_number, flag_date)
+);
+CREATE INDEX IF NOT EXISTS idx_tfa_flag_date ON tech_flag_acknowledgements (flag_date);
+
+--
 -- PostgreSQL database dump complete
 --
 
