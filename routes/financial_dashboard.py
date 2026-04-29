@@ -48,7 +48,7 @@ def _collect(start: str, end: str) -> dict:
             COUNT(DISTINCT s.study_db_uid)         AS study_count,
             COALESCE(SUM(pdm.rvu_value), 0)        AS total_rvu
         {_STUDY_BASE}
-        GROUP BY modality
+        GROUP BY 1
         ORDER BY total_rvu DESC
     """), {'start': start, 'end': end}).fetchall()
     by_modality = _apply_rates(mod_rows, cfg)
@@ -73,8 +73,8 @@ def _collect(start: str, end: str) -> dict:
         WHERE s.study_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '12 months')
           AND COALESCE(UPPER(TRIM(COALESCE(m.modality, s.study_modality, ''))), '') != 'SR'
           AND s.study_has_report = true
-        GROUP BY month, modality
-        ORDER BY month, modality
+        GROUP BY 1, 2
+        ORDER BY 1, 2
     """), {}).fetchall()
 
     # Aggregate by month, applying per-modality rates
@@ -102,7 +102,7 @@ def _collect(start: str, end: str) -> dict:
             COALESCE(SUM(pdm.rvu_value), 0)       AS total_rvu
         {_STUDY_BASE}
           AND s.reading_physician_last_name IS NOT NULL
-        GROUP BY physician, modality
+        GROUP BY 1, 3
         ORDER BY total_rvu DESC
         LIMIT 10
     """), {'start': start, 'end': end}).fetchall()
@@ -118,7 +118,7 @@ def _collect(start: str, end: str) -> dict:
         {_STUDY_BASE}
           AND o.proc_id IS NOT NULL
           AND TRIM(o.proc_id) != ''
-        GROUP BY procedure_code, modality
+        GROUP BY 1, 2
         ORDER BY total_rvu DESC
         LIMIT 15
     """), {'start': start, 'end': end}).fetchall()
