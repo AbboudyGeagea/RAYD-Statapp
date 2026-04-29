@@ -366,7 +366,7 @@ def get_gold_standard_data(form_data):
     result = ({
         "summary": {
             "total": len(df), "global_util": f"{(sum(r['avg'] * r.get('total_cap', 1) for r in matrix_rows) / sum(r.get('total_cap', 1) for r in matrix_rows) if matrix_rows and sum(r.get('total_cap', 1) for r in matrix_rows) > 0 else 0):.1f}%",
-            "er_wait": f"{df[(df['patient_class'].str.contains('ER|Emergency', case=False, na=False)) & (df['total_tat_min'] > 0)]['total_tat_min'].mean():.1f}m" if 'patient_class' in df.columns and (df['patient_class'].str.contains('ER|Emergency', case=False, na=False) & (df['total_tat_min'] > 0)).any() else "0m",
+            "er_wait": f"{df[(df['patient_class'] == 'E') & (df['total_tat_min'] > 0)]['total_tat_min'].mean():.1f}m" if 'patient_class' in df.columns and ((df['patient_class'] == 'E') & (df['total_tat_min'] > 0)).any() else "0m",
             "high_stress_count": high_stress, "low_util_count": under_utilized,
             "work_hours": round(total_active_mins / 60, 1), "total_rvu": round(df['rvu'].sum(), 1),
             "tat_median": tat_median, "tat_p25": tat_p25, "tat_p75": tat_p75,

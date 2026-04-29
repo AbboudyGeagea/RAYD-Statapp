@@ -115,15 +115,11 @@ def daily_briefing():
                 (SELECT ROUND(AVG(tat_min)::numeric,1) FROM s
                  WHERE study_date = (SELECT d FROM latest)
                    AND tat_min > 0 AND tat_min < 2880
-                   AND (UPPER(COALESCE(patient_location,'')) = 'ER'
-                        OR patient_class ILIKE '%ER%'
-                        OR patient_class ILIKE '%Emergency%'))                                        AS er_tat_today,
+                   AND patient_class = 'E')                                                          AS er_tat_today,
                 (SELECT ROUND(AVG(tat_min)::numeric,1) FROM s
                  WHERE study_date = (SELECT d FROM latest) - 7
                    AND tat_min > 0 AND tat_min < 2880
-                   AND (UPPER(COALESCE(patient_location,'')) = 'ER'
-                        OR patient_class ILIKE '%ER%'
-                        OR patient_class ILIKE '%Emergency%'))                                        AS er_tat_prev,
+                   AND patient_class = 'E')                                                          AS er_tat_prev,
                 (SELECT modality FROM top_mod)                                                        AS top_modality,
                 (SELECT cnt::int FROM top_mod)                                                        AS top_mod_count,
                 (SELECT COUNT(DISTINCT patient_class)::int FROM s

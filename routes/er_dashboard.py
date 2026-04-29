@@ -6,11 +6,7 @@ from datetime import date, timedelta
 
 er_bp = Blueprint('er', __name__)
 
-_ER_WHERE = """(
-    UPPER(COALESCE(s.patient_location, '')) = 'ER'
-    OR s.patient_class ILIKE '%ER%'
-    OR s.patient_class ILIKE '%Emergency%'
-)"""
+_ER_WHERE = "s.patient_class = 'E'"
 
 _STUDY_DT = """(
     s.study_date::timestamp +
