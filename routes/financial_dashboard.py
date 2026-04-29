@@ -13,7 +13,7 @@ _STUDY_BASE = """
     LEFT JOIN aetitle_modality_map m ON m.aetitle = s.storing_ae
     LEFT JOIN etl_orders o           ON o.study_db_uid = s.study_db_uid
     LEFT JOIN procedure_duration_map pdm
-           ON UPPER(TRIM(o.procedure_code)) = UPPER(TRIM(pdm.procedure_code))
+           ON UPPER(TRIM(o.proc_id)) = UPPER(TRIM(pdm.procedure_code))
     WHERE s.study_date BETWEEN :start AND :end
       AND COALESCE(UPPER(TRIM(COALESCE(m.modality, s.study_modality, ''))), '') != 'SR'
       AND s.study_has_report = true
@@ -69,7 +69,7 @@ def _collect(start: str, end: str) -> dict:
         LEFT JOIN aetitle_modality_map m ON m.aetitle = s.storing_ae
         LEFT JOIN etl_orders o           ON o.study_db_uid = s.study_db_uid
         LEFT JOIN procedure_duration_map pdm
-               ON UPPER(TRIM(o.procedure_code)) = UPPER(TRIM(pdm.procedure_code))
+               ON UPPER(TRIM(o.proc_id)) = UPPER(TRIM(pdm.procedure_code))
         WHERE s.study_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '12 months')
           AND COALESCE(UPPER(TRIM(COALESCE(m.modality, s.study_modality, ''))), '') != 'SR'
           AND s.study_has_report = true
@@ -111,13 +111,13 @@ def _collect(start: str, end: str) -> dict:
     # ── Top procedures (top 15) ──────────────────────────────────────────────
     proc_rows = db.session.execute(text(f"""
         SELECT
-            UPPER(TRIM(o.procedure_code))          AS procedure_code,
+            UPPER(TRIM(o.proc_id))                 AS procedure_code,
             {_MOD_EXPR}                            AS modality,
             COUNT(DISTINCT s.study_db_uid)         AS study_count,
             COALESCE(SUM(pdm.rvu_value), 0)        AS total_rvu
         {_STUDY_BASE}
-          AND o.procedure_code IS NOT NULL
-          AND TRIM(o.procedure_code) != ''
+          AND o.proc_id IS NOT NULL
+          AND TRIM(o.proc_id) != ''
         GROUP BY procedure_code, modality
         ORDER BY total_rvu DESC
         LIMIT 15
