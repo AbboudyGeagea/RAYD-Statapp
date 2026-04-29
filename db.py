@@ -34,7 +34,8 @@ class OracleConnector:
             "dsn": dsn
         }
         
-        if sysdba or (params.mode and params.mode.upper() == 'SYSDBA'):
+        if sysdba or (params.mode and params.mode.upper() == 'SYSDBA') \
+                or (params.username and params.username.upper() == 'SYS'):
             connect_kwargs["mode"] = oracledb.SYSDBA
             
         return oracledb.connect(**connect_kwargs)
