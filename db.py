@@ -287,6 +287,7 @@ class SchedulingEntry(db.Model):
 
 ALL_FEATURE_KEYS = [
     'live_feed', 'hl7_orders', 'report_ai', 'bitnet', 'oru', 'mapping', 'patient_portal', 'scheduling',
+    'financial',
 ]
 
 def user_has_page(user, page_key):

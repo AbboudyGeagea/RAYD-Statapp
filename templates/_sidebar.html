@@ -137,6 +137,7 @@
         {% endif %}
         {% endif %}
 
+        {% if current_user.role == 'admin' or current_user|user_has_page('financial') %}
         <div class="pt-4 pb-2">
             <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-2">Finance</p>
         </div>
@@ -145,6 +146,7 @@
            title="Revenue Intelligence">
             <i class="bi bi-graph-up-arrow flex-shrink-0" style="color:#10b981;"></i> Revenue Intelligence
         </a>
+        {% endif %}
 
         {% if current_user.role != 'tec' %}
         <div class="pt-4 pb-2">

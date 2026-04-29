@@ -1,8 +1,8 @@
-from flask import Blueprint, render_template, request, jsonify
+from flask import Blueprint, render_template, request, jsonify, abort
 from flask_login import login_required, current_user
 from sqlalchemy import text
-from datetime import date, timedelta
-from db import db
+from datetime import date
+from db import db, user_has_page
 from utils.financial import _get_config, effective_rate
 
 financial_dashboard_bp = Blueprint('financial_dashboard', __name__)
@@ -144,8 +144,7 @@ def _collect(start: str, end: str) -> dict:
 @financial_dashboard_bp.route('/financial/revenue')
 @login_required
 def financial_dashboard_page():
-    if current_user.role not in ('admin', 'viewer', 'viewer2'):
-        from flask import abort
+    if current_user.role != 'admin' and not user_has_page(current_user, 'financial'):
         abort(403)
     today = date.today()
     start = request.args.get('start', today.replace(day=1).isoformat())
@@ -159,8 +158,7 @@ def financial_dashboard_page():
 @financial_dashboard_bp.route('/api/financial/dashboard')
 @login_required
 def api_financial_dashboard():
-    if current_user.role not in ('admin', 'viewer', 'viewer2'):
-        from flask import abort
+    if current_user.role != 'admin' and not user_has_page(current_user, 'financial'):
         abort(403)
     today = date.today()
     start = request.args.get('start', today.replace(day=1).isoformat())
