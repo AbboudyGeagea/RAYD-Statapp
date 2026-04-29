@@ -137,6 +137,15 @@
         {% endif %}
         {% endif %}
 
+        <div class="pt-4 pb-2">
+            <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-2">Finance</p>
+        </div>
+        <a href="{{ url_for('financial_dashboard.financial_dashboard_page') }}"
+           class="sidebar-item {% if request.endpoint and request.endpoint.startswith('financial_dashboard.') %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
+           title="Revenue Intelligence">
+            <i class="bi bi-graph-up-arrow flex-shrink-0" style="color:#10b981;"></i> Revenue Intelligence
+        </a>
+
         {% if current_user.role != 'tec' %}
         <div class="pt-4 pb-2">
             <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-2">Help</p>

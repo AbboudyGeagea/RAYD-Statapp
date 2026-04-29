@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Financial Configuration — RAYD</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        :root { --accent: #60a5fa; }
+        body { background: #181f1c; color: #e2e8f0; }
+        .card-custom  { background: #232b28; border-radius: 1.5rem; border: 1px solid #28332e; }
+        .inner-card   { background: #1d2522; border-radius: 1rem;   border: 1px solid #28332e; }
+        .tab-btn { padding: 10px 0; border-bottom: 3px solid transparent; color: #64748b;
+                   font-size: 11px; font-weight: 900; text-transform: uppercase;
+                   letter-spacing: 0.1em; cursor: pointer; transition: all 0.2s; }
+        .tab-btn.active { border-bottom-color: var(--accent); color: var(--accent); }
+        .fin-input { background: #181f1c; border: 1px solid #28332e; color: white;
+                     border-radius: 0.5rem; font-size: 13px; transition: border-color 0.2s;
+                     padding: 6px 10px; width: 100%; }
+        .fin-input:focus { border-color: var(--accent); outline: none; }
+        .fin-input[readonly] { opacity: 0.5; cursor: not-allowed; }
+        .btn-primary { background: var(--accent); color: #0f172a; font-weight: 900;
+                       font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em;
+                       padding: 6px 14px; border-radius: 8px; cursor: pointer; transition: opacity 0.2s; border: none; }
+        .btn-primary:hover { opacity: 0.85; }
+        .btn-ghost  { background: #1d2522; border: 1px solid #28332e; color: #94a3b8;
+                      font-weight: 700; font-size: 11px; text-transform: uppercase;
+                      letter-spacing: 0.1em; padding: 6px 14px; border-radius: 8px;
+                      cursor: pointer; transition: all 0.2s; }
+        .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+        .btn-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
+        .btn-danger { background: #7f1d1d; border: 1px solid #991b1b; color: #fca5a5;
+                      font-weight: 700; font-size: 10px; text-transform: uppercase;
+                      letter-spacing: 0.05em; padding: 4px 10px; border-radius: 6px;
+                      cursor: pointer; transition: all 0.2s; }
+        .btn-danger:hover    { background: #991b1b; }
+        .btn-danger:disabled { opacity: 0.4; cursor: not-allowed; }
+        .btn-edit   { background: #1e3a5f; border: 1px solid #1e40af; color: #93c5fd;
+                      font-weight: 700; font-size: 10px; text-transform: uppercase;
+                      letter-spacing: 0.05em; padding: 4px 10px; border-radius: 6px;
+                      cursor: pointer; transition: all 0.2s; }
+        .btn-edit:hover { background: #1e40af; }
+        .badge-global   { background: #14532d; color: #86efac; font-size: 10px; font-weight: 900;
+                          padding: 2px 8px; border-radius: 9999px; letter-spacing: 0.05em; }
+        .badge-modality { background: #1e3a5f; color: #93c5fd; font-size: 10px; font-weight: 900;
+                          padding: 2px 8px; border-radius: 9999px; letter-spacing: 0.05em; }
+        .badge-proc     { background: #3b1f5e; color: #d8b4fe; font-size: 10px; font-weight: 900;
+                          padding: 2px 8px; border-radius: 9999px; letter-spacing: 0.05em; }
+        .toast { position: fixed; top: 20px; right: 20px; z-index: 9999;
+                 border-radius: 10px; padding: 12px 20px; font-size: 13px; font-weight: 700;
+                 opacity: 0; transition: opacity 0.3s; pointer-events: none; max-width: 350px; }
+        .toast.show   { opacity: 1; pointer-events: auto; }
+        .toast-ok  { background: #14532d; color: #86efac; border: 1px solid #166534; }
+        .toast-err { background: #7f1d1d; color: #fca5a5; border: 1px solid #991b1b; }
+        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 1000;
+                         display: flex; align-items: center; justify-content: center; }
+        .modal-box { background: #232b28; border: 1px solid #28332e; border-radius: 1.5rem;
+                     padding: 2rem; width: 420px; max-width: 95vw; }
+        .custom-scrollbar::-webkit-scrollbar       { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #1d2522; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #28332e; border-radius: 3px; }
+        tr.proc-row.filtered-out { display: none !important; }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+{% include '_header.html' %}
+<div class="flex flex-1 overflow-hidden">
+    {% include '_sidebar.html' %}
+    <main class="flex-1 overflow-y-auto p-8 bg-[#181f1c] custom-scrollbar">
+        <div class="max-w-5xl mx-auto space-y-8">
+
+            <!-- Title -->
+            <div class="flex items-center justify-between">
+                <div>
+                    <h1 class="text-xl font-black text-white tracking-tight">Financial Configuration</h1>
+                    <p class="text-xs text-zinc-500 mt-1">Set USD per RVU rates used across all reports and exports.</p>
+                </div>
+                <span class="text-[10px] font-black text-zinc-600 uppercase tracking-widest">Admin Only</span>
+            </div>
+
+            {% with messages = get_flashed_messages(with_categories=true) %}
+              {% if messages %}{% for cat, msg in messages %}
+                <div class="p-4 rounded-xl font-bold text-sm
+                    {% if cat == 'danger' %}bg-red-900/50 text-red-200 border border-red-500
+                    {% else %}bg-green-900/50 text-green-200 border border-green-500{% endif %}">
+                  {{ msg }}
+                </div>
+              {% endfor %}{% endif %}
+            {% endwith %}
+
+            <!-- Tabs -->
+            <div class="flex gap-6 border-b border-[#28332e]">
+                <button class="tab-btn active" id="tab-config-btn"
+                        onclick="switchTab('config', this)">
+                    <i class="bi bi-sliders mr-1"></i> Rate Configuration
+                </button>
+                <button class="tab-btn" id="tab-audit-btn"
+                        onclick="switchTab('audit', this)">
+                    <i class="bi bi-clock-history mr-1"></i> Audit Trail
+                </button>
+            </div>
+
+            <!-- ═══════════════════════════════════════════════════════════
+                 Config Tab
+            ════════════════════════════════════════════════════════════ -->
+            <div id="tab-config">
+
+                <!-- Global Rate -->
+                <div class="card-custom p-6 mb-6">
+                    <div class="flex items-start justify-between mb-4">
+                        <div>
+                            <p class="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-1">Global Rate</p>
+                            <p class="text-xs text-zinc-500">Fallback when no modality or procedure override exists.</p>
+                        </div>
+                        <span class="badge-global uppercase tracking-widest">Default</span>
+                    </div>
+                    <div id="global-display" class="flex items-center gap-4">
+                        <p class="text-3xl font-black text-white">
+                            $<span id="global-rate-val">{{ '%.2f'|format(fin_config.global_rate.usd_per_rvu) }}</span>
+                        </p>
+                        <p class="text-sm text-zinc-500">per RVU</p>
+                        <button class="btn-edit ml-auto" onclick="showGlobalEdit()">
+                            <i class="bi bi-pencil mr-1"></i> Edit
+                        </button>
+                    </div>
+                    <div id="global-edit" class="hidden mt-4">
+                        <div class="flex flex-wrap gap-3 items-end">
+                            <div style="min-width:130px">
+                                <label class="block text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-1">USD per RVU</label>
+                                <div class="flex items-center gap-1">
+                                    <span class="text-zinc-400 text-sm">$</span>
+                                    <input type="number" id="global-rate-input" class="fin-input"
+                                           min="0.01" max="999.99" step="0.01"
+                                           value="{{ '%.2f'|format(fin_config.global_rate.usd_per_rvu) }}">
+                                </div>
+                            </div>
+                            <div class="flex-1" style="min-width:180px">
+                                <label class="block text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-1">Notes</label>
+                                <input type="text" id="global-notes-input" class="fin-input"
+                                       placeholder="e.g. updated per Q2 contract"
+                                       value="{{ fin_config.global_rate.notes or '' }}">
+                            </div>
+                            <button class="btn-primary" onclick="saveGlobal()">Save</button>
+                            <button class="btn-ghost"  onclick="hideGlobalEdit()">Cancel</button>
+                        </div>
+                        {% if fin_config.global_rate.updated_at %}
+                        <p class="text-[10px] text-zinc-600 mt-2">
+                            Last updated: {{ fin_config.global_rate.updated_at[:19] }}
+                        </p>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Modality Overrides -->
+                <div class="card-custom p-6 mb-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <div>
+                            <p class="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-1">Modality Overrides</p>
+                            <p class="text-xs text-zinc-500">Set a different rate for a specific imaging type (CT, MRI, XR…)</p>
+                        </div>
+                        <button class="btn-ghost" onclick="showModalityModal()">
+                            <i class="bi bi-plus-lg mr-1"></i> Add Override
+                        </button>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left">
+                            <thead>
+                                <tr class="text-[10px] font-black text-zinc-500 uppercase tracking-wider border-b border-[#28332e]">
+                                    <th class="pb-2 pr-4">Modality</th>
+                                    <th class="pb-2 pr-4">USD / RVU</th>
+                                    <th class="pb-2 pr-4">vs Global</th>
+                                    <th class="pb-2 pr-4">Notes</th>
+                                    <th class="pb-2 pr-4">Updated</th>
+                                    <th class="pb-2">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="modality-tbody">
+                            {% if fin_config.modality %}
+                                {% for row in fin_config.modality %}
+                                {% set delta = row.usd_per_rvu - fin_config.global_rate.usd_per_rvu %}
+                                <tr class="border-t border-[#28332e] text-sm">
+                                    <td class="py-3 pr-4"><span class="badge-modality">{{ row.entity_id }}</span></td>
+                                    <td class="py-3 pr-4 font-black text-white">${{ '%.2f'|format(row.usd_per_rvu) }}</td>
+                                    <td class="py-3 pr-4">
+                                        {% if delta > 0 %}
+                                        <span class="text-emerald-400 text-xs font-bold">+${{ '%.2f'|format(delta) }}</span>
+                                        {% elif delta < 0 %}
+                                        <span class="text-red-400 text-xs font-bold">-${{ '%.2f'|format(delta|abs) }}</span>
+                                        {% else %}
+                                        <span class="text-zinc-500 text-xs">same</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="py-3 pr-4 text-zinc-500 text-xs">{{ row.notes or '—' }}</td>
+                                    <td class="py-3 pr-4 text-zinc-600 text-xs">{{ (row.updated_at or '')[:10] or '—' }}</td>
+                                    <td class="py-3">
+                                        <div class="flex gap-2">
+                                            <button class="btn-edit"   onclick='showModalityModal({{ row|tojson }})'>Edit</button>
+                                            <button class="btn-danger" onclick='deleteModality("{{ row.entity_id }}", this)'>Del</button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            {% else %}
+                                <tr id="modality-empty-row">
+                                    <td colspan="6" class="py-6 text-center text-zinc-600 text-xs italic">
+                                        No modality overrides — global rate applies to all.
+                                    </td>
+                                </tr>
+                            {% endif %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Procedure Overrides -->
+                <div class="card-custom p-6 mb-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <div>
+                            <p class="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-1">Procedure Overrides</p>
+                            <p class="text-xs text-zinc-500">
+                                Per-procedure rate — takes precedence over modality overrides.
+                            </p>
+                        </div>
+                        <div class="flex gap-2 items-center">
+                            <input type="text" id="proc-search" class="fin-input" style="width:170px"
+                                   placeholder="Search code…" oninput="filterProcTable()">
+                            <button class="btn-ghost" onclick="showProcModal()">
+                                <i class="bi bi-plus-lg mr-1"></i> Add Override
+                            </button>
+                        </div>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left">
+                            <thead>
+                                <tr class="text-[10px] font-black text-zinc-500 uppercase tracking-wider border-b border-[#28332e]">
+                                    <th class="pb-2 pr-4">Code</th>
+                                    <th class="pb-2 pr-4">USD / RVU</th>
+                                    <th class="pb-2 pr-4">Notes</th>
+                                    <th class="pb-2 pr-4">Updated</th>
+                                    <th class="pb-2">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="proc-tbody">
+                            {% if fin_config.procedure %}
+                                {% for row in fin_config.procedure %}
+                                <tr class="proc-row border-t border-[#28332e] text-sm" data-code="{{ row.entity_id }}">
+                                    <td class="py-3 pr-4"><span class="badge-proc">{{ row.entity_id }}</span></td>
+                                    <td class="py-3 pr-4 font-black text-white">${{ '%.2f'|format(row.usd_per_rvu) }}</td>
+                                    <td class="py-3 pr-4 text-zinc-500 text-xs">{{ row.notes or '—' }}</td>
+                                    <td class="py-3 pr-4 text-zinc-600 text-xs">{{ (row.updated_at or '')[:10] or '—' }}</td>
+                                    <td class="py-3">
+                                        <div class="flex gap-2">
+                                            <button class="btn-edit"   onclick='showProcModal({{ row|tojson }})'>Edit</button>
+                                            <button class="btn-danger" onclick='deleteProc("{{ row.entity_id }}", this)'>Del</button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            {% else %}
+                                <tr id="proc-empty-row">
+                                    <td colspan="5" class="py-6 text-center text-zinc-600 text-xs italic">
+                                        No procedure overrides configured.
+                                    </td>
+                                </tr>
+                            {% endif %}
+                            </tbody>
+                        </table>
+                        <div id="proc-pagination" class="flex items-center gap-3 mt-3 hidden">
+                            <button id="proc-prev" class="btn-ghost py-1 px-2 text-[10px]" onclick="procPage(-1)">‹ Prev</button>
+                            <span id="proc-page-label" class="text-[10px] text-zinc-500 font-black uppercase tracking-widest"></span>
+                            <button id="proc-next" class="btn-ghost py-1 px-2 text-[10px]" onclick="procPage(1)">Next ›</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Rate Preview -->
+                <div class="card-custom p-6">
+                    <p class="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-1">
+                        <i class="bi bi-calculator mr-1"></i> Rate Preview Calculator
+                    </p>
+                    <p class="text-xs text-zinc-500 mb-5">
+                        See the effective rate for any modality / procedure combination.
+                        Override precedence: <span class="text-purple-400 font-bold">Procedure</span>
+                        → <span class="text-blue-400 font-bold">Modality</span>
+                        → <span class="text-emerald-400 font-bold">Global</span>
+                    </p>
+                    <div class="flex flex-wrap gap-4 items-end">
+                        <div>
+                            <label class="block text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-1">Modality</label>
+                            <input type="text" id="preview-modality" class="fin-input" style="width:110px"
+                                   placeholder="CT" oninput="debouncePreview()">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-1">Procedure Code</label>
+                            <input type="text" id="preview-proc" class="fin-input" style="width:180px"
+                                   placeholder="CTHEAD" oninput="debouncePreview()">
+                        </div>
+                        <div class="inner-card px-6 py-3 text-center" style="min-width:150px">
+                            <p class="text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-1">Effective Rate</p>
+                            <p class="text-2xl font-black text-white" id="preview-result">—</p>
+                            <p class="text-[10px] text-zinc-600 mt-0.5" id="preview-source">per RVU</p>
+                        </div>
+                    </div>
+                </div>
+
+            </div><!-- /tab-config -->
+
+            <!-- ═══════════════════════════════════════════════════════════
+                 Audit Tab
+            ════════════════════════════════════════════════════════════ -->
+            <div id="tab-audit" class="hidden">
+                <div class="card-custom p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <p class="text-[10px] font-black text-blue-400 uppercase tracking-widest">
+                            <i class="bi bi-clock-history mr-1"></i> Last 100 Changes
+                        </p>
+                        <button class="btn-ghost" onclick="loadAudit()">
+                            <i class="bi bi-arrow-clockwise mr-1"></i> Refresh
+                        </button>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left">
+                            <thead>
+                                <tr class="text-[10px] font-black text-zinc-500 uppercase tracking-wider border-b border-[#28332e]">
+                                    <th class="pb-2 pr-4">When</th>
+                                    <th class="pb-2 pr-4">User</th>
+                                    <th class="pb-2 pr-4">Action</th>
+                                    <th class="pb-2 pr-4">Target</th>
+                                    <th class="pb-2 pr-4">Old Rate</th>
+                                    <th class="pb-2">New Rate</th>
+                                </tr>
+                            </thead>
+                            <tbody id="audit-tbody">
+                                <tr>
+                                    <td colspan="6" class="py-6 text-center text-zinc-600 text-xs italic">
+                                        Switch to this tab to load changes.
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div><!-- /tab-audit -->
+
+        </div><!-- /max-w -->
+    </main>
+</div>
+
+<!-- Toast -->
+<div id="toast" class="toast"></div>
+
+<!-- Modality Modal -->
+<div id="modality-modal" class="modal-overlay hidden" onclick="closeIfBackdrop(event,'modality-modal')">
+    <div class="modal-box" onclick="event.stopPropagation()">
+        <h3 class="text-sm font-black text-white mb-5" id="modality-modal-title">Add Modality Override</h3>
+        <div class="space-y-4 mb-6">
+            <div>
+                <label class="block text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-1">Modality Code</label>
+                <input type="text" id="modal-mod-code" class="fin-input"
+                       placeholder="CT, MRI, XR, US, NM…" oninput="this.value=this.value.toUpperCase()">
+            </div>
+            <div>
+                <label class="block text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-1">USD per RVU</label>
+                <div class="flex items-center gap-1">
+                    <span class="text-zinc-400 text-sm">$</span>
+                    <input type="number" id="modal-mod-rate" class="fin-input" min="0.01" max="999.99" step="0.01" placeholder="45.00">
+                </div>
+            </div>
+            <div>
+                <label class="block text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-1">Notes (optional)</label>
+                <input type="text" id="modal-mod-notes" class="fin-input" placeholder="e.g. CT contract rate Q1 2026">
+            </div>
+        </div>
+        <div class="flex gap-2 justify-end">
+            <button class="btn-ghost"   onclick="closeModal('modality-modal')">Cancel</button>
+            <button class="btn-primary" onclick="saveModality()">Save Override</button>
+        </div>
+    </div>
+</div>
+
+<!-- Procedure Modal -->
+<div id="proc-modal" class="modal-overlay hidden" onclick="closeIfBackdrop(event,'proc-modal')">
+    <div class="modal-box" onclick="event.stopPropagation()">
+        <h3 class="text-sm font-black text-white mb-5" id="proc-modal-title">Add Procedure Override</h3>
+        <div class="space-y-4 mb-6">
+            <div>
+                <label class="block text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-1">Procedure Code</label>
+                <input type="text" id="modal-proc-code" class="fin-input"
+                       placeholder="e.g. CTHEAD" oninput="this.value=this.value.toUpperCase()">
+            </div>
+            <div>
+                <label class="block text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-1">USD per RVU</label>
+                <div class="flex items-center gap-1">
+                    <span class="text-zinc-400 text-sm">$</span>
+                    <input type="number" id="modal-proc-rate" class="fin-input" min="0.01" max="999.99" step="0.01" placeholder="55.00">
+                </div>
+            </div>
+            <div>
+                <label class="block text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-1">Notes (optional)</label>
+                <input type="text" id="modal-proc-notes" class="fin-input" placeholder="e.g. high-complexity neuro protocol">
+            </div>
+        </div>
+        <div class="flex gap-2 justify-end">
+            <button class="btn-ghost"   onclick="closeModal('proc-modal')">Cancel</button>
+            <button class="btn-primary" onclick="saveProc()">Save Override</button>
+        </div>
+    </div>
+</div>
+
+<script>
+// ── Utilities ──────────────────────────────────────────────────────────────────
+let _toastTimer = null;
+function toast(msg, ok = true) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.className = 'toast show ' + (ok ? 'toast-ok' : 'toast-err');
+    clearTimeout(_toastTimer);
+    _toastTimer = setTimeout(() => el.classList.remove('show'), 3500);
+}
+
+function switchTab(name, btn) {
+    ['config', 'audit'].forEach(t => {
+        document.getElementById('tab-' + t).classList.add('hidden');
+        document.getElementById('tab-' + t + '-btn').classList.remove('active');
+    });
+    document.getElementById('tab-' + name).classList.remove('hidden');
+    (btn || document.getElementById('tab-' + name + '-btn')).classList.add('active');
+    if (name === 'audit') loadAudit();
+}
+
+function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+function closeIfBackdrop(e, id) {
+    if (e.target === document.getElementById(id)) closeModal(id);
+}
+
+async function apiFetch(url, method = 'GET', body = null) {
+    const opts = { method, headers: { 'Content-Type': 'application/json' } };
+    if (body) opts.body = JSON.stringify(body);
+    const res = await fetch(url, opts);
+    if (res.status === 204) return null;
+    return res;
+}
+
+// ── Global Rate ────────────────────────────────────────────────────────────────
+let _globalRate = {{ fin_config.global_rate.usd_per_rvu }};
+
+function showGlobalEdit() { document.getElementById('global-edit').classList.remove('hidden'); }
+function hideGlobalEdit() { document.getElementById('global-edit').classList.add('hidden'); }
+
+async function saveGlobal() {
+    const rate  = parseFloat(document.getElementById('global-rate-input').value);
+    const notes = document.getElementById('global-notes-input').value;
+    if (isNaN(rate) || rate <= 0 || rate >= 1000) {
+        toast('Enter a rate between $0.01 and $999.99', false);
+        return;
+    }
+    const res = await apiFetch('/api/financial/config/global', 'POST', { usd_per_rvu: rate, notes });
+    if (res && (res.status === 200 || res.status === 201)) {
+        document.getElementById('global-rate-val').textContent = rate.toFixed(2);
+        hideGlobalEdit();
+        _globalRate = rate;
+        toast('Global rate updated to $' + rate.toFixed(2) + ' / RVU');
+        refreshModalityTable();
+    } else {
+        const data = res ? await res.json() : {};
+        toast(data.error || 'Save failed', false);
+    }
+}
+
+// ── Modality Table ─────────────────────────────────────────────────────────────
+function _deltaHtml(rate) {
+    const d = rate - _globalRate;
+    if (d > 0) return `<span class="text-emerald-400 text-xs font-bold">+$${d.toFixed(2)}</span>`;
+    if (d < 0) return `<span class="text-red-400 text-xs font-bold">-$${Math.abs(d).toFixed(2)}</span>`;
+    return `<span class="text-zinc-500 text-xs">same</span>`;
+}
+
+function showModalityModal(row = null) {
+    document.getElementById('modality-modal-title').textContent =
+        row ? 'Edit Modality Override' : 'Add Modality Override';
+    document.getElementById('modal-mod-code').value    = row ? row.entity_id : '';
+    document.getElementById('modal-mod-code').readOnly = !!row;
+    document.getElementById('modal-mod-rate').value    = row ? row.usd_per_rvu.toFixed(2) : '';
+    document.getElementById('modal-mod-notes').value   = row ? (row.notes || '') : '';
+    document.getElementById('modality-modal').classList.remove('hidden');
+    document.getElementById(row ? 'modal-mod-rate' : 'modal-mod-code').focus();
+}
+
+async function saveModality() {
+    const code  = document.getElementById('modal-mod-code').value.trim().toUpperCase();
+    const rate  = parseFloat(document.getElementById('modal-mod-rate').value);
+    const notes = document.getElementById('modal-mod-notes').value;
+    if (!code) { toast('Modality code is required', false); return; }
+    if (isNaN(rate) || rate <= 0 || rate >= 1000) {
+        toast('Enter a rate between $0.01 and $999.99', false);
+        return;
+    }
+    const res = await apiFetch('/api/financial/config/modality', 'POST',
+        { modality: code, usd_per_rvu: rate, notes });
+    if (res && (res.status === 200 || res.status === 201)) {
+        closeModal('modality-modal');
+        toast((res.status === 201 ? 'Added' : 'Updated') + ' override for ' + code);
+        refreshModalityTable();
+    } else {
+        const data = res ? await res.json() : {};
+        toast(data.error || 'Save failed', false);
+    }
+}
+
+async function deleteModality(code, btn) {
+    if (!confirm(`Remove modality override for ${code}?\nIt will revert to the global rate.`)) return;
+    btn.disabled = true;
+    const res = await apiFetch('/api/financial/config/modality/' + encodeURIComponent(code), 'DELETE');
+    if (res === null || (res && res.status === 204)) {
+        toast('Removed override for ' + code);
+        refreshModalityTable();
+    } else {
+        btn.disabled = false;
+        toast('Delete failed', false);
+    }
+}
+
+async function refreshModalityTable() {
+    const res  = await apiFetch('/api/financial/config');
+    const data = await res.json();
+    _globalRate = data.global_rate.usd_per_rvu;
+    document.getElementById('global-rate-val').textContent   = _globalRate.toFixed(2);
+    document.getElementById('global-rate-input').value       = _globalRate.toFixed(2);
+
+    const tbody = document.getElementById('modality-tbody');
+    if (!data.modality.length) {
+        tbody.innerHTML = `<tr id="modality-empty-row">
+            <td colspan="6" class="py-6 text-center text-zinc-600 text-xs italic">
+                No modality overrides — global rate applies to all.
+            </td></tr>`;
+        return;
+    }
+    tbody.innerHTML = data.modality.map(row => `
+        <tr class="border-t border-[#28332e] text-sm">
+            <td class="py-3 pr-4"><span class="badge-modality">${row.entity_id}</span></td>
+            <td class="py-3 pr-4 font-black text-white">$${row.usd_per_rvu.toFixed(2)}</td>
+            <td class="py-3 pr-4">${_deltaHtml(row.usd_per_rvu)}</td>
+            <td class="py-3 pr-4 text-zinc-500 text-xs">${row.notes || '—'}</td>
+            <td class="py-3 pr-4 text-zinc-600 text-xs">${(row.updated_at || '').substring(0, 10) || '—'}</td>
+            <td class="py-3"><div class="flex gap-2">
+                <button class="btn-edit"   onclick='showModalityModal(${JSON.stringify(row)})'>Edit</button>
+                <button class="btn-danger" onclick='deleteModality("${row.entity_id}", this)'>Del</button>
+            </div></td>
+        </tr>`).join('');
+}
+
+// ── Procedure Table ────────────────────────────────────────────────────────────
+let _procPage = 0;
+const PROC_PER_PAGE = 20;
+
+function filterProcTable() {
+    _procPage = 0;
+    const q = document.getElementById('proc-search').value.toLowerCase();
+    document.querySelectorAll('.proc-row').forEach(tr => {
+        const code = (tr.dataset.code || '').toLowerCase();
+        tr.classList.toggle('filtered-out', q.length > 0 && !code.includes(q));
+    });
+    updateProcPagination();
+}
+
+function updateProcPagination() {
+    const rows  = Array.from(document.querySelectorAll('.proc-row:not(.filtered-out)'));
+    const total = rows.length;
+    if (total <= PROC_PER_PAGE) {
+        rows.forEach(r => r.style.display = '');
+        document.getElementById('proc-pagination').classList.add('hidden');
+        return;
+    }
+    const start = _procPage * PROC_PER_PAGE;
+    rows.forEach((r, i) => {
+        r.style.display = (i >= start && i < start + PROC_PER_PAGE) ? '' : 'none';
+    });
+    document.getElementById('proc-pagination').classList.remove('hidden');
+    document.getElementById('proc-page-label').textContent =
+        `${start + 1}–${Math.min(start + PROC_PER_PAGE, total)} of ${total}`;
+    document.getElementById('proc-prev').disabled = _procPage === 0;
+    document.getElementById('proc-next').disabled = start + PROC_PER_PAGE >= total;
+}
+
+function procPage(dir) {
+    _procPage = Math.max(0, _procPage + dir);
+    updateProcPagination();
+}
+
+function showProcModal(row = null) {
+    document.getElementById('proc-modal-title').textContent =
+        row ? 'Edit Procedure Override' : 'Add Procedure Override';
+    document.getElementById('modal-proc-code').value    = row ? row.entity_id : '';
+    document.getElementById('modal-proc-code').readOnly = !!row;
+    document.getElementById('modal-proc-rate').value    = row ? row.usd_per_rvu.toFixed(2) : '';
+    document.getElementById('modal-proc-notes').value   = row ? (row.notes || '') : '';
+    document.getElementById('proc-modal').classList.remove('hidden');
+    document.getElementById(row ? 'modal-proc-rate' : 'modal-proc-code').focus();
+}
+
+async function saveProc() {
+    const code  = document.getElementById('modal-proc-code').value.trim().toUpperCase();
+    const rate  = parseFloat(document.getElementById('modal-proc-rate').value);
+    const notes = document.getElementById('modal-proc-notes').value;
+    if (!code) { toast('Procedure code is required', false); return; }
+    if (isNaN(rate) || rate <= 0 || rate >= 1000) {
+        toast('Enter a rate between $0.01 and $999.99', false);
+        return;
+    }
+    const res = await apiFetch('/api/financial/config/procedure', 'POST',
+        { procedure_code: code, usd_per_rvu: rate, notes });
+    if (res && (res.status === 200 || res.status === 201)) {
+        closeModal('proc-modal');
+        toast((res.status === 201 ? 'Added' : 'Updated') + ' override for ' + code);
+        await refreshProcTable();
+    } else {
+        const data = res ? await res.json() : {};
+        toast(data.error || 'Save failed', false);
+    }
+}
+
+async function deleteProc(code, btn) {
+    if (!confirm(`Remove procedure override for ${code}?`)) return;
+    btn.disabled = true;
+    const res = await apiFetch(
+        '/api/financial/config/procedure/' + encodeURIComponent(code), 'DELETE');
+    if (res === null || (res && res.status === 204)) {
+        toast('Removed override for ' + code);
+        await refreshProcTable();
+    } else {
+        btn.disabled = false;
+        toast('Delete failed', false);
+    }
+}
+
+async function refreshProcTable() {
+    const res  = await apiFetch('/api/financial/config');
+    const data = await res.json();
+    const tbody = document.getElementById('proc-tbody');
+    if (!data.procedure.length) {
+        tbody.innerHTML = `<tr id="proc-empty-row">
+            <td colspan="5" class="py-6 text-center text-zinc-600 text-xs italic">
+                No procedure overrides configured.
+            </td></tr>`;
+        document.getElementById('proc-pagination').classList.add('hidden');
+        return;
+    }
+    tbody.innerHTML = data.procedure.map(row => `
+        <tr class="proc-row border-t border-[#28332e] text-sm" data-code="${row.entity_id}">
+            <td class="py-3 pr-4"><span class="badge-proc">${row.entity_id}</span></td>
+            <td class="py-3 pr-4 font-black text-white">$${row.usd_per_rvu.toFixed(2)}</td>
+            <td class="py-3 pr-4 text-zinc-500 text-xs">${row.notes || '—'}</td>
+            <td class="py-3 pr-4 text-zinc-600 text-xs">${(row.updated_at || '').substring(0, 10) || '—'}</td>
+            <td class="py-3"><div class="flex gap-2">
+                <button class="btn-edit"   onclick='showProcModal(${JSON.stringify(row)})'>Edit</button>
+                <button class="btn-danger" onclick='deleteProc("${row.entity_id}", this)'>Del</button>
+            </div></td>
+        </tr>`).join('');
+    _procPage = 0;
+    filterProcTable();
+}
+
+// ── Rate Preview ───────────────────────────────────────────────────────────────
+let _previewTimer = null;
+function debouncePreview() {
+    clearTimeout(_previewTimer);
+    _previewTimer = setTimeout(runPreview, 400);
+}
+
+async function runPreview() {
+    const mod  = document.getElementById('preview-modality').value.trim();
+    const proc = document.getElementById('preview-proc').value.trim();
+    if (!mod && !proc) {
+        document.getElementById('preview-result').textContent = '—';
+        document.getElementById('preview-source').textContent = 'per RVU';
+        return;
+    }
+    const params = new URLSearchParams();
+    if (mod)  params.set('modality', mod);
+    if (proc) params.set('procedure_code', proc);
+    const res  = await fetch('/api/financial/preview?' + params);
+    const data = await res.json();
+    document.getElementById('preview-result').textContent = '$' + data.usd_per_rvu.toFixed(2);
+    let src = 'Global rate';
+    if (proc && data.usd_per_rvu !== _globalRate) src = 'Procedure override';
+    else if (mod && data.usd_per_rvu !== _globalRate) src = 'Modality override';
+    document.getElementById('preview-source').textContent = src + ' / RVU';
+}
+
+// ── Audit Trail ────────────────────────────────────────────────────────────────
+let _auditLoaded = false;
+async function loadAudit() {
+    const tbody = document.getElementById('audit-tbody');
+    tbody.innerHTML = '<tr><td colspan="6" class="py-6 text-center text-zinc-600 text-xs italic">Loading…</td></tr>';
+    const res  = await apiFetch('/api/audit/financial');
+    const data = await res.json();
+    _auditLoaded = true;
+    if (!data.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="py-6 text-center text-zinc-600 text-xs italic">No changes recorded yet.</td></tr>';
+        return;
+    }
+    const colorMap = {
+        SET_GLOBAL:       'text-blue-400',
+        SET_MODALITY:     'text-emerald-400',
+        SET_PROCEDURE:    'text-purple-400',
+        DELETE_MODALITY:  'text-red-400',
+        DELETE_PROCEDURE: 'text-red-400',
+    };
+    tbody.innerHTML = data.map(r => `
+        <tr class="border-t border-[#28332e] text-xs">
+            <td class="py-2 pr-4 text-zinc-500">${(r.created_at || '').substring(0, 16).replace('T', ' ')}</td>
+            <td class="py-2 pr-4 text-white font-bold">${r.user_name || '—'}</td>
+            <td class="py-2 pr-4 font-black ${colorMap[r.action] || 'text-zinc-400'}">${r.action.replace(/_/g, ' ')}</td>
+            <td class="py-2 pr-4 text-zinc-400">${r.entity_id || 'global'}</td>
+            <td class="py-2 pr-4 text-zinc-500">${r.old_value != null ? '$' + r.old_value.toFixed(2) : '—'}</td>
+            <td class="py-2 font-black text-white">${r.new_value != null ? '$' + r.new_value.toFixed(2) : '—'}</td>
+        </tr>`).join('');
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+    updateProcPagination();
+});
+</script>
+</body>
+</html>

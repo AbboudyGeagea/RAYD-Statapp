@@ -497,7 +497,35 @@ class PortalConfig(db.Model):
         return f"<PortalConfig {self.config_key}>"
 
 # ----------------------------------------------------------------
-# 8. ALIASES (KEEPS CONTROLLERS HAPPY)
+# ----------------------------------------------------------------
+# 8. FINANCIAL CONFIGURATION TABLES
+# ----------------------------------------------------------------
+
+class FinancialConfig(db.Model):
+    __tablename__ = 'financial_config'
+    id          = db.Column(Integer, primary_key=True)
+    entity_type = db.Column(String(20), nullable=False)
+    entity_id   = db.Column(Text)
+    usd_per_rvu = db.Column(Numeric(8, 4), nullable=False)
+    notes       = db.Column(Text)
+    created_at  = db.Column(DateTime, server_default=func.now())
+    updated_at  = db.Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+class FinancialAuditLog(db.Model):
+    __tablename__ = 'financial_audit_log'
+    id          = db.Column(Integer, primary_key=True)
+    user_id     = db.Column(Integer)
+    user_name   = db.Column(Text)
+    action      = db.Column(Text, nullable=False)
+    entity_type = db.Column(Text)
+    entity_id   = db.Column(Text)
+    old_value   = db.Column(Numeric(8, 4))
+    new_value   = db.Column(Numeric(8, 4))
+    ip_address  = db.Column(Text)
+    created_at  = db.Column(DateTime, server_default=func.now())
+
+# ----------------------------------------------------------------
+# 9. ALIASES (KEEPS CONTROLLERS HAPPY)
 # ----------------------------------------------------------------
 ActiveSession        = active_sessions
 AETitleModalityMap   = aetitle_modality_map
