@@ -1330,6 +1330,17 @@
             if (icon) icon.textContent = open ? '▶' : '▼';
         }
 
+        function filterFlaggedByDate(date) {
+            const input = document.getElementById('flag-date-filter');
+            if (input && date === '') input.value = '';
+            const tbody = document.getElementById('flag-tbody');
+            if (!tbody) return;
+            tbody.querySelectorAll('tr').forEach(tr => {
+                if (tr.dataset.child) { tr.style.display = 'none'; return; }
+                tr.style.display = (!date || tr.dataset.date === date) ? '' : 'none';
+            });
+        }
+
         window._techCharts = {};
         function downloadChartPNG(elId, name) {
             const c = window._techCharts[elId];
