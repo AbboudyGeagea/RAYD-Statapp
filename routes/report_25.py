@@ -840,6 +840,10 @@ def report_25():
     template_data = None
 
     if run_report:
+        from utils.audit import log_event
+        log_event('report_run', category='report', resource_type='report_25',
+                  detail={'from': request.form.get('start_date'), 'to': request.form.get('end_date'),
+                          'tab': active_tab})
         data, display_start, display_end = get_gold_standard_data(request.form)
 
         pid = request.form.get("fallback_id")

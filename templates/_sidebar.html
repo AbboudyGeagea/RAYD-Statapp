@@ -48,6 +48,11 @@
            title="User Management">
             <i class="bi bi-people-fill flex-shrink-0" style="color:#60a5fa;"></i> User Management
         </a>
+        <a href="{{ url_for('admin.audit_log') }}"
+           class="sidebar-item {% if request.endpoint == 'admin.audit_log' %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
+           title="Activity Log">
+            <i class="bi bi-journal-text flex-shrink-0" style="color:#94a3b8;"></i> Activity Log
+        </a>
         <a href="{{ url_for('db_manager.db_manager_page') }}"
            class="sidebar-item {% if request.endpoint and request.endpoint.startswith('db_manager.') %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
            title="DB Manager">

@@ -212,6 +212,10 @@ def super_report():
     if not start or not end:
         return jsonify({"error": "start and end date required"}), 400
 
+    from utils.audit import log_event
+    log_event('report_run', category='report', resource_type='super_report',
+              detail={'from': start, 'to': end, 'cmp_from': cmp_start, 'cmp_to': cmp_end})
+
     try:
         d_start = datetime.strptime(start, "%Y-%m-%d")
         d_end   = datetime.strptime(end,   "%Y-%m-%d")

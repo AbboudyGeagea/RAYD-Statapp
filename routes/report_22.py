@@ -64,6 +64,10 @@ def report_22():
     data = {}
 
     if run_report:
+        from utils.audit import log_event
+        log_event('report_run', category='report', resource_type='report_22',
+                  detail={'from': start_date, 'to': end_date,
+                          'modality': filters.get('mod'), 'ae': filters.get('ae')})
         where, params = get_where_params(request.form)
 
         try:

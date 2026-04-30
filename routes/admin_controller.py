@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, redirect, url_for, flash, jsonify, request, abort
 from flask_login import login_required, current_user
-from db import User, ReportTemplate, ETLJobLog, ReportAccessControl, UserPagePermission, SchedulingEntry, db
+from db import User, ReportTemplate, ETLJobLog, ReportAccessControl, UserPagePermission, SchedulingEntry, UserAuditLog, active_sessions, db
 from sqlalchemy import func, text
 from datetime import datetime, timedelta, date as date_type
 import sys, os
@@ -412,8 +412,9 @@ def _get_user_page_columns():
 def _apply_role_default_permissions(user, role):
     from db import ALL_FEATURE_KEYS
     defaults = {
-        'viewer': set(ALL_FEATURE_KEYS),
-        'tec':    {'hl7_orders', 'live_feed'},
+        'viewer':   set(ALL_FEATURE_KEYS),
+        'tec':      {'hl7_orders', 'live_feed'},
+        'analyst':  set(),
     }.get(role, set())
 
     existing_perms = {p.page_key: p for p in UserPagePermission.query.filter_by(user_id=user.id).all()}
@@ -431,22 +432,49 @@ def _apply_role_default_permissions(user, role):
         seed_report_access(user.id)
 
 
+def _admin_audit(action, target_user_id, detail=None, category='user_mgmt'):
+    try:
+        db.session.add(UserAuditLog(
+            actor_user_id=current_user.id,
+            target_user_id=target_user_id,
+            action=action,
+            event_category=category,
+            detail=detail,
+            ip_address=request.remote_addr,
+        ))
+    except Exception:
+        pass
+
+
 @admin_bp.route('/users')
 @login_required
 def user_management():
     if current_user.role != 'admin':
         return abort(403)
 
-    users = User.query.filter(User.role != 'admin').order_by(User.role, User.username).all()
-    all_perms = UserPagePermission.query.all()
+    active_users  = User.query.filter(User.role != 'admin', User.status != 'pending') \
+                              .order_by(User.role, User.username).all()
+    pending_users = User.query.filter_by(status='pending').order_by(User.created_at.desc()).all()
+
+    all_perms  = UserPagePermission.query.all()
     page_perms = {}
     for p in all_perms:
         page_perms.setdefault(p.user_id, {})[p.page_key] = p.is_enabled
 
     page_keys = _get_user_page_columns()
 
+    # Active sessions keyed by user_id
+    sessions_by_user = {}
+    for s in active_sessions.query.all():
+        sessions_by_user.setdefault(s.user_id, []).append(s)
+
     return render_template('user_management.html',
-        users=users, page_perms=page_perms, page_keys=page_keys)
+        users=active_users,
+        pending_users=pending_users,
+        page_perms=page_perms,
+        page_keys=page_keys,
+        sessions_by_user=sessions_by_user,
+    )
 
 
 @admin_bp.route('/users/permissions', methods=['POST'])
@@ -455,8 +483,8 @@ def update_user_permissions():
     if current_user.role != 'admin':
         return abort(403)
 
-    data    = request.get_json()
-    user_id = data.get('user_id')
+    data     = request.get_json()
+    user_id  = data.get('user_id')
     page_key = data.get('page_key')
     enabled  = bool(data.get('enabled'))
 
@@ -468,6 +496,8 @@ def update_user_permissions():
         perm.is_enabled = enabled
     else:
         db.session.add(UserPagePermission(user_id=user_id, page_key=page_key, is_enabled=enabled))
+
+    _admin_audit('perm_changed', user_id, {'page_key': page_key, 'enabled': enabled})
     db.session.commit()
     return jsonify({'status': 'ok'})
 
@@ -478,23 +508,188 @@ def update_user_role():
     if current_user.role != 'admin':
         return abort(403)
 
-    data    = request.get_json()
-    user_id = data.get('user_id')
+    data     = request.get_json()
+    user_id  = data.get('user_id')
     new_role = data.get('role')
 
-    if new_role not in ('viewer', 'tec'):
+    if new_role not in ('viewer', 'tec', 'analyst'):
         return jsonify({'status': 'error', 'message': 'Invalid role'}), 400
 
     user = User.query.get(user_id)
     if not user or user.role == 'admin':
         return jsonify({'status': 'error', 'message': 'User not found or protected'}), 400
 
-    if user.role != new_role:
+    old_role = user.role
+    if old_role != new_role:
         user.role = new_role
         _apply_role_default_permissions(user, new_role)
+        _admin_audit('role_changed', user.id, {'from': old_role, 'to': new_role})
         db.session.commit()
 
     return jsonify({'status': 'ok'})
+
+
+@admin_bp.route('/users/approve', methods=['POST'])
+@login_required
+def approve_user():
+    if current_user.role != 'admin':
+        return abort(403)
+
+    data     = request.get_json()
+    user_id  = data.get('user_id')
+    new_role = data.get('role', 'viewer')
+
+    if new_role not in ('viewer', 'tec', 'analyst'):
+        return jsonify({'status': 'error', 'message': 'Invalid role'}), 400
+
+    user = User.query.get(user_id)
+    if not user or user.status != 'pending':
+        return jsonify({'status': 'error', 'message': 'User not found or not pending'}), 400
+
+    user.status = 'active'
+    user.role   = new_role
+    _apply_role_default_permissions(user, new_role)
+    _admin_audit('approved', user.id, {'role': new_role})
+    db.session.commit()
+    return jsonify({'status': 'ok'})
+
+
+@admin_bp.route('/users/reject', methods=['POST'])
+@login_required
+def reject_user():
+    if current_user.role != 'admin':
+        return abort(403)
+
+    data    = request.get_json()
+    user_id = data.get('user_id')
+
+    user = User.query.get(user_id)
+    if not user or user.status != 'pending':
+        return jsonify({'status': 'error', 'message': 'User not found or not pending'}), 400
+
+    _admin_audit('rejected', user.id)
+    UserPagePermission.query.filter_by(user_id=user_id).delete()
+    db.session.delete(user)
+    db.session.commit()
+    return jsonify({'status': 'ok'})
+
+
+@admin_bp.route('/users/disable', methods=['POST'])
+@login_required
+def disable_user():
+    if current_user.role != 'admin':
+        return abort(403)
+
+    data    = request.get_json()
+    user_id = data.get('user_id')
+
+    user = User.query.get(user_id)
+    if not user or user.role == 'admin':
+        return jsonify({'status': 'error', 'message': 'User not found or protected'}), 400
+
+    user.status = 'disabled'
+    # Revoke all active sessions for this user
+    active_sessions.query.filter_by(user_id=user_id).delete()
+    _admin_audit('disabled', user.id)
+    db.session.commit()
+    return jsonify({'status': 'ok'})
+
+
+@admin_bp.route('/users/enable', methods=['POST'])
+@login_required
+def enable_user():
+    if current_user.role != 'admin':
+        return abort(403)
+
+    data    = request.get_json()
+    user_id = data.get('user_id')
+
+    user = User.query.get(user_id)
+    if not user or user.role == 'admin':
+        return jsonify({'status': 'error', 'message': 'User not found or protected'}), 400
+
+    user.status = 'active'
+    _admin_audit('enabled', user.id)
+    db.session.commit()
+    return jsonify({'status': 'ok'})
+
+
+@admin_bp.route('/users/force-reset', methods=['POST'])
+@login_required
+def force_password_reset():
+    if current_user.role != 'admin':
+        return abort(403)
+
+    data    = request.get_json()
+    user_id = data.get('user_id')
+
+    user = User.query.get(user_id)
+    if not user or user.role == 'admin':
+        return jsonify({'status': 'error', 'message': 'User not found or protected'}), 400
+
+    user.must_change_password = True
+    _admin_audit('password_reset_forced', user.id)
+    db.session.commit()
+    return jsonify({'status': 'ok'})
+
+
+@admin_bp.route('/users/set-password', methods=['POST'])
+@login_required
+def set_user_password():
+    if current_user.role != 'admin':
+        return abort(403)
+
+    data       = request.get_json()
+    user_id    = data.get('user_id')
+    new_pw     = data.get('password', '')
+
+    if len(new_pw) < 6:
+        return jsonify({'status': 'error', 'message': 'Password must be at least 6 characters'}), 400
+
+    user = User.query.get(user_id)
+    if not user or user.role == 'admin':
+        return jsonify({'status': 'error', 'message': 'User not found or protected'}), 400
+
+    from werkzeug.security import generate_password_hash
+    user.password_hash        = generate_password_hash(new_pw, method='pbkdf2:sha256')
+    user.must_change_password = True
+    _admin_audit('password_set_by_admin', user.id)
+    db.session.commit()
+    return jsonify({'status': 'ok'})
+
+
+@admin_bp.route('/users/session/revoke', methods=['POST'])
+@login_required
+def revoke_session():
+    if current_user.role != 'admin':
+        return abort(403)
+
+    data       = request.get_json()
+    session_id = data.get('session_id')
+
+    row = active_sessions.query.get(session_id)
+    if not row:
+        return jsonify({'status': 'error', 'message': 'Session not found'}), 404
+
+    _admin_audit('session_revoked', row.user_id, {'session_id': session_id})
+    db.session.delete(row)
+    db.session.commit()
+    return jsonify({'status': 'ok'})
+
+
+@admin_bp.route('/users/session/revoke-all', methods=['POST'])
+@login_required
+def revoke_all_sessions():
+    if current_user.role != 'admin':
+        return abort(403)
+
+    data    = request.get_json()
+    user_id = data.get('user_id')
+
+    count = active_sessions.query.filter_by(user_id=user_id).delete()
+    _admin_audit('all_sessions_revoked', user_id, {'count': count})
+    db.session.commit()
+    return jsonify({'status': 'ok', 'revoked': count})
 
 
 @admin_bp.route('/users/delete', methods=['POST'])
@@ -510,11 +705,36 @@ def delete_user():
     if not user or user.role == 'admin':
         return jsonify({'status': 'error', 'message': 'User not found or protected'}), 400
 
+    _admin_audit('deleted', user.id, {'username': user.username})
+    active_sessions.query.filter_by(user_id=user_id).delete()
     UserPagePermission.query.filter_by(user_id=user_id).delete()
     ReportAccessControl.query.filter_by(user_id=user_id).delete()
     db.session.delete(user)
     db.session.commit()
     return jsonify({'status': 'ok'})
+
+
+@admin_bp.route('/audit')
+@login_required
+def audit_log():
+    if current_user.role != 'admin':
+        return abort(403)
+
+    category = request.args.get('category', '')
+    q = UserAuditLog.query.order_by(UserAuditLog.created_at.desc())
+    if category:
+        q = q.filter(UserAuditLog.event_category == category)
+    entries = q.limit(500).all()
+
+    user_map = {u.id: u.username for u in User.query.all()}
+
+    categories = ['auth', 'user_mgmt', 'report', 'etl', 'ai', 'config']
+    return render_template('admin_audit.html',
+        entries=entries,
+        user_map=user_map,
+        categories=categories,
+        active_category=category,
+    )
 
 
 @admin_bp.route('/oracle-config', endpoint='oracle_config')
@@ -639,6 +859,8 @@ def trigger_etl():
                 execute_sync(app)
 
         threading.Thread(target=_run, daemon=True).start()
+        _admin_audit('etl_triggered', current_user.id, category='etl')
+        db.session.commit()
         return jsonify({"status": "success"})
 
     except Exception as e:

@@ -222,6 +222,9 @@ def chat():
     if not message:
         return jsonify({"error": "No message provided"}), 400
 
+    from utils.audit import log_event
+    log_event('ai_queried', category='ai', resource_type='qwen_chat')
+
     arabic       = _is_arabic(message)
     no_data_msg  = NO_DATA_AR  if arabic else NO_DATA_EN
     fallback_msg = FALLBACK_AR if arabic else FALLBACK_EN

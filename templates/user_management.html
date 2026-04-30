@@ -12,23 +12,30 @@
         .sidebar-item { transition: all 0.2s; border-radius: 0.75rem; margin-bottom: 0.25rem; cursor: pointer; text-decoration: none !important; color: #94a3b8; }
         .sidebar-item:hover { background: #1d2522; color: var(--accent) !important; }
         .sidebar-item.active { background: #1d2522; color: var(--accent) !important; border-left: 4px solid var(--accent); }
-        .card { background: #232b28; border-radius: 1.5rem; padding: 2.5rem; border: 1px solid #28332e; }
-        .role-badge-viewer { background: rgba(96,165,250,0.1); color: #60a5fa; border: 1px solid rgba(96,165,250,0.25); }
-        .role-badge-tec    { background: rgba(168,85,247,0.1); color: #a855f7; border: 1px solid rgba(168,85,247,0.25); }
-        .role-badge-admin  { background: rgba(245,158,11,0.1); color: #f59e0b; border: 1px solid rgba(245,158,11,0.25); }
-        /* ── Light mode ─────────────────────────────────────── */
+        .card { background: #232b28; border-radius: 1.5rem; padding: 2rem; border: 1px solid #28332e; }
+        .tab-btn { transition: all 0.15s; padding: 0.5rem 1.25rem; border-radius: 0.5rem; font-size: 0.7rem; font-weight: 900; letter-spacing: 0.1em; text-transform: uppercase; color: #64748b; cursor: pointer; border: none; background: transparent; }
+        .tab-btn.active { background: #1d2522; color: var(--accent); }
+        .badge { display: inline-flex; align-items: center; justify-content: center; min-width: 1.25rem; height: 1.25rem; border-radius: 9999px; font-size: 0.65rem; font-weight: 900; padding: 0 0.3rem; }
+        .role-badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 0.4rem; font-size: 0.65rem; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; }
+        .status-active   { background: rgba(34,197,94,0.1);   color: #22c55e; border: 1px solid rgba(34,197,94,0.25); }
+        .status-disabled { background: rgba(239,68,68,0.1);   color: #ef4444; border: 1px solid rgba(239,68,68,0.25); }
+        .status-pending  { background: rgba(245,158,11,0.1);  color: #f59e0b; border: 1px solid rgba(245,158,11,0.25); }
+        .role-viewer  { background: rgba(96,165,250,0.1);  color: #60a5fa;  border: 1px solid rgba(96,165,250,0.25); }
+        .role-tec     { background: rgba(168,85,247,0.1);  color: #a855f7;  border: 1px solid rgba(168,85,247,0.25); }
+        .role-analyst { background: rgba(52,211,153,0.1);  color: #34d399;  border: 1px solid rgba(52,211,153,0.25); }
+        .role-admin   { background: rgba(245,158,11,0.1);  color: #f59e0b;  border: 1px solid rgba(245,158,11,0.25); }
+        .action-btn { padding: 0.3rem 0.6rem; border-radius: 0.4rem; font-size: 0.65rem; font-weight: 900; letter-spacing: 0.05em; text-transform: uppercase; border: 1px solid transparent; cursor: pointer; transition: all 0.15s; }
+        .action-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+        /* Light mode */
         body.light { background: #f0f4f8; color: #1a202c; }
         body.light aside, body.light header { background: #ffffff !important; border-color: #e2e8f0 !important; }
         body.light .sidebar-item { color: #4a5568; }
         body.light .sidebar-item:hover, body.light .sidebar-item.active { background: #e2e8f0 !important; color: #2b6cb0 !important; }
         body.light main { background: #f0f4f8 !important; }
         body.light .card { background: #ffffff; border-color: #e2e8f0; color: #1a202c; }
-        body.light h3 { color: #1a202c !important; }
-        body.light p.text-slate-500 { color: #718096 !important; }
-        body.light select { background: #f8fafc !important; border-color: #e2e8f0 !important; color: #1a202c !important; }
+        body.light .tab-btn.active { background: #e2e8f0; }
         body.light tbody tr { border-color: #e2e8f0; }
-        body.light tbody tr:hover { background: rgba(0,0,0,0.03) !important; }
-        body.light span.text-white { color: #1a202c !important; }
+        body.light tbody tr:hover { background: rgba(0,0,0,0.025) !important; }
     </style>
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
@@ -37,17 +44,16 @@
     <div class="flex flex-1 overflow-hidden">
         {% include '_sidebar.html' %}
 
-        <main class="flex-1 overflow-y-auto p-10 bg-[#181f1c]">
-            <div class="card max-w-6xl mx-auto">
+        <main class="flex-1 overflow-y-auto p-8 bg-[#181f1c]">
+            <div class="card max-w-7xl mx-auto">
 
-                <div class="flex items-center justify-between mb-10">
+                <!-- Header -->
+                <div class="flex items-center justify-between mb-6">
                     <div>
-                        <h3 class="text-white text-3xl font-black tracking-tight uppercase">User Management</h3>
+                        <h3 class="text-white text-2xl font-black tracking-tight uppercase">User Management</h3>
                         <p class="text-slate-500 text-[11px] font-bold uppercase tracking-widest mt-1">
-                            {{ users|length }} users · Manage roles and page access
-                        </p>
-                        <p class="text-slate-500 text-xs mt-2">
-                            Role defaults: Viewer → AI Reports + Report Intelligence; Tec → HL7 Orders. Changing role will reset page access to those defaults.
+                            {{ users|length }} active &bull;
+                            {% if pending_users %}<span class="text-amber-400">{{ pending_users|length }} pending approval</span>{% else %}0 pending{% endif %}
                         </p>
                     </div>
                     <a href="{{ url_for('auth.register') }}"
@@ -56,120 +62,360 @@
                     </a>
                 </div>
 
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left">
-                        <thead>
-                            <tr class="border-b border-[#28332e] text-[#60a5fa] text-[10px] uppercase tracking-[0.2em] font-black">
-                                        <th class="pb-5 px-4">Username</th>
-                                <th class="pb-5 px-4">Role</th>
-                                {% for pk,label in page_keys %}
-                                <th class="pb-5 px-4 text-center">{{ label }}</th>
-                                {% endfor %}
-                                <th class="pb-5 px-4 text-center">Delete</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-[#28332e]">
-                            {% for u in users %}
-                            <tr class="group hover:bg-[#1d2522]/50 transition-all" id="user-row-{{ u.id }}">
-
-                                <td class="py-5 px-4">
-                                    <div class="flex items-center gap-3">
-                                        <div class="w-8 h-8 rounded-xl flex items-center justify-center text-xs font-black
-                                            {% if u.role == 'viewer' %}bg-blue-500/10 text-blue-400
-                                            {% elif u.role == 'tec' %}bg-purple-500/10 text-purple-400
-                                            {% else %}bg-slate-500/10 text-slate-400{% endif %}">
-                                            {{ u.username[0]|upper }}
-                                        </div>
-                                        <span class="text-sm font-bold text-white">{{ u.username }}</span>
-                                    </div>
-                                </td>
-
-                                <td class="py-5 px-4">
-                                    <select onchange="changeRole({{ u.id }}, this.value)"
-                                        class="bg-[#1d2522] border border-[#28332e] text-xs font-black uppercase tracking-widest rounded-lg px-3 py-1.5 text-slate-300 focus:outline-none focus:border-[#60a5fa] transition-colors cursor-pointer">
-                                        <option value="viewer" {% if u.role == 'viewer' %}selected{% endif %}>Viewer</option>
-                                        <option value="tec"    {% if u.role == 'tec'    %}selected{% endif %}>Tec</option>
-                                    </select>
-                                </td>
-
-                                {% for pk,label in page_keys %}
-                                <td class="py-5 px-4 text-center">
-                                    {% set enabled = page_perms.get(u.id, {}).get(pk, False) %}
-                                    <button onclick="togglePerm({{ u.id }}, '{{ pk }}', this)"
-                                        data-enabled="{{ 'true' if enabled else 'false' }}"
-                                        title="{{ label }}"
-                                        class="w-10 h-6 rounded-full border transition-all relative inline-flex flex-shrink-0
-                                               {{ 'bg-[#60a5fa] border-[#60a5fa]' if enabled else 'bg-transparent border-[#334155]' }}">
-                                        <span class="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all
-                                                     {{ 'left-4' if enabled else 'left-0.5' }}"></span>
-                                    </button>
-                                </td>
-                                {% endfor %}
-
-                                <td class="py-5 px-4 text-center">
-                                    <button onclick="deleteUser({{ u.id }}, '{{ u.username }}')"
-                                        class="text-slate-700 hover:text-red-400 transition-colors text-lg" title="Delete user">
-                                        <i class="bi bi-trash3"></i>
-                                    </button>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
+                <!-- Tabs -->
+                <div class="flex gap-1 mb-6 border-b border-[#28332e] pb-3">
+                    <button class="tab-btn active" onclick="switchTab('active', this)">
+                        <i class="bi bi-people-fill mr-1"></i>Active Users
+                    </button>
+                    <button class="tab-btn" onclick="switchTab('pending', this)">
+                        <i class="bi bi-clock-history mr-1"></i>Pending Approval
+                        {% if pending_users %}
+                        <span class="badge bg-amber-500/20 text-amber-400 ml-1">{{ pending_users|length }}</span>
+                        {% endif %}
+                    </button>
                 </div>
 
-            </div>
+                <!-- ═══════════════════════════════════════════════ TAB: ACTIVE USERS -->
+                <div id="tab-active">
+                    {% if users %}
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-sm">
+                            <thead>
+                                <tr class="border-b border-[#28332e] text-[#60a5fa] text-[10px] uppercase tracking-[0.15em] font-black">
+                                    <th class="pb-4 px-3">User</th>
+                                    <th class="pb-4 px-3">Role</th>
+                                    <th class="pb-4 px-3">Status</th>
+                                    <th class="pb-4 px-3">Last Login</th>
+                                    {% for pk, label in page_keys %}
+                                    <th class="pb-4 px-2 text-center text-[9px]">{{ label }}</th>
+                                    {% endfor %}
+                                    <th class="pb-4 px-3 text-center">Sessions</th>
+                                    <th class="pb-4 px-3 text-center">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-[#28332e]">
+                                {% for u in users %}
+                                <tr class="group hover:bg-[#1d2522]/50 transition-all" id="user-row-{{ u.id }}">
+
+                                    <!-- User identity -->
+                                    <td class="py-4 px-3">
+                                        <div class="flex items-center gap-3">
+                                            <div class="w-8 h-8 rounded-xl flex items-center justify-center text-xs font-black shrink-0
+                                                {% if u.role == 'viewer' %}bg-blue-500/10 text-blue-400
+                                                {% elif u.role == 'tec' %}bg-purple-500/10 text-purple-400
+                                                {% elif u.role == 'analyst' %}bg-emerald-500/10 text-emerald-400
+                                                {% else %}bg-slate-500/10 text-slate-400{% endif %}">
+                                                {{ (u.full_name or u.username)[0]|upper }}
+                                            </div>
+                                            <div>
+                                                <div class="font-bold text-white text-xs">{{ u.full_name or u.username }}</div>
+                                                {% if u.full_name %}<div class="text-slate-500 text-[10px]">@{{ u.username }}</div>{% endif %}
+                                                {% if u.email %}<div class="text-slate-600 text-[10px]">{{ u.email }}</div>{% endif %}
+                                            </div>
+                                        </div>
+                                    </td>
+
+                                    <!-- Role -->
+                                    <td class="py-4 px-3">
+                                        <select onchange="changeRole({{ u.id }}, this.value)"
+                                            class="bg-[#1d2522] border border-[#28332e] text-xs font-black uppercase tracking-widest rounded-lg px-3 py-1.5 text-slate-300 focus:outline-none focus:border-[#60a5fa] transition-colors cursor-pointer">
+                                            <option value="viewer"   {% if u.role == 'viewer'   %}selected{% endif %}>Viewer</option>
+                                            <option value="tec"      {% if u.role == 'tec'      %}selected{% endif %}>Tec</option>
+                                            <option value="analyst"  {% if u.role == 'analyst'  %}selected{% endif %}>Analyst</option>
+                                        </select>
+                                    </td>
+
+                                    <!-- Status -->
+                                    <td class="py-4 px-3">
+                                        <span class="role-badge status-{{ u.status }}">{{ u.status }}</span>
+                                        {% if u.must_change_password %}
+                                        <span class="role-badge ml-1" style="background:rgba(251,191,36,0.1);color:#fbbf24;border:1px solid rgba(251,191,36,0.25)" title="Must change password">
+                                            <i class="bi bi-key-fill"></i>
+                                        </span>
+                                        {% endif %}
+                                    </td>
+
+                                    <!-- Last login -->
+                                    <td class="py-4 px-3 text-slate-500 text-[10px]">
+                                        {{ u.last_login.strftime('%d %b %Y %H:%M') if u.last_login else '—' }}
+                                    </td>
+
+                                    <!-- Page permission toggles -->
+                                    {% for pk, label in page_keys %}
+                                    <td class="py-4 px-2 text-center">
+                                        {% set enabled = page_perms.get(u.id, {}).get(pk, False) %}
+                                        <button onclick="togglePerm({{ u.id }}, '{{ pk }}', this)"
+                                            data-enabled="{{ 'true' if enabled else 'false' }}"
+                                            title="{{ label }}"
+                                            class="w-9 h-5 rounded-full border transition-all relative inline-flex shrink-0
+                                                   {{ 'bg-[#60a5fa] border-[#60a5fa]' if enabled else 'bg-transparent border-[#334155]' }}">
+                                            <span class="absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all
+                                                         {{ 'left-4' if enabled else 'left-0.5' }}"></span>
+                                        </button>
+                                    </td>
+                                    {% endfor %}
+
+                                    <!-- Sessions -->
+                                    <td class="py-4 px-3 text-center">
+                                        {% set sess_count = sessions_by_user.get(u.id, [])|length %}
+                                        <span class="text-xs {{ 'text-emerald-400 font-bold' if sess_count > 0 else 'text-slate-600' }}">
+                                            {{ sess_count }}
+                                        </span>
+                                        {% if sess_count > 0 %}
+                                        <button onclick="revokeAllSessions({{ u.id }})"
+                                            title="Revoke all sessions"
+                                            class="ml-1 text-slate-600 hover:text-red-400 transition-colors text-xs">
+                                            <i class="bi bi-x-circle"></i>
+                                        </button>
+                                        {% endif %}
+                                    </td>
+
+                                    <!-- Actions -->
+                                    <td class="py-4 px-3">
+                                        <div class="flex items-center gap-1.5 flex-wrap">
+                                            <!-- Force reset -->
+                                            <button onclick="forceReset({{ u.id }}, '{{ u.username }}')"
+                                                title="Force password reset on next login"
+                                                class="action-btn border-[#28332e] text-slate-500 hover:text-amber-400 hover:border-amber-500/30 hover:bg-amber-500/5">
+                                                <i class="bi bi-key-fill"></i>
+                                            </button>
+                                            <!-- Set password directly -->
+                                            <button onclick="setPassword({{ u.id }}, '{{ u.username }}')"
+                                                title="Set password"
+                                                class="action-btn border-[#28332e] text-slate-500 hover:text-sky-400 hover:border-sky-500/30 hover:bg-sky-500/5">
+                                                <i class="bi bi-shield-lock-fill"></i>
+                                            </button>
+                                            <!-- Disable / Enable -->
+                                            {% if u.status == 'active' %}
+                                            <button onclick="disableUser({{ u.id }}, '{{ u.username }}')"
+                                                title="Disable account"
+                                                class="action-btn border-[#28332e] text-slate-500 hover:text-orange-400 hover:border-orange-500/30 hover:bg-orange-500/5">
+                                                <i class="bi bi-pause-circle-fill"></i>
+                                            </button>
+                                            {% else %}
+                                            <button onclick="enableUser({{ u.id }})"
+                                                title="Re-enable account"
+                                                class="action-btn border-[#28332e] text-slate-500 hover:text-emerald-400 hover:border-emerald-500/30 hover:bg-emerald-500/5">
+                                                <i class="bi bi-play-circle-fill"></i>
+                                            </button>
+                                            {% endif %}
+                                            <!-- Delete -->
+                                            <button onclick="deleteUser({{ u.id }}, '{{ u.username }}')"
+                                                title="Delete user"
+                                                class="action-btn border-[#28332e] text-slate-500 hover:text-red-400 hover:border-red-500/30 hover:bg-red-500/5">
+                                                <i class="bi bi-trash3-fill"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="text-center py-16 text-slate-600">
+                        <i class="bi bi-people text-4xl block mb-3"></i>
+                        <p class="text-sm font-bold">No active users</p>
+                    </div>
+                    {% endif %}
+                </div>
+
+                <!-- ═══════════════════════════════════════════════ TAB: PENDING -->
+                <div id="tab-pending" class="hidden">
+                    {% if pending_users %}
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-sm">
+                            <thead>
+                                <tr class="border-b border-[#28332e] text-[#60a5fa] text-[10px] uppercase tracking-[0.15em] font-black">
+                                    <th class="pb-4 px-3">User</th>
+                                    <th class="pb-4 px-3">Registered</th>
+                                    <th class="pb-4 px-3">Assign Role</th>
+                                    <th class="pb-4 px-3 text-center">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-[#28332e]">
+                                {% for u in pending_users %}
+                                <tr id="pending-row-{{ u.id }}" class="hover:bg-[#1d2522]/50 transition-all">
+                                    <td class="py-4 px-3">
+                                        <div class="flex items-center gap-3">
+                                            <div class="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center text-xs font-black shrink-0">
+                                                {{ (u.full_name or u.username)[0]|upper }}
+                                            </div>
+                                            <div>
+                                                <div class="font-bold text-white text-xs">{{ u.full_name or u.username }}</div>
+                                                {% if u.full_name %}<div class="text-slate-500 text-[10px]">@{{ u.username }}</div>{% endif %}
+                                                {% if u.email %}<div class="text-slate-600 text-[10px]">{{ u.email }}</div>{% endif %}
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td class="py-4 px-3 text-slate-500 text-[10px]">
+                                        {{ u.created_at.strftime('%d %b %Y %H:%M') if u.created_at else '—' }}
+                                    </td>
+                                    <td class="py-4 px-3">
+                                        <select id="pending-role-{{ u.id }}"
+                                            class="bg-[#1d2522] border border-[#28332e] text-xs font-black uppercase tracking-widest rounded-lg px-3 py-1.5 text-slate-300 focus:outline-none focus:border-[#60a5fa]">
+                                            <option value="viewer">Viewer</option>
+                                            <option value="tec">Tec</option>
+                                            <option value="analyst">Analyst</option>
+                                        </select>
+                                    </td>
+                                    <td class="py-4 px-3 text-center">
+                                        <div class="flex items-center justify-center gap-2">
+                                            <button onclick="approveUser({{ u.id }})"
+                                                class="action-btn bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20">
+                                                <i class="bi bi-check-lg mr-1"></i>Approve
+                                            </button>
+                                            <button onclick="rejectUser({{ u.id }}, '{{ u.username }}')"
+                                                class="action-btn bg-red-500/10 text-red-400 border border-red-500/30 hover:bg-red-500/20">
+                                                <i class="bi bi-x-lg mr-1"></i>Reject
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="text-center py-16 text-slate-600">
+                        <i class="bi bi-clock-history text-4xl block mb-3"></i>
+                        <p class="text-sm font-bold">No pending registrations</p>
+                    </div>
+                    {% endif %}
+                </div>
+
+
+            </div><!-- /card -->
         </main>
     </div>
 
     <script>
-        async function togglePerm(userId, pageKey, btn) {
-            const next = btn.dataset.enabled !== 'true';
-            const res = await fetch('{{ url_for("admin.update_user_permissions") }}', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({user_id: userId, page_key: pageKey, enabled: next})
-            });
-            if ((await res.json()).status === 'ok') {
-                btn.dataset.enabled = next ? 'true' : 'false';
-                btn.className = 'w-10 h-6 rounded-full border transition-all relative inline-flex flex-shrink-0 ' +
-                    (next ? 'bg-[#60a5fa] border-[#60a5fa]' : 'bg-transparent border-[#334155]');
-                btn.querySelector('span').className = 'absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ' +
-                    (next ? 'left-4' : 'left-0.5');
-            }
-        }
+    // ── Tab switching ─────────────────────────────────────────────
+    function switchTab(name, btn) {
+        ['active','pending'].forEach(t => {
+            document.getElementById('tab-' + t).classList.toggle('hidden', t !== name);
+        });
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+    }
 
-        async function changeRole(userId, newRole) {
-            await fetch('{{ url_for("admin.update_user_role") }}', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({user_id: userId, role: newRole})
-            });
-        }
+    // ── Generic fetch helper ──────────────────────────────────────
+    async function api(url, body) {
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body),
+        });
+        return res.json();
+    }
 
-        async function deleteUser(userId, username) {
-            if (!confirm(`Delete user "${username}"? This cannot be undone.`)) return;
-            const res = await fetch('{{ url_for("admin.delete_user") }}', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({user_id: userId})
-            });
-            if ((await res.json()).status === 'ok') {
-                document.getElementById('user-row-' + userId)?.remove();
-            }
+    // ── Permission toggle ─────────────────────────────────────────
+    async function togglePerm(userId, pageKey, btn) {
+        const next = btn.dataset.enabled !== 'true';
+        const data = await api('{{ url_for("admin.update_user_permissions") }}', {user_id: userId, page_key: pageKey, enabled: next});
+        if (data.status === 'ok') {
+            btn.dataset.enabled = next ? 'true' : 'false';
+            btn.className = 'w-9 h-5 rounded-full border transition-all relative inline-flex shrink-0 ' +
+                (next ? 'bg-[#60a5fa] border-[#60a5fa]' : 'bg-transparent border-[#334155]');
+            btn.querySelector('span').className = 'absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ' +
+                (next ? 'left-4' : 'left-0.5');
         }
+    }
 
-        function applyTheme(theme) {
-            document.body.classList.toggle('light', theme === 'light');
-            const icon = document.getElementById('theme-icon');
-            if (icon) icon.className = theme === 'light' ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
+    // ── Role change ───────────────────────────────────────────────
+    async function changeRole(userId, newRole) {
+        await api('{{ url_for("admin.update_user_role") }}', {user_id: userId, role: newRole});
+    }
+
+    // ── Approve pending user ──────────────────────────────────────
+    async function approveUser(userId) {
+        const role = document.getElementById('pending-role-' + userId).value;
+        const data = await api('{{ url_for("admin.approve_user") }}', {user_id: userId, role});
+        if (data.status === 'ok') {
+            document.getElementById('pending-row-' + userId)?.remove();
+            // Refresh to show user in active tab
+            location.reload();
+        } else {
+            alert(data.message || 'Error approving user.');
         }
-        applyTheme("{{ ui_theme }}");
-        function toggleTheme() {
-            const next = document.body.classList.contains('light') ? 'dark' : 'light';
-            applyTheme(next);
-            fetch('/user/theme', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({theme: next}) });
+    }
+
+    // ── Reject pending user ───────────────────────────────────────
+    async function rejectUser(userId, username) {
+        if (!confirm(`Reject and delete registration for "${username}"?`)) return;
+        const data = await api('{{ url_for("admin.reject_user") }}', {user_id: userId});
+        if (data.status === 'ok') {
+            document.getElementById('pending-row-' + userId)?.remove();
+        } else {
+            alert(data.message || 'Error rejecting user.');
         }
+    }
+
+    // ── Force password reset ──────────────────────────────────────
+    async function forceReset(userId, username) {
+        if (!confirm(`Force "${username}" to change their password on next login?`)) return;
+        const data = await api('{{ url_for("admin.force_password_reset") }}', {user_id: userId});
+        if (data.status !== 'ok') alert(data.message || 'Error.');
+        else location.reload();
+    }
+
+    // ── Set password directly ─────────────────────────────────────
+    async function setPassword(userId, username) {
+        const pw = prompt(`Set new password for "${username}" (min 6 chars):`);
+        if (!pw) return;
+        const data = await api('{{ url_for("admin.set_user_password") }}', {user_id: userId, password: pw});
+        if (data.status === 'ok') alert('Password updated. User will be required to change it on next login.');
+        else alert(data.message || 'Error setting password.');
+    }
+
+    // ── Disable account ───────────────────────────────────────────
+    async function disableUser(userId, username) {
+        if (!confirm(`Disable account for "${username}"? All their sessions will be revoked.`)) return;
+        const data = await api('{{ url_for("admin.disable_user") }}', {user_id: userId});
+        if (data.status === 'ok') location.reload();
+        else alert(data.message || 'Error.');
+    }
+
+    // ── Enable account ────────────────────────────────────────────
+    async function enableUser(userId) {
+        const data = await api('{{ url_for("admin.enable_user") }}', {user_id: userId});
+        if (data.status === 'ok') location.reload();
+        else alert(data.message || 'Error.');
+    }
+
+    // ── Revoke all sessions for user ──────────────────────────────
+    async function revokeAllSessions(userId) {
+        if (!confirm('Revoke all active sessions for this user? They will be logged out immediately.')) return;
+        const data = await api('{{ url_for("admin.revoke_all_sessions") }}', {user_id: userId});
+        if (data.status === 'ok') location.reload();
+        else alert(data.message || 'Error.');
+    }
+
+    // ── Delete user ───────────────────────────────────────────────
+    async function deleteUser(userId, username) {
+        if (!confirm(`Permanently delete user "${username}"? This cannot be undone.`)) return;
+        const data = await api('{{ url_for("admin.delete_user") }}', {user_id: userId});
+        if (data.status === 'ok') document.getElementById('user-row-' + userId)?.remove();
+        else alert(data.message || 'Error.');
+    }
+
+    // ── Theme ─────────────────────────────────────────────────────
+    function applyTheme(theme) {
+        document.body.classList.toggle('light', theme === 'light');
+        const icon = document.getElementById('theme-icon');
+        if (icon) icon.className = theme === 'light' ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
+    }
+    applyTheme("{{ ui_theme }}");
+    function toggleTheme() {
+        const next = document.body.classList.contains('light') ? 'dark' : 'light';
+        applyTheme(next);
+        fetch('/user/theme', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({theme: next}) });
+    }
+
+    // Auto-switch to pending tab if there are pending users and hash says so
+    if (window.location.hash === '#pending') {
+        document.querySelectorAll('.tab-btn')[1].click();
+    }
     </script>
 </body>
 </html>

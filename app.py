@@ -243,22 +243,36 @@ def create_app():
     register_blueprints(app)
 
     # --- AUTH CHECKS ---
+    _AUTH_PASSTHROUGH = frozenset({'auth.login', 'auth.logout', 'auth.register', 'auth.profile_password', 'static'})
+
     @app.before_request
     def check_auth():
-        if request.path.startswith('/static/') or (
-            request.endpoint and (
-                request.endpoint.startswith('auth.') or
-                request.endpoint.startswith('portal.') or
-                request.endpoint == 'static'
-            )
-        ):
+        ep = request.endpoint or ''
+        if request.path.startswith('/static/') or ep.startswith('portal.') or ep in _AUTH_PASSTHROUGH or ep.startswith('auth.'):
             return
+
         if not current_user.is_authenticated:
-            if request.endpoint != 'auth.login':
+            return redirect(url_for('auth.login'))
+
+        # Validate the session is still tracked in active_sessions
+        sid = flask_session.get('sid')
+        if sid:
+            from db import active_sessions as ActiveSessions
+            row = ActiveSessions.query.get(sid)
+            if row is None:
+                # Session was revoked by admin
+                logout_user()
+                flask_session.clear()
+                from flask import flash as _flash
+                _flash('Your session has been terminated by an administrator.', 'warning')
                 return redirect(url_for('auth.login'))
 
+        # Force password change wall
+        if current_user.must_change_password and ep != 'auth.profile_password':
+            return redirect(url_for('auth.profile_password'))
+
         # License expiry — admins can still log in to update the license
-        if current_user.is_authenticated and current_user.role != 'admin':
+        if current_user.role != 'admin':
             from routes.registry import check_license_limit
             ok, msg = check_license_limit(app, 'expired')
             if not ok:

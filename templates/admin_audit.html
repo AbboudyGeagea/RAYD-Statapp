@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | Activity Log</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        :root { --accent: #60a5fa; }
+        body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; }
+        .sidebar-item { transition: all 0.2s; border-radius: 0.75rem; margin-bottom: 0.25rem; cursor: pointer; text-decoration: none !important; color: #94a3b8; }
+        .sidebar-item:hover { background: #1d2522; color: var(--accent) !important; }
+        .sidebar-item.active { background: #1d2522; color: var(--accent) !important; border-left: 4px solid var(--accent); }
+        .card { background: #232b28; border-radius: 1.5rem; padding: 2rem; border: 1px solid #28332e; }
+        .pill { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.3rem 0.9rem; border-radius: 9999px; font-size: 0.65rem; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; border: 1px solid transparent; transition: all 0.15s; text-decoration: none; }
+        .pill-all    { background: rgba(96,165,250,0.08); color: #94a3b8; border-color: #28332e; }
+        .pill-all.on { background: rgba(96,165,250,0.18); color: #60a5fa; border-color: rgba(96,165,250,0.4); }
+        .pill-auth   { background: rgba(168,85,247,0.07); color: #94a3b8; border-color: #28332e; }
+        .pill-auth.on{ background: rgba(168,85,247,0.18); color: #a855f7; border-color: rgba(168,85,247,0.4); }
+        .pill-user_mgmt   { background: rgba(96,165,250,0.07); color: #94a3b8; border-color: #28332e; }
+        .pill-user_mgmt.on{ background: rgba(96,165,250,0.18); color: #60a5fa; border-color: rgba(96,165,250,0.4); }
+        .pill-report   { background: rgba(52,211,153,0.07); color: #94a3b8; border-color: #28332e; }
+        .pill-report.on{ background: rgba(52,211,153,0.18); color: #34d399; border-color: rgba(52,211,153,0.4); }
+        .pill-etl   { background: rgba(245,158,11,0.07); color: #94a3b8; border-color: #28332e; }
+        .pill-etl.on{ background: rgba(245,158,11,0.18); color: #f59e0b; border-color: rgba(245,158,11,0.4); }
+        .pill-ai   { background: rgba(16,185,129,0.07); color: #94a3b8; border-color: #28332e; }
+        .pill-ai.on{ background: rgba(16,185,129,0.18); color: #10b981; border-color: rgba(16,185,129,0.4); }
+        .pill-config   { background: rgba(251,191,36,0.07); color: #94a3b8; border-color: #28332e; }
+        .pill-config.on{ background: rgba(251,191,36,0.18); color: #fbbf24; border-color: rgba(251,191,36,0.4); }
+        /* Light mode */
+        body.light { background: #f0f4f8; color: #1a202c; }
+        body.light aside, body.light header { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        body.light .sidebar-item { color: #4a5568; }
+        body.light .sidebar-item:hover, body.light .sidebar-item.active { background: #e2e8f0 !important; color: #2b6cb0 !important; }
+        body.light main { background: #f0f4f8 !important; }
+        body.light .card { background: #ffffff; border-color: #e2e8f0; color: #1a202c; }
+        body.light tbody tr { border-color: #e2e8f0; }
+        body.light tbody tr:hover { background: rgba(0,0,0,0.02) !important; }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+    {% include '_header.html' %}
+    <div class="flex flex-1 overflow-hidden">
+        {% include '_sidebar.html' %}
+
+        <main class="flex-1 overflow-y-auto p-8 bg-[#181f1c]">
+            <div class="card max-w-7xl mx-auto">
+
+                <!-- Header -->
+                <div class="flex items-start justify-between mb-6">
+                    <div>
+                        <h3 class="text-white text-2xl font-black tracking-tight uppercase">Activity Log</h3>
+                        <p class="text-slate-500 text-[11px] font-bold uppercase tracking-widest mt-1">
+                            {{ entries|length }} events &bull; last 500 &bull; admin only
+                        </p>
+                    </div>
+                    <div class="text-slate-600 text-xs font-mono">{{ now.strftime('%d %b %Y %H:%M') if now is defined else '' }}</div>
+                </div>
+
+                <!-- Category filter pills -->
+                <div class="flex flex-wrap gap-2 mb-6">
+                    <a href="{{ url_for('admin.audit_log') }}"
+                       class="pill pill-all {{ 'on' if not active_category else '' }}">
+                        <i class="bi bi-grid-3x3-gap-fill"></i> All
+                    </a>
+                    {% set cat_icons = {
+                        'auth':      ('bi-shield-lock-fill',    'Auth'),
+                        'user_mgmt': ('bi-people-fill',         'Users'),
+                        'report':    ('bi-bar-chart-fill',      'Reports'),
+                        'etl':       ('bi-arrow-repeat',        'ETL'),
+                        'ai':        ('bi-robot',               'AI'),
+                        'config':    ('bi-gear-fill',           'Config'),
+                    } %}
+                    {% for cat in categories %}
+                    {% set icon, label = cat_icons.get(cat, ('bi-circle', cat)) %}
+                    <a href="{{ url_for('admin.audit_log', category=cat) }}"
+                       class="pill pill-{{ cat }} {{ 'on' if active_category == cat else '' }}">
+                        <i class="bi {{ icon }}"></i> {{ label }}
+                    </a>
+                    {% endfor %}
+                </div>
+
+                <!-- Table -->
+                {% if entries %}
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs">
+                        <thead>
+                            <tr class="border-b border-[#28332e] text-[#60a5fa] text-[10px] uppercase tracking-[0.15em] font-black">
+                                <th class="pb-4 px-3 w-32">Time</th>
+                                <th class="pb-4 px-3 w-24">Category</th>
+                                <th class="pb-4 px-3">Action</th>
+                                <th class="pb-4 px-3">User</th>
+                                <th class="pb-4 px-3">Target / Resource</th>
+                                <th class="pb-4 px-3">IP</th>
+                                <th class="pb-4 px-3">Detail</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-[#28332e]">
+                            {% for e in entries %}
+                            {% set cat = e.event_category or '' %}
+                            <tr class="hover:bg-[#1d2522]/40 transition-all">
+
+                                <!-- Time -->
+                                <td class="py-3 px-3 text-slate-500 whitespace-nowrap font-mono">
+                                    {{ e.created_at.strftime('%d %b %H:%M:%S') if e.created_at else '—' }}
+                                </td>
+
+                                <!-- Category badge -->
+                                <td class="py-3 px-3">
+                                    {% set cat_style = {
+                                        'auth':      'bg-purple-500/10 text-purple-400 border-purple-500/25',
+                                        'user_mgmt': 'bg-blue-500/10 text-blue-400 border-blue-500/25',
+                                        'report':    'bg-emerald-500/10 text-emerald-400 border-emerald-500/25',
+                                        'etl':       'bg-amber-500/10 text-amber-400 border-amber-500/25',
+                                        'ai':        'bg-teal-500/10 text-teal-400 border-teal-500/25',
+                                        'config':    'bg-yellow-500/10 text-yellow-400 border-yellow-500/25',
+                                    } %}
+                                    <span class="inline-block px-2 py-0.5 rounded border font-black text-[9px] uppercase tracking-widest
+                                                 {{ cat_style.get(cat, 'bg-slate-500/10 text-slate-400 border-slate-500/25') }}">
+                                        {{ cat or '—' }}
+                                    </span>
+                                </td>
+
+                                <!-- Action -->
+                                <td class="py-3 px-3 font-bold text-slate-200">
+                                    {{ e.action | replace('_', ' ') | title }}
+                                </td>
+
+                                <!-- Actor -->
+                                <td class="py-3 px-3 text-slate-400">
+                                    {{ user_map.get(e.actor_user_id, '—') }}
+                                </td>
+
+                                <!-- Target or resource -->
+                                <td class="py-3 px-3 text-slate-500">
+                                    {% if e.target_user_id %}
+                                        <span class="text-slate-300">@{{ user_map.get(e.target_user_id, e.target_user_id) }}</span>
+                                    {% elif e.resource_type %}
+                                        <span class="font-mono text-[10px] text-slate-500">{{ e.resource_type }}</span>
+                                    {% else %}—{% endif %}
+                                </td>
+
+                                <!-- IP -->
+                                <td class="py-3 px-3 text-slate-600 font-mono text-[10px] whitespace-nowrap">
+                                    {{ e.ip_address or '—' }}
+                                </td>
+
+                                <!-- Detail (collapsed) -->
+                                <td class="py-3 px-3 text-slate-600 font-mono text-[10px] max-w-xs">
+                                    {% if e.detail %}
+                                    <span class="cursor-pointer hover:text-slate-400 transition-colors" onclick="this.parentElement.classList.toggle('whitespace-pre-wrap')" title="Click to expand">
+                                        {{ e.detail | tojson | truncate(60, True, '…') }}
+                                    </span>
+                                    {% endif %}
+                                </td>
+
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center py-20 text-slate-600">
+                    <i class="bi bi-journal-text text-5xl block mb-4"></i>
+                    <p class="text-sm font-bold">No events recorded yet</p>
+                    <p class="text-xs mt-1">Activity will appear here as users interact with the system.</p>
+                </div>
+                {% endif %}
+
+            </div>
+        </main>
+    </div>
+
+    <script>
+        function applyTheme(theme) {
+            document.body.classList.toggle('light', theme === 'light');
+            const icon = document.getElementById('theme-icon');
+            if (icon) icon.className = theme === 'light' ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
+        }
+        applyTheme("{{ ui_theme }}");
+        function toggleTheme() {
+            const next = document.body.classList.contains('light') ? 'dark' : 'light';
+            applyTheme(next);
+            fetch('/user/theme', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({theme: next}) });
+        }
+    </script>
+</body>
+</html>
