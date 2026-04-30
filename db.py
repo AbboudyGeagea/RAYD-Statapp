@@ -9,7 +9,7 @@ sys.modules["cx_Oracle"] = oracledb
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
 from sqlalchemy import text, BigInteger, ForeignKey, Numeric, Boolean, Integer, String, DateTime, Date, Text
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 
@@ -34,7 +34,8 @@ class OracleConnector:
             "dsn": dsn
         }
         
-        if sysdba or (params.mode and params.mode.upper() == 'SYSDBA'):
+        if sysdba or (params.mode and params.mode.upper() == 'SYSDBA') \
+                or (params.username and params.username.upper() == 'SYS'):
             connect_kwargs["mode"] = oracledb.SYSDBA
             
         return oracledb.connect(**connect_kwargs)
@@ -287,6 +288,7 @@ class SchedulingEntry(db.Model):
 
 ALL_FEATURE_KEYS = [
     'live_feed', 'hl7_orders', 'report_ai', 'bitnet', 'oru', 'mapping', 'patient_portal', 'scheduling',
+    'financial',
 ]
 
 def user_has_page(user, page_key):
@@ -497,7 +499,47 @@ class PortalConfig(db.Model):
         return f"<PortalConfig {self.config_key}>"
 
 # ----------------------------------------------------------------
-# 8. ALIASES (KEEPS CONTROLLERS HAPPY)
+# ----------------------------------------------------------------
+# 8. FINANCIAL CONFIGURATION TABLES
+# ----------------------------------------------------------------
+
+class FinancialConfig(db.Model):
+    __tablename__ = 'financial_config'
+    id          = db.Column(Integer, primary_key=True)
+    entity_type = db.Column(String(20), nullable=False)
+    entity_id   = db.Column(Text)
+    usd_per_rvu = db.Column(Numeric(8, 4), nullable=False)
+    notes       = db.Column(Text)
+    created_at  = db.Column(DateTime, server_default=func.now())
+    updated_at  = db.Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+class FinancialAuditLog(db.Model):
+    __tablename__ = 'financial_audit_log'
+    id          = db.Column(Integer, primary_key=True)
+    user_id     = db.Column(Integer)
+    user_name   = db.Column(Text)
+    action      = db.Column(Text, nullable=False)
+    entity_type = db.Column(Text)
+    entity_id   = db.Column(Text)
+    old_value   = db.Column(Numeric(8, 4))
+    new_value   = db.Column(Numeric(8, 4))
+    ip_address  = db.Column(Text)
+    created_at  = db.Column(DateTime, server_default=func.now())
+
+class TechFlagAck(db.Model):
+    __tablename__        = 'tech_flag_acknowledgements'
+    id                   = db.Column(Integer, primary_key=True)
+    accession_number     = db.Column(Text, nullable=False)
+    flag_date            = db.Column(Date, nullable=False)
+    flags                = db.Column(ARRAY(Text), nullable=False, server_default='{}')
+    note                 = db.Column(Text)
+    acknowledged_by_id   = db.Column(Integer, ForeignKey('users.id', ondelete='SET NULL'))
+    acknowledged_by_name = db.Column(Text, nullable=False)
+    acknowledged_at      = db.Column(DateTime, nullable=False, server_default=func.now())
+    __table_args__       = (db.UniqueConstraint('accession_number', 'flag_date', name='uq_tfa_accession_date'),)
+
+# ----------------------------------------------------------------
+# 9. ALIASES (KEEPS CONTROLLERS HAPPY)
 # ----------------------------------------------------------------
 ActiveSession        = active_sessions
 AETitleModalityMap   = aetitle_modality_map

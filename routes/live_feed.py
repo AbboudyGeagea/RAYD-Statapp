@@ -261,6 +261,7 @@ def live_tat():
                 o.done_at,
                 o.done_by,
                 o.pacs_done_at,
+                COALESCE(p.duration_minutes, 30) AS proc_duration,
                 CASE WHEN o.done_at IS NOT NULL AND o.done_at > o.scheduled_datetime
                      THEN EXTRACT(EPOCH FROM (o.done_at - o.scheduled_datetime)) / 60.0
                 END AS done_tat_min,
@@ -268,6 +269,8 @@ def live_tat():
                      THEN EXTRACT(EPOCH FROM (o.pacs_done_at - o.scheduled_datetime)) / 60.0
                 END AS pacs_tat_min
             FROM hl7_orders o
+            LEFT JOIN procedure_duration_map p
+                   ON UPPER(TRIM(o.procedure_code)) = UPPER(TRIM(p.procedure_code))
             WHERE o.scheduled_datetime IS NOT NULL
               AND (
                   (o.done_at IS NOT NULL      AND o.done_at::date      = :target_date)
@@ -290,6 +293,7 @@ def live_tat():
                 "done_at":          r["done_at"].strftime("%H:%M") if r["done_at"] else "—",
                 "done_by":          r["done_by"] or "—",
                 "pacs_done_at":     r["pacs_done_at"].strftime("%H:%M") if r["pacs_done_at"] else "—",
+                "proc_duration":    int(r["proc_duration"]) if r["proc_duration"] is not None else None,
                 "done_tat_min":     round(done_tat, 1) if done_tat is not None else None,
                 "pacs_tat_min":     round(pacs_tat, 1) if pacs_tat is not None else None,
                 # Legacy field — keep for any callers that still read wait_minutes

@@ -885,3 +885,82 @@ def delete_critical_keyword(word):
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
     return jsonify({'ok': True})
+
+
+@oru_bp.route('/keyword-suggestions')
+@login_required
+def keyword_suggestions():
+    if current_user.role not in ('admin', 'viewer', 'viewer2'):
+        abort(403)
+    import re
+    from collections import Counter
+
+    all_critical = set(_get_all_critical_keywords())
+
+    _STOP = {
+        # English functional
+        'the','a','an','and','or','but','is','are','was','were','be','been','being',
+        'have','has','had','do','does','did','will','would','could','should','may',
+        'might','shall','can','not','no','nor','so','yet','both','either','neither',
+        'for','of','to','in','on','at','by','with','as','this','that','these','those',
+        'it','its','he','she','they','we','you','from','into','through','during',
+        'before','after','above','below','between','out','off','over','under','also',
+        'any','each','few','more','most','other','some','such','only','same','than',
+        'too','very','just','because','while','although','however','therefore',
+        'there','here','then','when','where','which','who','what','how','if',
+        # English medical generic
+        'normal','noted','seen','show','shows','showing','demonstrated','identifying',
+        'identified','appears','appear','present','presents','presented','patient',
+        'findings','finding','study','examination','exam','report','result','results',
+        'image','images','area','areas','level','levels','size','aspect','aspects',
+        'region','regions','right','left','side','bilateral','upper','lower','noted',
+        'anterior','posterior','lateral','medial','mild','moderate','severe',
+        'significant','unremarkable','within','without','consistent','compatible',
+        'suggestive','noted','noted','seen','visualized','visualised','compare',
+        'comparison','measure','measuring','measures','measured','note','please',
+        'including','included','following','above','below','interval','change',
+        # French functional
+        'le','la','les','un','une','des','du','de','et','ou','mais','donc','or',
+        'ni','car','est','sont','était','étaient','ont','été','avoir','être',
+        'ce','cette','ces','se','si','ne','pas','plus','très','bien','avec','sans',
+        'pour','par','sur','sous','dans','en','au','aux','qui','que','dont','où',
+        'mon','ton','son','notre','votre','leur','mes','tes','ses','nos','vos','leurs',
+        'je','tu','il','elle','nous','vous','ils','elles','on','lui','eux',
+        # French medical generic
+        'examen','patient','patients','résultats','résultat','conclusion','noter',
+        'noté','notée','montre','montrent','présente','présence','absence','aspect',
+        'montrant','révèle','révélant','objectivant','objectivé','visible','visualisé',
+        'mesurant','mesure','niveau','niveaux','zone','zones','côté','droit','gauche',
+        'bilatéral','supérieur','inférieur','antérieur','postérieur','latéral','médial',
+        'normal','normale','normaux','normales','sans','avec','dans','entre','après',
+        'avant','lors','aucun','aucune','type','types','bonne','bon','bien','franc',
+        # Units / numbers noise
+        'mm','cm','ml','mg','mmhg','mhz','khz','mev','msec','sec',
+    }
+
+    try:
+        rows = db.session.execute(text("""
+            SELECT COALESCE(impression_text, '') || ' ' || COALESCE(report_text, '')
+            FROM hl7_oru_reports
+            WHERE received_at > NOW() - INTERVAL '6 months'
+            ORDER BY received_at DESC
+            LIMIT 600
+        """)).fetchall()
+    except Exception:
+        return jsonify({'suggestions': []})
+
+    counter = Counter()
+    word_re = re.compile(r"[a-zA-ZÀ-ÿ\-]{4,}")
+    for (blob,) in rows:
+        if not blob:
+            continue
+        for w in word_re.findall(blob.lower()):
+            if w not in _STOP and w not in all_critical and len(w) >= 4:
+                counter[w] += 1
+
+    suggestions = [
+        {'word': w, 'count': c}
+        for w, c in counter.most_common(30)
+        if c >= 3
+    ]
+    return jsonify({'suggestions': suggestions})

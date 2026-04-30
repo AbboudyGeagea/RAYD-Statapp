@@ -30,6 +30,8 @@ from routes.er_dashboard     import er_bp
 from routes.oru_analytics    import oru_bp
 from routes.db_manager       import db_manager_bp
 from routes.referring_intel  import referring_intel_bp
+from routes.financial_config    import financial_config_bp
+from routes.financial_dashboard import financial_dashboard_bp
 
 logger = logging.getLogger("REGISTRY")
 
@@ -229,6 +231,8 @@ def register_blueprints(app):
     app.register_blueprint(preferences_bp)
     app.register_blueprint(docs_bp)
     app.register_blueprint(etl_gear_bp)
+    app.register_blueprint(financial_config_bp)
+    app.register_blueprint(financial_dashboard_bp)
 
     # ── Licensed reports (auto-discovered from report_registry) ─
     licensed_reports = lic.get('reports', [])
@@ -288,8 +292,7 @@ def register_blueprints(app):
     # ── Inject license into templates ─────────────────────────
     @app.context_processor
     def inject_license():
-        from flask import current_app
         return {
-            "license": lic,
-            "portal_admin_enabled": "portal_admin" in current_app.blueprints,
+            "license":              lic,
+            "portal_admin_enabled": "portal_admin" in app.blueprints,
         }

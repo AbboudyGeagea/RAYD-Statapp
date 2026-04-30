@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Revenue Intelligence — RAYD</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        :root { --accent: #10b981; }
+        body { background: #181f1c; color: #e2e8f0; }
+        .card-custom { background: #232b28; border-radius: 1.5rem; border: 1px solid #28332e; }
+        .inner-card  { background: #1d2522; border-radius: 1rem;   border: 1px solid #28332e; }
+        .kpi-card    { background: #232b28; border-radius: 1.25rem; border: 1px solid #28332e;
+                       padding: 1.25rem 1.5rem; }
+        .date-input  { background: #181f1c; border: 1px solid #28332e; color: #e2e8f0;
+                       border-radius: 0.5rem; font-size: 12px; padding: 5px 10px;
+                       transition: border-color 0.2s; }
+        .date-input:focus { border-color: var(--accent); outline: none; }
+        .preset-btn  { background: #1d2522; border: 1px solid #28332e; color: #64748b;
+                       font-size: 10px; font-weight: 900; text-transform: uppercase;
+                       letter-spacing: 0.08em; padding: 4px 10px; border-radius: 6px;
+                       cursor: pointer; transition: all 0.15s; }
+        .preset-btn:hover, .preset-btn.active { border-color: var(--accent); color: var(--accent); }
+        .tbl-row { border-top: 1px solid #28332e; }
+        .tbl-row:hover { background: rgba(16,185,129,0.03); }
+        .badge-mod { font-size: 9px; font-weight: 900; padding: 1px 7px; border-radius: 9999px;
+                     text-transform: uppercase; letter-spacing: 0.06em; }
+        .custom-scrollbar::-webkit-scrollbar       { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #1d2522; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #28332e; border-radius: 3px; }
+        .loading-overlay { position: absolute; inset: 0; background: rgba(24,31,28,0.7);
+                           display: flex; align-items: center; justify-content: center;
+                           border-radius: 1.5rem; z-index: 10; backdrop-filter: blur(2px); }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+{% include '_header.html' %}
+<div class="flex flex-1 overflow-hidden">
+    {% include '_sidebar.html' %}
+    <main class="flex-1 overflow-y-auto p-8 bg-[#181f1c] custom-scrollbar">
+        <div class="max-w-7xl mx-auto space-y-6">
+
+            <!-- Header row -->
+            <div class="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                    <h1 class="text-xl font-black text-white tracking-tight flex items-center gap-2">
+                        <i class="bi bi-graph-up-arrow text-emerald-400"></i>
+                        Revenue Intelligence
+                    </h1>
+                    <p class="text-xs text-zinc-500 mt-1">
+                        Projected revenue from RVU activity.
+                        Global rate: <span class="text-emerald-400 font-black">${{ '%.2f'|format(data.kpi.global_rate) }}/RVU</span>
+                        <a href="/admin/financial-config" class="text-zinc-600 hover:text-emerald-400 ml-2 transition-colors">
+                            <i class="bi bi-gear-fill text-[10px]"></i> Configure rates
+                        </a>
+                    </p>
+                </div>
+
+                <!-- Date controls -->
+                <div class="flex flex-wrap items-center gap-2">
+                    <div class="flex gap-1">
+                        <button class="preset-btn" onclick="applyPreset('month')">This Month</button>
+                        <button class="preset-btn" onclick="applyPreset('q')">This Quarter</button>
+                        <button class="preset-btn" onclick="applyPreset('year')">This Year</button>
+                    </div>
+                    <div class="flex items-center gap-1">
+                        <input type="date" id="date-start" class="date-input" value="{{ start }}" onchange="refresh()">
+                        <span class="text-zinc-600 text-xs">→</span>
+                        <input type="date" id="date-end"   class="date-input" value="{{ end }}"   onchange="refresh()">
+                    </div>
+                </div>
+            </div>
+
+            <!-- KPI cards -->
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-4" id="kpi-row">
+                <div class="kpi-card">
+                    <p class="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-2">Total Revenue</p>
+                    <p class="text-2xl font-black text-emerald-400" id="kpi-revenue">
+                        ${{ '{:,.0f}'.format(data.kpi.total_revenue) }}
+                    </p>
+                    <p class="text-[10px] text-zinc-600 mt-1">projected from RVU</p>
+                </div>
+                <div class="kpi-card">
+                    <p class="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-2">Total RVU</p>
+                    <p class="text-2xl font-black text-white" id="kpi-rvu">
+                        {{ '{:,.1f}'.format(data.kpi.total_rvu) }}
+                    </p>
+                    <p class="text-[10px] text-zinc-600 mt-1">relative value units</p>
+                </div>
+                <div class="kpi-card">
+                    <p class="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-2">Studies with RVU</p>
+                    <p class="text-2xl font-black text-white" id="kpi-studies">
+                        {{ '{:,}'.format(data.kpi.total_studies) }}
+                    </p>
+                    <p class="text-[10px] text-zinc-600 mt-1">reported exams</p>
+                </div>
+                <div class="kpi-card">
+                    <p class="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-2">Revenue / Study</p>
+                    <p class="text-2xl font-black text-white" id="kpi-per-study">
+                        ${{ '%.2f'|format(data.kpi.rev_per_study) }}
+                    </p>
+                    <p class="text-[10px] text-zinc-600 mt-1">average per exam</p>
+                </div>
+            </div>
+
+            <!-- Charts row -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+                <!-- Revenue by Modality -->
+                <div class="card-custom p-6 relative">
+                    <p class="text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-4">
+                        Revenue by Modality
+                    </p>
+                    <div id="chart-modality" style="height:280px;"></div>
+                </div>
+
+                <!-- Monthly Trend -->
+                <div class="card-custom p-6 relative">
+                    <p class="text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-1">
+                        Monthly Revenue Trend
+                    </p>
+                    <p class="text-[9px] text-zinc-600 mb-4">last 12 months — independent of date filter</p>
+                    <div id="chart-trend" style="height:280px;"></div>
+                </div>
+
+            </div>
+
+            <!-- Tables row -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+                <!-- By Physician -->
+                <div class="card-custom p-6">
+                    <p class="text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-4">
+                        Top Radiologists by Revenue
+                    </p>
+                    <table class="w-full text-left">
+                        <thead>
+                            <tr class="text-[10px] font-black text-zinc-500 uppercase tracking-wider border-b border-[#28332e]">
+                                <th class="pb-2 pr-3">#</th>
+                                <th class="pb-2 pr-3">Radiologist</th>
+                                <th class="pb-2 pr-3">Studies</th>
+                                <th class="pb-2 pr-3">RVU</th>
+                                <th class="pb-2">Revenue</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbl-physician">
+                        {% for r in data.by_physician %}
+                        <tr class="tbl-row text-sm">
+                            <td class="py-2 pr-3 text-zinc-600 text-xs font-black">{{ loop.index }}</td>
+                            <td class="py-2 pr-3 text-white font-bold text-xs">{{ r.physician }}</td>
+                            <td class="py-2 pr-3 text-zinc-400 text-xs">{{ r.study_count }}</td>
+                            <td class="py-2 pr-3 text-zinc-400 text-xs">{{ '%.1f'|format(r.total_rvu) }}</td>
+                            <td class="py-2 text-emerald-400 font-black text-xs">${{ '{:,.2f}'.format(r.revenue_usd) }}</td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="5" class="py-6 text-center text-zinc-600 text-xs italic">No data for selected period.</td></tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- By Procedure -->
+                <div class="card-custom p-6">
+                    <p class="text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-4">
+                        Top Procedures by Revenue
+                    </p>
+                    <table class="w-full text-left">
+                        <thead>
+                            <tr class="text-[10px] font-black text-zinc-500 uppercase tracking-wider border-b border-[#28332e]">
+                                <th class="pb-2 pr-3">#</th>
+                                <th class="pb-2 pr-3">Code</th>
+                                <th class="pb-2 pr-3">Modality</th>
+                                <th class="pb-2 pr-3">RVU</th>
+                                <th class="pb-2">Revenue</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbl-procedure">
+                        {% for r in data.by_procedure %}
+                        <tr class="tbl-row text-sm">
+                            <td class="py-2 pr-3 text-zinc-600 text-xs font-black">{{ loop.index }}</td>
+                            <td class="py-2 pr-3 font-black text-xs text-white">{{ r.procedure_code }}</td>
+                            <td class="py-2 pr-3">
+                                <span class="badge-mod" style="background:rgba(96,165,250,0.12);color:#93c5fd;">
+                                    {{ r.modality }}
+                                </span>
+                            </td>
+                            <td class="py-2 pr-3 text-zinc-400 text-xs">{{ '%.1f'|format(r.total_rvu) }}</td>
+                            <td class="py-2 text-emerald-400 font-black text-xs">${{ '{:,.2f}'.format(r.revenue_usd) }}</td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="5" class="py-6 text-center text-zinc-600 text-xs italic">No data for selected period.</td></tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+            </div>
+
+            <!-- Disclaimer -->
+            <p class="text-[10px] text-zinc-700 text-center pb-4">
+                Revenue figures are projections based on configured RVU rates and do not reflect actual billing.
+                Studies without a matched procedure code in the RVU table are excluded.
+            </p>
+
+        </div>
+    </main>
+</div>
+
+<script>
+// ── Initial data from server ───────────────────────────────────────────────────
+let _data = {{ data | tojson }};
+
+// ── ECharts instances ──────────────────────────────────────────────────────────
+const CHART_THEME = {
+    backgroundColor: 'transparent',
+    textStyle: { color: '#94a3b8', fontFamily: 'Inter, sans-serif' },
+};
+
+const MOD_COLORS = {
+    CT:'#60a5fa', MRI:'#a78bfa', XR:'#34d399', US:'#fb923c',
+    NM:'#f472b6', PT:'#facc15', DX:'#38bdf8', CR:'#4ade80',
+    MG:'#f87171', DEFAULT:'#64748b',
+};
+function modColor(mod) { return MOD_COLORS[mod] || MOD_COLORS.DEFAULT; }
+
+let _chartMod, _chartTrend;
+
+function initCharts() {
+    // Modality bar
+    _chartMod = echarts.init(document.getElementById('chart-modality'), null, { renderer: 'canvas' });
+
+    // Trend line
+    _chartTrend = echarts.init(document.getElementById('chart-trend'), null, { renderer: 'canvas' });
+
+    renderCharts(_data);
+}
+
+function renderCharts(data) {
+    // ── Modality bar ─────────────────────────────────────────────────────────
+    const mods    = data.by_modality.map(r => r.modality);
+    const revs    = data.by_modality.map(r => r.revenue_usd);
+    const colors  = mods.map(m => modColor(m));
+
+    _chartMod.setOption({
+        backgroundColor: 'transparent',
+        tooltip: {
+            trigger: 'axis',
+            backgroundColor: '#232b28',
+            borderColor: '#28332e',
+            textStyle: { color: '#e2e8f0', fontSize: 11 },
+            formatter: params => {
+                const p = params[0];
+                const row = data.by_modality[p.dataIndex];
+                return `<b>${p.name}</b><br>
+                        Revenue: <b style="color:#10b981">$${p.value.toLocaleString('en', {minimumFractionDigits:2, maximumFractionDigits:2})}</b><br>
+                        RVU: ${row.total_rvu.toFixed(1)}<br>
+                        Rate: $${row.rate.toFixed(2)}/RVU<br>
+                        Studies: ${row.study_count}`;
+            },
+        },
+        grid: { top: 10, bottom: 40, left: 60, right: 20, containLabel: false },
+        xAxis: {
+            type: 'category', data: mods,
+            axisLine: { lineStyle: { color: '#28332e' } },
+            axisLabel: { color: '#64748b', fontSize: 10, fontWeight: 700 },
+            axisTick: { show: false },
+        },
+        yAxis: {
+            type: 'value',
+            axisLabel: {
+                color: '#64748b', fontSize: 10,
+                formatter: v => '$' + (v >= 1000 ? (v/1000).toFixed(0)+'k' : v),
+            },
+            splitLine: { lineStyle: { color: '#28332e', type: 'dashed' } },
+        },
+        series: [{
+            type: 'bar', data: revs, barMaxWidth: 48,
+            itemStyle: {
+                color: params => colors[params.dataIndex],
+                borderRadius: [4, 4, 0, 0],
+            },
+        }],
+    });
+
+    // ── Monthly trend line ────────────────────────────────────────────────────
+    const months = data.monthly_trend.map(r => r.month);
+    const tRevs  = data.monthly_trend.map(r => r.revenue_usd);
+
+    _chartTrend.setOption({
+        backgroundColor: 'transparent',
+        tooltip: {
+            trigger: 'axis',
+            backgroundColor: '#232b28',
+            borderColor: '#28332e',
+            textStyle: { color: '#e2e8f0', fontSize: 11 },
+            formatter: params => {
+                const p = params[0];
+                const row = data.monthly_trend[p.dataIndex];
+                return `<b>${p.name}</b><br>
+                        Revenue: <b style="color:#10b981">$${p.value.toLocaleString('en', {minimumFractionDigits:2, maximumFractionDigits:2})}</b><br>
+                        RVU: ${row.total_rvu.toFixed(1)}`;
+            },
+        },
+        grid: { top: 10, bottom: 40, left: 60, right: 20, containLabel: false },
+        xAxis: {
+            type: 'category', data: months,
+            axisLine: { lineStyle: { color: '#28332e' } },
+            axisLabel: { color: '#64748b', fontSize: 9, fontWeight: 700, rotate: 30 },
+            axisTick: { show: false },
+        },
+        yAxis: {
+            type: 'value',
+            axisLabel: {
+                color: '#64748b', fontSize: 10,
+                formatter: v => '$' + (v >= 1000 ? (v/1000).toFixed(0)+'k' : v),
+            },
+            splitLine: { lineStyle: { color: '#28332e', type: 'dashed' } },
+        },
+        series: [{
+            type: 'line',
+            data: tRevs,
+            smooth: true,
+            symbol: 'circle', symbolSize: 5,
+            lineStyle: { color: '#10b981', width: 2 },
+            itemStyle: { color: '#10b981' },
+            areaStyle: {
+                color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+                    colorStops: [
+                        { offset: 0, color: 'rgba(16,185,129,0.25)' },
+                        { offset: 1, color: 'rgba(16,185,129,0.01)' },
+                    ]},
+            },
+        }],
+    });
+}
+
+// ── KPI update ─────────────────────────────────────────────────────────────────
+function updateKPIs(kpi) {
+    document.getElementById('kpi-revenue').textContent =
+        '$' + kpi.total_revenue.toLocaleString('en', {minimumFractionDigits:0, maximumFractionDigits:0});
+    document.getElementById('kpi-rvu').textContent =
+        kpi.total_rvu.toLocaleString('en', {minimumFractionDigits:1, maximumFractionDigits:1});
+    document.getElementById('kpi-studies').textContent =
+        kpi.total_studies.toLocaleString('en');
+    document.getElementById('kpi-per-study').textContent =
+        '$' + kpi.rev_per_study.toFixed(2);
+}
+
+// ── Tables update ──────────────────────────────────────────────────────────────
+function updatePhysTable(rows) {
+    const tbody = document.getElementById('tbl-physician');
+    if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="py-6 text-center text-zinc-600 text-xs italic">No data for selected period.</td></tr>';
+        return;
+    }
+    tbody.innerHTML = rows.map((r, i) => `
+        <tr class="tbl-row text-sm">
+            <td class="py-2 pr-3 text-zinc-600 text-xs font-black">${i+1}</td>
+            <td class="py-2 pr-3 text-white font-bold text-xs">${r.physician}</td>
+            <td class="py-2 pr-3 text-zinc-400 text-xs">${r.study_count}</td>
+            <td class="py-2 pr-3 text-zinc-400 text-xs">${r.total_rvu.toFixed(1)}</td>
+            <td class="py-2 text-emerald-400 font-black text-xs">$${r.revenue_usd.toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+        </tr>`).join('');
+}
+
+function updateProcTable(rows) {
+    const tbody = document.getElementById('tbl-procedure');
+    if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="py-6 text-center text-zinc-600 text-xs italic">No data for selected period.</td></tr>';
+        return;
+    }
+    tbody.innerHTML = rows.map((r, i) => `
+        <tr class="tbl-row text-sm">
+            <td class="py-2 pr-3 text-zinc-600 text-xs font-black">${i+1}</td>
+            <td class="py-2 pr-3 font-black text-xs text-white">${r.procedure_code}</td>
+            <td class="py-2 pr-3">
+                <span class="badge-mod" style="background:rgba(96,165,250,0.12);color:#93c5fd;">${r.modality}</span>
+            </td>
+            <td class="py-2 pr-3 text-zinc-400 text-xs">${r.total_rvu.toFixed(1)}</td>
+            <td class="py-2 text-emerald-400 font-black text-xs">$${r.revenue_usd.toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+        </tr>`).join('');
+}
+
+// ── Date controls ──────────────────────────────────────────────────────────────
+function applyPreset(p) {
+    const today = new Date();
+    let start, end = today.toISOString().slice(0,10);
+    if (p === 'month') {
+        start = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0,10);
+    } else if (p === 'q') {
+        const qStart = new Date(today.getFullYear(), Math.floor(today.getMonth()/3)*3, 1);
+        start = qStart.toISOString().slice(0,10);
+    } else if (p === 'year') {
+        start = `${today.getFullYear()}-01-01`;
+    }
+    document.getElementById('date-start').value = start;
+    document.getElementById('date-end').value   = end;
+    refresh();
+}
+
+let _refreshTimer = null;
+async function refresh() {
+    clearTimeout(_refreshTimer);
+    _refreshTimer = setTimeout(async () => {
+        const start = document.getElementById('date-start').value;
+        const end   = document.getElementById('date-end').value;
+        if (!start || !end || start > end) return;
+
+        const res  = await fetch(`/api/financial/dashboard?start=${start}&end=${end}`);
+        const data = await res.json();
+        _data = data;
+
+        updateKPIs(data.kpi);
+        renderCharts(data);
+        updatePhysTable(data.by_physician);
+        updateProcTable(data.by_procedure);
+
+        // Update URL without reload
+        history.replaceState(null, '', `/financial/revenue?start=${start}&end=${end}`);
+    }, 400);
+}
+
+// ── Resize ─────────────────────────────────────────────────────────────────────
+window.addEventListener('resize', () => {
+    _chartMod   && _chartMod.resize();
+    _chartTrend && _chartTrend.resize();
+});
+
+// ── Init ───────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', initCharts);
+</script>
+</body>
+</html>

@@ -405,6 +405,7 @@ def _get_user_page_columns():
         ('mapping',        'Modality Mapping'),
         ('patient_portal', 'Patient Portal'),
         ('scheduling',     'Scheduling'),
+        ('financial',      'Revenue Intelligence'),
     ]
 
 
