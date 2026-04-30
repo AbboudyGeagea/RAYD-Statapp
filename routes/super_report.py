@@ -192,6 +192,9 @@ def super_report_filters():
             "series_modality":     distinct("SELECT DISTINCT modality FROM etl_didb_serieses WHERE modality IS NOT NULL"),
             "body_part_series":    distinct("SELECT DISTINCT body_part_examined FROM etl_didb_serieses WHERE body_part_examined IS NOT NULL"),
             "protocol_name":       distinct("SELECT DISTINCT protocol_name FROM etl_didb_serieses WHERE protocol_name IS NOT NULL LIMIT 100"),
+            "ae_modality_map":     dict(db.session.execute(text(
+                "SELECT aetitle, modality FROM aetitle_modality_map WHERE aetitle IS NOT NULL AND modality IS NOT NULL"
+            )).fetchall()),
         })
     except Exception as e:
         logger.error(f"Filters error: {e}", exc_info=True)

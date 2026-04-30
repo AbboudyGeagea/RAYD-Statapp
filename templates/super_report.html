@@ -305,29 +305,31 @@
 
     <script>
     // ── Filter definitions ────────────────────────────────────────────
+    // Multi-select listbox (hold Ctrl to pick multiple)
     const MULTI_FILTERS = [
-        { key:'modality',            label:'Modality' },
-        { key:'storing_ae',          label:'AE Title' },
-        { key:'study_status',        label:'Study Status' },
-        { key:'report_status',       label:'Report Status' },
-        { key:'order_status',        label:'Order Status' },
-        { key:'patient_class',       label:'Patient Class' },
-        { key:'patient_location',    label:'Patient Location' },
-        { key:'sex',                 label:'Sex' },
-        { key:'age_group',           label:'Age Group' },
-        { key:'order_modality',      label:'Order Modality' },
-        { key:'order_control',       label:'Order Control' },
-        { key:'series_modality',     label:'Series Modality' },
-        { key:'referring_physician', label:'Referring Physician' },
-        { key:'signing_physician',   label:'Signing Physician' },
-        { key:'procedure_code',      label:'Procedure Code' },
+        { key:'modality',         label:'Modality' },
+        { key:'storing_ae',       label:'AE Title' },
+        { key:'study_status',     label:'Study Status' },
+        { key:'patient_class',    label:'Patient Class' },
+        { key:'patient_location', label:'Patient Location' },
+        { key:'procedure_code',   label:'Procedure Code' },
     ];
 
-    // These two use searchable dropdowns
+    // Single-value dropdown (<select> with All option)
+    const SINGLE_FILTERS = [
+        { key:'report_status',     label:'Report Status' },
+        { key:'order_status',      label:'Order Status' },
+        { key:'sex',               label:'Sex' },
+        { key:'order_modality',    label:'Order Modality' },
+        { key:'signing_physician', label:'Signing Physician' },
+    ];
+
+    // Searchable type-to-filter dropdowns (select as chips)
     const SEARCH_FILTERS = [
-        { key:'body_part',      label:'Body Part' },
-        { key:'protocol_name',  label:'Protocol Name' },
-        { key:'body_part_series', label:'Body Part (Series)' },
+        { key:'referring_physician', label:'Referring Physician', note:'type to search · comma-separated' },
+        { key:'body_part',           label:'Body Part' },
+        { key:'protocol_name',       label:'Protocol Name' },
+        { key:'body_part_series',    label:'Body Part (Series)' },
     ];
 
     // Stores all loaded filter data
@@ -378,21 +380,28 @@
             const data = await res.json();
             window._fd = data;
             renderMultiFilters(data);
+            renderSingleFilters(data);
             renderSearchFilters(data);
         } catch(e) { console.error('Filter load failed', e); }
     }
 
     function renderMultiFilters(data) {
         const container = document.getElementById('dynamic-filters');
+        const aeMap = data.ae_modality_map || {};
         MULTI_FILTERS.forEach(fc => {
             const vals = data[fc.key] || [];
             if (!vals.length) return;
+            const isAE = fc.key === 'storing_ae';
             const div = document.createElement('div');
             div.innerHTML = `
                 <span class="f-label">${fc.label}</span>
                 <select multiple id="f-${fc.key}" class="f-multi">
-                    ${vals.map(v => `<option value="${escHtml(v)}">${escHtml(v)}</option>`).join('')}
+                    ${vals.map(v => {
+                        const label = isAE && aeMap[v] ? `${escHtml(v)} (${escHtml(aeMap[v])})` : escHtml(v);
+                        return `<option value="${escHtml(v)}">${label}</option>`;
+                    }).join('')}
                 </select>
+                <p class="text-[8px] text-slate-600 mt-0.5">Hold <kbd style="font-size:8px;padding:0 3px;border:1px solid #334155;border-radius:3px;background:#1e293b;">Ctrl</kbd> to select multiple</p>
                 <div class="mt-1" id="chips-${fc.key}"></div>
             `;
             container.appendChild(div);
@@ -404,15 +413,35 @@
         });
     }
 
+    function renderSingleFilters(data) {
+        const container = document.getElementById('dynamic-filters');
+        SINGLE_FILTERS.forEach(fc => {
+            const vals = data[fc.key] || [];
+            if (!vals.length) return;
+            const div = document.createElement('div');
+            div.innerHTML = `
+                <span class="f-label">${fc.label}</span>
+                <select id="f-${fc.key}" class="f-input">
+                    <option value="">All</option>
+                    ${vals.map(v => `<option value="${escHtml(v)}">${escHtml(v)}</option>`).join('')}
+                </select>
+            `;
+            container.appendChild(div);
+        });
+    }
+
     function renderSearchFilters(data) {
         const container = document.getElementById('dynamic-filters');
         SEARCH_FILTERS.forEach(fc => {
             const vals = data[fc.key] || [];
             if (!vals.length) return;
             window._searchSelected[fc.key] = [];
+            const noteHtml = fc.note
+                ? `<span class="text-[8px] text-slate-600 normal-case font-normal">(${fc.note})</span>`
+                : `<span class="text-[8px] text-slate-600 normal-case font-normal">(${vals.length} values)</span>`;
             const div = document.createElement('div');
             div.innerHTML = `
-                <span class="f-label">${fc.label} <span class="text-[8px] text-slate-600 normal-case font-normal">(${vals.length} values)</span></span>
+                <span class="f-label">${fc.label} ${noteHtml}</span>
                 <div class="search-dropdown" id="sd-wrap-${fc.key}">
                     <input type="text" class="f-input" id="sd-input-${fc.key}"
                            placeholder="Search ${fc.label.toLowerCase()}..."
@@ -425,7 +454,6 @@
                 <div class="mt-1" id="sd-chips-${fc.key}"></div>
             `;
             container.appendChild(div);
-            // Pre-render all items
             renderDropdownItems(fc.key, vals, '');
         });
 
@@ -499,10 +527,16 @@
             const el = document.getElementById(`f-${fc.key}`);
             if (el) { Array.from(el.options).forEach(o => o.selected = false); el.dispatchEvent(new Event('change')); }
         });
+        SINGLE_FILTERS.forEach(fc => {
+            const el = document.getElementById(`f-${fc.key}`);
+            if (el) el.value = '';
+        });
         SEARCH_FILTERS.forEach(fc => {
             window._searchSelected[fc.key] = [];
-            document.getElementById(`sd-chips-${fc.key}`).innerHTML = '';
-            document.getElementById(`sd-input-${fc.key}`).value = '';
+            const chips = document.getElementById(`sd-chips-${fc.key}`);
+            const input = document.getElementById(`sd-input-${fc.key}`);
+            if (chips) chips.innerHTML = '';
+            if (input) input.value = '';
             renderDropdownItems(fc.key, window._fd[fc.key]||[], '');
         });
         document.getElementById('f-has_report').value = '';
@@ -521,6 +555,10 @@
         MULTI_FILTERS.forEach(fc => {
             const el = document.getElementById(`f-${fc.key}`);
             if (el) Array.from(el.selectedOptions).forEach(o => p.append(fc.key, o.value));
+        });
+        SINGLE_FILTERS.forEach(fc => {
+            const el = document.getElementById(`f-${fc.key}`);
+            if (el && el.value) p.append(fc.key, el.value);
         });
         SEARCH_FILTERS.forEach(fc => {
             (window._searchSelected[fc.key]||[]).forEach(v => p.append(fc.key, v));
@@ -898,6 +936,10 @@
             const el = document.getElementById(`f-${fc.key}`);
             if (el) f[fc.key] = Array.from(el.selectedOptions).map(o => o.value);
         });
+        SINGLE_FILTERS.forEach(fc => {
+            const el = document.getElementById(`f-${fc.key}`);
+            if (el) f[fc.key] = el.value || '';
+        });
         SEARCH_FILTERS.forEach(fc => {
             f[fc.key] = window._searchSelected[fc.key] || [];
         });
@@ -924,6 +966,11 @@
             el.dispatchEvent(new Event('change'));
         });
 
+        SINGLE_FILTERS.forEach(fc => {
+            const el = document.getElementById(`f-${fc.key}`);
+            if (el && f[fc.key] !== undefined) el.value = f[fc.key] || '';
+        });
+
         SEARCH_FILTERS.forEach(fc => {
             if (!f[fc.key]) return;
             window._searchSelected[fc.key] = f[fc.key];
@@ -934,7 +981,6 @@
             renderDropdownItems(fc.key, window._fd[fc.key]||[], '');
         });
 
-        // Update cmp label
         updateCmpDates();
     }
 
