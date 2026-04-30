@@ -288,4 +288,8 @@ def register_blueprints(app):
     # ── Inject license into templates ─────────────────────────
     @app.context_processor
     def inject_license():
-        return {"license": lic}
+        from flask import current_app
+        return {
+            "license": lic,
+            "portal_admin_enabled": "portal_admin" in current_app.blueprints,
+        }
