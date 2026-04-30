@@ -293,6 +293,6 @@ def register_blueprints(app):
     @app.context_processor
     def inject_license():
         return {
-            "license":           lic,
-            "portal_registered": "portal_admin" in app.blueprints,
+            "license":             lic,
+            "portal_admin_enabled": "portal_admin" in app.blueprints,
         }
