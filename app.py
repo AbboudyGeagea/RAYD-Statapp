@@ -202,6 +202,30 @@ def create_app():
 
     init_db(app)
 
+    # --- BOOTSTRAP: ensure base tables exist before migrations run ---
+    from sqlalchemy import text as _text
+    with app.app_context():
+        from db import db as _db
+        try:
+            _db.session.execute(_text("""
+                CREATE TABLE IF NOT EXISTS hl7_oru_reports (
+                    id               SERIAL PRIMARY KEY,
+                    procedure_code   VARCHAR(100),
+                    procedure_name   TEXT,
+                    modality         VARCHAR(20),
+                    physician_id     VARCHAR(100),
+                    patient_id       VARCHAR(100),
+                    accession_number VARCHAR(100),
+                    report_text      TEXT,
+                    impression_text  TEXT,
+                    result_datetime  TIMESTAMP,
+                    received_at      TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            _db.session.commit()
+        except Exception:
+            _db.session.rollback()
+
     # --- DB MIGRATIONS ---
     from db_migrations import run_migrations
     run_migrations(app)
@@ -343,6 +367,34 @@ def create_app():
     with app.app_context():
         try:
             db.session.execute(text("""
+                CREATE TABLE IF NOT EXISTS hl7_oru_reports (
+                    id               SERIAL PRIMARY KEY,
+                    procedure_code   VARCHAR(100),
+                    procedure_name   TEXT,
+                    modality         VARCHAR(20),
+                    physician_id     VARCHAR(100),
+                    patient_id       VARCHAR(100),
+                    accession_number VARCHAR(100),
+                    report_text      TEXT,
+                    impression_text  TEXT,
+                    result_datetime  TIMESTAMP,
+                    received_at      TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            db.session.execute(text(
+                "ALTER TABLE hl7_oru_reports ADD COLUMN IF NOT EXISTS patient_id VARCHAR(100)"
+            ))
+            db.session.execute(text(
+                "ALTER TABLE hl7_oru_reports ADD COLUMN IF NOT EXISTS accession_number VARCHAR(100)"
+            ))
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            logger.warning(f"[Migration] hl7_oru_reports: {e}")
+
+    with app.app_context():
+        try:
+            db.session.execute(text("""
                 CREATE TABLE IF NOT EXISTS ai_nlp_cache (
                     id              SERIAL PRIMARY KEY,
                     source_id       INTEGER NOT NULL REFERENCES hl7_oru_reports(id) ON DELETE CASCADE,
@@ -368,34 +420,6 @@ def create_app():
         except Exception as e:
             db.session.rollback()
             logger.warning(f"[Migration] ai_nlp_cache: {e}")
-
-    with app.app_context():
-        try:
-            db.session.execute(text("""
-                CREATE TABLE IF NOT EXISTS hl7_oru_reports (
-                    id               SERIAL PRIMARY KEY,
-                    procedure_code   VARCHAR(100),
-                    procedure_name   TEXT,
-                    modality         VARCHAR(20),
-                    physician_id     VARCHAR(100),
-                    patient_id       VARCHAR(100),
-                    accession_number VARCHAR(100),
-                    report_text      TEXT,
-                    impression_text  TEXT,
-                    result_datetime  TIMESTAMP,
-                    received_at      TIMESTAMP DEFAULT NOW()
-                )
-            """))
-            db.session.execute(text(
-                "ALTER TABLE hl7_oru_reports ADD COLUMN IF NOT EXISTS patient_id VARCHAR(100)"
-            ))
-            db.session.execute(text(
-                "ALTER TABLE hl7_oru_reports ADD COLUMN IF NOT EXISTS accession_number VARCHAR(100)"
-            ))
-            db.session.commit()
-        except Exception as e:
-            db.session.rollback()
-            logger.warning(f"[Migration] hl7_oru_reports: {e}")
 
     # --- MIGRATION: hl7_scn_studies (real-time completed studies) ---
     with app.app_context():

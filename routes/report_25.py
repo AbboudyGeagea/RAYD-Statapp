@@ -2,8 +2,9 @@ import json
 import pandas as pd
 import io
 from datetime import date
-from flask import Blueprint, render_template, request, send_file, url_for
-from flask_login import login_required
+from datetime import datetime
+from flask import Blueprint, render_template, request, send_file, url_for, jsonify, abort
+from flask_login import login_required, current_user
 from sqlalchemy import text
 from db import db, get_etl_cutoff_date
 from routes.report_cache import cache_get, cache_put
@@ -552,6 +553,7 @@ def compute_bg_data(form_data):
                    ON UPPER(TRIM(o.procedure_code)) = UPPER(TRIM(p.procedure_code))
             WHERE o.scheduled_datetime IS NOT NULL
               AND o.scheduled_datetime::date BETWEEN :start AND :end
+              AND UPPER(TRIM(COALESCE(o.modality, ''))) != 'SCN'
               {"AND UPPER(TRIM(o.modality)) IN :modalities" if "modalities" in params else ""}
             ORDER BY o.modality, o.scheduled_datetime
         """), params).mappings().fetchall()
@@ -625,9 +627,9 @@ def compute_bg_data(form_data):
                     'technician':     str(r['done_by']) if pd.notna(r.get('done_by')) else '',
                     'patient_class':  str(r.get('patient_class') or ''),
                     'scheduled_at':   r['scheduled_datetime'].strftime('%Y-%m-%d %H:%M'),
-                    'done_at':        r['done_at'].strftime('%H:%M'),
+                    'done_at':        r['done_at'].strftime('%Y-%m-%d %H:%M'),
                     'tat_min':        round(float(tat), 1),
-                    'pacs_done_at':   r['pacs_done_at'].strftime('%H:%M') if pd.notna(r.get('pacs_done_at')) else None,
+                    'pacs_done_at':   r['pacs_done_at'].strftime('%Y-%m-%d %H:%M') if pd.notna(r.get('pacs_done_at')) else None,
                     'pacs_tat_min':   round(float(pacs_tat), 1) if pd.notna(pacs_tat) else None,
                     'proc_duration':  int(dur),
                     'flags':          flags,
@@ -679,15 +681,56 @@ def compute_bg_data(form_data):
                 if ratio >= 1.5: return f"Avg is {ratio:.1f}× the median — some delayed exams pulling up average."
                 return None
 
+            # Dept averages computed first so per-tech delta can reference them
+            all_tats = completed['tat_min'].dropna()
+            dept_avg = dept_median = None
+            if len(all_tats):
+                dept_avg    = round(float(all_tats.mean()),   1)
+                dept_median = round(float(all_tats.median()), 1)
+                tech_data['summary']['avg_tat']      = dept_avg
+                tech_data['summary']['median_tat']   = dept_median
+                tech_data['summary']['dept_insight'] = _skew_insight(dept_avg, dept_median)
+
+            # Per-tech modality breakdown (pure pandas, no extra query)
+            _done_with_tech = completed[
+                completed['done_by'].notna() & completed['modality'].notna()
+            ]
+            tech_mod_breakdown = {}
+            for (tech, mod), gdf in _done_with_tech.groupby(['done_by', 'modality']):
+                tats  = gdf['tat_min'].dropna()
+                ptats = gdf['pacs_tat_min'].dropna()
+                tech_mod_breakdown.setdefault(str(tech), []).append({
+                    'modality':     str(mod),
+                    'count':        len(gdf),
+                    'avg_tat':      round(float(tats.mean()),  1) if len(tats)  else None,
+                    'avg_pacs_tat': round(float(ptats.mean()), 1) if len(ptats) else None,
+                })
+
             for tech, gdf in completed[completed['done_by'].notna()].groupby('done_by'):
-                tats = gdf['tat_min'].dropna()
-                avg    = round(float(tats.mean()),   1) if len(tats) else None
-                median = round(float(tats.median()), 1) if len(tats) else None
+                tats  = gdf['tat_min'].dropna()
+                ptats = gdf['pacs_tat_min'].dropna()
+                avg         = round(float(tats.mean()),    1) if len(tats)  else None
+                median      = round(float(tats.median()),  1) if len(tats)  else None
+                avg_pacs    = round(float(ptats.mean()),   1) if len(ptats) else None
+                median_pacs = round(float(ptats.median()), 1) if len(ptats) else None
+                flags_count = sum(1 for r in tech_data['flagged'] if r['technician'] == str(tech) and r['flags'])
+                flag_rate   = round(flags_count / len(gdf) * 100, 1) if len(gdf) else 0.0
+                dept_delta  = round(avg - dept_avg, 1) if avg is not None and dept_avg is not None else None
+                mods        = sorted(tech_mod_breakdown.get(str(tech), []), key=lambda x: x['count'], reverse=True)
+                top_mod     = mods[0]['modality'] if mods else None
                 tech_data['by_technician'].append({
-                    'name': str(tech), 'count': len(gdf),
-                    'avg_tat': avg, 'median_tat': median,
-                    'flags': sum(1 for r in tech_data['flagged'] if r['technician'] == str(tech) and r['flags']),
-                    'insight': _skew_insight(avg, median),
+                    'name':            str(tech),
+                    'count':           len(gdf),
+                    'avg_tat':         avg,
+                    'median_tat':      median,
+                    'avg_pacs_tat':    avg_pacs,
+                    'median_pacs_tat': median_pacs,
+                    'flags':           flags_count,
+                    'flag_rate':       flag_rate,
+                    'dept_delta':      dept_delta,
+                    'top_modality':    top_mod,
+                    'modalities':      mods,
+                    'insight':         _skew_insight(avg, median),
                 })
             tech_data['by_technician'].sort(key=lambda x: x['avg_tat'] if x['avg_tat'] is not None else 9999)
 
@@ -702,17 +745,27 @@ def compute_bg_data(form_data):
                 })
             tech_data['by_modality'].sort(key=lambda x: x['avg_tat'] if x['avg_tat'] is not None else 9999)
 
-            all_tats = completed['tat_min'].dropna()
-            if len(all_tats):
-                dept_avg    = round(float(all_tats.mean()),   1)
-                dept_median = round(float(all_tats.median()), 1)
-                tech_data['summary']['avg_tat']      = dept_avg
-                tech_data['summary']['median_tat']   = dept_median
-                tech_data['summary']['dept_insight'] = _skew_insight(dept_avg, dept_median)
-
     except Exception as _e:
         db.session.rollback()
         print(f"BG technician error: {_e}")
+
+    # ── Acknowledgements for flagged exams ────────────────────────────────
+    try:
+        from db import TechFlagAck
+        acks = TechFlagAck.query.filter(
+            TechFlagAck.flag_date.between(start, end)
+        ).all()
+        tech_data['ack_map'] = {
+            a.accession_number: {
+                'by':   a.acknowledged_by_name,
+                'at':   a.acknowledged_at.strftime('%Y-%m-%d %H:%M'),
+                'note': a.note or '',
+            }
+            for a in acks
+        }
+    except Exception as _ae:
+        db.session.rollback()
+        tech_data['ack_map'] = {}
 
     # ── Insights ──────────────────────────────────────────────────────────
     tech_insights = []
@@ -1038,6 +1091,63 @@ def patient_journey_api():
     except Exception as e:
         db.session.rollback()
         return _json({'studies': [], 'error': str(e)}), 500
+
+
+# ── Flag acknowledgement API ───────────────────────────────────
+
+@report_25_bp.route('/api/tech/flag/acknowledge', methods=['POST'])
+@login_required
+def ack_tech_flag():
+    if current_user.role not in ('admin', 'viewer', 'viewer2'):
+        abort(403)
+    from db import TechFlagAck
+    data      = request.get_json(silent=True) or {}
+    accession = (data.get('accession') or '').strip()
+    flag_date = (data.get('flag_date') or '').strip()
+    flags     = data.get('flags', [])
+    note      = (data.get('note') or '').strip() or None
+    if not accession or not flag_date:
+        return jsonify({'error': 'Missing fields'}), 400
+    existing = TechFlagAck.query.filter_by(
+        accession_number=accession, flag_date=flag_date
+    ).first()
+    if existing:
+        existing.note                 = note
+        existing.acknowledged_by_id   = current_user.id
+        existing.acknowledged_by_name = current_user.username
+        existing.acknowledged_at      = datetime.utcnow()
+    else:
+        db.session.add(TechFlagAck(
+            accession_number=accession,
+            flag_date=flag_date,
+            flags=flags,
+            note=note,
+            acknowledged_by_id=current_user.id,
+            acknowledged_by_name=current_user.username,
+            acknowledged_at=datetime.utcnow(),
+        ))
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@report_25_bp.route('/api/tech/flag/unacknowledge', methods=['POST'])
+@login_required
+def unack_tech_flag():
+    if current_user.role not in ('admin', 'viewer', 'viewer2'):
+        abort(403)
+    from db import TechFlagAck
+    data      = request.get_json(silent=True) or {}
+    accession = (data.get('accession') or '').strip()
+    flag_date = (data.get('flag_date') or '').strip()
+    if not accession or not flag_date:
+        return jsonify({'error': 'Missing fields'}), 400
+    ack = TechFlagAck.query.filter_by(
+        accession_number=accession, flag_date=flag_date
+    ).first()
+    if ack:
+        db.session.delete(ack)
+        db.session.commit()
+    return jsonify({'ok': True})
 
 
 # ── Self-register ─────────────────────────────────────────────

@@ -83,10 +83,16 @@
                 </div>
 
                 <!-- Tabs -->
-                <div class="flex gap-2 mb-6">
-                    <button id="tab-btn-grid"    class="tab-btn active" onclick="showTab('grid')">Day Overview</button>
-                    <button id="tab-btn-form"    class="tab-btn"        onclick="showTab('form')">Schedule Case</button>
-                    <button id="tab-btn-all"     class="tab-btn"        onclick="showTab('all')">All Bookings</button>
+                <div class="flex gap-2 mb-6 flex-wrap">
+                    <button id="tab-btn-grid"      class="tab-btn active" onclick="showTab('grid')">Day Overview</button>
+                    <button id="tab-btn-form"       class="tab-btn"        onclick="showTab('form')">Schedule Case</button>
+                    <button id="tab-btn-all"        class="tab-btn"        onclick="showTab('all')">All Bookings</button>
+                    <button id="tab-btn-worklist"   class="tab-btn"        onclick="showTab('worklist')" style="position:relative;">
+                        Worklist
+                        {% if unscheduled %}
+                        <span style="position:absolute;top:-6px;right:-6px;background:#a78bfa;color:#1e1b4b;font-size:9px;font-weight:900;min-width:18px;height:18px;border-radius:9px;display:flex;align-items:center;justify-content:center;padding:0 4px;">{{ unscheduled|length }}</span>
+                        {% endif %}
+                    </button>
                 </div>
 
                 <!-- ══════════════════ TAB: DAY GRID ══════════════════ -->
@@ -139,47 +145,15 @@
                         {% endif %}
                     </div>
 
-                    <!-- Unscheduled HL7 worklist -->
+                    <!-- Unscheduled chip — click to go to Worklist tab -->
                     {% if unscheduled %}
                     <div class="mb-5">
-                        <button onclick="toggleWorklist()" id="worklist-btn"
-                            class="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-violet-400 hover:text-violet-300 transition-colors mb-3">
+                        <button onclick="showTab('worklist')"
+                            class="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-violet-400 hover:text-violet-300 transition-colors px-4 py-2 rounded-xl border border-violet-500/20 bg-violet-500/5 hover:bg-violet-500/10">
                             <i class="bi bi-inbox-fill"></i>
-                            Unscheduled Orders
-                            <span class="px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-300 text-[10px]">{{ unscheduled|length }}</span>
-                            <i class="bi bi-chevron-down" id="worklist-chevron"></i>
+                            {{ unscheduled|length }} unscheduled order{{ 's' if unscheduled|length != 1 else '' }} pending
+                            <i class="bi bi-arrow-right text-[10px]"></i>
                         </button>
-                        <div id="worklist-panel" class="card" style="padding:0;overflow:hidden;">
-                            <div class="overflow-x-auto">
-                                <table class="w-full text-left" style="font-size:11px;">
-                                    <thead>
-                                        <tr style="border-bottom:1px solid #1e2a26;background:#1a2420;">
-                                            {% for col in ['Patient','Procedure','Modality','Physician','Accession','Received',''] %}
-                                            <th style="padding:8px 14px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:#475569;">{{ col }}</th>
-                                            {% endfor %}
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {% for u in unscheduled %}
-                                        <tr style="border-bottom:1px solid #1e2a26;" onmouseover="this.style.background='rgba(167,139,250,0.05)'" onmouseout="this.style.background=''">
-                                            <td style="padding:9px 14px;color:#e2e8f0;font-weight:700;">{{ u.name }}</td>
-                                            <td style="padding:9px 14px;color:#94a3b8;max-width:200px;" class="truncate">{{ u.procedure }}</td>
-                                            <td style="padding:9px 14px;"><span class="badge-mod">{{ u.modality }}</span></td>
-                                            <td style="padding:9px 14px;color:#64748b;">{{ u.physician or '—' }}</td>
-                                            <td style="padding:9px 14px;color:#64748b;font-family:monospace;font-size:10px;">{{ u.accession or '—' }}</td>
-                                            <td style="padding:9px 14px;color:#475569;font-size:10px;">{{ u.received }}</td>
-                                            <td style="padding:9px 14px;">
-                                                <button onclick="openHl7Modal({{ u.id }}, '{{ u.name|e }}', '{{ u.procedure|e }}', '{{ u.modality }}', '{{ u.physician|e }}', '', '{{ view_date_str }}T08:00')"
-                                                    class="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest bg-violet-500/10 text-violet-300 border border-violet-500/20 hover:bg-violet-500/20 transition-colors">
-                                                    Schedule
-                                                </button>
-                                            </td>
-                                        </tr>
-                                        {% endfor %}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
                     </div>
                     {% endif %}
 
@@ -422,6 +396,80 @@
                     </div>
                 </div>
 
+                <!-- ══════════════════ TAB: WORKLIST ══════════════════ -->
+                <div id="panel-worklist" class="hidden">
+                    {% if unscheduled %}
+                    <div class="card" style="padding:0;overflow:hidden;">
+                        <!-- Header + search -->
+                        <div class="px-5 py-4 border-b border-[#28332e] flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                                <h3 class="text-white font-black uppercase tracking-tight text-sm">Unscheduled Orders</h3>
+                                <p class="text-slate-500 text-[10px] mt-0.5">HL7 orders received without a scheduled date/time. Assign a slot using the Schedule button.</p>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <input type="text" id="worklist-search" placeholder="Search patient or procedure…"
+                                    oninput="filterWorklist()"
+                                    style="background:#141b19;border:1px solid #334155;color:#e2e8f0;padding:6px 12px;border-radius:8px;font-size:11px;outline:none;width:220px;transition:border-color .2s;"
+                                    onfocus="this.style.borderColor='#a78bfa'" onblur="this.style.borderColor='#334155'">
+                                <span id="worklist-count-label" class="text-[10px] text-slate-500 font-black uppercase tracking-widest whitespace-nowrap">
+                                    {{ unscheduled|length }} orders
+                                </span>
+                            </div>
+                        </div>
+                        <!-- Table -->
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left" style="font-size:11px;">
+                                <thead>
+                                    <tr style="border-bottom:1px solid #1e2a26;background:#1a2420;">
+                                        {% for col in ['Patient','Procedure','Modality','Physician','Accession','Received',''] %}
+                                        <th style="padding:8px 14px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:#475569;white-space:nowrap;">{{ col }}</th>
+                                        {% endfor %}
+                                    </tr>
+                                </thead>
+                                <tbody id="worklist-tbody">
+                                    {% for u in unscheduled %}
+                                    <tr class="wl-row" data-search="{{ (u.name ~ ' ' ~ u.procedure)|lower }}"
+                                        style="border-bottom:1px solid #1e2a26;"
+                                        onmouseover="this.style.background='rgba(167,139,250,0.05)'"
+                                        onmouseout="this.style.background=''">
+                                        <td style="padding:9px 14px;color:#e2e8f0;font-weight:700;white-space:nowrap;">{{ u.name }}</td>
+                                        <td style="padding:9px 14px;color:#94a3b8;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ u.procedure }}</td>
+                                        <td style="padding:9px 14px;"><span class="badge-mod">{{ u.modality }}</span></td>
+                                        <td style="padding:9px 14px;color:#64748b;white-space:nowrap;">{{ u.physician or '—' }}</td>
+                                        <td style="padding:9px 14px;color:#64748b;font-family:monospace;font-size:10px;white-space:nowrap;">{{ u.accession or '—' }}</td>
+                                        <td style="padding:9px 14px;color:#475569;font-size:10px;white-space:nowrap;">{{ u.received }}</td>
+                                        <td style="padding:9px 14px;">
+                                            <button onclick="openHl7Modal({{ u.id }}, '{{ u.name|e }}', '{{ u.procedure|e }}', '{{ u.modality }}', '{{ u.physician|e }}', '', '{{ view_date_str }}T08:00')"
+                                                class="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest bg-violet-500/10 text-violet-300 border border-violet-500/20 hover:bg-violet-500/20 transition-colors whitespace-nowrap">
+                                                Schedule
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        <!-- Pagination -->
+                        <div id="wl-pagination" class="px-5 py-3 border-t border-[#28332e] flex items-center gap-3 hidden">
+                            <button id="wl-prev" onclick="wlPage(-1)"
+                                style="background:#1d2522;border:1px solid #28332e;color:#94a3b8;font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.08em;padding:4px 12px;border-radius:6px;cursor:pointer;">
+                                ‹ Prev
+                            </button>
+                            <span id="wl-page-label" class="text-[10px] text-slate-500 font-black uppercase tracking-widest"></span>
+                            <button id="wl-next" onclick="wlPage(1)"
+                                style="background:#1d2522;border:1px solid #28332e;color:#94a3b8;font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.08em;padding:4px 12px;border-radius:6px;cursor:pointer;">
+                                Next ›
+                            </button>
+                        </div>
+                    </div>
+                    {% else %}
+                    <div class="card text-center py-16">
+                        <i class="bi bi-inbox text-4xl text-slate-600"></i>
+                        <p class="text-slate-500 mt-4 font-semibold text-sm">No unscheduled orders.</p>
+                    </div>
+                    {% endif %}
+                </div>
+
             </div>
         </main>
     </div>
@@ -489,12 +537,13 @@
     </div>
 
     <script>
-        const PANELS = ['grid','form','all'];
+        const PANELS = ['grid','form','all','worklist'];
         function showTab(name) {
             PANELS.forEach(p => {
                 document.getElementById('panel-'+p).classList.toggle('hidden', p !== name);
                 document.getElementById('tab-btn-'+p).classList.toggle('active', p === name);
             });
+            if (name === 'worklist') { _wlPage = 0; renderWlPage(); }
         }
 
         function editEntry(id, date) {
@@ -519,13 +568,42 @@
             card.classList.toggle('er-highlight', val === 'ER');
         }
 
-        // ── Worklist toggle ──────────────────────────────────────────────────
-        function toggleWorklist() {
-            const panel   = document.getElementById('worklist-panel');
-            const chevron = document.getElementById('worklist-chevron');
-            const hidden  = panel.style.display === 'none';
-            panel.style.display   = hidden ? '' : 'none';
-            chevron.className = hidden ? 'bi bi-chevron-up' : 'bi bi-chevron-down';
+        // ── Worklist search + pagination ─────────────────────────────────────
+        const WL_PER_PAGE = 20;
+        let _wlPage = 0;
+
+        function filterWorklist() {
+            _wlPage = 0;
+            renderWlPage();
+        }
+
+        function wlPage(dir) {
+            _wlPage = Math.max(0, _wlPage + dir);
+            renderWlPage();
+        }
+
+        function renderWlPage() {
+            const q    = (document.getElementById('worklist-search')?.value || '').toLowerCase();
+            const rows = Array.from(document.querySelectorAll('.wl-row'));
+            const vis  = rows.filter(r => !q || r.dataset.search.includes(q));
+
+            const total = vis.length;
+            const start = _wlPage * WL_PER_PAGE;
+
+            rows.forEach(r => r.style.display = 'none');
+            vis.forEach((r, i) => { r.style.display = (i >= start && i < start + WL_PER_PAGE) ? '' : 'none'; });
+
+            const lbl = document.getElementById('wl-count-label');
+            if (lbl) lbl.textContent = q ? `${total} matching` : `${total} order${total !== 1 ? 's' : ''}`;
+
+            const pag = document.getElementById('wl-pagination');
+            if (!pag) return;
+            if (total <= WL_PER_PAGE) { pag.classList.add('hidden'); return; }
+            pag.classList.remove('hidden');
+            document.getElementById('wl-page-label').textContent =
+                `${start + 1}–${Math.min(start + WL_PER_PAGE, total)} of ${total}`;
+            document.getElementById('wl-prev').disabled = _wlPage === 0;
+            document.getElementById('wl-next').disabled = start + WL_PER_PAGE >= total;
         }
 
         // ── HL7 Modal ────────────────────────────────────────────────────────

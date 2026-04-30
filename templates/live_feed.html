@@ -247,20 +247,22 @@
                     <div style="display:flex;gap:20px;flex-wrap:wrap;">
                         <!-- Done TAT stats -->
                         <div style="border-left:2px solid #60a5fa;padding-left:12px;">
-                            <p style="font-size:9px;font-weight:900;color:#60a5fa;text-transform:uppercase;letter-spacing:0.15em;margin-bottom:4px;">Done TAT (manual)</p>
+                            <p style="font-size:9px;font-weight:900;color:#60a5fa;text-transform:uppercase;letter-spacing:0.15em;margin-bottom:1px;">Technician Done TAT</p>
+                            <p style="font-size:8px;color:#334155;font-weight:700;margin-bottom:4px;">Scheduled → marked done (minutes)</p>
                             <div style="display:flex;gap:16px;">
                                 <div style="text-align:center;"><p style="font-size:18px;font-weight:900;color:#60a5fa;" id="tat-avg">—</p><p style="font-size:9px;color:#475569;font-weight:800;text-transform:uppercase;">Avg</p></div>
-                                <div style="text-align:center;"><p style="font-size:18px;font-weight:900;color:#4ade80;" id="tat-min">—</p><p style="font-size:9px;color:#475569;font-weight:800;text-transform:uppercase;">Min</p></div>
-                                <div style="text-align:center;"><p style="font-size:18px;font-weight:900;color:#f87171;" id="tat-max">—</p><p style="font-size:9px;color:#475569;font-weight:800;text-transform:uppercase;">Max</p></div>
+                                <div style="text-align:center;"><p style="font-size:18px;font-weight:900;color:#4ade80;" id="tat-min">—</p><p style="font-size:9px;color:#475569;font-weight:800;text-transform:uppercase;">Best</p></div>
+                                <div style="text-align:center;"><p style="font-size:18px;font-weight:900;color:#f87171;" id="tat-max">—</p><p style="font-size:9px;color:#475569;font-weight:800;text-transform:uppercase;">Worst</p></div>
                             </div>
                         </div>
-                        <!-- PACS Done TAT stats -->
+                        <!-- Scanner TAT stats -->
                         <div style="border-left:2px solid #a78bfa;padding-left:12px;">
-                            <p style="font-size:9px;font-weight:900;color:#a78bfa;text-transform:uppercase;letter-spacing:0.15em;margin-bottom:4px;">PACS Done TAT</p>
+                            <p style="font-size:9px;font-weight:900;color:#a78bfa;text-transform:uppercase;letter-spacing:0.15em;margin-bottom:1px;">Scanner TAT</p>
+                            <p style="font-size:8px;color:#334155;font-weight:700;margin-bottom:4px;">Scheduled → confirmed by scanner (minutes)</p>
                             <div style="display:flex;gap:16px;">
                                 <div style="text-align:center;"><p style="font-size:18px;font-weight:900;color:#a78bfa;" id="pacs-avg">—</p><p style="font-size:9px;color:#475569;font-weight:800;text-transform:uppercase;">Avg</p></div>
-                                <div style="text-align:center;"><p style="font-size:18px;font-weight:900;color:#4ade80;" id="pacs-min">—</p><p style="font-size:9px;color:#475569;font-weight:800;text-transform:uppercase;">Min</p></div>
-                                <div style="text-align:center;"><p style="font-size:18px;font-weight:900;color:#f87171;" id="pacs-max">—</p><p style="font-size:9px;color:#475569;font-weight:800;text-transform:uppercase;">Max</p></div>
+                                <div style="text-align:center;"><p style="font-size:18px;font-weight:900;color:#4ade80;" id="pacs-min">—</p><p style="font-size:9px;color:#475569;font-weight:800;text-transform:uppercase;">Best</p></div>
+                                <div style="text-align:center;"><p style="font-size:18px;font-weight:900;color:#f87171;" id="pacs-max">—</p><p style="font-size:9px;color:#475569;font-weight:800;text-transform:uppercase;">Worst</p></div>
                             </div>
                         </div>
                         <div style="text-align:center;align-self:center;">
@@ -269,20 +271,35 @@
                         </div>
                     </div>
                 </div>
+                <!-- Modality filter chips -->
+                <div id="tat-mod-chips" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;"></div>
+                <!-- Per-technician summary tiles -->
+                <div id="tat-tech-accordion" style="display:none;margin-bottom:14px;">
+                    <p style="font-size:9px;font-weight:900;color:#60a5fa;text-transform:uppercase;letter-spacing:0.15em;margin-bottom:8px;">Average time per technician today</p>
+                    <div id="tat-tech-rows" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+                </div>
+                <!-- Color legend -->
+                <div style="display:flex;gap:14px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
+                    <span style="font-size:9px;color:#334155;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;">Time vs expected:</span>
+                    <span style="display:flex;align-items:center;gap:4px;"><span style="color:#4ade80;font-size:11px;font-weight:900;">●</span><span style="font-size:9px;color:#475569;">On time</span></span>
+                    <span style="display:flex;align-items:center;gap:4px;"><span style="color:#fbbf24;font-size:11px;font-weight:900;">●</span><span style="font-size:9px;color:#475569;">Slightly delayed</span></span>
+                    <span style="display:flex;align-items:center;gap:4px;"><span style="color:#f87171;font-size:11px;font-weight:900;">●</span><span style="font-size:9px;color:#475569;">More than 2× expected</span></span>
+                </div>
                 <div style="overflow-x:auto;">
                     <table style="width:100%;font-size:11px;border-collapse:collapse;" id="tat-table">
                         <thead>
                             <tr style="border-bottom:1px solid #1a2420;color:#60a5fa;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.18em;">
                                 <th style="padding:6px 10px;text-align:left;">Patient</th>
-                                <th style="padding:6px 10px;text-align:left;">Accession</th>
+                                <th style="padding:6px 10px;text-align:left;">Accession #</th>
                                 <th style="padding:6px 10px;text-align:left;">Procedure</th>
-                                <th style="padding:6px 10px;text-align:left;">Modality</th>
+                                <th style="padding:6px 10px;text-align:left;">Type</th>
                                 <th style="padding:6px 10px;text-align:left;">Scheduled</th>
-                                <th style="padding:6px 10px;text-align:left;">Done</th>
-                                <th style="padding:6px 10px;text-align:left;">By</th>
-                                <th style="padding:6px 10px;text-align:right;color:#60a5fa;">Done TAT</th>
-                                <th style="padding:6px 10px;text-align:left;">PACS Done</th>
-                                <th style="padding:6px 10px;text-align:right;color:#a78bfa;">PACS TAT</th>
+                                <th style="padding:6px 10px;text-align:left;">Done At</th>
+                                <th style="padding:6px 10px;text-align:left;">Done By</th>
+                                <th style="padding:6px 10px;text-align:right;color:#60a5fa;" title="Minutes from scheduled time to technician marking done">Done TAT</th>
+                                <th style="padding:6px 10px;text-align:left;" title="Time the scanner confirmed the exam">Scanner Done</th>
+                                <th style="padding:6px 10px;text-align:right;color:#a78bfa;" title="Minutes from scheduled time to scanner confirmation">Scanner TAT</th>
+                                <th style="padding:6px 10px;text-align:right;color:#334155;" title="Standard expected duration for this procedure">Norm (min)</th>
                             </tr>
                         </thead>
                         <tbody id="tat-tbody"></tbody>
@@ -660,25 +677,93 @@ async function loadTat() {
         document.getElementById('pacs-max').textContent  = data.max_pacs != null ? data.max_pacs : '—';
         document.getElementById('tat-count').textContent = data.count;
 
-        const tatColor  = m => m == null ? '#475569' : m <= 30 ? '#4ade80' : m <= 60 ? '#fbbf24' : '#f87171';
-        const tatCell   = (m, accent) => m != null
-            ? `<span style="font-weight:900;color:${tatColor(m)};">${m}</span> <span style="color:#475569;font-size:9px;">min</span>`
-            : `<span style="color:#334155;">—</span>`;
+        // TAT coloring relative to expected procedure duration
+        function tatColor(m, expected) {
+            if (m == null) return '#475569';
+            if (expected) {
+                if (m <= expected)     return '#4ade80';
+                if (m <= expected * 2) return '#fbbf24';
+                return '#f87171';
+            }
+            return m <= 30 ? '#4ade80' : m <= 60 ? '#fbbf24' : '#f87171';
+        }
+        function tatCell(m, expected) {
+            if (m == null) return '<span style="color:#334155;">—</span>';
+            const color = tatColor(m, expected);
+            return `<span style="font-weight:900;color:${color};">${m}</span><span style="color:#475569;font-size:9px;"> min</span>`;
+        }
 
-        const tbody = document.getElementById('tat-tbody');
-        tbody.innerHTML = data.exams.map(e => `
-            <tr style="border-bottom:1px solid #1a2420;">
-                <td style="padding:7px 10px;color:#94a3b8;font-family:monospace;">${escHtml(e.patient_id)}</td>
-                <td style="padding:7px 10px;color:#64748b;font-family:monospace;font-size:10px;">${escHtml(e.accession_number)}</td>
-                <td style="padding:7px 10px;color:#94a3b8;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHtml(e.procedure_text)}">${escHtml(e.procedure_text)}</td>
-                <td style="padding:7px 10px;"><span style="background:#1e293b;color:#94a3b8;border-radius:4px;padding:2px 7px;font-size:9px;font-weight:700;">${escHtml(e.modality)}</span></td>
-                <td style="padding:7px 10px;color:#64748b;font-family:monospace;">${escHtml(e.scheduled_at)}</td>
-                <td style="padding:7px 10px;color:#64748b;font-family:monospace;">${escHtml(e.done_at)}</td>
-                <td style="padding:7px 10px;color:#64748b;font-size:10px;">${escHtml(e.done_by)}</td>
-                <td style="padding:7px 10px;text-align:right;">${tatCell(e.done_tat_min)}</td>
-                <td style="padding:7px 10px;color:#64748b;font-family:monospace;">${escHtml(e.pacs_done_at)}</td>
-                <td style="padding:7px 10px;text-align:right;">${tatCell(e.pacs_tat_min)}</td>
-            </tr>`).join('');
+        function renderTable(exams) {
+            document.getElementById('tat-tbody').innerHTML = exams.map(e => `
+                <tr style="border-bottom:1px solid #1a2420;">
+                    <td style="padding:7px 10px;color:#94a3b8;font-family:monospace;">${escHtml(e.patient_id)}</td>
+                    <td style="padding:7px 10px;color:#64748b;font-family:monospace;font-size:10px;">${escHtml(e.accession_number)}</td>
+                    <td style="padding:7px 10px;color:#94a3b8;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHtml(e.procedure_text)}">${escHtml(e.procedure_text)}</td>
+                    <td style="padding:7px 10px;"><span style="background:#1e293b;color:#94a3b8;border-radius:4px;padding:2px 7px;font-size:9px;font-weight:700;">${escHtml(e.modality)}</span></td>
+                    <td style="padding:7px 10px;color:#64748b;font-family:monospace;">${escHtml(e.scheduled_at)}</td>
+                    <td style="padding:7px 10px;color:#64748b;font-family:monospace;">${escHtml(e.done_at)}</td>
+                    <td style="padding:7px 10px;color:#64748b;font-size:10px;">${escHtml(e.done_by)}</td>
+                    <td style="padding:7px 10px;text-align:right;">${tatCell(e.done_tat_min, e.proc_duration)}</td>
+                    <td style="padding:7px 10px;color:#64748b;font-family:monospace;">${escHtml(e.pacs_done_at)}</td>
+                    <td style="padding:7px 10px;text-align:right;">${tatCell(e.pacs_tat_min, e.proc_duration)}</td>
+                    <td style="padding:7px 10px;text-align:right;color:#475569;font-family:monospace;font-size:10px;">${e.proc_duration != null ? e.proc_duration + 'm' : '—'}</td>
+                </tr>`).join('');
+        }
+
+        function renderTechAccordion(exams) {
+            const techMap = {};
+            exams.forEach(e => {
+                const t = e.done_by && e.done_by !== '—' ? e.done_by : null;
+                if (!t) return;
+                if (!techMap[t]) techMap[t] = { count: 0, tats: [], pacs: [] };
+                techMap[t].count++;
+                if (e.done_tat_min != null) techMap[t].tats.push(e.done_tat_min);
+                if (e.pacs_tat_min != null) techMap[t].pacs.push(e.pacs_tat_min);
+            });
+            const techs = Object.keys(techMap);
+            const accord = document.getElementById('tat-tech-accordion');
+            const rows   = document.getElementById('tat-tech-rows');
+            if (!techs.length) { accord.style.display = 'none'; return; }
+            accord.style.display = 'block';
+            const avg = arr => arr.length ? Math.round(arr.reduce((a,b)=>a+b,0)/arr.length*10)/10 : null;
+            rows.innerHTML = techs.sort().map(t => {
+                const d = techMap[t];
+                const a = avg(d.tats), ap = avg(d.pacs);
+                const col = tatColor(a, null);
+                return `<div style="background:#0d1510;border:1px solid #1a2420;border-radius:8px;padding:8px 14px;min-width:120px;">
+                    <p style="font-size:9px;font-weight:900;color:#60a5fa;text-transform:uppercase;margin-bottom:4px;white-space:nowrap;">${escHtml(t)}</p>
+                    <p style="font-size:17px;font-weight:900;color:${col};line-height:1;">${a != null ? a : '—'}<span style="font-size:9px;color:#475569;"> min avg</span></p>
+                    ${ap != null ? `<p style="font-size:9px;color:#a78bfa;margin-top:2px;">Scanner: ${ap} min</p>` : ''}
+                    <p style="font-size:9px;color:#475569;margin-top:2px;">${d.count} exam${d.count !== 1 ? 's' : ''} today</p>
+                </div>`;
+            }).join('');
+        }
+
+        // Build modality chips once; filtering is client-side
+        const allMods = [...new Set(data.exams.map(e => e.modality).filter(m => m && m !== '—'))].sort();
+        const chipsEl = document.getElementById('tat-mod-chips');
+        if (chipsEl) {
+            chipsEl.innerHTML =
+                `<span onclick="tatSetMod(null)" id="tat-chip-all" style="cursor:pointer;padding:3px 10px;border-radius:10px;font-size:9px;font-weight:900;text-transform:uppercase;background:rgba(96,165,250,0.18);color:#60a5fa;border:1px solid rgba(96,165,250,0.35);">All</span>` +
+                allMods.map(m =>
+                    `<span onclick="tatSetMod('${m}')" id="tat-chip-${m}" style="cursor:pointer;padding:3px 10px;border-radius:10px;font-size:9px;font-weight:900;text-transform:uppercase;background:#1e293b;color:#94a3b8;border:1px solid #334155;">${escHtml(m)}</span>`
+                ).join('');
+        }
+
+        window.tatSetMod = function(mod) {
+            document.querySelectorAll('#tat-mod-chips span').forEach(el => {
+                const active = (mod === null && el.id === 'tat-chip-all') || el.id === 'tat-chip-' + mod;
+                el.style.background   = active ? 'rgba(96,165,250,0.18)' : '#1e293b';
+                el.style.color        = active ? '#60a5fa' : '#94a3b8';
+                el.style.borderColor  = active ? 'rgba(96,165,250,0.35)' : '#334155';
+            });
+            const filtered = mod ? data.exams.filter(e => e.modality === mod) : data.exams;
+            renderTable(filtered);
+            renderTechAccordion(filtered);
+        };
+
+        renderTable(data.exams);
+        renderTechAccordion(data.exams);
     } catch(e) { console.error('TAT load failed:', e); }
 }
 

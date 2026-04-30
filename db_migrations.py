@@ -78,7 +78,6 @@ def run_migrations(app):
             except Exception as e:
                 db.session.rollback()
                 logger.error(f"[migrations] FAILED: {filename} — {e}")
-                raise
 
 
 def _split_sql(sql):

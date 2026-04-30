@@ -371,7 +371,22 @@
                 <span style="font-size:10px;color:#475569;font-style:italic;">Loading…</span>
               </div>
             </div>
-            <details style="margin-top:8px;">
+            <div style="margin-top:14px;padding-top:12px;border-top:1px solid #1e2d27;">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                <span style="font-size:10px;font-weight:800;color:#f59e0b;letter-spacing:0.05em;text-transform:uppercase;">
+                  <i class="bi bi-lightbulb-fill"></i> Suggested from your reports
+                </span>
+                <span style="font-size:9px;color:#475569;">frequent terms not yet marked critical — last 6 months</span>
+                <button onclick="loadSuggestions(true)" id="sugg-refresh-btn"
+                  style="margin-left:auto;background:none;border:none;color:#475569;cursor:pointer;font-size:11px;"
+                  title="Refresh suggestions"><i class="bi bi-arrow-clockwise"></i></button>
+              </div>
+              <div id="suggested-kw-chips" style="display:flex;flex-wrap:wrap;gap:6px;min-height:24px;">
+                <span style="font-size:10px;color:#475569;font-style:italic;">Loading…</span>
+              </div>
+            </div>
+
+            <details style="margin-top:12px;padding-top:10px;border-top:1px solid #1e2d27;">
               <summary style="font-size:10px;font-weight:700;color:#4b7a63;cursor:pointer;">Built-in keywords (read-only)</summary>
               <div id="builtin-kw-chips" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;"></div>
             </details>
@@ -904,6 +919,7 @@ function exportCriticalPNG() {
 
 // ── Keywords management (admin only) ────────────────────────────────────────
 let _kwPanelLoaded = false;
+let _suggLoaded    = false;
 
 function toggleKeywordsPanel() {
   const panel = document.getElementById('keywords-panel');
@@ -911,6 +927,7 @@ function toggleKeywordsPanel() {
   const shown = panel.style.display !== 'none';
   panel.style.display = shown ? 'none' : 'block';
   if (!shown && !_kwPanelLoaded) { loadKeywords(); _kwPanelLoaded = true; }
+  if (!shown) loadSuggestions();
 }
 
 function loadKeywords() {
@@ -941,9 +958,10 @@ function renderCustomChips(list) {
     </span>`).join('');
 }
 
-function addKeyword() {
+function addKeyword(word) {
   const input = document.getElementById('new-kw-input');
-  const word = (input.value || '').trim().toLowerCase();
+  if (word === undefined) word = (input.value || '').trim().toLowerCase();
+  else word = String(word).trim().toLowerCase();
   if (!word) return;
   fetch('/oru/critical-keywords', {
     method: 'POST',
@@ -951,10 +969,43 @@ function addKeyword() {
     body: JSON.stringify({word})
   }).then(r => r.json()).then(d => {
     if (d.error) { alert('Error: ' + d.error); return; }
-    input.value = '';
+    const cur = (input.value || '').trim().toLowerCase();
+    if (!cur || cur === word) input.value = '';
     _kwPanelLoaded = false;
     loadKeywords();
+    loadSuggestions(true);
   }).catch(e => alert('Request failed: ' + e));
+}
+
+function loadSuggestions(force) {
+  if (!force && _suggLoaded) return;
+  const wrap = document.getElementById('suggested-kw-chips');
+  if (!wrap) return;
+  const btn = document.getElementById('sugg-refresh-btn');
+  if (btn) btn.style.opacity = '0.4';
+  fetch('/oru/keyword-suggestions')
+    .then(r => r.json())
+    .then(d => {
+      _suggLoaded = true;
+      if (btn) btn.style.opacity = '';
+      const list = d.suggestions || [];
+      if (!list.length) {
+        wrap.innerHTML = '<span style="font-size:10px;color:#475569;font-style:italic;">No frequent terms found yet — check back after more reports arrive.</span>';
+        return;
+      }
+      wrap.innerHTML = list.map(s => `
+        <span style="display:inline-flex;align-items:center;gap:4px;background:#1e1a2d;border:1px solid #3b2f6a;color:#c4b5fd;padding:3px 6px 3px 10px;border-radius:100px;font-size:11px;font-weight:700;">
+          ${esc(s.word)}
+          <span style="font-size:9px;color:#7c5cbf;font-weight:800;background:#2a1f4a;border-radius:3px;padding:1px 4px;">${s.count}</span>
+          <button onclick="addKeyword('${esc(s.word)}')" title="Add as critical keyword"
+            style="background:none;border:1px solid rgba(167,139,250,0.4);color:#a78bfa;cursor:pointer;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:800;line-height:1.4;margin-left:2px;">+</button>
+        </span>`).join('');
+    })
+    .catch(() => {
+      if (btn) btn.style.opacity = '';
+      const w = document.getElementById('suggested-kw-chips');
+      if (w) w.innerHTML = '<span style="font-size:10px;color:#f87171;font-style:italic;">Failed to load suggestions.</span>';
+    });
 }
 
 function deleteKeyword(word) {

@@ -162,7 +162,20 @@ fi
 info "Step 5/7 — Building and starting Docker containers..."
 
 $COMPOSE down --remove-orphans 2>/dev/null || true
-$COMPOSE build --no-cache
+
+# Only reinstall Python packages if requirements.txt changed since last build
+REQ_HASH=$(md5sum requirements.txt 2>/dev/null | awk '{print $1}')
+LAST_HASH=$(cat .last_req_hash 2>/dev/null || echo "")
+
+if [ "$REQ_HASH" != "$LAST_HASH" ]; then
+    info "requirements.txt changed — installing packages..."
+    $COMPOSE build
+    echo "$REQ_HASH" > .last_req_hash
+else
+    ok "Python packages unchanged — skipping pip install."
+    $COMPOSE build  # rebuilds app code only; pip layer served from Docker cache
+fi
+
 $COMPOSE up -d
 
 info "Waiting for database to be ready..."
@@ -203,6 +216,10 @@ BEGIN
 END \$\$;
 "
 ok "ETL tables truncated."
+
+# ── 6a-2. Schema migrations ───────────────────────────
+pg_exec "ALTER TABLE public.settings ALTER COLUMN key TYPE TEXT, ALTER COLUMN value TYPE TEXT;"
+ok "settings table widened to TEXT."
 
 # ── 6b. PACS Oracle connection ────────────────────────
 echo ""
@@ -255,14 +272,16 @@ case "$TIER_CHOICE" in
     *) TIER_KEY="enterprise" ;;
 esac
 
-PRESET_KEY="$TIER_KEY"
-if [[ "$TIER_KEY" == "custom" ]]; then PRESET_KEY="enterprise"; fi
-LICENSE_JSON=$(python3 -c "
-import sys, json
-sys.path.insert(0, '.')
-from routes.registry import TIER_PRESETS
-print(json.dumps(TIER_PRESETS['${PRESET_KEY}']))
-")
+# Tier presets inlined — no Flask/Python import needed on the host
+_JSON_BASIC='{"tier":"basic","reports":[22],"ai_report":false,"capacity_ladder":false,"er_dashboard":false,"patient_portal":false,"live_feed":true,"hl7_orders":true,"oru_analytics":false,"saved_reports":false,"bitnet_ai":false,"export":false,"adapter_mapper":false,"max_users":5,"max_sessions":2,"expires":"","max_studies_per_report":5000}'
+_JSON_PRO='{"tier":"professional","reports":[22,23,25,27,29],"ai_report":false,"capacity_ladder":true,"er_dashboard":true,"patient_portal":false,"live_feed":true,"hl7_orders":true,"oru_analytics":true,"saved_reports":true,"bitnet_ai":false,"export":true,"adapter_mapper":false,"max_users":0,"max_sessions":0,"expires":"","max_studies_per_report":0}'
+_JSON_ENT='{"tier":"enterprise","reports":[22,23,25,27,29],"ai_report":true,"capacity_ladder":true,"er_dashboard":true,"patient_portal":true,"live_feed":true,"hl7_orders":true,"oru_analytics":true,"saved_reports":true,"bitnet_ai":true,"export":true,"adapter_mapper":true,"super_report":true,"referring_intel":true,"max_users":0,"max_sessions":0,"expires":"","max_studies_per_report":0}'
+
+case "$TIER_KEY" in
+    basic)        LICENSE_JSON="$_JSON_BASIC" ;;
+    professional) LICENSE_JSON="$_JSON_PRO"   ;;
+    *)            LICENSE_JSON="$_JSON_ENT"   ;;
+esac
 
 if [[ "$TIER_KEY" == "custom" ]]; then
     echo ""
