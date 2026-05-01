@@ -64,6 +64,10 @@ def report_22():
     data = {}
 
     if run_report:
+        from utils.audit import log_event
+        log_event('report_run', category='report', resource_type='report_22',
+                  detail={'from': start_date, 'to': end_date,
+                          'modality': filters.get('mod'), 'ae': filters.get('ae')})
         where, params = get_where_params(request.form)
 
         try:
@@ -423,6 +427,7 @@ def status_drilldown_22():
             FROM etl_didb_studies s
             LEFT JOIN aetitle_modality_map m ON s.storing_ae = m.aetitle
             LEFT JOIN etl_patient_view p ON p.patient_db_uid::TEXT = s.patient_db_uid::TEXT
+            WHERE COALESCE(m.modality, s.study_modality, '') != 'SR'
         )
         SELECT study_db_uid, patient_id, study_date, modality,
                procedure_code, description, ae, physician
@@ -470,6 +475,7 @@ def export_report_22():
             FROM etl_didb_studies s
             LEFT JOIN aetitle_modality_map m ON s.storing_ae = m.aetitle
             LEFT JOIN etl_patient_view p ON p.patient_db_uid::TEXT = s.patient_db_uid::TEXT
+            WHERE COALESCE(m.modality, s.study_modality, '') != 'SR'
         )
         SELECT study_date, COALESCE(patient_class, 'N/A'), COALESCE(modality, 'N/A'), COALESCE(sex, 'U'), 
                COALESCE(study_status, 'N/A'), COALESCE(patient_location, 'N/A'), COALESCE(physician, 'Unknown'),

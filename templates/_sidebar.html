@@ -48,6 +48,11 @@
            title="User Management">
             <i class="bi bi-people-fill flex-shrink-0" style="color:#60a5fa;"></i> User Management
         </a>
+        <a href="{{ url_for('admin.audit_log') }}"
+           class="sidebar-item {% if request.endpoint == 'admin.audit_log' %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
+           title="Activity Log">
+            <i class="bi bi-journal-text flex-shrink-0" style="color:#94a3b8;"></i> Activity Log
+        </a>
         <a href="{{ url_for('db_manager.db_manager_page') }}"
            class="sidebar-item {% if request.endpoint and request.endpoint.startswith('db_manager.') %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
            title="DB Manager">
@@ -77,6 +82,14 @@
            title="Live AE Status">
             <i class="bi bi-activity flex-shrink-0" style="color:#22c55e;"></i> Live AE Status
             <span style="font-size:8px;font-weight:900;padding:1px 6px;border-radius:4px;background:rgba(34,197,94,0.15);color:#22c55e;text-transform:uppercase;letter-spacing:0.08em;">LIVE</span>
+        </a>
+        {% endif %}
+
+        {% if current_user.role == 'admin' %}
+        <a href="{{ url_for('admin.hl7_forward_config') }}"
+           class="sidebar-item {% if request.endpoint == 'admin.hl7_forward_config' %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
+           title="HL7 Forward Config">
+            <i class="bi bi-send-arrow-up-fill flex-shrink-0" style="color:#38bdf8;"></i> HL7 Forward
         </a>
         {% endif %}
 
