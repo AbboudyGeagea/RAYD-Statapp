@@ -192,6 +192,9 @@ def super_report_filters():
             "series_modality":     distinct("SELECT DISTINCT modality FROM etl_didb_serieses WHERE modality IS NOT NULL"),
             "body_part_series":    distinct("SELECT DISTINCT body_part_examined FROM etl_didb_serieses WHERE body_part_examined IS NOT NULL"),
             "protocol_name":       distinct("SELECT DISTINCT protocol_name FROM etl_didb_serieses WHERE protocol_name IS NOT NULL LIMIT 100"),
+            "ae_modality_map":     dict(db.session.execute(text(
+                "SELECT aetitle, modality FROM aetitle_modality_map WHERE aetitle IS NOT NULL AND modality IS NOT NULL"
+            )).fetchall()),
         })
     except Exception as e:
         logger.error(f"Filters error: {e}", exc_info=True)
@@ -211,6 +214,10 @@ def super_report():
     cmp_end   = request.args.get("cmp_end")
     if not start or not end:
         return jsonify({"error": "start and end date required"}), 400
+
+    from utils.audit import log_event
+    log_event('report_run', category='report', resource_type='super_report',
+              detail={'from': start, 'to': end, 'cmp_from': cmp_start, 'cmp_to': cmp_end})
 
     try:
         d_start = datetime.strptime(start, "%Y-%m-%d")

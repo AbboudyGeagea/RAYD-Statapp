@@ -51,6 +51,10 @@ def er_data():
     sla_limit = int(request.args.get('sla', 60))
     params    = {'start': start, 'end': end}
 
+    from utils.audit import log_event
+    log_event('er_accessed', category='report', resource_type='er_dashboard',
+              detail={'from': start, 'to': end, 'sla': sla_limit})
+
     try:
         # ── Base CTE ──────────────────────────────────────────────────────────
         cte = f"""

@@ -1,22 +1,34 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>RAYD | Register</title>
+    <title>RAYD | Request Access</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { background-color: #181f1c; font-family: 'Inter', sans-serif; }
-        .input-box { background: #181f1c; border: 1px solid #28332e; color: #e2e8f0; padding: 10px; border-radius: 8px; width: 100%; outline: none; transition: border 0.15s; }
+        .input-box {
+            background: #181f1c; border: 1px solid #28332e; color: #e2e8f0;
+            padding: 10px 12px; border-radius: 8px; width: 100%; outline: none;
+            transition: border 0.15s;
+        }
         .input-box:focus { border-color: #60a5fa; }
+        .input-box::placeholder { color: #475569; }
     </style>
 </head>
-<body class="flex items-center justify-center h-screen">
+<body class="flex items-center justify-center min-h-screen py-10">
     <div class="w-full max-w-md p-8 bg-[#232b28] rounded-xl border border-[#28332e] shadow-2xl">
-        <h2 class="text-2xl font-black text-[#60a5fa] mb-6 tracking-tighter">CREATE ACCOUNT</h2>
-        
+
+        <div class="mb-8">
+            <h2 class="text-2xl font-black text-[#60a5fa] tracking-tighter">REQUEST ACCESS</h2>
+            <p class="text-slate-500 text-xs mt-1">Your account will be reviewed by an administrator before activation.</p>
+        </div>
+
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
                 {% for category, message in messages %}
-                    <div class="mb-4 p-3 rounded text-xs font-bold {{ 'bg-red-500/20 text-red-400' if category == 'danger' else 'bg-emerald-500/20 text-emerald-400' }}">
+                    <div class="mb-4 p-3 rounded text-xs font-bold
+                        {{ 'bg-red-500/20 text-red-400 border border-red-500/30' if category == 'danger'
+                           else 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' if category == 'success'
+                           else 'bg-amber-500/20 text-amber-400 border border-amber-500/30' }}">
                         {{ message }}
                     </div>
                 {% endfor %}
@@ -24,48 +36,50 @@
         {% endwith %}
 
         <form method="POST" class="space-y-4">
+
             <div>
-                <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Username</label>
-                <input type="text" name="username" class="input-box" required>
-            </div>
-            <div>
-                <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Password</label>
-                <input type="password" name="password" class="input-box" required>
-            </div>
-            <div>
-                <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Select Role</label>
-                <select name="role" id="roleSelect" onchange="toggleAdmin()" class="input-box">
-                    <option value="viewer">Viewer</option>
-                    <option value="tec">Tec</option>
-                    <option value="admin">Administrator</option>
-                </select>
+                <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5">Full Name</label>
+                <input type="text" name="full_name" class="input-box" placeholder="e.g. Dr. Ahmad Abboud">
             </div>
 
-            <div id="adminKeyArea" class="hidden">
-                <label class="text-[10px] font-bold text-yellow-500 uppercase tracking-widest">Admin Secret Key</label>
-                <input type="password" name="admin_key" class="input-box border-yellow-500/50" placeholder="Required for Admin role">
+            <div>
+                <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5">
+                    Username <span class="text-red-400">*</span>
+                </label>
+                <input type="text" name="username" class="input-box" placeholder="Choose a login username" required autocomplete="username">
             </div>
 
-            <button type="submit" class="w-full py-3 mt-4 bg-[#60a5fa] text-[#0a1628] font-black rounded-lg uppercase text-xs tracking-widest hover:brightness-110 transition-all">
-                Finalize Registration
+            <div>
+                <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5">Email <span class="text-slate-700">(optional)</span></label>
+                <input type="email" name="email" class="input-box" placeholder="For admin reference only">
+            </div>
+
+            <div>
+                <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5">
+                    Password <span class="text-red-400">*</span>
+                </label>
+                <input type="password" name="password" class="input-box" placeholder="At least 6 characters" required autocomplete="new-password">
+            </div>
+
+            <div>
+                <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5">
+                    Confirm Password <span class="text-red-400">*</span>
+                </label>
+                <input type="password" name="confirm_password" class="input-box" placeholder="Repeat password" required autocomplete="new-password">
+            </div>
+
+            <button type="submit"
+                class="w-full py-3 mt-2 bg-[#60a5fa] text-[#0a1628] font-black rounded-lg uppercase text-xs tracking-widest hover:brightness-110 transition-all">
+                Submit Request
             </button>
         </form>
 
         <div class="mt-6 text-center">
-            <a href="{{ url_for('auth.login') }}" class="text-xs text-slate-500 hover:text-white transition-colors">Already have an account? Login</a>
+            <a href="{{ url_for('auth.login') }}" class="text-xs text-slate-500 hover:text-white transition-colors">
+                Already have an account? Login
+            </a>
         </div>
-    </div>
 
-    <script>
-        function toggleAdmin() {
-            const role = document.getElementById('roleSelect').value;
-            const area = document.getElementById('adminKeyArea');
-            if (role === 'admin') {
-                area.classList.remove('hidden');
-            } else {
-                area.classList.add('hidden');
-            }
-        }
-    </script>
+    </div>
 </body>
 </html>

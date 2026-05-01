@@ -392,6 +392,10 @@ def oru_data():
     days    = min(int(request.args.get('days', 30)), 365)
     top_n   = int(request.args.get('top', 40))
 
+    from utils.audit import log_event
+    log_event('oru_accessed', category='report', resource_type='oru_analytics',
+              detail={'days': days, 'proc': proc or None})
+
     where = ["received_at >= NOW() - INTERVAL :interval"]
     params = {'interval': f'{days} days'}
     if proc:

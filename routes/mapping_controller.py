@@ -335,6 +335,9 @@ def save_grid_changes():
                     reason=reason
                 ))
         db.session.commit()
+        from utils.audit import log_event
+        log_event('mapping_saved', category='config', resource_type='device_exceptions',
+                  detail={'count': len(updates)})
         return jsonify({"status": "success"})
     except Exception as e:
         db.session.rollback()

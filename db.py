@@ -164,12 +164,44 @@ def chunked_upsert(engine, table_name, col_names, data, constraint_col):
 
 class User(db.Model, UserMixin):
     __tablename__ = 'users'
-    id = db.Column(Integer, primary_key=True)
-    username = db.Column(String, unique=True, nullable=False)
-    password_hash = db.Column(String, nullable=False)
-    role = db.Column(String)
-    ui_theme = db.Column(String, server_default='dark')
-    favorites = db.Column(Text, server_default='[]')  # JSON array of report_ids
+    id                   = db.Column(Integer, primary_key=True)
+    username             = db.Column(String, unique=True, nullable=False)
+    password_hash        = db.Column(String, nullable=False)
+    role                 = db.Column(String)
+    ui_theme             = db.Column(String, server_default='dark')
+    favorites            = db.Column(Text, server_default='[]')
+    # profile fields
+    full_name            = db.Column(String(200))
+    email                = db.Column(String(200))
+    phone                = db.Column(String(50))
+    department           = db.Column(String(100))
+    notes                = db.Column(Text)
+    # lifecycle fields
+    status               = db.Column(String(20), server_default='active')   # active | pending | disabled
+    created_by           = db.Column(Integer, ForeignKey('users.id'))
+    created_at           = db.Column(DateTime, server_default=func.now())
+    last_login           = db.Column(DateTime)
+    must_change_password = db.Column(Boolean, server_default='false')
+
+    @property
+    def is_active(self):
+        return self.status == 'active'
+
+    @property
+    def display_name(self):
+        return self.full_name or self.username
+
+class UserAuditLog(db.Model):
+    __tablename__ = 'user_audit_log'
+    id              = db.Column(Integer, primary_key=True)
+    actor_user_id   = db.Column(Integer, ForeignKey('users.id'))
+    target_user_id  = db.Column(Integer, ForeignKey('users.id'))
+    action          = db.Column(String(50), nullable=False)
+    event_category  = db.Column(String(20))   # auth | user_mgmt | report | etl | ai | config
+    resource_type   = db.Column(String(50))   # e.g. report_22, super_report, er_dashboard
+    detail          = db.Column(JSONB)
+    ip_address      = db.Column(String(45))
+    created_at      = db.Column(DateTime, server_default=func.now())
 
 class active_sessions(db.Model):
     __tablename__ = 'active_sessions'
@@ -542,6 +574,7 @@ class TechFlagAck(db.Model):
 # 9. ALIASES (KEEPS CONTROLLERS HAPPY)
 # ----------------------------------------------------------------
 ActiveSession        = active_sessions
+AuditLog             = UserAuditLog
 AETitleModalityMap   = aetitle_modality_map
 ProcedureDurationMap = procedure_duration_map
 DeviceException      = device_exceptions
