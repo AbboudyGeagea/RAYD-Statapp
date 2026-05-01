@@ -52,19 +52,20 @@ fi
 ok "CPU: $CPU_LEVEL detected (GGML_NATIVE=ON will use all available features)"
 
 # ── 0c. RAM-based model selection ────────────────────────────────────────────
-TOTAL_RAM_GB=$(free -g | awk '/^Mem:/{print $2}')
-# Reserve ~3 GB for OS + Docker containers
-USABLE_RAM_GB=$(( TOTAL_RAM_GB - 3 ))
+# Use MB arithmetic to handle the 4.5 GB (4608 MB) reservation precisely
+TOTAL_RAM_MB=$(free -m | awk '/^Mem:/{print $2}')
+RESERVE_MB=4608   # keep 4.5 GB free for OS + Docker containers
+USABLE_RAM_MB=$(( TOTAL_RAM_MB - RESERVE_MB ))
 
-if [ "$USABLE_RAM_GB" -ge 9 ]; then
+if [ "$USABLE_RAM_MB" -ge 9216 ]; then   # ≥ 9 GB usable
     MODEL_FILE="Qwen2.5-7B-Instruct-Q8_0.gguf"
     MODEL_SIZE="~8.5 GB"
     MODEL_LABEL="Q8_0 (near-lossless)"
-elif [ "$USABLE_RAM_GB" -ge 6 ]; then
+elif [ "$USABLE_RAM_MB" -ge 6144 ]; then  # ≥ 6 GB usable
     MODEL_FILE="Qwen2.5-7B-Instruct-Q6_K.gguf"
     MODEL_SIZE="~6.2 GB"
     MODEL_LABEL="Q6_K (high quality)"
-elif [ "$USABLE_RAM_GB" -ge 4 ]; then
+elif [ "$USABLE_RAM_MB" -ge 5120 ]; then  # ≥ 5 GB usable
     MODEL_FILE="Qwen2.5-7B-Instruct-Q5_K_M.gguf"
     MODEL_SIZE="~5.1 GB"
     MODEL_LABEL="Q5_K_M (good quality)"
@@ -73,7 +74,8 @@ else
     MODEL_SIZE="~4.4 GB"
     MODEL_LABEL="Q4_K_M (baseline)"
 fi
-ok "RAM: ${TOTAL_RAM_GB}GB total → selecting $MODEL_LABEL ($MODEL_SIZE)"
+TOTAL_RAM_GB=$(( TOTAL_RAM_MB / 1024 ))
+ok "RAM: ${TOTAL_RAM_GB}GB total, 4.5GB reserved → selecting $MODEL_LABEL ($MODEL_SIZE)"
 
 # ── 0d. Python / pip ─────────────────────────────────────────────────────────
 command -v python3 &>/dev/null || {
