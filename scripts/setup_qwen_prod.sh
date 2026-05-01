@@ -3,11 +3,14 @@
 # setup_qwen_prod.sh
 # Qwen2.5-7B-Instruct — one-shot setup for the Ubuntu production server.
 #
-# What this does:
-#   1. Installs llama.cpp (builds from source if binary not found)
-#   2. Downloads Qwen2.5-7B-Instruct-Q4_K_M.gguf → /home/stats/Qwen/
-#   3. Installs a systemd service (qwen-server) that starts on boot
-#   4. Starts the service immediately
+# Auto-detects:
+#   • CPU capabilities (AVX512 / AVX2 / AVX) and builds llama.cpp with native
+#     optimizations. Rebuilds automatically if a previous build lacked them.
+#   • Available RAM and selects the highest-quality quantization that fits:
+#       ≥ 12 GB → Q8_0  (near-lossless, ~8.5 GB)
+#       ≥  9 GB → Q6_K  (high quality,  ~6.2 GB)
+#       ≥  7 GB → Q5_K_M(good quality,  ~5.1 GB)
+#       <  7 GB → Q4_K_M(baseline,      ~4.4 GB)
 #
 # Run as root (or with sudo):
 #   sudo bash scripts/setup_qwen_prod.sh
@@ -21,22 +24,58 @@ warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error() { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 
 MODEL_DIR="/home/stats/Qwen"
-MODEL_FILE="Qwen2.5-7B-Instruct-Q4_K_M.gguf"
 MODEL_REPO="bartowski/Qwen2.5-7B-Instruct-GGUF"
 PORT=8081
 CTX=4096
 THREADS=$(nproc)
+BUILD_DIR="/opt/llama.cpp"
+BUILD_MARKER="$BUILD_DIR/.built_native"
 
 echo "══════════════════════════════════════════════════"
 echo " Qwen2.5-7B Production Setup"
 echo "══════════════════════════════════════════════════"
 
-# ── 0. Preflight checks ───────────────────────────────────────────────────────
-
-# Must run as root
+# ── 0a. Root check ────────────────────────────────────────────────────────────
 [ "$(id -u)" -eq 0 ] || error "Run as root: sudo bash $0"
 
-# python3 must exist
+# ── 0b. CPU capability detection ─────────────────────────────────────────────
+CPU_FLAGS=$(grep -o 'avx[^ ]*' /proc/cpuinfo | sort -u | tr '\n' ' ' || true)
+if echo "$CPU_FLAGS" | grep -q 'avx512f'; then
+    CPU_LEVEL="AVX-512"
+elif echo "$CPU_FLAGS" | grep -q 'avx2'; then
+    CPU_LEVEL="AVX2"
+elif echo "$CPU_FLAGS" | grep -q 'avx'; then
+    CPU_LEVEL="AVX"
+else
+    CPU_LEVEL="baseline"
+fi
+ok "CPU: $CPU_LEVEL detected (GGML_NATIVE=ON will use all available features)"
+
+# ── 0c. RAM-based model selection ────────────────────────────────────────────
+TOTAL_RAM_GB=$(free -g | awk '/^Mem:/{print $2}')
+# Reserve ~3 GB for OS + Docker containers
+USABLE_RAM_GB=$(( TOTAL_RAM_GB - 3 ))
+
+if [ "$USABLE_RAM_GB" -ge 9 ]; then
+    MODEL_FILE="Qwen2.5-7B-Instruct-Q8_0.gguf"
+    MODEL_SIZE="~8.5 GB"
+    MODEL_LABEL="Q8_0 (near-lossless)"
+elif [ "$USABLE_RAM_GB" -ge 6 ]; then
+    MODEL_FILE="Qwen2.5-7B-Instruct-Q6_K.gguf"
+    MODEL_SIZE="~6.2 GB"
+    MODEL_LABEL="Q6_K (high quality)"
+elif [ "$USABLE_RAM_GB" -ge 4 ]; then
+    MODEL_FILE="Qwen2.5-7B-Instruct-Q5_K_M.gguf"
+    MODEL_SIZE="~5.1 GB"
+    MODEL_LABEL="Q5_K_M (good quality)"
+else
+    MODEL_FILE="Qwen2.5-7B-Instruct-Q4_K_M.gguf"
+    MODEL_SIZE="~4.4 GB"
+    MODEL_LABEL="Q4_K_M (baseline)"
+fi
+ok "RAM: ${TOTAL_RAM_GB}GB total → selecting $MODEL_LABEL ($MODEL_SIZE)"
+
+# ── 0d. Python / pip ─────────────────────────────────────────────────────────
 command -v python3 &>/dev/null || {
     info "python3 not found — installing..."
     apt-get update -qq 2>&1 | grep -v "^W:" || true
@@ -45,7 +84,6 @@ command -v python3 &>/dev/null || {
 PY=$(command -v python3)
 ok "Python: $($PY --version)"
 
-# Ensure pip is available (multiple fallbacks)
 if ! $PY -m pip --version &>/dev/null; then
     info "pip not found — trying python3-pip..."
     apt-get update -qq 2>&1 | grep -v "^W:" || true
@@ -54,7 +92,6 @@ if ! $PY -m pip --version &>/dev/null; then
     elif $PY -m ensurepip --upgrade 2>/dev/null; then
         ok "pip bootstrapped via ensurepip."
     else
-        # Last resort: get-pip.py
         info "Trying get-pip.py fallback..."
         curl -sS https://bootstrap.pypa.io/get-pip.py | $PY
         ok "pip installed via get-pip.py."
@@ -62,56 +99,75 @@ if ! $PY -m pip --version &>/dev/null; then
 fi
 ok "pip: $($PY -m pip --version)"
 
-# Disk space check — model is ~4.4 GB, need at least 6 GB free
+# ── 0e. Disk space check ─────────────────────────────────────────────────────
 AVAIL_KB=$(df -k "$MODEL_DIR" 2>/dev/null | awk 'NR==2{print $4}' || df -k / | awk 'NR==2{print $4}')
 AVAIL_GB=$(echo "$AVAIL_KB / 1048576" | bc 2>/dev/null || echo "?")
-if [ "$AVAIL_GB" != "?" ] && [ "$AVAIL_GB" -lt 6 ] 2>/dev/null; then
-    error "Not enough disk space: ${AVAIL_GB}GB available, need at least 6GB."
+if [ "$AVAIL_GB" != "?" ] && [ "$AVAIL_GB" -lt 10 ] 2>/dev/null; then
+    warn "Only ${AVAIL_GB}GB disk free — download may fail for larger quantizations."
 fi
 ok "Disk space: ${AVAIL_GB}GB available."
 
 # ── 1. llama.cpp ──────────────────────────────────────────────────────────────
-if command -v llama-server &>/dev/null; then
-    LLAMA_BIN=$(command -v llama-server)
-    ok "[1/4] llama-server found at $LLAMA_BIN — skipping build"
+NEED_BUILD=false
+if ! command -v llama-server &>/dev/null; then
+    NEED_BUILD=true
+    info "[1/4] llama-server not found — building from source..."
+elif [ ! -f "$BUILD_MARKER" ]; then
+    NEED_BUILD=true
+    info "[1/4] Existing llama-server was not built with native CPU optimizations — rebuilding for $CPU_LEVEL..."
+    rm -f /usr/local/bin/llama-server
 else
-    info "[1/4] llama-server not found — building llama.cpp from source..."
+    LLAMA_BIN=$(command -v llama-server)
+    ok "[1/4] llama-server already built with native optimizations → $LLAMA_BIN"
+fi
 
-    # Update apt ignoring broken third-party repo signatures (e.g. dbeaver)
+if [ "$NEED_BUILD" = true ]; then
     apt-get update -qq 2>&1 | grep -v "^W:" || true
     apt-get install -y -qq build-essential cmake git curl
 
-    BUILD_DIR="/opt/llama.cpp"
     if [ ! -d "$BUILD_DIR" ]; then
         git clone --depth 1 https://github.com/ggerganov/llama.cpp "$BUILD_DIR"
     else
         git -C "$BUILD_DIR" pull --ff-only || warn "git pull skipped (local changes?)"
     fi
 
+    # GGML_NATIVE=ON → compiler uses -march=native, enables all CPU features
+    # (AVX512, AVX2, FMA, F16C, etc.) automatically
     cmake -S "$BUILD_DIR" -B "$BUILD_DIR/build" \
         -DLLAMA_CURL=OFF \
         -DCMAKE_BUILD_TYPE=Release \
-        -DGGML_NATIVE=OFF
+        -DGGML_NATIVE=ON
     cmake --build "$BUILD_DIR/build" --target llama-server -j"$THREADS"
     ln -sf "$BUILD_DIR/build/bin/llama-server" /usr/local/bin/llama-server
+    touch "$BUILD_MARKER"
     LLAMA_BIN=/usr/local/bin/llama-server
-    ok "[1/4] llama-server built → $LLAMA_BIN"
+    ok "[1/4] llama-server built with $CPU_LEVEL optimizations → $LLAMA_BIN"
 fi
 
 # ── 2. Download model ─────────────────────────────────────────────────────────
 mkdir -p "$MODEL_DIR"
 
+# Check if the optimal model is already present; if a lower-quality one exists,
+# offer to upgrade (but don't delete automatically — user may want to keep it).
 if [ -f "$MODEL_DIR/$MODEL_FILE" ]; then
-    ok "[2/4] Model already present at $MODEL_DIR/$MODEL_FILE — skipping download"
+    ok "[2/4] Model already present: $MODEL_FILE — skipping download"
 else
-    info "[2/4] Downloading $MODEL_FILE (~4.4 GB) ..."
+    # Check if a lower-quality model exists and warn
+    for OLD in Q4_K_M Q5_K_M Q6_K Q8_0; do
+        OLD_FILE="$MODEL_DIR/Qwen2.5-7B-Instruct-${OLD}.gguf"
+        if [ -f "$OLD_FILE" ] && [ "$OLD_FILE" != "$MODEL_DIR/$MODEL_FILE" ]; then
+            warn "Lower-quality model found: $OLD_FILE"
+            warn "Downloading better model ($MODEL_LABEL). Old file kept — remove manually to free space."
+        fi
+    done
 
-    # Install huggingface_hub if needed
+    info "[2/4] Downloading $MODEL_FILE ($MODEL_SIZE) ..."
+
     if ! $PY -c "import huggingface_hub" 2>/dev/null; then
         info "Installing huggingface_hub..."
         $PY -m pip install -q huggingface_hub || \
             $PY -m pip install -q --break-system-packages huggingface_hub || \
-            error "Failed to install huggingface_hub. Try: $PY -m pip install huggingface_hub"
+            error "Failed to install huggingface_hub."
     fi
 
     $PY - <<PYEOF
@@ -129,7 +185,7 @@ except Exception as e:
     sys.exit(1)
 PYEOF
 
-    [ -f "$MODEL_DIR/$MODEL_FILE" ] || error "Model file not found after download. Check the error above."
+    [ -f "$MODEL_DIR/$MODEL_FILE" ] || error "Model file not found after download."
     ok "[2/4] Model downloaded → $MODEL_DIR/$MODEL_FILE"
 fi
 
@@ -142,7 +198,7 @@ else
 
     cat > /etc/systemd/system/qwen-server.service <<UNIT
 [Unit]
-Description=Qwen2.5-7B Inference Server (llama.cpp)
+Description=Qwen2.5-7B Inference Server (llama.cpp — $CPU_LEVEL / $MODEL_LABEL)
 After=network.target
 Wants=network.target
 
@@ -179,9 +235,8 @@ fi
 if command -v systemctl &>/dev/null; then
     info "[4/4] Starting qwen-server..."
 
-    # Check if port is already in use by something else
     if ss -tlnp 2>/dev/null | grep -q ":${PORT} " && ! systemctl is-active --quiet qwen-server 2>/dev/null; then
-        warn "Port $PORT is already in use by another process. Check with: ss -tlnp | grep $PORT"
+        warn "Port $PORT already in use by another process. Check: ss -tlnp | grep $PORT"
     fi
 
     systemctl restart qwen-server
@@ -194,5 +249,7 @@ fi
 echo ""
 echo "══════════════════════════════════════════════════"
 echo -e " ${GREEN}Done. Qwen2.5-7B serving on port $PORT${NC}"
+echo "  CPU optimizations : $CPU_LEVEL"
+echo "  Model             : $MODEL_LABEL"
 echo " Test: curl http://localhost:${PORT}/health"
 echo "══════════════════════════════════════════════════"
