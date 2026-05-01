@@ -85,6 +85,14 @@
         </a>
         {% endif %}
 
+        {% if current_user.role == 'admin' %}
+        <a href="{{ url_for('admin.hl7_forward_config') }}"
+           class="sidebar-item {% if request.endpoint == 'admin.hl7_forward_config' %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
+           title="HL7 Forward Config">
+            <i class="bi bi-send-arrow-up-fill flex-shrink-0" style="color:#38bdf8;"></i> HL7 Forward
+        </a>
+        {% endif %}
+
         {% if current_user.role == 'admin' or current_user|user_has_page('hl7_orders') %}
         <div class="pt-4 pb-2">
             <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-2">RIS</p>

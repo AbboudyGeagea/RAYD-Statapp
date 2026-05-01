@@ -223,6 +223,9 @@
 
     <!-- ── Grid ──────────────────────────────────────────────────────────────── -->
     <div class="flex-1 p-6">
+        <!-- Modality filter chips -->
+        <div id="mod-filter-bar" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;"></div>
+
         <div id="tile-grid" class="grid gap-4"
              style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr));">
             <div class="ae-tile tile-free animate-pulse" style="height:160px;"></div>
@@ -316,6 +319,9 @@ let _pollTimer      = null;  // fallback polling when SSE is unavailable
 
 const CIRC = 81.7;
 
+const USER_ROLE    = {{ current_user.role | tojson }};
+const REVERT_ROLES = ['admin', 'viewer', 'tec'];
+
 const MOD_COLOR = {
     CT:'#60a5fa', MR:'#a78bfa', US:'#34d399', XA:'#f87171',
     DX:'#fbbf24', NM:'#fb923c', MG:'#e879f9', PET:'#4ade80',
@@ -354,6 +360,7 @@ async function loadStatus() {
         if (data.error) { console.error(data.error); return; }
 
         renderTiles(data.tiles);
+        renderModFilter(data.tiles);
         renderSummary(data.tiles, data.orphan_orders);
         document.getElementById('last-update').textContent = `Updated ${data.as_of}`;
 
@@ -413,9 +420,50 @@ async function checkVersionFallback() {
 // ── Fallback version endpoint (still needed) ──────────────────────────
 // (kept in backend for the polling fallback above)
 
+// ── Modality filter ───────────────────────────────────────────────────
+let _modFilter  = null;
+let _lastTiles  = [];
+
+function setModFilter(mod) {
+    _modFilter = (_modFilter === mod) ? null : mod;  // toggle off if same chip clicked
+    renderTiles(_lastTiles);
+    renderModFilter(_lastTiles);
+}
+
+function renderModFilter(tiles) {
+    const bar  = document.getElementById('mod-filter-bar');
+    const mods = [...new Set(tiles.map(t => t.modality))].sort();
+    if (mods.length <= 1) { bar.innerHTML = ''; return; }
+
+    const chipStyle = (active) =>
+        `display:inline-flex;align-items:center;gap:5px;padding:3px 12px;border-radius:999px;font-size:10px;font-weight:900;` +
+        `text-transform:uppercase;letter-spacing:0.1em;cursor:pointer;border:1px solid;transition:all .15s;` +
+        (active
+            ? `background:rgba(96,165,250,0.2);border-color:#60a5fa;color:#60a5fa;`
+            : `background:rgba(255,255,255,0.03);border-color:#1e2a26;color:#475569;`);
+
+    const allActive = _modFilter === null;
+    let html = `<span onclick="setModFilter(null)" style="${chipStyle(allActive)}">All</span>`;
+    for (const mod of mods) {
+        const active = _modFilter === mod;
+        const color  = MOD_COLOR[mod] || '#64748b';
+        html += `<span onclick="setModFilter('${mod}')" style="${chipStyle(active)}${active ? `background:rgba(${hexToRgb(color)},0.15);border-color:${color};color:${color};` : ''}">
+            ${escHtml(mod)}
+        </span>`;
+    }
+    bar.innerHTML = html;
+}
+
+function hexToRgb(hex) {
+    const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+    return isNaN(r) ? '100,116,139' : `${r},${g},${b}`;
+}
+
 // ── Render tiles ──────────────────────────────────────────────────────
 function renderTiles(tiles) {
-    document.getElementById('tile-grid').innerHTML = tiles.map(buildTile).join('');
+    _lastTiles = tiles;
+    const visible = _modFilter ? tiles.filter(t => t.modality === _modFilter) : tiles;
+    document.getElementById('tile-grid').innerHTML = visible.map(buildTile).join('');
 }
 
 function buildTile(t) {
@@ -448,13 +496,46 @@ function buildTile(t) {
             const linkedBadge = o.linked_accession_number
                 ? `<span class="badge badge-mins" title="Linked accession ${escHtml(o.linked_accession_number)}"><i class="bi bi-link-45deg"></i> Linked</span>`
                 : '';
-            const doneBtn = `<button onclick="dismissOrder('${escHtml(o.message_id)}')" title="Mark exam as done"
-                style="margin-left:auto;flex-shrink:0;background:rgba(74,222,128,0.08);border:1px solid rgba(74,222,128,0.2);
-                color:#4ade80;border-radius:6px;padding:2px 8px;font-size:10px;font-weight:800;cursor:pointer;
-                transition:all .15s;" onmouseover="this.style.background='rgba(74,222,128,0.2)'"
-                onmouseout="this.style.background='rgba(74,222,128,0.08)'">
-                <i class="bi bi-check-lg"></i> Done
-            </button>`;
+            const o_status = o.order_status || 'SC';
+
+            const statusBadge = o_status === 'AR'
+                ? `<span style="font-size:9px;font-weight:900;padding:2px 7px;border-radius:5px;background:rgba(167,139,250,0.12);color:#a78bfa;text-transform:uppercase;border:1px solid rgba(167,139,250,0.2);">Arrived</span>`
+                : o_status === 'IP'
+                ? `<span style="font-size:9px;font-weight:900;padding:2px 7px;border-radius:5px;background:rgba(96,165,250,0.12);color:#60a5fa;text-transform:uppercase;border:1px solid rgba(96,165,250,0.2);">Started</span>`
+                : '';
+
+            const actionBtn = o_status === 'SC'
+                ? `<button onclick="arriveOrder('${escHtml(o.message_id)}')" title="Mark patient as arrived"
+                    style="flex-shrink:0;background:rgba(167,139,250,0.08);border:1px solid rgba(167,139,250,0.2);
+                    color:#a78bfa;border-radius:6px;padding:2px 8px;font-size:10px;font-weight:800;cursor:pointer;transition:all .15s;"
+                    onmouseover="this.style.background='rgba(167,139,250,0.2)'" onmouseout="this.style.background='rgba(167,139,250,0.08)'">
+                    <i class="bi bi-box-arrow-in-down-right"></i> Arrive
+                </button>`
+                : o_status === 'AR'
+                ? `<button onclick="startOrder('${escHtml(o.message_id)}')" title="Mark exam as started"
+                    style="flex-shrink:0;background:rgba(96,165,250,0.08);border:1px solid rgba(96,165,250,0.2);
+                    color:#60a5fa;border-radius:6px;padding:2px 8px;font-size:10px;font-weight:800;cursor:pointer;transition:all .15s;"
+                    onmouseover="this.style.background='rgba(96,165,250,0.2)'" onmouseout="this.style.background='rgba(96,165,250,0.08)'">
+                    <i class="bi bi-play-fill"></i> Start
+                </button>`
+                : o_status === 'IP'
+                ? `<button onclick="dismissOrder('${escHtml(o.message_id)}')" title="Mark exam as done"
+                    style="flex-shrink:0;background:rgba(74,222,128,0.08);border:1px solid rgba(74,222,128,0.2);
+                    color:#4ade80;border-radius:6px;padding:2px 8px;font-size:10px;font-weight:800;cursor:pointer;transition:all .15s;"
+                    onmouseover="this.style.background='rgba(74,222,128,0.2)'" onmouseout="this.style.background='rgba(74,222,128,0.08)'">
+                    <i class="bi bi-check-lg"></i> Done
+                </button>`
+                : '';
+
+            const canRevert = ['AR','IP'].includes(o_status) && REVERT_ROLES.includes(USER_ROLE);
+            const revertBtn = canRevert
+                ? `<button onclick="revertOrder('${escHtml(o.message_id)}')" title="Revert to previous status"
+                    style="flex-shrink:0;background:rgba(248,113,113,0.06);border:1px solid rgba(248,113,113,0.15);
+                    color:#f87171;border-radius:6px;padding:2px 7px;font-size:10px;font-weight:800;cursor:pointer;transition:all .15s;"
+                    onmouseover="this.style.background='rgba(248,113,113,0.15)'" onmouseout="this.style.background='rgba(248,113,113,0.06)'">
+                    <i class="bi bi-arrow-counterclockwise"></i>
+                </button>`
+                : '';
             return `<div class="${rowCls}" style="flex-direction:column;align-items:stretch;gap:5px;"${hidden ? ' style="display:none;"' : ''}>
                 <div style="display:flex;align-items:center;gap:6px;min-width:0;">
                     <i class="bi bi-person" style="color:#64748b;flex-shrink:0;"></i>
@@ -474,7 +555,9 @@ function buildTile(t) {
                     ${timeBadge}
                     <div style="display:flex;gap:6px;align-items:center;">
                         ${linkedBadge}
-                        ${doneBtn}
+                        ${statusBadge}
+                        ${revertBtn}
+                        ${actionBtn}
                     </div>
                 </div>
             </div>`;
@@ -628,7 +711,31 @@ function saveLink() {
     linkOrder(messageId, accession);
 }
 
-// ── Dismiss exam ──────────────────────────────────────────────────────
+// ── Order workflow buttons ─────────────────────────────────────────────
+async function arriveOrder(messageId) {
+    try {
+        const res  = await fetch('/viewer/live/arrive', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ message_id: messageId }),
+        });
+        const data = await res.json();
+        if (data.ok) { loadStatus(); }
+        else alert('Cannot arrive: ' + (data.error || 'Unknown error'));
+    } catch(e) { console.error('Arrive failed:', e); }
+}
+
+async function startOrder(messageId) {
+    try {
+        const res  = await fetch('/viewer/live/start', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ message_id: messageId }),
+        });
+        const data = await res.json();
+        if (data.ok) { loadStatus(); }
+        else alert('Cannot start: ' + (data.error || 'Unknown error'));
+    } catch(e) { console.error('Start failed:', e); }
+}
+
 async function dismissOrder(messageId) {
     try {
         const res  = await fetch('/viewer/live/dismiss', {
@@ -638,8 +745,21 @@ async function dismissOrder(messageId) {
         });
         const data = await res.json();
         if (data.ok) { loadStatus(); loadTat(); }
-        else console.error('Dismiss error:', data.error);
+        else alert('Cannot mark done: ' + (data.error || 'Unknown error'));
     } catch(e) { console.error('Dismiss failed:', e); }
+}
+
+async function revertOrder(messageId) {
+    if (!confirm('Revert this order to its previous status?')) return;
+    try {
+        const res  = await fetch('/viewer/live/revert', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ message_id: messageId }),
+        });
+        const data = await res.json();
+        if (data.ok) { loadStatus(); loadTat(); }
+        else alert('Cannot revert: ' + (data.error || 'Unknown error'));
+    } catch(e) { console.error('Revert failed:', e); }
 }
 
 // ── Toggle collapsed overruns ─────────────────────────────────────────

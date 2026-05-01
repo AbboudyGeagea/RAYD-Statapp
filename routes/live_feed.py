@@ -31,6 +31,7 @@ from flask import (Blueprint, Response, jsonify, render_template,
 from flask_login import login_required, current_user
 from sqlalchemy import text
 from db import db, user_has_page
+from utils.hl7_forward import forward_message as _hl7_forward
 
 logger       = logging.getLogger("LIVE_FEED")
 live_feed_bp = Blueprint("live_feed", __name__)
@@ -85,14 +86,20 @@ def live_status():
         for exc in exceptions:
             opening_map[exc["modality"]] = exc["total_mins"] or 0
 
-        # Ensure link metadata columns exist before we query them
+        # Ensure all workflow + link columns exist before querying them
         try:
             db.session.execute(text("""
                 ALTER TABLE hl7_orders
                     ADD COLUMN IF NOT EXISTS linked_accession_number VARCHAR(100),
                     ADD COLUMN IF NOT EXISTS linked_study_db_uid BIGINT,
                     ADD COLUMN IF NOT EXISTS linked_by VARCHAR(100),
-                    ADD COLUMN IF NOT EXISTS linked_at TIMESTAMP
+                    ADD COLUMN IF NOT EXISTS linked_at TIMESTAMP,
+                    ADD COLUMN IF NOT EXISTS arrived_at TIMESTAMP,
+                    ADD COLUMN IF NOT EXISTS arrived_by VARCHAR(100),
+                    ADD COLUMN IF NOT EXISTS started_at  TIMESTAMP,
+                    ADD COLUMN IF NOT EXISTS started_by  VARCHAR(100),
+                    ADD COLUMN IF NOT EXISTS done_at     TIMESTAMP,
+                    ADD COLUMN IF NOT EXISTS done_by     VARCHAR(100)
             """))
             db.session.commit()
         except Exception:
@@ -101,6 +108,7 @@ def live_status():
         # Today's orders — use scheduled_datetime when available, fall back to received_at.
         orders = db.session.execute(text("""
             SELECT
+                o.id,
                 o.message_id,
                 o.patient_id,
                 o.patient_name,
@@ -111,6 +119,7 @@ def live_status():
                 o.procedure_text,
                 o.procedure_code,
                 o.modality,
+                COALESCE(NULLIF(o.order_status, ''), 'SC') AS order_status,
                 COALESCE(pm.duration_minutes, 15) AS duration,
                 (pm.procedure_code IS NULL)        AS unknown_code,
                 o.linked_accession_number,
@@ -158,10 +167,15 @@ def live_status():
                 mins_remaining = int((end_time - now).total_seconds() / 60)
                 overrun        = mins_remaining < 0
 
-                if sched <= now:
+                o_status   = o["order_status"]
+                is_present = o_status in ("AR", "IP")  # physically at facility
+
+                if sched <= now or is_present:
                     dob = o["date_of_birth"]
                     active_orders.append({
+                        "order_id":            o["id"],
                         "message_id":          o["message_id"],
+                        "order_status":        o_status,
                         "patient_id":          o["patient_id"] or "—",
                         "patient_name":        o["patient_name"] or "—",
                         "date_of_birth":       dob.strftime("%d-%m-%Y") if dob else "—",
@@ -459,7 +473,94 @@ def live_events():
     )
 
 
-# ── API — mark exam as done ───────────────────────────────────────────────────
+# ── Status-change helper ─────────────────────────────────────────────────────
+def _log_status_change(order_id, message_id, from_status, to_status, username, source):
+    try:
+        db.session.execute(text("""
+            INSERT INTO order_status_log
+                (order_id, message_id, from_status, to_status, changed_by, source)
+            VALUES (:oid, :mid, :from_s, :to_s, :user, :src)
+        """), {"oid": order_id, "mid": message_id, "from_s": from_status,
+               "to_s": to_status, "user": username, "src": source})
+    except Exception as e:
+        logger.error(f"Status log write failed: {e}")
+
+
+_REVERT_ROLES  = {"admin", "viewer", "tec"}
+_PREV_STATUS   = {"CM": "IP", "IP": "AR", "AR": "SC"}
+_REVERT_CLEAR  = {
+    "CM": "done_at    = NULL, done_by    = NULL",
+    "IP": "started_at = NULL, started_by = NULL",
+    "AR": "arrived_at = NULL, arrived_by = NULL",
+}
+
+
+# ── API — mark patient as arrived (SC → AR) ───────────────────────────────────
+@live_feed_bp.route("/viewer/live/arrive", methods=["POST"])
+@login_required
+def arrive_order():
+    if not user_has_page(current_user, 'live_feed'):
+        abort(403)
+    data       = request.get_json(force=True)
+    message_id = data.get("message_id")
+    if not message_id:
+        return jsonify({"error": "message_id required"}), 400
+    try:
+        row = db.session.execute(text("""
+            SELECT id, COALESCE(NULLIF(order_status,''),'SC') AS order_status, raw_message
+            FROM hl7_orders WHERE message_id = :mid
+        """), {"mid": message_id}).mappings().fetchone()
+        if not row:
+            return jsonify({"error": "Order not found"}), 404
+        prev = row["order_status"]
+        if prev != "SC":
+            return jsonify({"error": f"Expected SC, current status is {prev}"}), 400
+        db.session.execute(text("""
+            UPDATE hl7_orders SET order_status='AR', arrived_at=NOW(), arrived_by=:user
+            WHERE message_id=:mid
+        """), {"mid": message_id, "user": current_user.username})
+        _log_status_change(row["id"], message_id, prev, "AR", current_user.username, "live_feed")
+        db.session.commit()
+        _hl7_forward(row["raw_message"], current_app._get_current_object(), order_id=row["id"])
+        return jsonify({"ok": True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+
+# ── API — mark exam as started (AR → IP) ─────────────────────────────────────
+@live_feed_bp.route("/viewer/live/start", methods=["POST"])
+@login_required
+def start_order():
+    if not user_has_page(current_user, 'live_feed'):
+        abort(403)
+    data       = request.get_json(force=True)
+    message_id = data.get("message_id")
+    if not message_id:
+        return jsonify({"error": "message_id required"}), 400
+    try:
+        row = db.session.execute(text("""
+            SELECT id, COALESCE(NULLIF(order_status,''),'SC') AS order_status
+            FROM hl7_orders WHERE message_id = :mid
+        """), {"mid": message_id}).mappings().fetchone()
+        if not row:
+            return jsonify({"error": "Order not found"}), 404
+        prev = row["order_status"]
+        if prev != "AR":
+            return jsonify({"error": f"Expected AR, current status is {prev}"}), 400
+        db.session.execute(text("""
+            UPDATE hl7_orders SET order_status='IP', started_at=NOW(), started_by=:user
+            WHERE message_id=:mid
+        """), {"mid": message_id, "user": current_user.username})
+        _log_status_change(row["id"], message_id, prev, "IP", current_user.username, "live_feed")
+        db.session.commit()
+        return jsonify({"ok": True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+
+# ── API — mark exam as done (IP → CM) ────────────────────────────────────────
 @live_feed_bp.route("/viewer/live/dismiss", methods=["POST"])
 @login_required
 def dismiss_order():
@@ -470,23 +571,56 @@ def dismiss_order():
     if not message_id:
         return jsonify({"error": "message_id required"}), 400
     try:
-        # Ensure columns exist (safe to run every time)
+        row = db.session.execute(text("""
+            SELECT id, COALESCE(NULLIF(order_status,''),'SC') AS order_status
+            FROM hl7_orders WHERE message_id = :mid
+        """), {"mid": message_id}).mappings().fetchone()
+        if not row:
+            return jsonify({"error": "Order not found"}), 404
+        prev = row["order_status"]
+        if prev != "IP":
+            return jsonify({"error": f"Expected IP, current status is {prev}"}), 400
         db.session.execute(text("""
-            ALTER TABLE hl7_orders
-                ADD COLUMN IF NOT EXISTS done_at  TIMESTAMP,
-                ADD COLUMN IF NOT EXISTS done_by  VARCHAR(100),
-                ADD COLUMN IF NOT EXISTS linked_accession_number VARCHAR(100),
-                ADD COLUMN IF NOT EXISTS linked_study_db_uid BIGINT,
-                ADD COLUMN IF NOT EXISTS linked_by VARCHAR(100),
-                ADD COLUMN IF NOT EXISTS linked_at TIMESTAMP
-        """))
-        db.session.execute(text("""
-            UPDATE hl7_orders
-            SET order_status = 'CM',
-                done_at  = NOW(),
-                done_by  = :user
-            WHERE message_id = :mid
+            UPDATE hl7_orders SET order_status='CM', done_at=NOW(), done_by=:user
+            WHERE message_id=:mid
         """), {"mid": message_id, "user": current_user.username})
+        _log_status_change(row["id"], message_id, prev, "CM", current_user.username, "live_feed")
+        db.session.commit()
+        return jsonify({"ok": True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+
+# ── API — revert order one step backward (role-restricted) ───────────────────
+@live_feed_bp.route("/viewer/live/revert", methods=["POST"])
+@login_required
+def revert_order():
+    if not user_has_page(current_user, 'live_feed'):
+        abort(403)
+    if current_user.role not in _REVERT_ROLES:
+        return jsonify({"error": "Insufficient permissions to revert"}), 403
+    data       = request.get_json(force=True)
+    message_id = data.get("message_id")
+    if not message_id:
+        return jsonify({"error": "message_id required"}), 400
+    try:
+        row = db.session.execute(text("""
+            SELECT id, COALESCE(NULLIF(order_status,''),'SC') AS order_status
+            FROM hl7_orders WHERE message_id = :mid
+        """), {"mid": message_id}).mappings().fetchone()
+        if not row:
+            return jsonify({"error": "Order not found"}), 404
+        cur = row["order_status"]
+        if cur not in _PREV_STATUS:
+            return jsonify({"error": f"Cannot revert from status {cur}"}), 400
+        prev    = _PREV_STATUS[cur]
+        nullify = _REVERT_CLEAR[cur]
+        db.session.execute(text(f"""
+            UPDATE hl7_orders SET order_status=:prev, {nullify}
+            WHERE message_id=:mid
+        """), {"prev": prev, "mid": message_id})
+        _log_status_change(row["id"], message_id, cur, prev, current_user.username, "live_feed")
         db.session.commit()
         return jsonify({"ok": True})
     except Exception as e:

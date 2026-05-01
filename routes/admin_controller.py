@@ -318,6 +318,42 @@ def scheduling_page():
     )
 
 
+@admin_bp.route('/scheduling/hl7/<int:hl7_id>/arrive', methods=['POST'])
+@login_required
+def arrive_hl7(hl7_id):
+    from db import user_has_page
+    from utils.hl7_forward import forward_message as _hl7_forward
+    from flask import current_app
+    if current_user.role != 'admin' and not user_has_page(current_user, 'scheduling'):
+        return abort(403)
+    try:
+        row = db.session.execute(text("""
+            SELECT id, message_id, COALESCE(NULLIF(order_status,''),'SC') AS order_status, raw_message
+            FROM hl7_orders WHERE id = :id
+        """), {"id": hl7_id}).mappings().fetchone()
+        if not row:
+            return jsonify({'status': 'error', 'message': 'Order not found'}), 404
+        prev = row["order_status"]
+        if prev != "SC":
+            return jsonify({'status': 'error', 'message': f'Expected SC, current status is {prev}'}), 400
+        db.session.execute(text("""
+            UPDATE hl7_orders SET order_status='AR', arrived_at=NOW(), arrived_by=:user
+            WHERE id=:id
+        """), {"id": hl7_id, "user": current_user.username})
+        db.session.execute(text("""
+            INSERT INTO order_status_log
+                (order_id, message_id, from_status, to_status, changed_by, source)
+            VALUES (:oid, :mid, :from_s, 'AR', :user, 'scheduling')
+        """), {"oid": row["id"], "mid": row["message_id"], "from_s": prev,
+               "user": current_user.username})
+        db.session.commit()
+        _hl7_forward(row["raw_message"], current_app._get_current_object(), order_id=row["id"])
+        return jsonify({'status': 'ok'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
 @admin_bp.route('/scheduling/hl7/<int:hl7_id>/reschedule', methods=['POST'])
 @login_required
 def reschedule_hl7(hl7_id):
@@ -741,6 +777,71 @@ def audit_log():
 @login_required
 def oracle_config():
     return redirect(url_for('db_manager.db_manager_page'))
+
+
+@admin_bp.route('/hl7-forward', methods=['GET', 'POST'], endpoint='hl7_forward_config')
+@login_required
+def hl7_forward_config():
+    if current_user.role != 'admin':
+        return abort(403)
+
+    from utils.hl7_forward import test_forward, invalidate_cache
+
+    msg = None
+
+    if request.method == 'POST':
+        action = request.form.get('action', '')
+
+        if action == 'save':
+            host    = (request.form.get('host', '') or '').strip()
+            port    = (request.form.get('port', '') or '').strip()
+            enabled = '1' if request.form.get('enabled') else '0'
+            for key, val in [
+                ('hl7_forward_host',    host),
+                ('hl7_forward_port',    port),
+                ('hl7_forward_enabled', enabled),
+            ]:
+                exists = db.session.execute(text("SELECT 1 FROM settings WHERE key=:k"), {'k': key}).fetchone()
+                if exists:
+                    db.session.execute(text("UPDATE settings SET value=:v WHERE key=:k"), {'k': key, 'v': val})
+                else:
+                    db.session.execute(text("INSERT INTO settings (key,value) VALUES (:k,:v)"), {'k': key, 'v': val})
+            db.session.commit()
+            invalidate_cache()
+            msg = ('success', 'Settings saved.')
+
+        elif action == 'test':
+            host     = (request.form.get('host', '') or '').strip()
+            port_str = (request.form.get('port', '') or '').strip()
+            sample   = db.session.execute(text("""
+                SELECT raw_message FROM hl7_orders
+                WHERE raw_message IS NOT NULL
+                ORDER BY received_at DESC LIMIT 1
+            """)).scalar()
+            if not host or not port_str:
+                msg = ('error', 'Enter host and port before testing.')
+            else:
+                ok, detail = test_forward(host, port_str, sample)
+                msg = ('success' if ok else 'error', detail)
+
+    rows = db.session.execute(text("""
+        SELECT key, value FROM settings
+        WHERE key IN ('hl7_forward_host','hl7_forward_port','hl7_forward_enabled')
+    """)).fetchall()
+    cfg = {r[0]: r[1] for r in rows}
+
+    sample_preview = db.session.execute(text("""
+        SELECT raw_message, received_at FROM hl7_orders
+        WHERE raw_message IS NOT NULL
+        ORDER BY received_at DESC LIMIT 1
+    """)).fetchone()
+
+    return render_template(
+        'admin_hl7_forward.html',
+        cfg            = cfg,
+        msg            = msg,
+        sample_preview = sample_preview,
+    )
 
 
 @admin_bp.route('/sync-mappings', methods=['POST'])

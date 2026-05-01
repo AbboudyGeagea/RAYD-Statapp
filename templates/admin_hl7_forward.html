@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | HL7 Forward Config</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; }
+        .card { background: #232b28; border-radius: 1.5rem; padding: 2rem; border: 1px solid #28332e; }
+        .input-field { background: #141b19; border: 1px solid #334155; color: #e2e8f0; padding: .75rem 1rem; border-radius: .85rem; width: 100%; font-size: .875rem; outline: none; transition: border-color .2s; }
+        .input-field:focus { border-color: #38bdf8; }
+        .label { font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .3em; color: #475569; margin-bottom: 6px; display: block; }
+        .btn-primary { background: #38bdf8; color: #0c1a22; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; padding: .7rem 1.5rem; border-radius: .85rem; border: none; cursor: pointer; transition: opacity .15s; }
+        .btn-primary:hover { opacity: .85; }
+        .btn-ghost { background: transparent; color: #64748b; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; padding: .7rem 1.5rem; border-radius: .85rem; border: 1px solid #1e293b; cursor: pointer; transition: border-color .15s; }
+        .btn-ghost:hover { border-color: #334155; }
+        pre { background: #0d1410; border: 1px solid #1e2a26; border-radius: .75rem; padding: 1rem; font-size: 11px; color: #94a3b8; overflow-x: auto; white-space: pre-wrap; word-break: break-all; max-height: 200px; overflow-y: auto; }
+        .toggle-wrap { display: flex; align-items: center; gap: 10px; }
+        .toggle { position: relative; width: 44px; height: 24px; }
+        .toggle input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; inset: 0; background: #1e2a26; border-radius: 24px; cursor: pointer; transition: .2s; border: 1px solid #334155; }
+        .slider:before { content: ''; position: absolute; width: 18px; height: 18px; left: 2px; bottom: 2px; background: #475569; border-radius: 50%; transition: .2s; }
+        input:checked + .slider { background: rgba(56,189,248,.2); border-color: #38bdf8; }
+        input:checked + .slider:before { background: #38bdf8; transform: translateX(20px); }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+    {% include '_header.html' %}
+    <div class="flex flex-1 overflow-hidden">
+        {% include '_sidebar.html' %}
+        <main class="flex-1 overflow-y-auto p-8 bg-[#181f1c]">
+            <div class="max-w-2xl mx-auto">
+
+                <div class="mb-6">
+                    <h2 class="text-white text-2xl font-black uppercase tracking-tight">HL7 Forward Config</h2>
+                    <p class="text-slate-500 text-xs mt-1">Messages are forwarded exactly as received — no modifications.</p>
+                </div>
+
+                {% if msg %}
+                <div class="mb-5 rounded-xl px-4 py-3 text-sm font-semibold
+                    {{ 'bg-emerald-500/10 text-emerald-200 border border-emerald-500/20' if msg[0] == 'success'
+                       else 'bg-rose-500/10 text-rose-200 border border-rose-500/20' }}">
+                    {{ msg[1] }}
+                </div>
+                {% endif %}
+
+                <form method="POST" id="cfg-form">
+                    <div class="card mb-5">
+                        <h3 class="text-white text-sm font-black uppercase tracking-widest mb-5">Destination</h3>
+
+                        <div class="toggle-wrap mb-5">
+                            <label class="toggle">
+                                <input type="checkbox" name="enabled" id="toggle-enabled"
+                                    {{ 'checked' if cfg.get('hl7_forward_enabled','0') in ('1','true','yes') else '' }}>
+                                <span class="slider"></span>
+                            </label>
+                            <span class="text-sm font-bold text-slate-300" id="toggle-label">
+                                {{ 'Forwarding Enabled' if cfg.get('hl7_forward_enabled','0') in ('1','true','yes') else 'Forwarding Disabled' }}
+                            </span>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-4 mb-5">
+                            <div>
+                                <label class="label">Host / IP</label>
+                                <input type="text" name="host" id="inp-host" class="input-field"
+                                    placeholder="192.168.1.x" value="{{ cfg.get('hl7_forward_host','') }}">
+                            </div>
+                            <div>
+                                <label class="label">Port</label>
+                                <input type="number" name="port" id="inp-port" class="input-field"
+                                    placeholder="2575" value="{{ cfg.get('hl7_forward_port','') }}">
+                            </div>
+                        </div>
+
+                        <div class="flex gap-3">
+                            <button type="submit" name="action" value="save" class="btn-primary">
+                                <i class="bi bi-floppy-fill mr-1"></i> Save
+                            </button>
+                            <button type="submit" name="action" value="test" class="btn-ghost"
+                                onclick="return confirmTest()">
+                                <i class="bi bi-send-arrow-up mr-1"></i> Send Test
+                            </button>
+                        </div>
+                    </div>
+                </form>
+
+                {% if sample_preview %}
+                <div class="card">
+                    <div class="flex items-center justify-between mb-3">
+                        <h3 class="text-white text-sm font-black uppercase tracking-widest">Sample Message</h3>
+                        <span class="text-[10px] text-slate-500 font-bold uppercase tracking-widest">
+                            Last received: {{ sample_preview.received_at.strftime('%Y-%m-%d %H:%M') if sample_preview.received_at else '—' }}
+                        </span>
+                    </div>
+                    <p class="text-[10px] text-slate-500 mb-3">
+                        The most recent raw HL7 message stored in the database.
+                        This is what "Send Test" will forward.
+                    </p>
+                    <pre>{{ sample_preview.raw_message }}</pre>
+                </div>
+                {% else %}
+                <div class="card text-center py-10">
+                    <i class="bi bi-inbox text-3xl text-slate-600"></i>
+                    <p class="text-slate-500 mt-3 text-sm">No HL7 messages received yet — sample not available.</p>
+                </div>
+                {% endif %}
+
+            </div>
+        </main>
+    </div>
+    <script>
+        document.getElementById('toggle-enabled').addEventListener('change', function() {
+            document.getElementById('toggle-label').textContent =
+                this.checked ? 'Forwarding Enabled' : 'Forwarding Disabled';
+        });
+        function confirmTest() {
+            const host = document.getElementById('inp-host').value.trim();
+            const port = document.getElementById('inp-port').value.trim();
+            if (!host || !port) { alert('Enter host and port first.'); return false; }
+            return confirm(`Send test message to ${host}:${port}?`);
+        }
+    </script>
+</body>
+</html>
