@@ -367,7 +367,7 @@ def get_gold_standard_data(form_data):
     result = ({
         "summary": {
             "total": len(df), "global_util": f"{(sum(r['avg'] * r.get('total_cap', 1) for r in matrix_rows) / sum(r.get('total_cap', 1) for r in matrix_rows) if matrix_rows and sum(r.get('total_cap', 1) for r in matrix_rows) > 0 else 0):.1f}%",
-            "er_wait": f"{df[(df['patient_class'].str.contains('ER|Emergency', case=False, na=False)) & (df['total_tat_min'] > 0)]['total_tat_min'].mean():.1f}m" if 'patient_class' in df.columns and (df['patient_class'].str.contains('ER|Emergency', case=False, na=False) & (df['total_tat_min'] > 0)).any() else "0m",
+            "er_wait": f"{df[df['accession_number'].str.upper().str.startswith('2XE').fillna(False) & (df['total_tat_min'] > 0)]['total_tat_min'].mean():.1f}m" if 'accession_number' in df.columns and (df['accession_number'].str.upper().str.startswith('2XE').fillna(False) & (df['total_tat_min'] > 0)).any() else "0m",
             "high_stress_count": high_stress, "low_util_count": under_utilized,
             "work_hours": round(total_active_mins / 60, 1), "total_rvu": round(df['rvu'].sum(), 1),
             "tat_median": tat_median, "tat_p25": tat_p25, "tat_p75": tat_p75,
@@ -572,12 +572,10 @@ def compute_bg_data(form_data):
             _tech_completed_df = completed
 
             # Pre-index ER orders: modality → list of (scheduled_datetime, patient_class, accession)
-            # An order is "ER" if patient_location = 'ER' (case-insensitive)
-            if 'patient_location' not in tdf.columns:
-                tdf['patient_location'] = None
+            # An order is "ER" if accession_number starts with '2XE' (case-insensitive)
             if 'patient_class' not in tdf.columns:
                 tdf['patient_class'] = None
-            er_rows = tdf[tdf['patient_location'].str.upper().eq('ER').fillna(False)].copy()
+            er_rows = tdf[tdf['accession_number'].str.upper().str.startswith('2XE').fillna(False)].copy()
             er_by_modality = {}
             for _, er in er_rows.iterrows():
                 er_by_modality.setdefault(str(er['modality'] or '').upper(), []).append(er)
