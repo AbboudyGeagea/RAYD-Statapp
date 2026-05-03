@@ -1,3 +1,35 @@
+<!-- Security: CSRF token for AJAX requests -->
+<meta name="csrf-token" content="{{ csrf_token() }}">
+<script>
+// ── HTML escaping helper (prevents DOM-XSS in all templates) ─────────────
+function escHtml(v) {
+    if (v == null) return '';
+    return String(v)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+// ── CSRF: inject X-CSRFToken header into every mutating fetch() call ─────
+(function() {
+    const _origFetch = window.fetch;
+    window.fetch = function(url, options) {
+        options = options || {};
+        const method = (options.method || 'GET').toUpperCase();
+        if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+            const token = document.querySelector('meta[name="csrf-token"]');
+            if (token) {
+                options.headers = Object.assign({}, options.headers, {
+                    'X-CSRFToken': token.content
+                });
+            }
+        }
+        return _origFetch.call(this, url, options);
+    };
+})();
+</script>
 {% if demo_mode %}
 <div style="background:rgba(245,158,11,0.12);border-bottom:1px solid rgba(245,158,11,0.3);padding:5px 24px;display:flex;align-items:center;justify-content:center;gap:10px;z-index:40;position:relative;">
     <span style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.2em;color:#f59e0b;background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.3);padding:2px 8px;border-radius:4px;">DEMO</span>

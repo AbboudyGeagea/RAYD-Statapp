@@ -1990,7 +1990,7 @@
                 .then(data => {
                     spinner.classList.add('hidden');
                     if (data.error) {
-                        results.innerHTML = `<p class="text-xs text-rose-400">${data.error}</p>`;
+                        results.innerHTML = `<p class="text-xs text-rose-400">${escHtml(data.error)}</p>`;
                         return;
                     }
                     if (!data.studies || data.studies.length === 0) {
@@ -2001,7 +2001,7 @@
                 })
                 .catch(e => {
                     spinner.classList.add('hidden');
-                    results.innerHTML = `<p class="text-xs text-rose-400">Request failed: ${e.message}</p>`;
+                    results.innerHTML = `<p class="text-xs text-rose-400">Request failed: ${escHtml(e.message)}</p>`;
                 });
         }
 

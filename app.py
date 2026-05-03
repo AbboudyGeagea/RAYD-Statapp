@@ -15,6 +15,7 @@ from flask_login import (
     LoginManager, logout_user,
     current_user, login_required
 )
+from flask_wtf.csrf import CSRFProtect
 
 from dotenv import load_dotenv
 from sqlalchemy.sql import text
@@ -199,6 +200,8 @@ def create_app():
     app.config['SESSION_COOKIE_HTTPONLY'] = True
     app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
     app.config['SESSION_COOKIE_SECURE'] = os.environ.get('SESSION_COOKIE_SECURE', 'true').lower() == 'true'
+    app.config['WTF_CSRF_TIME_LIMIT'] = 3600  # 1-hour token validity
+    CSRFProtect(app)
 
     init_db(app)
 
@@ -241,6 +244,15 @@ def create_app():
 
     # --- ROUTES ---
     register_blueprints(app)
+
+    # --- SECURITY HEADERS ---
+    @app.after_request
+    def add_security_headers(response):
+        response.headers['X-Frame-Options'] = 'DENY'
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+        response.headers['Permissions-Policy'] = 'camera=(), microphone=(), geolocation=()'
+        return response
 
     # --- AUTH CHECKS ---
     _AUTH_PASSTHROUGH = frozenset({'auth.login', 'auth.logout', 'auth.register', 'auth.profile_password', 'static'})
