@@ -10,6 +10,8 @@ RUN apt-get update && apt-get install -y \
     libaio1t64 \
     libaio-dev \
     tzdata \
+    curl \
+    wget \
     && rm -rf /var/lib/apt/lists/*
 
 # 2. Set the working directory inside the container
