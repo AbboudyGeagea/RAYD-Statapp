@@ -82,7 +82,7 @@ ok "Build complete."
 info "Swapping to new image..."
 $COMPOSE up -d --remove-orphans
 
-# Wait for DB to be healthy
+# Wait for DB to be healthy (app health check comes AFTER migrations)
 info "Waiting for database..."
 WAIT=0
 until docker exec rayd_db pg_isready -U "$PG_USER" -d "$PG_DB" -q 2>/dev/null || [ $WAIT -ge 90 ]; do
@@ -90,18 +90,6 @@ until docker exec rayd_db pg_isready -U "$PG_USER" -d "$PG_DB" -q 2>/dev/null ||
 done
 docker exec rayd_db pg_isready -U "$PG_USER" -d "$PG_DB" -q 2>/dev/null || error "Database not ready. Check: $COMPOSE logs db"
 ok "Database ready."
-
-# Health check — curl is installed in the container via Dockerfile
-info "Health check..."
-WAIT=0
-until docker exec rayd_service curl -sf http://localhost:8080/ -o /dev/null 2>/dev/null || [ $WAIT -ge 60 ]; do
-    sleep 3; WAIT=$((WAIT+3))
-done
-if ! docker exec rayd_service curl -sf http://localhost:8080/ -o /dev/null 2>/dev/null; then
-    warn "App did not respond within 60 s — check logs: $COMPOSE logs rayd-app --tail 40"
-    exit 1
-fi
-ok "App is responding."
 
 # ──────────────────────────────────────────────────────
 # STEP 3: Apply pending migrations
@@ -146,6 +134,24 @@ if [ $FAILED -gt 0 ]; then
     warn "Migrations: $APPLIED applied, $SKIPPED already done, $FAILED FAILED — review above."
 else
     ok "Migrations: $APPLIED applied, $SKIPPED already up to date."
+fi
+
+# Restart app after migrations so it picks up any schema changes
+if [ $APPLIED -gt 0 ]; then
+    info "Restarting app service to apply schema changes..."
+    $COMPOSE restart rayd-app
+fi
+
+# Health check — curl is installed in the container via Dockerfile
+info "Waiting for app to respond..."
+WAIT=0
+until docker exec rayd_service curl -sf http://localhost:8080/ -o /dev/null 2>/dev/null || [ $WAIT -ge 90 ]; do
+    sleep 3; WAIT=$((WAIT+3))
+done
+if ! docker exec rayd_service curl -sf http://localhost:8080/ -o /dev/null 2>/dev/null; then
+    warn "App did not respond within 90 s — check logs: $COMPOSE logs rayd-app --tail 40"
+else
+    ok "App is responding."
 fi
 
 # ──────────────────────────────────────────────────────
