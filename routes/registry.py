@@ -286,8 +286,8 @@ def register_blueprints(app):
             from routes.bitnet_service import bitnet_bp
             app.register_blueprint(bitnet_bp)
             logger.info("  bitnet_ai: enabled")
-        except ImportError as e:
-            logger.warning(f"  bitnet_ai: import failed: {e}")
+        except Exception as e:
+            logger.warning(f"  bitnet_ai: disabled — {e}")
 
     # ── Inject license into templates ─────────────────────────
     @app.context_processor
