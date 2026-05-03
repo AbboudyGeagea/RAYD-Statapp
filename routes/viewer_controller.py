@@ -3,6 +3,7 @@ from flask import Blueprint, render_template, request, abort, Response, jsonify,
 from flask_login import login_required, current_user
 from sqlalchemy import text
 from db import ReportAccessControl, db
+from utils.permissions import permission_required
 
 from routes.report_registry import get_report
 
@@ -438,6 +439,7 @@ def viewer_report(report_id):
 
 @viewer_bp.route('/<int:report_id>/export', methods=['POST'])
 @login_required
+@permission_required('can_export')
 def viewer_export_report(report_id):
     """Export report directly, no url_for needed"""
     # Access control for non-admins

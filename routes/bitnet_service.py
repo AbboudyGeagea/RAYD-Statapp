@@ -28,6 +28,8 @@ from flask_login import login_required, current_user
 from sqlalchemy import text
 from db import db, AiFeedback, AiCorrection
 
+from utils.permissions import permission_required
+
 logger    = logging.getLogger("BITNET")
 bitnet_bp = Blueprint("bitnet", __name__)
 
@@ -212,6 +214,7 @@ def _run_inference(system: str, user_message: str, max_tokens: int = None) -> st
 # ── Pages ─────────────────────────────────────────────────────
 @bitnet_bp.route("/ai/assistant")
 @login_required
+@permission_required('can_use_ai')
 def assistant_page():
     return render_template("ai_assistant.html")
 

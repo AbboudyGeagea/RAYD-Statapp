@@ -2,6 +2,7 @@ from flask import Blueprint, request, render_template, flash, redirect, url_for,
 from flask_login import login_required, current_user
 # Import the CLASS names from your db file
 from db import db, AETitleModalityMap, ProcedureDurationMap, DeviceException, DeviceWeeklySchedule, user_has_page
+from utils.permissions import permission_required
 import pandas as pd
 from datetime import datetime, timedelta
 import json
@@ -23,6 +24,7 @@ def get_or_create(model, **kwargs):
 
 @mapping_bp.route('/export/modality')
 @login_required
+@permission_required('can_export')
 def export_modality_csv():
     if current_user.role not in ('admin', 'viewer', 'viewer2') and not user_has_page(current_user, 'mapping'): return abort(403)
     from flask import current_app, jsonify
@@ -48,6 +50,7 @@ def export_modality_csv():
 
 @mapping_bp.route('/export/procedure')
 @login_required
+@permission_required('can_export')
 def export_procedure_csv():
     if current_user.role not in ('admin', 'viewer', 'viewer2') and not user_has_page(current_user, 'mapping'): return abort(403)
     from flask import current_app, jsonify
@@ -71,6 +74,7 @@ def export_procedure_csv():
 
 @mapping_bp.route('', methods=['GET'])
 @login_required
+@permission_required('can_configure')
 def mapping_page():
     if current_user.role not in ('admin', 'viewer', 'viewer2') and not user_has_page(current_user, 'mapping'): return abort(403)
 
