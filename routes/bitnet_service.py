@@ -74,6 +74,25 @@ BITNET_SERVER = os.environ.get("BITNET_SERVER", "http://172.17.0.1:8081")
 MAX_TOKENS    = int(os.environ.get("BITNET_TOKENS",  "512"))
 TIMEOUT_SECS  = int(os.environ.get("BITNET_TIMEOUT", "180"))
 
+# SSRF guard: only allow requests to explicitly permitted hosts.
+# Add entries via BITNET_ALLOWED_HOSTS env var (comma-separated hostnames/IPs).
+_BITNET_ALLOWED_HOSTS = frozenset(
+    h.strip() for h in
+    os.environ.get("BITNET_ALLOWED_HOSTS", "172.17.0.1,127.0.0.1,localhost").split(",")
+    if h.strip()
+)
+
+def _assert_bitnet_host(url: str) -> None:
+    from urllib.parse import urlparse
+    host = urlparse(url).hostname or ""
+    if host not in _BITNET_ALLOWED_HOSTS:
+        raise ValueError(
+            f"BITNET_SERVER host '{host}' is not in BITNET_ALLOWED_HOSTS. "
+            "Set BITNET_ALLOWED_HOSTS env var to authorise it."
+        )
+
+_assert_bitnet_host(BITNET_SERVER)  # fail fast at import time if misconfigured
+
 # ── Response cache ────────────────────────────────────────────
 _response_cache = {}
 RESPONSE_TTL    = 300        # 5 min — same question gets cached answer

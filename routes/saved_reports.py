@@ -71,12 +71,23 @@ def run_saved_report(saved_id):
     if not sr:
         return jsonify({"status":"error","message":"Saved report not found"}), 404
 
-    # Access: owner, public, or admin or having base report access
-    if not (sr.is_public or sr.owner_user_id == current_user.id or current_user.role == 'admin'):
-        # check base_report access for viewers
-        access = ReportAccessControl.query.filter_by(user_id=current_user.id, report_template_id=sr.base_report_id, is_enabled=True).first()
+    # Access control: admin sees all; owner sees their own; everyone else only
+    # sees public reports they also have base-report permission for.
+    # Private reports from other users are never accessible regardless of base access.
+    if current_user.role == 'admin':
+        pass
+    elif sr.owner_user_id == current_user.id:
+        pass
+    elif sr.is_public:
+        access = ReportAccessControl.query.filter_by(
+            user_id=current_user.id,
+            report_template_id=sr.base_report_id,
+            is_enabled=True
+        ).first()
         if not access:
-            return jsonify({"status":"error","message":"Access denied"}), 403
+            return jsonify({"status": "error", "message": "Access denied"}), 403
+    else:
+        return jsonify({"status": "error", "message": "Access denied"}), 403
 
     # If generated_sql exists, run it directly (recommended)
     sql = sr.generated_sql

@@ -490,8 +490,8 @@
             let headerHtml =
                 '<div class="flex items-center justify-between mb-3">' +
                 '  <div>' +
-                '    <p class="text-xs font-black text-white">' + tbl.source_table + '</p>' +
-                '    <p class="text-[10px] text-slate-500">Target: <code class="text-slate-300">' + (tbl.target_table || 'NONE') + '</code></p>' +
+                '    <p class="text-xs font-black text-white">' + escHtml(tbl.source_table) + '</p>' +
+                '    <p class="text-[10px] text-slate-500">Target: <code class="text-slate-300">' + escHtml(tbl.target_table || 'NONE') + '</code></p>' +
                 '  </div>' +
                 '  <div class="flex gap-2">' +
                 '    <span class="text-[9px] font-black px-2 py-0.5 rounded-full" style="background:rgba(34,197,94,0.12);color:#22c55e;">' + tbl.columns.length + ' mapped</span>' +
@@ -506,11 +506,11 @@
                 const confColor = c.confidence >= 1.0 ? '#22c55e' : '#f59e0b';
                 colsHtml +=
                     '<div class="' + cls + ' flex items-center justify-between px-3 py-1.5 rounded text-[10px] mb-1">' +
-                    '  <span class="mono text-slate-300">' + c.source + '</span>' +
+                    '  <span class="mono text-slate-300">' + escHtml(c.source) + '</span>' +
                     '  <span class="text-slate-600 px-2"><i class="bi bi-arrow-right"></i></span>' +
-                    '  <span class="mono text-slate-300">' + c.target + '</span>' +
+                    '  <span class="mono text-slate-300">' + escHtml(c.target) + '</span>' +
                     '  <span class="mono" style="color:' + confColor + ';">' + c.confidence.toFixed(2) + '</span>' +
-                    '  <span class="text-slate-600 px-2">' + c.transform + '</span>' +
+                    '  <span class="text-slate-600 px-2">' + escHtml(c.transform) + '</span>' +
                     '</div>';
             });
 
@@ -519,7 +519,7 @@
                 colsHtml += '<p class="text-[9px] text-red-500 uppercase font-black mt-3 mb-1">Unmapped Source Columns</p>';
                 colsHtml += '<div class="flex flex-wrap gap-1">';
                 tbl.unmapped_sources.forEach(s => {
-                    colsHtml += '<span class="text-[9px] mono px-2 py-0.5 rounded" style="background:rgba(244,63,94,0.08);color:#f43f5e;border:1px solid rgba(244,63,94,0.2);">' + s + '</span>';
+                    colsHtml += '<span class="text-[9px] mono px-2 py-0.5 rounded" style="background:rgba(244,63,94,0.08);color:#f43f5e;border:1px solid rgba(244,63,94,0.2);">' + escHtml(s) + '</span>';
                 });
                 colsHtml += '</div>';
             }
@@ -529,7 +529,7 @@
                 colsHtml += '<p class="text-[9px] text-amber-500 uppercase font-black mt-3 mb-1">Unmapped Target Columns (need data)</p>';
                 colsHtml += '<div class="flex flex-wrap gap-1">';
                 tbl.unmapped_targets.forEach(s => {
-                    colsHtml += '<span class="text-[9px] mono px-2 py-0.5 rounded" style="background:rgba(245,158,11,0.08);color:#f59e0b;border:1px solid rgba(245,158,11,0.2);">' + s + '</span>';
+                    colsHtml += '<span class="text-[9px] mono px-2 py-0.5 rounded" style="background:rgba(245,158,11,0.08);color:#f59e0b;border:1px solid rgba(245,158,11,0.2);">' + escHtml(s) + '</span>';
                 });
                 colsHtml += '</div>';
             }

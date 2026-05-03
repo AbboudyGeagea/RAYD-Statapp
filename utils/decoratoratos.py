@@ -1,13 +1,12 @@
 from functools import wraps
-from flask import session, redirect, url_for, flash
+from flask import redirect, url_for, flash, abort
+from flask_login import current_user
+
 
 def auth_required(f):
-    """
-    Checks if user is logged in. Redirects to login if not.
-    """
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if not session.get('logged_in'):
+        if not current_user.is_authenticated:
             flash('Please log in to access this page.', 'warning')
             return redirect(url_for('auth.login'))
         return f(*args, **kwargs)
@@ -15,12 +14,10 @@ def auth_required(f):
 
 
 def admin_required(f):
-    """
-    Checks if user is logged in and has admin role.
-    """
+    # Checks DB role via flask-login — immune to session cookie forgery.
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if not session.get('logged_in') or session.get('role') != 'admin':
+        if not current_user.is_authenticated or current_user.role != 'admin':
             flash('Access denied. Admin privileges required.', 'danger')
             return redirect(url_for('dashboard.index'))
         return f(*args, **kwargs)
@@ -28,12 +25,9 @@ def admin_required(f):
 
 
 def viewer_required(f):
-    """
-    Checks if user is logged in and has viewer role.
-    """
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if not session.get('logged_in') or session.get('role') != 'viewer':
+        if not current_user.is_authenticated or current_user.role not in ('viewer', 'viewer2', 'admin'):
             flash('Access denied. Viewer privileges required.', 'danger')
             return redirect(url_for('auth.login'))
         return f(*args, **kwargs)
