@@ -6,7 +6,6 @@
 # │  • Pulling new code/fixes to an existing live site          │
 # │  • New database migrations need to be applied               │
 # │  • requirements.txt changed (new Python packages)           │
-# │  • Qwen model needs to be installed on a new site           │
 # │                                                             │
 # │  DO NOT USE for fresh installations → use install.sh        │
 # │  DO NOT USE to reset ETL data       → use install.sh        │
@@ -57,7 +56,7 @@ echo ""
 # ──────────────────────────────────────────────────────
 # STEP 1: Pull latest code
 # ──────────────────────────────────────────────────────
-info "Step 1/4 — Pulling latest code from '$BRANCH'..."
+info "Step 1/3 — Pulling latest code from '$BRANCH'..."
 git pull origin "$BRANCH" || error "git pull failed. Check remote URL and credentials."
 ok "Code up to date with '$BRANCH'."
 
@@ -67,7 +66,7 @@ ok "Code up to date with '$BRANCH'."
 # Build BEFORE stopping anything. If the build fails, set -e aborts the
 # script here and the currently-running containers are untouched — site
 # stays up and no manual recovery is needed.
-info "Step 2/4 — Building new image (site stays up during build)..."
+info "Step 2/3 — Building new image (site stays up during build)..."
 
 REQ_HASH=$(md5sum requirements.txt 2>/dev/null | awk '{print $1}')
 LAST_HASH=$(cat .last_req_hash 2>/dev/null || echo "")
@@ -94,7 +93,7 @@ ok "Database ready."
 # ──────────────────────────────────────────────────────
 # STEP 3: Apply pending migrations
 # ──────────────────────────────────────────────────────
-info "Step 3/4 — Applying pending migrations..."
+info "Step 3/3 — Applying pending migrations..."
 
 # Ensure migration tracking table exists
 pg_exec "
@@ -152,29 +151,6 @@ if ! docker exec rayd_service curl -sf http://localhost:8080/ -o /dev/null 2>/de
     warn "App did not respond within 90 s — check logs: $COMPOSE logs rayd-app --tail 40"
 else
     ok "App is responding."
-fi
-
-# ──────────────────────────────────────────────────────
-# STEP 4: Qwen2.5-7B model check
-# ──────────────────────────────────────────────────────
-info "Step 4/4 — Checking Qwen2.5-7B AI model..."
-
-MODEL_FILE="/home/stats/Qwen/Qwen2.5-7B-Instruct-Q4_K_M.gguf"
-SETUP_SCRIPT="$SCRIPT_DIR/scripts/setup_qwen_prod.sh"
-
-if [ -f "$MODEL_FILE" ]; then
-    ok "Qwen model already installed — nothing to do."
-elif [ ! -f "$SETUP_SCRIPT" ]; then
-    warn "Qwen setup script not found — skipping."
-else
-    echo ""
-    warn "Qwen model not found at $MODEL_FILE"
-    read -r -p "  Download Qwen2.5-7B now? (~4.4 GB) [y/N]: " DO_QWEN
-    if [[ "${DO_QWEN,,}" == "y" ]]; then
-        bash "$SETUP_SCRIPT"
-    else
-        warn "Skipped. Run manually: bash scripts/setup_qwen_prod.sh"
-    fi
 fi
 
 # ──────────────────────────────────────────────────────
