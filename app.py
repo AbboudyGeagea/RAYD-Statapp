@@ -556,6 +556,41 @@ def create_app():
             db.session.rollback()
             logger.warning(f"[Migration] db_params encryption: {e}")
 
+    # --- MIGRATION: permission_groups + user columns ---
+    with app.app_context():
+        try:
+            db.session.execute(text("""
+                CREATE TABLE IF NOT EXISTS permission_groups (
+                    id          SERIAL PRIMARY KEY,
+                    name        VARCHAR(100) UNIQUE NOT NULL,
+                    description TEXT DEFAULT '',
+                    permissions JSONB NOT NULL DEFAULT '{}',
+                    created_at  TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            db.session.execute(text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES permission_groups(id) ON DELETE SET NULL"
+            ))
+            db.session.execute(text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS permission_overrides JSONB DEFAULT '{}'"
+            ))
+            db.session.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_users_group_id ON users (group_id)"
+            ))
+            # Seed default groups if missing
+            db.session.execute(text("""
+                INSERT INTO permission_groups (name, description, permissions) VALUES
+                ('Administrators','Full system access','{"can_export":true,"can_configure":true,"can_manage_users":true,"can_view_finance":true,"can_use_ai":true,"can_view_etl":true,"can_view_reports":["*"]}'),
+                ('Radiologists','Reading physicians','{"can_export":true,"can_configure":false,"can_manage_users":false,"can_view_finance":false,"can_use_ai":true,"can_view_etl":false,"can_view_reports":["*"]}'),
+                ('Technicians','Imaging technicians','{"can_export":false,"can_configure":false,"can_manage_users":false,"can_view_finance":false,"can_use_ai":false,"can_view_etl":false,"can_view_reports":["*"]}'),
+                ('Finance','Finance team','{"can_export":true,"can_configure":false,"can_manage_users":false,"can_view_finance":true,"can_use_ai":false,"can_view_etl":false,"can_view_reports":["*"]}')
+                ON CONFLICT (name) DO NOTHING
+            """))
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            logger.warning(f"[Migration] permission_groups: {e}")
+
     # --- STARTUP: AUTO-TRIGGER ETL IF DB IS EMPTY ---
     with app.app_context():
         # Skip ETL entirely when demo mode is active (no Oracle available)

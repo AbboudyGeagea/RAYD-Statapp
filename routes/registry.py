@@ -32,6 +32,7 @@ from routes.db_manager       import db_manager_bp
 from routes.referring_intel  import referring_intel_bp
 from routes.financial_config    import financial_config_bp
 from routes.financial_dashboard import financial_dashboard_bp
+from routes.groups_route        import groups_bp
 
 logger = logging.getLogger("REGISTRY")
 
@@ -233,6 +234,7 @@ def register_blueprints(app):
     app.register_blueprint(etl_gear_bp)
     app.register_blueprint(financial_config_bp)
     app.register_blueprint(financial_dashboard_bp)
+    app.register_blueprint(groups_bp)
 
     # ── Licensed reports (auto-discovered from report_registry) ─
     licensed_reports = lic.get('reports', [])

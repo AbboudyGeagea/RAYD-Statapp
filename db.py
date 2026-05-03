@@ -162,6 +162,23 @@ def chunked_upsert(engine, table_name, col_names, data, constraint_col):
 # 3. CORE & AUTH MODELS
 # ----------------------------------------------------------------
 
+class PermissionGroup(db.Model):
+    """
+    A named set of capabilities. Users inherit from their group;
+    individual overrides on User.permission_overrides can grant or deny
+    on top of the group default.
+    """
+    __tablename__ = 'permission_groups'
+    id          = db.Column(Integer, primary_key=True)
+    name        = db.Column(String(100), unique=True, nullable=False)
+    description = db.Column(Text, default='')
+    permissions = db.Column(JSONB, nullable=False, server_default='{}')
+    created_at  = db.Column(DateTime, server_default=func.now())
+
+    members = db.relationship('User', backref='group', lazy='select',
+                              foreign_keys='User.group_id')
+
+
 class User(db.Model, UserMixin):
     __tablename__ = 'users'
     id                   = db.Column(Integer, primary_key=True)
@@ -182,6 +199,9 @@ class User(db.Model, UserMixin):
     created_at           = db.Column(DateTime, server_default=func.now())
     last_login           = db.Column(DateTime)
     must_change_password = db.Column(Boolean, server_default='false')
+    # group-based permissions
+    group_id             = db.Column(Integer, ForeignKey('permission_groups.id'), nullable=True)
+    permission_overrides = db.Column(JSONB, server_default='{}')
 
     @property
     def is_active(self):

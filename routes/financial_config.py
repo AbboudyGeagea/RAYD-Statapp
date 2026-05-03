@@ -3,6 +3,7 @@ from flask_login import login_required, current_user
 from sqlalchemy import text
 from db import db
 from utils.financial import effective_rate, invalidate_cache
+from utils.permissions import permission_required
 
 financial_config_bp = Blueprint('financial_config', __name__)
 
@@ -65,6 +66,7 @@ def _validate_rate(body: dict) -> tuple:
 
 @financial_config_bp.route('/admin/financial-config')
 @login_required
+@permission_required('can_view_finance')
 def financial_config_page():
     if current_user.role != 'admin':
         abort(403)
