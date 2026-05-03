@@ -82,11 +82,6 @@ ok "Build complete."
 info "Swapping to new image..."
 $COMPOSE up -d --remove-orphans
 
-# Reload nginx so it re-resolves the new container IP.
-# Without this, nginx caches the old IP and returns 502 after every rebuild.
-info "Reloading nginx..."
-$COMPOSE exec -T nginx nginx -s reload 2>/dev/null || warn "nginx reload skipped (not running?)"
-
 # Wait for DB to be healthy (app health check comes AFTER migrations)
 info "Waiting for database..."
 WAIT=0
@@ -181,6 +176,14 @@ else
         warn "Skipped. Run manually: bash scripts/setup_qwen_prod.sh"
     fi
 fi
+
+# ──────────────────────────────────────────────────────
+# FINAL: Reload nginx so it picks up the new container IP.
+# Runs last — after migrations and app restart — so the app
+# is fully ready before nginx starts routing traffic to it.
+# ──────────────────────────────────────────────────────
+info "Reloading nginx..."
+$COMPOSE exec -T nginx nginx -s reload 2>/dev/null && ok "nginx reloaded." || warn "nginx reload skipped (not running?)"
 
 # ──────────────────────────────────────────────────────
 # DONE
