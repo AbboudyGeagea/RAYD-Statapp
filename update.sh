@@ -91,18 +91,13 @@ done
 docker exec rayd_db pg_isready -U "$PG_USER" -d "$PG_DB" -q 2>/dev/null || error "Database not ready. Check: $COMPOSE logs db"
 ok "Database ready."
 
-# Health check — use Python stdlib inside the app container (no curl needed)
+# Health check — curl is installed in the container via Dockerfile
 info "Health check..."
 WAIT=0
-_health_check() {
-    docker exec rayd_service python3 -c \
-        "import urllib.request; urllib.request.urlopen('http://localhost:8080/', timeout=3)" \
-        2>/dev/null
-}
-until _health_check || [ $WAIT -ge 60 ]; do
+until docker exec rayd_service curl -sf http://localhost:8080/ -o /dev/null 2>/dev/null || [ $WAIT -ge 60 ]; do
     sleep 3; WAIT=$((WAIT+3))
 done
-if ! _health_check; then
+if ! docker exec rayd_service curl -sf http://localhost:8080/ -o /dev/null 2>/dev/null; then
     warn "App did not respond within 60 s — check logs: $COMPOSE logs rayd-app --tail 40"
     exit 1
 fi
