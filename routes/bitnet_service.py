@@ -91,7 +91,15 @@ def _assert_bitnet_host(url: str) -> None:
             "Set BITNET_ALLOWED_HOSTS env var to authorise it."
         )
 
-_assert_bitnet_host(BITNET_SERVER)  # fail fast at import time if misconfigured
+try:
+    _assert_bitnet_host(BITNET_SERVER)
+except ValueError as _ssrf_err:
+    # Log and disable rather than crashing the whole app at startup.
+    # Routes will return an error response when _bitnet_host_valid is False.
+    logger.error(f"[BitNet] SSRF guard failed — AI assistant disabled: {_ssrf_err}")
+    _bitnet_host_valid = False
+else:
+    _bitnet_host_valid = True
 
 # ── Response cache ────────────────────────────────────────────
 _response_cache = {}
@@ -159,6 +167,8 @@ def _contains_hallucination(response: str) -> bool:
 
 # ── Qwen2.5 inference (ChatML format) ────────────────────────
 def _run_inference(system: str, user_message: str, max_tokens: int = None) -> str:
+    if not _bitnet_host_valid:
+        return "ERROR: AI assistant is disabled — BITNET_SERVER host not in BITNET_ALLOWED_HOSTS."
     from utils.cpu_guard import ai_start, ai_done
     ai_start()
     prompt = (
