@@ -64,7 +64,7 @@ def portal_users():
 
     users = db.session.execute(text(f"""
         SELECT id, mrn, full_name, phone, accession_number,
-               username, password_plain, is_active,
+               username, is_active,
                last_login, whatsapp_sent, whatsapp_sent_at, created_at
         FROM patient_portal_users
         WHERE {where}
@@ -112,13 +112,16 @@ def reset_password(user_id):
     new_password = _generate_password()
     config       = _get_config()
 
+    from werkzeug.security import generate_password_hash
+    new_hash = generate_password_hash(new_password, method='pbkdf2:sha256')
+
     db.session.execute(text("""
         UPDATE patient_portal_users
-        SET password_plain   = :pwd,
-            whatsapp_sent    = FALSE,
-            updated_at       = NOW()
+        SET password_hash  = :pwd_hash,
+            whatsapp_sent  = FALSE,
+            updated_at     = NOW()
         WHERE id = :id
-    """), {"pwd": new_password, "id": user_id})
+    """), {"pwd_hash": new_hash, "id": user_id})
     db.session.commit()
 
     # Resend WhatsApp
@@ -181,8 +184,16 @@ def resend_whatsapp(user_id):
         return jsonify({"success": False, "error": "No phone number on file"}), 400
 
     config = _get_config()
+    # Re-send requires a new password since we never store plaintext.
+    new_password = _generate_password()
+    from werkzeug.security import generate_password_hash
+    db.session.execute(text("""
+        UPDATE patient_portal_users
+        SET password_hash = :h, updated_at = NOW() WHERE id = :id
+    """), {"h": generate_password_hash(new_password, method='pbkdf2:sha256'), "id": user_id})
+    db.session.commit()
     success, error = _send_whatsapp(
-        row['phone'], row['mrn'], row['password_plain'],
+        row['phone'], row['mrn'], new_password,
         row['accession_number'], config
     )
 
@@ -213,11 +224,22 @@ def test_whatsapp():
     success, error = _send_whatsapp(
         phone=phone,
         mrn="TEST",
-        password="TestPass123",
+        password=_generate_password(),
         accession="TEST-001",
         config=config
     )
     return jsonify({"success": success, "error": error})
+
+_PORTAL_CONFIG_ALLOWED_KEYS = frozenset({
+    'hospital_name', 'hospital_logo_url',
+    'viewer_base_url', 'viewer_username', 'viewer_password', 'viewer_accession_param',
+    'twilio_account_sid', 'twilio_auth_token', 'twilio_whatsapp_from',
+    'portal_base_url',
+    'whatsapp_message_template', 'whatsapp_message_template_ar',
+})
+# Keys whose values are encrypted at rest with utils/crypto.encrypt()
+_PORTAL_CONFIG_ENCRYPTED_KEYS = frozenset({'viewer_password', 'twilio_auth_token'})
+
 
 @portal_admin_bp.route("/admin/portal/config", methods=["GET", "POST"])
 @login_required
@@ -225,14 +247,23 @@ def portal_config():
     _require_portal_access()
     """View and edit portal configuration."""
     if request.method == "POST":
+        from utils.crypto import encrypt as _enc
         for key, value in request.form.items():
-            if key.startswith("cfg_"):
-                config_key = key[4:]  # strip cfg_ prefix
-                db.session.execute(text("""
-                    UPDATE portal_config
-                    SET config_value = :v, updated_at = NOW()
-                    WHERE config_key = :k
-                """), {"v": value.strip(), "k": config_key})
+            if not key.startswith("cfg_"):
+                continue
+            config_key = key[4:]
+            if config_key not in _PORTAL_CONFIG_ALLOWED_KEYS:
+                continue  # reject unknown keys (mass-assignment guard)
+            val = value.strip()
+            if not val and config_key in _PORTAL_CONFIG_ENCRYPTED_KEYS:
+                continue  # blank password field = keep existing encrypted value
+            if val and config_key in _PORTAL_CONFIG_ENCRYPTED_KEYS:
+                val = _enc(val)
+            db.session.execute(text("""
+                UPDATE portal_config
+                SET config_value = :v, updated_at = NOW()
+                WHERE config_key = :k
+            """), {"v": val, "k": config_key})
         db.session.commit()
         flash("Configuration saved.", "success")
         return redirect(url_for("portal_admin.portal_config"))

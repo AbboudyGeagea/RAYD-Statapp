@@ -538,14 +538,14 @@ async function refreshModalityTable() {
     }
     tbody.innerHTML = data.modality.map(row => `
         <tr class="border-t border-[#28332e] text-sm">
-            <td class="py-3 pr-4"><span class="badge-modality">${row.entity_id}</span></td>
+            <td class="py-3 pr-4"><span class="badge-modality">${escHtml(row.entity_id)}</span></td>
             <td class="py-3 pr-4 font-black text-white">$${row.usd_per_rvu.toFixed(2)}</td>
             <td class="py-3 pr-4">${_deltaHtml(row.usd_per_rvu)}</td>
-            <td class="py-3 pr-4 text-zinc-500 text-xs">${row.notes || '—'}</td>
-            <td class="py-3 pr-4 text-zinc-600 text-xs">${(row.updated_at || '').substring(0, 10) || '—'}</td>
+            <td class="py-3 pr-4 text-zinc-500 text-xs">${escHtml(row.notes) || '—'}</td>
+            <td class="py-3 pr-4 text-zinc-600 text-xs">${escHtml((row.updated_at || '').substring(0, 10)) || '—'}</td>
             <td class="py-3"><div class="flex gap-2">
-                <button class="btn-edit"   onclick='showModalityModal(${JSON.stringify(row)})'>Edit</button>
-                <button class="btn-danger" onclick='deleteModality("${row.entity_id}", this)'>Del</button>
+                <button class="btn-edit"   data-row='${escHtml(JSON.stringify(row))}' onclick='showModalityModal(JSON.parse(this.dataset.row))'>Edit</button>
+                <button class="btn-danger" data-id='${escHtml(row.entity_id)}' onclick='deleteModality(this.dataset.id, this)'>Del</button>
             </div></td>
         </tr>`).join('');
 }
@@ -647,14 +647,14 @@ async function refreshProcTable() {
         return;
     }
     tbody.innerHTML = data.procedure.map(row => `
-        <tr class="proc-row border-t border-[#28332e] text-sm" data-code="${row.entity_id}">
-            <td class="py-3 pr-4"><span class="badge-proc">${row.entity_id}</span></td>
+        <tr class="proc-row border-t border-[#28332e] text-sm" data-code="${escHtml(row.entity_id)}">
+            <td class="py-3 pr-4"><span class="badge-proc">${escHtml(row.entity_id)}</span></td>
             <td class="py-3 pr-4 font-black text-white">$${row.usd_per_rvu.toFixed(2)}</td>
-            <td class="py-3 pr-4 text-zinc-500 text-xs">${row.notes || '—'}</td>
-            <td class="py-3 pr-4 text-zinc-600 text-xs">${(row.updated_at || '').substring(0, 10) || '—'}</td>
+            <td class="py-3 pr-4 text-zinc-500 text-xs">${escHtml(row.notes) || '—'}</td>
+            <td class="py-3 pr-4 text-zinc-600 text-xs">${escHtml((row.updated_at || '').substring(0, 10)) || '—'}</td>
             <td class="py-3"><div class="flex gap-2">
-                <button class="btn-edit"   onclick='showProcModal(${JSON.stringify(row)})'>Edit</button>
-                <button class="btn-danger" onclick='deleteProc("${row.entity_id}", this)'>Del</button>
+                <button class="btn-edit"   data-row='${escHtml(JSON.stringify(row))}' onclick='showProcModal(JSON.parse(this.dataset.row))'>Edit</button>
+                <button class="btn-danger" data-id='${escHtml(row.entity_id)}' onclick='deleteProc(this.dataset.id, this)'>Del</button>
             </div></td>
         </tr>`).join('');
     _procPage = 0;

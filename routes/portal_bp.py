@@ -12,7 +12,7 @@ Add to requirements.txt:
 """
 
 import re
-import random
+import secrets
 import string
 import logging
 from datetime import datetime
@@ -28,22 +28,29 @@ portal_bp = Blueprint("portal", __name__)
 #  HELPERS
 # ─────────────────────────────────────────────
 
+_PORTAL_ENCRYPTED_KEYS = frozenset({'viewer_password', 'twilio_auth_token'})
+
+
 def _get_config():
-    """Load all portal_config entries into a dict."""
+    """Load all portal_config entries into a dict, decrypting sensitive fields."""
+    from utils.crypto import decrypt as _dec
     rows = db.session.execute(
         text("SELECT config_key, config_value FROM portal_config")
     ).fetchall()
-    return {r[0]: r[1] for r in rows}
+    return {
+        r[0]: (_dec(r[1]) if r[0] in _PORTAL_ENCRYPTED_KEYS else r[1])
+        for r in rows
+    }
 
 
-def _generate_password(length=10):
-    """Generate a readable auto-password — mixed case + digits, no ambiguous chars."""
+def _generate_password(length=12):
+    """Generate a cryptographically random password — mixed case + digits, no ambiguous chars."""
     chars = (
         string.ascii_uppercase.replace('O', '').replace('I', '') +
         string.ascii_lowercase.replace('l', '').replace('o', '') +
         string.digits.replace('0', '').replace('1', '')
     )
-    return ''.join(random.choices(chars, k=length))
+    return ''.join(secrets.choice(chars) for _ in range(length))
 
 
 def _parse_pid_from_hl7(raw_message):
@@ -154,22 +161,25 @@ def process_orm_for_portal(raw_message, accession_number):
 
         # Check if user already exists for this MRN
         existing = db.session.execute(
-            text("SELECT id, password_plain FROM patient_portal_users WHERE mrn = :mrn"),
+            text("SELECT id FROM patient_portal_users WHERE mrn = :mrn"),
             {"mrn": mrn}
         ).fetchone()
 
         if existing:
-            # Update accession and phone, keep existing password
-            password = existing[1]
+            # Update accession and phone; issue a new password so we can send it
+            password = _generate_password()
+            from werkzeug.security import generate_password_hash
+            pwd_hash = generate_password_hash(password, method='pbkdf2:sha256')
             db.session.execute(text("""
                 UPDATE patient_portal_users
                 SET accession_number = :acc,
                     phone = COALESCE(:phone, phone),
                     full_name = COALESCE(:name, full_name),
+                    password_hash = :pwd,
                     updated_at = NOW()
                 WHERE mrn = :mrn
             """), {"acc": accession_number, "phone": phone,
-                   "name": full_name, "mrn": mrn})
+                   "name": full_name, "mrn": mrn, "pwd": pwd_hash})
         else:
             # New patient — generate password, hash it, create record
             password = _generate_password()
@@ -225,7 +235,7 @@ def portal_login():
         password = request.form.get("password", "").strip()
 
         row = db.session.execute(text("""
-            SELECT id, mrn, full_name, accession_number, password_hash, is_active, password_plain
+            SELECT id, mrn, full_name, accession_number, password_hash, is_active
             FROM patient_portal_users
             WHERE username = :u
         """), {"u": username}).fetchone()
@@ -234,17 +244,7 @@ def portal_login():
             error = "Invalid username or password."
         else:
             from werkzeug.security import check_password_hash as _chk
-            pw_ok = False
-            if row[4] and _chk(row[4], password):
-                pw_ok = True
-            elif row[6] and row[6] == password:
-                # Legacy plaintext — verify and migrate to hash
-                pw_ok = True
-                from werkzeug.security import generate_password_hash as _gen
-                db.session.execute(text(
-                    "UPDATE patient_portal_users SET password_hash = :h, password_plain = NULL WHERE id = :id"
-                ), {"h": _gen(password, method='pbkdf2:sha256'), "id": row[0]})
-                db.session.commit()
+            pw_ok = bool(row[4] and _chk(row[4], password))
 
         if not row or not pw_ok:
             error = "Invalid username or password."

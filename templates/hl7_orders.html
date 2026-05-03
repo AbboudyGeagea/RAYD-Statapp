@@ -609,16 +609,16 @@
       tbody.innerHTML = data.orders.map(o => `
         <tr>
           <td class="td-mono td-dim">${fmtTime(o.received_at)}</td>
-          <td class="td-mono">${o.patient_id || '—'}</td>
-          <td class="td-patient-name">${o.patient_name || '—'}</td>
-          <td class="td-mono td-dim">${o.date_of_birth ? o.date_of_birth.slice(0,10) : '—'}</td>
+          <td class="td-mono">${escHtml(o.patient_id) || '—'}</td>
+          <td class="td-patient-name">${escHtml(o.patient_name) || '—'}</td>
+          <td class="td-mono td-dim">${o.date_of_birth ? escHtml(o.date_of_birth).slice(0,10) : '—'}</td>
           <td>${o.gender === 'M' ? '<span class="gender-m">M</span>' : o.gender === 'F' ? '<span class="gender-f">F</span>' : '<span class="td-dim">—</span>'}</td>
-          <td class="td-mono">${o.accession_number || '—'}</td>
-          <td>${o.procedure_text ? o.procedure_text + (o.procedure_code ? ` <span class="td-dim td-mono">(${o.procedure_code})</span>` : '') : o.procedure_code || '—'}</td>
-          <td>${o.modality ? `<span class="modality-tag">${o.modality}</span>` : '<span class="td-dim">—</span>'}</td>
+          <td class="td-mono">${escHtml(o.accession_number) || '—'}</td>
+          <td>${o.procedure_text ? escHtml(o.procedure_text) + (o.procedure_code ? ` <span class="td-dim td-mono">(${escHtml(o.procedure_code)})</span>` : '') : escHtml(o.procedure_code) || '—'}</td>
+          <td>${o.modality ? `<span class="modality-tag">${escHtml(o.modality)}</span>` : '<span class="td-dim">—</span>'}</td>
           <td class="td-mono td-dim">${fmtDate(o.scheduled_datetime)}</td>
-          <td>${o.ordering_physician || '—'}</td>
-          <td><span class="${statusBadgeClass(o.order_status)}">${o.order_status || '—'}</span></td>
+          <td>${escHtml(o.ordering_physician) || '—'}</td>
+          <td><span class="${statusBadgeClass(o.order_status)}">${escHtml(o.order_status) || '—'}</span></td>
         </tr>
       `).join('');
     } catch(e) {

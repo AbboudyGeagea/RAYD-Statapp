@@ -1,14 +1,15 @@
+import os
 import oracledb
 import traceback
 
 # ------------------------------
-# CONFIGURATION
+# CONFIGURATION — read from environment, never hardcode credentials
 # ------------------------------
-USER = "sys"
-PASSWORD = "a1d2m7i4"        # replace with your real password
-HOST = "10.10.11.50"
-PORT = 1521
-SID = "mst1"
+USER = os.environ.get("ORACLE_TEST_USER", "sys")
+PASSWORD = os.environ.get("ORACLE_TEST_PASSWORD", "")
+HOST = os.environ.get("ORACLE_TEST_HOST", "")
+PORT = int(os.environ.get("ORACLE_TEST_PORT", "1521"))
+SID = os.environ.get("ORACLE_TEST_SID", "")
 
 # ------------------------------
 # TEST CONNECTION
