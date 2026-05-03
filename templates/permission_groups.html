@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Permission Groups — RAYD Admin</title>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        body { font-family: 'Inter', sans-serif; background: #0f172a; color: #e2e8f0; }
+        .card  { background: #1e293b; border: 1px solid #334155; border-radius: 14px; }
+        .pill  { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+        .pill-on  { background: rgba(34,197,94,.15); color: #4ade80; border: 1px solid rgba(34,197,94,.3); }
+        .pill-off { background: rgba(100,116,139,.1); color: #64748b; border: 1px solid rgba(100,116,139,.2); }
+        .toggle { position:relative; width:40px; height:22px; display:inline-block; }
+        .toggle input { opacity:0; width:0; height:0; }
+        .slider { position:absolute; inset:0; background:#334155; border-radius:22px; cursor:pointer; transition:.2s; }
+        .slider:before { content:''; position:absolute; width:16px; height:16px; left:3px; top:3px; background:#94a3b8; border-radius:50%; transition:.2s; }
+        input:checked + .slider { background:#3b82f6; }
+        input:checked + .slider:before { transform:translateX(18px); background:#fff; }
+        .row-hover:hover { background: rgba(148,163,184,.05); }
+        select, input[type=text], textarea {
+            background: #0f172a; border: 1px solid #334155; color: #e2e8f0;
+            border-radius: 8px; padding: 8px 12px; width: 100%; outline: none;
+            transition: border-color .15s;
+        }
+        select:focus, input[type=text]:focus, textarea:focus { border-color: #3b82f6; }
+        .btn-primary { background:#3b82f6; color:#fff; border:none; border-radius:8px; padding:8px 18px; font-weight:600; font-size:13px; cursor:pointer; transition:background .15s; }
+        .btn-primary:hover { background:#2563eb; }
+        .btn-ghost { background:transparent; color:#64748b; border:1px solid #334155; border-radius:8px; padding:7px 16px; font-weight:600; font-size:13px; cursor:pointer; transition:all .15s; }
+        .btn-ghost:hover { border-color:#3b82f6; color:#3b82f6; }
+        .btn-danger { background:rgba(239,68,68,.1); color:#f87171; border:1px solid rgba(239,68,68,.2); border-radius:8px; padding:6px 14px; font-weight:600; font-size:12px; cursor:pointer; transition:all .15s; }
+        .btn-danger:hover { background:rgba(239,68,68,.2); }
+        .group-row.active { background: rgba(59,130,246,.12); border-left: 3px solid #3b82f6; }
+        .group-row { border-left: 3px solid transparent; cursor:pointer; }
+        ::-webkit-scrollbar { width:5px; } ::-webkit-scrollbar-track { background:transparent; } ::-webkit-scrollbar-thumb { background:#334155; border-radius:4px; }
+    </style>
+</head>
+<body class="min-h-screen p-6">
+
+<div class="max-w-7xl mx-auto">
+
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-6">
+        <div>
+            <a href="/admin" class="text-xs text-slate-500 hover:text-slate-300 transition-colors">← Admin</a>
+            <h1 class="text-2xl font-black text-slate-100 mt-1">Permission Groups</h1>
+            <p class="text-xs text-slate-500 mt-0.5">Groups define a base permission set. Users inherit from their group and can have individual overrides.</p>
+        </div>
+        <button onclick="openCreateModal()" class="btn-primary flex items-center gap-2">
+            <i class="bi bi-plus-lg"></i> New Group
+        </button>
+    </div>
+
+    <div class="grid grid-cols-12 gap-5">
+
+        <!-- LEFT: Group list -->
+        <div class="col-span-4">
+            <div class="card p-0 overflow-hidden">
+                <div class="px-4 py-3 border-b border-slate-700">
+                    <span class="text-xs font-bold uppercase tracking-widest text-slate-400">Groups</span>
+                </div>
+                <div id="groupList" class="divide-y divide-slate-700/50 max-h-[70vh] overflow-y-auto">
+                    <div class="px-4 py-6 text-center text-slate-500 text-sm" id="groupsLoading">Loading…</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- RIGHT: Group detail / User assignment -->
+        <div class="col-span-8 space-y-5">
+
+            <!-- Group detail card -->
+            <div class="card p-5" id="groupDetailCard" style="display:none">
+                <div class="flex items-start justify-between mb-4">
+                    <div>
+                        <h2 class="text-base font-bold text-slate-100" id="detailName">—</h2>
+                        <p class="text-xs text-slate-400 mt-0.5" id="detailDesc">—</p>
+                    </div>
+                    <div class="flex gap-2">
+                        <button onclick="openEditModal()" class="btn-ghost text-xs"><i class="bi bi-pencil me-1"></i>Edit</button>
+                        <button onclick="deleteGroup()" class="btn-danger text-xs"><i class="bi bi-trash me-1"></i>Delete</button>
+                    </div>
+                </div>
+                <div class="border-t border-slate-700 pt-4">
+                    <p class="text-xs font-bold uppercase tracking-widest text-slate-400 mb-3">Permissions</p>
+                    <div id="permMatrix" class="space-y-2"></div>
+                </div>
+            </div>
+
+            <!-- Placeholder when nothing selected -->
+            <div class="card p-10 text-center" id="groupPlaceholder">
+                <i class="bi bi-shield-lock text-4xl text-slate-600"></i>
+                <p class="text-slate-500 mt-3 text-sm">Select a group to view its permissions</p>
+            </div>
+
+            <!-- User assignment card -->
+            <div class="card p-5">
+                <div class="flex items-center justify-between mb-4">
+                    <p class="text-xs font-bold uppercase tracking-widest text-slate-400">User Assignments</p>
+                    <input type="text" id="userSearch" placeholder="Search users…"
+                           oninput="filterUsers()" style="width:200px;font-size:12px;padding:6px 10px">
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="text-xs text-slate-500 uppercase tracking-wider border-b border-slate-700">
+                                <th class="pb-2 text-left font-semibold">User</th>
+                                <th class="pb-2 text-left font-semibold">Role</th>
+                                <th class="pb-2 text-left font-semibold">Group</th>
+                                <th class="pb-2 text-left font-semibold">Overrides</th>
+                            </tr>
+                        </thead>
+                        <tbody id="userTableBody" class="divide-y divide-slate-700/40">
+                            <tr><td colspan="4" class="py-6 text-center text-slate-500">Loading…</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<!-- ── Create / Edit Group Modal ─────────────────────────────────────────── -->
+<div id="groupModal" class="fixed inset-0 z-50 hidden items-center justify-center" style="background:rgba(0,0,0,.6);backdrop-filter:blur(4px)">
+    <div class="card p-6 w-full max-w-lg">
+        <h3 class="text-base font-bold text-slate-100 mb-4" id="modalTitle">New Group</h3>
+        <div class="space-y-4">
+            <div>
+                <label class="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">Group Name</label>
+                <input type="text" id="modalName" placeholder="e.g. Radiologists">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">Description</label>
+                <input type="text" id="modalDesc" placeholder="Optional description">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-400 mb-2 uppercase tracking-wider">Permissions</label>
+                <div id="modalPerms" class="space-y-2.5 max-h-56 overflow-y-auto pr-1"></div>
+            </div>
+        </div>
+        <div class="flex justify-end gap-3 mt-6">
+            <button onclick="closeModal()" class="btn-ghost">Cancel</button>
+            <button onclick="saveGroup()" class="btn-primary" id="modalSaveBtn">Create</button>
+        </div>
+    </div>
+</div>
+
+<!-- ── Override Modal ────────────────────────────────────────────────────── -->
+<div id="overrideModal" class="fixed inset-0 z-50 hidden items-center justify-center" style="background:rgba(0,0,0,.6);backdrop-filter:blur(4px)">
+    <div class="card p-6 w-full max-w-lg">
+        <h3 class="text-base font-bold text-slate-100 mb-1" id="overrideTitle">Permission Overrides</h3>
+        <p class="text-xs text-slate-400 mb-4" id="overrideSubtitle">Individual overrides take precedence over the group default.</p>
+        <div id="overridePerms" class="space-y-2.5 max-h-64 overflow-y-auto pr-1"></div>
+        <div class="flex justify-end gap-3 mt-6">
+            <button onclick="closeOverrideModal()" class="btn-ghost">Cancel</button>
+            <button onclick="saveOverrides()" class="btn-primary">Save</button>
+        </div>
+    </div>
+</div>
+
+<script>
+const CSRF = document.querySelector('meta[name="csrf-token"]').content;
+const ALL_PERMS = {{ all_permissions | tojson }};
+
+let groups = [], users = [], allUsers = [];
+let selectedGroupId = null;
+let editingGroupId = null;
+let overrideUserId = null;
+
+// ── Fetch helpers ────────────────────────────────────────────────────────────
+async function api(url, method = 'GET', body = null) {
+    const opts = { method, headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF } };
+    if (body) opts.body = JSON.stringify(body);
+    const r = await fetch(url, opts);
+    return r.json();
+}
+
+// ── Load data ────────────────────────────────────────────────────────────────
+async function loadGroups() {
+    groups = await api('/admin/groups/api');
+    renderGroupList();
+}
+
+async function loadUsers() {
+    const data = await api('/admin/groups/users');
+    allUsers = data.users;
+    users = [...allUsers];
+    renderUserTable();
+}
+
+function init() { loadGroups(); loadUsers(); }
+
+// ── Group list ───────────────────────────────────────────────────────────────
+function renderGroupList() {
+    const el = document.getElementById('groupList');
+    if (!groups.length) { el.innerHTML = '<div class="px-4 py-6 text-center text-slate-500 text-sm">No groups yet</div>'; return; }
+    el.innerHTML = groups.map(g => `
+        <div class="group-row row-hover px-4 py-3 flex items-center justify-between ${g.id === selectedGroupId ? 'active' : ''}"
+             onclick="selectGroup(${g.id})">
+            <div>
+                <p class="text-sm font-semibold text-slate-200">${esc(g.name)}</p>
+                <p class="text-xs text-slate-500 mt-0.5">${g.member_count} member${g.member_count !== 1 ? 's' : ''}</p>
+            </div>
+            <i class="bi bi-chevron-right text-slate-600 text-xs"></i>
+        </div>`).join('');
+}
+
+function selectGroup(id) {
+    selectedGroupId = id;
+    renderGroupList();
+    const g = groups.find(x => x.id === id);
+    if (!g) return;
+    document.getElementById('groupPlaceholder').style.display = 'none';
+    document.getElementById('groupDetailCard').style.display = '';
+    document.getElementById('detailName').textContent = g.name;
+    document.getElementById('detailDesc').textContent = g.description || '—';
+    renderPermMatrix(g.permissions);
+}
+
+function renderPermMatrix(perms) {
+    const el = document.getElementById('permMatrix');
+    el.innerHTML = ALL_PERMS.map(([key, label]) => {
+        const on = key === 'can_view_reports'
+            ? (perms[key] && (perms[key] === '*' || (Array.isArray(perms[key]) && perms[key].length > 0)))
+            : !!perms[key];
+        return `<div class="flex items-center justify-between py-1.5">
+            <span class="text-sm text-slate-300">${esc(label)}</span>
+            <span class="pill ${on ? 'pill-on' : 'pill-off'}">${on ? 'Allowed' : 'Denied'}</span>
+        </div>`;
+    }).join('');
+}
+
+// ── Create / Edit modal ──────────────────────────────────────────────────────
+function buildModalPerms(existing = {}) {
+    return ALL_PERMS.map(([key, label]) => {
+        const checked = key === 'can_view_reports'
+            ? (existing[key] == null || existing[key] === '*' || (Array.isArray(existing[key]) && existing[key].length > 0))
+            : (existing[key] == null ? false : !!existing[key]);
+        return `<div class="flex items-center justify-between">
+            <span class="text-sm text-slate-300">${esc(label)}</span>
+            <label class="toggle"><input type="checkbox" data-key="${key}" ${checked ? 'checked' : ''}><span class="slider"></span></label>
+        </div>`;
+    }).join('');
+}
+
+function openCreateModal() {
+    editingGroupId = null;
+    document.getElementById('modalTitle').textContent = 'New Group';
+    document.getElementById('modalSaveBtn').textContent = 'Create';
+    document.getElementById('modalName').value = '';
+    document.getElementById('modalDesc').value = '';
+    document.getElementById('modalPerms').innerHTML = buildModalPerms();
+    showModal('groupModal');
+}
+
+function openEditModal() {
+    const g = groups.find(x => x.id === selectedGroupId);
+    if (!g) return;
+    editingGroupId = g.id;
+    document.getElementById('modalTitle').textContent = 'Edit Group';
+    document.getElementById('modalSaveBtn').textContent = 'Save';
+    document.getElementById('modalName').value = g.name;
+    document.getElementById('modalDesc').value = g.description || '';
+    document.getElementById('modalPerms').innerHTML = buildModalPerms(g.permissions);
+    showModal('groupModal');
+}
+
+function collectModalPerms() {
+    const perms = {};
+    document.querySelectorAll('#modalPerms input[type=checkbox]').forEach(cb => {
+        const key = cb.dataset.key;
+        perms[key] = key === 'can_view_reports' ? (cb.checked ? ['*'] : []) : cb.checked;
+    });
+    return perms;
+}
+
+async function saveGroup() {
+    const name = document.getElementById('modalName').value.trim();
+    if (!name) { alert('Name required'); return; }
+    const body = { name, description: document.getElementById('modalDesc').value.trim(), permissions: collectModalPerms() };
+    let res;
+    if (editingGroupId) {
+        res = await api(`/admin/groups/api/${editingGroupId}`, 'PUT', body);
+    } else {
+        res = await api('/admin/groups/api', 'POST', body);
+    }
+    if (res.error) { alert(res.error); return; }
+    closeModal();
+    await loadGroups();
+    const targetId = editingGroupId || res.id;
+    if (targetId) selectGroup(targetId);
+}
+
+async function deleteGroup() {
+    const g = groups.find(x => x.id === selectedGroupId);
+    if (!g) return;
+    if (!confirm(`Delete group "${g.name}"? Members will be unassigned.`)) return;
+    await api(`/admin/groups/api/${selectedGroupId}`, 'DELETE');
+    selectedGroupId = null;
+    document.getElementById('groupDetailCard').style.display = 'none';
+    document.getElementById('groupPlaceholder').style.display = '';
+    await loadGroups();
+    await loadUsers();
+}
+
+// ── User table ───────────────────────────────────────────────────────────────
+function renderUserTable() {
+    const tbody = document.getElementById('userTableBody');
+    if (!users.length) { tbody.innerHTML = '<tr><td colspan="4" class="py-6 text-center text-slate-500">No users</td></tr>'; return; }
+    const groupOpts = groups.map(g => `<option value="${g.id}">${esc(g.name)}</option>`).join('');
+    tbody.innerHTML = users.map(u => {
+        const overrideCount = Object.keys(u.overrides || {}).length;
+        return `<tr class="row-hover">
+            <td class="py-2.5 pr-4">
+                <p class="text-sm font-medium text-slate-200">${esc(u.username)}</p>
+                ${u.full_name ? `<p class="text-xs text-slate-500">${esc(u.full_name)}</p>` : ''}
+            </td>
+            <td class="py-2.5 pr-4">
+                <span class="pill ${u.role === 'admin' ? 'bg-purple-500/15 text-purple-400 border border-purple-500/30' : 'bg-slate-700/50 text-slate-400 border border-slate-600'}">${esc(u.role || '—')}</span>
+            </td>
+            <td class="py-2.5 pr-4" style="min-width:160px">
+                <select onchange="assignGroup(${u.id}, this.value)" style="font-size:12px;padding:5px 8px">
+                    <option value="">— No group —</option>
+                    ${groupOpts}
+                </select>
+                <script>
+                    (function(){
+                        const sel = document.currentScript.previousElementSibling;
+                        sel.value = ${u.group_id || 'null'} || '';
+                    })();
+                <\/script>
+            </td>
+            <td class="py-2.5">
+                <button onclick="openOverrideModal(${u.id}, '${esc(u.username)}')"
+                        class="btn-ghost text-xs ${overrideCount > 0 ? 'border-blue-500/40 text-blue-400' : ''}">
+                    ${overrideCount > 0 ? `<i class="bi bi-stars me-1"></i>${overrideCount} override${overrideCount > 1 ? 's' : ''}` : '<i class="bi bi-sliders me-1"></i>Set'}
+                </button>
+            </td>
+        </tr>`;
+    }).join('');
+}
+
+function filterUsers() {
+    const q = document.getElementById('userSearch').value.toLowerCase();
+    users = allUsers.filter(u => u.username.toLowerCase().includes(q) || (u.full_name || '').toLowerCase().includes(q));
+    renderUserTable();
+}
+
+async function assignGroup(uid, gid) {
+    await api(`/admin/users/${uid}/group`, 'POST', { group_id: gid || null });
+    await loadGroups(); // refresh member counts
+    const u = allUsers.find(x => x.id === uid);
+    if (u) u.group_id = gid ? parseInt(gid) : null;
+}
+
+// ── Override modal ───────────────────────────────────────────────────────────
+async function openOverrideModal(uid, username) {
+    overrideUserId = uid;
+    document.getElementById('overrideTitle').textContent = `Overrides — ${username}`;
+    const data = await api(`/admin/users/${uid}/overrides`);
+    const groupPerms = data.group_permissions || {};
+    const overrides = data.overrides || {};
+    document.getElementById('overrideSubtitle').textContent =
+        data.group_name ? `Group: ${data.group_name}` : 'No group assigned';
+
+    document.getElementById('overridePerms').innerHTML = ALL_PERMS.map(([key, label]) => {
+        const groupVal = key === 'can_view_reports'
+            ? (groupPerms[key] && (groupPerms[key] === '*' || groupPerms[key].length > 0))
+            : !!groupPerms[key];
+        const hasOverride = key in overrides;
+        const overrideVal = hasOverride
+            ? (key === 'can_view_reports' ? (overrides[key] && overrides[key].length > 0) : !!overrides[key])
+            : groupVal;
+
+        return `<div class="flex items-center justify-between py-1">
+            <div>
+                <span class="text-sm text-slate-300">${esc(label)}</span>
+                <span class="ml-2 text-xs text-slate-500">Group: ${groupVal ? '✓' : '✗'}</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <label class="text-xs text-slate-500">
+                    <input type="checkbox" data-override-key="${key}" data-active="${hasOverride ? '1' : '0'}"
+                           onchange="toggleOverrideRow(this)"
+                           ${hasOverride ? 'checked' : ''}
+                           style="accent-color:#f59e0b;width:14px;height:14px"> Override
+                </label>
+                <label class="toggle">
+                    <input type="checkbox" data-val-key="${key}" ${overrideVal ? 'checked' : ''} ${!hasOverride ? 'disabled' : ''}>
+                    <span class="slider" style="${!hasOverride ? 'opacity:.4' : ''}"></span>
+                </label>
+            </div>
+        </div>`;
+    }).join('');
+
+    showModal('overrideModal');
+}
+
+function toggleOverrideRow(cb) {
+    const key = cb.dataset.overrideKey;
+    const valCb = document.querySelector(`[data-val-key="${key}"]`);
+    const slider = valCb.nextElementSibling;
+    if (cb.checked) {
+        valCb.disabled = false;
+        slider.style.opacity = '1';
+    } else {
+        valCb.disabled = true;
+        slider.style.opacity = '.4';
+    }
+}
+
+async function saveOverrides() {
+    const overrides = {};
+    document.querySelectorAll('[data-override-key]').forEach(cb => {
+        if (!cb.checked) return; // no override for this key
+        const key = cb.dataset.overrideKey;
+        const valCb = document.querySelector(`[data-val-key="${key}"]`);
+        overrides[key] = key === 'can_view_reports' ? (valCb.checked ? ['*'] : []) : valCb.checked;
+    });
+    await api(`/admin/users/${overrideUserId}/overrides`, 'POST', overrides);
+    closeOverrideModal();
+    await loadUsers();
+}
+
+// ── Modal helpers ────────────────────────────────────────────────────────────
+function showModal(id) {
+    const m = document.getElementById(id);
+    m.classList.remove('hidden');
+    m.classList.add('flex');
+}
+function closeModal() {
+    const m = document.getElementById('groupModal');
+    m.classList.add('hidden'); m.classList.remove('flex');
+}
+function closeOverrideModal() {
+    const m = document.getElementById('overrideModal');
+    m.classList.add('hidden'); m.classList.remove('flex');
+}
+
+function esc(s) {
+    if (!s) return '';
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+init();
+</script>
+</body>
+</html>

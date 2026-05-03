@@ -4,6 +4,7 @@ from sqlalchemy import text
 from datetime import date
 from db import db, user_has_page
 from utils.financial import _get_config, effective_rate
+from utils.permissions import permission_required
 
 financial_dashboard_bp = Blueprint('financial_dashboard', __name__)
 
@@ -143,6 +144,7 @@ def _collect(start: str, end: str) -> dict:
 
 @financial_dashboard_bp.route('/financial/revenue')
 @login_required
+@permission_required('can_view_finance')
 def financial_dashboard_page():
     if current_user.role != 'admin' and not user_has_page(current_user, 'financial'):
         abort(403)
