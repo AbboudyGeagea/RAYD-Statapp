@@ -62,26 +62,25 @@ git pull origin "$BRANCH" || error "git pull failed. Check remote URL and creden
 ok "Code up to date with '$BRANCH'."
 
 # ──────────────────────────────────────────────────────
-# STEP 2: Rebuild containers (pip-smart)
+# STEP 2: Build new image (old containers keep running)
 # ──────────────────────────────────────────────────────
-info "Step 2/4 — Rebuilding containers..."
-
-$COMPOSE down --remove-orphans 2>/dev/null || true
+# Build BEFORE stopping anything. If the build fails, set -e aborts the
+# script here and the currently-running containers are untouched — site
+# stays up and no manual recovery is needed.
+info "Step 2/4 — Building new image (site stays up during build)..."
 
 REQ_HASH=$(md5sum requirements.txt 2>/dev/null | awk '{print $1}')
 LAST_HASH=$(cat .last_req_hash 2>/dev/null || echo "")
+[ "$REQ_HASH" != "$LAST_HASH" ] && info "requirements.txt changed — will reinstall Python packages."
 
-if [ "$REQ_HASH" != "$LAST_HASH" ]; then
-    info "requirements.txt changed — reinstalling Python packages..."
-    $COMPOSE build
-    echo "$REQ_HASH" > .last_req_hash
-    ok "Packages reinstalled."
-else
-    ok "Python packages unchanged — skipping pip install."
-    $COMPOSE build
-fi
+$COMPOSE build       # exits script on failure thanks to set -e; old containers untouched
+echo "$REQ_HASH" > .last_req_hash
+ok "Build complete."
 
-$COMPOSE up -d
+# Hot-swap to new image. `up -d` recreates only containers whose image
+# changed; brief per-container restart only (no full down).
+info "Swapping to new image..."
+$COMPOSE up -d --remove-orphans
 
 # Wait for DB to be healthy
 info "Waiting for database..."
@@ -91,6 +90,18 @@ until docker exec rayd_db pg_isready -U "$PG_USER" -d "$PG_DB" -q 2>/dev/null ||
 done
 docker exec rayd_db pg_isready -U "$PG_USER" -d "$PG_DB" -q 2>/dev/null || error "Database not ready. Check: $COMPOSE logs db"
 ok "Database ready."
+
+# Health check — confirm Flask app is actually responding before proceeding
+info "Health check..."
+WAIT=0
+until docker exec rayd_service curl -sf http://localhost:8080/ -o /dev/null 2>/dev/null || [ $WAIT -ge 60 ]; do
+    sleep 3; WAIT=$((WAIT+3))
+done
+if ! docker exec rayd_service curl -sf http://localhost:8080/ -o /dev/null 2>/dev/null; then
+    warn "App did not respond within 60 s — check logs: $COMPOSE logs rayd-app --tail 40"
+    exit 1
+fi
+ok "App is responding."
 
 # ──────────────────────────────────────────────────────
 # STEP 3: Apply pending migrations
