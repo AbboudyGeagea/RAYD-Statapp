@@ -29,6 +29,9 @@ import pytz
 # ---------------------------------------------------------
 load_dotenv()
 
+from utils.logger import setup_logging, get_logger
+setup_logging()
+
 from config import config as app_config
 
 from db import (
@@ -47,7 +50,7 @@ _etl_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ETL_JOBS')
 if _etl_path not in sys.path:
     sys.path.insert(0, _etl_path)
 
-logger = logging.getLogger("APP")
+logger = get_logger("APP")
 
 # ---------------------------------------------------------
 # EMPTY DB DETECTION

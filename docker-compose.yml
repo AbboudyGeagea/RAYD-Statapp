@@ -53,6 +53,7 @@ services:
       - BITNET_TIMEOUT=${BITNET_TIMEOUT:-120}
 
     volumes:
+      - /opt/rayd/logs:/opt/rayd/logs
       - /home/stats/BitNet:/home/stats/BitNet:ro
 
     depends_on:
