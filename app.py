@@ -157,15 +157,27 @@ def create_app():
         except Exception:
             pass
 
+        pending_approvals_count   = 0
+        reset_requests_count      = 0
+        if current_user.is_authenticated and current_user.role == 'admin':
+            try:
+                from db import User as _User
+                pending_approvals_count  = _User.query.filter_by(status='pending').count()
+                reset_requests_count     = _User.query.filter_by(password_reset_requested=True).count()
+            except Exception:
+                pass
+
         return {
-            "config":             cfg,
-            "ui_theme":           theme,
-            "user_favorites":     favorites,
-            "demo_mode":          demo_mode,
-            "demo_start":         demo_start,
-            "demo_end":           demo_end,
-            "demo_user":          demo_user,
-            "oracle_configured":  oracle_configured,
+            "config":                   cfg,
+            "ui_theme":                 theme,
+            "user_favorites":           favorites,
+            "demo_mode":                demo_mode,
+            "demo_start":               demo_start,
+            "demo_end":                 demo_end,
+            "demo_user":                demo_user,
+            "oracle_configured":        oracle_configured,
+            "pending_approvals_count":  pending_approvals_count,
+            "reset_requests_count":     reset_requests_count,
         }
 
     # --- JINJA FILTER: user_has_page ---

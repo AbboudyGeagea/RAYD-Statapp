@@ -696,8 +696,9 @@ def set_user_password():
         return jsonify({'status': 'error', 'message': 'User not found or protected'}), 400
 
     from werkzeug.security import generate_password_hash
-    user.password_hash        = generate_password_hash(new_pw, method='pbkdf2:sha256')
-    user.must_change_password = True
+    user.password_hash               = generate_password_hash(new_pw, method='pbkdf2:sha256')
+    user.must_change_password        = True
+    user.password_reset_requested    = False
     _admin_audit('password_set_by_admin', user.id)
     db.session.commit()
     return jsonify({'status': 'ok'})
