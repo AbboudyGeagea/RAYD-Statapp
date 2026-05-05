@@ -56,10 +56,16 @@
                             {% if pending_users %}<span class="text-amber-400">{{ pending_users|length }} pending approval</span>{% else %}0 pending{% endif %}
                         </p>
                     </div>
-                    <a href="{{ url_for('auth.register') }}"
-                       class="flex items-center gap-2 px-4 py-2.5 bg-[#60a5fa] text-[#0f172a] text-xs font-black uppercase tracking-widest rounded-xl hover:bg-[#93c5fd] transition-colors">
-                        <i class="bi bi-person-plus-fill"></i> Add User
-                    </a>
+                    <div class="flex items-center gap-2">
+                        <a href="{{ url_for('groups.groups_page') }}"
+                           class="flex items-center gap-2 px-4 py-2.5 bg-[#1d2522] text-[#60a5fa] text-xs font-black uppercase tracking-widest rounded-xl border border-[#60a5fa]/30 hover:bg-[#60a5fa]/10 transition-colors">
+                            <i class="bi bi-shield-lock-fill"></i> Permission Groups
+                        </a>
+                        <a href="{{ url_for('auth.register') }}"
+                           class="flex items-center gap-2 px-4 py-2.5 bg-[#60a5fa] text-[#0f172a] text-xs font-black uppercase tracking-widest rounded-xl hover:bg-[#93c5fd] transition-colors">
+                            <i class="bi bi-person-plus-fill"></i> Add User
+                        </a>
+                    </div>
                 </div>
 
                 <!-- Tabs -->
