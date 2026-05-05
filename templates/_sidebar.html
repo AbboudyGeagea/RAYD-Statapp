@@ -47,6 +47,14 @@
            class="sidebar-item {% if request.endpoint == 'admin.user_management' %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
            title="User Management">
             <i class="bi bi-people-fill flex-shrink-0" style="color:#60a5fa;"></i> User Management
+            <span class="ml-auto flex items-center gap-1">
+                {% if pending_approvals_count %}
+                <span title="{{ pending_approvals_count }} pending approval" style="font-size:9px;font-weight:900;min-width:18px;height:18px;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;padding:0 4px;background:rgba(239,68,68,0.18);color:#f87171;border:1px solid rgba(239,68,68,0.35);">{{ pending_approvals_count }}</span>
+                {% endif %}
+                {% if reset_requests_count %}
+                <span title="{{ reset_requests_count }} password reset request" style="font-size:9px;font-weight:900;min-width:18px;height:18px;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;padding:0 4px;background:rgba(34,197,94,0.15);color:#4ade80;border:1px solid rgba(34,197,94,0.3);">{{ reset_requests_count }}</span>
+                {% endif %}
+            </span>
         </a>
         <a href="{{ url_for('admin.audit_log') }}"
            class="sidebar-item {% if request.endpoint == 'admin.audit_log' %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
@@ -173,12 +181,36 @@
         {% endif %}
     </nav>
 
-    <form method="POST" action="/logout" class="mt-auto mb-3">
+    {% if current_user.role != 'admin' %}
+    <div class="mt-auto mb-2">
+        {% if current_user.password_reset_requested %}
+        <div class="w-full flex items-center gap-3 px-3 py-2.5 text-xs font-bold rounded-xl border border-emerald-500/20 text-emerald-400 bg-emerald-500/5 mb-2">
+            <i class="bi bi-check-circle-fill flex-shrink-0"></i> Reset requested — awaiting admin
+        </div>
+        {% else %}
+        <button onclick="requestPasswordReset()" title="Ask admin to set a temporary password"
+            class="w-full flex items-center gap-3 px-3 py-2.5 text-xs font-bold rounded-xl border border-[#28332e] text-slate-500 hover:text-emerald-400 hover:border-emerald-400/30 transition-all mb-2">
+            <i class="bi bi-key-fill flex-shrink-0"></i> Request Password Reset
+        </button>
+        {% endif %}
+    </div>
+    {% endif %}
+    <form method="POST" action="/logout" class="{% if current_user.role == 'admin' %}mt-auto {% endif %}mb-3">
         <button type="submit" title="Logout"
             class="w-full flex items-center gap-3 px-3 py-3 text-sm font-bold rounded-xl border border-[#28332e] text-slate-500 hover:text-red-400 hover:border-red-400/30 transition-all">
             <i class="bi bi-box-arrow-right flex-shrink-0"></i> Logout
         </button>
     </form>
+
+    <script>
+    async function requestPasswordReset() {
+        if (!confirm('Send a password reset request to the administrator?')) return;
+        const res  = await fetch('/user/request-password-reset', {method: 'POST'});
+        const data = await res.json();
+        if (data.status === 'ok') location.reload();
+        else alert(data.message || 'Failed to send request.');
+    }
+    </script>
 
     <div class="p-4 bg-[#181f1c] rounded-2xl border border-[#28332e]">
         <p class="text-[10px] uppercase text-slate-500 font-bold mb-1">System Health</p>

@@ -198,7 +198,8 @@ class User(db.Model, UserMixin):
     created_by           = db.Column(Integer, ForeignKey('users.id'))
     created_at           = db.Column(DateTime, server_default=func.now())
     last_login           = db.Column(DateTime)
-    must_change_password = db.Column(Boolean, server_default='false')
+    must_change_password      = db.Column(Boolean, server_default='false')
+    password_reset_requested  = db.Column(Boolean, server_default='false')
     # group-based permissions
     group_id             = db.Column(Integer, ForeignKey('permission_groups.id'), nullable=True)
     permission_overrides = db.Column(JSONB, server_default='{}')

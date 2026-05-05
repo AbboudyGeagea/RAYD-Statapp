@@ -189,6 +189,21 @@ def login():
     return render_template('login.html')
 
 
+# ── request password reset (self-service → admin action) ─────────────────────
+
+@auth_bp.route('/user/request-password-reset', methods=['POST'])
+@login_required
+def request_password_reset():
+    if current_user.role == 'admin':
+        from flask import jsonify
+        return jsonify({'status': 'error', 'message': 'Admins cannot request a reset this way.'}), 400
+    current_user.password_reset_requested = True
+    _audit('password_reset_requested', current_user.id)
+    db.session.commit()
+    from flask import jsonify
+    return jsonify({'status': 'ok'})
+
+
 # ── logout ────────────────────────────────────────────────────────────────────
 
 @auth_bp.route('/logout', methods=['GET', 'POST'])
