@@ -69,8 +69,8 @@
         {% endif %}
 
         {% if current_user.role == 'admin' or current_user|user_has_page('scheduling') %}
-        <a href="{{ url_for('admin.scheduling_page') }}"
-           class="sidebar-item {% if request.endpoint == 'admin.scheduling_page' %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
+        <a href="{{ url_for('admin.scheduling_page') }}" target="_blank"
+           class="sidebar-item flex items-center gap-3 px-3 py-3 text-sm font-bold"
            title="Scheduling">
             <i class="bi bi-calendar3-range flex-shrink-0" style="color:#38bdf8;"></i> Scheduling
         </a>

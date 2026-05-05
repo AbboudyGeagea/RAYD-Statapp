@@ -167,7 +167,6 @@ def scheduling_page():
                         entry.third_party_approvals = third_party_approvals
                         entry.updated_at = datetime.utcnow()
                         db.session.commit()
-                        flash("Scheduling entry updated.", "success")
                         return redirect(url_for('admin.scheduling_page',
                                                 schedule_id=entry.id, date=procedure_datetime.strftime('%Y-%m-%d')))
                 else:
@@ -180,7 +179,6 @@ def scheduling_page():
                     )
                     db.session.add(new_entry)
                     db.session.commit()
-                    flash("Scheduling entry saved.", "success")
                     return redirect(url_for('admin.scheduling_page',
                                             schedule_id=new_entry.id, date=procedure_datetime.strftime('%Y-%m-%d')))
 
@@ -359,15 +357,29 @@ def arrive_hl7(hl7_id):
 def reschedule_hl7(hl7_id):
     if current_user.role != 'admin':
         return abort(403)
-    data = request.get_json()
-    new_dt_str = (data or {}).get('scheduled_datetime', '')
+    data = request.get_json() or {}
+    new_dt_str = data.get('scheduled_datetime', '')
     try:
         new_dt = datetime.strptime(new_dt_str, '%Y-%m-%dT%H:%M')
     except (ValueError, TypeError):
         return jsonify({'status': 'error', 'message': 'Invalid datetime'}), 400
+
+    params = {'dt': new_dt, 'id': hl7_id}
+    set_clauses = ['scheduled_datetime = :dt']
+
+    if 'procedure_text' in data:
+        params['procedure_text'] = (data['procedure_text'] or '').strip()
+        set_clauses.append('procedure_text = :procedure_text')
+    if 'modality' in data:
+        params['modality'] = (data['modality'] or '').strip().upper()
+        set_clauses.append('modality = :modality')
+    if 'physician' in data:
+        params['physician'] = (data['physician'] or '').strip()
+        set_clauses.append('ordering_physician = :physician')
+
     db.session.execute(
-        text("UPDATE hl7_orders SET scheduled_datetime = :dt WHERE id = :id"),
-        {'dt': new_dt, 'id': hl7_id}
+        text(f"UPDATE hl7_orders SET {', '.join(set_clauses)} WHERE id = :id"),
+        params
     )
     db.session.commit()
     return jsonify({'status': 'ok', 'scheduled_datetime': new_dt.strftime('%Y-%m-%dT%H:%M')})
