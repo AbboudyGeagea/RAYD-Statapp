@@ -343,6 +343,14 @@ ALL_FEATURE_KEYS = [
     'financial',
 ]
 
+# Default pages granted to each role at approval / role-change time.
+# Admin is always full-access — handled separately in user_has_page().
+ROLE_PAGE_DEFAULTS = {
+    'viewer':  set(ALL_FEATURE_KEYS),
+    'tec':     {'scheduling', 'live_feed', 'hl7_orders'},
+    'finance': {'financial'},
+}
+
 def user_has_page(user, page_key):
     if user.role == 'admin':
         return True
