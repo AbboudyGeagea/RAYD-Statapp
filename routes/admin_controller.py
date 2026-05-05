@@ -458,12 +458,8 @@ def _get_user_page_columns():
 
 
 def _apply_role_default_permissions(user, role):
-    from db import ALL_FEATURE_KEYS
-    defaults = {
-        'viewer':   set(ALL_FEATURE_KEYS),
-        'tec':      {'hl7_orders', 'live_feed'},
-        'analyst':  set(),
-    }.get(role, set())
+    from db import ALL_FEATURE_KEYS, ROLE_PAGE_DEFAULTS
+    defaults = ROLE_PAGE_DEFAULTS.get(role, set())
 
     existing_perms = {p.page_key: p for p in UserPagePermission.query.filter_by(user_id=user.id).all()}
 
@@ -522,6 +518,7 @@ def user_management():
         page_perms=page_perms,
         page_keys=page_keys,
         sessions_by_user=sessions_by_user,
+        ui_theme=current_user.ui_theme or 'dark',
     )
 
 
@@ -560,7 +557,7 @@ def update_user_role():
     user_id  = data.get('user_id')
     new_role = data.get('role')
 
-    if new_role not in ('viewer', 'tec', 'analyst'):
+    if new_role not in ('viewer', 'tec', 'finance'):
         return jsonify({'status': 'error', 'message': 'Invalid role'}), 400
 
     user = User.query.get(user_id)
@@ -587,7 +584,7 @@ def approve_user():
     user_id  = data.get('user_id')
     new_role = data.get('role', 'viewer')
 
-    if new_role not in ('viewer', 'tec', 'analyst'):
+    if new_role not in ('viewer', 'tec', 'finance'):
         return jsonify({'status': 'error', 'message': 'Invalid role'}), 400
 
     user = User.query.get(user_id)

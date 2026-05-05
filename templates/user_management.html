@@ -22,7 +22,7 @@
         .status-pending  { background: rgba(245,158,11,0.1);  color: #f59e0b; border: 1px solid rgba(245,158,11,0.25); }
         .role-viewer  { background: rgba(96,165,250,0.1);  color: #60a5fa;  border: 1px solid rgba(96,165,250,0.25); }
         .role-tec     { background: rgba(168,85,247,0.1);  color: #a855f7;  border: 1px solid rgba(168,85,247,0.25); }
-        .role-analyst { background: rgba(52,211,153,0.1);  color: #34d399;  border: 1px solid rgba(52,211,153,0.25); }
+        .role-finance { background: rgba(52,211,153,0.1);  color: #34d399;  border: 1px solid rgba(52,211,153,0.25); }
         .role-admin   { background: rgba(245,158,11,0.1);  color: #f59e0b;  border: 1px solid rgba(245,158,11,0.25); }
         .action-btn { padding: 0.3rem 0.6rem; border-radius: 0.4rem; font-size: 0.65rem; font-weight: 900; letter-spacing: 0.05em; text-transform: uppercase; border: 1px solid transparent; cursor: pointer; transition: all 0.15s; }
         .action-btn:disabled { opacity: 0.35; cursor: not-allowed; }
@@ -57,10 +57,6 @@
                         </p>
                     </div>
                     <div class="flex items-center gap-2">
-                        <a href="{{ url_for('groups.groups_page') }}"
-                           class="flex items-center gap-2 px-4 py-2.5 bg-[#1d2522] text-[#60a5fa] text-xs font-black uppercase tracking-widest rounded-xl border border-[#60a5fa]/30 hover:bg-[#60a5fa]/10 transition-colors">
-                            <i class="bi bi-shield-lock-fill"></i> Permission Groups
-                        </a>
                         <a href="{{ url_for('auth.register') }}"
                            class="flex items-center gap-2 px-4 py-2.5 bg-[#60a5fa] text-[#0f172a] text-xs font-black uppercase tracking-widest rounded-xl hover:bg-[#93c5fd] transition-colors">
                             <i class="bi bi-person-plus-fill"></i> Add User
@@ -109,7 +105,7 @@
                                             <div class="w-8 h-8 rounded-xl flex items-center justify-center text-xs font-black shrink-0
                                                 {% if u.role == 'viewer' %}bg-blue-500/10 text-blue-400
                                                 {% elif u.role == 'tec' %}bg-purple-500/10 text-purple-400
-                                                {% elif u.role == 'analyst' %}bg-emerald-500/10 text-emerald-400
+                                                {% elif u.role == 'finance' %}bg-emerald-500/10 text-emerald-400
                                                 {% else %}bg-slate-500/10 text-slate-400{% endif %}">
                                                 {{ (u.full_name or u.username)[0]|upper }}
                                             </div>
@@ -125,9 +121,9 @@
                                     <td class="py-4 px-3">
                                         <select onchange="changeRole({{ u.id }}, this.value)"
                                             class="bg-[#1d2522] border border-[#28332e] text-xs font-black uppercase tracking-widest rounded-lg px-3 py-1.5 text-slate-300 focus:outline-none focus:border-[#60a5fa] transition-colors cursor-pointer">
-                                            <option value="viewer"   {% if u.role == 'viewer'   %}selected{% endif %}>Viewer</option>
-                                            <option value="tec"      {% if u.role == 'tec'      %}selected{% endif %}>Tec</option>
-                                            <option value="analyst"  {% if u.role == 'analyst'  %}selected{% endif %}>Analyst</option>
+                                            <option value="viewer"  {% if u.role == 'viewer'  %}selected{% endif %}>Viewer</option>
+                                            <option value="tec"     {% if u.role == 'tec'     %}selected{% endif %}>Tec</option>
+                                            <option value="finance" {% if u.role == 'finance' %}selected{% endif %}>Finance</option>
                                         </select>
                                     </td>
 
@@ -262,7 +258,7 @@
                                             class="bg-[#1d2522] border border-[#28332e] text-xs font-black uppercase tracking-widest rounded-lg px-3 py-1.5 text-slate-300 focus:outline-none focus:border-[#60a5fa]">
                                             <option value="viewer">Viewer</option>
                                             <option value="tec">Tec</option>
-                                            <option value="analyst">Analyst</option>
+                                            <option value="finance">Finance</option>
                                         </select>
                                     </td>
                                     <td class="py-4 px-3 text-center">
