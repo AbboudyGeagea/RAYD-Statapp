@@ -80,7 +80,7 @@
     <div class="flex flex-1 overflow-hidden">
 
     <aside class="w-64 bg-[#1a2420] border-r border-[#28332e] p-5 flex flex-col overflow-y-auto flex-shrink-0">
-        <form id="mainForm" method="POST" class="space-y-6 flex-1 overflow-y-auto pr-2">
+        <form id="mainForm" method="GET" class="space-y-6 flex-1 overflow-y-auto pr-2">
             <input type="hidden" name="active_tab" id="active_tab_input" value="{{ active_tab }}">
 
             <div>
@@ -93,7 +93,7 @@
                 <label class="sidebar-label">Patient Class</label>
                 <select name="patient_class" multiple class="select2-js w-full"
                         data-filter-key="classes"
-                        data-selected="{{ request.form.getlist('patient_class') | join('||') }}">
+                        data-selected="{{ request.args.getlist('patient_class') | join('||') }}">
                 </select>
                 <label class="inline-flex items-center mt-2 cursor-pointer">
                     <input type="checkbox" name="class_enabled" checked class="w-4 h-4 bg-black border-zinc-800 rounded text-blue-600">
@@ -105,7 +105,7 @@
                 <label class="sidebar-label">Modality</label>
                 <select name="modality" multiple class="select2-js w-full"
                         data-filter-key="modalities"
-                        data-selected="{{ request.form.getlist('modality') | join('||') }}">
+                        data-selected="{{ request.args.getlist('modality') | join('||') }}">
                 </select>
                 <label class="inline-flex items-center mt-2 cursor-pointer">
                     <input type="checkbox" name="mod_enabled" checked class="w-4 h-4 bg-black border-zinc-800 rounded text-blue-600">
@@ -117,7 +117,7 @@
                 <label class="sidebar-label">AE Title</label>
                 <select name="aetitle" multiple class="select2-js w-full"
                         data-filter-key="aetitles"
-                        data-selected="{{ request.form.getlist('aetitle') | join('||') }}">
+                        data-selected="{{ request.args.getlist('aetitle') | join('||') }}">
                 </select>
                 <label class="inline-flex items-center mt-2 cursor-pointer">
                     <input type="checkbox" name="ae_enabled" checked class="w-4 h-4 bg-black border-zinc-800 rounded text-blue-600">
@@ -129,7 +129,7 @@
                 <label class="sidebar-label">Patient Location</label>
                 <select name="patient_location" multiple class="select2-js w-full"
                         data-filter-key="locations"
-                        data-selected="{{ request.form.getlist('patient_location') | join('||') }}">
+                        data-selected="{{ request.args.getlist('patient_location') | join('||') }}">
                 </select>
                 <label class="inline-flex items-center mt-2 cursor-pointer">
                     <input type="checkbox" name="loc_enabled" checked class="w-4 h-4 bg-black border-zinc-800 rounded text-blue-600">

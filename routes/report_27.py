@@ -67,10 +67,10 @@ def report_27():
     today = date.today()
     go_live = get_go_live_date() or date(2025, 1, 1)
 
-    start_a = request.form.get("start_date", go_live.strftime('%Y-%m-%d'))
-    end_a   = request.form.get("end_date",   today.strftime('%Y-%m-%d'))
+    start_a = request.values.get("start_date", go_live.strftime('%Y-%m-%d'))
+    end_a   = request.values.get("end_date",   today.strftime('%Y-%m-%d'))
 
-    run_report = request.method == "POST"
+    run_report = 'start_date' in request.values
     data = {}
 
     if run_report:
