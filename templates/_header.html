@@ -29,6 +29,22 @@ function escHtml(v) {
         return _origFetch.call(this, url, options);
     };
 })();
+
+// ── CSRF: auto-inject hidden token into every POST form on the page ───────
+document.addEventListener('DOMContentLoaded', function() {
+    const token = document.querySelector('meta[name="csrf-token"]');
+    if (!token) return;
+    document.querySelectorAll('form').forEach(function(form) {
+        const m = (form.getAttribute('method') || 'GET').toUpperCase();
+        if (m === 'POST' && !form.querySelector('input[name="csrf_token"]')) {
+            const inp = document.createElement('input');
+            inp.type = 'hidden';
+            inp.name = 'csrf_token';
+            inp.value = token.content;
+            form.appendChild(inp);
+        }
+    });
+});
 </script>
 {% if demo_mode %}
 <div style="background:rgba(245,158,11,0.12);border-bottom:1px solid rgba(245,158,11,0.3);padding:5px 24px;display:flex;align-items:center;justify-content:center;gap:10px;z-index:40;position:relative;">
