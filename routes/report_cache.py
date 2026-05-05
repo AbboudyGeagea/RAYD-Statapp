@@ -84,50 +84,35 @@ def get_filter_options(db) -> dict:
     """
     Return {classes, locations, modalities, aetitles, statuses, sex_values}
     from cache, re-querying only when the TTL has expired.
+    Each field is fetched independently so one failure never blanks the rest.
     """
+    import logging
     from sqlalchemy import text
+
+    log = logging.getLogger(__name__)
 
     entry = _store.get(_FILTER_KEY)
     if entry and (time.time() - entry["ts"]) < _FILTER_TTL:
         return entry["data"]
 
-    # One consolidated query — single round trip for everything from small
-    # lookup tables; DISTINCT on large tables grouped into one CTE so PG
-    # only scans etl_didb_studies once.
     data = {"classes": [], "locations": [], "statuses": [], "aetitles": [], "modalities": [], "sex_values": []}
 
-    try:
-        row = db.session.execute(text("""
-            WITH s AS MATERIALIZED (
-                SELECT DISTINCT patient_class, patient_location, study_status, storing_ae
-                FROM etl_didb_studies
-                WHERE patient_class IS NOT NULL
-                   OR patient_location IS NOT NULL
-                   OR study_status    IS NOT NULL
-                   OR storing_ae      IS NOT NULL
-            )
-            SELECT
-                (SELECT JSON_AGG(v ORDER BY v) FROM (SELECT DISTINCT patient_class    AS v FROM s WHERE patient_class    IS NOT NULL) x) AS classes,
-                (SELECT JSON_AGG(v ORDER BY v) FROM (SELECT DISTINCT patient_location AS v FROM s WHERE patient_location IS NOT NULL) x) AS locations,
-                (SELECT JSON_AGG(v ORDER BY v) FROM (SELECT DISTINCT study_status     AS v FROM s WHERE study_status     IS NOT NULL) x) AS statuses,
-                (SELECT JSON_AGG(v ORDER BY v) FROM (SELECT DISTINCT storing_ae       AS v FROM s WHERE storing_ae       IS NOT NULL) x) AS aetitles,
-                (SELECT JSON_AGG(v ORDER BY v) FROM (SELECT DISTINCT modality FROM aetitle_modality_map WHERE modality IS NOT NULL AND modality != 'SR') x) AS modalities
-        """)).fetchone()
-        data["classes"]    = row[0] or []
-        data["locations"]  = row[1] or []
-        data["statuses"]   = row[2] or []
-        data["aetitles"]   = row[3] or []
-        data["modalities"] = row[4] or []
-    except Exception:
-        db.session.rollback()
+    _QUERIES = {
+        "classes":    "SELECT ARRAY_AGG(DISTINCT patient_class   ORDER BY patient_class)   FROM etl_didb_studies WHERE patient_class   IS NOT NULL",
+        "locations":  "SELECT ARRAY_AGG(DISTINCT patient_location ORDER BY patient_location) FROM etl_didb_studies WHERE patient_location IS NOT NULL",
+        "statuses":   "SELECT ARRAY_AGG(DISTINCT study_status    ORDER BY study_status)    FROM etl_didb_studies WHERE study_status    IS NOT NULL",
+        "aetitles":   "SELECT ARRAY_AGG(DISTINCT storing_ae      ORDER BY storing_ae)      FROM etl_didb_studies WHERE storing_ae      IS NOT NULL",
+        "modalities": "SELECT ARRAY_AGG(DISTINCT modality        ORDER BY modality)        FROM aetitle_modality_map WHERE modality IS NOT NULL AND modality != 'SR'",
+        "sex_values": "SELECT ARRAY_AGG(DISTINCT sex             ORDER BY sex)             FROM etl_patient_view WHERE sex IS NOT NULL",
+    }
 
-    try:
-        row2 = db.session.execute(text(
-            "SELECT JSON_AGG(v ORDER BY v) FROM (SELECT DISTINCT sex AS v FROM etl_patient_view WHERE sex IS NOT NULL) x"
-        )).fetchone()
-        data["sex_values"] = row2[0] or []
-    except Exception:
-        db.session.rollback()
+    for key, sql in _QUERIES.items():
+        try:
+            row = db.session.execute(text(sql)).fetchone()
+            data[key] = list(row[0]) if row and row[0] else []
+        except Exception as exc:
+            log.error("filter_options[%s] failed: %s", key, exc)
+            db.session.rollback()
 
     _store[_FILTER_KEY] = {"data": data, "ts": time.time()}
     return data
