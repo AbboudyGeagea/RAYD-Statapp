@@ -798,7 +798,7 @@ def compute_bg_data(form_data):
 @login_required
 def report_25_bg():
     from flask import jsonify, render_template as rt
-    bg = compute_bg_data(request.form)
+    bg = compute_bg_data(request.values)
     tech_html = rt('_tech_tab.html',
                    tech_data=bg['tech_data'],
                    tech_insights=bg['tech_insights'])
@@ -826,8 +826,8 @@ def report_25():
     tree_json = json.dumps({"name": "FLEET", "children": [{"name": k, "children": v} for k, v in tree_dict.items()]})
 
     shift_config = _load_shift_config()
-    run_report = request.method == "POST"
-    active_tab = request.form.get("active_tab", "ops")
+    run_report = 'start_date' in request.values
+    active_tab = request.values.get("active_tab", "ops")
 
     go_live = get_etl_cutoff_date()
     display_start = go_live.strftime("%Y-%m-%d") if go_live else "2024-01-01"
@@ -840,11 +840,11 @@ def report_25():
     if run_report:
         from utils.audit import log_event
         log_event('report_run', category='report', resource_type='report_25',
-                  detail={'from': request.form.get('start_date'), 'to': request.form.get('end_date'),
+                  detail={'from': request.values.get('start_date'), 'to': request.values.get('end_date'),
                           'tab': active_tab})
-        data, display_start, display_end = get_gold_standard_data(request.form)
+        data, display_start, display_end = get_gold_standard_data(request.values)
 
-        pid = request.form.get("fallback_id")
+        pid = request.values.get("fallback_id")
         if pid:
             res = db.session.execute(text("SELECT procedure_code, scheduled_datetime, insert_time, report_time, proc_duration FROM etl_didb_studies s JOIN etl_patient_view p ON s.fallback_id = p.fallback_id WHERE p.fallback_id = :pid ORDER BY s.insert_time ASC"), {"pid": pid}).mappings().all()
             if res:
@@ -866,7 +866,7 @@ def export_report_25():
     ok, msg = check_license_limit(current_app, 'export')
     if not ok:
         return jsonify({"error": msg}), 403
-    data, _, _ = get_gold_standard_data(request.form)
+    data, _, _ = get_gold_standard_data(request.values)
     if not data: return "Error", 400
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
@@ -882,8 +882,8 @@ def export_technician_25():
     ok, msg = check_license_limit(current_app, 'export')
     if not ok:
         return jsonify({"error": msg}), 403
-    get_gold_standard_data(request.form)  # ensure main cache is warm
-    bg = compute_bg_data(request.form)
+    get_gold_standard_data(request.values)  # ensure main cache is warm
+    bg = compute_bg_data(request.values)
     tech = bg.get('tech_data', {})
 
     sections = []

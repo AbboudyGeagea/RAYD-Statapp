@@ -41,26 +41,26 @@ def get_where_params(form):
 def report_22():
     go_live = get_go_live_date() or date(2025, 1, 1)
     today = date.today()
-    start_date = request.form.get("start_date", go_live.strftime('%Y-%m-%d'))
-    end_date = request.form.get("end_date", today.strftime('%Y-%m-%d'))
+    start_date = request.values.get("start_date", go_live.strftime('%Y-%m-%d'))
+    end_date = request.values.get("end_date", today.strftime('%Y-%m-%d'))
 
     # Loaded asynchronously via /api/filter-options — not blocking here.
     status_list = mod_list = ae_list = []
 
     filters = {
-        "f_class_active": request.form.get("f_class_active") == "on",
-        "f_sex_active": request.form.get("f_sex_active") == "on",
-        "f_status_active": request.form.get("f_status_active") == "on",
-        "f_mod_active": request.form.get("f_mod_active") == "on",
-        "f_ae_active": request.form.get("f_ae_active") == "on",
-        "p_class": request.form.get("f_class"),
-        "sex": request.form.get("f_sex"),
-        "status": request.form.get("f_status"),
-        "mod": request.form.get("f_mod"),
-        "ae": request.form.get("f_ae")
+        "f_class_active": request.values.get("f_class_active") == "on",
+        "f_sex_active": request.values.get("f_sex_active") == "on",
+        "f_status_active": request.values.get("f_status_active") == "on",
+        "f_mod_active": request.values.get("f_mod_active") == "on",
+        "f_ae_active": request.values.get("f_ae_active") == "on",
+        "p_class": request.values.get("f_class"),
+        "sex": request.values.get("f_sex"),
+        "status": request.values.get("f_status"),
+        "mod": request.values.get("f_mod"),
+        "ae": request.values.get("f_ae")
     }
 
-    run_report = request.method == "POST"
+    run_report = 'start_date' in request.values
     data = {}
 
     if run_report:
@@ -68,7 +68,7 @@ def report_22():
         log_event('report_run', category='report', resource_type='report_22',
                   detail={'from': start_date, 'to': end_date,
                           'modality': filters.get('mod'), 'ae': filters.get('ae')})
-        where, params = get_where_params(request.form)
+        where, params = get_where_params(request.values)
 
         try:
             db.session.execute(text("""

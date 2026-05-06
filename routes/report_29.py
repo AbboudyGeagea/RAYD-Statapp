@@ -50,9 +50,9 @@ def report_29():
 
     _, display_start, display_end = get_report_data({})
 
-    if request.method == "POST":
+    if 'start_date' in request.values:
         run_report = True
-        df, display_start, display_end = get_report_data(request.form)
+        df, display_start, display_end = get_report_data(request.values)
 
         if not df.empty:
             stats["total_tb"] = round(df["total_gb"].sum() / 1024, 2)

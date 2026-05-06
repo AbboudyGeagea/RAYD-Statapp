@@ -62,21 +62,21 @@ def get_report_config(form):
 @report_23_bp.route('/report/23', methods=['GET', 'POST'])
 @login_required
 def report_23():
-    run_report = request.method == 'POST'
-    base_sql, start_date, end_date, params, extra_where = get_report_config(request.form)
+    run_report = 'start_date' in request.values
+    base_sql, start_date, end_date, params, extra_where = get_report_config(request.values)
 
     # Loaded asynchronously via /api/filter-options — not blocking here.
     mod_list = class_list = sex_list = []
 
     filters = {
-        "f_mod_active":   request.form.get("f_mod_active") == "on",
-        "f_class_active": request.form.get("f_class_active") == "on",
-        "f_sex_active":   request.form.get("f_sex_active") == "on",
-        "mod":     request.form.get("f_mod"),
-        "p_class": request.form.get("f_class"),
-        "sex":     request.form.get("f_sex"),
-        "age_min": request.form.get("f_age_min"),
-        "age_max": request.form.get("f_age_max"),
+        "f_mod_active":   request.values.get("f_mod_active") == "on",
+        "f_class_active": request.values.get("f_class_active") == "on",
+        "f_sex_active":   request.values.get("f_sex_active") == "on",
+        "mod":     request.values.get("f_mod"),
+        "p_class": request.values.get("f_class"),
+        "sex":     request.values.get("f_sex"),
+        "age_min": request.values.get("f_age_min"),
+        "age_max": request.values.get("f_age_max"),
     }
 
     metrics    = {"total_count": 0}

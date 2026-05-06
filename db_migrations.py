@@ -59,24 +59,25 @@ def run_migrations(app):
 
                 statements = _split_sql(raw)
 
-                for statement in statements:
-                    if "CONCURRENTLY" in statement.upper():
-                        # CREATE INDEX CONCURRENTLY cannot run inside a transaction
-                        with db.engine.connect() as conn:
-                            conn = conn.execution_options(isolation_level="AUTOCOMMIT")
-                            conn.execute(text(statement))
-                    else:
-                        db.session.execute(text(statement))
+                with db.engine.connect() as conn:
+                    for statement in statements:
+                        if "CONCURRENTLY" in statement.upper():
+                            # CREATE INDEX CONCURRENTLY cannot run inside a transaction
+                            conn.execution_options(isolation_level="AUTOCOMMIT").exec_driver_sql(statement)
+                        else:
+                            # exec_driver_sql bypasses SQLAlchemy's :param parsing,
+                            # which prevents false positives on JSON literals like :true/:false
+                            conn.exec_driver_sql(statement)
 
-                db.session.execute(
-                    text("INSERT INTO schema_migrations (name) VALUES (:name)"),
-                    {"name": filename}
-                )
-                db.session.commit()
+                    conn.execute(
+                        text("INSERT INTO schema_migrations (name) VALUES (:name)"),
+                        {"name": filename}
+                    )
+                    conn.commit()
+
                 logger.info(f"[migrations] Applied: {filename}")
 
             except Exception as e:
-                db.session.rollback()
                 logger.error(f"[migrations] FAILED: {filename} — {e}")
 
 
