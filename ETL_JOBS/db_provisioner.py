@@ -137,3 +137,61 @@ def get_target_engine(system_type_key):
         raise ValueError(f"Unknown system type: {system_type_key}")
     db_name = f"rayd_{st['db_name_suffix']}"
     return create_engine(_get_pg_url(db_name))
+
+
+def generate_ddl_from_mapping(mapping_json):
+    """
+    Generate CREATE TABLE DDL statements from a custom adapter mapping JSON.
+    Each table entry must have target_table and columns[].{target, pg_type}.
+    Falls back to TEXT for any column missing pg_type.
+    Returns a list of SQL strings.
+    """
+    from ETL_JOBS.etl_adapter import infer_pg_type
+
+    ddl = []
+    for tbl in mapping_json.get('tables', []):
+        target = (tbl.get('target_table') or '').strip()
+        cols   = tbl.get('columns', [])
+        if not target or not cols:
+            continue
+
+        pk_col    = None
+        inc_key   = tbl.get('incremental_key')
+        col_lines = []
+
+        for col in cols:
+            pg_type = (col.get('pg_type') or '').strip()
+            if not pg_type:
+                pg_type = infer_pg_type(col.get('source_type', ''))
+            col_lines.append(f"    {col['target']} {pg_type}")
+            if pk_col is None and 'NOT NULL' in pg_type.upper():
+                pk_col = col['target']
+
+        # Prefer the incremental_key column as PK if defined
+        if inc_key:
+            for col in cols:
+                if col['source'] == inc_key:
+                    pk_col = col['target']
+                    break
+
+        if pk_col:
+            col_lines.append(f"    PRIMARY KEY ({pk_col})")
+
+        sql = f"CREATE TABLE IF NOT EXISTS {target} (\n" + ",\n".join(col_lines) + "\n);"
+        ddl.append(sql)
+
+    return ddl
+
+
+def provision_from_mapping(main_engine, mapping_json):
+    """
+    Apply generate_ddl_from_mapping DDL directly to the main rayd database.
+    Used when target_action='provision' but no system_type is set (custom mapping).
+    Returns dict with table_count and applied DDL list.
+    """
+    ddl_statements = generate_ddl_from_mapping(mapping_json)
+    with main_engine.begin() as conn:
+        for ddl in ddl_statements:
+            conn.execute(text(ddl))
+    logger.info(f"Custom DDL applied: {len(ddl_statements)} tables.")
+    return {"table_count": len(ddl_statements), "ddl": ddl_statements}

@@ -48,6 +48,9 @@ def _ensure_mappings_table():
         ('system_type',   'VARCHAR(20)'),
         ('target_db',     'VARCHAR(100)'),
         ('target_action', "VARCHAR(20) DEFAULT 'provision'"),
+        ('etl_enabled',   'BOOLEAN DEFAULT TRUE'),
+        ('etl_schedule',  "VARCHAR(50) DEFAULT '02:00'"),
+        ('last_etl_at',   'TIMESTAMP'),
     ]:
         db.session.execute(text(
             f"ALTER TABLE adapter_mappings ADD COLUMN IF NOT EXISTS {col} {typedef}"
@@ -58,6 +61,21 @@ def _ensure_mappings_table():
     db.session.execute(text(
         "ALTER TABLE db_params ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()"
     ))
+    # Ensure ETL log table exists (migration 0026 covers fresh installs; this covers upgrades)
+    db.session.execute(text("""
+        CREATE TABLE IF NOT EXISTS adapter_etl_log (
+            id            SERIAL PRIMARY KEY,
+            mapping_id    INTEGER REFERENCES adapter_mappings(id) ON DELETE CASCADE,
+            target_table  VARCHAR(100) NOT NULL,
+            started_at    TIMESTAMP DEFAULT NOW(),
+            finished_at   TIMESTAMP,
+            rows_synced   INTEGER DEFAULT 0,
+            status        VARCHAR(20) DEFAULT 'running',
+            error_message TEXT,
+            watermark_col VARCHAR(100),
+            watermark_val TEXT
+        )
+    """))
     db.session.commit()
 
 
@@ -333,6 +351,8 @@ def save_mapping():
     notes           = (data.get('notes') or '').strip()
     system_type     = (data.get('system_type') or '').strip().upper() or None
     target_action   = (data.get('target_action') or 'provision').strip()
+    etl_schedule    = (data.get('etl_schedule') or '02:00').strip()
+    etl_enabled     = bool(data.get('etl_enabled', True))
     mapping_id      = data.get('id')
 
     if not connection_name or not mapping_json:
@@ -353,26 +373,30 @@ def save_mapping():
     params = {
         "mj": json.dumps(mapping_json), "n": notes, "st": system_type,
         "td": target_db, "ta": target_action,
+        "es": etl_schedule, "ee": etl_enabled,
     }
     if mapping_id:
         params["id"] = mapping_id
         db.session.execute(text("""
             UPDATE adapter_mappings
             SET mapping_json=:mj, notes=:n, system_type=:st,
-                target_db=:td, target_action=:ta, status='draft', updated_at=NOW()
+                target_db=:td, target_action=:ta, status='draft',
+                etl_schedule=:es, etl_enabled=:ee, updated_at=NOW()
             WHERE id=:id
         """), params)
     else:
         params.update({"cn": connection_name, "so": schema_owner, "df": dump_file})
-        db.session.execute(text("""
+        result = db.session.execute(text("""
             INSERT INTO adapter_mappings
                 (connection_name, schema_owner, dump_file, mapping_json,
-                 notes, system_type, target_db, target_action)
-            VALUES (:cn, :so, :df, :mj, :n, :st, :td, :ta)
+                 notes, system_type, target_db, target_action, etl_schedule, etl_enabled)
+            VALUES (:cn, :so, :df, :mj, :n, :st, :td, :ta, :es, :ee)
+            RETURNING id
         """), params)
+        mapping_id = result.fetchone()[0]
 
     db.session.commit()
-    return jsonify({'ok': True})
+    return jsonify({'ok': True, 'id': mapping_id})
 
 
 @db_manager_bp.route('/admin/db-manager/mapping/<int:mapping_id>/confirm', methods=['POST'])
@@ -380,21 +404,32 @@ def save_mapping():
 def confirm_mapping(mapping_id):
     _guard()
     row = db.session.execute(
-        text("SELECT system_type, target_action FROM adapter_mappings WHERE id=:id"),
+        text("SELECT system_type, target_action, mapping_json FROM adapter_mappings WHERE id=:id"),
         {"id": mapping_id}
-    ).fetchone()
+    ).mappings().fetchone()
     if not row:
         return jsonify({'error': 'Mapping not found'}), 404
 
-    system_type, target_action = row
-    result = {}
+    system_type   = row['system_type']
+    target_action = row['target_action']
+    mapping_json  = row['mapping_json']
+    result        = {}
 
-    if target_action == 'provision' and system_type:
-        try:
-            from ETL_JOBS.db_provisioner import ensure_database
-            result['database'] = ensure_database(db.engine, system_type)
-        except Exception as e:
-            return jsonify({'error': f'Provisioning failed: {e}'}), 500
+    if target_action == 'provision':
+        if system_type:
+            # Standard system-type provisioning (separate DB)
+            try:
+                from ETL_JOBS.db_provisioner import ensure_database
+                result['database'] = ensure_database(db.engine, system_type)
+            except Exception as e:
+                return jsonify({'error': f'Provisioning failed: {e}'}), 500
+        elif mapping_json:
+            # Custom mapping — create tables in the main rayd DB
+            try:
+                from ETL_JOBS.db_provisioner import provision_from_mapping
+                result['provisioning'] = provision_from_mapping(db.engine, mapping_json)
+            except Exception as e:
+                return jsonify({'error': f'Custom provisioning failed: {e}'}), 500
 
     db.session.execute(
         text("UPDATE adapter_mappings SET status='confirmed', updated_at=NOW() WHERE id=:id"),
@@ -441,3 +476,68 @@ def view_dump(filename):
         abort(404)
     with open(filepath) as f:
         return jsonify(json.load(f))
+
+
+# ── Adapter ETL: manual run ──────────────────────────────────────────────────
+
+@db_manager_bp.route('/admin/db-manager/mapping/<int:mapping_id>/run-etl', methods=['POST'])
+@login_required
+def run_mapping_etl(mapping_id):
+    _guard()
+    import threading
+    from flask import current_app
+
+    app = current_app._get_current_object()
+
+    def _run():
+        try:
+            from ETL_JOBS.etl_adapter import run_one_mapping
+            run_one_mapping(app, mapping_id)
+        except Exception as e:
+            logger.error(f"Manual adapter ETL failed for mapping {mapping_id}: {e}", exc_info=True)
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    return jsonify({'ok': True, 'message': 'ETL started in background. Check the ETL log for progress.'})
+
+
+# ── Adapter ETL: toggle enabled ──────────────────────────────────────────────
+
+@db_manager_bp.route('/admin/db-manager/mapping/<int:mapping_id>/toggle-etl', methods=['POST'])
+@login_required
+def toggle_mapping_etl(mapping_id):
+    _guard()
+    data    = request.get_json() or {}
+    enabled = bool(data.get('enabled', True))
+    db.session.execute(
+        text("UPDATE adapter_mappings SET etl_enabled=:e, updated_at=NOW() WHERE id=:id"),
+        {"e": enabled, "id": mapping_id}
+    )
+    db.session.commit()
+    return jsonify({'ok': True, 'etl_enabled': enabled})
+
+
+# ── Adapter ETL: log viewer ──────────────────────────────────────────────────
+
+@db_manager_bp.route('/admin/db-manager/mapping/<int:mapping_id>/etl-log')
+@login_required
+def etl_log(mapping_id):
+    _guard()
+    try:
+        rows = db.session.execute(text("""
+            SELECT id, target_table, started_at, finished_at,
+                   rows_synced, status, error_message, watermark_col, watermark_val
+            FROM adapter_etl_log
+            WHERE mapping_id = :mid
+            ORDER BY started_at DESC
+            LIMIT 100
+        """), {"mid": mapping_id}).mappings().fetchall()
+        log = []
+        for r in rows:
+            d = dict(r)
+            d['started_at']  = str(d.get('started_at') or '')
+            d['finished_at'] = str(d.get('finished_at') or '')
+            log.append(d)
+        return jsonify({'ok': True, 'log': log})
+    except Exception as e:
+        return jsonify({'ok': True, 'log': [], 'warning': str(e)})

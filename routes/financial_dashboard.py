@@ -92,22 +92,30 @@ def _collect(start: str, end: str) -> dict:
     monthly_trend = sorted(month_map.values(), key=lambda x: x['month'])
 
     # ── By physician (top 10) ────────────────────────────────────────────────
+    # Query by (physician, modality) so per-modality rates apply correctly,
+    # then aggregate per physician in Python to avoid duplicate rows in the table.
     phys_rows = db.session.execute(text(f"""
         SELECT
-            COALESCE(
-                TRIM(s.reading_physician_last_name || ' ' || s.reading_physician_first_name),
-                'Unassigned'
-            )                                     AS physician,
-            COUNT(DISTINCT s.study_db_uid)        AS study_count,
-            {_MOD_EXPR}                           AS modality,
-            COALESCE(SUM(pdm.rvu_value), 0)       AS total_rvu
+            COALESCE(s.rep_final_signed_by, 'Unassigned') AS physician,
+            COUNT(DISTINCT s.study_db_uid)                AS study_count,
+            {_MOD_EXPR}                                   AS modality,
+            COALESCE(SUM(pdm.rvu_value), 0)               AS total_rvu
         {_STUDY_BASE}
-          AND s.reading_physician_last_name IS NOT NULL
+          AND s.rep_final_signed_by IS NOT NULL
+          AND s.rep_final_timestamp IS NOT NULL
         GROUP BY 1, 3
         ORDER BY total_rvu DESC
-        LIMIT 10
     """), {'start': start, 'end': end}).fetchall()
-    by_physician = _apply_rates(phys_rows, cfg)
+    rated_phys = _apply_rates(phys_rows, cfg)
+    phys_agg: dict = {}
+    for row in rated_phys:
+        name = row['physician']
+        if name not in phys_agg:
+            phys_agg[name] = {'physician': name, 'study_count': 0, 'total_rvu': 0.0, 'revenue_usd': 0.0}
+        phys_agg[name]['study_count'] += row['study_count']
+        phys_agg[name]['total_rvu']    = round(phys_agg[name]['total_rvu']    + row['total_rvu'],    2)
+        phys_agg[name]['revenue_usd']  = round(phys_agg[name]['revenue_usd']  + row['revenue_usd'],  2)
+    by_physician = sorted(phys_agg.values(), key=lambda x: x['revenue_usd'], reverse=True)[:10]
 
     # ── Top procedures (top 15) ──────────────────────────────────────────────
     proc_rows = db.session.execute(text(f"""

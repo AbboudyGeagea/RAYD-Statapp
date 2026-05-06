@@ -29,6 +29,9 @@ import pytz
 # ---------------------------------------------------------
 load_dotenv()
 
+from utils.logger import setup_logging, get_logger
+setup_logging()
+
 from config import config as app_config
 
 from db import (
@@ -47,7 +50,7 @@ _etl_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ETL_JOBS')
 if _etl_path not in sys.path:
     sys.path.insert(0, _etl_path)
 
-logger = logging.getLogger("APP")
+logger = get_logger("APP")
 
 # ---------------------------------------------------------
 # EMPTY DB DETECTION
@@ -685,6 +688,42 @@ def create_app():
         trigger=CronTrigger(hour=5, minute=30),
         id='daily_analytics_snapshot',
         name='Daily Analytics Snapshot',
+        replace_existing=True
+    )
+
+    def scheduled_adapter_etl():
+        """Run all confirmed adapter mappings whose etl_schedule matches the current time."""
+        with app.app_context():
+            try:
+                now_hhmm = datetime.now(pytz.timezone("Asia/Beirut")).strftime('%H:%M')
+                rows = db.session.execute(text("""
+                    SELECT id FROM adapter_mappings
+                    WHERE status = 'confirmed'
+                      AND etl_enabled = TRUE
+                      AND etl_schedule = :hhmm
+                """), {"hhmm": now_hhmm}).fetchall()
+
+                if not rows:
+                    return
+
+                from ETL_JOBS.etl_adapter import run_one_mapping
+                for (mapping_id,) in rows:
+                    logger.info(f"⏰ [Adapter ETL] Running mapping {mapping_id} (scheduled {now_hhmm})")
+                    try:
+                        run_one_mapping(app, mapping_id)
+                    except Exception as e:
+                        logger.error(f"🛑 [Adapter ETL] Mapping {mapping_id} failed: {e}", exc_info=True)
+
+            except Exception as e:
+                logger.error(f"🛑 [Adapter ETL] Scheduler error: {e}", exc_info=True)
+
+    # Runs every minute; each mapping's etl_schedule (HH:MM) is matched against current time
+    scheduler.add_job(
+        func=scheduled_adapter_etl,
+        trigger='interval',
+        minutes=1,
+        id='adapter_etl_runner',
+        name='Adapter ETL — per-mapping schedule',
         replace_existing=True
     )
 
