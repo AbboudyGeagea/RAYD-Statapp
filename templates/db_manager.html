@@ -31,14 +31,28 @@
         .btn-ghost:hover { border-color: #334155; color: #94a3b8; }
         .btn-danger { padding: .5rem 1rem; background: rgba(239,68,68,.1); color: #f87171; font-size: 10px; font-weight: 800; text-transform: uppercase; border-radius: .6rem; border: 1px solid rgba(239,68,68,.2); cursor: pointer; transition: all .2s; }
         .btn-danger:hover { background: rgba(239,68,68,.2); }
+        .btn-sm { padding: .4rem .9rem; font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .06em; border-radius: .6rem; border: none; cursor: pointer; }
         .step-dot { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 900; flex-shrink: 0; }
-        .step-dot.done { background: rgba(52,211,153,.15); color: #34d399; border: 1.5px solid #34d399; }
+        .step-dot.done   { background: rgba(52,211,153,.15); color: #34d399; border: 1.5px solid #34d399; }
         .step-dot.active { background: rgba(96,165,250,.15); color: #60a5fa; border: 1.5px solid #60a5fa; }
-        .step-dot.idle { background: #1e293b; color: #475569; border: 1.5px solid #334155; }
+        .step-dot.idle   { background: #1e293b; color: #475569; border: 1.5px solid #334155; }
         /* Modal */
         .modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 50; align-items: center; justify-content: center; }
         .modal-bg.open { display: flex; }
         .modal-box { background: #1e2a26; border: 1px solid #334155; border-radius: 1.25rem; padding: 2rem; width: 100%; max-width: 520px; max-height: 90vh; overflow-y: auto; position: relative; }
+        /* Column selector */
+        .col-selector-row { display: grid; grid-template-columns: 28px 1fr 90px 130px 120px; gap: 6px; align-items: center; padding: 4px 8px; border-radius: 6px; }
+        .col-selector-row:hover { background: rgba(255,255,255,.03); }
+        .col-selector-row.header { border-bottom: 1px solid #1e293b; padding-bottom: 6px; margin-bottom: 4px; }
+        .tbl-expand-btn { cursor: pointer; background: none; border: none; color: #60a5fa; font-size: 12px; padding: 2px 4px; }
+        .pg-type-sel { background: #141b19; border: 1px solid #334155; color: #e2e8f0; border-radius: 6px; font-size: 10px; padding: 3px 5px; width: 100%; }
+        .transform-sel { background: #141b19; border: 1px solid #334155; color: #94a3b8; border-radius: 6px; font-size: 10px; padding: 3px 5px; width: 100%; }
+        .target-name-inp { background: #141b19; border: 1px solid #334155; color: #e2e8f0; border-radius: 6px; font-size: 10px; padding: 3px 6px; width: 100%; font-family: monospace; }
+        .target-name-inp:focus { border-color: #60a5fa; outline: none; }
+        /* ETL log */
+        .log-row-done  { color: #34d399; }
+        .log-row-error { color: #f87171; }
+        .log-row-run   { color: #f59e0b; }
     </style>
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
@@ -52,15 +66,15 @@
                 <div class="flex items-center justify-between mb-6">
                     <div>
                         <h2 class="text-white text-2xl font-black uppercase tracking-tight">DB Manager</h2>
-                        <p class="text-slate-500 text-xs mt-1">Configure connections, discover schemas, map or provision databases</p>
+                        <p class="text-slate-500 text-xs mt-1">Configure connections · discover schemas · select tables &amp; columns · auto-sync ETL</p>
                     </div>
                 </div>
 
                 <!-- Tabs -->
                 <div class="flex gap-2 mb-6">
-                    <button id="tb-conn"    class="tab-btn active" onclick="showTab('conn')">Connections</button>
-                    <button id="tb-disco"   class="tab-btn"        onclick="showTab('disco')">Discovery &amp; Mapping</button>
-                    <button id="tb-maps"    class="tab-btn"        onclick="showTab('maps')">Saved Mappings</button>
+                    <button id="tb-conn"  class="tab-btn active" onclick="showTab('conn')">Connections</button>
+                    <button id="tb-disco" class="tab-btn"        onclick="showTab('disco')">Discovery &amp; Mapping</button>
+                    <button id="tb-maps"  class="tab-btn"        onclick="showTab('maps')">Saved Mappings</button>
                 </div>
 
                 <!-- ══ TAB: CONNECTIONS ══════════════════════════════════════ -->
@@ -168,8 +182,8 @@
                         <div class="space-y-3">
                             {% for n, label, desc in [
                                 ('1','Discover','Connect and extract schema'),
-                                ('2','Auto-Map','Match source → RAYD columns'),
-                                ('3','Apply','Map to existing or provision new')
+                                ('2','Select','Pick tables &amp; columns, set PG types'),
+                                ('3','Save','Name targets, set action &amp; schedule')
                             ] %}
                             <div id="step-block-{{ n }}" class="card p-4 flex items-start gap-3 {{ 'opacity-40' if n != '1' else '' }}">
                                 <div id="step-dot-{{ n }}" class="step-dot {{ 'active' if n == '1' else 'idle' }}">{{ n }}</div>
@@ -180,16 +194,17 @@
                             </div>
                             {% endfor %}
 
-                            <!-- System type selector (shown at step 2+) -->
+                            <!-- Auto-map helper (shown at step 2+) -->
                             <div id="systype-block" class="card p-4 hidden">
-                                <span class="lbl">System Type</span>
-                                <select id="sel-systype" class="inp">
-                                    <option value="">— Select —</option>
+                                <p class="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2">Auto-Map (optional)</p>
+                                <p class="text-[10px] text-slate-600 mb-3">Pre-fill target names &amp; PG types from a standard schema.</p>
+                                <select id="sel-systype" class="inp mb-3">
+                                    <option value="">— Select system type —</option>
                                     {% for st in system_types %}
                                     <option value="{{ st.key }}">{{ st.label }}</option>
                                     {% endfor %}
                                 </select>
-                                <button onclick="runAutoMap()" class="btn-primary w-full mt-3 text-[10px]">
+                                <button onclick="runAutoMap()" class="btn-primary w-full text-[10px]">
                                     <i class="bi bi-magic mr-1"></i> Auto-Map
                                 </button>
                             </div>
@@ -222,45 +237,80 @@
                                 <div id="disco-status" class="mt-3 text-xs text-slate-500 hidden"></div>
                             </div>
 
-                            <!-- Step 2: Discovery results -->
+                            <!-- Step 2: Column selector -->
                             <div id="step2-panel" class="card p-5 hidden">
-                                <p class="text-xs font-black uppercase tracking-widest text-[#60a5fa] mb-1">Step 2 — Discovery Results</p>
-                                <p id="disco-summary" class="text-slate-400 text-xs mb-4"></p>
-                                <div id="table-tree" class="space-y-2 max-h-80 overflow-y-auto pr-1"></div>
-                                <p class="text-[10px] text-slate-600 mt-3">Select a system type on the left, then click Auto-Map.</p>
+                                <div class="flex items-center justify-between mb-3">
+                                    <p class="text-xs font-black uppercase tracking-widest text-[#60a5fa]">Step 2 — Select Tables &amp; Columns</p>
+                                    <div class="flex gap-2">
+                                        <button onclick="selectAllTables(true)"  class="btn-sm bg-[#1e293b] text-slate-400 hover:text-slate-200">All</button>
+                                        <button onclick="selectAllTables(false)" class="btn-sm bg-[#1e293b] text-slate-400 hover:text-slate-200">None</button>
+                                    </div>
+                                </div>
+                                <p class="text-[10px] text-slate-500 mb-4">Check tables to include. Expand each to select columns and override target names / PG types.</p>
+                                <div id="col-selector" class="space-y-2 max-h-[55vh] overflow-y-auto pr-1"></div>
+                                <div class="mt-4 flex gap-3">
+                                    <button onclick="buildMappingFromSelector()" class="btn-primary">
+                                        <i class="bi bi-arrow-right-circle mr-1"></i> Build Mapping
+                                    </button>
+                                </div>
                             </div>
 
-                            <!-- Step 3: Mapping results -->
+                            <!-- Step 3: Save/action -->
                             <div id="step3-panel" class="card p-5 hidden">
-                                <p class="text-xs font-black uppercase tracking-widest text-[#60a5fa] mb-1">Step 3 — Mapping Review</p>
-                                <div id="map-stats" class="flex gap-4 mb-4 text-xs"></div>
-                                <div id="map-tables" class="space-y-3 max-h-72 overflow-y-auto pr-1"></div>
+                                <p class="text-xs font-black uppercase tracking-widest text-[#60a5fa] mb-3">Step 3 — Save &amp; Configure</p>
+
+                                <!-- Mapping summary -->
+                                <div id="map-stats" class="flex flex-wrap gap-4 mb-4 text-xs font-bold"></div>
 
                                 <!-- Target action -->
-                                <div class="mt-4 p-4 rounded-xl bg-[#141b19] border border-[#1e293b] space-y-3">
-                                    <p class="text-[10px] font-black uppercase tracking-widest text-slate-500">Apply Action</p>
-                                    <div class="flex gap-3">
-                                        <label class="flex items-center gap-2 cursor-pointer">
-                                            <input type="radio" name="target_action" value="provision" checked class="accent-[#60a5fa]">
-                                            <span class="text-xs font-bold text-slate-300">Provision new DB</span>
-                                        </label>
-                                        <label class="flex items-center gap-2 cursor-pointer">
-                                            <input type="radio" name="target_action" value="map" class="accent-[#60a5fa]">
-                                            <span class="text-xs font-bold text-slate-300">Map to existing</span>
-                                        </label>
+                                <div class="p-4 rounded-xl bg-[#141b19] border border-[#1e293b] space-y-4">
+                                    <div>
+                                        <p class="lbl mb-2">Action on Confirm</p>
+                                        <div class="flex gap-4">
+                                            <label class="flex items-center gap-2 cursor-pointer">
+                                                <input type="radio" name="target_action" value="provision" checked class="accent-[#60a5fa]">
+                                                <span class="text-xs font-bold text-slate-300">Create tables in rayd DB</span>
+                                            </label>
+                                            <label class="flex items-center gap-2 cursor-pointer">
+                                                <input type="radio" name="target_action" value="map" class="accent-[#60a5fa]">
+                                                <span class="text-xs font-bold text-slate-300">Tables already exist</span>
+                                            </label>
+                                        </div>
                                     </div>
-                                    <div id="map-target-row" class="hidden">
-                                        <span class="lbl">Target connection name</span>
-                                        <select id="map-target-conn" class="inp">
-                                            {% for c in connections %}
-                                            <option value="{{ c.name }}">{{ c.name }}</option>
+
+                                    <!-- System type (optional) -->
+                                    <div>
+                                        <span class="lbl">System Type (optional — for standard DB provisioning)</span>
+                                        <select id="save-systype" class="inp">
+                                            <option value="">— Custom / None —</option>
+                                            {% for st in system_types %}
+                                            <option value="{{ st.key }}">{{ st.label }} (rayd_{{ st.db_suffix }})</option>
                                             {% endfor %}
                                         </select>
                                     </div>
-                                    <textarea id="map-notes" class="inp text-xs" rows="2" placeholder="Notes (optional)"></textarea>
+
+                                    <!-- ETL schedule -->
+                                    <div class="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <span class="lbl">Auto-ETL Schedule (HH:MM, 24h)</span>
+                                            <input id="save-schedule" class="inp" value="02:00" placeholder="02:00">
+                                        </div>
+                                        <div class="flex items-end pb-1">
+                                            <label class="flex items-center gap-2 cursor-pointer">
+                                                <input type="checkbox" id="save-etl-enabled" checked class="accent-[#60a5fa] w-4 h-4">
+                                                <span class="text-xs font-bold text-slate-300">Enable auto-ETL</span>
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <span class="lbl">Notes</span>
+                                        <textarea id="map-notes" class="inp text-xs" rows="2" placeholder="Optional notes…"></textarea>
+                                    </div>
+
                                     <div class="flex gap-3">
                                         <button onclick="saveAndApply()" class="btn-primary">
-                                            <i class="bi bi-floppy-fill mr-1"></i> Save &amp; Apply
+                                            <i class="bi bi-floppy-fill mr-1"></i> Save &amp; Confirm
                                         </button>
                                         <button onclick="saveOnly()" class="btn-ghost">Save Draft</button>
                                     </div>
@@ -281,7 +331,7 @@
                             <table class="w-full text-left">
                                 <thead>
                                     <tr class="border-b border-[#28332e] bg-[#1a2420]">
-                                        {% for col in ['Connection','Owner','System','Target','Action','Status','Updated',''] %}
+                                        {% for col in ['Connection','Owner','Tables','Status','ETL','Last Run',''] %}
                                         <th class="px-4 py-3 text-[9px] font-black uppercase tracking-[.15em] text-[#475569]">{{ col }}</th>
                                         {% endfor %}
                                     </tr>
@@ -291,14 +341,11 @@
                                     <tr class="hover:bg-[#1d2522]/50 transition-all">
                                         <td class="px-4 py-3 font-bold text-sm">{{ m.connection_name }}</td>
                                         <td class="px-4 py-3 text-sm text-slate-400">{{ m.schema_owner or '—' }}</td>
-                                        <td class="px-4 py-3 text-sm text-slate-400">{{ m.system_type or '—' }}</td>
-                                        <td class="px-4 py-3 text-sm text-slate-400 font-mono text-xs">{{ m.target_db or '—' }}</td>
-                                        <td class="px-4 py-3">
-                                            <span style="font-size:9px;font-weight:900;padding:2px 7px;border-radius:4px;text-transform:uppercase;
-                                                {% if m.target_action == 'provision' %}background:rgba(96,165,250,.12);color:#60a5fa;
-                                                {% else %}background:rgba(52,211,153,.12);color:#34d399;{% endif %}">
-                                                {{ m.target_action or 'provision' }}
-                                            </span>
+                                        <td class="px-4 py-3 text-xs text-slate-500 font-mono">
+                                            {% if m.get('mapping_json') and m.mapping_json %}
+                                                {% set tbl_count = m.mapping_json.get('tables', [])|length %}
+                                                {{ tbl_count }} table{{ 's' if tbl_count != 1 else '' }}
+                                            {% else %}—{% endif %}
                                         </td>
                                         <td class="px-4 py-3">
                                             <span style="font-size:9px;font-weight:900;padding:2px 7px;border-radius:4px;text-transform:uppercase;
@@ -307,13 +354,23 @@
                                                 {{ m.status }}
                                             </span>
                                         </td>
-                                        <td class="px-4 py-3 text-xs text-slate-500">{{ m.updated_at | string | truncate(16, True, '') }}</td>
+                                        <td class="px-4 py-3 text-xs text-slate-400">{{ m.etl_schedule or '02:00' }}</td>
+                                        <td class="px-4 py-3 text-xs text-slate-500">{{ (m.last_etl_at or m.updated_at) | string | truncate(16, True, '') }}</td>
                                         <td class="px-4 py-3">
-                                            <div class="flex gap-2">
+                                            <div class="flex gap-2 flex-wrap">
                                                 {% if m.status != 'confirmed' %}
                                                 <button onclick="confirmMapping({{ m.id }})"
-                                                    class="text-[9px] font-black uppercase px-2 py-1 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 hover:bg-emerald-500/20 transition-colors">
+                                                    class="text-[9px] font-black uppercase px-2 py-1 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 hover:bg-emerald-500/20">
                                                     Confirm
+                                                </button>
+                                                {% else %}
+                                                <button onclick="runMappingEtl({{ m.id }}, this)"
+                                                    class="text-[9px] font-black uppercase px-2 py-1 rounded bg-violet-500/10 border border-violet-500/20 text-violet-300 hover:bg-violet-500/20">
+                                                    <i class="bi bi-play-fill"></i> Run ETL
+                                                </button>
+                                                <button onclick="showEtlLog({{ m.id }})"
+                                                    class="text-[9px] font-black uppercase px-2 py-1 rounded bg-[#1e293b] border border-[#334155] text-slate-400 hover:border-[#60a5fa] hover:text-[#60a5fa]">
+                                                    Log
                                                 </button>
                                                 {% endif %}
                                                 <button onclick="deleteMapping({{ m.id }})" class="btn-danger text-[9px] py-1 px-2">Del</button>
@@ -322,7 +379,7 @@
                                     </tr>
                                     {% endfor %}
                                     {% if not mappings %}
-                                    <tr><td colspan="8" class="px-4 py-10 text-slate-500 text-center text-sm">No mappings yet.</td></tr>
+                                    <tr><td colspan="7" class="px-4 py-10 text-slate-500 text-center text-sm">No mappings yet.</td></tr>
                                     {% endif %}
                                 </tbody>
                             </table>
@@ -342,7 +399,6 @@
                 <button onclick="closeConnModal()" class="text-slate-500 text-lg leading-none border-none bg-none cursor-pointer">✕</button>
             </div>
             <input type="hidden" id="conn-edit-id" value="">
-
             <div class="grid grid-cols-2 gap-4 mb-4">
                 <div id="name-field">
                     <span class="lbl">Name <span class="text-rose-400">*</span></span>
@@ -390,7 +446,6 @@
                     </select>
                 </div>
             </div>
-
             <div class="flex gap-3 mt-2">
                 <button onclick="saveConn()" class="btn-primary">Save Connection</button>
                 <button onclick="closeConnModal()" class="btn-ghost">Cancel</button>
@@ -398,12 +453,57 @@
         </div>
     </div>
 
+    <!-- ETL Log Modal -->
+    <div id="etl-log-modal" class="modal-bg" onclick="if(event.target===this)closeEtlLog()">
+        <div class="modal-box" style="max-width:720px;">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-white font-black uppercase tracking-tight text-sm">ETL Sync Log</h3>
+                <button onclick="closeEtlLog()" class="text-slate-500 text-lg leading-none border-none bg-none cursor-pointer">✕</button>
+            </div>
+            <div id="etl-log-content" class="space-y-2 max-h-[60vh] overflow-y-auto font-mono text-xs"></div>
+        </div>
+    </div>
+
     <script>
     // ── State ─────────────────────────────────────────────────────────────────
-    let _discoDumpFile    = null;
-    let _discoConnName    = null;
-    let _discoOwner       = null;
-    let _mappingJson      = null;
+    let _discoDumpFile  = null;
+    let _discoConnName  = null;
+    let _discoOwner     = null;
+    let _mappingJson    = null;
+    let _fullDump       = null;   // full dump JSON (tables + columns)
+    let _autoMapResult  = null;   // last auto-map result for pre-fill
+
+    // ── PG type options ───────────────────────────────────────────────────────
+    const PG_TYPES = [
+        'TEXT','VARCHAR(100)','VARCHAR(255)',
+        'BIGINT','INTEGER','SMALLINT',
+        'NUMERIC','NUMERIC(10,2)','DOUBLE PRECISION',
+        'BOOLEAN','DATE','TIMESTAMP','BYTEA'
+    ];
+
+    const TRANSFORMS = ['direct','date','timestamp','boolean_yn','string_truncate'];
+
+    // Map Oracle types → sane PG defaults
+    function inferPgType(srcType) {
+        const t = (srcType||'').toUpperCase().replace(/\(.*\)/,'').trim();
+        if (t.includes('TIMESTAMP')) return 'TIMESTAMP';
+        const m = {
+            'NUMBER':'NUMERIC','INTEGER':'INTEGER','FLOAT':'DOUBLE PRECISION',
+            'VARCHAR2':'TEXT','NVARCHAR2':'TEXT','CHAR':'TEXT','NCHAR':'TEXT',
+            'CLOB':'TEXT','NCLOB':'TEXT','LONG':'TEXT',
+            'DATE':'TIMESTAMP','BLOB':'BYTEA','RAW':'BYTEA'
+        };
+        return m[t] || 'TEXT';
+    }
+
+    function inferTransform(srcType, colName) {
+        const t = (srcType||'').toUpperCase();
+        const n = (colName||'').toUpperCase();
+        if (t === 'DATE' || t.includes('TIMESTAMP')) return n.includes('DATE') && !n.includes('TIME') ? 'date' : 'timestamp';
+        if (n.startsWith('HAS_') || n.startsWith('IS_')) return 'boolean_yn';
+        if (['CLOB','NCLOB','LONG'].includes(t)) return 'string_truncate';
+        return 'direct';
+    }
 
     // ── Tabs ──────────────────────────────────────────────────────────────────
     function showTab(name) {
@@ -555,43 +655,246 @@
         if (!conn || !owner) { alert('Select a connection and enter a schema owner.'); return; }
 
         const status = document.getElementById('disco-status');
-        status.textContent = 'Connecting and scanning schema…';
+        status.textContent = 'Connecting and scanning schema… (may take a moment)';
         status.classList.remove('hidden');
+        status.style.color = '';
 
-        const res  = await fetch('/admin/db-manager/discover', {
-            method:'POST', headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({connection_name: conn, schema_owner: owner})
-        });
-        const data = await res.json();
-        if (!data.ok) {
-            status.textContent = `✗ ${data.error}`;
+        try {
+            const res  = await fetch('/admin/db-manager/discover', {
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({connection_name: conn, schema_owner: owner})
+            });
+            const data = await res.json();
+
+            if (!data.ok) {
+                status.textContent = `✗ ${data.error}`;
+                status.style.color = '#f87171';
+                return;
+            }
+
+            _discoDumpFile = data.file;
+            _discoConnName = conn;
+            _discoOwner    = owner;
+            _autoMapResult = null;
+
+            status.textContent = `✓ Found ${data.table_count} tables, ${data.column_count} columns.`;
+            status.style.color = '#34d399';
+
+            // Fetch full dump for column details
+            const dumpRes = await fetch(`/admin/db-manager/dump/${data.file}`);
+            _fullDump = await dumpRes.json();
+
+            renderColumnSelector(_fullDump);
+
+            document.getElementById('step2-panel').classList.remove('hidden');
+            document.getElementById('systype-block').classList.remove('hidden');
+            setStep(2);
+
+        } catch(e) {
+            status.textContent = `✗ ${e}`;
             status.style.color = '#f87171';
-            return;
         }
-
-        _discoDumpFile = data.file;
-        _discoConnName = conn;
-        _discoOwner    = owner;
-
-        status.textContent = `✓ Found ${data.table_count} tables, ${data.column_count} columns.`;
-        status.style.color = '#34d399';
-
-        // Build table tree
-        document.getElementById('disco-summary').textContent =
-            `${data.table_count} tables · ${data.column_count} columns`;
-        const tree = document.getElementById('table-tree');
-        tree.innerHTML = data.tables_summary.map(t => `
-            <div style="background:#141b19;border:1px solid #1e293b;border-radius:.6rem;padding:.5rem .75rem;font-size:11px;display:flex;justify-content:space-between;align-items:center;">
-                <span style="color:#94a3b8;font-family:monospace;">${t.name}</span>
-                <span style="color:#475569;font-size:10px;">${t.columns} cols${t.rows !== null ? ` · ${t.rows} rows` : ''}</span>
-            </div>`).join('');
-
-        // Show step 2
-        document.getElementById('step2-panel').classList.remove('hidden');
-        document.getElementById('systype-block').classList.remove('hidden');
-        setStep(2);
     }
 
+    // ── Column Selector ───────────────────────────────────────────────────────
+
+    function renderColumnSelector(dump) {
+        const container = document.getElementById('col-selector');
+        container.innerHTML = '';
+
+        (dump.tables || []).forEach((tbl, tblIdx) => {
+            const tblId  = `tbl-${tblIdx}`;
+            const defTarget = tbl.name.toLowerCase();
+
+            const tblBlock = document.createElement('div');
+            tblBlock.className = 'border border-[#1e293b] rounded-xl overflow-hidden';
+            tblBlock.innerHTML = `
+                <div class="flex items-center gap-3 px-4 py-3 bg-[#1a2420] cursor-pointer select-none"
+                     onclick="toggleTable('${tblId}')">
+                    <input type="checkbox" id="chk-tbl-${tblIdx}" checked
+                           class="accent-[#60a5fa] w-4 h-4 flex-shrink-0"
+                           onclick="event.stopPropagation(); toggleTableCols(${tblIdx}, this.checked)">
+                    <i class="bi bi-chevron-down text-slate-500 text-xs" id="chevron-${tblId}"></i>
+                    <span class="font-bold text-sm text-slate-200 font-mono">${tbl.name}</span>
+                    <span class="text-[9px] text-slate-600 ml-auto">${tbl.columns.length} cols ${tbl.row_count !== null ? '· ' + tbl.row_count + ' rows' : ''}</span>
+                    <span class="text-[9px] text-slate-500 ml-2">→</span>
+                    <input type="text" id="target-tbl-${tblIdx}" value="${defTarget}"
+                           class="target-name-inp ml-1 w-36" placeholder="target_table_name"
+                           onclick="event.stopPropagation()" title="Target table name in PostgreSQL">
+                </div>
+                <div id="${tblId}" class="hidden px-4 py-3 space-y-1">
+                    <div class="col-selector-row header">
+                        <span></span>
+                        <span class="text-[9px] font-black uppercase text-slate-600">Source Column</span>
+                        <span class="text-[9px] font-black uppercase text-slate-600">Src Type</span>
+                        <span class="text-[9px] font-black uppercase text-slate-600">Target Name → PG Type</span>
+                        <span class="text-[9px] font-black uppercase text-slate-600">Transform</span>
+                    </div>
+                    ${tbl.columns.map((col, ci) => renderColRow(tblIdx, ci, col)).join('')}
+                </div>`;
+            container.appendChild(tblBlock);
+        });
+    }
+
+    function renderColRow(tblIdx, colIdx, col) {
+        const pgType   = inferPgType(col.type);
+        const transform = inferTransform(col.type, col.name);
+        const defTarget = col.name.toLowerCase();
+        const pgOpts   = PG_TYPES.map(t => `<option value="${t}" ${t===pgType?'selected':''}>${t}</option>`).join('');
+        const trOpts   = TRANSFORMS.map(t => `<option value="${t}" ${t===transform?'selected':''}>${t}</option>`).join('');
+
+        return `
+        <div class="col-selector-row" id="colrow-${tblIdx}-${colIdx}">
+            <input type="checkbox" id="chk-col-${tblIdx}-${colIdx}" checked
+                   class="accent-[#60a5fa] w-3.5 h-3.5">
+            <span class="font-mono text-[11px] text-slate-300">${col.name}</span>
+            <span class="text-[9px] text-slate-600 font-mono truncate">${col.type || '?'}${col.length ? '('+col.length+')' : ''}</span>
+            <div class="flex gap-1">
+                <input type="text" id="target-col-${tblIdx}-${colIdx}" value="${defTarget}"
+                       class="target-name-inp flex-1" style="min-width:80px">
+                <select id="pgtype-col-${tblIdx}-${colIdx}" class="pg-type-sel" style="min-width:90px">${pgOpts}</select>
+            </div>
+            <select id="transform-col-${tblIdx}-${colIdx}" class="transform-sel">${trOpts}</select>
+        </div>`;
+    }
+
+    function toggleTable(tblId) {
+        const el  = document.getElementById(tblId);
+        const chv = document.getElementById('chevron-'+tblId);
+        const hidden = el.classList.toggle('hidden');
+        chv.className = hidden
+            ? 'bi bi-chevron-down text-slate-500 text-xs'
+            : 'bi bi-chevron-up text-slate-400 text-xs';
+    }
+
+    function toggleTableCols(tblIdx, checked) {
+        const dump = _fullDump;
+        if (!dump) return;
+        const cols = dump.tables[tblIdx].columns;
+        cols.forEach((_, ci) => {
+            const chk = document.getElementById(`chk-col-${tblIdx}-${ci}`);
+            if (chk) chk.checked = checked;
+        });
+    }
+
+    function selectAllTables(checked) {
+        const dump = _fullDump;
+        if (!dump) return;
+        dump.tables.forEach((tbl, tblIdx) => {
+            const tblChk = document.getElementById(`chk-tbl-${tblIdx}`);
+            if (tblChk) tblChk.checked = checked;
+            tbl.columns.forEach((_, ci) => {
+                const colChk = document.getElementById(`chk-col-${tblIdx}-${ci}`);
+                if (colChk) colChk.checked = checked;
+            });
+        });
+    }
+
+    // Pre-fill selector from auto-map result
+    function applyAutoMapToSelector(autoMapResult) {
+        if (!_fullDump) return;
+        const mappedBySource = {};
+        (autoMapResult.tables || []).forEach(tbl => {
+            (tbl.columns || []).forEach(col => {
+                mappedBySource[col.source] = col;
+            });
+        });
+
+        // Build a lookup: source_table_name → target_table
+        const tblMap = {};
+        (autoMapResult.tables || []).forEach(tbl => {
+            // source_table might be "OWNER.TABLE_NAME"
+            const srcName = (tbl.source_table || '').split('.').pop();
+            tblMap[srcName] = tbl;
+        });
+
+        _fullDump.tables.forEach((tbl, tblIdx) => {
+            const atbl = tblMap[tbl.name];
+            if (atbl) {
+                const tblInp = document.getElementById(`target-tbl-${tblIdx}`);
+                if (tblInp) tblInp.value = atbl.target_table || tbl.name.toLowerCase();
+            }
+            tbl.columns.forEach((col, ci) => {
+                const mapped = mappedBySource[col.name];
+                if (mapped) {
+                    const tgtInp = document.getElementById(`target-col-${tblIdx}-${ci}`);
+                    if (tgtInp) tgtInp.value = mapped.target;
+                    const trSel = document.getElementById(`transform-col-${tblIdx}-${ci}`);
+                    if (trSel) trSel.value = mapped.transform || 'direct';
+                    // pg_type from system registry isn't in auto-map result; infer from target col
+                }
+            });
+        });
+    }
+
+    // Build _mappingJson from the current selector state
+    function buildMappingFromSelector() {
+        if (!_fullDump) { alert('Run discovery first.'); return; }
+
+        const tables = [];
+        _fullDump.tables.forEach((tbl, tblIdx) => {
+            const tblChk = document.getElementById(`chk-tbl-${tblIdx}`);
+            if (!tblChk || !tblChk.checked) return;
+
+            const targetTbl = (document.getElementById(`target-tbl-${tblIdx}`)?.value || tbl.name).toLowerCase().trim();
+            if (!targetTbl) return;
+
+            const columns = [];
+            let incKey = null;
+
+            tbl.columns.forEach((col, ci) => {
+                const colChk = document.getElementById(`chk-col-${tblIdx}-${ci}`);
+                if (!colChk || !colChk.checked) return;
+
+                const target    = document.getElementById(`target-col-${tblIdx}-${ci}`)?.value.trim() || col.name.toLowerCase();
+                const pgType    = document.getElementById(`pgtype-col-${tblIdx}-${ci}`)?.value || 'TEXT';
+                const transform = document.getElementById(`transform-col-${tblIdx}-${ci}`)?.value || 'direct';
+
+                columns.push({
+                    source:      col.name,
+                    target,
+                    pg_type:     pgType,
+                    source_type: col.type,
+                    transform,
+                    confidence:  1.0,
+                    notes:       'manual',
+                });
+
+                // Auto-detect incremental key
+                const cn = col.name.toUpperCase();
+                if (!incKey && (cn.endsWith('_DBID') || cn.endsWith('_DB_UID') || cn === 'INSERT_TIME')) {
+                    incKey = col.name;
+                }
+            });
+
+            if (!columns.length) return;
+
+            tables.push({
+                source_table:    `${_discoOwner ? _discoOwner + '.' : ''}${tbl.name}`,
+                target_table:    targetTbl,
+                incremental_key: incKey,
+                columns,
+                unmapped_sources: [],
+                unmapped_targets: [],
+            });
+        });
+
+        if (!tables.length) { alert('No tables selected. Check at least one table.'); return; }
+
+        _mappingJson = {tables, notes: 'Manual column selection.'};
+
+        // Show step 3 summary
+        const totalCols = tables.reduce((s, t) => s + t.columns.length, 0);
+        document.getElementById('map-stats').innerHTML =
+            `<span style="color:#60a5fa;font-weight:800;">${tables.length} tables</span>` +
+            `<span style="color:#34d399;font-weight:800;">${totalCols} columns</span>`;
+
+        document.getElementById('step3-panel').classList.remove('hidden');
+        setStep(3);
+        document.getElementById('step3-panel').scrollIntoView({behavior:'smooth', block:'nearest'});
+    }
+
+    // ── Auto-map (optional pre-fill) ──────────────────────────────────────────
     async function runAutoMap() {
         const sysType = document.getElementById('sel-systype').value;
         if (!sysType) { alert('Select a system type first.'); return; }
@@ -604,53 +907,49 @@
         const data = await res.json();
         if (!data.ok) { alert(data.error || 'Auto-map failed.'); return; }
 
-        _mappingJson = data.mapping;
-
-        // Stats
-        const s = data.stats;
-        document.getElementById('map-stats').innerHTML =
-            `<span style="color:#34d399;font-weight:800;">${s.mapped_columns} mapped</span>` +
-            `<span style="color:#f59e0b;font-weight:800;">${s.unmapped_sources} unmatched source</span>` +
-            `<span style="color:#f87171;font-weight:800;">${s.unmapped_targets} missing target</span>`;
-
-        // Table breakdown
-        document.getElementById('map-tables').innerHTML = data.mapping.tables.map(t => `
-            <div style="background:#141b19;border:1px solid #1e293b;border-radius:.6rem;padding:.6rem .8rem;">
-                <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
-                    <span style="font-size:11px;font-weight:700;color:#e2e8f0;">${t.source_table} → ${t.target_table}</span>
-                    <span style="font-size:9px;color:#34d399;font-weight:800;">${t.columns.length} mapped</span>
-                </div>
-                <div style="font-size:10px;color:#475569;">${t.columns.slice(0,4).map(c=>`${c.source}→${c.target}`).join(' · ')}${t.columns.length > 4 ? ' …' : ''}</div>
-            </div>`).join('');
-
-        document.getElementById('step3-panel').classList.remove('hidden');
-        setStep(3);
+        _autoMapResult = data.mapping;
+        applyAutoMapToSelector(_autoMapResult);
+        alert(`Auto-map applied: ${data.stats.mapped_columns} columns pre-filled. Review and adjust as needed, then click Build Mapping.`);
     }
 
-    document.querySelectorAll('input[name="target_action"]').forEach(r => {
-        r.addEventListener('change', () => {
-            document.getElementById('map-target-row').classList.toggle('hidden', r.value !== 'map');
-        });
-    });
+    // ── Save / apply ──────────────────────────────────────────────────────────
+    async function _submitMapping(doConfirm) {
+        if (!_mappingJson) { alert('Build the mapping first (Step 2 → Build Mapping).'); return; }
 
-    async function _submitMapping(confirm) {
-        const action = document.querySelector('input[name="target_action"]:checked').value;
+        const action    = document.querySelector('input[name="target_action"]:checked').value;
+        const sysType   = document.getElementById('save-systype').value;
+        const schedule  = document.getElementById('save-schedule').value.trim() || '02:00';
+        const etlEnabled = document.getElementById('save-etl-enabled').checked;
+
         const body = {
             connection_name: _discoConnName,
             schema_owner:    _discoOwner,
             dump_file:       _discoDumpFile,
             mapping_json:    _mappingJson,
-            system_type:     document.getElementById('sel-systype').value,
+            system_type:     sysType || null,
             target_action:   action,
+            etl_schedule:    schedule,
+            etl_enabled:     etlEnabled,
             notes:           document.getElementById('map-notes').value,
         };
+
         const saveRes  = await fetch('/admin/db-manager/mapping/save', {
             method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
         });
         const saveData = await saveRes.json();
         if (!saveData.ok) { alert(saveData.error || 'Save failed.'); return; }
-        if (confirm) { window.location = '/admin/db-manager?tab=maps'; }
-        else { showTab('maps'); window.location.reload(); }
+
+        if (doConfirm) {
+            const mappingId = saveData.id;
+            if (mappingId) {
+                const confRes  = await fetch(`/admin/db-manager/mapping/${mappingId}/confirm`, {method:'POST'});
+                const confData = await confRes.json();
+                if (!confData.ok) { alert(confData.error || 'Confirm failed.'); return; }
+            }
+        }
+
+        showTab('maps');
+        window.location.reload();
     }
 
     function saveAndApply() { _submitMapping(true); }
@@ -658,7 +957,7 @@
 
     // ── Mapping actions ───────────────────────────────────────────────────────
     async function confirmMapping(id) {
-        if (!confirm('Confirm and apply this mapping?')) return;
+        if (!confirm('Confirm this mapping? This will create the target tables if needed.')) return;
         const res  = await fetch(`/admin/db-manager/mapping/${id}/confirm`, {method:'POST'});
         const data = await res.json();
         if (data.ok) window.location.reload();
@@ -671,6 +970,61 @@
         const data = await res.json();
         if (data.ok) window.location.reload();
         else alert(data.error || 'Failed.');
+    }
+
+    async function runMappingEtl(id, btn) {
+        if (!confirm('Start ETL sync now for this mapping? It runs in the background.')) return;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Running…';
+        const res  = await fetch(`/admin/db-manager/mapping/${id}/run-etl`, {method:'POST'});
+        const data = await res.json();
+        if (data.ok) {
+            btn.innerHTML = '<i class="bi bi-check"></i> Started';
+            setTimeout(() => { btn.disabled = false; btn.innerHTML = '<i class="bi bi-play-fill"></i> Run ETL'; }, 4000);
+        } else {
+            alert(data.error || 'Failed to start ETL.');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-play-fill"></i> Run ETL';
+        }
+    }
+
+    async function showEtlLog(id) {
+        document.getElementById('etl-log-content').innerHTML = '<span class="text-slate-500">Loading…</span>';
+        document.getElementById('etl-log-modal').classList.add('open');
+
+        const res  = await fetch(`/admin/db-manager/mapping/${id}/etl-log`);
+        const data = await res.json();
+        const log  = data.log || [];
+
+        if (!log.length) {
+            document.getElementById('etl-log-content').innerHTML =
+                '<span class="text-slate-500">No ETL runs recorded yet for this mapping.</span>';
+            return;
+        }
+
+        document.getElementById('etl-log-content').innerHTML = log.map(r => {
+            const cls = r.status === 'done' ? 'log-row-done' : r.status === 'error' ? 'log-row-error' : 'log-row-run';
+            const icon = r.status === 'done' ? '✓' : r.status === 'error' ? '✗' : '⟳';
+            const dur  = r.finished_at && r.started_at
+                ? `${Math.round((new Date(r.finished_at)-new Date(r.started_at))/1000)}s`
+                : '…';
+            return `
+            <div class="p-3 rounded-lg bg-[#141b19] border border-[#1e293b] ${cls}">
+                <div class="flex justify-between items-center">
+                    <span class="font-bold">${icon} ${r.target_table}</span>
+                    <span class="text-[10px] text-slate-500">${r.started_at?.slice(0,19) || ''} · ${dur}</span>
+                </div>
+                <div class="flex gap-4 mt-1 text-[10px]">
+                    <span>${r.rows_synced} rows</span>
+                    ${r.watermark_col ? `<span>Watermark: ${r.watermark_col} = ${r.watermark_val||'—'}</span>` : ''}
+                    ${r.error_message ? `<span class="text-rose-400">${r.error_message.slice(0,120)}</span>` : ''}
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    function closeEtlLog() {
+        document.getElementById('etl-log-modal').classList.remove('open');
     }
 
     // ── Step helpers ──────────────────────────────────────────────────────────
