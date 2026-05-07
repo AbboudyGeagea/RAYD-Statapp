@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | {{ 'Edit Report' if report else 'New Custom Report' }}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        :root { --accent: #60a5fa; }
+        body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; transition: background 0.2s, color 0.2s; }
+
+        /* ── Inputs ── */
+        .input-dark {
+            background: #181f1c;
+            border: 1px solid #28332e;
+            color: #e2e8f0;
+            border-radius: 8px;
+            padding: 8px 10px;
+            font-size: 12px;
+            width: 100%;
+            outline: none;
+            transition: border 0.15s;
+        }
+        .input-dark:focus { border-color: #60a5fa; }
+        .input-dark option { background: #232b28; }
+
+        .input-title {
+            background: transparent;
+            border: none;
+            border-bottom: 2px solid #28332e;
+            color: #ffffff;
+            font-size: 22px;
+            font-weight: 900;
+            font-family: 'Inter', sans-serif;
+            outline: none;
+            width: 100%;
+            padding: 6px 2px 8px 2px;
+            letter-spacing: -0.02em;
+            transition: border-color 0.18s;
+        }
+        .input-title:focus { border-bottom-color: #60a5fa; }
+        .input-title::placeholder { color: #334155; }
+
+        /* ── Cards ── */
+        .card {
+            background: #232b28;
+            border: 1px solid #28332e;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        .card-header {
+            padding: 10px 16px;
+            border-bottom: 1px solid #28332e;
+            font-size: 9px;
+            font-weight: 900;
+            color: #60a5fa;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        /* ── Buttons ── */
+        .btn-primary {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            padding: 0.55rem 1.2rem;
+            background: #60a5fa;
+            color: #0f172a;
+            border-radius: 0.75rem;
+            font-size: 11px;
+            font-weight: 900;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            text-decoration: none;
+            transition: background 0.15s;
+            border: none;
+            cursor: pointer;
+        }
+        .btn-primary:hover { background: #93c5fd; color: #0f172a; }
+        .btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
+
+        .btn-ghost {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.5rem 1rem;
+            background: transparent;
+            color: #64748b;
+            border-radius: 0.65rem;
+            border: 1px solid #1e293b;
+            font-size: 10px;
+            font-weight: 900;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            text-decoration: none;
+            transition: border-color 0.15s, color 0.15s;
+            cursor: pointer;
+        }
+        .btn-ghost:hover { border-color: #334155; color: #94a3b8; }
+
+        .btn-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 28px;
+            height: 28px;
+            border-radius: 6px;
+            border: 1px solid #28332e;
+            background: transparent;
+            color: #64748b;
+            cursor: pointer;
+            transition: all 0.15s;
+            font-size: 13px;
+            flex-shrink: 0;
+        }
+        .btn-icon:hover { border-color: #60a5fa; color: #60a5fa; background: rgba(96,165,250,0.07); }
+        .btn-icon.danger:hover { border-color: rgba(239,68,68,0.5); color: #f87171; background: rgba(239,68,68,0.07); }
+
+        /* ── Widget palette cards ── */
+        .widget-card {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px solid #28332e;
+            background: #1a2420;
+            cursor: pointer;
+            transition: border-color 0.15s, background 0.15s, transform 0.1s;
+            user-select: none;
+        }
+        .widget-card:hover {
+            border-color: rgba(96,165,250,0.35);
+            background: rgba(96,165,250,0.04);
+            transform: translateX(2px);
+        }
+        .widget-card:active { transform: scale(0.98); }
+
+        /* ── Section cards ── */
+        .section-card {
+            border: 1px solid #28332e;
+            border-radius: 10px;
+            background: #1a2420;
+            transition: border-color 0.15s;
+        }
+        .section-card:hover { border-color: rgba(96,165,250,0.2); }
+
+        /* ── Scrollbars ── */
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-thumb { background: #28332e; border-radius: 10px; }
+
+        /* ── Labels ── */
+        .field-label {
+            font-size: 9px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: #475569;
+            display: block;
+            margin-bottom: 4px;
+        }
+
+        /* ── Empty state ── */
+        .empty-state {
+            border: 2px dashed #28332e;
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 40px 24px;
+            text-align: center;
+            min-height: 160px;
+            transition: border-color 0.2s;
+        }
+        .empty-state.drag-over { border-color: rgba(96,165,250,0.45); background: rgba(96,165,250,0.03); }
+
+        /* ── Source type badge ── */
+        .type-badge {
+            font-size: 8px;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            padding: 1px 6px;
+            border-radius: 4px;
+        }
+
+        /* ── Collapsible ── */
+        .collapsible-body { transition: max-height 0.25s ease, opacity 0.2s; overflow: hidden; }
+        .collapsible-body.collapsed { max-height: 0 !important; opacity: 0; }
+
+        /* ── Toast ── */
+        #toast-container {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            pointer-events: none;
+        }
+        .toast {
+            padding: 10px 16px;
+            border-radius: 8px;
+            font-size: 11px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            animation: toastIn 0.2s ease;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            pointer-events: auto;
+        }
+        .toast-warn {
+            background: rgba(245,158,11,0.15);
+            border: 1px solid rgba(245,158,11,0.35);
+            color: #fbbf24;
+        }
+        .toast-success {
+            background: rgba(52,211,153,0.1);
+            border: 1px solid rgba(52,211,153,0.3);
+            color: #34d399;
+        }
+        .toast-error {
+            background: rgba(239,68,68,0.12);
+            border: 1px solid rgba(239,68,68,0.3);
+            color: #f87171;
+        }
+        @keyframes toastIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+
+        /* ── Light mode ── */
+        body.light { background: #f0f4f8 !important; color: #1a202c !important; }
+        body.light aside, body.light header { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        body.light .sidebar-item { color: #4a5568; }
+        body.light .sidebar-item:hover, body.light .sidebar-item.active { background: #e2e8f0 !important; color: #2b6cb0 !important; }
+        body.light main { background: #f0f4f8 !important; }
+        body.light .card { background: #ffffff; border-color: #e2e8f0; }
+        body.light .input-dark { background: #ffffff; border-color: #cbd5e1; color: #1a202c; }
+        body.light .input-dark option { background: #ffffff; }
+        body.light .input-title { color: #1a202c; }
+        body.light .widget-card { background: #f8fafc; border-color: #e2e8f0; }
+        body.light .widget-card:hover { background: #eff6ff; border-color: #93c5fd; }
+        body.light .section-card { background: #f8fafc; border-color: #e2e8f0; }
+        body.light .empty-state { border-color: #cbd5e1; }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+    {% include '_header.html' %}
+
+    <div class="flex flex-1 overflow-hidden">
+        {% include '_sidebar.html' %}
+
+        <!-- ── Main composer area ── -->
+        <main class="flex-1 overflow-hidden flex flex-col bg-[#181f1c]">
+
+            <!-- Top bar -->
+            <div class="flex-shrink-0 px-7 py-4 border-b border-[#28332e] bg-[#1a2420] flex items-center gap-4">
+                <div class="flex items-center gap-3 flex-1 min-w-0">
+                    <div class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                         style="background:rgba(96,165,250,0.12);border:1px solid rgba(96,165,250,0.2);">
+                        <i class="bi bi-layout-text-sidebar-reverse text-sm" style="color:#60a5fa;"></i>
+                    </div>
+                    <div class="min-w-0">
+                        <h2 class="text-white font-black text-base uppercase tracking-tight leading-none truncate">
+                            {{ 'Edit Report' if report else 'New Custom Report' }}
+                        </h2>
+                        <p class="text-[9px] font-black text-slate-500 uppercase tracking-widest mt-0.5">
+                            Report Composer
+                        </p>
+                    </div>
+                </div>
+                <a href="/reports/custom" class="btn-ghost">
+                    <i class="bi bi-arrow-left"></i> All Reports
+                </a>
+            </div>
+
+            <!-- Body: 2-column split -->
+            <div class="flex flex-1 overflow-hidden">
+
+                <!-- ════════════════════════════════════════
+                     LEFT PANEL — Widget Palette (1/3)
+                     ════════════════════════════════════════ -->
+                <div class="w-80 flex-shrink-0 border-r border-[#28332e] flex flex-col overflow-hidden bg-[#1a2420]">
+
+                    <!-- Palette header -->
+                    <div class="flex-shrink-0 px-5 py-4 border-b border-[#28332e]">
+                        <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest flex items-center gap-2">
+                            <i class="bi bi-palette2"></i> Widget Palette
+                        </p>
+                        <p class="text-[10px] text-slate-500 mt-1">Click a widget to add it to your report</p>
+                    </div>
+
+                    <div class="flex-1 overflow-y-auto p-4 space-y-2" id="palette-list">
+                        {% if catalogue %}
+                            {% for w in catalogue %}
+                            <div class="widget-card" onclick="addSection('{{ w.key }}')" title="{{ w.description }}">
+                                <!-- Icon -->
+                                <div class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                                     style="background:{{ w.color }}1a; border:1px solid {{ w.color }}33;">
+                                    <i class="bi {{ w.icon }} text-sm" style="color:{{ w.color }};"></i>
+                                </div>
+                                <!-- Text -->
+                                <div class="flex-1 min-w-0">
+                                    <div class="flex items-center gap-1.5 flex-wrap">
+                                        <span class="text-[11px] font-black text-white leading-tight">{{ w.label }}</span>
+                                        {% if w.financial %}
+                                        <i class="bi bi-lock-fill text-[8px]" style="color:#f59e0b;" title="Requires financial access"></i>
+                                        {% endif %}
+                                    </div>
+                                    <p class="text-[9px] text-slate-500 mt-0.5 leading-tight truncate">{{ w.description }}</p>
+                                </div>
+                                <!-- Add icon -->
+                                <i class="bi bi-plus-circle text-slate-600 flex-shrink-0 text-sm transition-colors"
+                                   style="align-self:center;"></i>
+                            </div>
+                            {% endfor %}
+                        {% else %}
+                            <div class="text-center py-8 text-slate-600 text-xs">
+                                <i class="bi bi-inbox text-2xl block mb-2 opacity-40"></i>
+                                No widgets available
+                            </div>
+                        {% endif %}
+                    </div>
+
+                    <!-- Data Sources collapsible -->
+                    <div class="flex-shrink-0 border-t border-[#28332e]">
+                        <button class="w-full flex items-center justify-between px-5 py-3 text-left transition-colors hover:bg-[#28332e]/40"
+                                onclick="toggleSourcesPanel(this)">
+                            <span class="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                                <i class="bi bi-database"></i> Data Sources
+                                <span class="font-normal text-slate-600">({{ sources|length }})</span>
+                            </span>
+                            <i class="bi bi-chevron-down text-slate-600 text-xs transition-transform" id="sources-chevron"></i>
+                        </button>
+                        <div class="collapsible-body collapsed" id="sources-body" style="max-height:220px;">
+                            <div class="px-4 pb-4 space-y-1.5 overflow-y-auto" style="max-height:200px;">
+                                {% for src in sources %}
+                                <div class="flex items-center gap-2 py-1.5 px-2 rounded-lg hover:bg-[#232b28] transition-colors">
+                                    <i class="bi bi-circle-fill text-[5px] text-slate-600"></i>
+                                    <span class="text-[10px] text-slate-300 font-bold flex-1">{{ src.label }}</span>
+                                    <span class="type-badge"
+                                          style="{% if src.type == 'postgres' %}background:rgba(52,211,153,0.1);color:#34d399;border:1px solid rgba(52,211,153,0.2);{% elif src.type == 'hl7' %}background:rgba(167,139,250,0.1);color:#a78bfa;border:1px solid rgba(167,139,250,0.2);{% else %}background:rgba(148,163,184,0.08);color:#64748b;border:1px solid rgba(100,116,139,0.2);{% endif %}">
+                                        {{ src.type }}
+                                    </span>
+                                </div>
+                                {% else %}
+                                <p class="text-[10px] text-slate-600 px-2 py-2 italic">No external sources configured</p>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ════════════════════════════════════════
+                     RIGHT PANEL — Composer Canvas (2/3)
+                     ════════════════════════════════════════ -->
+                <div class="flex-1 overflow-y-auto flex flex-col">
+                    <div class="flex-1 p-7 space-y-5 max-w-4xl w-full mx-auto">
+
+                        <!-- Report title input -->
+                        <div>
+                            <span class="field-label">Report Title</span>
+                            <input type="text" id="report-title" class="input-title"
+                                   placeholder="Enter report title…"
+                                   value="{{ report.title if report else '' }}"
+                                   maxlength="200">
+                        </div>
+
+                        <!-- Global Filters card -->
+                        <div class="card">
+                            <div class="card-header">
+                                <i class="bi bi-funnel-fill"></i>
+                                Global Filters
+                                <span class="ml-auto text-slate-600 font-normal normal-case tracking-normal text-[9px]">
+                                    Applied to all sections
+                                </span>
+                            </div>
+                            <div class="p-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+                                <!-- Date From -->
+                                <div>
+                                    <label class="field-label" for="gf-date-from">Date From</label>
+                                    <input type="date" id="gf-date-from" class="input-dark"
+                                           value="{{ (report.filters_json | fromjson).date_from if report and report.filters_json else default_date_from }}">
+                                </div>
+                                <!-- Date To -->
+                                <div>
+                                    <label class="field-label" for="gf-date-to">Date To</label>
+                                    <input type="date" id="gf-date-to" class="input-dark"
+                                           value="{{ (report.filters_json | fromjson).date_to if report and report.filters_json else default_date_to }}">
+                                </div>
+                                <!-- Modality -->
+                                <div>
+                                    <label class="field-label" for="gf-modality">Modality</label>
+                                    <select id="gf-modality" class="input-dark">
+                                        <option value="">All Modalities</option>
+                                        {% for m in filter_options.modalities %}
+                                        <option value="{{ m }}"
+                                            {% if report and report.filters_json and (report.filters_json | fromjson).modality == m %}selected{% endif %}>
+                                            {{ m }}
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <!-- Patient Class -->
+                                <div>
+                                    <label class="field-label" for="gf-class">Patient Class</label>
+                                    <select id="gf-class" class="input-dark">
+                                        <option value="">All Classes</option>
+                                        {% for c in filter_options.classes %}
+                                        <option value="{{ c }}"
+                                            {% if report and report.filters_json and (report.filters_json | fromjson).patient_class == c %}selected{% endif %}>
+                                            {{ c }}
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Visibility & Finance row -->
+                        <div class="card">
+                            <div class="card-header">
+                                <i class="bi bi-shield-check"></i>
+                                Report Settings
+                            </div>
+                            <div class="p-4 flex flex-wrap gap-5 items-center">
+                                <div>
+                                    <label class="field-label" for="gf-visibility">Visibility</label>
+                                    <select id="gf-visibility" class="input-dark" style="width:auto;min-width:140px;">
+                                        <option value="private" {% if not report or report.visibility == 'private' %}selected{% endif %}>
+                                            Private (only me)
+                                        </option>
+                                        <option value="shared" {% if report and report.visibility == 'shared' %}selected{% endif %}>
+                                            Shared (all users)
+                                        </option>
+                                    </select>
+                                </div>
+                                {% if can_finance %}
+                                <div class="flex items-center gap-2 mt-4">
+                                    <input type="checkbox" id="gf-financial" class="rounded"
+                                           {% if report and report.has_financial %}checked{% endif %}>
+                                    <label for="gf-financial" class="text-[10px] font-bold text-slate-400 uppercase tracking-wide cursor-pointer" style="margin-bottom:0;">
+                                        <i class="bi bi-lock-fill mr-1" style="color:#f59e0b;"></i>
+                                        Include Financial Widgets
+                                    </label>
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+
+                        <!-- Added Sections -->
+                        <div>
+                            <div class="flex items-center justify-between mb-3">
+                                <span class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest flex items-center gap-2">
+                                    <i class="bi bi-layers"></i>
+                                    Added Sections
+                                </span>
+                                <span id="section-count-badge"
+                                      class="text-[9px] font-bold text-slate-600 px-2 py-0.5 rounded-full"
+                                      style="background:rgba(96,165,250,0.07);border:1px solid rgba(96,165,250,0.12);">
+                                    0 sections
+                                </span>
+                            </div>
+                            <div id="sections-container">
+                                <!-- Populated by renderSections() -->
+                            </div>
+                        </div>
+
+                    </div><!-- /max-w -->
+
+                    <!-- ── Save row (sticky bottom) ── -->
+                    <div class="flex-shrink-0 border-t border-[#28332e] bg-[#1a2420] px-7 py-4 flex items-center gap-3">
+                        <button class="btn-primary" id="save-btn" onclick="saveReport()">
+                            <i class="bi bi-floppy-fill"></i>
+                            {{ 'Update Report' if report else 'Save Report' }}
+                        </button>
+                        <a href="/reports/custom" class="btn-ghost">
+                            <i class="bi bi-x-lg"></i> Cancel
+                        </a>
+                        <span id="save-status" class="text-[10px] text-slate-600 ml-2"></span>
+                    </div>
+                </div>
+                <!-- /right panel -->
+
+            </div>
+        </main>
+    </div>
+
+    <!-- Toast container -->
+    <div id="toast-container"></div>
+
+    <!-- ════════════════════════════════════════
+         JavaScript — Catalogue data & state
+         ════════════════════════════════════════ -->
+    <script>
+    // ── Server-side data passed to JS ─────────────────────────────────────────
+    const _catalogue    = {{ catalogue | tojson }};
+    const _existingRaw  = {{ sections | tojson }};
+    const _reportId     = {{ report.id | tojson if report else 'null' }};
+    const _canFinance   = {{ can_finance | tojson }};
+
+    // Build a fast lookup map: key → catalogue widget definition
+    const _catalogueMap = {};
+    _catalogue.forEach(w => { _catalogueMap[w.key] = w; });
+
+    // ── Working state ─────────────────────────────────────────────────────────
+    // Each element: { type: str, config: {} }
+    let _sections = [];
+
+    // ── Initialise from existing sections (edit mode) ─────────────────────────
+    (function initSections() {
+        _existingRaw.forEach(function(s) {
+            let config = {};
+            if (s.config_json) {
+                try { config = JSON.parse(s.config_json); } catch(e) {}
+            }
+            _sections.push({ type: s.section_type, config: config });
+        });
+        // Sort by position if provided
+        _existingRaw.sort(function(a, b) { return (a.position || 0) - (b.position || 0); });
+        renderSections();
+    })();
+
+    // ── addSection ────────────────────────────────────────────────────────────
+    function addSection(key) {
+        const w = _catalogueMap[key];
+        if (!w) return;
+
+        // Build default config from config_keys
+        const config = {};
+        if (w.config_keys) {
+            w.config_keys.forEach(function(ck) {
+                const [field_key, label, field_type, default_or_options] = ck;
+                if (field_type === 'select') {
+                    config[field_key] = Array.isArray(default_or_options) && default_or_options.length
+                        ? default_or_options[0] : '';
+                } else {
+                    config[field_key] = default_or_options;
+                }
+            });
+        }
+
+        _sections.push({ type: key, config: config });
+        renderSections();
+        showToast('success', '<i class="bi bi-check-circle-fill"></i> ' + escHtml(w.label) + ' added');
+
+        // Scroll to bottom of sections container
+        const container = document.getElementById('sections-container');
+        if (container) setTimeout(() => container.lastElementChild && container.lastElementChild.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
+    }
+
+    // ── removeSection ─────────────────────────────────────────────────────────
+    function removeSection(idx) {
+        _sections.splice(idx, 1);
+        renderSections();
+    }
+
+    // ── moveUp ────────────────────────────────────────────────────────────────
+    function moveUp(idx) {
+        if (idx <= 0) return;
+        [_sections[idx - 1], _sections[idx]] = [_sections[idx], _sections[idx - 1]];
+        renderSections();
+    }
+
+    // ── moveDown ──────────────────────────────────────────────────────────────
+    function moveDown(idx) {
+        if (idx >= _sections.length - 1) return;
+        [_sections[idx], _sections[idx + 1]] = [_sections[idx + 1], _sections[idx]];
+        renderSections();
+    }
+
+    // ── renderSections ────────────────────────────────────────────────────────
+    function renderSections() {
+        const container = document.getElementById('sections-container');
+        if (!container) return;
+
+        // Update count badge
+        const badge = document.getElementById('section-count-badge');
+        if (badge) badge.textContent = _sections.length + ' section' + (_sections.length !== 1 ? 's' : '');
+
+        if (_sections.length === 0) {
+            container.innerHTML =
+                '<div class="empty-state" id="empty-state">' +
+                '  <i class="bi bi-layout-text-sidebar text-3xl" style="color:#28332e;"></i>' +
+                '  <p class="text-slate-600 text-xs font-bold">Click widgets on the left to add sections</p>' +
+                '  <p class="text-slate-700 text-[10px]">Your report is empty — build it by choosing widgets from the palette</p>' +
+                '</div>';
+            return;
+        }
+
+        let html = '<div class="space-y-3">';
+        _sections.forEach(function(sec, idx) {
+            const w = _catalogueMap[sec.type] || { label: sec.type, icon: 'bi-question-circle', color: '#64748b', config_keys: [], financial: false };
+            html += renderSectionCard(sec, idx, w);
+        });
+        html += '</div>';
+        container.innerHTML = html;
+    }
+
+    // ── renderSectionCard ─────────────────────────────────────────────────────
+    function renderSectionCard(sec, idx, w) {
+        const isFirst = idx === 0;
+        const isLast  = idx === _sections.length - 1;
+
+        let configHtml = '';
+        if (w.config_keys && w.config_keys.length > 0) {
+            configHtml += '<div class="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-3 pt-3 border-t border-[#28332e]">';
+            w.config_keys.forEach(function(ck) {
+                const [field_key, label, field_type, default_or_options] = ck;
+                const currentVal = sec.config[field_key] !== undefined ? sec.config[field_key] : '';
+                const safeKey   = escHtml(field_key);
+                const safeLabel = escHtml(label);
+                configHtml += '<div>';
+                configHtml += '<label class="field-label">' + safeLabel + '</label>';
+                if (field_type === 'select') {
+                    const options = Array.isArray(default_or_options) ? default_or_options : [];
+                    configHtml += '<select class="input-dark" style="font-size:11px;padding:6px 8px;" onchange="_sections[' + idx + '].config[\'' + safeKey + '\'] = this.value">';
+                    options.forEach(function(opt) {
+                        const sel = String(currentVal) === String(opt) ? ' selected' : '';
+                        configHtml += '<option value="' + escHtml(String(opt)) + '"' + sel + '>' + escHtml(String(opt)) + '</option>';
+                    });
+                    configHtml += '</select>';
+                } else if (field_type === 'number') {
+                    configHtml += '<input type="number" class="input-dark" style="font-size:11px;padding:6px 8px;"' +
+                        ' value="' + escHtml(String(currentVal !== '' ? currentVal : (default_or_options !== undefined ? default_or_options : ''))) + '"' +
+                        ' min="1" max="500"' +
+                        ' onchange="_sections[' + idx + '].config[\'' + safeKey + '\'] = parseFloat(this.value) || this.value">';
+                } else {
+                    // text
+                    configHtml += '<input type="text" class="input-dark" style="font-size:11px;padding:6px 8px;"' +
+                        ' value="' + escHtml(String(currentVal)) + '"' +
+                        ' oninput="_sections[' + idx + '].config[\'' + safeKey + '\'] = this.value">';
+                }
+                configHtml += '</div>';
+            });
+            configHtml += '</div>';
+        }
+
+        return (
+            '<div class="section-card" data-idx="' + idx + '">' +
+            '  <div class="flex items-center gap-3 px-4 py-3">' +
+            '    <!-- Position badge -->' +
+            '    <span class="text-[9px] font-black text-slate-600 w-5 text-center flex-shrink-0">' + (idx + 1) + '</span>' +
+            '    <!-- Icon -->' +
+            '    <div class="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0"' +
+            '         style="background:' + w.color + '1a;border:1px solid ' + w.color + '33;">' +
+            '      <i class="bi ' + escHtml(w.icon) + ' text-xs" style="color:' + escHtml(w.color) + ';"></i>' +
+            '    </div>' +
+            '    <!-- Label -->' +
+            '    <div class="flex-1 min-w-0">' +
+            '      <span class="text-[11px] font-black text-white">' + escHtml(w.label) + '</span>' +
+            (w.financial ? '      <i class="bi bi-lock-fill ml-1.5 text-[8px]" style="color:#f59e0b;"></i>' : '') +
+            '    </div>' +
+            '    <!-- Controls -->' +
+            '    <div class="flex items-center gap-1 flex-shrink-0">' +
+            '      <button class="btn-icon" onclick="moveUp(' + idx + ')" title="Move up"' + (isFirst ? ' disabled style="opacity:0.25;cursor:default;"' : '') + '><i class="bi bi-chevron-up"></i></button>' +
+            '      <button class="btn-icon" onclick="moveDown(' + idx + ')" title="Move down"' + (isLast ? ' disabled style="opacity:0.25;cursor:default;"' : '') + '><i class="bi bi-chevron-down"></i></button>' +
+            '      <button class="btn-icon danger" onclick="removeSection(' + idx + ')" title="Remove section"><i class="bi bi-trash3-fill"></i></button>' +
+            '    </div>' +
+            '  </div>' +
+            (configHtml ? '<div class="px-4 pb-4">' + configHtml + '</div>' : '') +
+            '</div>'
+        );
+    }
+
+    // ── saveReport ────────────────────────────────────────────────────────────
+    async function saveReport() {
+        const title = (document.getElementById('report-title').value || '').trim();
+        if (!title) {
+            showToast('warn', '<i class="bi bi-exclamation-triangle-fill"></i> Please enter a report title');
+            document.getElementById('report-title').focus();
+            return;
+        }
+        if (_sections.length === 0) {
+            showToast('warn', '<i class="bi bi-exclamation-triangle-fill"></i> Add at least one section before saving');
+            return;
+        }
+
+        const filters = {
+            date_from:     (document.getElementById('gf-date-from').value || '').trim(),
+            date_to:       (document.getElementById('gf-date-to').value || '').trim(),
+            modality:      document.getElementById('gf-modality').value || '',
+            patient_class: document.getElementById('gf-class').value || ''
+        };
+        const visibility  = document.getElementById('gf-visibility').value;
+        const hasFinancial = _sections.some(s => { const w = _catalogueMap[s.type]; return w && w.financial; });
+        const finCheckbox = document.getElementById('gf-financial');
+
+        // Warn if financial widgets present but user doesn't have access — server already filtered
+        // but we guard anyway in case catalogue was tampered client-side
+        if (hasFinancial && !_canFinance) {
+            showToast('warn', '<i class="bi bi-lock-fill"></i> Financial widgets removed — access restricted');
+        }
+
+        const payload = {
+            id:          _reportId,
+            title:       title,
+            filters:     filters,
+            visibility:  visibility,
+            has_financial: hasFinancial && _canFinance,
+            sections: _sections.map(function(s, i) {
+                return { type: s.type, position: i, config: s.config };
+            })
+        };
+
+        const saveBtn    = document.getElementById('save-btn');
+        const saveStatus = document.getElementById('save-status');
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Saving…';
+        saveStatus.textContent = '';
+
+        try {
+            // Note: fetch() interceptor in _header.html auto-injects X-CSRFToken on POST
+            const res2 = await fetch('/reports/custom/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await res2.json();
+            if (res2.ok && data.id) {
+                showToast('success', '<i class="bi bi-check-circle-fill"></i> Report saved!');
+                saveStatus.textContent = 'Saved';
+                setTimeout(function() {
+                    window.location.href = '/reports/custom/' + data.id;
+                }, 600);
+            } else {
+                throw new Error(data.message || 'Save failed (' + res2.status + ')');
+            }
+        } catch (err) {
+            showToast('error', '<i class="bi bi-x-circle-fill"></i> ' + escHtml(err.message || 'Save failed. Please try again.'));
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = '<i class="bi bi-floppy-fill"></i> {{ "Update Report" if report else "Save Report" }}';
+        }
+    }
+
+    // ── Collapsible data sources ───────────────────────────────────────────────
+    function toggleSourcesPanel(btn) {
+        const body    = document.getElementById('sources-body');
+        const chevron = document.getElementById('sources-chevron');
+        const isOpen  = !body.classList.contains('collapsed');
+        if (isOpen) {
+            body.classList.add('collapsed');
+            chevron.style.transform = 'rotate(0deg)';
+        } else {
+            body.style.maxHeight = '220px';
+            body.classList.remove('collapsed');
+            chevron.style.transform = 'rotate(180deg)';
+        }
+    }
+
+    // ── Toast helper ──────────────────────────────────────────────────────────
+    function showToast(type, html, duration) {
+        duration = duration || 4000;
+        const tc = document.getElementById('toast-container');
+        if (!tc) return;
+        const t = document.createElement('div');
+        t.className = 'toast toast-' + type;
+        t.innerHTML = html;
+        tc.appendChild(t);
+        setTimeout(function() {
+            t.style.transition = 'opacity 0.35s, transform 0.35s';
+            t.style.opacity    = '0';
+            t.style.transform  = 'translateY(4px)';
+            setTimeout(function() { t.remove(); }, 380);
+        }, duration);
+    }
+
+    // ── Theme ─────────────────────────────────────────────────────────────────
+    const _savedTheme = "{{ ui_theme }}";
+    function applyTheme(theme) {
+        document.body.classList.toggle('light', theme === 'light');
+        const icon = document.getElementById('theme-icon');
+        if (icon) icon.className = theme === 'light' ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
+    }
+    applyTheme(_savedTheme);
+
+    function toggleTheme() {
+        const next = document.body.classList.contains('light') ? 'dark' : 'light';
+        applyTheme(next);
+        fetch('/user/theme', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ theme: next })
+        });
+    }
+
+    // ── Keyboard shortcut: Ctrl+S to save ────────────────────────────────────
+    document.addEventListener('keydown', function(e) {
+        if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+            e.preventDefault();
+            saveReport();
+        }
+    });
+    </script>
+</body>
+</html>

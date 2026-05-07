@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | {{ report.title }}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        :root { --accent: #60a5fa; }
+        body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; }
+        .sidebar-item { transition: all 0.2s; border-radius: 0.75rem; margin-bottom: 0.25rem; cursor: pointer; text-decoration: none !important; color: #94a3b8; }
+        .sidebar-item:hover { background: #1d2522; color: var(--accent) !important; }
+        .sidebar-item.active { background: #1d2522; color: var(--accent) !important; border-left: 4px solid var(--accent); }
+
+        .widget-card {
+            background: #232b28;
+            border-radius: 1.25rem;
+            border: 1px solid #28332e;
+            padding: 1.5rem;
+        }
+        .kpi-card {
+            background: #1e2a26;
+            border-radius: 1rem;
+            border: 1px solid #28332e;
+            padding: 1.25rem 1.5rem;
+            flex: 1;
+            min-width: 130px;
+        }
+        .kpi-value { font-size: 1.9rem; font-weight: 900; line-height: 1.1; }
+        .kpi-label { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.2em; color: #475569; margin-top: 5px; }
+        .kpi-sub   { font-size: 10px; color: #64748b; margin-top: 3px; }
+
+        .badge-pill {
+            display: inline-flex; align-items: center; gap: 0.25rem;
+            padding: 2px 8px; border-radius: 9999px;
+            font-size: 9px; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase;
+        }
+        .section-label { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.2em; color: #475569; }
+
+        .btn-primary {
+            display: inline-flex; align-items: center; gap: 0.4rem;
+            padding: 0.5rem 1.1rem; background: #60a5fa; color: #0f172a;
+            border-radius: 0.75rem; font-size: 11px; font-weight: 900;
+            letter-spacing: 0.1em; text-transform: uppercase; text-decoration: none;
+            transition: background 0.15s; border: none; cursor: pointer;
+        }
+        .btn-primary:hover { background: #93c5fd; color: #0f172a; }
+
+        .btn-ghost {
+            display: inline-flex; align-items: center; gap: 0.35rem;
+            padding: 0.45rem 0.9rem; background: transparent; color: #64748b;
+            border-radius: 0.65rem; border: 1px solid #1e293b;
+            font-size: 10px; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase;
+            text-decoration: none; transition: border-color 0.15s, color 0.15s; cursor: pointer;
+        }
+        .btn-ghost:hover { border-color: #334155; color: #94a3b8; }
+
+        /* Data table */
+        .data-table { width: 100%; font-size: 13px; border-collapse: collapse; }
+        .data-table th { text-align: left; padding: 8px 12px; font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.15em; color: #475569; border-bottom: 1px solid #28332e; }
+        .data-table td { padding: 8px 12px; border-bottom: 1px solid #1a2420; vertical-align: middle; }
+        .data-table tr:last-child td { border-bottom: none; }
+        .data-table tr:hover td { background: rgba(96,165,250,0.03); }
+
+        /* Donut chart container */
+        .donut-wrap { display: flex; align-items: center; gap: 2rem; flex-wrap: wrap; }
+        .donut-canvas-wrap { width: 180px; height: 180px; flex-shrink: 0; }
+        .donut-legend { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+        .donut-legend-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+        .donut-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+
+        /* Bar chart */
+        .bar-wrap { position: relative; }
+        .inline-bar { height: 6px; background: #1e293b; border-radius: 3px; overflow: hidden; display: inline-block; width: 80px; vertical-align: middle; }
+        .inline-bar-fill { height: 100%; border-radius: 3px; }
+
+        /* Light mode */
+        body.light { background: #f0f4f8; color: #1a202c; }
+        body.light aside, body.light header { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        body.light .sidebar-item { color: #4a5568; }
+        body.light .sidebar-item:hover, body.light .sidebar-item.active { background: #e2e8f0 !important; color: #2b6cb0 !important; }
+        body.light main { background: #f0f4f8 !important; }
+        body.light .widget-card { background: #ffffff; border-color: #e2e8f0; color: #1a202c; }
+        body.light .kpi-card { background: #f8fafc; border-color: #e2e8f0; }
+        body.light .data-table th { color: #64748b; border-color: #e2e8f0; }
+        body.light .data-table td { border-color: #f1f5f9; }
+        body.light .data-table tr:hover td { background: rgba(96,165,250,0.04); }
+        body.light .inline-bar { background: #e2e8f0; }
+
+        @media print {
+            aside, header, .no-print { display: none !important; }
+            main { overflow: visible !important; padding: 0 !important; }
+            body { background: white !important; color: black !important; }
+            .widget-card { border: 1px solid #ccc; page-break-inside: avoid; }
+        }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+    {% include '_header.html' %}
+
+    <div class="flex flex-1 overflow-hidden">
+        {% include '_sidebar.html' %}
+
+        <main class="flex-1 overflow-y-auto p-8 bg-[#181f1c]">
+            <div class="max-w-7xl mx-auto">
+
+                <!-- ── Page header ──────────────────────────────────── -->
+                <div class="flex items-start justify-between mb-6 no-print">
+                    <div>
+                        <a href="/reports/custom"
+                           class="text-[10px] font-black text-slate-500 hover:text-slate-300 uppercase tracking-widest flex items-center gap-1 mb-2">
+                            <i class="bi bi-arrow-left"></i> All Reports
+                        </a>
+                        <h2 class="text-white text-3xl font-black tracking-tight uppercase">{{ report.title }}</h2>
+                        <div class="flex items-center gap-2 mt-2 flex-wrap">
+                            {% if report.has_financial and can_finance %}
+                            <span class="badge-pill" style="background:rgba(245,158,11,0.1);color:#f59e0b;border:1px solid rgba(245,158,11,0.25);">
+                                <i class="bi bi-lock-fill" style="font-size:8px;"></i> Finance
+                            </span>
+                            {% endif %}
+                            {% if report.visibility == 'shared' %}
+                            <span class="badge-pill" style="background:rgba(52,211,153,0.1);color:#34d399;border:1px solid rgba(52,211,153,0.2);">
+                                <i class="bi bi-people-fill" style="font-size:8px;"></i> Shared
+                            </span>
+                            {% else %}
+                            <span class="badge-pill" style="background:rgba(100,116,139,0.08);color:#64748b;border:1px solid rgba(100,116,139,0.2);">
+                                <i class="bi bi-eye-slash-fill" style="font-size:8px;"></i> Restricted
+                            </span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2 flex-shrink-0">
+                        {% if current_user.role == 'admin' or current_user.id == report.created_by %}
+                        <a href="/reports/custom/{{ report.id }}/edit" class="btn-ghost">
+                            <i class="bi bi-pencil-fill"></i> Edit
+                        </a>
+                        {% endif %}
+                        <button onclick="window.print()" class="btn-ghost">
+                            <i class="bi bi-printer-fill"></i> Print
+                        </button>
+                    </div>
+                </div>
+
+                <!-- ── Filter bar ───────────────────────────────────── -->
+                <div class="widget-card mb-6 no-print">
+                    <p class="section-label mb-4">Filters</p>
+                    <div class="flex flex-wrap items-end gap-4">
+                        <div>
+                            <label class="section-label block mb-1.5">Date From</label>
+                            <input type="date" id="f_date_from"
+                                   value="{{ report.filters_json.get('date_from', '') if report.filters_json else '' }}"
+                                   class="bg-[#181f1c] border border-[#28332e] text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400/60">
+                        </div>
+                        <div>
+                            <label class="section-label block mb-1.5">Date To</label>
+                            <input type="date" id="f_date_to"
+                                   value="{{ report.filters_json.get('date_to', '') if report.filters_json else '' }}"
+                                   class="bg-[#181f1c] border border-[#28332e] text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400/60">
+                        </div>
+                        <div>
+                            <label class="section-label block mb-1.5">Modality</label>
+                            <select id="f_modality"
+                                    class="bg-[#181f1c] border border-[#28332e] text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400/60">
+                                <option value="">All Modalities</option>
+                                {% for m in filter_options.modalities %}
+                                <option value="{{ m }}" {% if report.filters_json and report.filters_json.get('modality') == m %}selected{% endif %}>{{ m }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="section-label block mb-1.5">Patient Class</label>
+                            <select id="f_patient_class"
+                                    class="bg-[#181f1c] border border-[#28332e] text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400/60">
+                                <option value="">All Classes</option>
+                                {% for c in filter_options.classes %}
+                                <option value="{{ c }}" {% if report.filters_json and report.filters_json.get('patient_class') == c %}selected{% endif %}>{{ c }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <button onclick="runReport()" class="btn-primary">
+                            <i class="bi bi-play-fill"></i> Run
+                        </button>
+                    </div>
+                </div>
+
+                <!-- ── Loading ──────────────────────────────────────── -->
+                <div id="cr-loading" class="hidden">
+                    <div class="flex items-center justify-center py-20 gap-3 text-slate-400">
+                        <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span class="font-bold text-sm">Loading report data…</span>
+                    </div>
+                </div>
+
+                <!-- ── Sections container ───────────────────────────── -->
+                <div id="sections-container" class="space-y-6"></div>
+
+            </div><!-- /max-w-7xl -->
+        </main>
+    </div>
+
+    <script>
+    // ──────────────────────────────────────────────────────────────────────────
+    const REPORT_ID = {{ report.id }};
+
+    const PALETTE = [
+        '#60a5fa','#a78bfa','#34d399','#f59e0b','#fb923c',
+        '#fbbf24','#22d3ee','#4ade80','#e879f9','#f87171','#38bdf8','#818cf8'
+    ];
+
+    const _WIDGET_META = {
+        study_count:          { label: 'Study Volume',           icon: 'bi-bar-chart-fill',           color: '#60a5fa' },
+        modality_split:       { label: 'Modality Breakdown',     icon: 'bi-pie-chart-fill',            color: '#a78bfa' },
+        physician_perf:       { label: 'Physician Performance',  icon: 'bi-person-badge-fill',         color: '#34d399' },
+        tat_summary:          { label: 'TAT Summary',            icon: 'bi-clock-history',             color: '#f59e0b' },
+        patient_class:        { label: 'Patient Class Split',    icon: 'bi-people-fill',               color: '#fb923c' },
+        shift_breakdown:      { label: 'Shift Breakdown',        icon: 'bi-sun-fill',                  color: '#fbbf24' },
+        device_util:          { label: 'Device Utilisation',     icon: 'bi-hdd-stack-fill',            color: '#22d3ee' },
+        report_status:        { label: 'Report Status',          icon: 'bi-file-earmark-check-fill',   color: '#4ade80' },
+        referring_phys:       { label: 'Referring Physicians',   icon: 'bi-person-lines-fill',         color: '#e879f9' },
+        rvu_summary:          { label: 'RVU / Revenue Summary',  icon: 'bi-currency-dollar',           color: '#f87171' },
+        revenue_by_modality:  { label: 'Revenue by Modality',   icon: 'bi-graph-up-arrow',            color: '#f87171' },
+        revenue_by_physician: { label: 'Revenue by Physician',   icon: 'bi-person-fill-up',            color: '#f87171' },
+    };
+
+    const _charts = {};  // canvas id → Chart instance
+
+    // ── Helpers ────────────────────────────────────────────────
+    function wMeta(t) { return _WIDGET_META[t] || { label: t, icon: 'bi-grid', color: '#60a5fa' }; }
+
+    function fmt(n, dec = 0)  { return n == null ? '—' : (+n).toLocaleString(undefined, { maximumFractionDigits: dec }); }
+    function fmtH(n)          { return n == null ? '—' : `${(+n).toFixed(1)} h`; }
+    function fmtUSD(n)        { return n == null ? '—' : '$' + (+n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+
+    function kpiCard(value, label, color, sub) {
+        return `<div class="kpi-card">
+            <div class="kpi-value" style="color:${color || '#60a5fa'};">${value}</div>
+            <div class="kpi-label">${label}</div>
+            ${sub ? `<div class="kpi-sub">${sub}</div>` : ''}
+        </div>`;
+    }
+
+    function mkCanvas(id, height) {
+        return `<canvas id="${id}" height="${height || 90}"></canvas>`;
+    }
+
+    function mkChart(id, cfg) {
+        if (_charts[id]) { _charts[id].destroy(); }
+        const el = document.getElementById(id);
+        if (!el) return;
+        _charts[id] = new Chart(el, cfg);
+    }
+
+    function darkScales() {
+        return {
+            x: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: '#1e293b' } },
+            y: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: '#1e293b' } }
+        };
+    }
+    function darkTooltip() {
+        return { backgroundColor: '#1e293b', titleColor: '#94a3b8', bodyColor: '#e2e8f0', padding: 10, cornerRadius: 8 };
+    }
+    function baseOpts(extra) {
+        return Object.assign({
+            responsive: true,
+            plugins: {
+                legend: { display: false },
+                tooltip: darkTooltip()
+            },
+            scales: darkScales()
+        }, extra || {});
+    }
+
+    function tableHtml(headers, rows, rowFn) {
+        if (!rows || !rows.length) return '<p class="text-slate-500 text-sm text-center py-6">No data</p>';
+        const ths = headers.map(h => `<th>${h}</th>`).join('');
+        const trs = rows.map(r => `<tr>${rowFn(r)}</tr>`).join('');
+        return `<div class="overflow-x-auto"><table class="data-table"><thead><tr>${ths}</tr></thead><tbody>${trs}</tbody></table></div>`;
+    }
+    function td(v, cls) { return `<td class="${cls || ''}">${v}</td>`; }
+    function tdN(v, cls) { return td(v == null ? '<span class="text-slate-500">—</span>' : v, cls); }
+
+    function inlineBar(pct, color) {
+        return `<div class="inline-bar"><div class="inline-bar-fill" style="width:${pct}%;background:${color || '#60a5fa'};"></div></div>`;
+    }
+
+    // ── Run report ─────────────────────────────────────────────
+    async function runReport() {
+        const params = new URLSearchParams();
+        const df = document.getElementById('f_date_from').value;
+        const dt = document.getElementById('f_date_to').value;
+        const md = document.getElementById('f_modality').value;
+        const pc = document.getElementById('f_patient_class').value;
+        if (df) params.set('date_from', df);
+        if (dt) params.set('date_to',   dt);
+        if (md) params.set('modality',  md);
+        if (pc) params.set('patient_class', pc);
+
+        const loading   = document.getElementById('cr-loading');
+        const container = document.getElementById('sections-container');
+        loading.classList.remove('hidden');
+        container.innerHTML = '';
+
+        // Destroy old charts
+        Object.values(_charts).forEach(c => { try { c.destroy(); } catch(e) {} });
+        Object.keys(_charts).forEach(k => delete _charts[k]);
+
+        try {
+            const res  = await fetch(`/reports/custom/${REPORT_ID}/data?${params}`);
+            const json = await res.json();
+            if (!json.ok) throw new Error(json.error || 'Server error');
+            renderSections(json.sections);
+        } catch (e) {
+            container.innerHTML = `
+                <div class="widget-card text-center py-12">
+                    <i class="bi bi-exclamation-triangle text-4xl mb-3 block" style="color:#f87171;"></i>
+                    <p class="font-bold text-white mb-1">Failed to load report</p>
+                    <p class="text-slate-500 text-sm">${e.message}</p>
+                </div>`;
+        } finally {
+            loading.classList.add('hidden');
+        }
+    }
+
+    // ── Render all sections ────────────────────────────────────
+    function renderSections(sections) {
+        const container = document.getElementById('sections-container');
+        if (!sections.length) {
+            container.innerHTML = '<p class="text-slate-500 text-center py-10 text-sm">This report has no sections.</p>';
+            return;
+        }
+        sections.forEach(sec => {
+            const meta = wMeta(sec.type);
+            const card = document.createElement('div');
+            card.className = 'widget-card';
+
+            if (sec.error) {
+                card.innerHTML = `
+                    <div class="flex items-center gap-2 mb-4">
+                        <i class="bi ${meta.icon}" style="color:${meta.color};"></i>
+                        <span class="text-white font-black uppercase tracking-tight text-sm">${meta.label}</span>
+                    </div>
+                    <p class="text-red-400 text-sm"><i class="bi bi-exclamation-circle mr-1"></i>${sec.error}</p>`;
+                container.appendChild(card);
+                return;
+            }
+
+            card.innerHTML = `
+                <div class="flex items-center gap-2 mb-5">
+                    <i class="bi ${meta.icon}" style="color:${meta.color};font-size:1.1rem;"></i>
+                    <h3 class="text-white font-black text-base uppercase tracking-tight">${meta.label}</h3>
+                </div>
+                <div id="wb-${sec.id}"></div>`;
+            container.appendChild(card);
+
+            // Defer so DOM is ready before Chart.js draws
+            requestAnimationFrame(() => renderWidget(sec, document.getElementById(`wb-${sec.id}`)));
+        });
+    }
+
+    // ── Widget dispatch ────────────────────────────────────────
+    function renderWidget(sec, el) {
+        const d   = sec.data;
+        const cfg = sec.config || {};
+        switch (sec.type) {
+            case 'study_count':           return rwStudyCount(sec.id, d, cfg, el);
+            case 'modality_split':        return rwModalitySplit(sec.id, d, cfg, el);
+            case 'physician_perf':        return rwPhysicianPerf(d, el);
+            case 'tat_summary':           return rwTatSummary(d, el);
+            case 'patient_class':         return rwPieRows(sec.id, d.rows, 'patient_class', el);
+            case 'shift_breakdown':       return rwShiftBreakdown(sec.id, d, el);
+            case 'device_util':           return rwDeviceUtil(d, el);
+            case 'report_status':         return rwPieRows(sec.id, d.rows, 'status', el);
+            case 'referring_phys':        return rwReferringPhys(d, el);
+            case 'rvu_summary':           return rwRvuSummary(d, el);
+            case 'revenue_by_modality':   return rwRevenueByModality(sec.id, d, el);
+            case 'revenue_by_physician':  return rwRevenueByPhysician(d, el);
+            default:
+                el.innerHTML = `<p class="text-slate-500 text-sm">Unknown widget type: ${sec.type}</p>`;
+        }
+    }
+
+    // ── study_count ────────────────────────────────────────────
+    function rwStudyCount(id, d, cfg, el) {
+        let trendHtml = '';
+        if (d.trend_pct != null) {
+            const up = d.trend_pct >= 0;
+            trendHtml = `<span style="color:${up ? '#34d399' : '#f87171'};font-size:12px;font-weight:700;">
+                <i class="bi bi-arrow-${up ? 'up' : 'down'}-short"></i>
+                ${Math.abs(d.trend_pct)}% vs prior period
+            </span>`;
+        }
+        el.innerHTML = `
+            <div class="flex items-end gap-8 mb-6 flex-wrap">
+                <div>
+                    <div class="kpi-value" style="color:#60a5fa;">${fmt(d.total)}</div>
+                    <div class="kpi-label">Total Studies</div>
+                </div>
+                ${d.prev_total != null ? `<div class="mb-1">
+                    <div class="text-slate-400 font-bold text-lg">${fmt(d.prev_total)}</div>
+                    <div class="kpi-label">Prior Period</div>
+                </div>` : ''}
+                ${trendHtml ? `<div class="mb-1">${trendHtml}</div>` : ''}
+            </div>
+            ${d.by_period && d.by_period.length ? `<div>${mkCanvas('c-' + id, 90)}</div>` : ''}`;
+
+        if (d.by_period && d.by_period.length) {
+            mkChart(`c-${id}`, {
+                type: 'bar',
+                data: {
+                    labels: d.by_period.map(r => r.label),
+                    datasets: [{
+                        label: 'Studies',
+                        data: d.by_period.map(r => r.count),
+                        backgroundColor: 'rgba(96,165,250,0.22)',
+                        borderColor: '#60a5fa',
+                        borderWidth: 2,
+                        borderRadius: 4,
+                    }]
+                },
+                options: baseOpts()
+            });
+        }
+    }
+
+    // ── modality_split ─────────────────────────────────────────
+    function rwModalitySplit(id, d, cfg, el) {
+        const rows  = d.rows || [];
+        const isPie = (d.chart_type || cfg.chart_type || 'bar') === 'pie';
+        if (!rows.length) { el.innerHTML = '<p class="text-slate-500 text-sm">No data</p>'; return; }
+
+        if (isPie) {
+            el.innerHTML = `<div class="donut-wrap">
+                <div class="donut-canvas-wrap">${mkCanvas('c-' + id, 180)}</div>
+                <div class="donut-legend" id="leg-${id}"></div>
+            </div>`;
+            const colors = rows.map((_, i) => PALETTE[i % PALETTE.length]);
+            mkChart(`c-${id}`, {
+                type: 'doughnut',
+                data: {
+                    labels:   rows.map(r => r.modality),
+                    datasets: [{ data: rows.map(r => r.count), backgroundColor: colors, borderWidth: 0 }]
+                },
+                options: {
+                    responsive: true,
+                    cutout: '65%',
+                    plugins: { legend: { display: false }, tooltip: darkTooltip() }
+                }
+            });
+            document.getElementById(`leg-${id}`).innerHTML = rows.map((r, i) =>
+                `<div class="donut-legend-row">
+                    <div class="donut-dot" style="background:${colors[i]};"></div>
+                    <span class="text-slate-300">${r.modality}</span>
+                    <span class="ml-auto font-bold" style="color:${colors[i]};">${fmt(r.count)}</span>
+                    <span class="text-slate-500 text-xs w-10 text-right">${r.pct}%</span>
+                </div>`).join('');
+        } else {
+            el.innerHTML = mkCanvas('c-' + id, 90);
+            mkChart(`c-${id}`, {
+                type: 'bar',
+                data: {
+                    labels: rows.map(r => r.modality),
+                    datasets: [{
+                        label: 'Studies',
+                        data:  rows.map(r => r.count),
+                        backgroundColor: rows.map((_, i) => PALETTE[i % PALETTE.length] + '44'),
+                        borderColor:     rows.map((_, i) => PALETTE[i % PALETTE.length]),
+                        borderWidth: 2,
+                        borderRadius: 4,
+                    }]
+                },
+                options: baseOpts()
+            });
+        }
+    }
+
+    // ── physician_perf ─────────────────────────────────────────
+    function rwPhysicianPerf(d, el) {
+        const rows = d.rows || [];
+        const maxS = Math.max(...rows.map(r => r.studies), 1);
+        el.innerHTML = tableHtml(
+            ['Physician', 'Studies', 'Avg TAT'],
+            rows,
+            r => td(r.name || '—') +
+                 td(`<div class="flex items-center gap-2">
+                         <span class="font-bold text-white">${fmt(r.studies)}</span>
+                         ${inlineBar(r.studies / maxS * 100, '#34d399')}
+                     </div>`) +
+                 td(fmtH(r.avg_tat_h), 'text-slate-400')
+        );
+    }
+
+    // ── tat_summary ────────────────────────────────────────────
+    function rwTatSummary(d, el) {
+        function group(label, g, color) {
+            if (!g) return '';
+            return `<div>
+                <p class="section-label mb-3">${label}</p>
+                <div class="flex gap-3 flex-wrap">
+                    ${kpiCard(fmtH(g.avg_h),    'Average',  color)}
+                    ${kpiCard(fmtH(g.median_h), 'Median',   color)}
+                    ${kpiCard(fmtH(g.p90_h),    'P90',      color)}
+                </div>
+            </div>`;
+        }
+        el.innerHTML = `
+            <div class="space-y-6">
+                ${group('Preliminary Report TAT', d.prelim, '#f59e0b')}
+                ${group('Final Report TAT',        d.final,  '#60a5fa')}
+            </div>`;
+    }
+
+    // ── patient_class / report_status (donut) ─────────────────
+    function rwPieRows(id, rows, labelKey, el) {
+        if (!rows || !rows.length) { el.innerHTML = '<p class="text-slate-500 text-sm">No data</p>'; return; }
+        const colors = rows.map((_, i) => PALETTE[i % PALETTE.length]);
+        el.innerHTML = `<div class="donut-wrap">
+            <div class="donut-canvas-wrap">${mkCanvas('c-' + id, 180)}</div>
+            <div class="donut-legend" id="leg-${id}"></div>
+        </div>`;
+        mkChart(`c-${id}`, {
+            type: 'doughnut',
+            data: {
+                labels:   rows.map(r => r[labelKey]),
+                datasets: [{ data: rows.map(r => r.count), backgroundColor: colors, borderWidth: 0 }]
+            },
+            options: { responsive: true, cutout: '65%', plugins: { legend: { display: false }, tooltip: darkTooltip() } }
+        });
+        document.getElementById(`leg-${id}`).innerHTML = rows.map((r, i) =>
+            `<div class="donut-legend-row">
+                <div class="donut-dot" style="background:${colors[i]};"></div>
+                <span class="text-slate-300">${r[labelKey] || 'Unknown'}</span>
+                <span class="ml-auto font-bold" style="color:${colors[i]};">${fmt(r.count)}</span>
+                <span class="text-slate-500 text-xs w-10 text-right">${r.pct}%</span>
+            </div>`).join('');
+    }
+
+    // ── shift_breakdown ────────────────────────────────────────
+    function rwShiftBreakdown(id, d, el) {
+        const rows = d.rows || [];
+        if (!rows.length) { el.innerHTML = '<p class="text-slate-500 text-sm">No data</p>'; return; }
+        const shiftColors = { Morning: '#f59e0b', Afternoon: '#60a5fa', Night: '#a78bfa' };
+        el.innerHTML = mkCanvas('c-' + id, 70);
+        mkChart(`c-${id}`, {
+            type: 'bar',
+            data: {
+                labels: rows.map(r => r.shift),
+                datasets: [{
+                    label: 'Studies',
+                    data:  rows.map(r => r.count),
+                    backgroundColor: rows.map(r => (shiftColors[r.shift] || '#60a5fa') + '44'),
+                    borderColor:     rows.map(r => shiftColors[r.shift] || '#60a5fa'),
+                    borderWidth: 2,
+                    borderRadius: 6,
+                }]
+            },
+            options: baseOpts()
+        });
+    }
+
+    // ── device_util ────────────────────────────────────────────
+    function rwDeviceUtil(d, el) {
+        const rows = d.rows || [];
+        const maxC = Math.max(...rows.map(r => r.count), 1);
+        el.innerHTML = tableHtml(
+            ['AE Title', 'Modality', 'Studies'],
+            rows,
+            r => td(`<span class="font-mono text-xs text-slate-300">${r.ae_title}</span>`) +
+                 td(r.modality, 'text-slate-400') +
+                 td(`<div class="flex items-center gap-2">
+                         <span class="font-bold text-white">${fmt(r.count)}</span>
+                         ${inlineBar(r.count / maxC * 100, '#22d3ee')}
+                     </div>`)
+        );
+    }
+
+    // ── referring_phys ─────────────────────────────────────────
+    function rwReferringPhys(d, el) {
+        const rows = d.rows || [];
+        const maxC = Math.max(...rows.map(r => r.count), 1);
+        el.innerHTML = tableHtml(
+            ['Physician', 'Referrals'],
+            rows,
+            r => td(r.name || '—') +
+                 td(`<div class="flex items-center gap-2">
+                         <span class="font-bold text-white">${fmt(r.count)}</span>
+                         ${inlineBar(r.count / maxC * 100, '#e879f9')}
+                     </div>`)
+        );
+    }
+
+    // ── rvu_summary ────────────────────────────────────────────
+    function rwRvuSummary(d, el) {
+        el.innerHTML = `<div class="flex gap-3 flex-wrap">
+            ${kpiCard(fmt(d.total_studies),        'Total Studies',      '#60a5fa')}
+            ${kpiCard(fmt(d.total_rvu, 1) + ' RVU', 'Total RVU',        '#f87171')}
+            ${kpiCard(fmtUSD(d.total_revenue),     'Total Revenue',      '#34d399')}
+            ${kpiCard(fmtUSD(d.rev_per_study),     'Revenue / Study',    '#f59e0b')}
+        </div>`;
+    }
+
+    // ── revenue_by_modality ────────────────────────────────────
+    function rwRevenueByModality(id, d, el) {
+        const rows = d.rows || [];
+        if (!rows.length) { el.innerHTML = '<p class="text-slate-500 text-sm">No data</p>'; return; }
+        el.innerHTML = `
+            <div class="mb-6">${mkCanvas('c-' + id, 90)}</div>
+            ${tableHtml(
+                ['Modality', 'Studies', 'Total RVU', 'Revenue'],
+                rows,
+                r => td(r.modality, 'font-bold text-white') +
+                     td(fmt(r.study_count), 'text-slate-400') +
+                     td(fmt(r.total_rvu, 1), 'text-slate-400') +
+                     td(fmtUSD(r.revenue_usd), 'font-bold text-emerald-400')
+            )}`;
+        mkChart(`c-${id}`, {
+            type: 'bar',
+            data: {
+                labels: rows.map(r => r.modality),
+                datasets: [{
+                    label: 'Revenue (USD)',
+                    data:  rows.map(r => r.revenue_usd),
+                    backgroundColor: rows.map((_, i) => PALETTE[i % PALETTE.length] + '44'),
+                    borderColor:     rows.map((_, i) => PALETTE[i % PALETTE.length]),
+                    borderWidth: 2,
+                    borderRadius: 4,
+                }]
+            },
+            options: baseOpts({
+                plugins: {
+                    legend: { display: false },
+                    tooltip: Object.assign(darkTooltip(), {
+                        callbacks: { label: ctx => ' $' + (+ctx.raw).toLocaleString(undefined, { maximumFractionDigits: 2 }) }
+                    })
+                }
+            })
+        });
+    }
+
+    // ── revenue_by_physician ───────────────────────────────────
+    function rwRevenueByPhysician(d, el) {
+        const rows = d.rows || [];
+        el.innerHTML = tableHtml(
+            ['Physician', 'Studies', 'Total RVU', 'Revenue'],
+            rows,
+            r => td(r.name || '—', 'font-bold text-white') +
+                 td(fmt(r.studies), 'text-slate-400') +
+                 td(fmt(r.total_rvu, 1), 'text-slate-400') +
+                 td(fmtUSD(r.revenue_usd), 'font-bold text-emerald-400')
+        );
+    }
+
+    // ── Theme ──────────────────────────────────────────────────
+    const _savedTheme = "{{ ui_theme }}";
+    function applyTheme(theme) {
+        document.body.classList.toggle('light', theme === 'light');
+        const icon = document.getElementById('theme-icon');
+        if (icon) icon.className = theme === 'light' ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
+    }
+    applyTheme(_savedTheme);
+    function toggleTheme() {
+        const next = document.body.classList.contains('light') ? 'dark' : 'light';
+        applyTheme(next);
+        fetch('/user/theme', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ theme: next }) });
+    }
+
+    // ── Sidebar collapse ───────────────────────────────────────
+    function toggleSidebar() {
+        const sb = document.getElementById('sidebar');
+        if (!sb) return;
+        sb.classList.toggle('w-72');
+        sb.classList.toggle('w-14');
+        sb.querySelectorAll('.sidebar-text').forEach(el => el.classList.toggle('hidden'));
+    }
+    if (window.innerWidth < 1024) {
+        const sb = document.getElementById('sidebar');
+        if (sb) {
+            sb.classList.remove('w-72');
+            sb.classList.add('w-14');
+            sb.querySelectorAll('.sidebar-text').forEach(el => el.classList.add('hidden'));
+        }
+    }
+
+    // ── Auto-run on load ───────────────────────────────────────
+    window.addEventListener('DOMContentLoaded', runReport);
+    </script>
+</body>
+</html>
