@@ -5,7 +5,7 @@ import glob
 import subprocess
 import logging
 from datetime import datetime
-from flask import Blueprint, render_template, request, jsonify, abort, flash, redirect, url_for
+from flask import Blueprint, render_template, request, jsonify, abort, flash, redirect, url_for, send_file
 from flask_login import login_required, current_user
 from sqlalchemy import text
 from db import db
@@ -476,6 +476,21 @@ def view_dump(filename):
         abort(404)
     with open(filepath) as f:
         return jsonify(json.load(f))
+
+
+@db_manager_bp.route('/admin/db-manager/dump/<filename>/download')
+@login_required
+def download_dump(filename):
+    _guard()
+    from werkzeug.utils import secure_filename as _sec
+    filename = _sec(filename)
+    if not filename:
+        abort(400)
+    filepath = os.path.join(_DUMPS_DIR, filename)
+    if not os.path.exists(filepath):
+        abort(404)
+    return send_file(filepath, mimetype='application/json',
+                     as_attachment=True, download_name=filename)
 
 
 # ── Adapter ETL: manual run ──────────────────────────────────────────────────

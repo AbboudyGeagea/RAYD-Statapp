@@ -244,6 +244,11 @@
                                     <div class="flex gap-2">
                                         <button onclick="selectAllTables(true)"  class="btn-sm bg-[#1e293b] text-slate-400 hover:text-slate-200">All</button>
                                         <button onclick="selectAllTables(false)" class="btn-sm bg-[#1e293b] text-slate-400 hover:text-slate-200">None</button>
+                                        <a id="dump-download-btn" href="#" download
+                                           class="btn-sm bg-[#1e293b] text-emerald-400 hover:text-emerald-300 flex items-center gap-1"
+                                           title="Download schema dump as JSON">
+                                            <i class="bi bi-download"></i> Export JSON
+                                        </a>
                                     </div>
                                 </div>
                                 <p class="text-[10px] text-slate-500 mb-4">Check tables to include. Expand each to select columns and override target names / PG types.</p>
@@ -679,6 +684,12 @@
 
             status.textContent = `✓ Found ${data.table_count} tables, ${data.column_count} columns.`;
             status.style.color = '#34d399';
+
+            const dlBtn = document.getElementById('dump-download-btn');
+            if (dlBtn) {
+                dlBtn.href     = `/admin/db-manager/dump/${encodeURIComponent(data.file)}/download`;
+                dlBtn.download = data.file;
+            }
 
             // Fetch full dump for column details
             const dumpRes = await fetch(`/admin/db-manager/dump/${data.file}`);
