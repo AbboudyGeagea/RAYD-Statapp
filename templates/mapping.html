@@ -441,6 +441,25 @@
                         alert('Failed to update procedure.');
                         el.classList.remove('saving');
                     }
+                },
+
+                async updateProcName(code, name, el) {
+                    el.classList.add('saving');
+                    try {
+                        const res = await fetch('/mapping/procedure/update', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ code, name })
+                        });
+                        if (res.ok) {
+                            el.classList.remove('saving');
+                            el.classList.add('saved');
+                            setTimeout(() => el.classList.remove('saved'), 1500);
+                        }
+                    } catch (e) {
+                        alert('Failed to update procedure name.');
+                        el.classList.remove('saving');
+                    }
                 }
             }
         }

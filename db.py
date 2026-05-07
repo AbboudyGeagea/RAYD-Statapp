@@ -455,6 +455,7 @@ class procedure_duration_map(db.Model):
     __tablename__ = 'procedure_duration_map'
     id = db.Column(Integer, primary_key=True)
     procedure_code = db.Column(String, unique=True)
+    procedure_name = db.Column(Text)
     duration_minutes = db.Column(Integer)
     rvu_value = db.Column(Numeric(10,2), default=0.0)
     modality = db.Column(String(20))
