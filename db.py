@@ -348,6 +348,7 @@ ALL_FEATURE_KEYS = [
 # Admin is always full-access — handled separately in user_has_page().
 ROLE_PAGE_DEFAULTS = {
     'viewer':  set(ALL_FEATURE_KEYS),
+    'viewer2': set(ALL_FEATURE_KEYS),
     'tec':     {'scheduling', 'live_feed', 'hl7_orders'},
     'finance': {'financial'},
 }
@@ -356,7 +357,11 @@ def user_has_page(user, page_key):
     if user.role == 'admin':
         return True
     perm = UserPagePermission.query.filter_by(user_id=user.id, page_key=page_key).first()
-    return perm.is_enabled if perm is not None else False
+    if perm is not None:
+        return perm.is_enabled
+    # No explicit record — fall back to the role's default so users approved
+    # before this table existed (or before a new key was added) aren't locked out.
+    return page_key in ROLE_PAGE_DEFAULTS.get(user.role, set())
 
 class OruReport(db.Model):
     __tablename__ = 'hl7_oru_reports'
