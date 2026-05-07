@@ -33,6 +33,7 @@ from routes.referring_intel  import referring_intel_bp
 from routes.financial_config    import financial_config_bp
 from routes.financial_dashboard import financial_dashboard_bp
 from routes.groups_route        import groups_bp
+from routes.custom_reports      import custom_reports_bp
 
 logger = logging.getLogger("REGISTRY")
 
@@ -54,6 +55,7 @@ DEFAULT_LICENSE = {
     "adapter_mapper": True,
     "super_report": True,
     "referring_intel": True,
+    "custom_reports":  True,
     "max_users": 0,          # 0 = unlimited
     "max_sessions": 0,       # 0 = unlimited concurrent sessions
     "expires": "",            # "" = never, else "YYYY-MM-DD"
@@ -259,6 +261,7 @@ def register_blueprints(app):
         'super_report':    (super_report_bp,     {}, [('/viewer/super-report-page',    'Super Report'),
                                                       ('/viewer/super-report',         'Super Report')]),
         'referring_intel': (referring_intel_bp,  {}, [('/viewer/referring-intel',      'Referring Intel')]),
+        'custom_reports':  (custom_reports_bp,  {}, [('/reports/custom',               'Custom Reports')]),
     }
     for feature, (bp, kwargs, fallbacks) in feature_map.items():
         if lic.get(feature, False):
