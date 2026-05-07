@@ -1183,6 +1183,90 @@
                     {% endif %}
                 </div>
 
+                <!-- ── Daily TAT (from Live AE Status) ─────────────────────── -->
+                <div class="glass-card space-y-4">
+                    <div class="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                            <p class="text-xs font-black text-zinc-300 uppercase tracking-widest">Daily Technician TAT</p>
+                            <p class="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mt-0.5">Scheduled → Done &amp; PACS Done</p>
+                        </div>
+                        <input type="date" id="tat-date-picker"
+                               class="input-dark text-xs font-bold"
+                               onchange="loadTat()">
+                    </div>
+
+                    <!-- Summary stats row -->
+                    <div id="tat-summary-row" class="hidden flex flex-wrap gap-6">
+                        <div class="border-l-2 border-blue-500 pl-3">
+                            <p class="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-1">Technician Done TAT</p>
+                            <p class="text-[8px] text-zinc-600 font-bold mb-2">Scheduled → marked done (min)</p>
+                            <div class="flex gap-5">
+                                <div class="text-center"><p class="text-lg font-black text-blue-400" id="tat-avg">—</p><p class="text-[9px] text-zinc-500 font-black uppercase">Avg</p></div>
+                                <div class="text-center"><p class="text-lg font-black text-emerald-400" id="tat-min">—</p><p class="text-[9px] text-zinc-500 font-black uppercase">Best</p></div>
+                                <div class="text-center"><p class="text-lg font-black text-rose-400" id="tat-max">—</p><p class="text-[9px] text-zinc-500 font-black uppercase">Worst</p></div>
+                            </div>
+                        </div>
+                        <div class="border-l-2 border-violet-500 pl-3">
+                            <p class="text-[9px] font-black text-violet-400 uppercase tracking-widest mb-1">Scanner TAT</p>
+                            <p class="text-[8px] text-zinc-600 font-bold mb-2">Scheduled → scanner confirmed (min)</p>
+                            <div class="flex gap-5">
+                                <div class="text-center"><p class="text-lg font-black text-violet-400" id="pacs-avg">—</p><p class="text-[9px] text-zinc-500 font-black uppercase">Avg</p></div>
+                                <div class="text-center"><p class="text-lg font-black text-emerald-400" id="pacs-min">—</p><p class="text-[9px] text-zinc-500 font-black uppercase">Best</p></div>
+                                <div class="text-center"><p class="text-lg font-black text-rose-400" id="pacs-max">—</p><p class="text-[9px] text-zinc-500 font-black uppercase">Worst</p></div>
+                            </div>
+                        </div>
+                        <div class="self-center text-center">
+                            <p class="text-2xl font-black text-zinc-400" id="tat-count">—</p>
+                            <p class="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Exams</p>
+                        </div>
+                    </div>
+
+                    <!-- Modality filter chips -->
+                    <div id="tat-mod-chips" class="flex flex-wrap gap-1.5"></div>
+
+                    <!-- Per-technician summary tiles -->
+                    <div id="tat-tech-accordion" class="hidden space-y-2">
+                        <p class="text-[9px] font-black text-blue-400 uppercase tracking-widest">Average time per technician</p>
+                        <div id="tat-tech-rows" class="flex flex-wrap gap-2"></div>
+                    </div>
+
+                    <!-- Color legend -->
+                    <div class="flex flex-wrap items-center gap-3">
+                        <span class="text-[9px] text-zinc-600 font-black uppercase tracking-widest">Time vs expected:</span>
+                        <span class="flex items-center gap-1"><span class="text-emerald-400 font-black">●</span><span class="text-[9px] text-zinc-500">On time</span></span>
+                        <span class="flex items-center gap-1"><span class="text-amber-400 font-black">●</span><span class="text-[9px] text-zinc-500">Slightly delayed</span></span>
+                        <span class="flex items-center gap-1"><span class="text-rose-400 font-black">●</span><span class="text-[9px] text-zinc-500">More than 2× expected</span></span>
+                    </div>
+
+                    <!-- Exam table -->
+                    <div id="tat-table-wrap" class="hidden overflow-x-auto">
+                        <table class="w-full text-[11px] border-collapse" id="tat-table">
+                            <thead>
+                                <tr class="border-b border-white/5 text-[9px] font-black uppercase tracking-widest text-zinc-500">
+                                    <th class="py-2 px-3 text-left">Patient</th>
+                                    <th class="py-2 px-3 text-left">Accession #</th>
+                                    <th class="py-2 px-3 text-left">Procedure</th>
+                                    <th class="py-2 px-3 text-left">Type</th>
+                                    <th class="py-2 px-3 text-left">Scheduled</th>
+                                    <th class="py-2 px-3 text-left">Done At</th>
+                                    <th class="py-2 px-3 text-left">Done By</th>
+                                    <th class="py-2 px-3 text-right text-blue-400" title="Minutes from scheduled time to technician marking done">Done TAT</th>
+                                    <th class="py-2 px-3 text-left" title="Time the scanner confirmed the exam">Scanner Done</th>
+                                    <th class="py-2 px-3 text-right text-violet-400" title="Minutes from scheduled time to scanner confirmation">Scanner TAT</th>
+                                    <th class="py-2 px-3 text-right text-zinc-600" title="Standard expected duration for this procedure">Norm</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tat-tbody"></tbody>
+                        </table>
+                    </div>
+
+                    <!-- Empty state -->
+                    <div id="tat-empty" class="text-center py-8 text-zinc-600">
+                        <i class="bi bi-clock text-3xl block opacity-30 mb-2"></i>
+                        <p class="text-xs italic">No completed exams found for selected date.</p>
+                    </div>
+                </div>
+
             </div>
 
             <!-- ═══════════════════════════════════════════════════════════════ -->
@@ -1507,7 +1591,130 @@
             }
             if (t === 'technicians') {
                 initCharts();
+                loadTat();
             }
+        }
+
+        // ── Daily TAT panel (technician tab) ─────────────────────────────
+        async function loadTat() {
+            const picker = document.getElementById('tat-date-picker');
+            if (picker && !picker.value) picker.value = new Date().toISOString().slice(0, 10);
+            const dateParam = picker ? picker.value : new Date().toISOString().slice(0, 10);
+            try {
+                const res  = await fetch('/viewer/live/tat?date=' + encodeURIComponent(dateParam));
+                const data = await res.json();
+
+                const summaryRow = document.getElementById('tat-summary-row');
+                const tableWrap  = document.getElementById('tat-table-wrap');
+                const emptyEl    = document.getElementById('tat-empty');
+
+                if (data.error || !data.count) {
+                    summaryRow.classList.add('hidden');
+                    tableWrap.classList.add('hidden');
+                    emptyEl.classList.remove('hidden');
+                    document.getElementById('tat-mod-chips').innerHTML = '';
+                    document.getElementById('tat-tech-accordion').classList.add('hidden');
+                    return;
+                }
+
+                summaryRow.classList.remove('hidden');
+                tableWrap.classList.remove('hidden');
+                emptyEl.classList.add('hidden');
+
+                document.getElementById('tat-avg').textContent   = data.avg_wait != null ? data.avg_wait : '—';
+                document.getElementById('tat-min').textContent   = data.min_wait != null ? data.min_wait : '—';
+                document.getElementById('tat-max').textContent   = data.max_wait != null ? data.max_wait : '—';
+                document.getElementById('pacs-avg').textContent  = data.avg_pacs != null ? data.avg_pacs : '—';
+                document.getElementById('pacs-min').textContent  = data.min_pacs != null ? data.min_pacs : '—';
+                document.getElementById('pacs-max').textContent  = data.max_pacs != null ? data.max_pacs : '—';
+                document.getElementById('tat-count').textContent = data.count;
+
+                function _tatColor(m, expected) {
+                    if (m == null) return 'text-zinc-600';
+                    if (expected) {
+                        if (m <= expected)     return 'text-emerald-400';
+                        if (m <= expected * 2) return 'text-amber-400';
+                        return 'text-rose-400';
+                    }
+                    return m <= 30 ? 'text-emerald-400' : m <= 60 ? 'text-amber-400' : 'text-rose-400';
+                }
+                function _tatCell(m, expected) {
+                    if (m == null) return '<span class="text-zinc-600">—</span>';
+                    const cls = _tatColor(m, expected);
+                    return `<span class="font-black ${cls}">${m}</span><span class="text-zinc-600 text-[9px]"> min</span>`;
+                }
+                function _esc(s) { const d = document.createElement('div'); d.textContent = String(s||''); return d.innerHTML; }
+
+                function _renderTable(exams) {
+                    document.getElementById('tat-tbody').innerHTML = exams.map(e => `
+                        <tr class="border-b border-white/5 hover:bg-white/[0.02]">
+                            <td class="py-2 px-3 text-zinc-400 font-mono">${_esc(e.patient_id)}</td>
+                            <td class="py-2 px-3 text-zinc-500 font-mono text-[10px]">${_esc(e.accession_number)}</td>
+                            <td class="py-2 px-3 text-zinc-400 max-w-[160px] overflow-hidden text-ellipsis whitespace-nowrap" title="${_esc(e.procedure_text)}">${_esc(e.procedure_text)}</td>
+                            <td class="py-2 px-3"><span class="bg-zinc-800 text-zinc-300 rounded px-1.5 py-0.5 text-[9px] font-black">${_esc(e.modality)}</span></td>
+                            <td class="py-2 px-3 text-zinc-500 font-mono">${_esc(e.scheduled_at)}</td>
+                            <td class="py-2 px-3 text-zinc-500 font-mono">${_esc(e.done_at)}</td>
+                            <td class="py-2 px-3 text-zinc-500 text-[10px]">${_esc(e.done_by)}</td>
+                            <td class="py-2 px-3 text-right">${_tatCell(e.done_tat_min, e.proc_duration)}</td>
+                            <td class="py-2 px-3 text-zinc-500 font-mono">${_esc(e.pacs_done_at)}</td>
+                            <td class="py-2 px-3 text-right">${_tatCell(e.pacs_tat_min, e.proc_duration)}</td>
+                            <td class="py-2 px-3 text-right text-zinc-600 font-mono text-[10px]">${e.proc_duration != null ? e.proc_duration + 'm' : '—'}</td>
+                        </tr>`).join('');
+                }
+
+                function _renderTechTiles(exams) {
+                    const techMap = {};
+                    exams.forEach(e => {
+                        const t = e.done_by && e.done_by !== '—' ? e.done_by : null;
+                        if (!t) return;
+                        if (!techMap[t]) techMap[t] = { count: 0, tats: [], pacs: [] };
+                        techMap[t].count++;
+                        if (e.done_tat_min != null) techMap[t].tats.push(e.done_tat_min);
+                        if (e.pacs_tat_min != null) techMap[t].pacs.push(e.pacs_tat_min);
+                    });
+                    const techs = Object.keys(techMap);
+                    const accord = document.getElementById('tat-tech-accordion');
+                    const rows   = document.getElementById('tat-tech-rows');
+                    if (!techs.length) { accord.classList.add('hidden'); return; }
+                    accord.classList.remove('hidden');
+                    const avg = arr => arr.length ? Math.round(arr.reduce((a,b)=>a+b,0)/arr.length*10)/10 : null;
+                    rows.innerHTML = techs.sort().map(t => {
+                        const d = techMap[t];
+                        const a = avg(d.tats), ap = avg(d.pacs);
+                        const col = a == null ? 'text-zinc-500' : (a <= 30 ? 'text-emerald-400' : a <= 60 ? 'text-amber-400' : 'text-rose-400');
+                        return `<div class="glass-card !p-3 min-w-[120px]">
+                            <p class="text-[9px] font-black text-blue-400 uppercase mb-1 whitespace-nowrap">${_esc(t)}</p>
+                            <p class="text-base font-black ${col} leading-none">${a != null ? a : '—'}<span class="text-[9px] text-zinc-500"> min avg</span></p>
+                            ${ap != null ? `<p class="text-[9px] text-violet-400 mt-1">Scanner: ${ap} min</p>` : ''}
+                            <p class="text-[9px] text-zinc-600 mt-1">${d.count} exam${d.count !== 1 ? 's' : ''}</p>
+                        </div>`;
+                    }).join('');
+                }
+
+                const allMods = [...new Set(data.exams.map(e => e.modality).filter(m => m && m !== '—'))].sort();
+                const chipsEl = document.getElementById('tat-mod-chips');
+                chipsEl.innerHTML =
+                    `<span onclick="tatSetMod(null)" id="tat-chip-all" class="cursor-pointer px-2.5 py-1 rounded-full text-[9px] font-black uppercase bg-blue-500/20 text-blue-400 border border-blue-500/35">All</span>` +
+                    allMods.map(m =>
+                        `<span onclick="tatSetMod('${_esc(m)}')" id="tat-chip-${_esc(m)}" class="cursor-pointer px-2.5 py-1 rounded-full text-[9px] font-black uppercase bg-zinc-800 text-zinc-400 border border-zinc-700">${_esc(m)}</span>`
+                    ).join('');
+
+                window.tatSetMod = function(mod) {
+                    document.querySelectorAll('#tat-mod-chips span').forEach(el => {
+                        const active = (mod === null && el.id === 'tat-chip-all') || el.id === 'tat-chip-' + mod;
+                        el.className = el.className
+                            .replace(/bg-\S+/g, active ? 'bg-blue-500/20' : 'bg-zinc-800')
+                            .replace(/text-blue-400|text-zinc-400/g, active ? 'text-blue-400' : 'text-zinc-400')
+                            .replace(/border-blue-500\/35|border-zinc-700/g, active ? 'border-blue-500/35' : 'border-zinc-700');
+                    });
+                    const filtered = mod ? data.exams.filter(e => e.modality === mod) : data.exams;
+                    _renderTable(filtered);
+                    _renderTechTiles(filtered);
+                };
+
+                _renderTable(data.exams);
+                _renderTechTiles(data.exams);
+            } catch(e) { console.error('TAT load failed:', e); }
         }
 
         function applyPhaseColors() {
