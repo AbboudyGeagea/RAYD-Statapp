@@ -386,13 +386,13 @@
                                 <div>
                                     <label class="field-label" for="gf-date-from">Date From</label>
                                     <input type="date" id="gf-date-from" class="input-dark"
-                                           value="{{ (report.filters_json | fromjson).date_from if report and report.filters_json else default_date_from }}">
+                                           value="{{ default_date_from }}">
                                 </div>
                                 <!-- Date To -->
                                 <div>
                                     <label class="field-label" for="gf-date-to">Date To</label>
                                     <input type="date" id="gf-date-to" class="input-dark"
-                                           value="{{ (report.filters_json | fromjson).date_to if report and report.filters_json else default_date_to }}">
+                                           value="{{ default_date_to }}">
                                 </div>
                                 <!-- Modality -->
                                 <div>
@@ -401,7 +401,7 @@
                                         <option value="">All Modalities</option>
                                         {% for m in filter_options.modalities %}
                                         <option value="{{ m }}"
-                                            {% if report and report.filters_json and (report.filters_json | fromjson).modality == m %}selected{% endif %}>
+                                            {% if report and report.filters_json and report.filters_json.get('modality') == m %}selected{% endif %}>
                                             {{ m }}
                                         </option>
                                         {% endfor %}
@@ -414,7 +414,7 @@
                                         <option value="">All Classes</option>
                                         {% for c in filter_options.classes %}
                                         <option value="{{ c }}"
-                                            {% if report and report.filters_json and (report.filters_json | fromjson).patient_class == c %}selected{% endif %}>
+                                            {% if report and report.filters_json and report.filters_json.get('patient_class') == c %}selected{% endif %}>
                                             {{ c }}
                                         </option>
                                         {% endfor %}
@@ -515,15 +515,16 @@
 
     // ── Initialise from existing sections (edit mode) ─────────────────────────
     (function initSections() {
+        // Sort by position first
+        _existingRaw.sort(function(a, b) { return (a.position || 0) - (b.position || 0); });
         _existingRaw.forEach(function(s) {
-            let config = {};
-            if (s.config_json) {
-                try { config = JSON.parse(s.config_json); } catch(e) {}
+            // config_json arrives as a plain object (already parsed via tojson)
+            let config = s.config_json || {};
+            if (typeof config === 'string') {
+                try { config = JSON.parse(config); } catch(e) { config = {}; }
             }
             _sections.push({ type: s.section_type, config: config });
         });
-        // Sort by position if provided
-        _existingRaw.sort(function(a, b) { return (a.position || 0) - (b.position || 0); });
         renderSections();
     })();
 
