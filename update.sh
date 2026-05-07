@@ -57,7 +57,9 @@ echo ""
 # STEP 1: Pull latest code
 # ──────────────────────────────────────────────────────
 info "Step 1/3 — Pulling latest code from '$BRANCH'..."
-git pull origin "$BRANCH" || error "git pull failed. Check remote URL and credentials."
+git fetch origin || error "git fetch failed. Check remote URL and credentials."
+git checkout "$BRANCH" || error "git checkout $BRANCH failed."
+git reset --hard "origin/$BRANCH" || error "git reset failed."
 ok "Code up to date with '$BRANCH'."
 
 # ──────────────────────────────────────────────────────
