@@ -133,6 +133,7 @@ def live_status():
                 (o.scheduled_datetime IS NULL AND o.received_at >= CURRENT_DATE AND o.received_at < CURRENT_DATE + INTERVAL '1 day')
             )
               AND COALESCE(o.order_status, '') NOT IN ('CA', 'CM')
+              AND o.pacs_done_at IS NULL
             ORDER BY COALESCE(o.scheduled_datetime, o.received_at)
         """)).mappings().fetchall()
 
@@ -226,6 +227,7 @@ def live_status():
                 (o.scheduled_datetime IS NULL AND o.received_at >= CURRENT_DATE AND o.received_at < CURRENT_DATE + INTERVAL '1 day')
             )
               AND COALESCE(o.order_status, '') NOT IN ('CA', 'CM')
+              AND o.pacs_done_at IS NULL
               AND s.accession_number IS NULL
               AND o.linked_accession_number IS NULL
               AND o.linked_study_db_uid IS NULL
@@ -369,6 +371,7 @@ def live_orphans():
                 (o.scheduled_datetime IS NULL AND o.received_at >= CURRENT_DATE AND o.received_at < CURRENT_DATE + INTERVAL '1 day')
             )
               AND COALESCE(o.order_status, '') NOT IN ('CA', 'CM')
+              AND o.pacs_done_at IS NULL
               AND s.accession_number IS NULL
               AND o.linked_accession_number IS NULL
               AND o.linked_study_db_uid IS NULL
