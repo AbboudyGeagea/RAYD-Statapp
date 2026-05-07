@@ -13,7 +13,7 @@
                                 <i class="bi bi-calculator text-2xl text-slate-500"></i>
                                 <div>
                                     <div class="text-xs font-bold text-slate-400">Upload Procedure CSV</div>
-                                    <div class="text-[9px] text-slate-600 mt-0.5 uppercase">procedure_code · duration_minutes · rvu_value · modality</div>
+                                    <div class="text-[9px] text-slate-600 mt-0.5 uppercase">procedure_code · procedure_name · duration_minutes · rvu_value · modality</div>
                                 </div>
                             </div>
                         </form>
@@ -82,6 +82,7 @@
                                             <thead class="text-[9px] font-black text-slate-600 uppercase border-b border-[#28332e] bg-[#1a201e]">
                                                 <tr>
                                                     <th class="px-6 py-3">Procedure Code</th>
+                                                    <th class="px-6 py-3">Procedure Name</th>
                                                     <th class="px-6 py-3 text-center">Modality</th>
                                                     <th class="px-6 py-3 text-center">Duration (min)</th>
                                                     <th class="px-6 py-3 text-center">RVU</th>
@@ -90,8 +91,9 @@
                                             </thead>
                                             <tbody class="divide-y divide-[#28332e]/60">
                                                 {% for proc in group_procs %}
+                                                {%- set proc_name_lower = (proc.procedure_name or '') | lower -%}
                                                 <tr class="hover:bg-white/5 transition {% if proc.procedure_code in conflict_codes %}bg-orange-900/10{% endif %}"
-                                                    x-show="!procSearch || '{{ proc.procedure_code }}'.includes(procSearch.toUpperCase())">
+                                                    x-show="!procSearch || '{{ proc.procedure_code }}'.includes(procSearch.toUpperCase()) || '{{ proc_name_lower }}'.includes(procSearch.toLowerCase())">
 
                                                     <td class="px-6 py-3">
                                                         <span class="font-mono text-xs font-bold text-white tracking-widest">{{ proc.procedure_code }}</span>
@@ -104,6 +106,14 @@
                                                         {% set fc = fuzzy_map[proc.procedure_code] %}
                                                         <br><span class="text-[9px] text-blue-400 font-bold"><i class="bi bi-cpu"></i> AI Suggestion: {{ fc.suggested_modality }} ({{ (fc.match_score * 100)|int }}%)</span>
                                                         {% endif %}
+                                                    </td>
+
+                                                    <td class="px-6 py-3">
+                                                        <input type="text"
+                                                               value="{{ proc.procedure_name or '' }}"
+                                                               placeholder="—"
+                                                               @blur="updateProcName('{{ proc.procedure_code }}', $event.target.value, $event.target)"
+                                                               class="proc-input w-full min-w-[140px] py-1.5 text-xs text-slate-300 placeholder-slate-600">
                                                     </td>
 
                                                     <td class="px-6 py-3 text-center">

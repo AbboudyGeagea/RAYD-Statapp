@@ -61,9 +61,9 @@ def export_procedure_csv():
     rows = ProcedureDurationMap.query.order_by(ProcedureDurationMap.procedure_code).all()
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(['procedure_code', 'duration_minutes', 'rvu_value', 'modality'])
+    w.writerow(['procedure_code', 'procedure_name', 'duration_minutes', 'rvu_value', 'modality'])
     for r in rows:
-        w.writerow([r.procedure_code, r.duration_minutes, r.rvu_value, r.modality or ''])
+        w.writerow([r.procedure_code, r.procedure_name or '', r.duration_minutes, r.rvu_value, r.modality or ''])
     buf.seek(0)
     return Response(
         buf.getvalue(),
@@ -279,6 +279,7 @@ def upload_procedure_map():
         if not required.issubset(df.columns):
             flash("Upload Aborted: CSV headers must include procedure_code, duration_minutes, rvu_value", "danger")
             return redirect(url_for('mapping.mapping_page'))
+        has_name_col = 'procedure_name' in df.columns
 
         # LAYER OF PROTECTION: Data Integrity Check (Dry Run)
         for idx, row in df.iterrows():
@@ -298,12 +299,15 @@ def upload_procedure_map():
             rvu = float(row['rvu_value'])
 
             modality = str(row.get('modality', '')).strip().upper() if 'modality' in df.columns and pd.notna(row.get('modality')) else None
+            name = str(row.get('procedure_name', '')).strip() if has_name_col and pd.notna(row.get('procedure_name')) else None
 
             mapping, created = get_or_create(ProcedureDurationMap, procedure_code=p_code)
             mapping.duration_minutes = duration
             mapping.rvu_value = rvu
             if modality:
                 mapping.modality = modality
+            if name:
+                mapping.procedure_name = name
 
         db.session.commit()
         flash(f"Success: {len(df)} procedures verified and updated.", "success")
@@ -365,6 +369,8 @@ def update_single_procedure():
                 mapping.rvu_value = float(rvu)
             if 'modality' in data:
                 mapping.modality = str(data['modality']).strip().upper() or None
+            if 'name' in data:
+                mapping.procedure_name = str(data['name']).strip() or None
             db.session.commit()
             return jsonify({"status": "success"})
         return jsonify({"status": "error", "message": "Procedure not found"}), 404
