@@ -332,51 +332,70 @@ def report_data(report_id):
     if not _can_access():
         abort(403)
 
-    report = _visible_report_or_404(report_id)
+    try:
+        # Cap every query in this request to 45 s so a slow widget can't hang forever
+        db.session.execute(text("SET LOCAL statement_timeout = '45s'"))
 
-    # Build filters — URL params override saved defaults
-    saved = report.get("filters_json") or {}
-    today = date.today()
-    filters = {
-        "date_from":    request.args.get("date_from")    or saved.get("date_from") or str(today.replace(day=1)),
-        "date_to":      request.args.get("date_to")      or saved.get("date_to")   or str(today),
-        "modality":     request.args.get("modality")     or saved.get("modality")  or None,
-        "physician_id": request.args.get("physician_id") or saved.get("physician_id") or None,
-        "patient_class":request.args.get("patient_class")or saved.get("patient_class") or None,
-    }
+        report = _visible_report_or_404(report_id)
 
-    sec_rows = db.session.execute(text("""
-        SELECT id, section_type, position, config_json
-        FROM custom_report_sections
-        WHERE report_id = :rid ORDER BY position
-    """), {"rid": report_id}).mappings().fetchall()
+        # filters_json may arrive as a dict (psycopg2 JSONB auto-cast) or a string
+        saved = report.get("filters_json") or {}
+        if isinstance(saved, str):
+            try:
+                saved = json.loads(saved)
+            except Exception:
+                saved = {}
 
-    results = []
-    for sec in sec_rows:
-        sec_type = sec["section_type"]
-        # Skip financial sections if user lacks permission
-        if sec_type in FINANCIAL_KEYS and not _can_finance():
-            continue
+        today = date.today()
+        filters = {
+            "date_from":    request.args.get("date_from")    or saved.get("date_from") or str(today.replace(day=1)),
+            "date_to":      request.args.get("date_to")      or saved.get("date_to")   or str(today),
+            "modality":     request.args.get("modality")     or saved.get("modality")  or None,
+            "physician_id": request.args.get("physician_id") or saved.get("physician_id") or None,
+            "patient_class":request.args.get("patient_class")or saved.get("patient_class") or None,
+        }
+
+        sec_rows = db.session.execute(text("""
+            SELECT id, section_type, position, config_json
+            FROM custom_report_sections
+            WHERE report_id = :rid ORDER BY position
+        """), {"rid": report_id}).mappings().fetchall()
+
+        results = []
+        for sec in sec_rows:
+            sec_type = sec["section_type"]
+            if sec_type in FINANCIAL_KEYS and not _can_finance():
+                continue
+            try:
+                data = run_widget(db, sec_type, filters, sec["config_json"] or {})
+                results.append({
+                    "id":       sec["id"],
+                    "type":     sec_type,
+                    "position": sec["position"],
+                    "config":   sec["config_json"] or {},
+                    "data":     data,
+                })
+            except Exception as e:
+                logger.error(f"Widget {sec_type} failed: {e}", exc_info=True)
+                db.session.rollback()
+                db.session.execute(text("SET LOCAL statement_timeout = '45s'"))
+                results.append({
+                    "id":       sec["id"],
+                    "type":     sec_type,
+                    "position": sec["position"],
+                    "config":   sec["config_json"] or {},
+                    "error":    str(e),
+                })
+
+        return jsonify({"ok": True, "sections": results, "filters": filters})
+
+    except Exception as e:
+        logger.error(f"report_data({report_id}) failed: {e}", exc_info=True)
         try:
-            data = run_widget(db, sec_type, filters, sec["config_json"] or {})
-            results.append({
-                "id":       sec["id"],
-                "type":     sec_type,
-                "position": sec["position"],
-                "config":   sec["config_json"] or {},
-                "data":     data,
-            })
-        except Exception as e:
-            logger.error(f"Widget {sec_type} failed: {e}", exc_info=True)
-            results.append({
-                "id":       sec["id"],
-                "type":     sec_type,
-                "position": sec["position"],
-                "config":   sec["config_json"] or {},
-                "error":    str(e),
-            })
-
-    return jsonify({"ok": True, "sections": results, "filters": filters})
+            db.session.rollback()
+        except Exception:
+            pass
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 # ── Delete ────────────────────────────────────────────────────────────────────
