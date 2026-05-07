@@ -322,9 +322,9 @@ def widget_shift_breakdown(db, filters, config):
     rows = db.session.execute(text(f"""
         SELECT
             CASE
-                WHEN CAST(s.rep_final_timestamp AS TIME) BETWEEN :m_start::time AND :m_end::time
+                WHEN CAST(s.rep_final_timestamp AS TIME) BETWEEN CAST(:m_start AS TIME) AND CAST(:m_end AS TIME)
                     THEN 'Morning'
-                WHEN CAST(s.rep_final_timestamp AS TIME) BETWEEN :a_start::time AND :a_end::time
+                WHEN CAST(s.rep_final_timestamp AS TIME) BETWEEN CAST(:a_start AS TIME) AND CAST(:a_end AS TIME)
                     THEN 'Afternoon'
                 ELSE 'Night'
             END AS shift,
