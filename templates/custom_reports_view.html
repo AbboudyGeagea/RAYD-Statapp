@@ -309,17 +309,30 @@
         Object.values(_charts).forEach(c => { try { c.destroy(); } catch(e) {} });
         Object.keys(_charts).forEach(k => delete _charts[k]);
 
+        const controller = new AbortController();
+        const _abort = setTimeout(() => controller.abort(), 50000); // 50 s client-side cap
+
         try {
-            const res  = await fetch(`/reports/custom/${REPORT_ID}/data?${params}`);
-            const json = await res.json();
-            if (!json.ok) throw new Error(json.error || 'Server error');
+            const res  = await fetch(`/reports/custom/${REPORT_ID}/data?${params}`, { signal: controller.signal });
+            clearTimeout(_abort);
+            let json;
+            try {
+                json = await res.json();
+            } catch (_) {
+                throw new Error(`Server returned non-JSON (HTTP ${res.status}). Check server logs.`);
+            }
+            if (!json.ok) throw new Error(json.error || `HTTP ${res.status}`);
             renderSections(json.sections);
         } catch (e) {
+            clearTimeout(_abort);
+            const msg = e.name === 'AbortError'
+                ? 'Request timed out after 50 s — a widget query may be too slow on this database.'
+                : (e.message || 'Unknown error');
             container.innerHTML = `
                 <div class="widget-card text-center py-12">
                     <i class="bi bi-exclamation-triangle text-4xl mb-3 block" style="color:#f87171;"></i>
                     <p class="font-bold text-white mb-1">Failed to load report</p>
-                    <p class="text-slate-500 text-sm">${e.message}</p>
+                    <p class="text-slate-500 text-sm">${msg}</p>
                 </div>`;
         } finally {
             loading.classList.add('hidden');
