@@ -55,6 +55,7 @@ services:
     volumes:
       - /opt/rayd/logs:/opt/rayd/logs
       - /home/stats/BitNet:/home/stats/BitNet:ro
+      - ./static:/app/static
 
     depends_on:
       db:
