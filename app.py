@@ -214,9 +214,18 @@ def create_app():
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['SESSION_COOKIE_HTTPONLY'] = True
     app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
-    app.config['SESSION_COOKIE_SECURE'] = os.environ.get('SESSION_COOKIE_SECURE', 'true').lower() == 'true'
+    app.config['SESSION_COOKIE_SECURE'] = os.environ.get('SESSION_COOKIE_SECURE', 'false').lower() == 'true'
     app.config['WTF_CSRF_TIME_LIMIT'] = 3600  # 1-hour token validity
-    CSRFProtect(app)
+    app.config['WTF_CSRF_SSL_STRICT'] = False  # app runs behind nginx; flask sees plain HTTP
+    csrf = CSRFProtect(app)
+
+    from flask_wtf.csrf import CSRFError
+    from flask import flash as _flash
+
+    @app.errorhandler(CSRFError)
+    def handle_csrf_error(e):
+        _flash('Your session expired or the request was invalid. Please try again.', 'warning')
+        return redirect(url_for('auth.login')), 302
 
     init_db(app)
 
