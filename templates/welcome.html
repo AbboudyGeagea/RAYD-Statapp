@@ -32,6 +32,10 @@
                  alt="RAYD"
                  class="w-auto"
                  style="max-height:260px;mix-blend-mode:screen;filter:drop-shadow(0 0 40px rgba(96,165,250,0.35));">
+            <div class="flex flex-col items-center gap-1">
+                <p id="clock-date" class="text-[13px] font-bold text-[#94a3b8] tracking-widest uppercase"></p>
+                <p id="clock-time" class="text-[2.6rem] font-black text-[#e2e8f0] tracking-tight tabular-nums" style="line-height:1;letter-spacing:-0.02em;"></p>
+            </div>
             <div class="h-px w-64 bg-gradient-to-r from-transparent via-[#60a5fa] to-transparent opacity-60"></div>
             <p class="text-[11px] font-black tracking-[0.3em] uppercase text-[#60a5fa] opacity-80">
                 Reliable Analytics For Your Department
@@ -41,6 +45,22 @@
 </div>
 
 <script>
+(function () {
+    const days   = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    function tick() {
+        const now = new Date();
+        const h = String(now.getHours()).padStart(2,'0');
+        const m = String(now.getMinutes()).padStart(2,'0');
+        const s = String(now.getSeconds()).padStart(2,'0');
+        document.getElementById('clock-time').textContent = h + ':' + m + ':' + s;
+        document.getElementById('clock-date').textContent =
+            days[now.getDay()] + ', ' + months[now.getMonth()] + ' ' + now.getDate() + ', ' + now.getFullYear();
+    }
+    tick();
+    setInterval(tick, 1000);
+})();
+
 (function () {
     const saved = localStorage.getItem('rayd_theme');
     if (saved === 'light') document.body.classList.add('light');
