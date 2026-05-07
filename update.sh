@@ -27,7 +27,7 @@ ok()    { echo -e "${GREEN}[OK]${NC}    $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error() { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 
-BRANCH="${1:-main}"
+BRANCH="${1:-$(git rev-parse --abbrev-ref HEAD)}"
 
 # ── Fixed credentials (same as install.sh) ────────────────────────────────────
 PG_USER="etl_user"
