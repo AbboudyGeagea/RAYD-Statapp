@@ -33,6 +33,12 @@ def index():
     return viewer_dashboard()
 
 
+@viewer_bp.route('/welcome')
+@login_required
+def welcome():
+    return render_template('welcome.html')
+
+
 @viewer_bp.route('/dashboard')
 @login_required
 def viewer_dashboard():

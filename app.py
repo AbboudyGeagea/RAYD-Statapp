@@ -322,9 +322,9 @@ def create_app():
     def index():
         if not current_user.is_authenticated:
             return redirect(url_for('auth.login'))
-        if current_user.role == 'admin':
-            return redirect(url_for('admin.admin_dashboard'))
-        return redirect(url_for('viewer.viewer_dashboard'))
+        if current_user.role == 'tec':
+            return redirect(url_for('live_feed.live_page'))
+        return redirect(url_for('viewer.welcome'))
 
     # --- MIGRATE: add new columns / tables if missing ---
     with app.app_context():
