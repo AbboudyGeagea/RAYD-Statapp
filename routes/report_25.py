@@ -545,12 +545,15 @@ def compute_bg_data(form_data):
         tech_rows = db.session.execute(text(f"""
             SELECT
                 o.accession_number, o.modality, o.procedure_code, o.done_by,
-                o.scheduled_datetime, o.done_at, o.pacs_done_at,
+                o.scheduled_datetime, o.pacs_done_at,
+                scn.study_datetime AS scn_done_at,
                 o.patient_class, o.patient_location,
                 COALESCE(p.duration_minutes, 30) AS proc_duration
             FROM hl7_orders o
             LEFT JOIN procedure_duration_map p
                    ON UPPER(TRIM(o.procedure_code)) = UPPER(TRIM(p.procedure_code))
+            LEFT JOIN hl7_scn_studies scn
+                   ON scn.accession_number = o.accession_number
             WHERE o.scheduled_datetime IS NOT NULL
               AND o.scheduled_datetime::date BETWEEN :start AND :end
               AND UPPER(TRIM(COALESCE(o.modality, ''))) != 'SCN'
@@ -562,13 +565,13 @@ def compute_bg_data(form_data):
             tdf = pd.DataFrame(tech_rows)
             tdf['proc_duration']      = pd.to_numeric(tdf['proc_duration'], errors='coerce').fillna(30)
             tdf['scheduled_datetime'] = pd.to_datetime(tdf['scheduled_datetime'])
-            tdf['done_at']            = pd.to_datetime(tdf['done_at'],      errors='coerce')
+            tdf['scn_done_at']        = pd.to_datetime(tdf['scn_done_at'],  errors='coerce')
             tdf['pacs_done_at']       = pd.to_datetime(tdf['pacs_done_at'], errors='coerce')
-            tdf['tat_min']            = (tdf['done_at']      - tdf['scheduled_datetime']).dt.total_seconds() / 60.0
+            tdf['tat_min']            = (tdf['scn_done_at']  - tdf['scheduled_datetime']).dt.total_seconds() / 60.0
             tdf['pacs_tat_min']       = (tdf['pacs_done_at'] - tdf['scheduled_datetime']).dt.total_seconds() / 60.0
 
-            completed = tdf[tdf['done_at'].notna()].copy()
-            pending   = tdf[tdf['done_at'].isna()].copy()
+            completed = tdf[tdf['scn_done_at'].notna()].copy()
+            pending   = tdf[tdf['scn_done_at'].isna()].copy()
             _tech_completed_df = completed
 
             # Pre-index ER orders: modality → list of (scheduled_datetime, patient_class, accession)
@@ -584,11 +587,11 @@ def compute_bg_data(form_data):
 
             def _find_concurrent_er(row):
                 """Return list of ER accessions whose scheduled_datetime falls inside row's exam window."""
-                if pd.isna(row.get('done_at')):
+                if pd.isna(row.get('scn_done_at')):
                     return []
                 mod   = str(row.get('modality') or '').upper()
                 t0    = row['scheduled_datetime']
-                t1    = row['done_at']
+                t1    = row['scn_done_at']
                 acc   = row.get('accession_number')
                 found = []
                 for er in er_by_modality.get(mod, []):
@@ -627,7 +630,7 @@ def compute_bg_data(form_data):
                     'technician':     str(r['done_by']) if pd.notna(r.get('done_by')) else '',
                     'patient_class':  str(r.get('patient_class') or ''),
                     'scheduled_at':   r['scheduled_datetime'].strftime('%Y-%m-%d %H:%M'),
-                    'done_at':        r['done_at'].strftime('%Y-%m-%d %H:%M'),
+                    'done_at':        r['scn_done_at'].strftime('%Y-%m-%d %H:%M'),
                     'tat_min':        round(float(tat), 1),
                     'pacs_done_at':   r['pacs_done_at'].strftime('%Y-%m-%d %H:%M') if pd.notna(r.get('pacs_done_at')) else None,
                     'pacs_tat_min':   round(float(pacs_tat), 1) if pd.notna(pacs_tat) else None,

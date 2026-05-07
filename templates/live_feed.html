@@ -504,38 +504,6 @@ function buildTile(t) {
                 ? `<span style="font-size:9px;font-weight:900;padding:2px 7px;border-radius:5px;background:rgba(96,165,250,0.12);color:#60a5fa;text-transform:uppercase;border:1px solid rgba(96,165,250,0.2);">Started</span>`
                 : '';
 
-            const actionBtn = o_status === 'SC'
-                ? `<button onclick="arriveOrder('${escHtml(o.message_id)}')" title="Mark patient as arrived"
-                    style="flex-shrink:0;background:rgba(167,139,250,0.08);border:1px solid rgba(167,139,250,0.2);
-                    color:#a78bfa;border-radius:6px;padding:2px 8px;font-size:10px;font-weight:800;cursor:pointer;transition:all .15s;"
-                    onmouseover="this.style.background='rgba(167,139,250,0.2)'" onmouseout="this.style.background='rgba(167,139,250,0.08)'">
-                    <i class="bi bi-box-arrow-in-down-right"></i> Arrive
-                </button>`
-                : o_status === 'AR'
-                ? `<button onclick="startOrder('${escHtml(o.message_id)}')" title="Mark exam as started"
-                    style="flex-shrink:0;background:rgba(96,165,250,0.08);border:1px solid rgba(96,165,250,0.2);
-                    color:#60a5fa;border-radius:6px;padding:2px 8px;font-size:10px;font-weight:800;cursor:pointer;transition:all .15s;"
-                    onmouseover="this.style.background='rgba(96,165,250,0.2)'" onmouseout="this.style.background='rgba(96,165,250,0.08)'">
-                    <i class="bi bi-play-fill"></i> Start
-                </button>`
-                : o_status === 'IP'
-                ? `<button onclick="dismissOrder('${escHtml(o.message_id)}')" title="Mark exam as done"
-                    style="flex-shrink:0;background:rgba(74,222,128,0.08);border:1px solid rgba(74,222,128,0.2);
-                    color:#4ade80;border-radius:6px;padding:2px 8px;font-size:10px;font-weight:800;cursor:pointer;transition:all .15s;"
-                    onmouseover="this.style.background='rgba(74,222,128,0.2)'" onmouseout="this.style.background='rgba(74,222,128,0.08)'">
-                    <i class="bi bi-check-lg"></i> Done
-                </button>`
-                : '';
-
-            const canRevert = ['AR','IP'].includes(o_status) && REVERT_ROLES.includes(USER_ROLE);
-            const revertBtn = canRevert
-                ? `<button onclick="revertOrder('${escHtml(o.message_id)}')" title="Revert to previous status"
-                    style="flex-shrink:0;background:rgba(248,113,113,0.06);border:1px solid rgba(248,113,113,0.15);
-                    color:#f87171;border-radius:6px;padding:2px 7px;font-size:10px;font-weight:800;cursor:pointer;transition:all .15s;"
-                    onmouseover="this.style.background='rgba(248,113,113,0.15)'" onmouseout="this.style.background='rgba(248,113,113,0.06)'">
-                    <i class="bi bi-arrow-counterclockwise"></i>
-                </button>`
-                : '';
             return `<div class="${rowCls}" style="flex-direction:column;align-items:stretch;gap:5px;"${hidden ? ' style="display:none;"' : ''}>
                 <div style="display:flex;align-items:center;gap:6px;min-width:0;">
                     <i class="bi bi-person" style="color:#64748b;flex-shrink:0;"></i>
@@ -556,8 +524,6 @@ function buildTile(t) {
                     <div style="display:flex;gap:6px;align-items:center;">
                         ${linkedBadge}
                         ${statusBadge}
-                        ${revertBtn}
-                        ${actionBtn}
                     </div>
                 </div>
             </div>`;
