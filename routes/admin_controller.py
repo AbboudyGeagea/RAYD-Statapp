@@ -528,6 +528,7 @@ def update_user_permissions():
     if current_user.role != 'admin':
         return abort(403)
 
+    from db import ALL_FEATURE_KEYS
     data     = request.get_json()
     user_id  = data.get('user_id')
     page_key = data.get('page_key')
@@ -535,6 +536,9 @@ def update_user_permissions():
 
     if not user_id or not page_key:
         return jsonify({'status': 'error', 'message': 'Missing fields'}), 400
+
+    if page_key not in ALL_FEATURE_KEYS:
+        return jsonify({'status': 'error', 'message': 'Invalid page key'}), 400
 
     perm = UserPagePermission.query.filter_by(user_id=user_id, page_key=page_key).first()
     if perm:
@@ -557,7 +561,7 @@ def update_user_role():
     user_id  = data.get('user_id')
     new_role = data.get('role')
 
-    if new_role not in ('viewer', 'tec', 'finance'):
+    if new_role not in ('viewer', 'viewer2', 'tec', 'finance'):
         return jsonify({'status': 'error', 'message': 'Invalid role'}), 400
 
     user = User.query.get(user_id)
@@ -584,7 +588,7 @@ def approve_user():
     user_id  = data.get('user_id')
     new_role = data.get('role', 'viewer')
 
-    if new_role not in ('viewer', 'tec', 'finance'):
+    if new_role not in ('viewer', 'viewer2', 'tec', 'finance'):
         return jsonify({'status': 'error', 'message': 'Invalid role'}), 400
 
     user = User.query.get(user_id)
