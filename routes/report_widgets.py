@@ -23,9 +23,9 @@ _BASE_JOIN = """
 _WHERE = """
     WHERE s.study_date BETWEEN :date_from AND :date_to
       AND COALESCE(m.modality, s.study_modality, '') != 'SR'
-      AND (:modality::text     IS NULL OR COALESCE(m.modality, s.study_modality) = :modality)
-      AND (:physician_id::bigint IS NULL OR s.reading_physician_id = :physician_id)
-      AND (:patient_class::text IS NULL OR s.patient_class = :patient_class)
+      AND (CAST(:modality AS TEXT)      IS NULL OR COALESCE(m.modality, s.study_modality) = :modality)
+      AND (CAST(:physician_id AS BIGINT) IS NULL OR s.reading_physician_id = :physician_id)
+      AND (CAST(:patient_class AS TEXT)  IS NULL OR s.patient_class = :patient_class)
 """
 
 _MOD_EXPR = "COALESCE(m.modality, s.study_modality, 'Unknown')"
@@ -393,9 +393,9 @@ _FIN_WHERE = """
     WHERE s.study_date BETWEEN :date_from AND :date_to
       AND COALESCE(UPPER(TRIM(COALESCE(m.modality, s.study_modality, ''))), '') != 'SR'
       AND s.study_has_report = true
-      AND (:modality::text      IS NULL OR COALESCE(m.modality, s.study_modality) = :modality)
-      AND (:physician_id::bigint IS NULL OR s.reading_physician_id = :physician_id)
-      AND (:patient_class::text  IS NULL OR s.patient_class = :patient_class)
+      AND (CAST(:modality AS TEXT)      IS NULL OR COALESCE(m.modality, s.study_modality) = :modality)
+      AND (CAST(:physician_id AS BIGINT) IS NULL OR s.reading_physician_id = :physician_id)
+      AND (CAST(:patient_class AS TEXT)  IS NULL OR s.patient_class = :patient_class)
 """
 
 
