@@ -122,6 +122,7 @@
                                         <select onchange="changeRole({{ u.id }}, this.value)"
                                             class="bg-[#1d2522] border border-[#28332e] text-xs font-black uppercase tracking-widest rounded-lg px-3 py-1.5 text-slate-300 focus:outline-none focus:border-[#60a5fa] transition-colors cursor-pointer">
                                             <option value="viewer"  {% if u.role == 'viewer'  %}selected{% endif %}>Viewer</option>
+                                            <option value="viewer2" {% if u.role == 'viewer2' %}selected{% endif %}>Viewer 2</option>
                                             <option value="tec"     {% if u.role == 'tec'     %}selected{% endif %}>Tec</option>
                                             <option value="finance" {% if u.role == 'finance' %}selected{% endif %}>Finance</option>
                                         </select>
@@ -261,6 +262,7 @@
                                         <select id="pending-role-{{ u.id }}"
                                             class="bg-[#1d2522] border border-[#28332e] text-xs font-black uppercase tracking-widest rounded-lg px-3 py-1.5 text-slate-300 focus:outline-none focus:border-[#60a5fa]">
                                             <option value="viewer">Viewer</option>
+                                            <option value="viewer2">Viewer 2</option>
                                             <option value="tec">Tec</option>
                                             <option value="finance">Finance</option>
                                         </select>
