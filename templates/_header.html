@@ -59,7 +59,9 @@ document.addEventListener('DOMContentLoaded', function() {
             class="p-2 rounded-lg hover:bg-[#2a3530] transition-colors text-[#34d399] text-lg">
             <i class="bi bi-printer-fill"></i>
         </button>
-        <img src="{{ url_for('static', filename='RAYD.png') }}" class="h-14 w-auto" style="mix-blend-mode:screen;">
+        <a href="{{ url_for('index') }}">
+            <img src="{{ url_for('static', filename='RAYD.png') }}" class="h-14 w-auto" style="mix-blend-mode:screen;">
+        </a>
     </div>
 
     <!-- Right: Tagline between two blue lines + theme toggle -->
