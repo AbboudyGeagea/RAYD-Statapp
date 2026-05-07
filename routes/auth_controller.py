@@ -242,11 +242,12 @@ def profile_password():
         current_user.password_hash = generate_password_hash(new_pw, method='pbkdf2:sha256')
         current_user.must_change_password = False
         _audit('password_changed', current_user.id)
+        _close_session()
         db.session.commit()
+        logout_user()
+        session.clear()
 
-        flash('Password updated successfully.', 'success')
-        if current_user.role == 'admin':
-            return redirect(url_for('admin.admin_dashboard'))
-        return redirect(url_for('viewer.viewer_dashboard'))
+        flash('Password updated. Please log in with your new password.', 'success')
+        return redirect(url_for('auth.login'))
 
     return render_template('profile_password.html')
