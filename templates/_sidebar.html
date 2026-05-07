@@ -138,6 +138,14 @@
         </a>
         {% endif %}
 
+        {% if current_user.role in ('admin', 'viewer', 'viewer2') and license.get('custom_reports') %}
+        <a href="/reports/custom"
+           class="sidebar-item {% if request.endpoint and request.endpoint.startswith('custom_reports.') %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
+           title="Custom Reports">
+            <i class="bi bi-layout-text-sidebar-reverse flex-shrink-0" style="color:#60a5fa;"></i> Custom Reports
+        </a>
+        {% endif %}
+
         {% if config.BITNET_ENABLED %}
         {% if current_user.role == 'admin' or current_user|user_has_page('bitnet') %}
         <div class="pt-4 pb-2">
