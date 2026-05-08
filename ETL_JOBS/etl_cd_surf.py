@@ -34,26 +34,45 @@ _ORACLE_QUERY = """
 """
 
 
-def _get_cd_surf_conn():
+def _get_cd_surf_conn(pg_engine=None):
     """Return an oracledb connection to the CD surf instance from db_params."""
     import oracledb
-    from sqlalchemy import create_engine, text as _t
     from utils.crypto import decrypt
-    import os
 
-    uri = os.getenv('SQLALCHEMY_DATABASE_URI')
-    engine = create_engine(uri)
-    with engine.connect() as conn:
-        row = conn.execute(_t("""
-            SELECT host, port, sid, username, password, mode
-            FROM db_params
-            WHERE UPPER(owner) = 'CDSURF'
-            LIMIT 1
-        """)).fetchone()
-    engine.dispose()
+    if pg_engine is None:
+        from sqlalchemy import create_engine
+        import os
+        uri = os.getenv('SQLALCHEMY_DATABASE_URI')
+        if not uri:
+            raise RuntimeError("SQLALCHEMY_DATABASE_URI not set.")
+        pg_engine = create_engine(uri)
+        _dispose = True
+    else:
+        _dispose = False
+
+    try:
+        with pg_engine.connect() as conn:
+            row = conn.execute(text("""
+                SELECT host, port, sid, username, password, mode
+                FROM db_params
+                WHERE UPPER(owner) = 'CDSURF'
+                LIMIT 1
+            """)).fetchone()
+    finally:
+        if _dispose:
+            pg_engine.dispose()
 
     if not row:
         raise RuntimeError("No CD surf connection found in db_params (owner='CDSURF').")
+
+    host, port, sid, username, password_enc, mode = row
+
+    missing = [f for f, v in [('host', host), ('sid', sid), ('username', username)] if not v]
+    if missing:
+        raise RuntimeError(
+            f"CD surf connection in db_params is incomplete — missing: {', '.join(missing)}. "
+            "Update it in Admin → DB Manager."
+        )
 
     host, port, sid, username, password_enc, mode = row
     dsn = oracledb.makedsn(host, int(port or 1521), sid=sid)
@@ -132,7 +151,7 @@ def run_cd_surf_etl(pg_engine):
         logger.info(f"CD surf ETL: watermark={last_sync}")
 
         # Pull from Oracle
-        conn_ora = _get_cd_surf_conn()
+        conn_ora = _get_cd_surf_conn(pg_engine)
         try:
             cur = conn_ora.cursor()
             cur.execute(_ORACLE_QUERY, {"last_sync": last_sync})
