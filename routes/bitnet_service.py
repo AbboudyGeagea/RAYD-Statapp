@@ -137,13 +137,21 @@ _HALLUCINATION_TOKENS = [
     "patient_db_uid", "raw_image_db_uid", "series_db_uid",
     "image_size_kb", "total_gb", "study_count", "order_dbid",
     "scheduled_datetime", "has_study", "proc_id",
-    # SQL keywords
-    r"SELECT\s", r"FROM\s", r"WHERE\s", r"JOIN\s", "GROUP BY", "ORDER BY",
-    r"INSERT\s", r"UPDATE\s", r"DELETE\s", r"CREATE\s", r"ALTER\s",
-    r"LIMIT\s", "HAVING", r"UNION\s", r"COUNT\s*\(", r"SUM\s*\(",
+    # SQL keywords — only patterns that NEVER appear in normal English prose.
+    # Do NOT add: FROM, WHERE, JOIN, HAVING, LIMIT, CREATE, UPDATE, DELETE —
+    # they are common English words and cause false positives on navigation answers.
+    r"SELECT\s+\w",          # SELECT col  (not a word in plain English)
+    r"INSERT\s+INTO\s",      # INSERT INTO (not English)
+    r"DELETE\s+FROM\s",      # DELETE FROM (not English)
+    r"UPDATE\s+\w+\s+SET\s", # UPDATE tbl SET (not English)
+    r"CREATE\s+TABLE\s",     # CREATE TABLE (not English)
+    r"ALTER\s+TABLE\s",      # ALTER TABLE  (not English)
+    "GROUP BY",
+    "ORDER BY",
+    r"COUNT\s*\(", r"SUM\s*\(",
 ]
 _HALLUCINATION_RE = re.compile(
-    "|".join(_HALLUCINATION_TOKENS) + r"|```|SELECT\n",
+    "|".join(_HALLUCINATION_TOKENS) + r"|```",
     re.IGNORECASE,
 )
 
