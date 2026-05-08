@@ -34,6 +34,7 @@ from routes.financial_config    import financial_config_bp
 from routes.financial_dashboard import financial_dashboard_bp
 from routes.groups_route        import groups_bp
 from routes.custom_reports      import custom_reports_bp
+from routes.cd_print_log        import cd_print_bp
 
 logger = logging.getLogger("REGISTRY")
 
@@ -227,6 +228,7 @@ def register_blueprints(app):
     # ── Core (always registered) ──────────────────────────────
     app.register_blueprint(api_bp)
     app.register_blueprint(auth_bp)
+    app.register_blueprint(cd_print_bp)
     app.register_blueprint(admin_bp,         url_prefix='/admin')
     app.register_blueprint(viewer_bp,        url_prefix='/viewer')
     app.register_blueprint(mapping_bp)

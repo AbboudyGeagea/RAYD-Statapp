@@ -737,6 +737,29 @@ def create_app():
         replace_existing=True
     )
 
+    def scheduled_cd_surf_etl():
+        with app.app_context():
+            try:
+                row = db.session.execute(text(
+                    "SELECT 1 FROM db_params WHERE UPPER(owner) = 'CDSURF' LIMIT 1"
+                )).fetchone()
+                if not row:
+                    return
+                from ETL_JOBS.etl_cd_surf import run_cd_surf_etl
+                logger.info(f"⏰ [CD Surf ETL] Starting: {datetime.now()}")
+                n = run_cd_surf_etl(db.engine)
+                logger.info(f"✅ [CD Surf ETL] Done — {n} records.")
+            except Exception as e:
+                logger.error(f"🛑 [CD Surf ETL] Failed: {e}", exc_info=True)
+
+    scheduler.add_job(
+        func=scheduled_cd_surf_etl,
+        trigger='interval',
+        hours=1,
+        id='cd_surf_etl',
+        name='CD Surf ETL — hourly sync',
+        replace_existing=True
+    )
 
     # Only start scheduler and HL7 listener when running as server, not manual ETL
     manual_mode = len(sys.argv) > 1 and sys.argv[1] == '-m'
