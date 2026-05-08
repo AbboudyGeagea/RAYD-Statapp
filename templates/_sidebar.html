@@ -76,7 +76,7 @@
         </a>
         {% endif %}
 
-        {% if current_user.role == 'admin' or current_user|user_has_page('scheduling') %}
+        {% if license.get('scheduling') and (current_user.role == 'admin' or current_user|user_has_page('scheduling')) %}
         <a href="{{ url_for('admin.scheduling_page') }}" target="_blank"
            class="sidebar-item flex items-center gap-3 px-3 py-3 text-sm font-bold"
            title="Scheduling">
@@ -84,7 +84,7 @@
         </a>
         {% endif %}
 
-        {% if current_user.role == 'admin' or current_user|user_has_page('live_feed') %}
+        {% if license.get('live_feed') and (current_user.role == 'admin' or current_user|user_has_page('live_feed')) %}
         <a href="{{ url_for('live_feed.live_page') }}" target="_blank"
            class="sidebar-item {% if request.endpoint and request.endpoint.startswith('live_feed.') %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
            title="Live AE Status">
@@ -146,7 +146,7 @@
         </a>
         {% endif %}
 
-        {% if current_user.role == 'admin' or current_user|user_has_page('cd_print') %}
+        {% if license.get('cd_print') and (current_user.role == 'admin' or current_user|user_has_page('cd_print')) %}
         <a href="{{ url_for('cd_print.cd_print_log') }}"
            class="sidebar-item {% if request.endpoint and request.endpoint.startswith('cd_print.') %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
            title="Patient CD Log">
@@ -174,7 +174,7 @@
         {% endif %}
         {% endif %}
 
-        {% if current_user.role == 'admin' or current_user|user_has_page('financial') %}
+        {% if license.get('financial') and (current_user.role == 'admin' or current_user|user_has_page('financial')) %}
         <div class="pt-4 pb-2">
             <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-2">Finance</p>
         </div>

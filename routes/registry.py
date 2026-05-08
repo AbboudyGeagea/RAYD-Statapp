@@ -44,64 +44,90 @@ logger = logging.getLogger("REGISTRY")
 DEFAULT_LICENSE = {
     "tier": "enterprise",
     "reports": get_report_ids(),
-    "ai_report": True,
-    "capacity_ladder": True,
-    "er_dashboard": True,
-    "patient_portal": True,
-    "live_feed": True,
-    "hl7_orders": True,
-    "oru_analytics": True,
-    "saved_reports": True,
-    "bitnet_ai": True,
-    "export": True,
-    "adapter_mapper": True,
-    "super_report": True,
-    "referring_intel": True,
+    # ── Tier 1: Essential ────────────────────────────────────
+    "export":          True,
+    "adapter_mapper":  True,   # DB Manager (admin config)
+    # ── Tier 2: Professional ─────────────────────────────────
+    "hl7_orders":      True,
+    "oru_analytics":   True,   # Report Intelligence
     "custom_reports":  True,
-    "max_users": 0,          # 0 = unlimited
-    "max_sessions": 0,       # 0 = unlimited concurrent sessions
-    "expires": "",            # "" = never, else "YYYY-MM-DD"
-    "max_studies_per_report": 0,  # 0 = unlimited, else cap rows
+    "cd_print":        True,   # Patient CD Log
+    "er_dashboard":    True,
+    "capacity_ladder": True,
+    "saved_reports":   True,
+    "super_report":    True,
+    "referring_intel": True,
+    # ── Tier 3: Enterprise ───────────────────────────────────
+    "financial":       True,   # Revenue Intelligence
+    "bitnet_ai":       True,   # AI Assistant + Teaching Center
+    "scheduling":      True,
+    "live_feed":       True,
+    "patient_portal":  True,
+    "ai_report":       True,
+    # ── Limits (0 = unlimited) ───────────────────────────────
+    "max_users":              0,
+    "max_sessions":           0,
+    "expires":                "",
+    "max_studies_per_report": 0,
 }
 
 # ── Tier presets (used by install.sh) ────────────────────────
+#
+#  Essential    — core operations: viewer dashboard, all reports, ETL,
+#                 user management, activity log, modality/procedure config
+#  Professional — + HL7 orders, report intelligence, custom reports,
+#                 patient CD log, ER dashboard, capacity ladder, saved reports
+#  Enterprise   — + revenue intelligence, AI assistant, scheduling, live AE status
+#
 TIER_PRESETS = {
-    "basic": {
-        "tier": "basic",
-        "reports": [22],
-        "ai_report": False,
+    "essential": {
+        "tier": "essential",
+        "reports": get_report_ids(),
+        "export":          True,
+        "adapter_mapper":  True,
+        "hl7_orders":      False,
+        "oru_analytics":   False,
+        "custom_reports":  False,
+        "cd_print":        False,
+        "er_dashboard":    False,
         "capacity_ladder": False,
-        "er_dashboard": False,
-        "patient_portal": False,
-        "live_feed": True,
-        "hl7_orders": True,
-        "oru_analytics": False,
-        "saved_reports": False,
-        "bitnet_ai": False,
-        "export": False,
-        "adapter_mapper": False,
-        "max_users": 5,
-        "max_sessions": 2,
-        "expires": "",
-        "max_studies_per_report": 5000,
+        "saved_reports":   False,
+        "super_report":    False,
+        "referring_intel": False,
+        "financial":       False,
+        "bitnet_ai":       False,
+        "scheduling":      False,
+        "live_feed":       False,
+        "patient_portal":  False,
+        "ai_report":       False,
+        "max_users":              0,
+        "max_sessions":           0,
+        "expires":                "",
+        "max_studies_per_report": 0,
     },
     "professional": {
         "tier": "professional",
         "reports": get_report_ids(),
-        "ai_report": False,
+        "export":          True,
+        "adapter_mapper":  True,
+        "hl7_orders":      True,
+        "oru_analytics":   True,
+        "custom_reports":  True,
+        "cd_print":        True,
+        "er_dashboard":    True,
         "capacity_ladder": True,
-        "er_dashboard": True,
-        "patient_portal": False,
-        "live_feed": True,
-        "hl7_orders": True,
-        "oru_analytics": True,
-        "saved_reports": True,
-        "bitnet_ai": False,
-        "export": True,
-        "adapter_mapper": False,
-        "max_users": 0,
-        "max_sessions": 0,
-        "expires": "",
+        "saved_reports":   True,
+        "super_report":    True,
+        "referring_intel": True,
+        "financial":       False,
+        "bitnet_ai":       False,
+        "scheduling":      False,
+        "live_feed":       False,
+        "patient_portal":  False,
+        "ai_report":       False,
+        "max_users":              0,
+        "max_sessions":           0,
+        "expires":                "",
         "max_studies_per_report": 0,
     },
     "enterprise": DEFAULT_LICENSE.copy(),
@@ -229,7 +255,6 @@ def register_blueprints(app):
     # ── Core (always registered) ──────────────────────────────
     app.register_blueprint(api_bp)
     app.register_blueprint(auth_bp)
-    app.register_blueprint(cd_print_bp)
     app.register_blueprint(admin_bp,         url_prefix='/admin')
     app.register_blueprint(viewer_bp,        url_prefix='/viewer')
     app.register_blueprint(mapping_bp)
@@ -237,8 +262,7 @@ def register_blueprints(app):
     app.register_blueprint(preferences_bp)
     app.register_blueprint(docs_bp)
     app.register_blueprint(etl_gear_bp)
-    app.register_blueprint(financial_config_bp)
-    app.register_blueprint(financial_dashboard_bp)
+    app.register_blueprint(financial_config_bp)   # admin config — always on
     app.register_blueprint(groups_bp)
 
     # ── Licensed reports (auto-discovered from report_registry) ─
@@ -254,17 +278,22 @@ def register_blueprints(app):
     # Each entry: feature_key → (blueprint, kwargs, [(fallback_url, display_name), ...])
     # Fallback routes show a "not licensed" page instead of a 404.
     feature_map = {
-        'ai_report':       (report_ai_bp,       {}, [('/report/ai',                   'AI Report')]),
-        'capacity_ladder': (capacity_ladder_bp,  {}, [('/viewer/capacity-ladder',      'Capacity Ladder')]),
-        'er_dashboard':    (er_bp,               {}, [('/er',                          'ER Dashboard')]),
-        'oru_analytics':   (oru_bp,              {}, [('/oru',                         'ORU Analytics')]),
-        'saved_reports':   (saved_reports_bp,    {'url_prefix': '/saved'}, []),
-        'hl7_orders':      (hl7_orders_bp,       {}, [('/hl7/orders',                  'HL7 Orders')]),
+        # ── Tier 1: Essential ────────────────────────────────
         'adapter_mapper':  (db_manager_bp,        {}, [('/admin/db-manager',            'DB Manager')]),
+        # ── Tier 2: Professional ─────────────────────────────
+        'hl7_orders':      (hl7_orders_bp,       {}, [('/hl7/orders',                  'HL7 Orders')]),
+        'oru_analytics':   (oru_bp,              {}, [('/oru',                         'Report Intelligence')]),
+        'custom_reports':  (custom_reports_bp,   {}, [('/reports/custom',              'Custom Reports')]),
+        'cd_print':        (cd_print_bp,         {}, [('/cd-print-log',               'Patient CD Log')]),
+        'er_dashboard':    (er_bp,               {}, [('/er',                          'ER Dashboard')]),
+        'capacity_ladder': (capacity_ladder_bp,  {}, [('/viewer/capacity-ladder',      'Capacity Ladder')]),
+        'saved_reports':   (saved_reports_bp,    {'url_prefix': '/saved'}, []),
         'super_report':    (super_report_bp,     {}, [('/viewer/super-report-page',    'Super Report'),
                                                       ('/viewer/super-report',         'Super Report')]),
         'referring_intel': (referring_intel_bp,  {}, [('/viewer/referring-intel',      'Referring Intel')]),
-        'custom_reports':  (custom_reports_bp,  {}, [('/reports/custom',               'Custom Reports')]),
+        # ── Tier 3: Enterprise ───────────────────────────────
+        'financial':       (financial_dashboard_bp, {}, [('/revenue',                  'Revenue Intelligence')]),
+        'ai_report':       (report_ai_bp,        {}, [('/report/ai',                  'AI Report')]),
     }
     for feature, (bp, kwargs, fallbacks) in feature_map.items():
         if lic.get(feature, False):
@@ -277,18 +306,25 @@ def register_blueprints(app):
             for url, display_name in fallbacks:
                 _register_not_licensed_route(app, url, display_name, tier)
 
-    # ── Patient Portal (license + config flag) ────────────────
+    # ── Patient Portal (Enterprise — license + config flag) ──────
     if lic.get('patient_portal', False) and app.config.get("PATIENT_PORTAL_ENABLED", True):
         app.register_blueprint(portal_bp)
         app.register_blueprint(portal_admin_bp)
         logger.info("  patient_portal: enabled")
+    else:
+        logger.info("  patient_portal: not licensed — skipped")
 
-    # ── Live AE Feed (license + config flag) ──────────────────
+    # ── Live AE Feed (Enterprise — license + config flag) ────────
     if lic.get('live_feed', False) and app.config.get("LIVE_FEED_ENABLED", True):
         app.register_blueprint(live_feed_bp)
         logger.info("  live_feed: enabled")
+    else:
+        logger.info("  live_feed: not licensed — skipped")
 
-    # ── BitNet AI Assistant (license + config flag) ───────────
+    # ── Scheduling (Enterprise — license only; route is in admin_bp) ─
+    logger.info(f"  scheduling: {'enabled' if lic.get('scheduling', False) else 'not licensed — sidebar hidden'}")
+
+    # ── BitNet AI Assistant (Enterprise — license + config flag) ──
     if lic.get('bitnet_ai', False) and app.config.get("BITNET_ENABLED", True):
         try:
             from routes.bitnet_service import bitnet_bp
@@ -296,6 +332,8 @@ def register_blueprints(app):
             logger.info("  bitnet_ai: enabled")
         except Exception as e:
             logger.warning(f"  bitnet_ai: disabled — {e}")
+    else:
+        logger.info("  bitnet_ai: not licensed — skipped")
 
     # ── Inject license into templates ─────────────────────────
     @app.context_processor
