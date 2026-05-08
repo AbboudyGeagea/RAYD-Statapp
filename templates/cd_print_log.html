@@ -7,62 +7,75 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
-        :root { --accent:#60a5fa; }
+        :root { --accent:#38bdf8; }
         body  { font-family:'Inter',sans-serif; background:#181f2a; color:#e2e8f0; }
         .card { background:#1e2636; border:1px solid #2a3548; border-radius:1.25rem; }
         .sidebar-item { transition:all 0.2s; border-radius:0.75rem; margin-bottom:0.25rem; cursor:pointer; text-decoration:none!important; color:#94a3b8; }
         .sidebar-item:hover  { background:#232f42; color:var(--accent)!important; }
         .sidebar-item.active { background:#232f42; color:var(--accent)!important; border-left:4px solid var(--accent); }
-        .section-title { font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:0.15em; color:#60a5fa; margin-bottom:0.5rem; }
+        .section-title { font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:0.15em; color:#38bdf8; margin-bottom:0.5rem; }
         .tbl-row { border-bottom:1px solid rgba(42,53,72,0.7); }
-        .tbl-row:hover { background:rgba(96,165,250,0.04); }
-        .mod-badge { display:inline-block; font-size:9px; font-weight:900; padding:2px 8px; border-radius:4px; text-transform:uppercase; letter-spacing:0.06em; }
-        .mod-ct  { background:rgba(96,165,250,0.15);  color:#60a5fa;  border:1px solid rgba(96,165,250,0.3); }
-        .mod-mr  { background:rgba(167,139,250,0.15); color:#a78bfa;  border:1px solid rgba(167,139,250,0.3); }
-        .mod-us  { background:rgba(34,197,94,0.15);   color:#22c55e;  border:1px solid rgba(34,197,94,0.3); }
+        .tbl-row:hover { background:rgba(56,189,248,0.04); }
+        .mod-badge { display:inline-block; font-size:10px; font-weight:900; padding:3px 10px; border-radius:5px; text-transform:uppercase; letter-spacing:0.06em; }
+        .mod-ct   { background:rgba(96,165,250,0.15);  color:#60a5fa;  border:1px solid rgba(96,165,250,0.3); }
+        .mod-mr   { background:rgba(167,139,250,0.15); color:#a78bfa;  border:1px solid rgba(167,139,250,0.3); }
+        .mod-us   { background:rgba(34,197,94,0.15);   color:#22c55e;  border:1px solid rgba(34,197,94,0.3); }
         .mod-xr, .mod-dx { background:rgba(251,191,36,0.15); color:#fbbf24; border:1px solid rgba(251,191,36,0.3); }
-        .mod-nm  { background:rgba(244,114,182,0.15); color:#f472b6;  border:1px solid rgba(244,114,182,0.3); }
-        .mod-pt  { background:rgba(251,146,60,0.15);  color:#fb923c;  border:1px solid rgba(251,146,60,0.3); }
-        .mod-other { background:rgba(148,163,184,0.12); color:#94a3b8; border:1px solid rgba(148,163,184,0.25); }
-        .burn-chip { display:inline-flex; align-items:center; gap:4px; font-size:10px; font-weight:700;
-            background:rgba(96,165,250,0.1); border:1px solid rgba(96,165,250,0.25); color:#93c5fd;
-            border-radius:4px; padding:2px 7px; margin:2px 2px 0 0; white-space:nowrap; }
+        .mod-nm   { background:rgba(244,114,182,0.15); color:#f472b6;  border:1px solid rgba(244,114,182,0.3); }
+        .mod-pt   { background:rgba(251,146,60,0.15);  color:#fb923c;  border:1px solid rgba(251,146,60,0.3); }
+        .mod-other{ background:rgba(148,163,184,0.12); color:#94a3b8;  border:1px solid rgba(148,163,184,0.25); }
+        .burn-chip { display:inline-flex; align-items:center; gap:5px; font-size:12px; font-weight:700;
+            background:rgba(56,189,248,0.1); border:1px solid rgba(56,189,248,0.25); color:#7dd3fc;
+            border-radius:5px; padding:4px 10px; margin:3px 3px 0 0; white-space:nowrap; }
         input.input-dark, select.input-dark {
             background:#141c2a; border:1px solid #2a3548; color:#e2e8f0;
-            border-radius:0.5rem; padding:0.4rem 0.75rem; font-size:13px; outline:none;
+            border-radius:0.5rem; padding:0.45rem 0.85rem; font-size:14px; outline:none;
         }
-        input.input-dark:focus, select.input-dark:focus { border-color:#60a5fa; }
-        .btn-blue { background:#1d4ed8; color:#fff; border-radius:0.5rem; padding:0.4rem 1rem; font-size:13px; font-weight:600; border:none; cursor:pointer; transition:background 0.15s; }
-        .btn-blue:hover { background:#2563eb; }
-        .btn-ghost { background:transparent; border:1px solid #2a3548; color:#94a3b8; border-radius:0.5rem; padding:0.4rem 0.75rem; font-size:13px; cursor:pointer; transition:all 0.15s; }
-        .btn-ghost:hover { border-color:#60a5fa; color:#60a5fa; }
+        input.input-dark:focus, select.input-dark:focus { border-color:#38bdf8; }
+        .btn-blue  { background:#0ea5e9; color:#fff; border-radius:0.5rem; padding:0.5rem 1.1rem; font-size:14px; font-weight:700; border:none; cursor:pointer; transition:background 0.15s; }
+        .btn-blue:hover  { background:#0284c7; }
+        .btn-ghost { background:transparent; border:1px solid #2a3548; color:#94a3b8; border-radius:0.5rem; padding:0.5rem 0.85rem; font-size:14px; cursor:pointer; transition:all 0.15s; }
+        .btn-ghost:hover { border-color:#38bdf8; color:#38bdf8; }
         /* Light mode */
         body.light { background:#f0f4f8; color:#1a202c; }
         body.light .card { background:#ffffff; border-color:#e2e8f0; }
         body.light .tbl-row { border-color:#f1f5f9; }
         body.light .tbl-row:hover { background:#f8fafc; }
-        body.light .section-title { color:#1d4ed8; }
+        body.light .section-title { color:#0284c7; }
         body.light input.input-dark, body.light select.input-dark { background:#fff; border-color:#e2e8f0; color:#1a202c; }
         body.light aside, body.light header { background:#ffffff!important; border-color:#e2e8f0!important; }
         body.light .sidebar-item { color:#4a5568; }
-        body.light .sidebar-item:hover, body.light .sidebar-item.active { background:#e2e8f0!important; color:#1d4ed8!important; }
-        body.light .burn-chip { background:rgba(29,78,216,0.07); border-color:rgba(29,78,216,0.2); color:#1d4ed8; }
+        body.light .sidebar-item:hover, body.light .sidebar-item.active { background:#e2e8f0!important; color:#0284c7!important; }
+        body.light .burn-chip { background:rgba(14,165,233,0.07); border-color:rgba(14,165,233,0.2); color:#0284c7; }
     </style>
 </head>
-<body class="{{ ui_theme }}">
+<body class="flex flex-col h-screen overflow-hidden {{ ui_theme }}">
 {% include '_header.html' %}
-<div class="flex h-screen pt-14">
+<div class="flex flex-1 overflow-hidden">
     {% include '_sidebar.html' %}
-    <main class="flex-1 overflow-y-auto p-6" style="margin-left:220px;">
+    <main class="flex-1 overflow-y-auto bg-[#181f2a] p-8">
 
-        <!-- Header -->
-        <div class="flex items-center justify-between mb-5">
+        <!-- Breadcrumb -->
+        <div class="flex items-center gap-2 text-xs text-slate-500 mb-5">
+            <a href="{{ url_for('viewer.viewer_dashboard') }}"
+               class="hover:text-sky-400 transition-colors flex items-center gap-1.5">
+                <i class="bi bi-house-fill"></i> Home
+            </a>
+            <i class="bi bi-chevron-right text-slate-600 text-[10px]"></i>
+            <span class="text-slate-400 font-semibold">Patient CD Log</span>
+        </div>
+
+        <!-- Page Header -->
+        <div class="flex items-center justify-between mb-6">
             <div>
-                <h1 class="text-2xl font-black tracking-tight">Patient CD Log</h1>
-                <p class="text-sm text-slate-400 mt-0.5">Historical record of all burned patient CDs</p>
+                <div class="flex items-center gap-3 mb-1">
+                    <span style="font-size:9px;font-weight:900;padding:3px 9px;border-radius:5px;background:rgba(56,189,248,0.15);color:#38bdf8;text-transform:uppercase;letter-spacing:0.08em;border:1px solid rgba(56,189,248,0.3);">CD Archive</span>
+                    <h1 class="text-2xl font-black text-white tracking-tight">Patient CD Log</h1>
+                </div>
+                <p class="text-slate-400 text-sm">Historical record of all burned patient CDs and DVDs.</p>
             </div>
             <div class="flex items-center gap-3">
-                <span class="text-xs text-slate-500" id="sync-status"></span>
+                <span class="text-sm text-slate-500" id="sync-status"></span>
                 {% if current_user.role == 'admin' %}
                 <button onclick="triggerSync()" id="sync-btn" class="btn-blue flex items-center gap-2">
                     <i class="bi bi-arrow-repeat"></i> Sync Now
@@ -72,7 +85,7 @@
         </div>
 
         <!-- Filters -->
-        <div class="card p-4 mb-4 flex flex-wrap gap-3 items-end">
+        <div class="card p-5 mb-5 flex flex-wrap gap-4 items-end">
             <div>
                 <div class="section-title">From</div>
                 <input type="date" id="f-from" class="input-dark">
@@ -81,12 +94,12 @@
                 <div class="section-title">To</div>
                 <input type="date" id="f-to" class="input-dark">
             </div>
-            <div class="flex-1 min-w-56">
+            <div class="flex-1 min-w-64">
                 <div class="section-title">Search</div>
                 <input type="text" id="f-search" class="input-dark w-full"
                        placeholder="Patient name, ID, or accession…">
             </div>
-            <button class="btn-blue" onclick="loadPage(1)">
+            <button class="btn-blue flex items-center gap-2" onclick="loadPage(1)">
                 <i class="bi bi-search"></i> Search
             </button>
             <button class="btn-ghost" onclick="clearFilters()">Clear</button>
@@ -94,31 +107,33 @@
 
         <!-- Table -->
         <div class="card overflow-hidden">
-            <table class="w-full text-sm">
+            <table class="w-full">
                 <thead>
-                    <tr class="text-xs font-bold uppercase tracking-widest text-slate-500"
-                        style="border-bottom:1px solid #2a3548;">
-                        <th class="px-4 py-3 text-left">Patient</th>
-                        <th class="px-4 py-3 text-left">Accession</th>
-                        <th class="px-4 py-3 text-left">Procedure</th>
-                        <th class="px-4 py-3 text-left">Modality</th>
-                        <th class="px-4 py-3 text-left">Copies &amp; Dates</th>
+                    <tr class="text-xs font-black uppercase tracking-widest text-slate-500"
+                        style="border-bottom:2px solid #2a3548;">
+                        <th class="px-5 py-4 text-left">Patient</th>
+                        <th class="px-5 py-4 text-left">Accession</th>
+                        <th class="px-5 py-4 text-left">Procedure</th>
+                        <th class="px-5 py-4 text-left">Modality</th>
+                        <th class="px-5 py-4 text-left">Copies &amp; Dates</th>
                     </tr>
                 </thead>
                 <tbody id="tbl-body">
-                    <tr><td colspan="5" class="text-center py-16 text-slate-500">Loading…</td></tr>
+                    <tr><td colspan="5" class="text-center py-20 text-slate-500 text-base">Loading…</td></tr>
                 </tbody>
             </table>
         </div>
 
         <!-- Pagination -->
-        <div class="flex items-center justify-between mt-4 text-sm text-slate-400">
+        <div class="flex items-center justify-between mt-5 text-sm text-slate-400">
             <span id="pag-info"></span>
             <div class="flex gap-2">
-                <button id="btn-prev" class="btn-ghost" onclick="loadPage(currentPage-1)">
+                <button id="btn-prev" class="btn-ghost flex items-center gap-1.5"
+                        onclick="loadPage(currentPage-1)">
                     <i class="bi bi-chevron-left"></i> Prev
                 </button>
-                <button id="btn-next" class="btn-ghost" onclick="loadPage(currentPage+1)">
+                <button id="btn-next" class="btn-ghost flex items-center gap-1.5"
+                        onclick="loadPage(currentPage+1)">
                     Next <i class="bi bi-chevron-right"></i>
                 </button>
             </div>
@@ -155,11 +170,11 @@ function copiesCell(row) {
 
     const chips = events.map(e => {
         const copies = e.copies || 1;
-        const label  = copies > 1 ? `×${copies}` : '';
-        return `<span class="burn-chip"><i class="bi bi-disc"></i>${fmtDate(e.date)}${label ? ' ' + label : ''}</span>`;
+        const suffix = copies > 1 ? ` ×${copies}` : '';
+        return `<span class="burn-chip"><i class="bi bi-disc"></i>${fmtDate(e.date)}${suffix}</span>`;
     }).join('');
 
-    return `<div class="font-bold text-sm">${total} ${plural}</div><div class="mt-0.5">${chips}</div>`;
+    return `<div class="font-bold text-base mb-1">${total} ${plural}</div><div>${chips}</div>`;
 }
 
 function buildParams() {
@@ -179,30 +194,32 @@ function loadPage(page) {
     const p = buildParams();
     p.set('page', page);
     const body = document.getElementById('tbl-body');
-    body.innerHTML = '<tr><td colspan="5" class="text-center py-16 text-slate-500">Loading…</td></tr>';
+    body.innerHTML = '<tr><td colspan="5" class="text-center py-20 text-slate-500 text-base">Loading…</td></tr>';
 
     fetch('/api/cd-print-log?' + p.toString())
         .then(r => r.json())
         .then(data => {
             totalRows = data.total;
             if (!data.rows.length) {
-                body.innerHTML = '<tr><td colspan="5" class="text-center py-16 text-slate-400">No records found.</td></tr>';
+                body.innerHTML = '<tr><td colspan="5" class="text-center py-20 text-slate-400 text-base">No records found.</td></tr>';
             } else {
                 body.innerHTML = data.rows.map(r => `
                     <tr class="tbl-row">
-                        <td class="px-4 py-3">
-                            <div class="font-semibold leading-tight">${esc(r.patient_name)}</div>
-                            ${r.patient_id ? `<div class="text-xs text-slate-400 mt-0.5">${esc(r.patient_id)}</div>` : ''}
+                        <td class="px-5 py-4">
+                            <div class="font-bold text-base leading-snug">${esc(r.patient_name)}</div>
+                            ${r.patient_id ? `<div class="text-sm text-slate-400 mt-0.5">${esc(r.patient_id)}</div>` : ''}
                         </td>
-                        <td class="px-4 py-3 font-mono text-xs text-slate-300">${esc(r.accession_number)}</td>
-                        <td class="px-4 py-3 text-slate-300 text-xs max-w-xs">
-                            ${r.procedure_name ? `<div>${esc(r.procedure_name)}</div>` : ''}
+                        <td class="px-5 py-4 font-mono text-sm text-slate-300">${esc(r.accession_number)}</td>
+                        <td class="px-5 py-4 max-w-xs">
+                            ${r.procedure_name
+                                ? `<div class="text-sm text-slate-200 leading-snug">${esc(r.procedure_name)}</div>`
+                                : ''}
                             ${r.procedure_code && r.procedure_code !== r.procedure_name
-                                ? `<div class="text-slate-500 font-mono">${esc(r.procedure_code)}</div>`
+                                ? `<div class="text-xs text-slate-500 font-mono mt-0.5">${esc(r.procedure_code)}</div>`
                                 : ''}
                         </td>
-                        <td class="px-4 py-3">${modBadge(r.study_modality)}</td>
-                        <td class="px-4 py-3">${copiesCell(r)}</td>
+                        <td class="px-5 py-4">${modBadge(r.study_modality)}</td>
+                        <td class="px-5 py-4">${copiesCell(r)}</td>
                     </tr>
                 `).join('');
             }
@@ -214,7 +231,7 @@ function loadPage(page) {
             document.getElementById('btn-next').disabled = page >= totalPages;
         })
         .catch(() => {
-            body.innerHTML = '<tr><td colspan="5" class="text-center py-16 text-red-400">Failed to load. Check connection.</td></tr>';
+            body.innerHTML = '<tr><td colspan="5" class="text-center py-20 text-red-400 text-base">Failed to load. Check connection.</td></tr>';
         });
 }
 
