@@ -225,6 +225,7 @@
         rvu_summary:          { label: 'RVU / Revenue Summary',  icon: 'bi-currency-dollar',           color: '#f87171' },
         revenue_by_modality:  { label: 'Revenue by Modality',   icon: 'bi-graph-up-arrow',            color: '#f87171' },
         revenue_by_physician: { label: 'Revenue by Physician',   icon: 'bi-person-fill-up',            color: '#f87171' },
+        cd_burn_summary:      { label: 'CD Burn Summary',        icon: 'bi-disc-fill',                 color: '#38bdf8' },
     };
 
     const _charts = {};  // canvas id → Chart instance
@@ -392,6 +393,7 @@
             case 'rvu_summary':           return rwRvuSummary(d, el);
             case 'revenue_by_modality':   return rwRevenueByModality(sec.id, d, el);
             case 'revenue_by_physician':  return rwRevenueByPhysician(d, el);
+            case 'cd_burn_summary':       return rwCdBurnSummary(d, el);
             default:
                 el.innerHTML = `<p class="text-slate-500 text-sm">Unknown widget type: ${sec.type}</p>`;
         }
@@ -665,6 +667,29 @@
                  td(fmt(r.total_rvu, 1), 'text-slate-400') +
                  td(fmtUSD(r.revenue_usd), 'font-bold text-emerald-400')
         );
+    }
+
+    // ── cd_burn_summary ────────────────────────────────────────
+    function rwCdBurnSummary(d, el) {
+        const color  = '#38bdf8';
+        const color2 = '#7dd3fc';
+        let html = `<div class="flex flex-wrap gap-3 mb-4">
+            ${kpiCard(fmt(d.burn_events),    'Burn Events',     color)}
+            ${kpiCard(fmt(d.unique_studies), 'Unique Studies',  color2)}
+            ${kpiCard(fmt(d.total_copies),   'Total Copies',    '#a5f3fc')}
+        </div>`;
+
+        if (d.breakdown && d.breakdown.length) {
+            const mediaColors = { DVDR:'#38bdf8', CDR:'#a78bfa', DVD:'#38bdf8', CD:'#a78bfa' };
+            html += tableHtml(
+                ['Media Type', 'Burn Events', 'Copies'],
+                d.breakdown,
+                r => `<td class="font-bold" style="color:${mediaColors[r.media_type] || color}">${r.media_type || '—'}</td>` +
+                     td(fmt(r.burn_events),    'text-slate-300') +
+                     td(fmt(r.total_copies),   'text-slate-300')
+            );
+        }
+        el.innerHTML = html;
     }
 
     // ── Theme ──────────────────────────────────────────────────
