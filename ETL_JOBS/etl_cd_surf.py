@@ -13,7 +13,7 @@ _ORACLE_QUERY = """
     SELECT
         t.TASK_ID,
         t.PATIENT_NAME,
-        t.END_TIME,
+        t.START_TIME,
         t.TASK_STATUS,
         t.BURN_IDENTIFIER,
         t.STUDY_FOR_REPORT,
@@ -27,9 +27,9 @@ _ORACLE_QUERY = """
     JOIN CDSURF.TASK_CD tc ON tc.TASK_ID = t.TASK_ID
     JOIN CDSURF.CDS    c  ON c.CD_ID     = tc.CD_ID
     WHERE t.TASK_STATUS = 6
-      AND t.END_TIME IS NOT NULL
-      AND t.END_TIME > :last_sync
-    GROUP BY t.TASK_ID, t.PATIENT_NAME, t.END_TIME,
+      AND t.START_TIME IS NOT NULL
+      AND t.START_TIME > :last_sync
+    GROUP BY t.TASK_ID, t.PATIENT_NAME, t.START_TIME,
              t.TASK_STATUS, t.BURN_IDENTIFIER, t.STUDY_FOR_REPORT
     ORDER BY t.END_TIME
 """
