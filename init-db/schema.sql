@@ -327,6 +327,39 @@ CREATE TABLE public.etl_job_log (
 ALTER TABLE public.etl_job_log OWNER TO etl_user;
 
 --
+-- Name: cd_print_log; Type: TABLE; Schema: public; Owner: etl_user
+--
+
+CREATE TABLE IF NOT EXISTS public.cd_print_log (
+    id                  SERIAL PRIMARY KEY,
+    task_id             BIGINT UNIQUE NOT NULL,
+    patient_name        TEXT,
+    burned_at           TIMESTAMP,
+    task_status         INTEGER,
+    burn_identifier     TEXT,
+    study_instance_uid  TEXT,
+    cd_id               BIGINT,
+    number_of_copies    INTEGER,
+    cd_status           INTEGER,
+    media_type          TEXT,
+    cd_folder           TEXT,
+    order_id            TEXT,
+    study_db_uid        BIGINT,
+    accession_number    TEXT,
+    study_date          DATE,
+    study_modality      TEXT,
+    reading_physician   TEXT,
+    synced_at           TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_cd_print_log_burned_at      ON public.cd_print_log(burned_at);
+CREATE INDEX IF NOT EXISTS idx_cd_print_log_study_db_uid   ON public.cd_print_log(study_db_uid);
+CREATE INDEX IF NOT EXISTS idx_cd_print_log_patient_name   ON public.cd_print_log(patient_name);
+CREATE INDEX IF NOT EXISTS idx_cd_print_log_study_instance ON public.cd_print_log(study_instance_uid);
+
+ALTER TABLE public.cd_print_log OWNER TO etl_user;
+
+--
 -- Name: etl_job_log_id_seq; Type: SEQUENCE; Schema: public; Owner: etl_user
 --
 
@@ -1558,6 +1591,8 @@ COPY public.report_template (report_id, report_name, long_description, report_sq
 23	Patient Demographics	Base report for Patients Fact	SELECT \r\n    p.patient_db_uid, \r\n    p.birth_date, \r\n    p.sex, \r\n    p.age_group,\r\n    s.age_at_exam, \r\n    p.fallback_id,\r\n    s.study_db_uid, \r\n    s.study_date, \r\n    s.storing_ae,\r\n    m.modality,\r\n    o.order_dbid,\r\n    s.patient_class,\r\n    o.proc_id\r\nFROM etl_patient_view p\r\nLEFT JOIN etl_didb_studies s ON s.patient_db_uid = p.patient_db_uid\r\nLEFT JOIN etl_orders o ON o.patient_dbid = p.patient_db_uid\r\nLEFT JOIN aetitle_modality_map m ON s.storing_ae = m.aetitle\r\nWHERE 1=1	start_date,end_date	\N	\N	bar	t
 25	Modality Device Fact	Calculates average turnaround time (TAT) in minutes per signing physician.	SELECT \r\n    UPPER(TRIM(s.storing_ae)) as aetitle,\r\n    COALESCE(UPPER(m.modality), 'N/A') as modality,\r\n    s.study_date,\r\n    s.patient_class,\r\n    s.patient_location,\r\n    s.rep_final_signed_by as reading_radiologist,\r\n    s.procedure_code,\r\n    -- TAT Calculation\r\n    EXTRACT(EPOCH FROM (s.rep_final_timestamp - s.study_date))/60 as total_tat_min,\r\n    -- Work Duration from Procedure Map (Default to 15 if missing)\r\n    COALESCE(pm.duration_minutes, 15) as proc_duration,\r\n    -- RVU Value from Procedure Map (Default to 1.0 if missing)\r\n    COALESCE(pm.rvu_value, 1.0) as rvu,\r\n    -- Base Daily Capacity from Modality Map (Default to 480 if missing)\r\n    COALESCE(m.daily_capacity_minutes, 480) as base_daily_capacity,\r\n    s.patient_db_uid as patient_id\r\nFROM etl_didb_studies s\r\nLEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))\r\nLEFT JOIN procedure_duration_map pm ON UPPER(TRIM(s.procedure_code)) = UPPER(TRIM(pm.procedure_code))\r\nWHERE s.study_date BETWEEN :start AND :end\r\n  AND s.rep_final_timestamp IS NOT NULL\r\n  AND s.rep_final_signed_by IS NOT NULL	start_date,end_date	\N	\N	bar	t
 29	Storage Calculation	Calculate the Storage usage for different Modalities, Patients, Procedures in a specific period of time. 	\r\nSELECT\r\n    study_date,\r\n    COALESCE(modality, 'N/A')            AS modality,\r\n    COALESCE(procedure_code, 'UNKNOWN')   AS procedure_code,\r\n    COALESCE(storing_ae, 'Unknown')       AS storing_ae,\r\n    SUM(total_gb)                           AS total_gb,\r\n    SUM(study_count)                        AS study_count\r\nFROM summary_storage_daily\r\nWHERE study_date BETWEEN :start AND :end\r\nGROUP BY study_date, modality, procedure_code, storing_ae\r\nORDER BY total_gb DESC\r\n	start_date,end_date	\N	\N	table	t
+
+30	Patient Media Distribution	CD and DVD burn history from CD surf. Shows burn volume by month, media type (CD vs DVD), and modality.	\N	start_date,end_date	\N	\N	bar	t
 \.
 
 

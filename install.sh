@@ -274,8 +274,8 @@ esac
 
 # Tier presets inlined — no Flask/Python import needed on the host
 _JSON_BASIC='{"tier":"basic","reports":[22],"ai_report":false,"capacity_ladder":false,"er_dashboard":false,"patient_portal":false,"live_feed":true,"hl7_orders":true,"oru_analytics":false,"saved_reports":false,"bitnet_ai":false,"export":false,"adapter_mapper":false,"max_users":5,"max_sessions":2,"expires":"","max_studies_per_report":5000}'
-_JSON_PRO='{"tier":"professional","reports":[22,23,25,27,29],"ai_report":false,"capacity_ladder":true,"er_dashboard":true,"patient_portal":false,"live_feed":true,"hl7_orders":true,"oru_analytics":true,"saved_reports":true,"bitnet_ai":false,"export":true,"adapter_mapper":false,"max_users":0,"max_sessions":0,"expires":"","max_studies_per_report":0}'
-_JSON_ENT='{"tier":"enterprise","reports":[22,23,25,27,29],"ai_report":true,"capacity_ladder":true,"er_dashboard":true,"patient_portal":true,"live_feed":true,"hl7_orders":true,"oru_analytics":true,"saved_reports":true,"bitnet_ai":true,"export":true,"adapter_mapper":true,"super_report":true,"referring_intel":true,"max_users":0,"max_sessions":0,"expires":"","max_studies_per_report":0}'
+_JSON_PRO='{"tier":"professional","reports":[22,23,25,27,29,30],"ai_report":false,"capacity_ladder":true,"er_dashboard":true,"patient_portal":false,"live_feed":true,"hl7_orders":true,"oru_analytics":true,"saved_reports":true,"bitnet_ai":false,"export":true,"adapter_mapper":false,"max_users":0,"max_sessions":0,"expires":"","max_studies_per_report":0}'
+_JSON_ENT='{"tier":"enterprise","reports":[22,23,25,27,29,30],"ai_report":true,"capacity_ladder":true,"er_dashboard":true,"patient_portal":true,"live_feed":true,"hl7_orders":true,"oru_analytics":true,"saved_reports":true,"bitnet_ai":true,"export":true,"adapter_mapper":true,"super_report":true,"referring_intel":true,"max_users":0,"max_sessions":0,"expires":"","max_studies_per_report":0}'
 
 case "$TIER_KEY" in
     basic)        LICENSE_JSON="$_JSON_BASIC" ;;
