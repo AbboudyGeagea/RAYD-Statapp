@@ -18,6 +18,7 @@ The model NEVER invents numbers, names, dates, or schema.
 import re
 import time
 import hashlib
+import threading
 import requests
 import logging
 import json
@@ -26,7 +27,7 @@ import psutil
 from flask import Blueprint, request, jsonify, render_template, abort, Response, stream_with_context
 from flask_login import login_required, current_user
 from sqlalchemy import text
-from db import db, AiFeedback, AiCorrection
+from db import db, AiFeedback, AiCorrection, AiDocChunk
 
 from utils.permissions import permission_required
 
@@ -104,13 +105,25 @@ else:
     _bitnet_host_valid = True
 
 # ── Response cache ────────────────────────────────────────────
-_response_cache = {}
-RESPONSE_TTL    = 300        # 5 min — same question gets cached answer
-CACHE_MAX       = 200
+_response_cache      = {}
+_response_cache_lock = threading.Lock()
+RESPONSE_TTL         = 300        # 5 min — same question gets cached answer
+CACHE_MAX            = 200
 
 # ── Base‑context cache (always-on queries) ────────────────────
-_base_cache = {"facts": [], "ts": 0}
-BASE_TTL    = 60             # refresh every 60s
+_base_cache      = {"facts": [], "ts": 0}
+_base_cache_lock = threading.Lock()
+BASE_TTL         = 60             # refresh every 60s
+
+# ── Corrections cache ─────────────────────────────────────────
+_corrections_cache      = {"rows": None, "ts": 0.0}
+_corrections_cache_lock = threading.Lock()
+CORRECTIONS_TTL         = 120     # 2 min
+
+# ── Doc-chunks cache ──────────────────────────────────────────
+_doc_chunks_cache      = {"rows": None, "ts": 0.0}
+_doc_chunks_cache_lock = threading.Lock()
+DOC_CHUNKS_TTL         = 120     # 2 min
 
 # ── Compiled hallucination regex — built once at import ───────
 _HALLUCINATION_TOKENS = [
@@ -227,6 +240,25 @@ def cpu_usage():
     return jsonify({"cores": cores, "total": psutil.cpu_percent()})
 
 
+# ── AVX-512 CPU feature detection (runs once, then cached) ────
+_avx512_result: bool | None = None
+
+def _check_avx512() -> bool | None:
+    """Return True/False if AVX-512F is present, None if unknown (non-Linux)."""
+    global _avx512_result
+    if _avx512_result is not None:
+        return _avx512_result
+    try:
+        import platform
+        if platform.system() == "Linux":
+            with open("/proc/cpuinfo") as f:
+                _avx512_result = "avx512f" in f.read()
+            return _avx512_result
+    except Exception:
+        pass
+    return None
+
+
 # ── Health check ──────────────────────────────────────────────
 @bitnet_bp.route("/ai/health")
 @login_required
@@ -235,13 +267,15 @@ def health():
         resp = requests.get(f"{BITNET_SERVER}/health", timeout=5)
         data = resp.json()
         return jsonify({
-            "server": BITNET_SERVER,
-            "status": data.get("status", "unknown"),
-            "ready":  data.get("status") == "ok",
-            "mode":   "llama-server (persistent)",
+            "server":     BITNET_SERVER,
+            "status":     data.get("status", "unknown"),
+            "ready":      data.get("status") == "ok",
+            "mode":       "llama-server (persistent)",
+            "cpu_avx512": _check_avx512(),
         })
     except Exception as e:
-        return jsonify({"server": BITNET_SERVER, "ready": False, "error": str(e)})
+        return jsonify({"server": BITNET_SERVER, "ready": False, "error": str(e),
+                        "cpu_avx512": _check_avx512()})
 
 
 # ── Chat endpoint ─────────────────────────────────────────────
@@ -264,7 +298,8 @@ def chat():
     # ── Response cache check ──────────────────────────────────
     cache_key = hashlib.md5(message.lower().encode()).hexdigest()
     now = time.time()
-    hit = _response_cache.get(cache_key)
+    with _response_cache_lock:
+        hit = _response_cache.get(cache_key)
     if hit and (now - hit["ts"]) < RESPONSE_TTL:
         return jsonify(hit["payload"])
 
@@ -285,20 +320,27 @@ def chat():
 
     # ── System prompt ─────────────────────────────────────────
     system = (
-        "You are RAYD AI, a radiology analytics assistant. "
-        "Your ONLY job is to convert the provided facts into a clear, natural sentence or two. "
+        "You are RAYD AI, a radiology analytics assistant for a medical imaging center. "
+        "Your job is to answer questions about imaging statistics using only the provided facts, "
+        "OR to guide users to the right part of the app if they ask how to do something.\n"
         "STRICT RULES:\n"
         "1. Answer in 1-3 sentences maximum.\n"
-        "2. Use ONLY the numbers and names from the facts provided. Never invent any number, name, or date.\n"
+        "2. For statistics questions: use ONLY the numbers and names from the facts provided. "
+        "Never invent any number, name, or date.\n"
         "3. NEVER write SQL, code, queries, or anything technical.\n"
         "4. NEVER mention database tables, column names, or technical terms.\n"
-        "5. If the facts are empty or unclear, say you don't have enough information.\n"
+        "5. For 'how to', 'where is', or feature questions: use ONLY the app guidance "
+        "from the facts provided — do not invent feature names or page locations.\n"
         "6. Answer in the same language as the question — Arabic if asked in Arabic, English if asked in English.\n"
         "7. Be direct and concise. No greetings, no disclaimers, no filler.\n\n"
-        "EXAMPLE:\n"
+        "EXAMPLE (data question):\n"
         "Facts: The department has 45,230 total studies across 12 imaging devices, from 2023-01-01 to 2025-04-07.\n"
         "Question: how many studies do we have?\n"
-        "Answer: The department has performed 45,230 studies across 12 imaging devices since January 2023."
+        "Answer: The department has performed 45,230 studies across 12 imaging devices since January 2023.\n\n"
+        "EXAMPLE (navigation question):\n"
+        "Facts: [User Management] Go to Admin > User Management in the sidebar to add, edit, or deactivate users.\n"
+        "Question: how do I add a new user?\n"
+        "Answer: Go to Admin > User Management in the sidebar to add users and assign roles."
     )
     if corrections_block:
         system += "\n\n" + corrections_block
@@ -324,10 +366,11 @@ def chat():
 
     # ── Cache successful responses ────────────────────────────
     if not response.startswith("ERROR:"):
-        if len(_response_cache) >= CACHE_MAX:
-            oldest = min(_response_cache, key=lambda k: _response_cache[k]["ts"])
-            del _response_cache[oldest]
-        _response_cache[cache_key] = {"payload": payload, "ts": now}
+        with _response_cache_lock:
+            if len(_response_cache) >= CACHE_MAX:
+                oldest = min(_response_cache, key=lambda k: _response_cache[k]["ts"])
+                del _response_cache[oldest]
+            _response_cache[cache_key] = {"payload": payload, "ts": now}
 
     return jsonify(payload)
 
@@ -423,6 +466,68 @@ def whatsapp_message():
     return jsonify({"message": msg})
 
 
+# ── Corrections loader (memory-cached, 2-min TTL) ─────────────
+def _load_corrections() -> list:
+    now = time.time()
+    with _corrections_cache_lock:
+        if _corrections_cache["rows"] is not None and (now - _corrections_cache["ts"]) < CORRECTIONS_TTL:
+            return _corrections_cache["rows"]
+    try:
+        rows = AiCorrection.query.filter_by(is_active=True).all()
+        with _corrections_cache_lock:
+            _corrections_cache["rows"] = rows
+            _corrections_cache["ts"]   = now
+        return rows
+    except Exception as e:
+        logger.error(f"[BitNet] Corrections load error: {e}")
+        with _corrections_cache_lock:
+            return _corrections_cache["rows"] or []
+
+
+def _invalidate_corrections_cache() -> None:
+    with _corrections_cache_lock:
+        _corrections_cache["rows"] = None
+
+
+# ── Doc-chunks loader (memory-cached, 2-min TTL) ──────────────
+def _load_doc_chunks() -> list:
+    now = time.time()
+    with _doc_chunks_cache_lock:
+        if _doc_chunks_cache["rows"] is not None and (now - _doc_chunks_cache["ts"]) < DOC_CHUNKS_TTL:
+            return _doc_chunks_cache["rows"]
+    try:
+        rows = (
+            AiDocChunk.query
+            .filter_by(is_active=True)
+            .order_by(AiDocChunk.sort_order, AiDocChunk.id)
+            .all()
+        )
+        serialised = [(r.section, r.keywords, r.content) for r in rows]
+        with _doc_chunks_cache_lock:
+            _doc_chunks_cache["rows"] = serialised
+            _doc_chunks_cache["ts"]   = now
+        return serialised
+    except Exception as e:
+        logger.error(f"[BitNet] Doc chunks load error: {e}")
+        with _doc_chunks_cache_lock:
+            return _doc_chunks_cache["rows"] or []
+
+
+def _invalidate_doc_chunks_cache() -> None:
+    with _doc_chunks_cache_lock:
+        _doc_chunks_cache["rows"] = None
+
+
+def _get_doc_facts(q: str) -> list[str]:
+    """Return content strings from doc chunks whose keywords appear in the question."""
+    matched = []
+    for section, keywords, content in _load_doc_chunks():
+        kws = [k.strip().lower() for k in keywords.split(",") if k.strip()]
+        if any(k in q for k in kws):
+            matched.append(f"[{section}] {content}")
+    return matched[:4]
+
+
 # ── Correction lookup (few-shot injection) ────────────────────
 def _get_corrections(question: str) -> str:
     """
@@ -431,7 +536,7 @@ def _get_corrections(question: str) -> str:
     or empty string if no matches.
     """
     try:
-        corrections = AiCorrection.query.filter_by(is_active=True).all()
+        corrections = _load_corrections()
         if not corrections:
             return ""
 
@@ -557,6 +662,7 @@ def teach():
                 entry.reviewed = True
                 db.session.commit()
 
+        _invalidate_corrections_cache()
         return jsonify({"ok": True, "id": correction.id})
     except Exception as e:
         db.session.rollback()
@@ -588,6 +694,7 @@ def delete_correction(cid):
     c = AiCorrection.query.get_or_404(cid)
     c.is_active = False
     db.session.commit()
+    _invalidate_corrections_cache()
     return jsonify({"ok": True})
 
 
@@ -699,6 +806,23 @@ REPORT_LINKS = {
     "ai":          ("/report/ai",              "AI Intelligence"),
     "forecast":    ("/report/ai",              "AI Intelligence"),
     "productivity":("/report/22",              "Studies Fact"),
+    "cd log":      ("/cd-print-log",           "Patient CD Log"),
+    "cd print":    ("/cd-print-log",           "Patient CD Log"),
+    "dvd":         ("/report/30",              "CD/DVD Report"),
+    "media":       ("/report/30",              "CD/DVD Report"),
+    "burn":        ("/report/30",              "CD/DVD Report"),
+    "er dashboard":("/er",                     "ER Dashboard"),
+    "emergency":   ("/er",                     "ER Dashboard"),
+    "unread":      ("/er",                     "ER Dashboard"),
+    "revenue":     ("/revenue",                "Revenue Intelligence"),
+    "financial":   ("/revenue",                "Revenue Intelligence"),
+    "billing":     ("/revenue",                "Revenue Intelligence"),
+    "referring":   ("/viewer/referring-intel", "Referring Intel"),
+    "referral":    ("/viewer/referring-intel", "Referring Intel"),
+    "docs":        ("/docs",                   "Documentation"),
+    "documentation":("/docs",                  "Documentation"),
+    "how to":      ("/docs",                   "Documentation"),
+    "how do":      ("/docs",                   "Documentation"),
     "patient":     ("/report/22",              "Studies Fact"),
     # Arabic keywords
     "تخزين":       ("/report/29",              "Storage Audit"),
@@ -706,6 +830,10 @@ REPORT_LINKS = {
     "طلب":         ("/report/27",              "Order Audit"),
     "أشعة":        ("/report/25",              "Modality & TAT"),
     "سعة":         ("/viewer/capacity-ladder", "Capacity Ladder"),
+    "قرص":         ("/cd-print-log",           "Patient CD Log"),
+    "إيرادات":     ("/revenue",                "Revenue Intelligence"),
+    "طوارئ":       ("/er",                     "ER Dashboard"),
+    "توثيق":       ("/docs",                   "Documentation"),
 }
 
 
@@ -725,70 +853,25 @@ _KW_TAT       = frozenset(['tat','turnaround','wait','delay','وقت','انتظ�
 _KW_TREND     = frozenset(['trend','compare','comparison','growth','decline','increase','decrease',
                             'مقارنة','اتجاه','نمو'])
 _KW_BUSY      = frozenset(['busy','peak','volume','most','highest','أكثر','ازدحام','busiest'])
+_KW_CD_PRINT  = frozenset(['cd','dvd','disc','disk','burn','burned','media','cd log','cd print',
+                            'patient cd','قرص','اسطوانة','طباعة'])
 
 
 def _match(q: str, keywords: frozenset) -> bool:
     return any(w in q for w in keywords)
 
 
-# ── Base context (always-on, cached 60s) ──────────────────────
-def _fetch_base_context(conn) -> list:
-    """Department overview + AE list — cached globally."""
-    now = time.time()
-    if _base_cache["facts"] and (now - _base_cache["ts"]) < BASE_TTL:
-        return list(_base_cache["facts"])
-
-    facts = []
-
-    # Single CTE for overview + AE list
-    rows = conn.execute(text("""
-        WITH overview AS (
-            SELECT COUNT(*)                 AS total,
-                   COUNT(DISTINCT storing_ae) AS aes,
-                   MIN(study_date)          AS earliest,
-                   MAX(study_date)          AS latest
-            FROM etl_didb_studies
-        ),
-        ae_list AS (
-            SELECT aetitle, modality
-            FROM aetitle_modality_map
-            ORDER BY modality, aetitle
-        )
-        SELECT 'overview' AS src, total::text AS col1, aes::text AS col2,
-               earliest::text AS col3, latest::text AS col4
-        FROM overview
-        UNION ALL
-        SELECT 'ae', aetitle, modality, NULL, NULL
-        FROM ae_list
-    """)).fetchall()
-
-    ae_parts = []
-    for r in rows:
-        if r[0] == "overview" and int(r[1] or 0) > 0:
-            facts.append(
-                f"The department has {int(r[1]):,} total studies across "
-                f"{r[2]} imaging devices, from {r[3]} to {r[4]}."
-            )
-        elif r[0] == "ae":
-            ae_parts.append(f"{r[1]} ({r[2]})")
-
-    if ae_parts:
-        facts.append(f"Imaging devices in this department: {', '.join(ae_parts)}.")
-
-    _base_cache["facts"] = facts
-    _base_cache["ts"]    = now
-    return list(facts)
-
-
-# ── Context builder ───────────────────────────────────────────
+# ── Context builder — single DB round-trip ───────────────────
 def _build_context(question: str):
     """
     Returns (link, link_label, chart_type, chart_data, context_facts_string).
-    All facts are plain English/Arabic — no table names, no SQL.
+    Detects all intents upfront, builds one dynamic CTE UNION ALL query,
+    executes it once, then parses tagged rows into facts + chart data.
+    CD/DVD stays a separate query because the table may not exist on all installs.
     """
     q = question.lower()
     link = link_label = chart_type = chart_data = None
-    facts = []
+    facts: list[str] = []
 
     # Detect report link
     for keyword, (url, label) in REPORT_LINKS.items():
@@ -796,242 +879,332 @@ def _build_context(question: str):
             link, link_label = url, label
             break
 
+    # Detect all intents in one pass
+    want_modality  = _match(q, _KW_MODALITY)
+    want_storage   = _match(q, _KW_STORAGE)
+    want_tat       = _match(q, _KW_TAT)
+    want_physician = _match(q, _KW_PHYSICIAN)
+    want_orders    = _match(q, _KW_ORDERS)
+    want_today     = _match(q, _KW_TODAY)
+    want_yesterday = _match(q, _KW_YESTERDAY)
+    want_week      = _match(q, _KW_WEEK)
+    want_month     = _match(q, _KW_MONTH)
+    want_patient   = _match(q, _KW_PATIENT)
+    want_device    = _match(q, _KW_DEVICE)
+    want_busy      = _match(q, _KW_BUSY)
+    want_trend     = _match(q, _KW_TREND)
+    want_cd        = _match(q, _KW_CD_PRINT)
+
+    # ── Doc chunks (always scanned — in-memory, negligible cost) ─
+    doc_facts = _get_doc_facts(q)
+    if doc_facts:
+        facts.extend(doc_facts)
+        if not link:
+            link, link_label = "/docs", "Documentation"
+
     try:
         with db.engine.connect() as conn:
 
-            # ── Always: overview + AE list (cached) ───────────
-            facts.extend(_fetch_base_context(conn))
+            # ── Check base-context cache ──────────────────────
+            now = time.time()
+            with _base_cache_lock:
+                base_hit = bool(_base_cache["facts"]) and (now - _base_cache["ts"]) < BASE_TTL
+                if base_hit:
+                    facts.extend(_base_cache["facts"])
 
-            # ── Modality breakdown ────────────────────────────
-            if _match(q, _KW_MODALITY):
-                rows = conn.execute(text("""
-                    SELECT study_modality AS mod, COUNT(*) AS cnt
+            # ── Build merged CTE query ────────────────────────
+            # Each CTE uses 6 text columns: src, c1-c5 (unused → NULL).
+            ctes: list[str] = []
+            selects: list[str] = []
+
+            if not base_hit:
+                ctes.append("""overview AS (
+                    SELECT COUNT(*) AS total, COUNT(DISTINCT storing_ae) AS aes,
+                           MIN(study_date) AS earliest, MAX(study_date) AS latest
                     FROM etl_didb_studies
-                    WHERE study_modality IS NOT NULL
-                    GROUP BY study_modality ORDER BY cnt DESC LIMIT 8
-                """)).mappings().fetchall()
-                if rows:
-                    facts.append("Studies by modality: " +
-                        ", ".join(f"{r['mod']}: {r['cnt']:,} studies" for r in rows) + ".")
-                    chart_type = "pie"
-                    chart_data = {
-                        "labels": [r["mod"] for r in rows],
-                        "values": [int(r["cnt"]) for r in rows],
-                        "title":  "Studies by Modality",
-                    }
+                )""")
+                selects.append(
+                    "SELECT 'overview'::text, total::text, aes::text, "
+                    "earliest::text, latest::text, NULL::text FROM overview"
+                )
+                ctes.append("""ae_list AS (
+                    SELECT aetitle, modality FROM aetitle_modality_map ORDER BY modality, aetitle
+                )""")
+                selects.append("SELECT 'ae', aetitle, modality, NULL, NULL, NULL FROM ae_list")
 
-            # ── Storage (14-day) ──────────────────────────────
-            if _match(q, _KW_STORAGE):
-                rows = conn.execute(text("""
+            if want_modality:
+                ctes.append("""mod_break AS (
+                    SELECT study_modality AS mod, COUNT(*) AS cnt
+                    FROM etl_didb_studies WHERE study_modality IS NOT NULL
+                    GROUP BY study_modality ORDER BY cnt DESC LIMIT 8
+                )""")
+                selects.append("SELECT 'modality', mod, cnt::text, NULL, NULL, NULL FROM mod_break")
+
+            if want_storage:
+                ctes.append("""storage_daily AS (
                     SELECT study_date::text AS d, ROUND(SUM(total_gb)::numeric, 2) AS gb
                     FROM summary_storage_daily
                     GROUP BY study_date ORDER BY study_date DESC LIMIT 14
-                """)).mappings().fetchall()
-                if rows:
-                    total_gb  = sum(float(r["gb"]) for r in rows)
-                    latest_gb = float(rows[0]["gb"])
-                    facts.append(
-                        f"Storage in the last 14 days: {total_gb:.1f} GB total. "
-                        f"Most recent day ({rows[0]['d']}): {latest_gb:.2f} GB."
-                    )
-                    rev = list(reversed(rows))
-                    chart_type = "bar"
-                    chart_data = {
-                        "labels": [r["d"] for r in rev],
-                        "values": [float(r["gb"]) for r in rev],
-                        "title":  "Daily Storage (GB)", "color": "#60a5fa",
-                    }
+                )""")
+                selects.append("SELECT 'storage', d, gb::text, NULL, NULL, NULL FROM storage_daily")
 
-            # ── TAT by modality (last 30 days) ────────────────
-            if _match(q, _KW_TAT):
-                rows = conn.execute(text("""
+            if want_tat:
+                ctes.append("""tat_data AS (
                     SELECT COALESCE(UPPER(m.modality), 'N/A') AS modality,
-                           ROUND(AVG(EXTRACT(EPOCH FROM (s.rep_final_timestamp - s.study_date)) / 60)::numeric, 0) AS avg_min,
                            ROUND(AVG(EXTRACT(EPOCH FROM (s.rep_final_timestamp - s.study_date)) / 3600)::numeric, 1) AS avg_hours,
                            COUNT(*) AS studies
                     FROM etl_didb_studies s
-                    LEFT JOIN aetitle_modality_map m
-                        ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
+                    LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
                     WHERE s.study_date >= CURRENT_DATE - INTERVAL '30 days'
                       AND s.rep_final_timestamp IS NOT NULL
                       AND s.rep_final_signed_by IS NOT NULL
-                    GROUP BY m.modality ORDER BY avg_min DESC
-                """)).mappings().fetchall()
-                if rows:
-                    facts.append("Turnaround time (last 30 days): " +
-                        ", ".join(f"{r['modality']}: {r['avg_hours']}h avg ({r['studies']} studies)" for r in rows) + ".")
-                    chart_type = "bar"
-                    chart_data = {
-                        "labels": [r["modality"] for r in rows],
-                        "values": [float(r["avg_hours"]) for r in rows],
-                        "title":  "Average TAT by Modality (hours)", "color": "#f59e0b",
-                    }
+                    GROUP BY m.modality ORDER BY avg_hours DESC
+                )""")
+                selects.append("SELECT 'tat', modality, avg_hours::text, studies::text, NULL, NULL FROM tat_data")
 
-            # ── Physicians ────────────────────────────────────
-            if _match(q, _KW_PHYSICIAN):
-                rows = conn.execute(text("""
-                    SELECT TRIM(CONCAT_WS(' ',
-                        referring_physician_first_name,
-                        referring_physician_last_name)) AS name,
-                        COUNT(*) AS cnt
-                    FROM etl_didb_studies
-                    WHERE referring_physician_last_name IS NOT NULL
+            if want_physician:
+                ctes.append("""physicians AS (
+                    SELECT TRIM(CONCAT_WS(' ', referring_physician_first_name,
+                                              referring_physician_last_name)) AS name,
+                           COUNT(*) AS cnt
+                    FROM etl_didb_studies WHERE referring_physician_last_name IS NOT NULL
                     GROUP BY 1 ORDER BY cnt DESC LIMIT 10
-                """)).mappings().fetchall()
-                if rows:
-                    facts.append("Top referring physicians by study count: " +
-                        ", ".join(f"Dr. {r['name']} ({r['cnt']:,})" for r in rows) + ".")
-                    chart_type = "bar"
-                    chart_data = {
-                        "labels": [r["name"] for r in rows],
-                        "values": [int(r["cnt"]) for r in rows],
-                        "title":  "Top Referring Physicians", "color": "#a855f7",
-                    }
+                )""")
+                selects.append("SELECT 'physician', name, cnt::text, NULL, NULL, NULL FROM physicians")
 
-            # ── Orders ────────────────────────────────────────
-            if _match(q, _KW_ORDERS):
-                row = conn.execute(text("""
+            if want_orders:
+                ctes.append("""orders_agg AS (
                     SELECT COUNT(*) AS total,
                            COUNT(*) FILTER (WHERE has_study = true)  AS fulfilled,
                            COUNT(*) FILTER (WHERE has_study = false) AS orphaned
                     FROM etl_orders
-                """)).mappings().fetchone()
-                if row:
-                    facts.append(
-                        f"Orders in the system: {row['total']:,} total, "
-                        f"{row['fulfilled']:,} fulfilled, "
-                        f"{row['orphaned']:,} orphaned (no linked study)."
-                    )
+                )""")
+                selects.append("SELECT 'orders', total::text, fulfilled::text, orphaned::text, NULL, NULL FROM orders_agg")
 
-            # ── Today's activity ──────────────────────────────
-            if _match(q, _KW_TODAY):
-                rows = conn.execute(text("""
-                    SELECT study_modality, COUNT(*) AS cnt
-                    FROM etl_didb_studies
-                    WHERE study_date = CURRENT_DATE
-                    GROUP BY study_modality ORDER BY cnt DESC
-                """)).mappings().fetchall()
-                if rows:
-                    total = sum(int(r["cnt"]) for r in rows)
-                    facts.append(f"Studies today: {total:,} total — " +
-                        ", ".join(f"{r['study_modality']}: {r['cnt']}" for r in rows) + ".")
-                else:
-                    facts.append("No studies recorded today yet.")
-
-                row2 = conn.execute(text("""
+            if want_today:
+                ctes.append("""today_studies AS (
+                    SELECT study_modality, COUNT(*) AS cnt FROM etl_didb_studies
+                    WHERE study_date = CURRENT_DATE GROUP BY study_modality ORDER BY cnt DESC
+                )""")
+                selects.append("SELECT 'today', study_modality, cnt::text, NULL, NULL, NULL FROM today_studies")
+                ctes.append("""today_orders AS (
                     SELECT COUNT(*) AS cnt FROM etl_orders
                     WHERE scheduled_datetime::date = CURRENT_DATE
-                """)).mappings().fetchone()
-                if row2:
-                    facts.append(f"Orders scheduled today: {row2['cnt']:,}.")
+                )""")
+                selects.append("SELECT 'today_orders', cnt::text, NULL, NULL, NULL, NULL FROM today_orders")
 
-            # ── Yesterday ─────────────────────────────────────
-            if _match(q, _KW_YESTERDAY):
-                rows = conn.execute(text("""
-                    SELECT study_modality, COUNT(*) AS cnt
-                    FROM etl_didb_studies
+            if want_yesterday:
+                ctes.append("""yesterday_studies AS (
+                    SELECT study_modality, COUNT(*) AS cnt FROM etl_didb_studies
                     WHERE study_date = CURRENT_DATE - INTERVAL '1 day'
                     GROUP BY study_modality ORDER BY cnt DESC
-                """)).mappings().fetchall()
-                if rows:
-                    total = sum(int(r["cnt"]) for r in rows)
-                    facts.append(f"Yesterday's studies: {total:,} total — " +
-                        ", ".join(f"{r['study_modality']}: {r['cnt']}" for r in rows) + ".")
+                )""")
+                selects.append("SELECT 'yesterday', study_modality, cnt::text, NULL, NULL, NULL FROM yesterday_studies")
 
-            # ── This week ─────────────────────────────────────
-            if _match(q, _KW_WEEK):
-                rows = conn.execute(text("""
-                    SELECT study_modality, COUNT(*) AS cnt
-                    FROM etl_didb_studies
+            if want_week:
+                ctes.append("""week_studies AS (
+                    SELECT study_modality, COUNT(*) AS cnt FROM etl_didb_studies
                     WHERE study_date >= DATE_TRUNC('week', CURRENT_DATE)
                     GROUP BY study_modality ORDER BY cnt DESC
-                """)).mappings().fetchall()
-                if rows:
-                    total = sum(int(r["cnt"]) for r in rows)
-                    facts.append(f"This week's studies: {total:,} total — " +
-                        ", ".join(f"{r['study_modality']}: {r['cnt']}" for r in rows) + ".")
+                )""")
+                selects.append("SELECT 'week', study_modality, cnt::text, NULL, NULL, NULL FROM week_studies")
 
-            # ── This month ────────────────────────────────────
-            if _match(q, _KW_MONTH):
-                rows = conn.execute(text("""
-                    SELECT study_modality, COUNT(*) AS cnt
-                    FROM etl_didb_studies
+            if want_month:
+                ctes.append("""month_studies AS (
+                    SELECT study_modality, COUNT(*) AS cnt FROM etl_didb_studies
                     WHERE study_date >= DATE_TRUNC('month', CURRENT_DATE)
                     GROUP BY study_modality ORDER BY cnt DESC
-                """)).mappings().fetchall()
-                if rows:
-                    total = sum(int(r["cnt"]) for r in rows)
-                    facts.append(f"This month's studies: {total:,} total — " +
-                        ", ".join(f"{r['study_modality']}: {r['cnt']}" for r in rows) + ".")
+                )""")
+                selects.append("SELECT 'month', study_modality, cnt::text, NULL, NULL, NULL FROM month_studies")
 
-            # ── Patient class breakdown ───────────────────────
-            if _match(q, _KW_PATIENT):
-                rows = conn.execute(text("""
+            if want_patient:
+                ctes.append("""patient_cls AS (
                     SELECT COALESCE(patient_class, 'Unknown') AS cls, COUNT(*) AS cnt
-                    FROM etl_didb_studies
-                    WHERE patient_class IS NOT NULL
+                    FROM etl_didb_studies WHERE patient_class IS NOT NULL
                     GROUP BY 1 ORDER BY 2 DESC
-                """)).mappings().fetchall()
-                if rows:
-                    facts.append("Studies by patient class: " +
-                        ", ".join(f"{r['cls']}: {r['cnt']:,}" for r in rows) + ".")
-                    chart_type = "pie"
-                    chart_data = {
-                        "labels": [r["cls"] for r in rows],
-                        "values": [int(r["cnt"]) for r in rows],
-                        "title":  "Studies by Patient Class",
-                    }
+                )""")
+                selects.append("SELECT 'patient', cls, cnt::text, NULL, NULL, NULL FROM patient_cls")
 
-            # ── AE / device utilization ───────────────────────
-            if _match(q, _KW_DEVICE):
-                rows = conn.execute(text("""
-                    SELECT storing_ae AS ae, COUNT(*) AS cnt
-                    FROM etl_didb_studies
-                    WHERE storing_ae IS NOT NULL
-                    GROUP BY 1 ORDER BY 2 DESC
-                """)).mappings().fetchall()
-                if rows:
-                    facts.append("Studies per imaging device: " +
-                        ", ".join(f"{r['ae']}: {r['cnt']:,} studies" for r in rows) + ".")
-                    chart_type = "bar"
-                    chart_data = {
-                        "labels": [r["ae"] for r in rows],
-                        "values": [int(r["cnt"]) for r in rows],
-                        "title":  "Studies per AE", "color": "#2EC4A5",
-                    }
+            if want_device:
+                ctes.append("""device_util AS (
+                    SELECT storing_ae AS ae, COUNT(*) AS cnt FROM etl_didb_studies
+                    WHERE storing_ae IS NOT NULL GROUP BY 1 ORDER BY 2 DESC
+                )""")
+                selects.append("SELECT 'device', ae, cnt::text, NULL, NULL, NULL FROM device_util")
 
-            # ── Busiest days this month ───────────────────────
-            if _match(q, _KW_BUSY):
-                rows = conn.execute(text("""
-                    SELECT study_date::text AS d, COUNT(*) AS cnt
-                    FROM etl_didb_studies
+            if want_busy:
+                ctes.append("""busy_days AS (
+                    SELECT study_date::text AS d, COUNT(*) AS cnt FROM etl_didb_studies
                     WHERE study_date >= DATE_TRUNC('month', CURRENT_DATE)
                     GROUP BY study_date ORDER BY cnt DESC LIMIT 5
-                """)).mappings().fetchall()
-                if rows:
-                    facts.append("Busiest days this month: " +
-                        ", ".join(f"{r['d']}: {r['cnt']:,} studies" for r in rows) + ".")
-                    chart_type = "bar"
-                    chart_data = {
-                        "labels": [r["d"] for r in rows],
-                        "values": [int(r["cnt"]) for r in rows],
-                        "title":  "Busiest Days", "color": "#ef4444",
-                    }
+                )""")
+                selects.append("SELECT 'busy', d, cnt::text, NULL, NULL, NULL FROM busy_days")
 
-            # ── Trend: this week vs last week ─────────────────
-            if _match(q, _KW_TREND):
-                rows = conn.execute(text("""
-                    SELECT CASE
-                             WHEN study_date >= DATE_TRUNC('week', CURRENT_DATE) THEN 'this_week'
-                             ELSE 'last_week'
-                           END AS period, COUNT(*) AS cnt
+            if want_trend:
+                ctes.append("""trend_data AS (
+                    SELECT CASE WHEN study_date >= DATE_TRUNC('week', CURRENT_DATE)
+                                THEN 'this_week' ELSE 'last_week' END AS period,
+                           COUNT(*) AS cnt
                     FROM etl_didb_studies
                     WHERE study_date >= DATE_TRUNC('week', CURRENT_DATE) - INTERVAL '7 days'
                     GROUP BY 1
-                """)).mappings().fetchall()
-                periods = {r["period"]: int(r["cnt"]) for r in rows}
-                tw = periods.get("this_week", 0)
-                lw = periods.get("last_week", 0)
+                )""")
+                selects.append("SELECT 'trend', period, cnt::text, NULL, NULL, NULL FROM trend_data")
+
+            # ── Execute single merged query ───────────────────
+            all_rows = []
+            if selects:
+                sql = "WITH " + ",\n".join(ctes) + "\n" + "\nUNION ALL\n".join(selects)
+                all_rows = conn.execute(text(sql)).fetchall()
+
+            # ── Parse tagged rows ─────────────────────────────
+            ae_parts:        list[str]        = []
+            new_base_facts:  list[str]        = []
+            modality_rows:   list[tuple]      = []
+            storage_rows:    list[tuple]      = []
+            tat_rows:        list[tuple]      = []
+            physician_rows:  list[tuple]      = []
+            today_rows:      list[tuple]      = []
+            yesterday_rows:  list[tuple]      = []
+            week_rows:       list[tuple]      = []
+            month_rows:      list[tuple]      = []
+            patient_rows:    list[tuple]      = []
+            device_rows:     list[tuple]      = []
+            busy_rows:       list[tuple]      = []
+            trend_map:       dict[str, int]   = {}
+
+            for r in all_rows:
+                src = r[0]
+                if src == "overview":
+                    if int(r[1] or 0) > 0:
+                        new_base_facts.append(
+                            f"The department has {int(r[1]):,} total studies across "
+                            f"{r[2]} imaging devices, from {r[3]} to {r[4]}."
+                        )
+                elif src == "ae":
+                    ae_parts.append(f"{r[1]} ({r[2]})")
+                elif src == "modality":
+                    modality_rows.append((r[1], int(r[2])))
+                elif src == "storage":
+                    storage_rows.append((r[1], float(r[2])))
+                elif src == "tat":
+                    tat_rows.append((r[1], float(r[2]), int(r[3])))
+                elif src == "physician":
+                    physician_rows.append((r[1], int(r[2])))
+                elif src == "orders":
+                    facts.append(
+                        f"Orders in the system: {int(r[1]):,} total, "
+                        f"{int(r[2]):,} fulfilled, {int(r[3]):,} orphaned (no linked study)."
+                    )
+                elif src == "today":
+                    today_rows.append((r[1], int(r[2])))
+                elif src == "today_orders":
+                    facts.append(f"Orders scheduled today: {int(r[1]):,}.")
+                elif src == "yesterday":
+                    yesterday_rows.append((r[1], int(r[2])))
+                elif src == "week":
+                    week_rows.append((r[1], int(r[2])))
+                elif src == "month":
+                    month_rows.append((r[1], int(r[2])))
+                elif src == "patient":
+                    patient_rows.append((r[1], int(r[2])))
+                elif src == "device":
+                    device_rows.append((r[1], int(r[2])))
+                elif src == "busy":
+                    busy_rows.append((r[1], int(r[2])))
+                elif src == "trend":
+                    trend_map[r[1]] = int(r[2])
+
+            # Update base cache if freshly fetched
+            if not base_hit:
+                if ae_parts:
+                    new_base_facts.append(f"Imaging devices in this department: {', '.join(ae_parts)}.")
+                with _base_cache_lock:
+                    _base_cache["facts"] = new_base_facts
+                    _base_cache["ts"]    = time.time()
+                facts.extend(new_base_facts)
+
+            # Build facts + chart data (last intent's chart wins for multi-intent questions)
+            if modality_rows:
+                facts.append("Studies by modality: " +
+                    ", ".join(f"{m}: {c:,} studies" for m, c in modality_rows) + ".")
+                chart_type = "pie"
+                chart_data = {"labels": [r[0] for r in modality_rows],
+                              "values": [r[1] for r in modality_rows], "title": "Studies by Modality"}
+
+            if storage_rows:
+                total_gb = sum(gb for _, gb in storage_rows)
+                facts.append(
+                    f"Storage in the last 14 days: {total_gb:.1f} GB total. "
+                    f"Most recent day ({storage_rows[0][0]}): {storage_rows[0][1]:.2f} GB."
+                )
+                rev = list(reversed(storage_rows))
+                chart_type = "bar"
+                chart_data = {"labels": [r[0] for r in rev], "values": [r[1] for r in rev],
+                              "title": "Daily Storage (GB)", "color": "#60a5fa"}
+
+            if tat_rows:
+                facts.append("Turnaround time (last 30 days): " +
+                    ", ".join(f"{m}: {h}h avg ({s} studies)" for m, h, s in tat_rows) + ".")
+                chart_type = "bar"
+                chart_data = {"labels": [r[0] for r in tat_rows], "values": [r[1] for r in tat_rows],
+                              "title": "Average TAT by Modality (hours)", "color": "#f59e0b"}
+
+            if physician_rows:
+                facts.append("Top referring physicians by study count: " +
+                    ", ".join(f"Dr. {n} ({c:,})" for n, c in physician_rows) + ".")
+                chart_type = "bar"
+                chart_data = {"labels": [r[0] for r in physician_rows],
+                              "values": [r[1] for r in physician_rows],
+                              "title": "Top Referring Physicians", "color": "#a855f7"}
+
+            if today_rows:
+                total = sum(c for _, c in today_rows)
+                facts.append(f"Studies today: {total:,} total — " +
+                    ", ".join(f"{m}: {c}" for m, c in today_rows) + ".")
+            elif want_today:
+                facts.append("No studies recorded today yet.")
+
+            if yesterday_rows:
+                total = sum(c for _, c in yesterday_rows)
+                facts.append(f"Yesterday's studies: {total:,} total — " +
+                    ", ".join(f"{m}: {c}" for m, c in yesterday_rows) + ".")
+
+            if week_rows:
+                total = sum(c for _, c in week_rows)
+                facts.append(f"This week's studies: {total:,} total — " +
+                    ", ".join(f"{m}: {c}" for m, c in week_rows) + ".")
+
+            if month_rows:
+                total = sum(c for _, c in month_rows)
+                facts.append(f"This month's studies: {total:,} total — " +
+                    ", ".join(f"{m}: {c}" for m, c in month_rows) + ".")
+
+            if patient_rows:
+                facts.append("Studies by patient class: " +
+                    ", ".join(f"{cls}: {c:,}" for cls, c in patient_rows) + ".")
+                chart_type = "pie"
+                chart_data = {"labels": [r[0] for r in patient_rows],
+                              "values": [r[1] for r in patient_rows], "title": "Studies by Patient Class"}
+
+            if device_rows:
+                facts.append("Studies per imaging device: " +
+                    ", ".join(f"{ae}: {c:,} studies" for ae, c in device_rows) + ".")
+                chart_type = "bar"
+                chart_data = {"labels": [r[0] for r in device_rows],
+                              "values": [r[1] for r in device_rows],
+                              "title": "Studies per AE", "color": "#2EC4A5"}
+
+            if busy_rows:
+                facts.append("Busiest days this month: " +
+                    ", ".join(f"{d}: {c:,} studies" for d, c in busy_rows) + ".")
+                chart_type = "bar"
+                chart_data = {"labels": [r[0] for r in busy_rows],
+                              "values": [r[1] for r in busy_rows],
+                              "title": "Busiest Days", "color": "#ef4444"}
+
+            if trend_map:
+                tw, lw = trend_map.get("this_week", 0), trend_map.get("last_week", 0)
                 if lw > 0:
                     pct = (tw - lw) / lw * 100
                     direction = "up" if pct > 0 else "down"
@@ -1040,9 +1213,122 @@ def _build_context(question: str):
                         f"({direction} {abs(pct):.1f}%)."
                     )
 
+            # CD/DVD — separate query; table may not exist on all installs
+            if want_cd:
+                try:
+                    cd_row = conn.execute(text("""
+                        SELECT COUNT(*) AS total_burns,
+                               COUNT(DISTINCT patient_name) AS unique_patients,
+                               COUNT(*) FILTER (WHERE UPPER(media_type) = 'DVD') AS dvd_count,
+                               COUNT(*) FILTER (WHERE UPPER(media_type) = 'CD')  AS cd_count
+                        FROM cd_print_log
+                        WHERE burned_at >= CURRENT_DATE - INTERVAL '30 days'
+                    """)).mappings().fetchone()
+                    if cd_row and int(cd_row["total_burns"] or 0) > 0:
+                        facts.append(
+                            f"Patient media burns in the last 30 days: {cd_row['total_burns']:,} total "
+                            f"({cd_row['cd_count'] or 0} CD, {cd_row['dvd_count'] or 0} DVD) "
+                            f"for {cd_row['unique_patients']:,} unique patients."
+                        )
+                        if not link:
+                            link, link_label = "/cd-print-log", "Patient CD Log"
+                    top_mod = conn.execute(text("""
+                        SELECT COALESCE(study_modality, 'Unknown') AS mod, COUNT(*) AS cnt
+                        FROM cd_print_log
+                        WHERE burned_at >= CURRENT_DATE - INTERVAL '30 days'
+                        GROUP BY 1 ORDER BY 2 DESC LIMIT 5
+                    """)).mappings().fetchall()
+                    if top_mod:
+                        facts.append("CD/DVD burns by modality (last 30 days): " +
+                            ", ".join(f"{r['mod']}: {r['cnt']}" for r in top_mod) + ".")
+                        chart_type = "bar"
+                        chart_data = {"labels": [r["mod"] for r in top_mod],
+                                      "values": [int(r["cnt"]) for r in top_mod],
+                                      "title": "CD/DVD Burns by Modality", "color": "#38bdf8"}
+                except Exception:
+                    pass  # cd_print_log may not exist on all installs
+
     except Exception as e:
         logger.error(f"[BitNet] Context error: {e}", exc_info=True)
         return link, link_label, None, None, ""
 
     context_string = "\n".join(facts) if facts else ""
     return link, link_label, chart_type, chart_data, context_string
+
+
+# ── Admin: documentation chunks ───────────────────────────────
+@bitnet_bp.route("/ai/admin/docs")
+@login_required
+def list_doc_chunks():
+    if current_user.role != "admin":
+        abort(403)
+    rows = AiDocChunk.query.order_by(AiDocChunk.sort_order, AiDocChunk.id).all()
+    return jsonify([{
+        "id":         r.id,
+        "section":    r.section,
+        "keywords":   r.keywords,
+        "content":    r.content,
+        "is_active":  r.is_active,
+        "sort_order": r.sort_order,
+        "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+    } for r in rows])
+
+
+@bitnet_bp.route("/ai/admin/docs", methods=["POST"])
+@login_required
+def create_doc_chunk():
+    if current_user.role != "admin":
+        abort(403)
+    body     = request.get_json(force=True)
+    section  = (body.get("section")  or "").strip()
+    keywords = (body.get("keywords") or "").strip()
+    content  = (body.get("content")  or "").strip()
+    if not section or not keywords or not content:
+        return jsonify({"error": "section, keywords, and content are required"}), 400
+    try:
+        chunk = AiDocChunk(
+            section    = section,
+            keywords   = keywords,
+            content    = content,
+            sort_order = int(body.get("sort_order") or 0),
+        )
+        db.session.add(chunk)
+        db.session.commit()
+        _invalidate_doc_chunks_cache()
+        return jsonify({"ok": True, "id": chunk.id})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+
+@bitnet_bp.route("/ai/admin/docs/<int:cid>", methods=["PUT"])
+@login_required
+def update_doc_chunk(cid):
+    if current_user.role != "admin":
+        abort(403)
+    chunk = AiDocChunk.query.get_or_404(cid)
+    body  = request.get_json(force=True)
+    if "section"    in body: chunk.section    = body["section"].strip()
+    if "keywords"   in body: chunk.keywords   = body["keywords"].strip()
+    if "content"    in body: chunk.content    = body["content"].strip()
+    if "sort_order" in body: chunk.sort_order = int(body["sort_order"])
+    if "is_active"  in body: chunk.is_active  = bool(body["is_active"])
+    try:
+        db.session.commit()
+        _invalidate_doc_chunks_cache()
+        return jsonify({"ok": True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+
+@bitnet_bp.route("/ai/admin/docs/<int:cid>", methods=["DELETE"])
+@login_required
+def delete_doc_chunk(cid):
+    if current_user.role != "admin":
+        abort(403)
+    chunk = AiDocChunk.query.get_or_404(cid)
+    chunk.is_active = False
+    db.session.commit()
+    _invalidate_doc_chunks_cache()
+    return jsonify({"ok": True})
