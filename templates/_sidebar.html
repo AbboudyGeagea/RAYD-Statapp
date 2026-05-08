@@ -146,6 +146,14 @@
         </a>
         {% endif %}
 
+        {% if current_user.role == 'admin' or current_user|user_has_page('cd_print') %}
+        <a href="{{ url_for('cd_print.cd_print_log') }}"
+           class="sidebar-item {% if request.endpoint and request.endpoint.startswith('cd_print.') %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
+           title="Patient CD Log">
+            <i class="bi bi-disc-fill flex-shrink-0" style="color:#38bdf8;"></i> Patient CD Log
+        </a>
+        {% endif %}
+
         {% if config.BITNET_ENABLED %}
         {% if current_user.role == 'admin' or current_user|user_has_page('bitnet') %}
         <div class="pt-4 pb-2">
