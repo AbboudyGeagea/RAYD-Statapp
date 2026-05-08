@@ -131,6 +131,15 @@ WIDGET_CATALOGUE = [
         "financial":   False,
         "config_keys": [("top_n", "Top N", "number", 10)],
     },
+    {
+        "key":         "cd_burn_summary",
+        "label":       "CD Burn Summary",
+        "icon":        "bi-disc-fill",
+        "color":       "#38bdf8",
+        "description": "Total patient CDs burned — count by media type (CDR / DVDR)",
+        "financial":   False,
+        "config_keys": [],
+    },
     # ── Financial ────────────────────────────────────────────────────────────
     {
         "key":         "rvu_summary",
@@ -482,6 +491,52 @@ def widget_revenue_by_physician(db, filters, config):
     return {"top_n": top_n, "rows": result}
 
 
+def widget_cd_burn_summary(db, filters, config):
+    params = {
+        "date_from": filters.get("date_from"),
+        "date_to":   filters.get("date_to"),
+        "modality":  filters.get("modality") or None,
+    }
+
+    mod_filter = "AND (CAST(:modality AS TEXT) IS NULL OR study_modality = :modality)"
+
+    summary = db.session.execute(text(f"""
+        SELECT
+            COUNT(*)                                   AS burn_events,
+            COUNT(DISTINCT study_instance_uid)         AS unique_studies,
+            COALESCE(SUM(number_of_copies), COUNT(*))  AS total_copies
+        FROM cd_print_log
+        WHERE burned_at::date BETWEEN :date_from AND :date_to
+          {mod_filter}
+    """), params).fetchone()
+
+    breakdown_rows = db.session.execute(text(f"""
+        SELECT
+            COALESCE(UPPER(media_type), 'UNKNOWN')     AS media_type,
+            COUNT(*)                                   AS burn_events,
+            COALESCE(SUM(number_of_copies), COUNT(*))  AS total_copies
+        FROM cd_print_log
+        WHERE burned_at::date BETWEEN :date_from AND :date_to
+          {mod_filter}
+        GROUP BY UPPER(media_type)
+        ORDER BY burn_events DESC
+    """), params).fetchall()
+
+    return {
+        "burn_events":    int(summary[0] or 0),
+        "unique_studies": int(summary[1] or 0),
+        "total_copies":   int(summary[2] or 0),
+        "breakdown": [
+            {
+                "media_type":  r[0],
+                "burn_events": int(r[1]),
+                "total_copies": int(r[2]),
+            }
+            for r in breakdown_rows
+        ],
+    }
+
+
 # ── Dispatch table ────────────────────────────────────────────────────────────
 
 _DISPATCH = {
@@ -497,6 +552,7 @@ _DISPATCH = {
     "rvu_summary":          widget_rvu_summary,
     "revenue_by_modality":  widget_revenue_by_modality,
     "revenue_by_physician": widget_revenue_by_physician,
+    "cd_burn_summary":      widget_cd_burn_summary,
 }
 
 
