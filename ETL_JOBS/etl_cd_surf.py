@@ -171,9 +171,13 @@ def run_cd_surf_etl(pg_engine):
         study_uid_map = _resolve_studies(pg_engine, [r[5] for r in ora_rows])
 
         rows_to_upsert = []
+        skipped_sr = 0
         for r in ora_rows:
             study_uid = str(r[5]).strip() if r[5] else None
             info = study_uid_map.get(study_uid, {})
+            if info.get("study_modality") == 'SR':
+                skipped_sr += 1
+                continue
             rows_to_upsert.append({
                 "task_id":           int(r[0]),
                 "patient_name":      str(r[1]).strip() if r[1] else None,
@@ -223,7 +227,7 @@ def run_cd_surf_etl(pg_engine):
             """), rows_to_upsert)
             total = len(rows_to_upsert)
 
-        logger.info(f"CD surf ETL: done, {total} records upserted.")
+        logger.info(f"CD surf ETL: done, {total} records upserted, {skipped_sr} SR skipped.")
         _update_log(pg_engine, log_id, "SUCCESS", total)
         return total
 

@@ -26,7 +26,7 @@ def api_cd_print_log():
         date_to   = request.args.get('date_to', '').strip()
         search    = request.args.get('search', '').strip()
 
-        base_filters = []
+        base_filters = ["COALESCE(c.study_modality, '') != 'SR'"]
         params = {}
 
         if date_from:

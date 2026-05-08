@@ -499,6 +499,7 @@ def widget_cd_burn_summary(db, filters, config):
     }
 
     mod_filter = "AND (CAST(:modality AS TEXT) IS NULL OR study_modality = :modality)"
+    sr_filter  = "AND COALESCE(study_modality, '') != 'SR'"
 
     summary = db.session.execute(text(f"""
         SELECT
@@ -507,6 +508,7 @@ def widget_cd_burn_summary(db, filters, config):
             COALESCE(SUM(number_of_copies), COUNT(*))  AS total_copies
         FROM cd_print_log
         WHERE burned_at::date BETWEEN :date_from AND :date_to
+          {sr_filter}
           {mod_filter}
     """), params).fetchone()
 
@@ -517,6 +519,7 @@ def widget_cd_burn_summary(db, filters, config):
             COALESCE(SUM(number_of_copies), COUNT(*))  AS total_copies
         FROM cd_print_log
         WHERE burned_at::date BETWEEN :date_from AND :date_to
+          {sr_filter}
           {mod_filter}
         GROUP BY UPPER(media_type)
         ORDER BY burn_events DESC
