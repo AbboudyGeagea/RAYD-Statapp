@@ -19,62 +19,111 @@ def api_cd_print_log():
     per_page = 50
     offset   = (page - 1) * per_page
 
-    date_from = request.args.get('date_from', '')
-    date_to   = request.args.get('date_to', '')
+    date_from = request.args.get('date_from', '').strip()
+    date_to   = request.args.get('date_to', '').strip()
     search    = request.args.get('search', '').strip()
-    modality  = request.args.get('modality', '').strip()
 
-    filters = []
-    params  = {"limit": per_page, "offset": offset}
+    base_filters = []
+    params = {}
 
     if date_from:
-        filters.append("burned_at::date >= :date_from")
+        base_filters.append("c.burned_at::date >= :date_from")
         params["date_from"] = date_from
     if date_to:
-        filters.append("burned_at::date <= :date_to")
+        base_filters.append("c.burned_at::date <= :date_to")
         params["date_to"] = date_to
     if search:
-        filters.append("(patient_name ILIKE :search OR accession_number ILIKE :search)")
+        base_filters.append("""(
+            c.patient_name    ILIKE :search
+            OR c.accession_number ILIKE :search
+            OR pv.patient_id  ILIKE :search
+        )""")
         params["search"] = f"%{search}%"
-    if modality:
-        filters.append("study_modality = :modality")
-        params["modality"] = modality
 
-    where = ("WHERE " + " AND ".join(filters)) if filters else ""
+    where_cte = ("WHERE " + " AND ".join(base_filters)) if base_filters else ""
 
-    rows = db.session.execute(text(f"""
-        SELECT task_id, patient_name, burned_at, study_modality,
-               accession_number, study_date, reading_physician,
-               media_type, number_of_copies, cd_status, study_db_uid
-        FROM cd_print_log
-        {where}
-        ORDER BY burned_at DESC NULLS LAST
+    # One row per unique study, aggregated burn events
+    sql_data = text(f"""
+        WITH filtered AS (
+            SELECT
+                c.study_instance_uid,
+                c.patient_name,
+                c.accession_number,
+                c.study_modality,
+                c.study_db_uid,
+                c.burned_at,
+                COALESCE(c.number_of_copies, 1) AS copies,
+                COALESCE(s.procedure_code, '') AS procedure_code,
+                COALESCE(
+                    (SELECT o.proc_text FROM etl_orders o
+                     WHERE o.study_db_uid = c.study_db_uid
+                       AND o.proc_text IS NOT NULL
+                     LIMIT 1),
+                    s.procedure_code, ''
+                ) AS procedure_name,
+                pv.patient_id
+            FROM cd_print_log c
+            LEFT JOIN etl_didb_studies s  ON s.study_db_uid    = c.study_db_uid
+            LEFT JOIN etl_patient_view pv ON pv.patient_db_uid = s.patient_db_uid
+            {where_cte}
+        )
+        SELECT
+            study_instance_uid,
+            patient_name,
+            accession_number,
+            study_modality,
+            procedure_code,
+            procedure_name,
+            patient_id,
+            COUNT(*)                           AS burn_count,
+            SUM(copies)                        AS total_copies,
+            JSON_AGG(
+                JSON_BUILD_OBJECT('date', burned_at, 'copies', copies)
+                ORDER BY burned_at
+            )                                  AS burn_events,
+            MAX(burned_at)                     AS last_burned
+        FROM filtered
+        GROUP BY study_instance_uid, patient_name, accession_number,
+                 study_modality, procedure_code, procedure_name, patient_id
+        ORDER BY last_burned DESC NULLS LAST
         LIMIT :limit OFFSET :offset
-    """), params).fetchall()
+    """)
 
-    count_row = db.session.execute(text(f"""
-        SELECT COUNT(*) FROM cd_print_log {where}
-    """), {k: v for k, v in params.items() if k not in ('limit', 'offset')}).fetchone()
+    sql_count = text(f"""
+        WITH filtered AS (
+            SELECT c.study_instance_uid
+            FROM cd_print_log c
+            LEFT JOIN etl_didb_studies s  ON s.study_db_uid    = c.study_db_uid
+            LEFT JOIN etl_patient_view pv ON pv.patient_db_uid = s.patient_db_uid
+            {where_cte}
+        )
+        SELECT COUNT(DISTINCT study_instance_uid) FROM filtered
+    """)
 
-    total = count_row[0] if count_row else 0
+    params["limit"]  = per_page
+    params["offset"] = offset
+    rows = db.session.execute(sql_data, params).fetchall()
+
+    count_params = {k: v for k, v in params.items() if k not in ('limit', 'offset')}
+    total = db.session.execute(sql_count, count_params).scalar() or 0
 
     return jsonify({
-        "total": total,
-        "page": page,
+        "total":    total,
+        "page":     page,
         "per_page": per_page,
         "rows": [
             {
-                "task_id":          r[0],
-                "patient_name":     r[1],
-                "burned_at":        r[2].isoformat() if r[2] else None,
-                "study_modality":   r[3],
-                "accession_number": r[4],
-                "study_date":       r[5].isoformat() if r[5] else None,
-                "reading_physician": r[6],
-                "media_type":       r[7],
-                "number_of_copies": r[8],
-                "cd_status":        r[9],
-                "study_db_uid":     r[10],
+                "study_instance_uid": r[0],
+                "patient_name":       r[1],
+                "accession_number":   r[2],
+                "study_modality":     r[3],
+                "procedure_code":     r[4],
+                "procedure_name":     r[5],
+                "patient_id":         r[6],
+                "burn_count":         r[7],
+                "total_copies":       int(r[8]) if r[8] else 0,
+                "burn_events":        r[9],
+                "last_burned":        r[10].isoformat() if r[10] else None,
             }
             for r in rows
         ]
@@ -92,34 +141,3 @@ def trigger_cd_sync():
         return jsonify({'ok': True, 'synced': n})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
-
-
-@cd_print_bp.route('/api/cd-print-log/stats')
-@login_required
-def cd_print_stats():
-    row = db.session.execute(text("""
-        SELECT
-            COUNT(*)                                              AS total,
-            COUNT(CASE WHEN burned_at >= NOW() - INTERVAL '30 days' THEN 1 END) AS last_30d,
-            COUNT(CASE WHEN burned_at >= NOW() - INTERVAL '7 days'  THEN 1 END) AS last_7d,
-            MAX(burned_at)                                        AS last_sync,
-            COUNT(DISTINCT study_modality)                        AS modalities
-        FROM cd_print_log
-    """)).fetchone()
-
-    modality_rows = db.session.execute(text("""
-        SELECT study_modality, COUNT(*) AS cnt
-        FROM cd_print_log
-        WHERE study_modality IS NOT NULL
-        GROUP BY study_modality
-        ORDER BY cnt DESC
-        LIMIT 10
-    """)).fetchall()
-
-    return jsonify({
-        "total":       row[0],
-        "last_30d":    row[1],
-        "last_7d":     row[2],
-        "last_sync":   row[3].isoformat() if row[3] else None,
-        "modalities":  [{"modality": r[0], "count": r[1]} for r in modality_rows],
-    })
