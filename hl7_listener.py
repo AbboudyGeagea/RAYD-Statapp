@@ -475,7 +475,12 @@ def _handle_client(conn, addr, app):
                 try:
                     msg_type_raw = _field(msh, 8, '')
 
-                    if 'ORU' in msg_type_raw:
+                    if msg_type_raw.upper().startswith('ADT'):
+                        # ADT (Admit/Discharge/Transfer) — not a radiology order.
+                        # ACK it so the sender doesn't retry, but do not store.
+                        logger.info(f"⏭ ADT skipped | type={msg_type_raw} | from={addr[0]}")
+
+                    elif 'ORU' in msg_type_raw:
                         # ── ORU^R01: radiology result ─────────────────────
                         logger.info(f"📨 ORU received | type={msg_type_raw} | from={addr[0]}")
                         parsed_oru = parse_oru_r01(raw_message)
