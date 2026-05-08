@@ -134,10 +134,32 @@ INSERT_SQL = """
 """
 
 
-PACS_UPDATE_SQL = """
+PACS_AUTODONE_SQL = """
     UPDATE hl7_orders
-       SET pacs_done_at = :pacs_done_at
+       SET order_status = 'CM',
+           done_at      = :pacs_done_at,
+           done_by      = 'PACS',
+           pacs_done_at = :pacs_done_at
      WHERE accession_number = :accession_number
+       AND order_status    != 'CM'
+ RETURNING modality, patient_id
+"""
+
+# Same patient, same modality, accession numeric value within ±5, not already done.
+PACS_NEIGHBOUR_SQL = """
+    UPDATE hl7_orders
+       SET order_status = 'CM',
+           done_at      = :pacs_done_at,
+           done_by      = 'PACS',
+           pacs_done_at = :pacs_done_at
+     WHERE patient_id    = :patient_id
+       AND modality      = :modality
+       AND order_status != 'CM'
+       AND accession_number != :accession_number
+       AND REGEXP_REPLACE(accession_number, '[^0-9]', '', 'g') ~ '^[0-9]+$'
+       AND CAST(REGEXP_REPLACE(accession_number, '[^0-9]', '', 'g') AS BIGINT)
+           BETWEEN CAST(REGEXP_REPLACE(:accession_number, '[^0-9]', '', 'g') AS BIGINT) - 5
+               AND CAST(REGEXP_REPLACE(:accession_number, '[^0-9]', '', 'g') AS BIGINT) + 5
 """
 
 # ── HL7 helpers ───────────────────────────────────────────────────────────────
@@ -519,19 +541,36 @@ def _handle_client(conn, addr, app):
                         pacs = parse_pacs_completion(raw_message)
 
                         if pacs:
-                            # PACS study-complete: update pacs_done_at on the existing order row.
+                            # PACS study-complete: auto-done the matching order and any
+                            # neighbour orders (same patient + modality, accession ±5).
                             with app.app_context():
                                 from sqlalchemy import text
                                 from db import db
                                 try:
-                                    db.session.execute(text(PACS_UPDATE_SQL), pacs)
+                                    result = db.session.execute(
+                                        text(PACS_AUTODONE_SQL), pacs
+                                    )
+                                    row = result.fetchone()
+                                    neighbour_count = 0
+                                    if row and row.modality and row.patient_id:
+                                        nb = db.session.execute(
+                                            text(PACS_NEIGHBOUR_SQL),
+                                            {
+                                                'pacs_done_at':     pacs['pacs_done_at'],
+                                                'patient_id':       row.patient_id,
+                                                'modality':         row.modality,
+                                                'accession_number': pacs['accession_number'],
+                                            },
+                                        )
+                                        neighbour_count = nb.rowcount
                                     db.session.commit()
                                 except Exception:
                                     db.session.rollback()
                                     raise
                             logger.info(
-                                f"✅ PACS completion | accession={pacs['accession_number']} "
-                                f"| pacs_done_at={pacs['pacs_done_at']}"
+                                f"✅ PACS auto-done | accession={pacs['accession_number']} "
+                                f"| pacs_done_at={pacs['pacs_done_at']} "
+                                f"| neighbours_cleaned={neighbour_count}"
                             )
 
                         else:
