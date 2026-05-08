@@ -254,43 +254,56 @@ ON CONFLICT (name) DO UPDATE SET
 "
 ok "Oracle PACS connection saved (${ORACLE_USER}@${ORACLE_HOST}:${ORACLE_PORT}/${ORACLE_SID}) — password pre-encrypted."
 
-# ── 6c. License Tier ─────────────────────────────────
+# ── 6c. License Tier ─────────────────────────────
 echo ""
-echo "  ── License Tier ──────────────────────────────────"
-echo "  1) Basic        — Report 22 only, 5 users, 2 sessions, 5k row cap"
-echo "  2) Professional — All reports, unlimited users, no AI/portal"
-echo "  3) Enterprise   — Everything enabled, no limits"
-echo "  4) Custom       — Start from a tier and edit the JSON"
+echo "  ── License Tier ───────────────────────────────────────────────────────────"
+echo "  1) Essential    — Viewer dashboard, all reports, ETL view, user mgmt,"
+echo "                    activity log, modality/procedure config, export"
+echo "                    Unlimited users/sessions"
+echo ""
+echo "  2) Professional — Everything in Essential, plus:"
+echo "                    HL7 orders, report intelligence, custom reports,"
+echo "                    patient CD log, ER dashboard, capacity ladder,"
+echo "                    saved reports, referring intel"
+echo "                    Unlimited users/sessions"
+echo ""
+echo "  3) Enterprise   — Everything in Professional, plus:"
+echo "                    Revenue intelligence, AI assistant + teaching center,"
+echo "                    scheduling, live AE status, patient portal"
+echo "                    Unlimited users/sessions"
+echo ""
+echo "  4) Custom       — Start from Enterprise and toggle features manually"
+echo "  ─────────────────────────────────────────────────────────────────────────"
 echo ""
 read -r -p "  Select license tier [1-4] (default: 3): " TIER_CHOICE
 TIER_CHOICE="${TIER_CHOICE:-3}"
 
 case "$TIER_CHOICE" in
-    1) TIER_KEY="basic" ;;
+    1) TIER_KEY="essential" ;;
     2) TIER_KEY="professional" ;;
     4) TIER_KEY="custom" ;;
     *) TIER_KEY="enterprise" ;;
 esac
 
 # Tier presets inlined — no Flask/Python import needed on the host
-_JSON_BASIC='{"tier":"basic","reports":[22],"ai_report":false,"capacity_ladder":false,"er_dashboard":false,"patient_portal":false,"live_feed":true,"hl7_orders":true,"oru_analytics":false,"saved_reports":false,"bitnet_ai":false,"export":false,"adapter_mapper":false,"max_users":5,"max_sessions":2,"expires":"","max_studies_per_report":5000}'
-_JSON_PRO='{"tier":"professional","reports":[22,23,25,27,29,30],"ai_report":false,"capacity_ladder":true,"er_dashboard":true,"patient_portal":false,"live_feed":true,"hl7_orders":true,"oru_analytics":true,"saved_reports":true,"bitnet_ai":false,"export":true,"adapter_mapper":false,"max_users":0,"max_sessions":0,"expires":"","max_studies_per_report":0}'
-_JSON_ENT='{"tier":"enterprise","reports":[22,23,25,27,29,30],"ai_report":true,"capacity_ladder":true,"er_dashboard":true,"patient_portal":true,"live_feed":true,"hl7_orders":true,"oru_analytics":true,"saved_reports":true,"bitnet_ai":true,"export":true,"adapter_mapper":true,"super_report":true,"referring_intel":true,"max_users":0,"max_sessions":0,"expires":"","max_studies_per_report":0}'
+_JSON_ESS='{"tier":"essential","reports":[22,23,25,27,29,30],"export":true,"adapter_mapper":true,"hl7_orders":false,"oru_analytics":false,"custom_reports":false,"cd_print":false,"er_dashboard":false,"capacity_ladder":false,"saved_reports":false,"super_report":false,"referring_intel":false,"financial":false,"bitnet_ai":false,"scheduling":false,"live_feed":false,"patient_portal":false,"ai_report":false,"max_users":0,"max_sessions":0,"expires":"","max_studies_per_report":0}'
+_JSON_PRO='{"tier":"professional","reports":[22,23,25,27,29,30],"export":true,"adapter_mapper":true,"hl7_orders":true,"oru_analytics":true,"custom_reports":true,"cd_print":true,"er_dashboard":true,"capacity_ladder":true,"saved_reports":true,"super_report":true,"referring_intel":true,"financial":false,"bitnet_ai":false,"scheduling":false,"live_feed":false,"patient_portal":false,"ai_report":false,"max_users":0,"max_sessions":0,"expires":"","max_studies_per_report":0}'
+_JSON_ENT='{"tier":"enterprise","reports":[22,23,25,27,29,30],"export":true,"adapter_mapper":true,"hl7_orders":true,"oru_analytics":true,"custom_reports":true,"cd_print":true,"er_dashboard":true,"capacity_ladder":true,"saved_reports":true,"super_report":true,"referring_intel":true,"financial":true,"bitnet_ai":true,"scheduling":true,"live_feed":true,"patient_portal":true,"ai_report":true,"max_users":0,"max_sessions":0,"expires":"","max_studies_per_report":0}'
 
 case "$TIER_KEY" in
-    basic)        LICENSE_JSON="$_JSON_BASIC" ;;
-    professional) LICENSE_JSON="$_JSON_PRO"   ;;
-    *)            LICENSE_JSON="$_JSON_ENT"   ;;
+    essential)    LICENSE_JSON="$_JSON_ESS" ;;
+    professional) LICENSE_JSON="$_JSON_PRO" ;;
+    *)            LICENSE_JSON="$_JSON_ENT" ;;
 esac
 
 if [[ "$TIER_KEY" == "custom" ]]; then
     echo ""
-    echo "  Starting from enterprise tier. Edit the JSON below."
+    echo "  Starting from Enterprise tier. Edit the JSON below."
     echo "  Current license JSON:"
     echo "  $LICENSE_JSON" | python3 -m json.tool 2>/dev/null || echo "  $LICENSE_JSON"
     echo ""
 
-    read -r -p "  Licensed report IDs (comma-separated, e.g. 22,23,25,27,29): " CUSTOM_REPORTS
+    read -r -p "  Licensed report IDs (comma-separated, e.g. 22,23,25,27,29,30): " CUSTOM_REPORTS
     if [ -n "$CUSTOM_REPORTS" ]; then
         LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "
 import sys, json
@@ -341,23 +354,27 @@ print(json.dumps(d))
 ")
     fi
 
-    for feat in ai_report capacity_ladder er_dashboard patient_portal live_feed liveview hl7_orders oru_analytics saved_reports bitnet_ai export adapter_mapper; do
+    echo ""
+    echo "  Professional features:"
+    for feat in hl7_orders oru_analytics custom_reports cd_print er_dashboard capacity_ladder saved_reports referring_intel super_report; do
         CURRENT=$(echo "$LICENSE_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('$feat', False))")
-        read -r -p "  Enable $feat? (current: $CURRENT) [y/n/Enter=keep]: " TOGGLE
+        read -r -p "    Enable $feat? (current: $CURRENT) [y/n/Enter=keep]: " TOGGLE
         if [[ "${TOGGLE,,}" == "y" ]]; then
-            LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-d['$feat'] = True
-print(json.dumps(d))
-")
+            LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); d['$feat']=True; print(json.dumps(d))")
         elif [[ "${TOGGLE,,}" == "n" ]]; then
-            LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-d['$feat'] = False
-print(json.dumps(d))
-")
+            LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); d['$feat']=False; print(json.dumps(d))")
+        fi
+    done
+
+    echo ""
+    echo "  Enterprise features:"
+    for feat in financial bitnet_ai scheduling live_feed patient_portal ai_report; do
+        CURRENT=$(echo "$LICENSE_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('$feat', False))")
+        read -r -p "    Enable $feat? (current: $CURRENT) [y/n/Enter=keep]: " TOGGLE
+        if [[ "${TOGGLE,,}" == "y" ]]; then
+            LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); d['$feat']=True; print(json.dumps(d))")
+        elif [[ "${TOGGLE,,}" == "n" ]]; then
+            LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); d['$feat']=False; print(json.dumps(d))")
         fi
     done
 fi
