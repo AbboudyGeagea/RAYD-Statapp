@@ -523,6 +523,19 @@ class AiCorrection(db.Model):
     created_at       = db.Column(DateTime, server_default=func.now())
 
 
+class AiDocChunk(db.Model):
+    """Documentation chunks served dynamically to the AI assistant."""
+    __tablename__ = 'ai_doc_chunks'
+    id          = db.Column(Integer, primary_key=True)
+    section     = db.Column(Text, nullable=False)          # display name shown to admin
+    keywords    = db.Column(Text, nullable=False)          # comma-separated trigger words
+    content     = db.Column(Text, nullable=False)          # plain-English guidance injected into AI context
+    is_active   = db.Column(Boolean, default=True)
+    sort_order  = db.Column(Integer, default=0)
+    created_at  = db.Column(DateTime, server_default=func.now())
+    updated_at  = db.Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
 class PatientPortalUser(db.Model):
     """
     One record per patient MRN.
