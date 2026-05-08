@@ -9,7 +9,7 @@ hl7_orders_bp = Blueprint('hl7_orders', __name__)
 
 def _fetch_orders(date_str=None, modality=None, status=None):
     """Fetch hl7_orders with optional filters. Returns list of dicts."""
-    filters = ["1=1"]
+    filters = ["(message_type IS NULL OR message_type NOT LIKE 'ADT%')"]
     params  = {}
 
     if date_str:
@@ -51,10 +51,10 @@ def _fetch_orders(date_str=None, modality=None, status=None):
 def _fetch_filter_options():
     """Get distinct modalities and statuses for filter dropdowns."""
     modalities = db.session.execute(
-        text("SELECT DISTINCT modality FROM hl7_orders WHERE modality IS NOT NULL ORDER BY modality")
+        text("SELECT DISTINCT modality FROM hl7_orders WHERE modality IS NOT NULL AND (message_type IS NULL OR message_type NOT LIKE 'ADT%') ORDER BY modality")
     ).fetchall()
     statuses = db.session.execute(
-        text("SELECT DISTINCT order_status FROM hl7_orders WHERE order_status IS NOT NULL ORDER BY order_status")
+        text("SELECT DISTINCT order_status FROM hl7_orders WHERE order_status IS NOT NULL AND (message_type IS NULL OR message_type NOT LIKE 'ADT%') ORDER BY order_status")
     ).fetchall()
     return (
         [r[0] for r in modalities],
