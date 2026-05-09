@@ -16,219 +16,256 @@
         border-left: 3px solid #60a5fa !important;
         box-shadow: 0 0 16px rgba(96,165,250,0.1);
     }
+    .sg-btn {
+        width:100%; display:flex; align-items:center; justify-content:space-between;
+        padding:5px 8px; border-radius:8px; font-size:10px; font-weight:900;
+        text-transform:uppercase; letter-spacing:0.1em; color:#60a5fa;
+        cursor:pointer; background:none; border:none;
+        transition:background 0.15s; margin-bottom:2px;
+    }
+    .sg-btn:hover { background:rgba(96,165,250,0.07); }
+    .sg-body { overflow:hidden; transition:none; }
+    .sg-body.closed { display:none; }
+    .sg-chevron { transition:transform 0.2s; font-size:10px; opacity:0.7; }
+    .sg-chevron.open { transform:rotate(180deg); }
 </style>
-<aside class="w-72 bg-[#232b28] border-r border-[#28332e] flex flex-col p-4 shadow-xl z-20 overflow-y-auto flex-shrink-0">
-    <div class="flex items-center gap-3 mb-8 px-2">
-        <div class="bg-[#60a5fa] p-2.5 rounded-xl text-white shadow-lg shadow-blue-400/20 flex-shrink-0">
-            <i class="bi bi-cpu-fill text-xl"></i>
+
+{# ── Active-group detection ────────────────────────────────────────── #}
+{% set ep = request.endpoint or '' %}
+{% set overview_on   = ep.startswith('viewer.') %}
+{% set admin_on      = ep in ['admin.admin_dashboard','admin.user_management','admin.audit_log','admin.hl7_forward_config'] or ep.startswith('db_manager.') or ep.startswith('mapping.') %}
+{% set ops_on        = ep.startswith('live_feed.') or ep == 'admin.scheduling_page' or ep.startswith('hl7_orders.') or ep.startswith('cd_print.') %}
+{% set analytics_on  = ep.startswith('oru.') or ep.startswith('referring_intel.') or ep.startswith('custom_reports.') or ep.startswith('portal_admin.') %}
+{% set ai_on         = ep in ['bitnet.assistant_page','bitnet.ai_admin'] or ep.startswith('report_ai.') %}
+{% set finance_on    = ep.startswith('financial_dashboard.') %}
+{% set help_on       = ep.startswith('docs.') %}
+
+<aside class="w-60 bg-[#232b28] border-r border-[#28332e] flex flex-col p-3 shadow-xl z-20 overflow-y-auto flex-shrink-0">
+
+    <!-- Brand -->
+    <div class="flex items-center gap-3 mb-6 px-2">
+        <div class="bg-[#60a5fa] p-2 rounded-xl text-white shadow-lg shadow-blue-400/20 flex-shrink-0">
+            <i class="bi bi-cpu-fill text-lg"></i>
         </div>
         <div>
-            <h1 class="font-black text-[#e2e8f0] tracking-tighter uppercase leading-none text-xl">RAYD</h1>
-            <p class="text-[9px] font-black text-[#60a5fa] uppercase tracking-widest mt-1">Intelligence Hub</p>
+            <h1 class="font-black text-[#e2e8f0] tracking-tighter uppercase leading-none text-lg">RAYD</h1>
+            <p class="text-[9px] font-black text-[#60a5fa] uppercase tracking-widest mt-0.5">Intelligence Hub</p>
         </div>
     </div>
 
     <nav class="flex-1 space-y-1">
-        <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-4">Main Menu</p>
 
-        <a href="{{ url_for('viewer.viewer_dashboard') }}"
-           class="sidebar-item {% if request.endpoint and request.endpoint.startswith('viewer.') %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
-           title="Viewer Dashboard">
-            <i class="bi bi-speedometer2 flex-shrink-0" style="color:#38bdf8;"></i> Viewer Dashboard
-        </a>
+        <!-- ── OVERVIEW ───────────────────────────────────────────── -->
+        <button class="sg-btn" onclick="sgToggle('overview')">
+            <span class="flex items-center gap-2"><i class="bi bi-speedometer2" style="color:#38bdf8;"></i> Overview</span>
+            <i id="chev-overview" class="bi bi-chevron-down sg-chevron {% if overview_on %}open{% endif %}"></i>
+        </button>
+        <div id="sg-overview" class="sg-body {% if not overview_on %}closed{% endif %} space-y-0.5 mb-2">
+            <a href="{{ url_for('viewer.viewer_dashboard') }}"
+               class="sidebar-item {% if overview_on %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
+                <i class="bi bi-speedometer2 flex-shrink-0" style="color:#38bdf8;"></i> Viewer Dashboard
+            </a>
+        </div>
 
         {% if current_user.role == 'admin' %}
-        <a href="{{ url_for('admin.admin_dashboard') }}"
-           class="sidebar-item {% if request.endpoint == 'admin.admin_dashboard' %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
-           title="ETL Control Room">
-            <i class="bi bi-cpu flex-shrink-0" style="color:#f59e0b;"></i> ETL Control Room
-        </a>
-        <a href="{{ url_for('admin.user_management') }}"
-           class="sidebar-item {% if request.endpoint == 'admin.user_management' %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
-           title="User Management">
-            <i class="bi bi-people-fill flex-shrink-0" style="color:#60a5fa;"></i> User Management
-            <span class="ml-auto flex items-center gap-1">
-                {% if pending_approvals_count %}
-                <span title="{{ pending_approvals_count }} pending approval" style="font-size:9px;font-weight:900;min-width:18px;height:18px;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;padding:0 4px;background:rgba(239,68,68,0.18);color:#f87171;border:1px solid rgba(239,68,68,0.35);">{{ pending_approvals_count }}</span>
+        <!-- ── ADMINISTRATION ──────────────────────────────────────── -->
+        <button class="sg-btn" onclick="sgToggle('admin')">
+            <span class="flex items-center gap-2"><i class="bi bi-shield-lock-fill" style="color:#f59e0b;"></i> Administration</span>
+            <i id="chev-admin" class="bi bi-chevron-down sg-chevron {% if admin_on %}open{% endif %}"></i>
+        </button>
+        <div id="sg-admin" class="sg-body {% if not admin_on %}closed{% endif %} space-y-0.5 mb-2">
+            <a href="{{ url_for('admin.admin_dashboard') }}"
+               class="sidebar-item {% if ep == 'admin.admin_dashboard' %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
+                <i class="bi bi-cpu flex-shrink-0" style="color:#f59e0b;"></i> ETL Control Room
+            </a>
+            <a href="{{ url_for('admin.user_management') }}"
+               class="sidebar-item {% if ep == 'admin.user_management' %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
+                <i class="bi bi-people-fill flex-shrink-0" style="color:#60a5fa;"></i> User Management
+                <span class="ml-auto flex items-center gap-1">
+                    {% if pending_approvals_count %}
+                    <span style="font-size:9px;font-weight:900;min-width:16px;height:16px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;padding:0 3px;background:rgba(239,68,68,0.18);color:#f87171;border:1px solid rgba(239,68,68,0.35);">{{ pending_approvals_count }}</span>
+                    {% endif %}
+                    {% if reset_requests_count %}
+                    <span style="font-size:9px;font-weight:900;min-width:16px;height:16px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;padding:0 3px;background:rgba(34,197,94,0.15);color:#4ade80;border:1px solid rgba(34,197,94,0.3);">{{ reset_requests_count }}</span>
+                    {% endif %}
+                </span>
+            </a>
+            <a href="{{ url_for('admin.audit_log') }}"
+               class="sidebar-item {% if ep == 'admin.audit_log' %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
+                <i class="bi bi-journal-text flex-shrink-0" style="color:#94a3b8;"></i> Activity Log
+            </a>
+            <a href="{{ url_for('db_manager.db_manager_page') }}"
+               class="sidebar-item {% if ep.startswith('db_manager.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
+                <i class="bi bi-database-fill-gear flex-shrink-0" style="color:#f97316;"></i> DB Manager
+                {% if not oracle_configured %}
+                <span style="font-size:8px;font-weight:900;padding:1px 5px;border-radius:4px;background:rgba(239,68,68,0.15);color:#f87171;text-transform:uppercase;letter-spacing:0.08em;">!</span>
                 {% endif %}
-                {% if reset_requests_count %}
-                <span title="{{ reset_requests_count }} password reset request" style="font-size:9px;font-weight:900;min-width:18px;height:18px;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;padding:0 4px;background:rgba(34,197,94,0.15);color:#4ade80;border:1px solid rgba(34,197,94,0.3);">{{ reset_requests_count }}</span>
-                {% endif %}
-            </span>
-        </a>
-        <a href="{{ url_for('admin.audit_log') }}"
-           class="sidebar-item {% if request.endpoint == 'admin.audit_log' %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
-           title="Activity Log">
-            <i class="bi bi-journal-text flex-shrink-0" style="color:#94a3b8;"></i> Activity Log
-        </a>
-        <a href="{{ url_for('db_manager.db_manager_page') }}"
-           class="sidebar-item {% if request.endpoint and request.endpoint.startswith('db_manager.') %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
-           title="DB Manager">
-            <i class="bi bi-database-fill-gear flex-shrink-0" style="color:#f97316;"></i> DB Manager
-            {% if not oracle_configured %}
-            <span style="font-size:8px;font-weight:900;padding:1px 6px;border-radius:4px;background:rgba(239,68,68,0.15);color:#f87171;text-transform:uppercase;letter-spacing:0.08em;">!</span>
+            </a>
+            <a href="{{ url_for('mapping.mapping_page') }}"
+               class="sidebar-item {% if ep.startswith('mapping.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
+                <i class="bi bi-calendar-week flex-shrink-0" style="color:#a78bfa;"></i> Modality / Procedures
+            </a>
+            <a href="{{ url_for('admin.hl7_forward_config') }}"
+               class="sidebar-item {% if ep == 'admin.hl7_forward_config' %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
+                <i class="bi bi-send-arrow-up-fill flex-shrink-0" style="color:#38bdf8;"></i> HL7 Forward
+            </a>
+        </div>
+        {% endif %}
+
+        <!-- ── OPERATIONS ──────────────────────────────────────────── -->
+        {% set has_ops = (license.get('live_feed') and (current_user.role == 'admin' or current_user|user_has_page('live_feed')))
+                      or (license.get('scheduling') and (current_user.role == 'admin' or current_user|user_has_page('scheduling')))
+                      or (current_user.role == 'admin' or current_user|user_has_page('hl7_orders'))
+                      or (license.get('cd_print') and (current_user.role == 'admin' or current_user|user_has_page('cd_print'))) %}
+        {% if has_ops %}
+        <button class="sg-btn" onclick="sgToggle('ops')">
+            <span class="flex items-center gap-2"><i class="bi bi-lightning-fill" style="color:#22c55e;"></i> Operations</span>
+            <i id="chev-ops" class="bi bi-chevron-down sg-chevron {% if ops_on %}open{% endif %}"></i>
+        </button>
+        <div id="sg-ops" class="sg-body {% if not ops_on %}closed{% endif %} space-y-0.5 mb-2">
+            {% if license.get('live_feed') and (current_user.role == 'admin' or current_user|user_has_page('live_feed')) %}
+            <a href="{{ url_for('live_feed.live_page') }}" target="_blank"
+               class="sidebar-item {% if ep.startswith('live_feed.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
+                <i class="bi bi-activity flex-shrink-0" style="color:#22c55e;"></i> Live AE Status
+                <span style="font-size:8px;font-weight:900;padding:1px 5px;border-radius:4px;background:rgba(34,197,94,0.15);color:#22c55e;text-transform:uppercase;letter-spacing:0.08em;">LIVE</span>
+            </a>
             {% endif %}
-        </a>
-        <a href="{{ url_for('mapping.mapping_page') }}"
-           class="sidebar-item {% if request.endpoint and request.endpoint.startswith('mapping.') %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
-           title="Modality / Procedures Config">
-            <i class="bi bi-calendar-week flex-shrink-0" style="color:#a78bfa;"></i> Modality / Procedures Config
-        </a>
-        {% endif %}
-
-        {% if license.get('scheduling') and (current_user.role == 'admin' or current_user|user_has_page('scheduling')) %}
-        <a href="{{ url_for('admin.scheduling_page') }}" target="_blank"
-           class="sidebar-item flex items-center gap-3 px-3 py-3 text-sm font-bold"
-           title="Scheduling">
-            <i class="bi bi-calendar3-range flex-shrink-0" style="color:#38bdf8;"></i> Scheduling
-        </a>
-        {% endif %}
-
-        {% if license.get('live_feed') and (current_user.role == 'admin' or current_user|user_has_page('live_feed')) %}
-        <a href="{{ url_for('live_feed.live_page') }}" target="_blank"
-           class="sidebar-item {% if request.endpoint and request.endpoint.startswith('live_feed.') %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
-           title="Live AE Status">
-            <i class="bi bi-activity flex-shrink-0" style="color:#22c55e;"></i> Live AE Status
-            <span style="font-size:8px;font-weight:900;padding:1px 6px;border-radius:4px;background:rgba(34,197,94,0.15);color:#22c55e;text-transform:uppercase;letter-spacing:0.08em;">LIVE</span>
-        </a>
-        {% endif %}
-
-        {% if current_user.role == 'admin' %}
-        <a href="{{ url_for('admin.hl7_forward_config') }}"
-           class="sidebar-item {% if request.endpoint == 'admin.hl7_forward_config' %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
-           title="HL7 Forward Config">
-            <i class="bi bi-send-arrow-up-fill flex-shrink-0" style="color:#38bdf8;"></i> HL7 Forward
-        </a>
-        {% endif %}
-
-        {% if current_user.role == 'admin' or current_user|user_has_page('hl7_orders') %}
-        <div class="pt-4 pb-2">
-            <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-2">RIS</p>
+            {% if license.get('scheduling') and (current_user.role == 'admin' or current_user|user_has_page('scheduling')) %}
+            <a href="{{ url_for('admin.scheduling_page') }}" target="_blank"
+               class="sidebar-item {% if ep == 'admin.scheduling_page' %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
+                <i class="bi bi-calendar3-range flex-shrink-0" style="color:#38bdf8;"></i> Scheduling
+            </a>
+            {% endif %}
+            {% if current_user.role == 'admin' or current_user|user_has_page('hl7_orders') %}
+            <a href="{{ url_for('hl7_orders.hl7_orders_page') }}"
+               class="sidebar-item {% if ep.startswith('hl7_orders.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
+                <i class="bi bi-clipboard2-pulse flex-shrink-0" style="color:#f43f5e;"></i> HL7 Orders
+                <span id="hl7-sidebar-badge" style="display:none;font-size:9px;font-weight:900;padding:1px 6px;border-radius:10px;background:rgba(244,63,94,0.18);color:#f43f5e;border:1px solid rgba(244,63,94,0.3);margin-left:auto;"></span>
+            </a>
+            {% endif %}
+            {% if license.get('cd_print') and (current_user.role == 'admin' or current_user|user_has_page('cd_print')) %}
+            <a href="{{ url_for('cd_print.cd_print_log') }}"
+               class="sidebar-item {% if ep.startswith('cd_print.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
+                <i class="bi bi-disc-fill flex-shrink-0" style="color:#38bdf8;"></i> Patient CD Log
+            </a>
+            {% endif %}
         </div>
-        <a href="{{ url_for('hl7_orders.hl7_orders_page') }}"
-           class="sidebar-item {% if request.endpoint and request.endpoint.startswith('hl7_orders.') %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
-           title="HL7 Orders">
-            <i class="bi bi-clipboard2-pulse flex-shrink-0" style="color:#f43f5e;"></i> HL7 Orders
-            <span id="hl7-sidebar-badge" style="display:none;font-size:9px;font-weight:900;padding:1px 7px;border-radius:10px;background:rgba(244,63,94,0.18);color:#f43f5e;border:1px solid rgba(244,63,94,0.3);margin-left:auto;"></span>
-        </a>
         {% endif %}
 
-
-        {% if portal_admin_enabled and current_user.username != demo_user and (current_user.role == 'admin' or current_user|user_has_page('patient_portal')) %}
-        <a href="{{ url_for('portal_admin.portal_users') }}"
-           class="sidebar-item {% if request.endpoint and request.endpoint.startswith('portal_admin.') %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
-           title="Patient Portal">
-            <i class="bi bi-person-vcard flex-shrink-0" style="color:#fb923c;"></i> Patient Portal
-        </a>
-        {% endif %}
-
-        {% if current_user.role == 'admin' or current_user|user_has_page('oru') %}
-        <a href="{{ url_for('oru.oru_page') }}"
-           class="sidebar-item {% if request.endpoint and request.endpoint.startswith('oru.') %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
-           title="Report Intelligence">
-            <i class="bi bi-cloud-fill flex-shrink-0" style="color:#a78bfa;"></i> Report Intelligence
-        </a>
-        {% endif %}
-
-        {% if current_user.role == 'admin' or license.get('referring_intel') %}
-        <a href="{{ url_for('referring_intel.referring_intel_page') }}"
-           class="sidebar-item {% if request.endpoint and request.endpoint.startswith('referring_intel.') %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
-           title="Referring Intelligence">
-            <i class="bi bi-person-badge flex-shrink-0" style="color:#34d399;"></i> Referring Intel
-        </a>
-        {% endif %}
-
-        {% if current_user.role in ('admin', 'viewer', 'viewer2') and license.get('custom_reports') %}
-        <a href="/reports/custom"
-           class="sidebar-item {% if request.endpoint and request.endpoint.startswith('custom_reports.') %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
-           title="Custom Reports">
-            <i class="bi bi-layout-text-sidebar-reverse flex-shrink-0" style="color:#60a5fa;"></i> Custom Reports
-        </a>
-        {% endif %}
-
-        {% if license.get('cd_print') and (current_user.role == 'admin' or current_user|user_has_page('cd_print')) %}
-        <a href="{{ url_for('cd_print.cd_print_log') }}"
-           class="sidebar-item {% if request.endpoint and request.endpoint.startswith('cd_print.') %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
-           title="Patient CD Log">
-            <i class="bi bi-disc-fill flex-shrink-0" style="color:#38bdf8;"></i> Patient CD Log
-        </a>
-        {% endif %}
-
-        {% if config.BITNET_ENABLED %}
-        {% if current_user.role == 'admin' or current_user|user_has_page('bitnet') %}
-        <div class="pt-4 pb-2">
-            <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-2">AI</p>
+        <!-- ── ANALYTICS ───────────────────────────────────────────── -->
+        {% set has_analytics = (current_user.role == 'admin' or license.get('oru_analytics'))
+                            or (current_user.role == 'admin' or license.get('referring_intel'))
+                            or (current_user.role in ('admin','viewer','viewer2') and license.get('custom_reports'))
+                            or (portal_admin_enabled and current_user.username != demo_user and (current_user.role == 'admin' or current_user|user_has_page('patient_portal'))) %}
+        {% if has_analytics %}
+        <button class="sg-btn" onclick="sgToggle('analytics')">
+            <span class="flex items-center gap-2"><i class="bi bi-bar-chart-fill" style="color:#a78bfa;"></i> Analytics</span>
+            <i id="chev-analytics" class="bi bi-chevron-down sg-chevron {% if analytics_on %}open{% endif %}"></i>
+        </button>
+        <div id="sg-analytics" class="sg-body {% if not analytics_on %}closed{% endif %} space-y-0.5 mb-2">
+            {% if current_user.role == 'admin' or current_user|user_has_page('oru') %}
+            <a href="{{ url_for('oru.oru_page') }}"
+               class="sidebar-item {% if ep.startswith('oru.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
+                <i class="bi bi-cloud-fill flex-shrink-0" style="color:#a78bfa;"></i> Report Intelligence
+            </a>
+            {% endif %}
+            {% if current_user.role == 'admin' or license.get('referring_intel') %}
+            <a href="{{ url_for('referring_intel.referring_intel_page') }}"
+               class="sidebar-item {% if ep.startswith('referring_intel.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
+                <i class="bi bi-person-badge flex-shrink-0" style="color:#34d399;"></i> Referring Intel
+            </a>
+            {% endif %}
+            {% if current_user.role in ('admin','viewer','viewer2') and license.get('custom_reports') %}
+            <a href="/reports/custom"
+               class="sidebar-item {% if ep.startswith('custom_reports.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
+                <i class="bi bi-layout-text-sidebar-reverse flex-shrink-0" style="color:#60a5fa;"></i> Custom Reports
+            </a>
+            {% endif %}
+            {% if portal_admin_enabled and current_user.username != demo_user and (current_user.role == 'admin' or current_user|user_has_page('patient_portal')) %}
+            <a href="{{ url_for('portal_admin.portal_users') }}"
+               class="sidebar-item {% if ep.startswith('portal_admin.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
+                <i class="bi bi-person-vcard flex-shrink-0" style="color:#fb923c;"></i> Patient Portal
+            </a>
+            {% endif %}
         </div>
-        <a href="{{ url_for('bitnet.assistant_page') }}"
-           class="sidebar-item {% if request.endpoint == 'bitnet.assistant_page' %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
-           title="AI Assistant">
-            <i class="bi bi-robot flex-shrink-0" style="color:#10b981;"></i> AI Assistant
-        </a>
-        {% if current_user.role == 'admin' %}
-        <a href="{{ url_for('bitnet.ai_admin') }}"
-           class="sidebar-item {% if request.endpoint == 'bitnet.ai_admin' %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
-           title="AI Teaching Center">
-            <i class="bi bi-mortarboard-fill flex-shrink-0" style="color:#a78bfa;"></i> AI Teaching Center
-        </a>
-        {% endif %}
-        {% endif %}
         {% endif %}
 
+        <!-- ── AI ─────────────────────────────────────────────────── -->
+        {% if config.BITNET_ENABLED and (current_user.role == 'admin' or current_user|user_has_page('bitnet')) %}
+        <button class="sg-btn" onclick="sgToggle('ai')">
+            <span class="flex items-center gap-2"><i class="bi bi-robot" style="color:#10b981;"></i> AI</span>
+            <i id="chev-ai" class="bi bi-chevron-down sg-chevron {% if ai_on %}open{% endif %}"></i>
+        </button>
+        <div id="sg-ai" class="sg-body {% if not ai_on %}closed{% endif %} space-y-0.5 mb-2">
+            <a href="{{ url_for('bitnet.assistant_page') }}"
+               class="sidebar-item {% if ep == 'bitnet.assistant_page' %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
+                <i class="bi bi-robot flex-shrink-0" style="color:#10b981;"></i> AI Assistant
+            </a>
+            {% if current_user.role == 'admin' %}
+            <a href="{{ url_for('bitnet.ai_admin') }}"
+               class="sidebar-item {% if ep == 'bitnet.ai_admin' %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
+                <i class="bi bi-mortarboard-fill flex-shrink-0" style="color:#a78bfa;"></i> AI Teaching Center
+            </a>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        <!-- ── FINANCE ─────────────────────────────────────────────── -->
         {% if license.get('financial') and (current_user.role == 'admin' or current_user|user_has_page('financial')) %}
-        <div class="pt-4 pb-2">
-            <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-2">Finance</p>
+        <button class="sg-btn" onclick="sgToggle('finance')">
+            <span class="flex items-center gap-2"><i class="bi bi-graph-up-arrow" style="color:#10b981;"></i> Finance</span>
+            <i id="chev-finance" class="bi bi-chevron-down sg-chevron {% if finance_on %}open{% endif %}"></i>
+        </button>
+        <div id="sg-finance" class="sg-body {% if not finance_on %}closed{% endif %} space-y-0.5 mb-2">
+            <a href="{{ url_for('financial_dashboard.financial_dashboard_page') }}"
+               class="sidebar-item {% if ep.startswith('financial_dashboard.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
+                <i class="bi bi-graph-up-arrow flex-shrink-0" style="color:#10b981;"></i> Revenue Intelligence
+            </a>
         </div>
-        <a href="{{ url_for('financial_dashboard.financial_dashboard_page') }}"
-           class="sidebar-item {% if request.endpoint and request.endpoint.startswith('financial_dashboard.') %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
-           title="Revenue Intelligence">
-            <i class="bi bi-graph-up-arrow flex-shrink-0" style="color:#10b981;"></i> Revenue Intelligence
-        </a>
         {% endif %}
 
+        <!-- ── HELP ────────────────────────────────────────────────── -->
         {% if current_user.role != 'tec' %}
-        <div class="pt-4 pb-2">
-            <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-2">Help</p>
+        <button class="sg-btn" onclick="sgToggle('help')">
+            <span class="flex items-center gap-2"><i class="bi bi-journal-text" style="color:#94a3b8;"></i> Help</span>
+            <i id="chev-help" class="bi bi-chevron-down sg-chevron {% if help_on %}open{% endif %}"></i>
+        </button>
+        <div id="sg-help" class="sg-body {% if not help_on %}closed{% endif %} space-y-0.5 mb-2">
+            <a href="{{ url_for('docs.docs_page') }}"
+               class="sidebar-item {% if ep.startswith('docs.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
+                <i class="bi bi-journal-text flex-shrink-0" style="color:#94a3b8;"></i> Documentation
+            </a>
         </div>
-        <a href="{{ url_for('docs.docs_page') }}"
-           class="sidebar-item {% if request.endpoint and request.endpoint.startswith('docs.') %}active{% endif %} flex items-center gap-3 px-3 py-3 text-sm font-bold"
-           title="Documentation">
-            <i class="bi bi-journal-text flex-shrink-0" style="color:#94a3b8;"></i> Documentation
-        </a>
         {% endif %}
+
     </nav>
 
+    <!-- Password reset -->
     {% if current_user.role != 'admin' %}
     <div class="mt-auto mb-2">
         {% if current_user.password_reset_requested %}
         <div class="w-full flex items-center gap-3 px-3 py-2.5 text-xs font-bold rounded-xl border border-emerald-500/20 text-emerald-400 bg-emerald-500/5 mb-2">
-            <i class="bi bi-check-circle-fill flex-shrink-0"></i> Reset requested — awaiting admin
+            <i class="bi bi-check-circle-fill flex-shrink-0"></i> Reset requested
         </div>
         {% else %}
-        <button onclick="requestPasswordReset()" title="Ask admin to set a temporary password"
+        <button onclick="requestPasswordReset()"
             class="w-full flex items-center gap-3 px-3 py-2.5 text-xs font-bold rounded-xl border border-[#28332e] text-slate-500 hover:text-emerald-400 hover:border-emerald-400/30 transition-all mb-2">
             <i class="bi bi-key-fill flex-shrink-0"></i> Request Password Reset
         </button>
         {% endif %}
     </div>
     {% endif %}
+
+    <!-- Logout -->
     <div class="{% if current_user.role == 'admin' %}mt-auto {% endif %}mb-3">
-        <a href="{{ url_for('auth.logout') }}" title="Logout"
-            class="w-full flex items-center gap-3 px-3 py-3 text-sm font-bold rounded-xl border border-[#28332e] text-slate-500 hover:text-red-400 hover:border-red-400/30 transition-all">
+        <a href="{{ url_for('auth.logout') }}"
+            class="w-full flex items-center gap-3 px-3 py-2.5 text-xs font-bold rounded-xl border border-[#28332e] text-slate-500 hover:text-red-400 hover:border-red-400/30 transition-all">
             <i class="bi bi-box-arrow-right flex-shrink-0"></i> Logout
         </a>
     </div>
 
-    <script>
-    async function requestPasswordReset() {
-        if (!confirm('Send a password reset request to the administrator?')) return;
-        const res  = await fetch('/user/request-password-reset', {method: 'POST'});
-        const data = await res.json();
-        if (data.status === 'ok') location.reload();
-        else alert(data.message || 'Failed to send request.');
-    }
-    </script>
-
-    <div class="p-4 bg-[#181f1c] rounded-2xl border border-[#28332e]">
+    <!-- System health -->
+    <div class="p-3 bg-[#181f1c] rounded-2xl border border-[#28332e]">
         <p class="text-[10px] uppercase text-slate-500 font-bold mb-1">System Health</p>
         <p class="text-xs text-green-400 font-mono flex items-center gap-2">
             <span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
@@ -238,9 +275,16 @@
 </aside>
 
 <script>
+function sgToggle(key) {
+    const body  = document.getElementById('sg-' + key);
+    const chev  = document.getElementById('chev-' + key);
+    if (!body) return;
+    const closed = body.classList.toggle('closed');
+    if (chev) chev.classList.toggle('open', !closed);
+}
+
 (function() {
     let _hl7Prev = parseInt(sessionStorage.getItem('hl7_count') || '-1');
-
     const _hl7Url = "{{ url_for('hl7_orders.hl7_orders_page') }}";
 
     function _hl7Toast(n) {
@@ -260,10 +304,7 @@
             const d = await r.json();
             const count = d.count || 0;
             const badge = document.getElementById('hl7-sidebar-badge');
-            if (badge) {
-                badge.textContent = count;
-                badge.style.display = count > 0 ? 'inline' : 'none';
-            }
+            if (badge) { badge.textContent = count; badge.style.display = count > 0 ? 'inline' : 'none'; }
             if (_hl7Prev >= 0 && count > _hl7Prev) _hl7Toast(count - _hl7Prev);
             _hl7Prev = count;
             sessionStorage.setItem('hl7_count', count);
@@ -273,4 +314,12 @@
     _hl7Poll();
     setInterval(_hl7Poll, 30000);
 })();
+
+async function requestPasswordReset() {
+    if (!confirm('Send a password reset request to the administrator?')) return;
+    const res  = await fetch('/user/request-password-reset', {method: 'POST'});
+    const data = await res.json();
+    if (data.status === 'ok') location.reload();
+    else alert(data.message || 'Failed to send request.');
+}
 </script>
