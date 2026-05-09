@@ -68,7 +68,7 @@ document.addEventListener('DOMContentLoaded', function() {
     <div class="flex items-center gap-4">
         <div class="flex flex-col items-end gap-1.5">
             <div class="h-px w-64 bg-[#60a5fa] opacity-70"></div>
-            <p class="text-[11px] font-black tracking-[0.2em] uppercase text-[#60a5fa]">Reliable Analytics For Your Department</p>
+            <p class="text-[11px] font-black tracking-[0.2em] uppercase text-[#60a5fa]">Welcome, {{ current_user.username }}</p>
             <div class="h-px w-64 bg-[#60a5fa] opacity-70"></div>
         </div>
         <button onclick="toggleTheme()" title="Toggle light/dark mode"
