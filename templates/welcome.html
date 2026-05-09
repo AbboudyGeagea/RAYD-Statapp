@@ -27,19 +27,39 @@
 
     <!-- MAIN -->
     <main class="flex-1 overflow-y-auto bg-[#181f1c] flex items-center justify-center">
-        <div class="flex flex-col items-center gap-8 select-none">
-            <img src="{{ url_for('static', filename='RAYD.png') }}"
-                 alt="RAYD"
-                 class="w-auto"
-                 style="max-height:70vh;max-width:90vw;background:white;border-radius:12px;padding:6px;filter:drop-shadow(0 0 40px rgba(96,165,250,0.3));image-rendering:high-quality;">
+        <div class="flex flex-col items-center gap-10 select-none px-8 text-center">
+
+            <!-- Clock -->
             <div class="flex flex-col items-center gap-1">
                 <p id="clock-date" class="text-[13px] font-bold text-[#94a3b8] tracking-widest uppercase"></p>
-                <p id="clock-time" class="text-[2.6rem] font-black text-[#e2e8f0] tracking-tight tabular-nums" style="line-height:1;letter-spacing:-0.02em;"></p>
+                <p id="clock-time" class="text-[4rem] font-black text-[#e2e8f0] tabular-nums" style="line-height:1;letter-spacing:-0.03em;"></p>
             </div>
-            <div class="h-px w-64 bg-gradient-to-r from-transparent via-[#60a5fa] to-transparent opacity-60"></div>
-            <p class="text-[11px] font-black tracking-[0.3em] uppercase text-[#60a5fa] opacity-80">
-                Reliable Analytics For Your Department
+
+            <!-- Divider -->
+            <div class="h-px w-48 bg-gradient-to-r from-transparent via-[#60a5fa] to-transparent opacity-40"></div>
+
+            <!-- Hero text -->
+            <div class="flex flex-col items-center gap-3">
+                <h1 class="font-black text-[#e2e8f0] leading-none" style="font-size:clamp(3rem,8vw,7rem);letter-spacing:-0.04em;">
+                    Welcome to
+                    <span style="background:linear-gradient(135deg,#60a5fa 0%,#34d399 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">
+                        RAYD
+                    </span>
+                </h1>
+                <p class="text-[#64748b] font-semibold tracking-widest uppercase" style="font-size:clamp(0.65rem,1.2vw,0.85rem);">
+                    Reliable Analytics for Your Department
+                </p>
+            </div>
+
+            <!-- Divider -->
+            <div class="h-px w-48 bg-gradient-to-r from-transparent via-[#34d399] to-transparent opacity-40"></div>
+
+            <!-- Tagline -->
+            <p class="text-[#475569] font-medium max-w-lg" style="font-size:clamp(0.8rem,1.4vw,1rem);line-height:1.8;">
+                Your radiology intelligence platform — real-time modality status,<br>
+                physician analytics, HL7 integration, and AI-assisted reporting.
             </p>
+
         </div>
     </main>
 </div>
