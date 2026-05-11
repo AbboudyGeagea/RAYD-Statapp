@@ -394,7 +394,7 @@ def oru_data():
     date_from = request.args.get('date_from', '').strip()
     date_to   = request.args.get('date_to', '').strip()
     if date_from and date_to:
-        where  = ["received_at BETWEEN :date_from AND (:date_to::date + INTERVAL '1 day')"]
+        where  = ["received_at BETWEEN :date_from AND (CAST(:date_to AS DATE) + INTERVAL '1 day')"]
         params = {'date_from': date_from, 'date_to': date_to}
         days   = None
     else:
@@ -535,7 +535,7 @@ def oru_section_gaps():
     date_from = request.args.get('date_from', '').strip()
     date_to   = request.args.get('date_to', '').strip()
     if date_from and date_to:
-        where  = ["received_at BETWEEN :date_from AND (:date_to::date + INTERVAL '1 day')"]
+        where  = ["received_at BETWEEN :date_from AND (CAST(:date_to AS DATE) + INTERVAL '1 day')"]
         params = {'date_from': date_from, 'date_to': date_to}
         days   = None
     else:
@@ -607,7 +607,7 @@ def oru_sections():
     date_from = request.args.get('date_from', '').strip()
     date_to   = request.args.get('date_to', '').strip()
     if date_from and date_to:
-        where  = ["received_at BETWEEN :date_from AND (:date_to::date + INTERVAL '1 day')"]
+        where  = ["received_at BETWEEN :date_from AND (CAST(:date_to AS DATE) + INTERVAL '1 day')"]
         params = {'date_from': date_from, 'date_to': date_to}
     else:
         days   = min(int(request.args.get('days', 30)), 365)
@@ -763,7 +763,7 @@ def nlp_results():
     date_from = request.args.get('date_from', '').strip()
     date_to   = request.args.get('date_to', '').strip()
     if date_from and date_to:
-        date_clause = "o.received_at BETWEEN :date_from AND (:date_to::date + INTERVAL '1 day')"
+        date_clause = "o.received_at BETWEEN :date_from AND (CAST(:date_to AS DATE) + INTERVAL '1 day')"
         date_params = {'date_from': date_from, 'date_to': date_to}
     else:
         days = min(int(request.args.get('days', 90)), 365)
