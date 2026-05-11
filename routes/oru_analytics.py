@@ -413,12 +413,19 @@ def oru_data():
 
     # LEFT JOIN pre-computed analysis — analyzed rows skip NLP entirely
     rows = db.session.execute(text(f"""
-        SELECT r.procedure_code, r.procedure_name, r.modality,
+        SELECT r.procedure_code, r.procedure_name,
+               COALESCE(NULLIF(TRIM(r.modality), ''), NULLIF(TRIM(ho.modality), ''), 'UNK') AS modality,
                r.physician_id, r.patient_id, r.accession_number,
                r.report_text, r.impression_text, r.result_datetime, r.received_at,
                a.affirmed_labels
         FROM   hl7_oru_reports r
         LEFT JOIN hl7_oru_analysis a ON a.report_id = r.id
+        LEFT JOIN LATERAL (
+            SELECT modality FROM hl7_orders
+            WHERE accession_number = r.accession_number
+              AND modality IS NOT NULL AND TRIM(modality) != ''
+            LIMIT 1
+        ) ho ON true
         WHERE  {where_sql.replace('received_at', 'r.received_at').replace('procedure_code', 'r.procedure_code')}
         ORDER  BY r.received_at DESC
     """), params).fetchall()
@@ -450,7 +457,7 @@ def oru_data():
 
     # ── Modality breakdown ────────────────────────────────────────────────────
     mod_counter = Counter(
-        (r.modality or 'UNK').upper().strip() for r in rows if r.modality
+        (r.modality or 'UNK').upper().strip() for r in rows
     )
     modalities = [{'modality': m, 'count': c} for m, c in mod_counter.most_common()]
 
