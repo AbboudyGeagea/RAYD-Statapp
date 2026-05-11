@@ -389,15 +389,22 @@ def oru_page():
 @login_required
 def oru_data():
     proc    = request.args.get('proc', '').strip()
-    days    = min(int(request.args.get('days', 30)), 365)
     top_n   = int(request.args.get('top', 40))
+
+    date_from = request.args.get('date_from', '').strip()
+    date_to   = request.args.get('date_to', '').strip()
+    if date_from and date_to:
+        where  = ["received_at BETWEEN :date_from AND (:date_to::date + INTERVAL '1 day')"]
+        params = {'date_from': date_from, 'date_to': date_to}
+        days   = None
+    else:
+        days   = min(int(request.args.get('days', 30)), 365)
+        where  = ["received_at >= NOW() - INTERVAL :interval"]
+        params = {'interval': f'{days} days'}
 
     from utils.audit import log_event
     log_event('oru_accessed', category='report', resource_type='oru_analytics',
               detail={'days': days, 'proc': proc or None})
-
-    where = ["received_at >= NOW() - INTERVAL :interval"]
-    params = {'interval': f'{days} days'}
     if proc:
         where.append("UPPER(TRIM(procedure_code)) = UPPER(:proc)")
         params['proc'] = proc
@@ -523,11 +530,18 @@ def oru_section_gaps():
         from flask import abort
         abort(403)
 
-    days   = min(int(request.args.get('days', 30)), 365)
     proc   = request.args.get('proc', '').strip()
 
-    where  = ["received_at >= NOW() - INTERVAL :interval"]
-    params = {'interval': f'{days} days'}
+    date_from = request.args.get('date_from', '').strip()
+    date_to   = request.args.get('date_to', '').strip()
+    if date_from and date_to:
+        where  = ["received_at BETWEEN :date_from AND (:date_to::date + INTERVAL '1 day')"]
+        params = {'date_from': date_from, 'date_to': date_to}
+        days   = None
+    else:
+        days   = min(int(request.args.get('days', 30)), 365)
+        where  = ["received_at >= NOW() - INTERVAL :interval"]
+        params = {'interval': f'{days} days'}
     if proc:
         where.append("UPPER(TRIM(procedure_code)) = UPPER(:proc)")
         params['proc'] = proc
@@ -587,12 +601,18 @@ def oru_sections():
         from flask import abort
         abort(403)
 
-    days   = min(int(request.args.get('days', 30)), 365)
     proc   = request.args.get('proc', '').strip()
     top_n  = 40
 
-    where  = ["received_at >= NOW() - INTERVAL :interval"]
-    params = {'interval': f'{days} days'}
+    date_from = request.args.get('date_from', '').strip()
+    date_to   = request.args.get('date_to', '').strip()
+    if date_from and date_to:
+        where  = ["received_at BETWEEN :date_from AND (:date_to::date + INTERVAL '1 day')"]
+        params = {'date_from': date_from, 'date_to': date_to}
+    else:
+        days   = min(int(request.args.get('days', 30)), 365)
+        where  = ["received_at >= NOW() - INTERVAL :interval"]
+        params = {'interval': f'{days} days'}
     if proc:
         where.append("UPPER(TRIM(procedure_code)) = UPPER(:proc)")
         params['proc'] = proc
@@ -739,10 +759,19 @@ def nlp_process():
 @login_required
 def nlp_results():
     proc    = request.args.get('proc', '').strip()
-    days    = min(int(request.args.get('days', 90)), 365)
+
+    date_from = request.args.get('date_from', '').strip()
+    date_to   = request.args.get('date_to', '').strip()
+    if date_from and date_to:
+        date_clause = "o.received_at BETWEEN :date_from AND (:date_to::date + INTERVAL '1 day')"
+        date_params = {'date_from': date_from, 'date_to': date_to}
+    else:
+        days = min(int(request.args.get('days', 90)), 365)
+        date_clause = "o.received_at >= NOW() - INTERVAL :interval"
+        date_params = {'interval': f'{days} days'}
 
     where_extra = ''
-    params = {'interval': f'{days} days'}
+    params = dict(date_params)
     if proc:
         where_extra = "AND UPPER(TRIM(o.procedure_code)) = UPPER(:proc)"
         params['proc'] = proc
@@ -760,7 +789,7 @@ def nlp_results():
             o.physician_id
         FROM ai_nlp_cache c
         JOIN hl7_oru_reports o ON o.id = c.source_id
-        WHERE o.received_at >= NOW() - INTERVAL :interval
+        WHERE {date_clause}
           {where_extra}
     """), params).fetchall()
 
@@ -771,15 +800,15 @@ def nlp_results():
     cls_counter = Counter(r.classification for r in rows)
 
     # Cluster distribution with labels
-    cluster_rows = db.session.execute(text("""
+    cluster_rows = db.session.execute(text(f"""
         SELECT c.cluster_id, c.cluster_label, COUNT(*) AS cnt,
                ROUND(AVG(c.severity_score)::numeric, 2) AS avg_sev
         FROM ai_nlp_cache c
         JOIN hl7_oru_reports o ON o.id = c.source_id
-        WHERE o.received_at >= NOW() - INTERVAL :interval
+        WHERE {date_clause}
         GROUP BY c.cluster_id, c.cluster_label
         ORDER BY cnt DESC
-    """), {'interval': f'{days} days'}).fetchall()
+    """), date_params).fetchall()
 
     # Load cluster labels from settings (set during last processing run)
     labels_row = db.session.execute(

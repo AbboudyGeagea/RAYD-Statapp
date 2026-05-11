@@ -58,6 +58,8 @@
   .filter-bar select:focus, .filter-bar button:hover {
     border-color:#34d399; color:#34d399;
   }
+  .quick-pill { font-size:9px;font-weight:900;padding:3px 10px;border-radius:999px;border:1px solid #334155;color:#94a3b8;background:#141b19;cursor:pointer;text-transform:uppercase;letter-spacing:.08em;transition:all .15s; }
+  .quick-pill:hover { background:#60a5fa;border-color:#60a5fa;color:#0f172a; }
   /* Procedure combobox */
   .proc-combo { position:relative; display:inline-block; }
   .proc-combo input[type="text"] {
@@ -208,13 +210,20 @@
         </div>
         <input type="hidden" id="proc-filter" value="">
 
-        <select id="days-filter">
-          <option value="7">Last 7 days</option>
-          <option value="30" selected>Last 30 days</option>
-          <option value="90">Last 90 days</option>
-          <option value="180">Last 6 months</option>
-          <option value="365">Last year</option>
-        </select>
+        <div class="flex items-center gap-2">
+          <label style="font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:#475569;">From</label>
+          <input type="date" id="date-from" style="background:#1a211e;border:1px solid #1e2d27;color:#e2e8f0;padding:7px 10px;border-radius:8px;font-size:12px;font-weight:600;outline:none;cursor:pointer;">
+        </div>
+        <div class="flex items-center gap-2">
+          <label style="font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:#475569;">To</label>
+          <input type="date" id="date-to" style="background:#1a211e;border:1px solid #1e2d27;color:#e2e8f0;padding:7px 10px;border-radius:8px;font-size:12px;font-weight:600;outline:none;cursor:pointer;">
+        </div>
+        <div style="display:flex;gap:4px;">
+          <button class="quick-pill" onclick="setQuickRange(7)">7d</button>
+          <button class="quick-pill" onclick="setQuickRange(30)">30d</button>
+          <button class="quick-pill" onclick="setQuickRange(90)">90d</button>
+          <button class="quick-pill" onclick="setQuickRange(365)">1y</button>
+        </div>
 
         <button id="refresh-btn" onclick="loadData()">
           <i class="bi bi-arrow-clockwise"></i> Refresh
@@ -604,9 +613,8 @@ let _gapData = {};   // stored for export-all
 
 function loadSectionGaps() {
   const proc = document.getElementById('proc-filter').value;
-  const days = document.getElementById('days-filter').value;
 
-  fetch(`/oru/section-gaps?proc=${encodeURIComponent(proc)}&days=${days}`)
+  fetch(`/oru/section-gaps?proc=${encodeURIComponent(proc)}&${getDateParams()}`)
     .then(r => r.json())
     .then(d => {
       _gapData = d;
@@ -693,19 +701,20 @@ function exportGap(tableId, sectionLabel) {
   };
   const entry = map[tableId];
   if (!entry) return;
-  const days = document.getElementById('days-filter').value;
+  const dateTag = `${document.getElementById('date-from').value}_${document.getElementById('date-to').value}`;
   _downloadCsv(_csvFromRows(entry.data(), entry.label),
-    `section_gaps_${entry.label.toLowerCase()}_${days}d.csv`);
+    `section_gaps_${entry.label.toLowerCase()}_${dateTag}.csv`);
 }
 
 function exportAllGaps() {
-  const days = document.getElementById('days-filter').value;
+  const f = document.getElementById('date-from').value;
+  const t = document.getElementById('date-to').value;
   const sections = [
     { data: _gapData.docs_empty_technique,  label: 'Technique'  },
     { data: _gapData.docs_empty_findings,   label: 'Resultats'  },
     { data: _gapData.docs_empty_conclusion, label: 'Conclusion' },
   ];
-  let csv  = `Section Gap Audit — Last ${days} days\n`;
+  let csv  = `Section Gap Audit — ${f} to ${t}\n`;
   csv     += `Generated: ${new Date().toLocaleString()}\n`;
   csv     += `Total reports in window: ${_gapData.total || 0}\n\n`;
 
@@ -714,7 +723,7 @@ function exportAllGaps() {
     csv += _csvFromRows(s.data, s.label) + '\n';
   });
 
-  _downloadCsv(csv, `section_gap_audit_${days}d.csv`);
+  _downloadCsv(csv, `section_gap_audit_${f}_${t}.csv`);
 }
 
 // ── Section treemaps ─────────────────────────────────────────────────────────
@@ -781,8 +790,7 @@ function _buildSectionTreemap(canvasId, spinnerId, words) {
 
 function loadSections() {
   const proc = document.getElementById('proc-filter').value;
-  const days = document.getElementById('days-filter').value;
-  fetch(`/oru/sections?proc=${encodeURIComponent(proc)}&days=${days}`)
+  fetch(`/oru/sections?proc=${encodeURIComponent(proc)}&${getDateParams()}`)
     .then(r => r.json())
     .then(d => {
       setTimeout(() => {
@@ -1020,10 +1028,9 @@ function deleteKeyword(word) {
 // ── Main loader ──────────────────────────────────────────────────────────────
 function loadData() {
   const proc = document.getElementById('proc-filter').value;
-  const days = document.getElementById('days-filter').value;
   document.getElementById('last-refresh').textContent = '';
 
-  fetch(`/oru/data?proc=${encodeURIComponent(proc)}&days=${days}`)
+  fetch(`/oru/data?proc=${encodeURIComponent(proc)}&${getDateParams()}`)
     .then(r => r.json())
     .then(d => {
       // KPIs — plain DOM, always runs
@@ -1081,7 +1088,9 @@ function checkNLPStatus() {
 let nlpDonutChart = null, sevChart = null;
 
 function runNLP() {
-  const days = document.getElementById('days-filter').value;
+  const f    = document.getElementById('date-from').value;
+  const t    = document.getElementById('date-to').value;
+  const days = f && t ? Math.max(1, Math.round((new Date(t) - new Date(f)) / 86400000)) : 30;
   const btn  = document.getElementById('run-nlp-btn');
   const toast = document.getElementById('nlp-toast');
 
@@ -1122,9 +1131,8 @@ function runNLP() {
 // ── Load NLP results ─────────────────────────────────────────────────────────
 function loadNLPResults() {
   const proc = document.getElementById('proc-filter').value;
-  const days = document.getElementById('days-filter').value;
 
-  fetch(`/oru/nlp/results?proc=${encodeURIComponent(proc)}&days=${days}`)
+  fetch(`/oru/nlp/results?proc=${encodeURIComponent(proc)}&${getDateParams()}`)
     .then(r => r.json())
     .then(d => {
       if (!d.has_data) {
@@ -1285,8 +1293,30 @@ function renderNLPKeywords(words) {
   });
 })();
 
+// ── Date range helpers ────────────────────────────────────────────────────────
+function getDateParams() {
+  const f = document.getElementById('date-from').value;
+  const t = document.getElementById('date-to').value;
+  return `date_from=${encodeURIComponent(f)}&date_to=${encodeURIComponent(t)}`;
+}
+function setQuickRange(days) {
+  const to   = new Date();
+  const from = new Date();
+  from.setDate(from.getDate() - days);
+  document.getElementById('date-to').value   = to.toISOString().slice(0,10);
+  document.getElementById('date-from').value = from.toISOString().slice(0,10);
+  loadData();
+}
+
 // ── Boot ─────────────────────────────────────────────────────────────────────
-document.getElementById('days-filter').addEventListener('change', loadData);
+(function initDates() {
+  const today = new Date();
+  const ago30 = new Date(); ago30.setDate(today.getDate() - 30);
+  document.getElementById('date-to').value   = today.toISOString().slice(0,10);
+  document.getElementById('date-from').value = ago30.toISOString().slice(0,10);
+  document.getElementById('date-from').addEventListener('change', loadData);
+  document.getElementById('date-to').addEventListener('change', loadData);
+})();
 loadData();
 checkNLPStatus();
 
