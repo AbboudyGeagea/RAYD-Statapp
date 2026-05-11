@@ -124,6 +124,22 @@ def scheduling_page():
     next_date = (view_date + timedelta(days=1)).strftime('%Y-%m-%d')
     is_today  = (view_date == datetime.now().date())
 
+    # 7-day procedure count strip
+    strip_start = view_date - timedelta(days=3)
+    strip_end   = view_date + timedelta(days=3)
+    try:
+        count_rows = db.session.execute(text("""
+            SELECT DATE(scheduled_datetime) AS d, COUNT(*) AS cnt
+            FROM hl7_orders
+            WHERE DATE(scheduled_datetime) BETWEEN :s AND :e
+              AND (order_status IS NULL OR order_status NOT IN ('CA','DC'))
+            GROUP BY 1
+        """), {"s": strip_start, "e": strip_end}).fetchall()
+        date_counts = {r.d: r.cnt for r in count_rows}
+    except Exception:
+        date_counts = {}
+    strip_dates = [strip_start + timedelta(days=i) for i in range(7)]
+
     # ── Handle form POST ──────────────────────────────────────────────────────
     schedule_id = request.args.get('schedule_id', type=int)
     schedule = db.session.get(SchedulingEntry, schedule_id) if schedule_id else None
@@ -292,6 +308,16 @@ def scheduling_page():
     mod_counts = Counter(a['modality'] for a in appointments)
     class_counts = Counter(a['class'] for a in appointments)
 
+    # AE titles per modality for column headers
+    try:
+        ae_rows = db.session.execute(text(
+            "SELECT modality, array_agg(aetitle ORDER BY aetitle) AS aetitles "
+            "FROM aetitle_modality_map GROUP BY modality"
+        )).fetchall()
+        mod_to_aetitles = {r.modality: r.aetitles for r in ae_rows}
+    except Exception:
+        mod_to_aetitles = {}
+
     # All saved entries for "All Bookings" tab
     schedules = SchedulingEntry.query.order_by(
         SchedulingEntry.updated_at.desc().nullslast(),
@@ -313,6 +339,9 @@ def scheduling_page():
         mod_counts=mod_counts,
         class_counts=class_counts,
         total_count=len(appointments),
+        mod_to_aetitles=mod_to_aetitles,
+        date_counts=date_counts,
+        strip_dates=strip_dates,
     )
 
 

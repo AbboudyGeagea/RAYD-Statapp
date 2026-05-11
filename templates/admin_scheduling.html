@@ -122,6 +122,18 @@
                                class="ml-2 bg-[#141b19] border border-[#334155] text-slate-300 text-xs rounded-lg px-3 py-1.5 outline-none focus:border-[#60a5fa]">
                     </div>
 
+                    <!-- 7-day procedure count strip -->
+                    <div class="flex gap-1 mt-2">
+                      {% for d in strip_dates %}
+                      {% set cnt = date_counts.get(d, 0) %}
+                      <a href="{{ url_for('admin.scheduling_page', date=d.strftime('%Y-%m-%d')) }}"
+                         class="flex flex-col items-center px-2 py-1 rounded-lg transition-colors {{ 'bg-[#60a5fa]/20 border border-[#60a5fa]/40' if d == view_date else 'hover:bg-[#1e2a26]' }}">
+                        <span style="font-size:8px;color:#475569;">{{ d.strftime('%a') }}</span>
+                        <span style="font-size:10px;font-weight:900;color:{{ '#60a5fa' if d == view_date else ('#34d399' if cnt > 0 else '#334155') }};">{{ cnt if cnt > 0 else '·' }}</span>
+                      </a>
+                      {% endfor %}
+                    </div>
+
                     <!-- Summary chips -->
                     <div class="flex flex-wrap gap-2 mb-5">
                         <span class="chip bg-[#1e2a26] text-slate-300">
@@ -178,6 +190,12 @@
                                         <th class="grid-header" style="min-width:180px;">
                                             {{ mod }}
                                             <span class="ml-1 text-slate-500 font-normal normal-case tracking-normal">({{ mod_counts.get(mod, 0) }})</span>
+                                            {% set aes = mod_to_aetitles.get(mod, []) %}
+                                            {% if aes %}
+                                            <div style="font-size:8px;color:#475569;font-weight:600;letter-spacing:0;text-transform:none;margin-top:2px;">
+                                                {{ aes | join(' · ') }}
+                                            </div>
+                                            {% endif %}
                                         </th>
                                         {% endfor %}
                                     </tr>
@@ -201,6 +219,8 @@
                                                     <span style="font-size:8px;font-weight:900;padding:1px 5px;border-radius:3px;background:rgba(167,139,250,0.12);color:#a78bfa;text-transform:uppercase;">HL7</span>
                                                     {% if appt.cancelled %}
                                                     <span style="font-size:8px;font-weight:900;padding:1px 5px;border-radius:3px;background:rgba(239,68,68,0.12);color:#f87171;text-transform:uppercase;">{{ appt.status }}</span>
+                                                    {% elif appt.status == 'NW' %}
+                                                    <span style="font-size:8px;font-weight:900;padding:1px 5px;border-radius:3px;background:rgba(56,189,248,0.12);color:#38bdf8;text-transform:uppercase;">Ordered</span>
                                                     {% elif appt.status == 'AR' %}
                                                     <span style="font-size:8px;font-weight:900;padding:1px 5px;border-radius:3px;background:rgba(167,139,250,0.12);color:#a78bfa;text-transform:uppercase;">Arrived</span>
                                                     {% elif appt.status == 'IP' %}
