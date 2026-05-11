@@ -1037,14 +1037,14 @@ function loadData() {
       document.getElementById('kpi-total').textContent    = fmt(d.total);
       document.getElementById('kpi-normal').textContent   = fmt(d.normal);
       document.getElementById('kpi-abnormal').textContent = fmt(d.abnormal);
-      document.getElementById('kpi-critical').textContent = fmt(d.critical_log.length);
+      document.getElementById('kpi-critical').textContent = fmt((d.critical_log || []).length);
 
       // Each panel isolated — one failure won't block the others
       try { buildDonut(d.normal, d.abnormal); }        catch(e) { console.warn('donut', e); }
       try { buildBars('mod-list',  d.modalities, 'modality', 'count', i => modColor(i.modality)); } catch(e) { console.warn('mod', e); }
       try { buildBars('proc-list', d.top_procs,  'name',     'count', () => '#f59e0b'); }           catch(e) { console.warn('proc', e); }
       try { buildBars('phys-list', d.physicians, 'id',       'count', () => '#a78bfa'); }           catch(e) { console.warn('phys', e); }
-      try { buildCritical(d.critical_log); }           catch(e) { console.warn('critical', e); }
+      try { buildCritical(d.critical_log || []); }      catch(e) { console.warn('critical', e); }
       try { loadSections(); }                          catch(e) { console.warn('sections', e); }
       try { loadSectionGaps(); }                       catch(e) { console.warn('section-gaps', e); }
 

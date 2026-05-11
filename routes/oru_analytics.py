@@ -435,10 +435,13 @@ def oru_data():
     }
     pending_indices = [i for i, r in enumerate(rows) if r.affirmed_labels is None]
     if pending_indices:
-        pending_texts    = [_best_text(rows[i]) for i in pending_indices]
-        pending_affirmed = _affirmed_phrases_batch(pending_texts)
-        for i, affirmed in zip(pending_indices, pending_affirmed):
-            analyzed_affirmed[i] = affirmed
+        try:
+            pending_texts    = [_best_text(rows[i]) for i in pending_indices]
+            pending_affirmed = _affirmed_phrases_batch(pending_texts)
+            for i, affirmed in zip(pending_indices, pending_affirmed):
+                analyzed_affirmed[i] = affirmed
+        except Exception:
+            pass  # fall back to stored labels only; pending rows get empty affirmed set
 
     all_affirmed = [analyzed_affirmed.get(i, set()) for i in range(len(rows))]
 
