@@ -368,7 +368,7 @@ def get_gold_standard_data(form_data):
         rad_volume_matrix["by_modality"] = [dict(r) for r in db.session.execute(text(f"""
             SELECT {_RAD25} AS radiologist,
                    COALESCE(UPPER(m.modality), 'Unknown') AS dim,
-                   COUNT(*) AS cnt
+                   COUNT(DISTINCT s.study_db_uid) AS cnt
             FROM etl_didb_studies s {_MJ25}
             WHERE s.study_date BETWEEN :start AND :end
               AND COALESCE(m.modality, s.study_modality, '') != 'SR'
@@ -379,7 +379,7 @@ def get_gold_standard_data(form_data):
         rad_volume_matrix["by_aetitle"] = [dict(r) for r in db.session.execute(text(f"""
             SELECT {_RAD25} AS radiologist,
                    COALESCE(s.storing_ae, 'Unknown') AS dim,
-                   COUNT(*) AS cnt
+                   COUNT(DISTINCT s.study_db_uid) AS cnt
             FROM etl_didb_studies s
             {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
             WHERE s.study_date BETWEEN :start AND :end
@@ -397,11 +397,11 @@ def get_gold_standard_data(form_data):
                   AND s.rep_final_timestamp IS NOT NULL
                   AND s.procedure_code IS NOT NULL AND s.procedure_code != ''
                   {_sec_filters}
-                GROUP BY 1 ORDER BY COUNT(*) DESC LIMIT 60
+                GROUP BY 1 ORDER BY COUNT(DISTINCT s.study_db_uid) DESC LIMIT 60
             )
             SELECT {_RAD25} AS radiologist,
                    s.procedure_code AS proc,
-                   COUNT(*) AS cnt
+                   COUNT(DISTINCT s.study_db_uid) AS cnt
             FROM etl_didb_studies s
             {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
             JOIN top_procs tp ON tp.procedure_code = s.procedure_code
