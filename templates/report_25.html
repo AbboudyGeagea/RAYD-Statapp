@@ -504,11 +504,19 @@
                 <div class="glass-card" id="r25-rad-matrix-card">
                     <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
                         <p class="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Reports per Radiologist</p>
-                        <div style="display:inline-flex;border:1px solid #3f3f46;border-radius:6px;overflow:hidden;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;">
-                            <button id="r25-rad-toggle-mod" onclick="r25RadToggle('mod')"
-                                style="padding:4px 12px;background:rgba(96,165,250,0.15);color:#60a5fa;border:none;cursor:pointer;">By Modality</button>
-                            <button id="r25-rad-toggle-ae" onclick="r25RadToggle('ae')"
-                                style="padding:4px 12px;background:transparent;color:#71717a;border:none;cursor:pointer;">By AE Title</button>
+                        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                            <div style="display:inline-flex;border:1px solid #3f3f46;border-radius:6px;overflow:hidden;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;">
+                                <button id="r25-rad-toggle-mod" onclick="r25RadToggle('mod')"
+                                    style="padding:4px 12px;background:rgba(96,165,250,0.15);color:#60a5fa;border:none;cursor:pointer;">By Modality</button>
+                                <button id="r25-rad-toggle-ae" onclick="r25RadToggle('ae')"
+                                    style="padding:4px 12px;background:transparent;color:#71717a;border:none;cursor:pointer;">By AE Title</button>
+                            </div>
+                            <button onclick="r25ExportCsv()" title="Export modality/AE table as CSV"
+                                style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #3f3f46;border-radius:6px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;"
+                                onmouseover="this.style.borderColor='#60a5fa';this.style.color='#60a5fa';"
+                                onmouseout="this.style.borderColor='#3f3f46';this.style.color='#71717a';">
+                                <i class="bi bi-download"></i> CSV
+                            </button>
                         </div>
                     </div>
                     <div id="r25-rad-xtab"></div>
@@ -526,6 +534,12 @@
                                 <option value="50">50</option>
                                 <option value="9999">All</option>
                             </select>
+                            <button onclick="r25ExportProcCsv()" title="Export procedure table as CSV"
+                                style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;background:transparent;border:1px solid #3f3f46;border-radius:6px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;"
+                                onmouseover="this.style.borderColor='#60a5fa';this.style.color='#60a5fa';"
+                                onmouseout="this.style.borderColor='#3f3f46';this.style.color='#71717a';">
+                                <i class="bi bi-download"></i> CSV
+                            </button>
                         </div>
                         <div style="overflow-x:auto;max-height:340px;overflow-y:auto;border:1px solid rgba(255,255,255,0.05);border-radius:8px;">
                             <table id="r25-proc-table" style="width:100%;border-collapse:collapse;font-size:10px;min-width:400px;">
@@ -678,6 +692,56 @@
                             ${footCells}
                             <td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:900;color:#60a5fa;border-top:2px solid #3f3f46;">${grand}</td>
                         </tr>`;
+                    };
+
+                    // CSV export helpers
+                    function _r25DownloadCsv(csv, filename) {
+                        const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+                        const url  = URL.createObjectURL(blob);
+                        const a    = document.createElement('a');
+                        a.href = url; a.download = filename;
+                        document.body.appendChild(a); a.click();
+                        document.body.removeChild(a); URL.revokeObjectURL(url);
+                    }
+
+                    window.r25ExportCsv = function() {
+                        const rows = _r25Mode === 'mod' ? (RAD_VOL.by_modality||[]) : (RAD_VOL.by_aetitle||[]);
+                        if (!rows.length) return;
+                        const allRads = [...new Set(rows.map(r => r.radiologist))].sort();
+                        const allDims = [...new Set(rows.map(r => r.dim))];
+                        const dimTotals = {}, lookup = {};
+                        rows.forEach(r => {
+                            dimTotals[r.dim] = (dimTotals[r.dim]||0) + r.cnt;
+                            lookup[r.dim+'|'+r.radiologist] = r.cnt;
+                        });
+                        allDims.sort((a,b) => (dimTotals[b]||0)-(dimTotals[a]||0));
+                        const q = v => '"' + String(v||'').replace(/"/g,'""') + '"';
+                        const lines = [
+                            [_r25Mode === 'mod' ? 'Modality' : 'AE Title', ...allRads, 'Total'].map(q).join(','),
+                            ...allDims.map(dim =>
+                                [dim, ...allRads.map(rad => lookup[dim+'|'+rad]||0), dimTotals[dim]||0].map(q).join(',')
+                            ),
+                            ['TOTAL', ...allRads.map(rad => allDims.reduce((s,d)=>s+(lookup[d+'|'+rad]||0),0)),
+                                allDims.reduce((s,d)=>s+(dimTotals[d]||0),0)].map(q).join(','),
+                        ];
+                        _r25DownloadCsv(lines.join('\n'), `rad_by_${_r25Mode}_${new Date().toISOString().slice(0,10)}.csv`);
+                    };
+
+                    window.r25ExportProcCsv = function() {
+                        if (!_r25ProcAllProcs.length) return;
+                        const topN   = parseInt(document.getElementById('r25-proc-topn')?.value||'20');
+                        const search = (document.getElementById('r25-proc-search')?.value||'').toLowerCase();
+                        const procs  = _r25ProcAllProcs.filter(p=>!search||p.toLowerCase().includes(search)).slice(0,topN);
+                        const q = v => '"' + String(v||'').replace(/"/g,'""') + '"';
+                        const lines = [
+                            ['Procedure', ..._r25ProcAllRads, 'Total'].map(q).join(','),
+                            ...procs.map(proc =>
+                                [proc, ..._r25ProcAllRads.map(rad => _r25ProcLookup[proc+'|'+rad]||0), _r25ProcTotals[proc]||0].map(q).join(',')
+                            ),
+                            ['TOTAL', ..._r25ProcAllRads.map(rad => _r25ProcAllProcs.reduce((s,p)=>s+(_r25ProcLookup[p+'|'+rad]||0),0)),
+                                Object.values(_r25ProcTotals).reduce((s,v)=>s+v,0)].map(q).join(','),
+                        ];
+                        _r25DownloadCsv(lines.join('\n'), `rad_by_procedure_${new Date().toISOString().slice(0,10)}.csv`);
                     };
 
                     // Init
