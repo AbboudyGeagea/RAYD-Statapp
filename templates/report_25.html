@@ -511,7 +511,7 @@
                                 style="padding:4px 12px;background:transparent;color:#71717a;border:none;cursor:pointer;">By AE Title</button>
                         </div>
                     </div>
-                    <div id="r25-rad-chart" style="height:260px;"></div>
+                    <div id="r25-rad-xtab"></div>
 
                     <!-- Procedure cross-tab -->
                     <div style="margin-top:20px;">
@@ -539,49 +539,69 @@
                 <script>
                 (function(){
                     const RAD_VOL = {{ data.rad_volume_matrix | tojson }};
-                    const _PALETTE = ['#60a5fa','#34d399','#a78bfa','#f59e0b','#f472b6',
-                                      '#22d3ee','#fb923c','#4ade80','#e879f9','#38bdf8',
-                                      '#fbbf24','#86efac','#93c5fd','#6ee7b7','#c4b5fd'];
-                    let _r25Chart = null, _r25Mode = 'mod';
+                    let _r25Mode = 'mod';
                     let _r25ProcAllProcs = [], _r25ProcAllRads = [], _r25ProcTotals = {}, _r25ProcLookup = {}, _r25ProcRadMax = {};
 
                     function escH(s) { const d = document.createElement('div'); d.textContent = String(s||''); return d.innerHTML; }
 
-                    function r25DrawBar(rows) {
-                        const el = document.getElementById('r25-rad-chart');
-                        if (!_r25Chart) _r25Chart = echarts.init(el, null, {renderer:'canvas'});
+                    function r25DrawCrossTab(rows) {
+                        const el = document.getElementById('r25-rad-xtab');
                         if (!rows.length) {
-                            _r25Chart.setOption({title:{text:'No data',textStyle:{color:'#71717a',fontSize:12},left:'center',top:'middle'}});
+                            el.innerHTML = '<p style="font-size:10px;color:#71717a;padding:8px 0;">No data for this period.</p>';
                             return;
                         }
-                        const rads = [...new Set(rows.map(r => r.radiologist))].sort();
-                        const dims = [...new Set(rows.map(r => r.dim))];
-                        const dimTotals = {};
-                        rows.forEach(r => { dimTotals[r.dim] = (dimTotals[r.dim]||0) + r.cnt; });
-                        dims.sort((a,b) => (dimTotals[b]||0) - (dimTotals[a]||0));
-                        const lookup = {};
-                        rows.forEach(r => { lookup[r.radiologist+'|'+r.dim] = r.cnt; });
-                        _r25Chart.setOption({
-                            backgroundColor:'transparent',
-                            tooltip:{trigger:'axis',axisPointer:{type:'shadow'},backgroundColor:'#18181b',borderColor:'#3f3f46',textStyle:{color:'#e4e4e7',fontSize:11},
-                                formatter: params => {
-                                    const rad = params[0]?.axisValue||'';
-                                    const total = params.reduce((s,p)=>s+(p.value||0),0);
-                                    const lines = params.filter(p=>p.value>0).sort((a,b)=>b.value-a.value)
-                                        .map(p=>`<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color};margin-right:5px;"></span>${p.seriesName}: <b>${p.value}</b>`);
-                                    return `<b>${escH(rad)}</b><br>${lines.join('<br>')}<br><span style="color:#71717a;font-size:10px">Total: ${total}</span>`;
-                                }
-                            },
-                            legend:{data:dims,bottom:0,textStyle:{color:'#a1a1aa',fontSize:9},type:'scroll',pageTextStyle:{color:'#71717a'}},
-                            grid:{left:'22%',right:'3%',top:'3%',bottom:'20%'},
-                            xAxis:{type:'value',axisLabel:{color:'#71717a',fontSize:10},splitLine:{lineStyle:{color:'rgba(255,255,255,0.05)'}}},
-                            yAxis:{type:'category',data:rads,axisLabel:{color:'#e4e4e7',fontSize:10,width:120,overflow:'truncate'}},
-                            series: dims.map((dim,i)=>({
-                                name:dim,type:'bar',stack:'total',emphasis:{focus:'series'},
-                                itemStyle:{color:_PALETTE[i%_PALETTE.length]},
-                                data:rads.map(rad=>lookup[rad+'|'+dim]||0)
-                            }))
-                        }, true);
+                        const allRads = [...new Set(rows.map(r => r.radiologist))].sort();
+                        const allDims = [...new Set(rows.map(r => r.dim))];
+                        const dimTotals = {}, lookup = {};
+                        rows.forEach(r => {
+                            dimTotals[r.dim] = (dimTotals[r.dim]||0) + r.cnt;
+                            lookup[r.dim+'|'+r.radiologist] = r.cnt;
+                        });
+                        allDims.sort((a,b) => (dimTotals[b]||0) - (dimTotals[a]||0));
+                        const radMax = {};
+                        allRads.forEach(rad => { radMax[rad] = Math.max(...allDims.map(d => lookup[d+'|'+rad]||0)); });
+                        const headerCells = allRads.map(r =>
+                            `<th style="padding:6px 8px;text-align:right;white-space:nowrap;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;color:#71717a;">${escH(r)}</th>`
+                        ).join('');
+                        const bodyRows = allDims.map(dim => {
+                            const total = dimTotals[dim]||0;
+                            const cells = allRads.map(rad => {
+                                const cnt = lookup[dim+'|'+rad]||0;
+                                const intensity = radMax[rad]>0 ? cnt/radMax[rad] : 0;
+                                const bg = cnt>0 ? `rgba(96,165,250,${0.08+intensity*0.45})` : 'transparent';
+                                const fg = intensity>0.6 ? '#e4e4e7' : (cnt>0 ? '#93c5fd' : '#52525b');
+                                return `<td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:700;background:${bg};color:${fg};">${cnt||''}</td>`;
+                            }).join('');
+                            return `<tr style="border-top:1px solid rgba(255,255,255,0.04);">
+                                <td style="padding:5px 8px;font-size:10px;color:#a1a1aa;position:sticky;left:0;background:#18181b;font-weight:600;min-width:100px;">${escH(dim)}</td>
+                                ${cells}
+                                <td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:900;color:#60a5fa;">${total}</td>
+                            </tr>`;
+                        }).join('');
+                        const footCells = allRads.map(rad => {
+                            const t = allDims.reduce((s,d)=>s+(lookup[d+'|'+rad]||0),0);
+                            return `<td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:900;color:#f59e0b;border-top:2px solid #3f3f46;">${t}</td>`;
+                        }).join('');
+                        const grandTotal = allDims.reduce((s,d)=>s+(dimTotals[d]||0),0);
+                        el.innerHTML = `<div style="overflow-x:auto;max-height:280px;overflow-y:auto;border:1px solid rgba(255,255,255,0.05);border-radius:8px;">
+                            <table style="width:100%;border-collapse:collapse;font-size:10px;min-width:300px;">
+                                <thead style="position:sticky;top:0;z-index:2;background:#232323;">
+                                    <tr>
+                                        <th style="padding:6px 8px;text-align:left;position:sticky;left:0;background:#232323;min-width:100px;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;color:#71717a;"></th>
+                                        ${headerCells}
+                                        <th style="padding:6px 8px;text-align:right;color:#a1a1aa;font-size:9px;font-weight:900;text-transform:uppercase;">Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${bodyRows}
+                                    <tr style="background:rgba(96,165,250,0.04);">
+                                        <td style="padding:5px 8px;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;color:#71717a;position:sticky;left:0;background:rgba(24,24,27,0.95);border-top:2px solid #3f3f46;">TOTAL</td>
+                                        ${footCells}
+                                        <td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:900;color:#60a5fa;border-top:2px solid #3f3f46;">${grandTotal}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>`;
                     }
 
                     window.r25RadToggle = function(mode) {
@@ -592,7 +612,7 @@
                         const inact = 'background:transparent;color:#71717a;padding:4px 12px;border:none;cursor:pointer;';
                         btnMod.style.cssText = (mode==='mod' ? act : inact);
                         btnAe.style.cssText  = (mode==='ae'  ? act : inact);
-                        r25DrawBar(mode==='mod' ? (RAD_VOL.by_modality||[]) : (RAD_VOL.by_aetitle||[]));
+                        r25DrawCrossTab(mode==='mod' ? (RAD_VOL.by_modality||[]) : (RAD_VOL.by_aetitle||[]));
                     };
 
                     function r25BuildProcTable() {

@@ -555,7 +555,7 @@ def widget_rad_modality_matrix(db, filters, config):
             "s.signing_physician_last_name)),''),s.rep_final_signed_by,'Unknown')")
 
     by_modality = db.session.execute(text(f"""
-        SELECT {_RAD} AS radiologist, {_MOD_EXPR} AS dim, COUNT(*) AS cnt
+        SELECT {_RAD} AS radiologist, {_MOD_EXPR} AS dim, COUNT(DISTINCT s.study_db_uid) AS cnt
         {_BASE_JOIN}
         {_WHERE}
           AND {_RAD} NOT IN ('','Unknown')
@@ -564,7 +564,7 @@ def widget_rad_modality_matrix(db, filters, config):
     """), p).fetchall()
 
     by_aetitle = db.session.execute(text(f"""
-        SELECT {_RAD} AS radiologist, COALESCE(s.storing_ae,'Unknown') AS dim, COUNT(*) AS cnt
+        SELECT {_RAD} AS radiologist, COALESCE(s.storing_ae,'Unknown') AS dim, COUNT(DISTINCT s.study_db_uid) AS cnt
         {_BASE_JOIN}
         {_WHERE}
           AND {_RAD} NOT IN ('','Unknown')

@@ -226,6 +226,7 @@
         revenue_by_modality:  { label: 'Revenue by Modality',   icon: 'bi-graph-up-arrow',            color: '#f87171' },
         revenue_by_physician: { label: 'Revenue by Physician',   icon: 'bi-person-fill-up',            color: '#f87171' },
         cd_burn_summary:      { label: 'CD Burn Summary',        icon: 'bi-disc-fill',                 color: '#38bdf8' },
+        rad_modality_matrix:  { label: 'Radiologist Workload',   icon: 'bi-person-check-fill',         color: '#60a5fa' },
     };
 
     const _charts = {};  // canvas id → Chart instance
@@ -394,6 +395,7 @@
             case 'revenue_by_modality':   return rwRevenueByModality(sec.id, d, el);
             case 'revenue_by_physician':  return rwRevenueByPhysician(d, el);
             case 'cd_burn_summary':       return rwCdBurnSummary(d, el);
+            case 'rad_modality_matrix':   return rwRadModalityMatrix(d, el);
             default:
                 el.innerHTML = `<p class="text-slate-500 text-sm">Unknown widget type: ${sec.type}</p>`;
         }
@@ -690,6 +692,96 @@
             );
         }
         el.innerHTML = html;
+    }
+
+    // ── rad_modality_matrix ────────────────────────────────────
+    function rwRadModalityMatrix(d, el) {
+        const escH = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        let _mode = 'mod';
+
+        function buildXtab(rows, containerId) {
+            const container = document.getElementById(containerId);
+            if (!rows || !rows.length) { container.innerHTML = '<p class="text-slate-500 text-sm">No data</p>'; return; }
+            const allRads = [...new Set(rows.map(r => r.radiologist))].sort();
+            const allDims = [...new Set(rows.map(r => r.dim))];
+            const dimTotals = {}, lookup = {};
+            rows.forEach(r => {
+                dimTotals[r.dim] = (dimTotals[r.dim]||0) + r.cnt;
+                lookup[r.dim+'|'+r.radiologist] = r.cnt;
+            });
+            allDims.sort((a,b) => (dimTotals[b]||0)-(dimTotals[a]||0));
+            const radMax = {};
+            allRads.forEach(rad => { radMax[rad] = Math.max(...allDims.map(d => lookup[d+'|'+rad]||0)); });
+            const headerCells = allRads.map(r =>
+                `<th style="padding:5px 7px;text-align:right;white-space:nowrap;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;color:#64748b;">${escH(r)}</th>`
+            ).join('');
+            const bodyRows = allDims.map(dim => {
+                const total = dimTotals[dim]||0;
+                const cells = allRads.map(rad => {
+                    const cnt = lookup[dim+'|'+rad]||0;
+                    const intensity = radMax[rad]>0 ? cnt/radMax[rad] : 0;
+                    const bg = cnt>0 ? `rgba(96,165,250,${0.08+intensity*0.45})` : 'transparent';
+                    const fg = intensity>0.6 ? '#e2e8f0' : (cnt>0 ? '#93c5fd' : '#334155');
+                    return `<td style="padding:4px 7px;text-align:right;font-family:monospace;font-weight:700;background:${bg};color:${fg};">${cnt||''}</td>`;
+                }).join('');
+                return `<tr style="border-top:1px solid #1e293b;">
+                    <td style="padding:4px 7px;font-size:10px;color:#94a3b8;font-weight:600;white-space:nowrap;">${escH(dim)}</td>
+                    ${cells}
+                    <td style="padding:4px 7px;text-align:right;font-family:monospace;font-weight:900;color:#60a5fa;">${total}</td>
+                </tr>`;
+            }).join('');
+            const footCells = allRads.map(rad => {
+                const t = allDims.reduce((s,d)=>s+(lookup[d+'|'+rad]||0),0);
+                return `<td style="padding:4px 7px;text-align:right;font-family:monospace;font-weight:900;color:#f59e0b;border-top:2px solid #1e293b;">${t}</td>`;
+            }).join('');
+            const grand = allDims.reduce((s,d)=>s+(dimTotals[d]||0),0);
+            container.innerHTML = `<div style="overflow-x:auto;max-height:300px;overflow-y:auto;border:1px solid #1e293b;border-radius:8px;">
+                <table style="width:100%;border-collapse:collapse;font-size:10px;min-width:300px;">
+                    <thead style="position:sticky;top:0;z-index:2;background:#0f172a;">
+                        <tr>
+                            <th style="padding:5px 7px;text-align:left;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;color:#64748b;"></th>
+                            ${headerCells}
+                            <th style="padding:5px 7px;text-align:right;color:#94a3b8;font-size:9px;font-weight:900;text-transform:uppercase;">Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${bodyRows}
+                        <tr style="background:rgba(96,165,250,0.04);">
+                            <td style="padding:4px 7px;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;color:#64748b;border-top:2px solid #1e293b;">TOTAL</td>
+                            ${footCells}
+                            <td style="padding:4px 7px;text-align:right;font-family:monospace;font-weight:900;color:#60a5fa;border-top:2px solid #1e293b;">${grand}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>`;
+        }
+
+        const uid = Math.random().toString(36).slice(2,8);
+        el.innerHTML = `
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+                <span style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;color:#64748b;">
+                    <i class="bi bi-person-check-fill mr-1" style="color:#60a5fa;"></i> Reports per Radiologist
+                </span>
+                <div style="display:inline-flex;border:1px solid #1e293b;border-radius:6px;overflow:hidden;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;">
+                    <button id="crm-mod-${uid}" onclick="crwToggle_${uid}('mod')"
+                        style="padding:3px 10px;background:rgba(96,165,250,0.15);color:#60a5fa;border:none;cursor:pointer;">By Modality</button>
+                    <button id="crm-ae-${uid}"  onclick="crwToggle_${uid}('ae')"
+                        style="padding:3px 10px;background:transparent;color:#64748b;border:none;cursor:pointer;">By AE Title</button>
+                </div>
+            </div>
+            <div id="crm-xtab-${uid}"></div>`;
+
+        window[`crwToggle_${uid}`] = function(mode) {
+            _mode = mode;
+            const btnMod = document.getElementById(`crm-mod-${uid}`);
+            const btnAe  = document.getElementById(`crm-ae-${uid}`);
+            const act   = 'padding:3px 10px;background:rgba(96,165,250,0.15);color:#60a5fa;border:none;cursor:pointer;';
+            const inact = 'padding:3px 10px;background:transparent;color:#64748b;border:none;cursor:pointer;';
+            if (btnMod) btnMod.style.cssText = (mode==='mod' ? act : inact);
+            if (btnAe)  btnAe.style.cssText  = (mode==='ae'  ? act : inact);
+            buildXtab(mode==='mod' ? (d.by_modality||[]) : (d.by_aetitle||[]), `crm-xtab-${uid}`);
+        };
+        window[`crwToggle_${uid}`]('mod');
     }
 
     // ── Theme ──────────────────────────────────────────────────
