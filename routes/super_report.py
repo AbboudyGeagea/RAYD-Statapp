@@ -522,7 +522,7 @@ def _collect_data(start, end, filters):
     rad_mod_rows = db.session.execute(text(f"""
         SELECT {_RAD} AS radiologist,
                COALESCE(m.modality, s.study_modality, 'Unknown') AS dim,
-               COUNT(*) AS cnt
+               COUNT(DISTINCT s.study_db_uid) AS cnt
         FROM etl_didb_studies s {mj} {pj}
         WHERE {where} AND {_RAD_OK}
         GROUP BY 1, 2 ORDER BY 1, 3 DESC
@@ -531,7 +531,7 @@ def _collect_data(start, end, filters):
     rad_ae_rows = db.session.execute(text(f"""
         SELECT {_RAD} AS radiologist,
                COALESCE(s.storing_ae, 'Unknown') AS dim,
-               COUNT(*) AS cnt
+               COUNT(DISTINCT s.study_db_uid) AS cnt
         FROM etl_didb_studies s {mj} {pj}
         WHERE {where} AND {_RAD_OK}
         GROUP BY 1, 2 ORDER BY 1, 3 DESC
@@ -543,11 +543,11 @@ def _collect_data(start, end, filters):
             FROM etl_didb_studies s {mj} {pj}
             WHERE {where} AND s.rep_final_timestamp IS NOT NULL
               AND s.procedure_code IS NOT NULL AND s.procedure_code != ''
-            GROUP BY 1 ORDER BY COUNT(*) DESC LIMIT 60
+            GROUP BY 1 ORDER BY COUNT(DISTINCT s.study_db_uid) DESC LIMIT 60
         )
         SELECT {_RAD} AS radiologist,
                s.procedure_code AS proc,
-               COUNT(*) AS cnt
+               COUNT(DISTINCT s.study_db_uid) AS cnt
         FROM etl_didb_studies s {mj} {pj}
         JOIN top_procs tp ON tp.procedure_code = s.procedure_code
         WHERE {where} AND {_RAD_OK}
