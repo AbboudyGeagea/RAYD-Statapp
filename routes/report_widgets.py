@@ -132,6 +132,15 @@ WIDGET_CATALOGUE = [
         "config_keys": [("top_n", "Top N", "number", 10)],
     },
     {
+        "key":         "rad_modality_matrix",
+        "label":       "Radiologist Workload Matrix",
+        "icon":        "bi-person-check-fill",
+        "color":       "#60a5fa",
+        "description": "Reports per radiologist — toggle between modality and AE title breakdown",
+        "financial":   False,
+        "config_keys": [],
+    },
+    {
         "key":         "cd_burn_summary",
         "label":       "CD Burn Summary",
         "icon":        "bi-disc-fill",
@@ -540,6 +549,35 @@ def widget_cd_burn_summary(db, filters, config):
     }
 
 
+def widget_rad_modality_matrix(db, filters, config):
+    p = _p(filters)
+    _RAD = ("COALESCE(NULLIF(TRIM(CONCAT(s.signing_physician_first_name,' ',"
+            "s.signing_physician_last_name)),''),s.rep_final_signed_by,'Unknown')")
+
+    by_modality = db.session.execute(text(f"""
+        SELECT {_RAD} AS radiologist, {_MOD_EXPR} AS dim, COUNT(*) AS cnt
+        {_BASE_JOIN}
+        {_WHERE}
+          AND {_RAD} NOT IN ('','Unknown')
+          AND s.rep_final_timestamp IS NOT NULL
+        GROUP BY 1, 2 ORDER BY 1, 3 DESC
+    """), p).fetchall()
+
+    by_aetitle = db.session.execute(text(f"""
+        SELECT {_RAD} AS radiologist, COALESCE(s.storing_ae,'Unknown') AS dim, COUNT(*) AS cnt
+        {_BASE_JOIN}
+        {_WHERE}
+          AND {_RAD} NOT IN ('','Unknown')
+          AND s.rep_final_timestamp IS NOT NULL
+        GROUP BY 1, 2 ORDER BY 1, 3 DESC
+    """), p).fetchall()
+
+    return {
+        "by_modality": [{"radiologist": r[0], "dim": r[1], "cnt": r[2]} for r in by_modality],
+        "by_aetitle":  [{"radiologist": r[0], "dim": r[1], "cnt": r[2]} for r in by_aetitle],
+    }
+
+
 # ── Dispatch table ────────────────────────────────────────────────────────────
 
 _DISPATCH = {
@@ -555,7 +593,8 @@ _DISPATCH = {
     "rvu_summary":          widget_rvu_summary,
     "revenue_by_modality":  widget_revenue_by_modality,
     "revenue_by_physician": widget_revenue_by_physician,
-    "cd_burn_summary":      widget_cd_burn_summary,
+    "cd_burn_summary":        widget_cd_burn_summary,
+    "rad_modality_matrix":    widget_rad_modality_matrix,
 }
 
 
