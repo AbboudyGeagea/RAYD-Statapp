@@ -356,6 +356,64 @@ def get_gold_standard_data(form_data):
     except Exception:
         db.session.rollback()
 
+    # ── Reports per radiologist × modality / AE title / procedure ────────
+    rad_volume_matrix = {"by_modality": [], "by_aetitle": [], "by_procedure": []}
+    try:
+        _RAD25 = ("COALESCE(NULLIF(TRIM(CONCAT(s.signing_physician_first_name,' ',"
+                  "s.signing_physician_last_name)),''),s.rep_final_signed_by,'Unknown')")
+        _RAD25_OK = (f"AND {_RAD25} NOT IN ('','Unknown')"
+                     f" AND s.rep_final_timestamp IS NOT NULL")
+        _MJ25 = "LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))"
+
+        rad_volume_matrix["by_modality"] = [dict(r) for r in db.session.execute(text(f"""
+            SELECT {_RAD25} AS radiologist,
+                   COALESCE(UPPER(m.modality), 'Unknown') AS dim,
+                   COUNT(*) AS cnt
+            FROM etl_didb_studies s {_MJ25}
+            WHERE s.study_date BETWEEN :start AND :end
+              AND COALESCE(m.modality, s.study_modality, '') != 'SR'
+              {_sec_filters} {_RAD25_OK}
+            GROUP BY 1, 2 ORDER BY 1, 3 DESC
+        """), params).mappings().fetchall()]
+
+        rad_volume_matrix["by_aetitle"] = [dict(r) for r in db.session.execute(text(f"""
+            SELECT {_RAD25} AS radiologist,
+                   COALESCE(s.storing_ae, 'Unknown') AS dim,
+                   COUNT(*) AS cnt
+            FROM etl_didb_studies s
+            {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
+            WHERE s.study_date BETWEEN :start AND :end
+              AND COALESCE(s.study_modality, '') != 'SR'
+              {_sec_filters} {_RAD25_OK}
+            GROUP BY 1, 2 ORDER BY 1, 3 DESC
+        """), params).mappings().fetchall()]
+
+        rad_volume_matrix["by_procedure"] = [dict(r) for r in db.session.execute(text(f"""
+            WITH top_procs AS (
+                SELECT s.procedure_code
+                FROM etl_didb_studies s
+                {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
+                WHERE s.study_date BETWEEN :start AND :end
+                  AND s.rep_final_timestamp IS NOT NULL
+                  AND s.procedure_code IS NOT NULL AND s.procedure_code != ''
+                  {_sec_filters}
+                GROUP BY 1 ORDER BY COUNT(*) DESC LIMIT 60
+            )
+            SELECT {_RAD25} AS radiologist,
+                   s.procedure_code AS proc,
+                   COUNT(*) AS cnt
+            FROM etl_didb_studies s
+            {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
+            JOIN top_procs tp ON tp.procedure_code = s.procedure_code
+            WHERE s.study_date BETWEEN :start AND :end
+              AND COALESCE(s.study_modality, '') != 'SR'
+              {_sec_filters} {_RAD25_OK}
+            GROUP BY 1, 2 ORDER BY 2, 3 DESC
+        """), params).mappings().fetchall()]
+    except Exception as _e:
+        db.session.rollback()
+        print(f"rad_volume_matrix error: {_e}")
+
     # tech_data and insights are deferred to /report/25/bg (background endpoint)
     tech_data = {
         'summary': {}, 'by_technician': [], 'by_modality': [],
@@ -409,7 +467,8 @@ def get_gold_standard_data(form_data):
         "modality_tat":    modality_tat,
         "unread_aging":    unread_aging,
         "shift_breakdown": shift_breakdown,
-        "addendum_data":   addendum_data,
+        "addendum_data":      addendum_data,
+        "rad_volume_matrix":  rad_volume_matrix,
         "shift_patterns":  shift_patterns,
         "tech_data":       tech_data,
         "tech_insights":   tech_insights,

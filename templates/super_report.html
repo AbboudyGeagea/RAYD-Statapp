@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <title>RAYD | Super Report</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
@@ -285,6 +286,47 @@
                         <i class="bi bi-lightbulb-fill"></i> Clinical Insights
                     </h4>
                     <div id="super-insights" class="space-y-2"></div>
+                </div>
+
+                <!-- Radiologist Workload Matrix -->
+                <div class="card p-5" id="super-rad-matrix-card" style="display:none">
+                    <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+                        <h4 class="text-[#60a5fa] text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
+                            <i class="bi bi-person-check"></i> Reports per Radiologist
+                        </h4>
+                        <!-- Modality / AE Title toggle -->
+                        <div style="display:inline-flex;border:1px solid #28332e;border-radius:6px;overflow:hidden;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;">
+                            <button id="sr-rad-toggle-mod" onclick="srRadToggle('mod')"
+                                style="padding:4px 12px;background:rgba(96,165,250,0.15);color:#60a5fa;border:none;cursor:pointer;">By Modality</button>
+                            <button id="sr-rad-toggle-ae" onclick="srRadToggle('ae')"
+                                style="padding:4px 12px;background:transparent;color:#64748b;border:none;cursor:pointer;">By AE Title</button>
+                        </div>
+                    </div>
+                    <!-- Stacked bar chart -->
+                    <div id="sr-rad-chart" style="height:260px;"></div>
+
+                    <!-- Procedure cross-tab -->
+                    <div style="margin-top:20px;">
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+                            <span style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;color:#64748b;">Procedure Breakdown</span>
+                            <input id="sr-proc-search" type="text" placeholder="Search procedure…" oninput="srProcFilter()"
+                                style="flex:1;min-width:120px;max-width:220px;background:#181f1c;border:1px solid #28332e;color:#e2e8f0;border-radius:5px;padding:3px 8px;font-size:11px;outline:none;">
+                            <span style="font-size:9px;color:#64748b;font-weight:700;">Show top</span>
+                            <select id="sr-proc-topn" onchange="srProcFilter()"
+                                style="background:#181f1c;border:1px solid #28332e;color:#e2e8f0;border-radius:5px;padding:3px 6px;font-size:10px;outline:none;">
+                                <option value="20">20</option>
+                                <option value="50">50</option>
+                                <option value="9999">All</option>
+                            </select>
+                        </div>
+                        <div style="overflow-x:auto;max-height:340px;overflow-y:auto;border:1px solid #1e2a26;border-radius:8px;">
+                            <table id="sr-proc-table" style="width:100%;border-collapse:collapse;font-size:10px;min-width:400px;">
+                                <thead id="sr-proc-thead" style="position:sticky;top:0;z-index:2;background:#1a2420;"></thead>
+                                <tbody id="sr-proc-tbody"></tbody>
+                            </table>
+                        </div>
+                        <p id="sr-proc-empty" style="font-size:10px;color:#475569;padding:8px 0;display:none;">No procedure data available for this period.</p>
+                    </div>
                 </div>
 
             </div>
@@ -719,7 +761,180 @@
               </div>`;
             }).join('')
           : '<p class="text-slate-600 text-xs">No patient class data</p>';
+
+        // Radiologist matrix
+        srRadMatrixInit(cur.rad_matrix || {});
     }
+
+    // ── Radiologist Matrix ────────────────────────────────────────────
+    let _srRadChart = null, _srRadData = {}, _srRadMode = 'mod';
+
+    const _SR_PALETTE = ['#60a5fa','#34d399','#a78bfa','#f59e0b','#f472b6',
+                         '#22d3ee','#fb923c','#4ade80','#e879f9','#38bdf8',
+                         '#fbbf24','#86efac','#93c5fd','#6ee7b7','#c4b5fd'];
+
+    function srRadMatrixInit(radData) {
+        _srRadData = radData;
+        const card = document.getElementById('super-rad-matrix-card');
+        const hasMod  = (radData.by_modality  || []).length > 0;
+        const hasAe   = (radData.by_aetitle   || []).length > 0;
+        const hasProc = (radData.by_procedure || []).length > 0;
+        if (!hasMod && !hasAe && !hasProc) { card.style.display = 'none'; return; }
+        card.style.display = '';
+        srRadToggle('mod');
+        srBuildProcTable();
+    }
+
+    window.srRadToggle = function(mode) {
+        _srRadMode = mode;
+        const btnMod = document.getElementById('sr-rad-toggle-mod');
+        const btnAe  = document.getElementById('sr-rad-toggle-ae');
+        const active  = 'background:rgba(96,165,250,0.15);color:#60a5fa;';
+        const inactive = 'background:transparent;color:#64748b;';
+        btnMod.style.cssText = (mode === 'mod'  ? active : inactive) + 'padding:4px 12px;border:none;cursor:pointer;';
+        btnAe.style.cssText  = (mode === 'ae'   ? active : inactive) + 'padding:4px 12px;border:none;cursor:pointer;';
+        const rows = mode === 'mod' ? (_srRadData.by_modality || []) : (_srRadData.by_aetitle || []);
+        srDrawStackedBar(rows);
+    };
+
+    function srDrawStackedBar(rows) {
+        const el = document.getElementById('sr-rad-chart');
+        if (!_srRadChart) _srRadChart = echarts.init(el, null, {renderer:'canvas'});
+
+        if (!rows.length) {
+            _srRadChart.setOption({ title:{ text:'No data', textStyle:{color:'#475569',fontSize:12}, left:'center', top:'middle' } });
+            return;
+        }
+
+        const rads = [...new Set(rows.map(r => r.radiologist))].sort();
+        const dims = [...new Set(rows.map(r => r.dim))];
+        const dimTotals = {};
+        rows.forEach(r => { dimTotals[r.dim] = (dimTotals[r.dim] || 0) + r.cnt; });
+        dims.sort((a, b) => (dimTotals[b] || 0) - (dimTotals[a] || 0));
+
+        const lookup = {};
+        rows.forEach(r => { lookup[r.radiologist + '|' + r.dim] = r.cnt; });
+
+        const series = dims.map((dim, i) => ({
+            name: dim,
+            type: 'bar',
+            stack: 'total',
+            emphasis: { focus: 'series' },
+            label: { show: false },
+            itemStyle: { color: _SR_PALETTE[i % _SR_PALETTE.length] },
+            data: rads.map(rad => lookup[rad + '|' + dim] || 0),
+        }));
+
+        _srRadChart.setOption({
+            backgroundColor: 'transparent',
+            tooltip: {
+                trigger: 'axis',
+                axisPointer: { type: 'shadow' },
+                backgroundColor: '#1a2420',
+                borderColor: '#28332e',
+                textStyle: { color: '#e2e8f0', fontSize: 11 },
+                formatter: params => {
+                    const rad = params[0]?.axisValue || '';
+                    const total = params.reduce((s, p) => s + (p.value || 0), 0);
+                    const lines = params.filter(p => p.value > 0)
+                        .sort((a, b) => b.value - a.value)
+                        .map(p => `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color};margin-right:5px;"></span>${p.seriesName}: <b>${p.value}</b>`);
+                    return `<b style="font-size:11px">${rad}</b><br>${lines.join('<br>')}<br><span style="color:#64748b;font-size:10px">Total: ${total}</span>`;
+                },
+            },
+            legend: { data: dims, bottom: 0, textStyle: { color: '#94a3b8', fontSize: 9 }, type: 'scroll', pageTextStyle: { color: '#64748b' } },
+            grid: { left: '22%', right: '3%', top: '3%', bottom: '20%' },
+            xAxis: { type: 'value', axisLabel: { color: '#64748b', fontSize: 10 }, splitLine: { lineStyle: { color: '#1e2a26' } } },
+            yAxis: { type: 'category', data: rads, axisLabel: { color: '#e2e8f0', fontSize: 10, width: 120, overflow: 'truncate' } },
+            series,
+        }, true);
+    }
+
+    function srBuildProcTable() {
+        const procRows = _srRadData.by_procedure || [];
+        const empty = document.getElementById('sr-proc-empty');
+        const tbl   = document.getElementById('sr-proc-table');
+        if (!procRows.length) { empty.style.display = ''; tbl.style.display = 'none'; return; }
+        empty.style.display = 'none'; tbl.style.display = '';
+
+        // Build pivot: procedures × radiologists
+        const allRads = [...new Set(procRows.map(r => r.radiologist))].sort();
+        const allProcs = [...new Set(procRows.map(r => r.proc))];
+        const procTotals = {};
+        const lookup = {};
+        procRows.forEach(r => {
+            procTotals[r.proc] = (procTotals[r.proc] || 0) + r.cnt;
+            lookup[r.proc + '|' + r.radiologist] = r.cnt;
+        });
+        allProcs.sort((a, b) => (procTotals[b] || 0) - (procTotals[a] || 0));
+
+        // Per-radiologist max for color scaling
+        const radMax = {};
+        allRads.forEach(rad => {
+            radMax[rad] = Math.max(...allProcs.map(p => lookup[p + '|' + rad] || 0));
+        });
+
+        // Store for filtering
+        window._srProcAllProcs = allProcs;
+        window._srProcAllRads  = allRads;
+        window._srProcTotals   = procTotals;
+        window._srProcLookup   = lookup;
+        window._srProcRadMax   = radMax;
+
+        // Build header
+        const thead = document.getElementById('sr-proc-thead');
+        thead.innerHTML = `<tr style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;color:#64748b;">
+            <th style="padding:6px 8px;text-align:left;position:sticky;left:0;background:#1a2420;min-width:160px;">Procedure</th>
+            ${allRads.map(r => `<th style="padding:6px 8px;text-align:right;white-space:nowrap;">${escHtml(r)}</th>`).join('')}
+            <th style="padding:6px 8px;text-align:right;color:#94a3b8;">Total</th>
+        </tr>`;
+
+        srProcFilter();
+    }
+
+    window.srProcFilter = function() {
+        const search = (document.getElementById('sr-proc-search')?.value || '').toLowerCase();
+        const topN   = parseInt(document.getElementById('sr-proc-topn')?.value || '20');
+        const allProcs = window._srProcAllProcs || [];
+        const allRads  = window._srProcAllRads  || [];
+        const totals   = window._srProcTotals   || {};
+        const lookup   = window._srProcLookup   || {};
+        const radMax   = window._srProcRadMax   || {};
+
+        const filtered = allProcs
+            .filter(p => !search || p.toLowerCase().includes(search))
+            .slice(0, topN);
+
+        const tbody = document.getElementById('sr-proc-tbody');
+        if (!tbody) return;
+        tbody.innerHTML = filtered.map(proc => {
+            const total = totals[proc] || 0;
+            const cells = allRads.map(rad => {
+                const cnt = lookup[proc + '|' + rad] || 0;
+                const intensity = radMax[rad] > 0 ? cnt / radMax[rad] : 0;
+                const bg = cnt > 0 ? `rgba(96,165,250,${0.08 + intensity * 0.45})` : 'transparent';
+                const fg = intensity > 0.6 ? '#e2e8f0' : (cnt > 0 ? '#93c5fd' : '#334155');
+                return `<td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:700;background:${bg};color:${fg};">${cnt || ''}</td>`;
+            }).join('');
+            return `<tr style="border-top:1px solid #1e2a26;" data-proc="${escHtml(proc)}">
+                <td style="padding:5px 8px;font-size:10px;color:#94a3b8;position:sticky;left:0;background:#181f1c;font-weight:600;">${escHtml(proc)}</td>
+                ${cells}
+                <td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:900;color:#60a5fa;">${total}</td>
+            </tr>`;
+        }).join('');
+
+        // Footer totals row
+        const footCells = allRads.map(rad => {
+            const t = (window._srProcAllProcs || []).reduce((s, p) => s + (lookup[p + '|' + rad] || 0), 0);
+            return `<td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:900;color:#f59e0b;border-top:2px solid #28332e;">${t}</td>`;
+        }).join('');
+        const grandTotal = Object.values(window._srProcTotals || {}).reduce((s, v) => s + v, 0);
+        tbody.innerHTML += `<tr style="background:rgba(96,165,250,0.04);">
+            <td style="padding:5px 8px;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;color:#64748b;position:sticky;left:0;background:rgba(24,31,28,0.95);border-top:2px solid #28332e;">TOTAL</td>
+            ${footCells}
+            <td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:900;color:#60a5fa;border-top:2px solid #28332e;">${grandTotal}</td>
+        </tr>`;
+    };
 
     // ── Narrative typewriter ──────────────────────────────────────────
     function renderNarrative(sections) {

@@ -513,6 +513,47 @@ def _collect_data(start, end, filters):
         GROUP BY 1 ORDER BY cnt DESC LIMIT 15
     """), params).mappings().fetchall()
 
+    # ── Radiologist matrix: reports × modality / AE title / procedure ─
+    _RAD = ("COALESCE(NULLIF(TRIM(CONCAT(s.signing_physician_first_name,' ',"
+            "s.signing_physician_last_name)),''),s.rep_final_signed_by)")
+    _RAD_OK = (f"{_RAD} IS NOT NULL AND {_RAD} NOT IN ('','Unknown')"
+               f" AND s.rep_final_timestamp IS NOT NULL")
+
+    rad_mod_rows = db.session.execute(text(f"""
+        SELECT {_RAD} AS radiologist,
+               COALESCE(m.modality, s.study_modality, 'Unknown') AS dim,
+               COUNT(*) AS cnt
+        FROM etl_didb_studies s {mj} {pj}
+        WHERE {where} AND {_RAD_OK}
+        GROUP BY 1, 2 ORDER BY 1, 3 DESC
+    """), params).mappings().fetchall()
+
+    rad_ae_rows = db.session.execute(text(f"""
+        SELECT {_RAD} AS radiologist,
+               COALESCE(s.storing_ae, 'Unknown') AS dim,
+               COUNT(*) AS cnt
+        FROM etl_didb_studies s {mj} {pj}
+        WHERE {where} AND {_RAD_OK}
+        GROUP BY 1, 2 ORDER BY 1, 3 DESC
+    """), params).mappings().fetchall()
+
+    rad_proc_rows = db.session.execute(text(f"""
+        WITH top_procs AS (
+            SELECT s.procedure_code
+            FROM etl_didb_studies s {mj} {pj}
+            WHERE {where} AND s.rep_final_timestamp IS NOT NULL
+              AND s.procedure_code IS NOT NULL AND s.procedure_code != ''
+            GROUP BY 1 ORDER BY COUNT(*) DESC LIMIT 60
+        )
+        SELECT {_RAD} AS radiologist,
+               s.procedure_code AS proc,
+               COUNT(*) AS cnt
+        FROM etl_didb_studies s {mj} {pj}
+        JOIN top_procs tp ON tp.procedure_code = s.procedure_code
+        WHERE {where} AND {_RAD_OK}
+        GROUP BY 1, 2 ORDER BY 2, 3 DESC
+    """), params).mappings().fetchall()
+
     return {
         "kpis":        dict(kpis),
         "orders":      dict(orders),
@@ -539,6 +580,11 @@ def _collect_data(start, end, filters):
         },
         "daily_series":    [dict(r) for r in daily_series],
         "modality_series": [dict(r) for r in modality_series],
+        "rad_matrix": {
+            "by_modality":  [dict(r) for r in rad_mod_rows],
+            "by_aetitle":   [dict(r) for r in rad_ae_rows],
+            "by_procedure": [dict(r) for r in rad_proc_rows],
+        },
     }
 
 
