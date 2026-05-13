@@ -554,6 +554,15 @@ def _collect_data(start, end, filters):
         GROUP BY 1, 2 ORDER BY 2, 3 DESC
     """), params).mappings().fetchall()
 
+    rad_month_rows = db.session.execute(text(f"""
+        SELECT {_RAD} AS radiologist,
+               TO_CHAR(s.study_date, 'YYYY-MM') AS dim,
+               COUNT(DISTINCT s.study_db_uid) AS cnt
+        FROM etl_didb_studies s {mj} {pj}
+        WHERE {where} AND {_RAD_OK}
+        GROUP BY 1, 2 ORDER BY 1, 2
+    """), params).mappings().fetchall()
+
     return {
         "kpis":        dict(kpis),
         "orders":      dict(orders),
@@ -584,6 +593,7 @@ def _collect_data(start, end, filters):
             "by_modality":  [dict(r) for r in rad_mod_rows],
             "by_aetitle":   [dict(r) for r in rad_ae_rows],
             "by_procedure": [dict(r) for r in rad_proc_rows],
+            "by_month":     [dict(r) for r in rad_month_rows],
         },
     }
 

@@ -302,6 +302,8 @@
                                     style="padding:4px 12px;background:rgba(96,165,250,0.15);color:#60a5fa;border:none;cursor:pointer;">By Modality</button>
                                 <button id="sr-rad-toggle-ae" onclick="srRadToggle('ae')"
                                     style="padding:4px 12px;background:transparent;color:#64748b;border:none;cursor:pointer;">By AE Title</button>
+                                <button id="sr-rad-toggle-month" onclick="srRadToggle('month')"
+                                    style="padding:4px 12px;background:transparent;color:#64748b;border:none;cursor:pointer;">By Month</button>
                             </div>
                             <button onclick="srExportCsv()" title="Export modality/AE table as CSV"
                                 style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #28332e;border-radius:6px;color:#64748b;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;"
@@ -810,17 +812,26 @@
 
     window.srRadToggle = function(mode) {
         _srRadMode = mode;
-        const btnMod = document.getElementById('sr-rad-toggle-mod');
-        const btnAe  = document.getElementById('sr-rad-toggle-ae');
-        const active  = 'background:rgba(96,165,250,0.15);color:#60a5fa;';
+        const btnMod   = document.getElementById('sr-rad-toggle-mod');
+        const btnAe    = document.getElementById('sr-rad-toggle-ae');
+        const btnMonth = document.getElementById('sr-rad-toggle-month');
+        const active   = 'background:rgba(96,165,250,0.15);color:#60a5fa;';
         const inactive = 'background:transparent;color:#64748b;';
-        btnMod.style.cssText = (mode === 'mod'  ? active : inactive) + 'padding:4px 12px;border:none;cursor:pointer;';
-        btnAe.style.cssText  = (mode === 'ae'   ? active : inactive) + 'padding:4px 12px;border:none;cursor:pointer;';
-        const rows = mode === 'mod' ? (_srRadData.by_modality || []) : (_srRadData.by_aetitle || []);
-        srDrawCrossTab(rows);
+        btnMod.style.cssText   = (mode === 'mod'   ? active : inactive) + 'padding:4px 12px;border:none;cursor:pointer;';
+        btnAe.style.cssText    = (mode === 'ae'    ? active : inactive) + 'padding:4px 12px;border:none;cursor:pointer;';
+        if (btnMonth) btnMonth.style.cssText = (mode === 'month' ? active : inactive) + 'padding:4px 12px;border:none;cursor:pointer;';
+        const rows = mode === 'mod'   ? (_srRadData.by_modality || [])
+                   : mode === 'ae'    ? (_srRadData.by_aetitle  || [])
+                   :                    (_srRadData.by_month     || []);
+        srDrawCrossTab(rows, mode === 'month');
     };
 
-    function srDrawCrossTab(rows) {
+    function _srFmtMonth(ym) {
+        const [y, m] = ym.split('-');
+        return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(m,10)-1] + ' ' + y;
+    }
+
+    function srDrawCrossTab(rows, isMonth) {
         const el = document.getElementById('sr-rad-xtab');
         if (!rows.length) {
             el.innerHTML = '<p style="font-size:10px;color:#475569;padding:8px 0;">No data for this period.</p>';
@@ -833,7 +844,7 @@
             dimTotals[r.dim] = (dimTotals[r.dim] || 0) + r.cnt;
             lookup[r.dim + '|' + r.radiologist] = r.cnt;
         });
-        allDims.sort((a, b) => (dimTotals[b] || 0) - (dimTotals[a] || 0));
+        if (isMonth) { allDims.sort(); } else { allDims.sort((a, b) => (dimTotals[b] || 0) - (dimTotals[a] || 0)); }
         const radMax = {};
         allRads.forEach(rad => {
             radMax[rad] = Math.max(...allDims.map(d => lookup[d + '|' + rad] || 0));
@@ -843,6 +854,7 @@
         ).join('');
         const bodyRows = allDims.map(dim => {
             const total = dimTotals[dim] || 0;
+            const label = isMonth ? _srFmtMonth(dim) : dim;
             const cells = allRads.map(rad => {
                 const cnt = lookup[dim + '|' + rad] || 0;
                 const intensity = radMax[rad] > 0 ? cnt / radMax[rad] : 0;
@@ -851,7 +863,7 @@
                 return `<td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:700;background:${bg};color:${fg};">${cnt || ''}</td>`;
             }).join('');
             return `<tr style="border-top:1px solid #1e2a26;">
-                <td style="padding:5px 8px;font-size:10px;color:#94a3b8;position:sticky;left:0;background:#181f1c;font-weight:600;min-width:100px;">${escHtml(dim)}</td>
+                <td style="padding:5px 8px;font-size:10px;color:#94a3b8;position:sticky;left:0;background:#181f1c;font-weight:600;min-width:100px;">${escHtml(label)}</td>
                 ${cells}
                 <td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:900;color:#60a5fa;">${total}</td>
             </tr>`;
@@ -1008,7 +1020,10 @@
     }
 
     window.srExportCsv = function() {
-        const rows = _srRadMode === 'mod' ? (_srRadData.by_modality||[]) : (_srRadData.by_aetitle||[]);
+        const isMonth = _srRadMode === 'month';
+        const rows = _srRadMode === 'mod'   ? (_srRadData.by_modality||[])
+                   : _srRadMode === 'ae'    ? (_srRadData.by_aetitle||[])
+                   :                          (_srRadData.by_month||[]);
         if (!rows.length) return;
         const allRads = [...new Set(rows.map(r => r.radiologist))].sort();
         const allDims = [...new Set(rows.map(r => r.dim))];
@@ -1017,13 +1032,15 @@
             dimTotals[r.dim] = (dimTotals[r.dim]||0) + r.cnt;
             lookup[r.dim+'|'+r.radiologist] = r.cnt;
         });
-        allDims.sort((a,b) => (dimTotals[b]||0)-(dimTotals[a]||0));
+        if (isMonth) { allDims.sort(); } else { allDims.sort((a,b) => (dimTotals[b]||0)-(dimTotals[a]||0)); }
         const q = v => '"' + String(v||'').replace(/"/g,'""') + '"';
+        const colHeader = _srRadMode === 'mod' ? 'Modality' : _srRadMode === 'ae' ? 'AE Title' : 'Month';
         const lines = [
-            [_srRadMode === 'mod' ? 'Modality' : 'AE Title', ...allRads, 'Total'].map(q).join(','),
-            ...allDims.map(dim =>
-                [dim, ...allRads.map(rad => lookup[dim+'|'+rad]||0), dimTotals[dim]||0].map(q).join(',')
-            ),
+            [colHeader, ...allRads, 'Total'].map(q).join(','),
+            ...allDims.map(dim => {
+                const label = isMonth ? _srFmtMonth(dim) : dim;
+                return [label, ...allRads.map(rad => lookup[dim+'|'+rad]||0), dimTotals[dim]||0].map(q).join(',');
+            }),
             ['TOTAL', ...allRads.map(rad => allDims.reduce((s,d)=>s+(lookup[d+'|'+rad]||0),0)),
                 allDims.reduce((s,d)=>s+(dimTotals[d]||0),0)].map(q).join(','),
         ];
