@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <title>RAYD | Super Report</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
@@ -307,6 +309,12 @@
                                 onmouseout="this.style.borderColor='#28332e';this.style.color='#64748b';">
                                 <i class="bi bi-download"></i> CSV
                             </button>
+                            <button onclick="_srExportElemPdf(document.getElementById('sr-rad-xtab'),'Reports per Radiologist','rad_matrix')"
+                                style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #28332e;border-radius:6px;color:#64748b;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;"
+                                onmouseover="this.style.borderColor='#f87171';this.style.color='#f87171';"
+                                onmouseout="this.style.borderColor='#28332e';this.style.color='#64748b';">
+                                <i class="bi bi-file-earmark-pdf"></i> PDF
+                            </button>
                         </div>
                     </div>
                     <!-- Modality / AE cross-tab -->
@@ -330,6 +338,12 @@
                                 onmouseover="this.style.borderColor='#60a5fa';this.style.color='#60a5fa';"
                                 onmouseout="this.style.borderColor='#28332e';this.style.color='#64748b';">
                                 <i class="bi bi-download"></i> CSV
+                            </button>
+                            <button onclick="_srExportElemPdf(document.getElementById('sr-proc-table')?.closest('div'),'Procedure Breakdown','rad_procedures')"
+                                style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;background:transparent;border:1px solid #28332e;border-radius:6px;color:#64748b;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;"
+                                onmouseover="this.style.borderColor='#f87171';this.style.color='#f87171';"
+                                onmouseout="this.style.borderColor='#28332e';this.style.color='#64748b';">
+                                <i class="bi bi-file-earmark-pdf"></i> PDF
                             </button>
                         </div>
                         <div style="overflow-x:auto;max-height:340px;overflow-y:auto;border:1px solid #1e2a26;border-radius:8px;">
@@ -953,6 +967,35 @@
             <td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:900;color:#60a5fa;border-top:2px solid #28332e;">${grandTotal}</td>
         </tr>`;
     };
+
+    // ── PDF export ───────────────────────────────────────────────────
+    function _srExportElemPdf(el, title, filename) {
+        if (!el) return;
+        html2canvas(el, { backgroundColor: '#181f1c', scale: 2, useCORS: true }).then(canvas => {
+            const dataUrl = canvas.toDataURL('image/png');
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+            const pw  = doc.internal.pageSize.getWidth();
+            const ph  = doc.internal.pageSize.getHeight();
+            const mg  = 12;
+            const imgW = pw - mg * 2;
+            const maxH = ph - mg * 2 - 14;
+            const ratio = canvas.height / canvas.width;
+            const imgH  = Math.min(imgW * ratio, maxH);
+            doc.setFillColor(24, 31, 28);
+            doc.rect(0, 0, pw, ph, 'F');
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(11);
+            doc.setTextColor(226, 232, 240);
+            doc.text(title, mg, mg + 5);
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(8);
+            doc.setTextColor(100, 116, 139);
+            doc.text(`{{ data.date_from if data else '' }} – {{ data.date_to if data else '' }}`, mg, mg + 10);
+            doc.addImage(dataUrl, 'PNG', mg, mg + 14, imgW, imgH);
+            doc.save(`${filename}_${new Date().toISOString().slice(0,10)}.pdf`);
+        });
+    }
 
     // ── Radiologist CSV export ────────────────────────────────────────
     function _srDownloadCsv(csv, filename) {
