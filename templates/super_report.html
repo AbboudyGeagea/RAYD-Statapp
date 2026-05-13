@@ -983,29 +983,42 @@
     // ── PDF export ───────────────────────────────────────────────────
     function _srExportElemPdf(el, title, filename) {
         if (!el) return;
+        const btn = event?.currentTarget;
+        if (btn) { btn.textContent = '…'; btn.disabled = true; }
+        // Strip scroll/clip constraints so html2canvas captures the full table
+        const clipped = [...el.querySelectorAll('*')].filter(n => n.style && (n.style.maxHeight || n.style.overflowY === 'auto' || n.style.overflowY === 'scroll'));
+        const saved = clipped.map(n => ({ n, mh: n.style.maxHeight, oy: n.style.overflowY, ox: n.style.overflowX }));
+        saved.forEach(s => { s.n.style.maxHeight = 'none'; s.n.style.overflowY = 'visible'; s.n.style.overflowX = 'visible'; });
         html2canvas(el, { backgroundColor: '#181f1c', scale: 2, useCORS: true }).then(canvas => {
-            const dataUrl = canvas.toDataURL('image/png');
+            saved.forEach(s => { s.n.style.maxHeight = s.mh; s.n.style.overflowY = s.oy; s.n.style.overflowX = s.ox; });
             const { jsPDF } = window.jspdf;
             const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-            const pw  = doc.internal.pageSize.getWidth();
-            const ph  = doc.internal.pageSize.getHeight();
-            const mg  = 12;
-            const imgW = pw - mg * 2;
-            const maxH = ph - mg * 2 - 14;
-            const ratio = canvas.height / canvas.width;
-            const imgH  = Math.min(imgW * ratio, maxH);
-            doc.setFillColor(24, 31, 28);
-            doc.rect(0, 0, pw, ph, 'F');
-            doc.setFont('helvetica', 'bold');
-            doc.setFontSize(11);
-            doc.setTextColor(226, 232, 240);
-            doc.text(title, mg, mg + 5);
-            doc.setFont('helvetica', 'normal');
-            doc.setFontSize(8);
-            doc.setTextColor(100, 116, 139);
-            doc.text(`{{ data.date_from if data else '' }} – {{ data.date_to if data else '' }}`, mg, mg + 10);
-            doc.addImage(dataUrl, 'PNG', mg, mg + 14, imgW, imgH);
+            const pw = doc.internal.pageSize.getWidth(), ph = doc.internal.pageSize.getHeight(), mg = 12;
+            const usableW = pw - mg * 2;
+            const mmPerPx = usableW / canvas.width;
+            const fillBg = () => { doc.setFillColor(24,31,28); doc.rect(0,0,pw,ph,'F'); };
+            fillBg();
+            doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.setTextColor(226,232,240);
+            doc.text(title, mg, mg+5);
+            doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(100,116,139);
+            doc.text(`{{ data.date_from if data else '' }} – {{ data.date_to if data else '' }}`, mg, mg+10);
+            let srcY = 0, destY = mg + 14;
+            while (srcY < canvas.height) {
+                const availH = ph - destY - mg;
+                const slicePx = Math.min(Math.floor(availH / mmPerPx), canvas.height - srcY);
+                if (slicePx <= 0) break;
+                const tmp = document.createElement('canvas');
+                tmp.width = canvas.width; tmp.height = slicePx;
+                tmp.getContext('2d').drawImage(canvas, 0, srcY, canvas.width, slicePx, 0, 0, canvas.width, slicePx);
+                doc.addImage(tmp.toDataURL('image/png'), 'PNG', mg, destY, usableW, slicePx * mmPerPx);
+                srcY += slicePx;
+                if (srcY < canvas.height) { doc.addPage(); fillBg(); destY = mg; }
+            }
             doc.save(`${filename}_${new Date().toISOString().slice(0,10)}.pdf`);
+            if (btn) { btn.innerHTML = '<i class="bi bi-file-earmark-pdf"></i> PDF'; btn.disabled = false; }
+        }).catch(() => {
+            saved.forEach(s => { s.n.style.maxHeight = s.mh; s.n.style.overflowY = s.oy; s.n.style.overflowX = s.ox; });
+            if (btn) { btn.innerHTML = '<i class="bi bi-file-earmark-pdf"></i> PDF'; btn.disabled = false; }
         });
     }
 
