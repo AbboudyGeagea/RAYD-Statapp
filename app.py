@@ -113,6 +113,10 @@ def create_app():
     if not app.secret_key:
         raise RuntimeError("SECRET_KEY environment variable is required")
 
+    # Sits behind nginx which terminates TLS — trust one level of X-Forwarded-* headers
+    from werkzeug.middleware.proxy_fix import ProxyFix
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+
     # --- LOAD FEATURE FLAGS FROM config.py ---
     app.config.from_object(app_config)
 
@@ -215,7 +219,7 @@ def create_app():
     app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 60  # browsers re-check static files every 60 s
     app.config['SESSION_COOKIE_HTTPONLY'] = True
     app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
-    app.config['SESSION_COOKIE_SECURE'] = os.environ.get('SESSION_COOKIE_SECURE', 'false').lower() == 'true'
+    app.config['SESSION_COOKIE_SECURE'] = os.environ.get('SESSION_COOKIE_SECURE', 'true').lower() == 'true'
     app.config['WTF_CSRF_TIME_LIMIT'] = 3600  # 1-hour token validity
     app.config['WTF_CSRF_SSL_STRICT'] = False  # app runs behind nginx; flask sees plain HTTP
     csrf = CSRFProtect(app)
