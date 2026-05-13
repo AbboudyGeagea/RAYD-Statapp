@@ -129,32 +129,100 @@ fi
 set -a; source .env; set +a
 
 # ──────────────────────────────────────────────────────
-# STEP 4: SSL certificates (self-signed)
+# STEP 4: SSL certificates (private CA → trusted HTTPS)
 # ──────────────────────────────────────────────────────
-info "Step 4/7 — Checking SSL certificates..."
+info "Step 4/7 — Setting up SSL certificates..."
 
 CERT_DIR="./nginx/certs"
 mkdir -p "$CERT_DIR"
 
-if [ -f "${CERT_DIR}/fullchain.pem" ] && [ -f "${CERT_DIR}/privkey.pem" ]; then
-    ok "SSL certificates already exist — skipping."
+read -r -p "  Server hostname users will type in the browser [$(hostname)]: " CERT_CN
+CERT_CN="${CERT_CN:-$(hostname)}"
+
+# --- 4a. Generate private CA (once per organization) ---
+if [ ! -f "${CERT_DIR}/rayd-ca.key" ] || [ ! -f "${CERT_DIR}/rayd-ca.crt" ]; then
+    info "Generating RAYD private Certificate Authority..."
+    openssl genrsa -out "${CERT_DIR}/rayd-ca.key" 4096 2>/dev/null
+    openssl req -x509 -new -nodes \
+        -key  "${CERT_DIR}/rayd-ca.key" \
+        -sha256 -days 3650 \
+        -out  "${CERT_DIR}/rayd-ca.crt" \
+        -subj "/CN=RAYD Internal CA/O=Intermedic/OU=IT" \
+        -addext "basicConstraints=critical,CA:true" \
+        -addext "keyUsage=critical,keyCertSign,cRLSign" \
+        2>/dev/null
+    chmod 600 "${CERT_DIR}/rayd-ca.key"
+    ok "Private CA certificate created."
 else
-    info "Generating self-signed SSL certificate (valid 10 years)..."
+    ok "Private CA already exists — reusing it."
+fi
 
-    read -r -p "  Server hostname or IP for the certificate [$(hostname)]: " CERT_CN
-    CERT_CN="${CERT_CN:-$(hostname)}"
+# --- 4b. Generate server cert signed by our CA ---
+REGEN_CERT=false
+if [ ! -f "${CERT_DIR}/fullchain.pem" ] || [ ! -f "${CERT_DIR}/privkey.pem" ]; then
+    REGEN_CERT=true
+else
+    # Regenerate if the hostname in the existing cert doesn't match
+    EXISTING_CN=$(openssl x509 -noout -subject -in "${CERT_DIR}/fullchain.pem" 2>/dev/null | sed 's/.*CN\s*=\s*//' | cut -d',' -f1 | tr -d ' ')
+    if [ "$EXISTING_CN" != "$CERT_CN" ]; then
+        warn "Hostname changed ($EXISTING_CN → $CERT_CN) — regenerating server certificate."
+        REGEN_CERT=true
+    else
+        ok "Server certificate already exists for '${CERT_CN}' — skipping."
+    fi
+fi
 
-    openssl req -x509 -nodes -newkey rsa:2048 \
-        -keyout "${CERT_DIR}/privkey.pem" \
-        -out    "${CERT_DIR}/fullchain.pem" \
-        -days   3650 \
-        -subj   "/CN=${CERT_CN}/O=RAYD/OU=IT" \
-        -addext "subjectAltName=DNS:${CERT_CN},IP:127.0.0.1" \
+if [ "$REGEN_CERT" = true ]; then
+    info "Generating server certificate for '${CERT_CN}'..."
+
+    openssl genrsa -out "${CERT_DIR}/privkey.pem" 2048 2>/dev/null
+    chmod 600 "${CERT_DIR}/privkey.pem"
+
+    openssl req -new \
+        -key  "${CERT_DIR}/privkey.pem" \
+        -out  "${CERT_DIR}/server.csr" \
+        -subj "/CN=${CERT_CN}/O=Intermedic/OU=IT" \
         2>/dev/null
 
-    chmod 600 "${CERT_DIR}/privkey.pem"
-    ok "Self-signed certificate generated for '${CERT_CN}'."
+    # SAN extension file (modern browsers require this)
+    cat > "${CERT_DIR}/server-ext.cnf" <<SRVEXT
+[ext]
+subjectAltName     = DNS:${CERT_CN},IP:127.0.0.1
+basicConstraints   = CA:false
+keyUsage           = critical,digitalSignature,keyEncipherment
+extendedKeyUsage   = serverAuth
+SRVEXT
+
+    openssl x509 -req \
+        -in      "${CERT_DIR}/server.csr" \
+        -CA      "${CERT_DIR}/rayd-ca.crt" \
+        -CAkey   "${CERT_DIR}/rayd-ca.key" \
+        -CAcreateserial \
+        -out     "${CERT_DIR}/fullchain.pem" \
+        -days    825 \
+        -sha256  \
+        -extfile "${CERT_DIR}/server-ext.cnf" \
+        -extensions ext \
+        2>/dev/null
+
+    rm -f "${CERT_DIR}/server.csr" "${CERT_DIR}/server-ext.cnf" "${CERT_DIR}/rayd-ca.srl"
+    ok "Server certificate signed by RAYD CA for '${CERT_CN}'."
 fi
+
+echo ""
+echo "  ┌─────────────────────────────────────────────────────────┐"
+echo "  │  CLIENT SETUP — install CA cert once on each PC         │"
+echo "  │                                                          │"
+echo "  │  CA file:  ${CERT_DIR}/rayd-ca.crt                      │"
+echo "  │                                                          │"
+echo "  │  Windows (run as Administrator):                         │"
+echo "  │    certutil -addstore Root nginx/certs/rayd-ca.crt       │"
+echo "  │  Or: double-click → Install → Trusted Root CAs           │"
+echo "  │                                                          │"
+echo "  │  Linux/Mac:                                              │"
+echo "  │    See nginx/certs/README.md                             │"
+echo "  └─────────────────────────────────────────────────────────┘"
+echo ""
 
 # ──────────────────────────────────────────────────────
 # STEP 5: Build and start containers
