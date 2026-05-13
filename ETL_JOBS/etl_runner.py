@@ -178,6 +178,7 @@ def _sync_lookup_tables(engine):
                   AND TRIM(s.storing_ae) != ''
                   AND ser.modality IS NOT NULL
                   AND TRIM(ser.modality) != ''
+                  AND ser.modality != 'SR'
                 GROUP BY s.storing_ae, ser.modality
             ) ranked
             WHERE rn = 1
@@ -201,6 +202,7 @@ def _sync_lookup_tables(engine):
             SELECT DISTINCT TRIM(proc_id), 15, 1.0
             FROM etl_orders
             WHERE proc_id IS NOT NULL AND TRIM(proc_id) != ''
+              AND COALESCE(modality, '') != 'SR'
             ON CONFLICT (procedure_code) DO NOTHING
         """))
         logger.info(f"Phase 8 — Step 3 (Procedure Codes): {r.rowcount} new procedures inserted")
@@ -227,6 +229,7 @@ def _sync_lookup_tables(engine):
                 WHERE o.proc_id IS NOT NULL
                   AND s.study_modality IS NOT NULL
                   AND TRIM(s.study_modality) != ''
+                  AND s.study_modality != 'SR'
                 GROUP BY TRIM(o.proc_id)
             ) sub
             WHERE p.procedure_code = sub.procedure_code
@@ -247,6 +250,7 @@ def _sync_lookup_tables(engine):
                   AND TRIM(s.procedure_code) != ''
                   AND s.study_modality IS NOT NULL
                   AND TRIM(s.study_modality) != ''
+                  AND s.study_modality != 'SR'
                 GROUP BY TRIM(s.procedure_code)
             ) sub
             WHERE p.procedure_code = sub.procedure_code
@@ -268,6 +272,7 @@ def _sync_lookup_tables(engine):
                         WHERE similarity(UPPER(TRIM(p2.procedure_code)), UPPER(TRIM(s.procedure_code))) >= 0.9
                           AND s.study_modality IS NOT NULL
                           AND TRIM(s.study_modality) != ''
+                          AND s.study_modality != 'SR'
                     ) AS modality
                 FROM procedure_duration_map p2
                 WHERE p2.modality IS NULL
@@ -297,6 +302,7 @@ def _sync_lookup_tables(engine):
                           AND similarity(UPPER(o.proc_text), UPPER(s.study_description)) >= 0.9
                           AND s.study_modality IS NOT NULL
                           AND TRIM(s.study_modality) != ''
+                          AND s.study_modality != 'SR'
                     ) AS modality
                 FROM procedure_duration_map p2
                 WHERE p2.modality IS NULL
@@ -333,6 +339,7 @@ def _sync_lookup_tables(engine):
             WHERE p.modality IS NULL
               AND s.study_modality IS NOT NULL
               AND TRIM(s.study_modality) != ''
+              AND s.study_modality != 'SR'
             GROUP BY p.procedure_code, s.study_modality
             ORDER BY p.procedure_code, match_score DESC
             ON CONFLICT (procedure_code) DO UPDATE SET
@@ -355,6 +362,7 @@ def _sync_lookup_tables(engine):
                 WHERE s.procedure_code IS NOT NULL
                   AND TRIM(s.procedure_code) != ''
                   AND am.modality IS NOT NULL
+                  AND am.modality != 'SR'
                 GROUP BY TRIM(s.procedure_code)
             ) sub
             WHERE p.procedure_code = sub.procedure_code
@@ -397,6 +405,7 @@ def _sync_lookup_tables(engine):
               AND TRIM(s.procedure_code) != ''
               AND s.study_modality IS NOT NULL
               AND TRIM(s.study_modality) != ''
+              AND s.study_modality != 'SR'
             GROUP BY TRIM(s.procedure_code)
             HAVING COUNT(DISTINCT UPPER(TRIM(s.study_modality))) > 1
         """))
