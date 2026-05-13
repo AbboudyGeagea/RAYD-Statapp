@@ -382,7 +382,11 @@ def oru_page():
         WHERE procedure_code IS NOT NULL AND TRIM(procedure_code) != ''
         ORDER BY name
     """)).fetchall()
-    return render_template('oru_analytics.html', procedures=procedures)
+    min_date_row = db.session.execute(text(
+        "SELECT MIN(received_at)::date AS d FROM hl7_oru_reports"
+    )).fetchone()
+    min_date = min_date_row.d.strftime('%d %b %Y') if min_date_row and min_date_row.d else None
+    return render_template('oru_analytics.html', procedures=procedures, min_date=min_date)
 
 
 @oru_bp.route('/data')
