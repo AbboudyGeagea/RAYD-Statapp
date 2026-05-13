@@ -6,6 +6,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
     <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
@@ -56,7 +57,7 @@
         .section-desc { font-size: 13px; color: #64748b; font-style: italic; line-height: 1.6; margin-bottom: 20px; padding: 12px 16px; background: rgba(96,165,250,0.06); border-left: 3px solid #60a5fa; border-radius: 0 8px 8px 0; }
 
         /* PNG export button */
-        .export-png-btn {
+        .export-png-btn, .export-pdf-btn {
             display: inline-flex; align-items: center; gap: 4px;
             font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em;
             color: #3f3f46; border: 1px solid #28332e; border-radius: 6px;
@@ -64,6 +65,7 @@
             white-space: nowrap;
         }
         .export-png-btn:hover { color: #60a5fa; border-color: #60a5fa; }
+        .export-pdf-btn:hover { color: #f87171; border-color: #f87171; }
         @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
         .ai-cursor { display:inline-block; animation:blink 1s step-start infinite; color:#60a5fa; }
         @media print {
@@ -332,6 +334,9 @@
                                 <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                                 PNG
                             </button>
+                            <button class="export-pdf-btn" onclick="exportChartPdf('chart-1','TAT per Patient Class','tat_per_class')">
+                                <i class="bi bi-file-earmark-pdf"></i> PDF
+                            </button>
                         </div>
                         <div class="chart-card-desc">
                             Average Turnaround Time (minutes from study order to report) broken down by patient class. Higher bars indicate longer waits — compare Emergency vs. Outpatient to spot service-level gaps.
@@ -345,6 +350,9 @@
                             <button class="export-png-btn" onclick="exportChart('chart-6', 'hourly_arrivals')">
                                 <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                                 PNG
+                            </button>
+                            <button class="export-pdf-btn" onclick="exportChartPdf('chart-6','Hourly Arrival Pattern','hourly_arrivals')">
+                                <i class="bi bi-file-earmark-pdf"></i> PDF
                             </button>
                         </div>
                         <div class="chart-card-desc">
@@ -362,6 +370,9 @@
                             <button class="export-png-btn" onclick="exportChart('chart-5', 'modality_split')">
                                 <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                                 PNG
+                            </button>
+                            <button class="export-pdf-btn" onclick="exportChartPdf('chart-5','Modality Volume Split','modality_split')">
+                                <i class="bi bi-file-earmark-pdf"></i> PDF
                             </button>
                         </div>
                         <div class="chart-card-desc">
@@ -382,6 +393,9 @@
                             <button class="export-png-btn" onclick="exportChart('chart-7', 'duration_tat_correlation')">
                                 <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                                 PNG
+                            </button>
+                            <button class="export-pdf-btn" onclick="exportChartPdf('chart-7','Duration vs TAT Correlation','duration_tat_correlation')">
+                                <i class="bi bi-file-earmark-pdf"></i> PDF
                             </button>
                         </div>
                         <div class="chart-card-desc">
@@ -517,6 +531,9 @@
                                 onmouseout="this.style.borderColor='#3f3f46';this.style.color='#71717a';">
                                 <i class="bi bi-download"></i> CSV
                             </button>
+                            <button class="export-pdf-btn" onclick="exportElemPdf(document.getElementById('r25-rad-xtab'),'Reports per Radiologist','rad_matrix')">
+                                <i class="bi bi-file-earmark-pdf"></i> PDF
+                            </button>
                         </div>
                     </div>
                     <div id="r25-rad-xtab"></div>
@@ -539,6 +556,9 @@
                                 onmouseover="this.style.borderColor='#60a5fa';this.style.color='#60a5fa';"
                                 onmouseout="this.style.borderColor='#3f3f46';this.style.color='#71717a';">
                                 <i class="bi bi-download"></i> CSV
+                            </button>
+                            <button class="export-pdf-btn" onclick="exportElemPdf(document.getElementById('r25-proc-table')?.closest('div'),'Procedure Breakdown','rad_procedures')">
+                                <i class="bi bi-file-earmark-pdf"></i> PDF
                             </button>
                         </div>
                         <div style="overflow-x:auto;max-height:340px;overflow-y:auto;border:1px solid rgba(255,255,255,0.05);border-radius:8px;">
@@ -1655,6 +1675,57 @@
             a.href = url;
             a.download = `${filename}_{{ display_start }}_to_{{ display_end }}.png`;
             a.click();
+        }
+
+        // ── PDF export helpers ───────────────────────────────────────────────
+        const _PDF_DATE = '{{ display_start }} – {{ display_end }}';
+        const _PDF_BG   = '#18181b';
+
+        function _pdfFromDataUrl(dataUrl, title, filename) {
+            const { jsPDF } = window.jspdf;
+            const doc  = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+            const pw   = doc.internal.pageSize.getWidth();
+            const ph   = doc.internal.pageSize.getHeight();
+            const mg   = 12;
+            const imgW = pw - mg * 2;
+            // reserve 14mm for title block
+            const maxH = ph - mg * 2 - 14;
+            // Derive image aspect ratio from a temp image element
+            const img  = new Image();
+            img.onload = () => {
+                const ratio = img.naturalHeight / img.naturalWidth;
+                const imgH  = Math.min(imgW * ratio, maxH);
+                doc.setFillColor(24, 24, 27);
+                doc.rect(0, 0, pw, ph, 'F');
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(11);
+                doc.setTextColor(224, 224, 227);
+                doc.text(title, mg, mg + 5);
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(8);
+                doc.setTextColor(113, 113, 122);
+                doc.text(_PDF_DATE, mg, mg + 10);
+                doc.addImage(dataUrl, 'PNG', mg, mg + 14, imgW, imgH);
+                doc.save(`${filename}_{{ display_start }}_to_{{ display_end }}.pdf`);
+            };
+            img.src = dataUrl;
+        }
+
+        function exportChartPdf(id, title, filename) {
+            const instance = chartInstances[id];
+            if (!instance) return;
+            const url = instance.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: _PDF_BG });
+            _pdfFromDataUrl(url, title, filename);
+        }
+
+        function exportElemPdf(el, title, filename) {
+            if (!el) return;
+            const btn = event?.currentTarget;
+            if (btn) { btn.textContent = '…'; btn.disabled = true; }
+            html2canvas(el, { backgroundColor: _PDF_BG, scale: 2, useCORS: true }).then(canvas => {
+                _pdfFromDataUrl(canvas.toDataURL('image/png'), title, filename);
+                if (btn) { btn.innerHTML = '<i class="bi bi-file-earmark-pdf"></i> PDF'; btn.disabled = false; }
+            }).catch(() => { if (btn) { btn.innerHTML = '<i class="bi bi-file-earmark-pdf"></i> PDF'; btn.disabled = false; } });
         }
 
         // ── Tab switching ────────────────────────────────────────────────────
