@@ -357,7 +357,7 @@ def get_gold_standard_data(form_data):
         db.session.rollback()
 
     # ── Reports per radiologist × modality / AE title / procedure ────────
-    rad_volume_matrix = {"by_modality": [], "by_aetitle": [], "by_procedure": []}
+    rad_volume_matrix = {"by_modality": [], "by_aetitle": [], "by_procedure": [], "by_month": []}
     try:
         _RAD25 = ("COALESCE(NULLIF(TRIM(CONCAT(s.signing_physician_first_name,' ',"
                   "s.signing_physician_last_name)),''),s.rep_final_signed_by,'Unknown')")
@@ -409,6 +409,16 @@ def get_gold_standard_data(form_data):
               AND COALESCE(s.study_modality, '') != 'SR'
               {_sec_filters} {_RAD25_OK}
             GROUP BY 1, 2 ORDER BY 2, 3 DESC
+        """), params).mappings().fetchall()]
+        rad_volume_matrix["by_month"] = [dict(r) for r in db.session.execute(text(f"""
+            SELECT {_RAD25} AS radiologist,
+                   TO_CHAR(s.study_date, 'YYYY-MM') AS dim,
+                   COUNT(DISTINCT s.study_db_uid) AS cnt
+            FROM etl_didb_studies s {_MJ25}
+            WHERE s.study_date BETWEEN :start AND :end
+              AND COALESCE(m.modality, s.study_modality, '') != 'SR'
+              {_sec_filters} {_RAD25_OK}
+            GROUP BY 1, 2 ORDER BY 1, 2
         """), params).mappings().fetchall()]
     except Exception as _e:
         db.session.rollback()
