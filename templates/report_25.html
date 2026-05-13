@@ -741,12 +741,9 @@
                         document.body.removeChild(a); URL.revokeObjectURL(url);
                     }
 
-                    window.r25ExportCsv = function() {
-                        const isMonth = _r25Mode === 'month';
-                        const rows = _r25Mode === 'mod' ? (RAD_VOL.by_modality||[])
-                                   : _r25Mode === 'ae'  ? (RAD_VOL.by_aetitle||[])
-                                   :                      (RAD_VOL.by_month||[]);
-                        if (!rows.length) return;
+                    function _r25CsvSection(rows, colHeader, isMonth) {
+                        if (!rows.length) return [];
+                        const q = v => '"' + String(v||'').replace(/"/g,'""') + '"';
                         const allRads = [...new Set(rows.map(r => r.radiologist))].sort();
                         const allDims = [...new Set(rows.map(r => r.dim))];
                         const dimTotals = {}, lookup = {};
@@ -755,9 +752,7 @@
                             lookup[r.dim+'|'+r.radiologist] = r.cnt;
                         });
                         if (isMonth) { allDims.sort(); } else { allDims.sort((a,b) => (dimTotals[b]||0)-(dimTotals[a]||0)); }
-                        const q = v => '"' + String(v||'').replace(/"/g,'""') + '"';
-                        const colHeader = _r25Mode === 'mod' ? 'Modality' : _r25Mode === 'ae' ? 'AE Title' : 'Month';
-                        const lines = [
+                        return [
                             [colHeader, ...allRads, 'Total'].map(q).join(','),
                             ...allDims.map(dim => {
                                 const label = isMonth ? _fmtMonth(dim) : dim;
@@ -766,7 +761,18 @@
                             ['TOTAL', ...allRads.map(rad => allDims.reduce((s,d)=>s+(lookup[d+'|'+rad]||0),0)),
                                 allDims.reduce((s,d)=>s+(dimTotals[d]||0),0)].map(q).join(','),
                         ];
-                        _r25DownloadCsv(lines.join('\n'), `rad_by_${_r25Mode}_${new Date().toISOString().slice(0,10)}.csv`);
+                    }
+
+                    window.r25ExportCsv = function() {
+                        const sections = [
+                            ['=== By Modality ===', ..._r25CsvSection(RAD_VOL.by_modality||[], 'Modality', false)],
+                            [],
+                            ['=== By AE Title ===', ..._r25CsvSection(RAD_VOL.by_aetitle||[], 'AE Title', false)],
+                            [],
+                            ['=== By Month ===',    ..._r25CsvSection(RAD_VOL.by_month||[],    'Month',    true)],
+                        ];
+                        const lines = sections.map(s => Array.isArray(s) ? s.join('\n') : s);
+                        _r25DownloadCsv(lines.join('\n'), `rad_matrix_${new Date().toISOString().slice(0,10)}.csv`);
                     };
 
                     window.r25ExportProcCsv = function() {
