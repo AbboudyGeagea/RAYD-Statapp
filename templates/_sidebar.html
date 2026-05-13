@@ -67,13 +67,14 @@
             </a>
         </div>
 
-        {% if current_user.role == 'admin' %}
+        {% if current_user.role == 'admin' or current_user|user_has_page('mapping') %}
         <!-- ── ADMINISTRATION ──────────────────────────────────────── -->
         <button class="sg-btn" onclick="sgToggle('admin')">
             <span class="flex items-center gap-2"><i class="bi bi-shield-lock-fill" style="color:#f59e0b;"></i> Administration</span>
             <i id="chev-admin" class="bi bi-chevron-down sg-chevron {% if admin_on %}open{% endif %}"></i>
         </button>
         <div id="sg-admin" class="sg-body {% if not admin_on %}closed{% endif %} space-y-0.5 mb-2">
+            {% if current_user.role == 'admin' %}
             <a href="{{ url_for('admin.admin_dashboard') }}"
                class="sidebar-item {% if ep == 'admin.admin_dashboard' %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
                 <i class="bi bi-cpu flex-shrink-0" style="color:#f59e0b;"></i> ETL Control Room
@@ -101,14 +102,19 @@
                 <span style="font-size:8px;font-weight:900;padding:1px 5px;border-radius:4px;background:rgba(239,68,68,0.15);color:#f87171;text-transform:uppercase;letter-spacing:0.08em;">!</span>
                 {% endif %}
             </a>
+            {% endif %}
+            {% if current_user.role == 'admin' or current_user|user_has_page('mapping') %}
             <a href="{{ url_for('mapping.mapping_page') }}"
                class="sidebar-item {% if ep.startswith('mapping.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
                 <i class="bi bi-calendar-week flex-shrink-0" style="color:#a78bfa;"></i> Modality / Procedures
             </a>
+            {% endif %}
+            {% if current_user.role == 'admin' %}
             <a href="{{ url_for('admin.hl7_forward_config') }}"
                class="sidebar-item {% if ep == 'admin.hl7_forward_config' %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
                 <i class="bi bi-send-arrow-up-fill flex-shrink-0" style="color:#38bdf8;"></i> HL7 Forward
             </a>
+            {% endif %}
         </div>
         {% endif %}
 
@@ -153,9 +159,9 @@
         {% endif %}
 
         <!-- ── ANALYTICS ───────────────────────────────────────────── -->
-        {% set has_analytics = (current_user.role == 'admin' or license.get('oru_analytics'))
-                            or (current_user.role == 'admin' or license.get('referring_intel'))
-                            or (current_user.role in ('admin','viewer','viewer2') and license.get('custom_reports'))
+        {% set has_analytics = (current_user.role == 'admin' or current_user|user_has_page('oru'))
+                            or (license.get('referring_intel') and (current_user.role == 'admin' or current_user|user_has_page('referring_intel')))
+                            or (license.get('custom_reports') and (current_user.role == 'admin' or current_user|user_has_page('custom_reports')))
                             or (portal_admin_enabled and current_user.username != demo_user and (current_user.role == 'admin' or current_user|user_has_page('patient_portal'))) %}
         {% if has_analytics %}
         <button class="sg-btn" onclick="sgToggle('analytics')">
@@ -169,13 +175,13 @@
                 <i class="bi bi-cloud-fill flex-shrink-0" style="color:#a78bfa;"></i> Report Intelligence
             </a>
             {% endif %}
-            {% if current_user.role == 'admin' or license.get('referring_intel') %}
+            {% if license.get('referring_intel') and (current_user.role == 'admin' or current_user|user_has_page('referring_intel')) %}
             <a href="{{ url_for('referring_intel.referring_intel_page') }}"
                class="sidebar-item {% if ep.startswith('referring_intel.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
                 <i class="bi bi-person-badge flex-shrink-0" style="color:#34d399;"></i> Referring Intel
             </a>
             {% endif %}
-            {% if current_user.role in ('admin','viewer','viewer2') and license.get('custom_reports') %}
+            {% if license.get('custom_reports') and (current_user.role == 'admin' or current_user|user_has_page('custom_reports')) %}
             <a href="/reports/custom"
                class="sidebar-item {% if ep.startswith('custom_reports.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
                 <i class="bi bi-layout-text-sidebar-reverse flex-shrink-0" style="color:#60a5fa;"></i> Custom Reports

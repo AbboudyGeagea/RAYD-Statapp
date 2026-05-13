@@ -474,15 +474,18 @@ def suggest_hl7_slot():
 
 def _get_user_page_columns():
     return [
-        ('live_feed',      'Live AE Status'),
-        ('hl7_orders',     'HL7 Orders'),
-        ('report_ai',      'AI Reports'),
-        ('bitnet',         'AI Assistant'),
-        ('oru',            'Report Intelligence'),
-        ('mapping',        'Modality Mapping'),
-        ('patient_portal', 'Patient Portal'),
-        ('scheduling',     'Scheduling'),
-        ('financial',      'Revenue Intelligence'),
+        ('live_feed',       'Live AE Status'),
+        ('hl7_orders',      'HL7 Orders'),
+        ('scheduling',      'Scheduling'),
+        ('cd_print',        'Patient CD Log'),
+        ('oru',             'Report Intelligence'),
+        ('referring_intel', 'Referring Intel'),
+        ('custom_reports',  'Custom Reports'),
+        ('patient_portal',  'Patient Portal'),
+        ('mapping',         'Modality / Procedures'),
+        ('report_ai',       'AI Reports'),
+        ('bitnet',          'AI Assistant'),
+        ('financial',       'Revenue Intelligence'),
     ]
 
 
