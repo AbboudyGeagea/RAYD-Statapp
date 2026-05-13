@@ -5,6 +5,7 @@
     <title>RAYD | AI Intelligence</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
     <style>
         :root { --bg:#050d1a; --surface:#0a1220; --border:#162440; --border2:#1e3255; --text:#e8f0fe; --muted:#7a9cc9; --accent:#2f80ed; --accent2:#56ccf2; --success:#27ae60; --warning:#f2994a; --danger:#eb5757; --purple:#9b51e0; }
@@ -288,7 +289,49 @@
         physChart.setOption({tooltip:{trigger:'axis'},legend:{bottom:0,textStyle:{color:'#3d5278',fontSize:11}},grid:{left:60,right:30,top:20,bottom:50},xAxis:{type:'category',data:all,axisLabel:{...axisLabel,rotate:30}},yAxis:{type:'value',name:'Referrals',nameTextStyle:{color:'#3d5278',fontSize:10},splitLine,axisLabel},series:[{name:'Monthly Referrals',type:'bar',data:[...doc.chart.counts,...new Array(doc.chart.forecast_months.length).fill(null)],itemStyle:{color:doc.slope<-0.5?'#eb5757':doc.slope>0.5?'#27ae60':'#2f80ed',borderRadius:[3,3,0,0]},barMaxWidth:30},{name:'Forecast',type:'line',smooth:true,data:[...new Array(doc.chart.months.length).fill(null),...doc.chart.forecast_vals],lineStyle:{color:'#56ccf2',width:2,type:'dashed'},itemStyle:{color:'#56ccf2'},symbol:'circle',symbolSize:6}]});
     }
     if (PHYS_DATA.length>0) selectPhysician(0);
+
+    _addPdfOverlay('chart-storage',          'Storage Growth + 90-Day Forecast',  'ai_storage',   '#050d1a');
+    _addPdfOverlay('chart-volume',           'Daily Study Volume + 90-Day Forecast','ai_volume',   '#050d1a');
+    _addPdfOverlay('chart-volume-mod',       'Volume Split by Modality',           'ai_volume_mod','#050d1a');
+    _addPdfOverlay('chart-ae-detail',        'AE Utilization Detail',              'ai_ae_detail', '#050d1a');
+    _addPdfOverlay('chart-physician-detail', 'Physician Monthly Referrals',        'ai_phys',      '#050d1a');
+
     window.addEventListener('resize',()=>Object.values(charts).forEach(c=>c&&c.resize()));
+
+    function _addPdfOverlay(chartId, title, filename, bg) {
+        const el = document.getElementById(chartId);
+        if (!el || el.dataset.pdfBtn) return;
+        el.dataset.pdfBtn = '1';
+        const btn = document.createElement('button');
+        btn.innerHTML = '<i class="bi bi-file-earmark-pdf"></i> PDF';
+        btn.style.cssText = 'position:absolute;top:6px;right:6px;z-index:20;display:inline-flex;align-items:center;gap:3px;padding:3px 8px;background:rgba(0,0,0,0.65);border:1px solid #52525b;border-radius:5px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;backdrop-filter:blur(4px);transition:all 0.15s;font-family:inherit;line-height:1;';
+        btn.onmouseover = () => { btn.style.borderColor='#f87171'; btn.style.color='#f87171'; };
+        btn.onmouseout  = () => { btn.style.borderColor='#52525b'; btn.style.color='#71717a'; };
+        btn.onclick = () => {
+            const inst = echarts.getInstanceByDom(el);
+            if (!inst) return;
+            const url = inst.getDataURL({ type:'png', pixelRatio:2, backgroundColor:bg });
+            const img = new Image();
+            img.onload = () => {
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF({ orientation:'landscape', unit:'mm', format:'a4' });
+                const pw = doc.internal.pageSize.getWidth(), ph = doc.internal.pageSize.getHeight(), mg = 12;
+                const imgW = pw - mg*2, imgH = Math.min(imgW*(img.naturalHeight/img.naturalWidth), ph - mg*2 - 14);
+                const rgb = bg.replace('#','');
+                doc.setFillColor(parseInt(rgb.slice(0,2),16), parseInt(rgb.slice(2,4),16), parseInt(rgb.slice(4,6),16));
+                doc.rect(0,0,pw,ph,'F');
+                doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.setTextColor(226,232,240);
+                doc.text(title, mg, mg+5);
+                doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(100,116,139);
+                doc.text(new Date().toLocaleDateString(), mg, mg+10);
+                doc.addImage(url,'PNG', mg, mg+14, imgW, imgH);
+                doc.save(`${filename}_${new Date().toISOString().slice(0,10)}.pdf`);
+            };
+            img.src = url;
+        };
+        el.style.position = 'relative';
+        el.appendChild(btn);
+    }
 
     function applyTheme(theme) {
         document.body.classList.toggle('light', theme === 'light');
