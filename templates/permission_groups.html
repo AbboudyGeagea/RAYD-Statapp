@@ -5,9 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Permission Groups — RAYD Admin</title>
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
     <style>
         body { font-family: 'Inter', sans-serif; background: #0f172a; color: #e2e8f0; }
         .card  { background: #1e293b; border: 1px solid #334155; border-radius: 14px; }
