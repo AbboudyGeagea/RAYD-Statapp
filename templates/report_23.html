@@ -3,11 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <title>RAYD | Population Intel</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
     <style>
         body { background: #0b0f0e; color: #e2e8f0; font-family: 'Inter', sans-serif; height: 100vh; overflow: hidden; }
         body { transition: background 0.2s, color 0.2s; }
