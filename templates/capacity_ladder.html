@@ -232,7 +232,7 @@ async function loadOverview() {
     try {
         const data = await (await fetch(`/viewer/capacity-ladder/overview?date=${d}`)).json();
         setVis('ov-loading', false);
-        const label = new Date(d + 'T12:00:00').toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+        const label = new Date(d + 'T12:00:00').toLocaleDateString('en-GB',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
         document.getElementById('ov-date-label').textContent = label;
         document.getElementById('ae-cards').innerHTML = data.map(ae => {
             const closed = ae.status === 'closed';

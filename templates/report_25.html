@@ -1206,7 +1206,7 @@
                         // Add a watermark/context label temporarily
                         const label = document.createElement('p');
                         label.style.cssText = 'font-size:10px;color:#52525b;margin-bottom:10px;font-family:monospace;';
-                        label.textContent = `RAYD · Reporting Cadence · ${radName} · Exported ${new Date().toLocaleDateString()}`;
+                        label.textContent = `RAYD · Reporting Cadence · ${radName} · Exported ${new Date().toLocaleDateString('en-GB')}`;
                         card.insertBefore(label, card.firstChild);
 
                         html2canvas(card, {
