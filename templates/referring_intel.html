@@ -693,7 +693,7 @@
                 doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.setTextColor(226,232,240);
                 doc.text(title, mg, mg+5);
                 doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(100,116,139);
-                doc.text(new Date().toLocaleDateString(), mg, mg+10);
+                doc.text(new Date().toLocaleDateString('en-GB'), mg, mg+10);
                 doc.addImage(url,'PNG', mg, mg+14, imgW, imgH);
                 doc.save(`${filename}_${new Date().toISOString().slice(0,10)}.pdf`);
             };

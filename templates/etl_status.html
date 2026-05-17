@@ -266,7 +266,7 @@
                                 {% if current_date != last_date[-1] %}
                                     <tr class="date-divider">
                                         <td colspan="5" class="py-3 px-6 text-[10px] font-black text-[#60a5fa] uppercase tracking-[0.3em]">
-                                            <i class="bi bi-calendar3 mr-2"></i> {{ log.start_time.strftime('%A, %b %d, %Y') }}
+                                            <i class="bi bi-calendar3 mr-2"></i> {{ log.start_time.strftime('%d %b %Y, %A') }}
                                         </td>
                                     </tr>
                                     {% if last_date.append(current_date) %}{% endif %}

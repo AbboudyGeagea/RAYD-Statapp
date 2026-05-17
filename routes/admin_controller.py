@@ -43,7 +43,7 @@ def admin_dashboard():
         .first()
     )
     last_sync_time = (
-        last_sync_entry.end_time.strftime('%b %d, %H:%M')
+        last_sync_entry.end_time.strftime('%d %b, %H:%M')
         if last_sync_entry and last_sync_entry.end_time
         else "Never"
     )

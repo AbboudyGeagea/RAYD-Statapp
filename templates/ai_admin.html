@@ -153,7 +153,7 @@ async function loadFeedback() {
                     <div class="flex-1 min-w-0">
                         <div class="flex items-center gap-2 mb-1">
                             <span class="badge-down"><i class="bi bi-hand-thumbs-down"></i> Thumbs Down</span>
-                            <span class="meta">${r.created_at ? new Date(r.created_at).toLocaleDateString() : ''}</span>
+                            <span class="meta">${r.created_at ? new Date(r.created_at).toLocaleDateString('en-GB') : ''}</span>
                         </div>
                         <p class="q-text"><strong>Question:</strong> ${escHtml(r.question)}</p>
                         <p class="r-text"><strong>AI said:</strong> ${escHtml(r.response)}</p>
@@ -250,7 +250,7 @@ async function loadCorrections() {
                 <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-2 mb-1">
                         <span class="${r.is_active ? 'badge-active' : 'badge-inactive'}">${r.is_active ? 'Active' : 'Disabled'}</span>
-                        <span class="meta">by ${escHtml(r.created_by || '?')} · ${r.created_at ? new Date(r.created_at).toLocaleDateString() : ''}</span>
+                        <span class="meta">by ${escHtml(r.created_by || '?')} · ${r.created_at ? new Date(r.created_at).toLocaleDateString('en-GB') : ''}</span>
                     </div>
                     <p class="q-text"><strong>Keywords:</strong> <code style="color:#60a5fa;font-size:12px;">${escHtml(r.keywords)}</code></p>
                     ${r.example_question ? `<p class="q-text"><strong>Example:</strong> ${escHtml(r.example_question)}</p>` : ''}
