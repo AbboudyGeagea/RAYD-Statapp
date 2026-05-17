@@ -36,8 +36,6 @@ def super_report_page():
 #  SAVED REPORTS ENDPOINTS
 # ─────────────────────────────────────────────
 
-SUPER_REPORT_SENTINEL = 0  # base_report_id for all Super Report saves
-
 @super_report_bp.route("/viewer/super-report/save", methods=["POST"])
 @login_required
 def save_super_report():
@@ -51,12 +49,13 @@ def save_super_report():
 
     try:
         # Check for duplicate name for this user
+        # Super Report saves have base_report_id = NULL (no backing report_template row)
         existing = db.session.execute(text("""
             SELECT id FROM saved_reports
             WHERE owner_user_id = :uid
-              AND base_report_id = :bid
+              AND base_report_id IS NULL
               AND name = :name
-        """), {"uid": current_user.id, "bid": SUPER_REPORT_SENTINEL, "name": name}).fetchone()
+        """), {"uid": current_user.id, "name": name}).fetchone()
 
         if existing:
             # Update existing
@@ -67,15 +66,14 @@ def save_super_report():
             """), {"fj": json.dumps(filter_json), "id": existing[0]})
             saved_id = existing[0]
         else:
-            # Insert new
+            # Insert new — base_report_id is NULL for Super Report presets
             result = db.session.execute(text("""
                 INSERT INTO saved_reports (name, owner_user_id, base_report_id, is_public, filter_json)
-                VALUES (:name, :uid, :bid, FALSE, :fj)
+                VALUES (:name, :uid, NULL, FALSE, :fj)
                 RETURNING id
             """), {
                 "name": name,
                 "uid":  current_user.id,
-                "bid":  SUPER_REPORT_SENTINEL,
                 "fj":   json.dumps(filter_json)
             })
             saved_id = result.fetchone()[0]
@@ -98,9 +96,9 @@ def list_saved_reports():
             SELECT id, name, filter_json, created_at, updated_at
             FROM saved_reports
             WHERE owner_user_id = :uid
-              AND base_report_id = :bid
+              AND base_report_id IS NULL
             ORDER BY updated_at DESC
-        """), {"uid": current_user.id, "bid": SUPER_REPORT_SENTINEL}).mappings().fetchall()
+        """), {"uid": current_user.id}).mappings().fetchall()
 
         return jsonify([{
             "id":         r["id"],
@@ -123,8 +121,8 @@ def delete_saved_report(report_id):
             DELETE FROM saved_reports
             WHERE id = :id
               AND owner_user_id = :uid
-              AND base_report_id = :bid
-        """), {"id": report_id, "uid": current_user.id, "bid": SUPER_REPORT_SENTINEL})
+              AND base_report_id IS NULL
+        """), {"id": report_id, "uid": current_user.id})
         db.session.commit()
 
         if result.rowcount == 0:
