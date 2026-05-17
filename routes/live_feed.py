@@ -106,6 +106,7 @@ def live_status():
             db.session.rollback()
 
         # Today's orders — use scheduled_datetime when available, fall back to received_at.
+        # ADT (Admission/Discharge/Transfer) messages are excluded — they are not radiology orders.
         orders = db.session.execute(text("""
             SELECT
                 o.id,
@@ -133,6 +134,7 @@ def live_status():
                 (o.scheduled_datetime IS NULL AND o.received_at >= CURRENT_DATE AND o.received_at < CURRENT_DATE + INTERVAL '1 day')
             )
               AND COALESCE(o.order_status, '') NOT IN ('CA', 'CM')
+              AND (o.message_type IS NULL OR o.message_type NOT LIKE 'ADT%')
             ORDER BY COALESCE(o.scheduled_datetime, o.received_at)
         """)).mappings().fetchall()
 
@@ -226,6 +228,7 @@ def live_status():
                 (o.scheduled_datetime IS NULL AND o.received_at >= CURRENT_DATE AND o.received_at < CURRENT_DATE + INTERVAL '1 day')
             )
               AND COALESCE(o.order_status, '') NOT IN ('CA', 'CM')
+              AND (o.message_type IS NULL OR o.message_type NOT LIKE 'ADT%')
               AND s.accession_number IS NULL
               AND o.linked_accession_number IS NULL
               AND o.linked_study_db_uid IS NULL
@@ -286,6 +289,7 @@ def live_tat():
             LEFT JOIN procedure_duration_map p
                    ON UPPER(TRIM(o.procedure_code)) = UPPER(TRIM(p.procedure_code))
             WHERE o.scheduled_datetime IS NOT NULL
+              AND (o.message_type IS NULL OR o.message_type NOT LIKE 'ADT%')
               AND (
                   (o.done_at IS NOT NULL      AND o.done_at::date      = :target_date)
                OR (o.pacs_done_at IS NOT NULL AND o.pacs_done_at::date = :target_date)
@@ -369,6 +373,7 @@ def live_orphans():
                 (o.scheduled_datetime IS NULL AND o.received_at >= CURRENT_DATE AND o.received_at < CURRENT_DATE + INTERVAL '1 day')
             )
               AND COALESCE(o.order_status, '') NOT IN ('CA', 'CM')
+              AND (o.message_type IS NULL OR o.message_type NOT LIKE 'ADT%')
               AND s.accession_number IS NULL
               AND o.linked_accession_number IS NULL
               AND o.linked_study_db_uid IS NULL
@@ -407,6 +412,7 @@ def live_version():
             SELECT MAX(received_at) AS latest
             FROM hl7_orders
             WHERE received_at::date = CURRENT_DATE
+              AND (message_type IS NULL OR message_type NOT LIKE 'ADT%')
         """)).fetchone()
         latest = row[0] if row and row[0] else None
         return jsonify({"version": latest.isoformat() if latest else "none"})

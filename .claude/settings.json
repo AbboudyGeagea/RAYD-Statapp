@@ -24,7 +24,12 @@
       "Bash(git stash *)",
       "Bash(git commit *)",
       "Read(//d/Intermedic/Statistics/ app/RAYD-Statapp/**)",
-      "Bash(git merge *)"
+      "Bash(git merge *)",
+      "Bash(git -C \"d:/Intermedic/Statistics app/RAYD-Statapp\" checkout main)",
+      "Bash(git -C \"d:/Intermedic/Statistics app/RAYD-Statapp\" stash pop)",
+      "Bash(git -C \"d:/Intermedic/Statistics app/RAYD-Statapp\" stash drop)",
+      "Bash(docker exec *)",
+      "Bash(psql \"postgresql://etl_user:SecureCrynBabe@localhost:5432/etl_db\" -c \"TRUNCATE procedure_duration_map RESTART IDENTITY;\")"
     ]
   },
   "hooks": {

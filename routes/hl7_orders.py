@@ -27,7 +27,9 @@ DEFAULT_FIELD_MAP = [
 
 def _fetch_orders(date_str=None, modality=None, status=None):
     """Fetch hl7_orders with optional filters. Returns list of dicts."""
-    filters = ["1=1", "(order_status IS NULL OR order_status <> 'CM')"]
+    # Exclude ADT (Admission/Discharge/Transfer) messages — not radiology orders
+    filters = ["(message_type IS NULL OR message_type NOT LIKE 'ADT%')",
+               "(order_status IS NULL OR order_status <> 'CM')"]
     params  = {}
 
     if date_str:
@@ -69,10 +71,10 @@ def _fetch_orders(date_str=None, modality=None, status=None):
 def _fetch_filter_options():
     """Get distinct modalities and statuses for filter dropdowns."""
     modalities = db.session.execute(
-        text("SELECT DISTINCT modality FROM hl7_orders WHERE modality IS NOT NULL AND modality != 'SR' ORDER BY modality")
+        text("SELECT DISTINCT modality FROM hl7_orders WHERE modality IS NOT NULL AND modality != 'SR' AND (message_type IS NULL OR message_type NOT LIKE 'ADT%') ORDER BY modality")
     ).fetchall()
     statuses = db.session.execute(
-        text("SELECT DISTINCT order_status FROM hl7_orders WHERE order_status IS NOT NULL ORDER BY order_status")
+        text("SELECT DISTINCT order_status FROM hl7_orders WHERE order_status IS NOT NULL AND (message_type IS NULL OR message_type NOT LIKE 'ADT%') ORDER BY order_status")
     ).fetchall()
     return (
         [r[0] for r in modalities],
@@ -114,6 +116,7 @@ def hl7_orders_count():
             SELECT COUNT(*) FROM hl7_orders
             WHERE (DATE(scheduled_datetime) = :d OR DATE(received_at) = :d)
               AND (order_status IS NULL OR order_status <> 'CM')
+              AND (message_type IS NULL OR message_type NOT LIKE 'ADT%')
         """),
         {"d": today}
     ).scalar()

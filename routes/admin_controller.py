@@ -133,6 +133,7 @@ def scheduling_page():
             FROM hl7_orders
             WHERE DATE(scheduled_datetime) BETWEEN :s AND :e
               AND (order_status IS NULL OR order_status NOT IN ('CA','DC'))
+              AND (message_type IS NULL OR message_type NOT LIKE 'ADT%')
             GROUP BY 1
         """), {"s": strip_start, "e": strip_end}).fetchall()
         date_counts = {r.d: r.cnt for r in count_rows}
@@ -231,6 +232,7 @@ def scheduling_page():
                    modality, scheduled_datetime, ordering_physician, order_status, accession_number
             FROM hl7_orders
             WHERE DATE(scheduled_datetime) = :d
+              AND (message_type IS NULL OR message_type NOT LIKE 'ADT%')
             ORDER BY scheduled_datetime
         """), {"d": view_date}).fetchall()
 
@@ -261,6 +263,7 @@ def scheduling_page():
             FROM hl7_orders
             WHERE scheduled_datetime IS NULL
               AND (order_status IS NULL OR order_status NOT IN ('CA','DC'))
+              AND (message_type IS NULL OR message_type NOT LIKE 'ADT%')
             ORDER BY received_at DESC
             LIMIT 100
         """)).fetchall()
@@ -444,6 +447,7 @@ def suggest_hl7_slot():
         WHERE UPPER(modality) = :mod
           AND scheduled_datetime BETWEEN :s AND :e
           AND (order_status IS NULL OR order_status NOT IN ('CA','DC'))
+          AND (message_type IS NULL OR message_type NOT LIKE 'ADT%')
           AND id != :excl
     """), {'mod': modality, 's': day_start, 'e': day_end, 'excl': exclude_id}).fetchall()
     for r in hl7_rows:
