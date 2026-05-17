@@ -225,16 +225,21 @@ def upload_modality_map():
             # Room name (optional column)
             room = str(row.get('room_name', '')).strip() if 'room_name' in df.columns and pd.notna(row.get('room_name')) else None
 
+            # Description (optional column)
+            desc = str(row.get('description', '')).strip() if 'description' in df.columns and pd.notna(row.get('description')) else None
+
             # 1. Sync Parent (AETitleModalityMap) — keep both tables in sync
             parent = AETitleModalityMap.query.filter_by(aetitle=ae).first()
             if not parent:
-                parent = AETitleModalityMap(aetitle=ae, modality=mod, room_name=room, daily_capacity_minutes=cap)
+                parent = AETitleModalityMap(aetitle=ae, modality=mod, room_name=room, daily_capacity_minutes=cap, description=desc)
                 db.session.add(parent)
             else:
                 parent.modality = mod
                 parent.daily_capacity_minutes = cap
                 if room:
                     parent.room_name = room
+                if desc is not None:
+                    parent.description = desc or None
             
             # Flush tells the DB about the parent so the Foreign Key doesn't fail
             db.session.flush()
@@ -617,6 +622,30 @@ def add_cluster():
         """), {"name": name}).fetchone()
         db.session.commit()
         return jsonify({"status": "success", "group_id": row[0]})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@mapping_bp.route('/ae/update', methods=['POST'])
+@login_required
+def update_ae_entry():
+    """Inline update for an AE title row (modality, room_name, description)."""
+    if current_user.role != 'admin': return abort(403)
+    data = request.get_json(force=True)
+    try:
+        ae = str(data['aetitle']).strip().upper()
+        entry = AETitleModalityMap.query.filter_by(aetitle=ae).first()
+        if not entry:
+            return jsonify({"status": "error", "message": "AE title not found"}), 404
+        if 'modality' in data:
+            entry.modality = str(data['modality']).strip().upper() or entry.modality
+        if 'room_name' in data:
+            entry.room_name = str(data['room_name']).strip() or None
+        if 'description' in data:
+            entry.description = str(data['description']).strip() or None
+        db.session.commit()
+        return jsonify({"status": "success"})
     except Exception as e:
         db.session.rollback()
         return jsonify({"status": "error", "message": str(e)}), 500

@@ -142,7 +142,7 @@
                                 <i class="bi bi-file-earmark-arrow-up text-2xl text-slate-500"></i>
                                 <div>
                                     <div class="text-xs font-bold text-slate-400">Upload AETitle CSV</div>
-                                    <div class="text-[9px] text-slate-600 mt-0.5 uppercase">aetitle Â· modality Â· room_name Â· daily_capacity_minutes</div>
+                                    <div class="text-[9px] text-slate-600 mt-0.5 uppercase">aetitle Â· modality Â· room_name Â· daily_capacity_minutes Â· description</div>
                                 </div>
                             </div>
                         </form>
@@ -168,7 +168,7 @@
                             <table class="w-full text-left" style="border-collapse:separate; border-spacing:0;">
                                 <thead class="text-[9px] font-black text-slate-500 uppercase border-b border-[#28332e]">
                                     <tr>
-                                        <th class="px-6 py-4 text-[#60a5fa]" style="min-width:180px">Room / Device</th>
+                                        <th class="px-6 py-4 text-[#60a5fa]" style="min-width:220px">Room / Device</th>
                                         <template x-for="(day, di) in weekDates" :key="di">
                                             <th class="px-2 py-3 text-center border-l border-[#28332e]/50" style="min-width:110px">
                                                 <div x-text="day.name" class="text-white"></div>
@@ -192,6 +192,12 @@
         <div class="font-mono text-xs font-bold text-white">{{ map.aetitle.upper() }}</div>
         <div class="text-[9px] text-[#60a5fa] font-black uppercase tracking-widest">{{ map.modality.upper() }}</div>
         {% if map.room_name %}<div class="text-[9px] text-[#34d399] mt-0.5">{{ map.room_name }}</div>{% endif %}
+        <input type="text"
+               class="proc-input mt-1 w-full px-2 py-1 text-[10px]"
+               placeholder="Description (e.g. Ultrasound Room 1)"
+               value="{{ map.description or '' }}"
+               title="Station description"
+               onchange="saveAeDescription('{{ map.aetitle.upper() }}', this)">
     </td>
 
     {% for day_idx in range(7) %}
@@ -461,6 +467,29 @@
                         el.classList.remove('saving');
                     }
                 }
+            }
+        }
+
+        // â”€â”€ Inline AE description save â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        async function saveAeDescription(aetitle, el) {
+            el.classList.add('saving');
+            try {
+                const res = await fetch('/mapping/ae/update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ aetitle, description: el.value.trim() })
+                });
+                if (res.ok) {
+                    el.classList.remove('saving');
+                    el.classList.add('saved');
+                    setTimeout(() => el.classList.remove('saved'), 1500);
+                } else {
+                    alert('Failed to save description.');
+                    el.classList.remove('saving');
+                }
+            } catch (e) {
+                alert('Failed to save description.');
+                el.classList.remove('saving');
             }
         }
 
