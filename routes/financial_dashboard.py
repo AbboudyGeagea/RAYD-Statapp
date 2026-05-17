@@ -121,13 +121,18 @@ def _collect(start: str, end: str) -> dict:
     proc_rows = db.session.execute(text(f"""
         SELECT
             UPPER(TRIM(o.proc_id))                 AS procedure_code,
+            COALESCE(
+                NULLIF(TRIM(s.study_description), ''),
+                NULLIF(TRIM(o.proc_text), ''),
+                UPPER(TRIM(o.proc_id))
+            )                                      AS procedure_description,
             {_MOD_EXPR}                            AS modality,
             COUNT(DISTINCT s.study_db_uid)         AS study_count,
             COALESCE(SUM(pdm.rvu_value), 0)        AS total_rvu
         {_STUDY_BASE}
           AND o.proc_id IS NOT NULL
           AND TRIM(o.proc_id) != ''
-        GROUP BY 1, 2
+        GROUP BY 1, 2, 3
         ORDER BY total_rvu DESC
         LIMIT 15
     """), {'start': start, 'end': end}).fetchall()

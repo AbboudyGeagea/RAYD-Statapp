@@ -420,7 +420,7 @@ function renderTimeline(placements) {
         const top = (b.start_min - startMin) * PX;
         const h   = Math.max(b.duration * PX, 22);
         html += `<div class="proc-block scheduled" style="top:${top}px;height:${h}px;"
-             onmouseenter="showTip(event,'${escJs(b.label)}','${escJs(b.proc_code)} · ${hm(b.duration)}')"
+             onmouseenter="showTip(event,'${escJs(b.label)}','${hm(b.duration)}')"
              onmouseleave="hideTip()">
             <p class="text-[9px] font-black text-green-200 truncate leading-tight">${escHtml(b.label)}</p>
             ${h>30?`<p class="text-[8px] text-green-400/70 font-mono">${hm(b.duration)}</p>`:''}
@@ -446,9 +446,9 @@ function renderTimeline(placements) {
                 const ph = Math.max(p.duration * PX, 22);
                 html += `<div class="proc-block suggested"
                      style="top:${pt}px;height:${ph}px;background:${OPT_BG};border-color:${OPT_BD};"
-                     onmouseenter="showTip(event,'${escJs(p.code)}','${hm(p.duration)} · ${p.freq}× historical · RVU ${p.rvu.toFixed(1)}')"
+                     onmouseenter="showTip(event,'${escJs(p.label || p.code)}','${hm(p.duration)} · ${p.freq}× historical · RVU ${p.rvu.toFixed(1)}')"
                      onmouseleave="hideTip()">
-                    <p class="text-[9px] font-black truncate leading-tight" style="color:${OPT_TX};">${escHtml(p.code)}</p>
+                    <p class="text-[9px] font-black truncate leading-tight" style="color:${OPT_TX};">${escHtml(p.label || p.code)}</p>
                     ${ph>30?`<p class="text-[8px] font-mono" style="color:${OPT_TX};opacity:0.7;">${hm(p.duration)}</p>`:''}
                 </div>`;
             });
