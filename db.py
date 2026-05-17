@@ -349,8 +349,9 @@ ALL_FEATURE_KEYS = [
 ROLE_PAGE_DEFAULTS = {
     'viewer':  set(ALL_FEATURE_KEYS),
     'viewer2': set(ALL_FEATURE_KEYS),
-    'tec':     {'scheduling', 'live_feed', 'hl7_orders'},
-    'finance': {'financial'},
+    'tec':       {'scheduling', 'live_feed', 'hl7_orders'},
+    'finance':   {'financial'},
+    'secretary': {'scheduling', 'live_feed'},
 }
 
 def user_has_page(user, page_key):
@@ -382,7 +383,7 @@ class SavedReport(db.Model):
     id = db.Column(Integer, primary_key=True)
     name = db.Column(String(255))
     owner_user_id = db.Column(Integer, ForeignKey('users.id'))
-    base_report_id = db.Column(Integer, ForeignKey('report_template.report_id'))
+    base_report_id = db.Column(Integer, ForeignKey('report_template.report_id'), nullable=True)
     is_public = db.Column(Boolean, default=False)
     filter_json = db.Column(JSONB, server_default='{}')
     generated_sql = db.Column(Text)
