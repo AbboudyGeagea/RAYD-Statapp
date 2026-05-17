@@ -6,6 +6,7 @@
     <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
     <style>
         :root { --accent:#f43f5e; }
@@ -149,6 +150,13 @@
             <!-- SLA Breach Heatmap -->
             <div id="breach-section" class="hidden">
                 <p class="section-title"><i class="bi bi-shield-exclamation mr-1"></i> SLA Breach Heatmap — Radiologist × Modality</p>
+                <p class="text-xs text-slate-500 mb-2">
+                    Rows represent assigned radiologists. The row labelled <strong class="text-slate-400">Unassigned</strong>
+                    <i class="bi bi-info-circle text-muted"
+                       title="Studies where no reading radiologist has been assigned in the PACS system yet. These studies have been received but not yet claimed by a radiologist."
+                       data-bs-toggle="tooltip" data-bs-placement="right"></i>
+                    groups studies that have not yet been claimed by a radiologist in PACS.
+                </p>
                 <div class="card">
                     <div id="breach-heatmap" style="height:320px;"></div>
                 </div>
@@ -495,6 +503,13 @@ function toggleTheme() {
 }
 
 loadData();
+
+// Initialize Bootstrap tooltips
+document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function (el) {
+        new bootstrap.Tooltip(el);
+    });
+});
 </script>
 </body>
 </html>

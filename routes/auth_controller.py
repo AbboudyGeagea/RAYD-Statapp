@@ -184,6 +184,8 @@ def login():
             return redirect(url_for('admin.admin_dashboard'))
         if user.role == 'tec':
             return redirect(url_for('hl7_orders.hl7_orders_page'))
+        if user.role == 'secretary':
+            return redirect(url_for('admin.scheduling_page'))
         return redirect(url_for('viewer.viewer_dashboard'))
 
     return render_template('login.html')

@@ -1254,6 +1254,46 @@
                 })();
                 </script>
                 {% endif %}
+
+                <!-- ── Technician TAT by AE Station ─────────────────────── -->
+                <div class="glass-card" id="r25-tech-tat-card">
+                    <div class="flex items-center justify-between mb-4">
+                        <p class="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Technician TAT by AE Station</p>
+                    </div>
+                    <p class="section-desc">Average and median turnaround time per AE station (acquisition device). SR and OT modalities excluded. Only studies with a recorded TAT are included.</p>
+                    {% if data and data.tech_tat_cards %}
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left" style="border-collapse:separate;border-spacing:0;">
+                            <thead>
+                                <tr class="text-[9px] font-black text-zinc-500 uppercase tracking-wider">
+                                    <th class="pb-3 pr-6">#</th>
+                                    <th class="pb-3 pr-6">AE Station</th>
+                                    <th class="pb-3 pr-6 text-right">Study Count</th>
+                                    <th class="pb-3 pr-6 text-right">Avg TAT (min)</th>
+                                    <th class="pb-3 text-right">Median TAT (min)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            {% for row in data.tech_tat_cards %}
+                            <tr class="border-t border-white/5 hover:bg-white/[0.02] transition-colors">
+                                <td class="py-2 pr-6 text-[10px] font-black text-zinc-600">{{ loop.index }}</td>
+                                <td class="py-2 pr-6 text-xs font-bold text-zinc-200">{{ row.aetitle }}</td>
+                                <td class="py-2 pr-6 text-right text-xs text-zinc-400">{{ row.count }}</td>
+                                <td class="py-2 pr-6 text-right text-xs font-black font-mono
+                                    {% if row.avg_tat <= 60 %}text-emerald-400
+                                    {% elif row.avg_tat <= 120 %}text-amber-400
+                                    {% else %}text-red-400{% endif %}">{{ row.avg_tat }}m</td>
+                                <td class="py-2 text-right text-xs font-mono text-zinc-400">{{ row.median_tat }}m</td>
+                            </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="text-sm text-zinc-500 italic">No data available.</p>
+                    {% endif %}
+                </div>
+
             </div>
 
             <!-- ── EFFICIENCY INTEL TAB ──────────────────────────────────── -->

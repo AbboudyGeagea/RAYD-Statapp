@@ -199,6 +199,16 @@
                 <!-- PHYSICIAN -->
                 <div id="panel-physician" class="panel space-y-6">
                     {% if data.physician %}{% set p = data.physician %}
+                    <details class="mb-3 small">
+                      <summary class="text-muted" style="cursor:pointer;">How is this calculated?</summary>
+                      <div class="mt-2 text-muted ps-3 border-start">
+                        Physician referral trends are calculated using <strong>linear regression</strong> on daily
+                        referral counts over the selected date range. The <strong>90-day forecast</strong> projects
+                        this trend forward assuming a constant slope. Physicians with a consistently negative trend
+                        are flagged as <em>Declining</em>; those with a positive trend as <em>Growing</em>.
+                        Data source: referring physician field from PACS studies (etl_didb_studies).
+                      </div>
+                    </details>
                     <div class="explain-box"><strong>AI Analysis:</strong> {{ p.explanation }}</div>
                     {% if p.churning %}<div style="background:rgba(235,87,87,0.07);border:1px solid rgba(235,87,87,0.25);border-radius:10px;padding:14px 18px;"><div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#eb5757;margin-bottom:8px;">⬇ Declining Referral Trend</div><div class="flex flex-wrap gap-2">{% for name in p.churning %}<span style="background:rgba(235,87,87,0.15);color:#eb5757;font-size:10px;font-weight:700;padding:3px 10px;border-radius:5px;">{{ name }}</span>{% endfor %}</div></div>{% endif %}
                     {% if p.growing %}<div style="background:rgba(39,174,96,0.07);border:1px solid rgba(39,174,96,0.25);border-radius:10px;padding:14px 18px;"><div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#27ae60;margin-bottom:8px;">⬆ Growing Referral Trend</div><div class="flex flex-wrap gap-2">{% for name in p.growing %}<span style="background:rgba(39,174,96,0.15);color:#27ae60;font-size:10px;font-weight:700;padding:3px 10px;border-radius:5px;">{{ name }}</span>{% endfor %}</div></div>{% endif %}
