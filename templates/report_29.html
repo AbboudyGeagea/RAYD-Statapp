@@ -225,7 +225,7 @@
                                 {% for row in table_data %}
                                 <tr class="hover:bg-white/[0.02] transition">
                                     <td class="py-4">
-                                        <p class="uppercase font-black text-[#e2e8f0] text-sm">{{ row.procedure_code or 'UNKNOWN' }}</p>
+                                        <p class="uppercase font-black text-[#e2e8f0] text-sm">{{ row.study_description or row.procedure_code or 'N/A' }}</p>
                                         <p class="text-xs text-[#64748b] uppercase mt-0.5">Tech: {{ row.performing_technician or 'Unassigned' }}</p>
                                     </td>
                                     <td class="py-4">

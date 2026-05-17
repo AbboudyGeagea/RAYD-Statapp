@@ -519,11 +519,8 @@
           <td>
             {% if o.procedure_text %}
               {{ o.procedure_text }}
-              {% if o.procedure_code %}
-                <span class="td-dim td-mono"> ({{ o.procedure_code }})</span>
-              {% endif %}
             {% elif o.procedure_code %}
-              <span class="td-mono">{{ o.procedure_code }}</span>
+              {{ o.procedure_code }}
             {% else %}
               <span class="td-dim">—</span>
             {% endif %}
@@ -611,7 +608,7 @@
           <td class="td-mono td-dim">${o.date_of_birth ? escHtml(o.date_of_birth).slice(0,10) : '—'}</td>
           <td>${o.gender === 'M' ? '<span class="gender-m">M</span>' : o.gender === 'F' ? '<span class="gender-f">F</span>' : '<span class="td-dim">—</span>'}</td>
           <td class="td-mono">${escHtml(o.accession_number) || '—'}</td>
-          <td>${o.procedure_text ? escHtml(o.procedure_text) + (o.procedure_code ? ` <span class="td-dim td-mono">(${escHtml(o.procedure_code)})</span>` : '') : escHtml(o.procedure_code) || '—'}</td>
+          <td>${escHtml(o.procedure_text || o.procedure_code) || '—'}</td>
           <td>${o.modality ? `<span class="modality-tag">${escHtml(o.modality)}</span>` : '<span class="td-dim">—</span>'}</td>
           <td class="td-mono td-dim">${fmtDate(o.scheduled_datetime)}</td>
           <td>${escHtml(o.ordering_physician) || '—'}</td>
@@ -649,7 +646,7 @@
     {col:'patient_location',    label:'Patient Location'},
     {col:'accession_number',    label:'Accession Number'},
     {col:'placer_order_number', label:'Placer Order #'},
-    {col:'procedure_code',      label:'Procedure Code'},
+    {col:'procedure_code',      label:'Procedure'},
     {col:'procedure_text',      label:'Procedure Text'},
     {col:'modality',            label:'Modality'},
     {col:'scheduled_datetime',  label:'Scheduled DateTime'},

@@ -171,7 +171,7 @@
                         <thead>
                             <tr class="text-[10px] font-black text-zinc-500 uppercase tracking-wider border-b border-[#28332e]">
                                 <th class="pb-2 pr-3">#</th>
-                                <th class="pb-2 pr-3">Code</th>
+                                <th class="pb-2 pr-3">Procedure</th>
                                 <th class="pb-2 pr-3">Modality</th>
                                 <th class="pb-2 pr-3">RVU</th>
                                 <th class="pb-2">Revenue</th>
@@ -181,7 +181,7 @@
                         {% for r in data.by_procedure %}
                         <tr class="tbl-row text-sm">
                             <td class="py-2 pr-3 text-zinc-600 text-xs font-black">{{ loop.index }}</td>
-                            <td class="py-2 pr-3 font-black text-xs text-white">{{ r.procedure_code }}</td>
+                            <td class="py-2 pr-3 font-black text-xs text-white">{{ r.procedure_description or r.procedure_code or 'N/A' }}</td>
                             <td class="py-2 pr-3">
                                 <span class="badge-mod" style="background:rgba(96,165,250,0.12);color:#93c5fd;">
                                     {{ r.modality }}
@@ -413,7 +413,7 @@ function updateProcTable(rows) {
     tbody.innerHTML = rows.map((r, i) => `
         <tr class="tbl-row text-sm">
             <td class="py-2 pr-3 text-zinc-600 text-xs font-black">${i+1}</td>
-            <td class="py-2 pr-3 font-black text-xs text-white">${r.procedure_code}</td>
+            <td class="py-2 pr-3 font-black text-xs text-white">${r.procedure_description || r.procedure_code || 'N/A'}</td>
             <td class="py-2 pr-3">
                 <span class="badge-mod" style="background:rgba(96,165,250,0.12);color:#93c5fd;">${r.modality}</span>
             </td>

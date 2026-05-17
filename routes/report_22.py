@@ -93,9 +93,9 @@ def report_22():
             FROM etl_didb_studies s
             LEFT JOIN aetitle_modality_map m ON s.storing_ae = m.aetitle
             LEFT JOIN etl_patient_view p ON p.patient_db_uid::TEXT = s.patient_db_uid::TEXT
-            WHERE COALESCE(m.modality, s.study_modality, '') != 'SR'
+            WHERE COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
         """
-        
+
         cte = f"WITH base_data AS ({base_sql})"
 
         # 1. Base Stats
@@ -274,6 +274,27 @@ def report_22():
             GROUP BY 1, 2
         """), params).fetchall()
 
+        # 2h. Procedures per modality
+        res_proc_mod = db.session.execute(text(f"""
+            {cte}
+            SELECT
+                COALESCE(modality, 'UNMAPPED') AS modality,
+                COALESCE(study_description, procedure_code, 'N/A') AS procedure,
+                COUNT(*) AS cnt
+            FROM base_data {where}
+            GROUP BY 1, 2
+            ORDER BY modality, cnt DESC
+        """), params).fetchall()
+
+        # Build grouped structure: {modality: [(procedure, count), ...]}
+        proc_mod_grouped = {}
+        proc_mod_modalities = []
+        for mod, proc, cnt in res_proc_mod:
+            if mod not in proc_mod_grouped:
+                proc_mod_grouped[mod] = []
+                proc_mod_modalities.append(mod)
+            proc_mod_grouped[mod].append({"procedure": proc, "cnt": int(cnt)})
+
         # 3. Demographics — count excluded records before filtering
         dq_counts = db.session.execute(text(f"""
             {cte}
@@ -392,6 +413,10 @@ def report_22():
                     for s in all_statuses_list
                 ]
             },
+            "proc_per_modality": {
+                "modalities": proc_mod_modalities,
+                "groups": {m: proc_mod_grouped[m] for m in proc_mod_modalities},
+            },
         }
 
     return render_template("report_22.html", data=data, filters=filters, run_report=run_report, display_start=start_date, display_end=end_date, status_list=status_list, mod_list=mod_list, ae_list=ae_list)
@@ -427,7 +452,7 @@ def status_drilldown_22():
             FROM etl_didb_studies s
             LEFT JOIN aetitle_modality_map m ON s.storing_ae = m.aetitle
             LEFT JOIN etl_patient_view p ON p.patient_db_uid::TEXT = s.patient_db_uid::TEXT
-            WHERE COALESCE(m.modality, s.study_modality, '') != 'SR'
+            WHERE COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
         )
         SELECT study_db_uid, patient_id, study_date, modality,
                procedure_code, description, ae, physician
@@ -467,20 +492,28 @@ def status_drilldown_22():
 @login_required
 def export_report_22():
     where, params = get_where_params(request.form)
+    # Optional modality filter via URL query param or form field
+    export_mod = request.values.get("modality", "").strip()
+    mod_clause = ""
+    if export_mod:
+        mod_clause = " AND UPPER(COALESCE(modality, '')) = UPPER(:export_mod)"
+        params["export_mod"] = export_mod
     sql = text(f"""
         WITH base_data AS (
-            SELECT s.study_date, s.patient_class, m.modality, p.sex, s.study_status, s.patient_location,
-            TRIM(CONCAT_WS(' ', s.referring_physician_first_name, s.referring_physician_last_name)) as physician,
-            p.fallback_id as patient_id
+            SELECT s.study_date, s.patient_class,
+                   COALESCE(m.modality, s.study_modality) AS modality,
+                   p.sex, s.study_status, s.patient_location,
+                   TRIM(CONCAT_WS(' ', s.referring_physician_first_name, s.referring_physician_last_name)) as physician,
+                   p.fallback_id as patient_id
             FROM etl_didb_studies s
             LEFT JOIN aetitle_modality_map m ON s.storing_ae = m.aetitle
             LEFT JOIN etl_patient_view p ON p.patient_db_uid::TEXT = s.patient_db_uid::TEXT
-            WHERE COALESCE(m.modality, s.study_modality, '') != 'SR'
+            WHERE COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
         )
-        SELECT study_date, COALESCE(patient_class, 'N/A'), COALESCE(modality, 'N/A'), COALESCE(sex, 'U'), 
+        SELECT study_date, COALESCE(patient_class, 'N/A'), COALESCE(modality, 'N/A'), COALESCE(sex, 'U'),
                COALESCE(study_status, 'N/A'), COALESCE(patient_location, 'N/A'), COALESCE(physician, 'Unknown'),
                patient_id
-        FROM base_data {where} ORDER BY study_date DESC
+        FROM base_data {where}{mod_clause} ORDER BY study_date DESC
     """)
     
     def generate():
@@ -496,7 +529,9 @@ def export_report_22():
                 yield output.getvalue()
                 output.seek(0); output.truncate(0)
     
-    return Response(generate(), mimetype="text/csv", headers={"Content-disposition": "attachment; filename=raw_data.csv"})
+    mod_suffix = f"_{export_mod}" if export_mod else ""
+    return Response(generate(), mimetype="text/csv",
+                    headers={"Content-disposition": f"attachment; filename=raw_data{mod_suffix}.csv"})
 
 # ── Self-register ─────────────────────────────────────────────
 from routes.report_registry import register_report

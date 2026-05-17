@@ -78,7 +78,7 @@ def er_data():
             LEFT JOIN aetitle_modality_map m ON m.aetitle = s.storing_ae
             WHERE s.study_date BETWEEN :start AND :end
               AND {_ER_WHERE}
-              AND COALESCE(m.modality, s.study_modality, 'Unknown') != 'SR'
+              AND COALESCE(m.modality, s.study_modality, 'Unknown') NOT IN ('SR', 'OT')
         )
         """
 
@@ -114,7 +114,7 @@ def er_data():
             WHERE s.study_date = CURRENT_DATE
               AND (s.rep_final_timestamp IS NULL AND COALESCE(s.study_has_report, false) = false)
               AND {_ER_WHERE}
-              AND COALESCE(m.modality, s.study_modality, '') != 'SR'
+              AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
             ORDER BY waiting_min DESC
             LIMIT 50
         """), {}).mappings().fetchall()

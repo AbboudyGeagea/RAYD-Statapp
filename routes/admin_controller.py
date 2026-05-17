@@ -597,7 +597,7 @@ def update_user_role():
     user_id  = data.get('user_id')
     new_role = data.get('role')
 
-    if new_role not in ('viewer', 'viewer2', 'tec', 'finance'):
+    if new_role not in ('viewer', 'viewer2', 'tec', 'finance', 'secretary'):
         return jsonify({'status': 'error', 'message': 'Invalid role'}), 400
 
     user = User.query.get(user_id)
@@ -624,7 +624,7 @@ def approve_user():
     user_id  = data.get('user_id')
     new_role = data.get('role', 'viewer')
 
-    if new_role not in ('viewer', 'viewer2', 'tec', 'finance'):
+    if new_role not in ('viewer', 'viewer2', 'tec', 'finance', 'secretary'):
         return jsonify({'status': 'error', 'message': 'Invalid role'}), 400
 
     user = User.query.get(user_id)

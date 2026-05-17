@@ -92,6 +92,26 @@
             </div>
 
             <button type="submit" style="background:#60a5fa; color:#0a1628; font-weight:900; font-size:10px; text-transform:uppercase; letter-spacing:0.08em; border-radius:10px; padding:12px; width:100%; border:none; cursor:pointer; transition:filter 0.15s;" onmouseover="this.style.filter='brightness(1.1)'" onmouseout="this.style.filter=''">Update Dashboard</button>
+
+            {% if run_report and data.proc_per_modality %}
+            <hr class="border-slate-800 mt-2">
+            <div>
+                <label>Export Modality Filter</label>
+                <select id="export-mod-select" class="input-dark mb-2">
+                    <option value="">All Modalities</option>
+                    {% for mod in data.proc_per_modality.modalities %}
+                    <option value="{{ mod }}">{{ mod }}</option>
+                    {% endfor %}
+                </select>
+                <button type="button" onclick="doExport()"
+                        style="background:#1e293b; color:#94a3b8; font-weight:900; font-size:10px; text-transform:uppercase; letter-spacing:0.08em; border-radius:10px; padding:10px; width:100%; border:1px solid #334155; cursor:pointer; transition:all 0.15s; display:flex; align-items:center; justify-content:center; gap:6px;"
+                        onmouseover="this.style.borderColor='#60a5fa';this.style.color='#60a5fa';"
+                        onmouseout="this.style.borderColor='#334155';this.style.color='#94a3b8';">
+                    <i class="bi bi-download"></i> Export CSV
+                </button>
+                <p style="font-size:9px;color:#475569;margin-top:6px;line-height:1.4;">Raw study-level rows for the selected period. Choose a modality above to filter the export.</p>
+            </div>
+            {% endif %}
         </form>
     </aside>
 
@@ -323,6 +343,64 @@
             <div class="card-desc">Status breakdown (Completed, Cancelled, etc.) for the top 10 referring physicians by volume. High cancellation or incomplete rates may indicate ordering behaviour issues.</div>
             <div id="c_phys_status" class="chart-container" style="height:420px;"></div>
         </div>
+
+        <!-- Procedure Breakdown by Modality -->
+        {% if data.proc_per_modality and data.proc_per_modality.modalities %}
+        <div class="card">
+            <button type="button" onclick="toggleProcBreakdown(this)"
+                    style="width:100%;text-align:left;background:none;border:none;cursor:pointer;padding:0;"
+                    aria-expanded="false">
+                <div class="card-header flex items-center justify-between" style="pointer-events:none;">
+                    <span class="text-purple-400">Procedure Breakdown by Modality</span>
+                    <span id="proc-breakdown-chevron" style="font-size:14px;color:#64748b;transition:transform 0.2s;">&#9660;</span>
+                </div>
+            </button>
+            <div class="card-desc">Top procedures (by study count) grouped by modality, for the selected date range. Excludes SR and OT.</div>
+            <div id="proc-breakdown-body" style="display:none;">
+                {% for mod in data.proc_per_modality.modalities %}
+                <div style="border-top:1px solid #28332e;">
+                    <div style="padding:10px 20px 6px; display:flex; align-items:center; gap:10px;">
+                        <span style="font-size:11px;font-weight:900;color:#a78bfa;text-transform:uppercase;letter-spacing:0.08em;">{{ mod }}</span>
+                        <span style="font-size:10px;color:#475569;font-weight:600;">{{ data.proc_per_modality.groups[mod]|length }} procedure{{ 's' if data.proc_per_modality.groups[mod]|length != 1 }}</span>
+                    </div>
+                    <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:6px;">
+                        <thead>
+                            <tr style="border-bottom:1px solid #1a2420;">
+                                <th style="text-align:left;padding:5px 20px 5px 32px;color:#475569;font-size:9px;text-transform:uppercase;letter-spacing:.09em;font-weight:800;">Procedure</th>
+                                <th style="text-align:right;padding:5px 20px;color:#475569;font-size:9px;text-transform:uppercase;letter-spacing:.09em;font-weight:800;">Count</th>
+                                <th style="padding:5px 20px;width:160px;color:#475569;font-size:9px;text-transform:uppercase;letter-spacing:.09em;font-weight:800;"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% set mod_total = data.proc_per_modality.groups[mod] | sum(attribute='cnt') %}
+                            {% for item in data.proc_per_modality.groups[mod][:20] %}
+                            {% set pct = ((item.cnt / mod_total) * 100) | round(1) if mod_total > 0 else 0 %}
+                            <tr style="border-bottom:1px solid #1a2420;transition:background .12s;"
+                                onmouseover="this.style.background='rgba(40,51,46,0.5)'"
+                                onmouseout="this.style.background=''">
+                                <td style="padding:7px 20px 7px 32px;color:#cbd5e1;font-size:11px;">{{ item.procedure }}</td>
+                                <td style="padding:7px 20px;text-align:right;color:#a78bfa;font-weight:800;">{{ item.cnt }}</td>
+                                <td style="padding:7px 20px;">
+                                    <div style="background:#1a2420;border-radius:3px;height:6px;width:140px;">
+                                        <div style="background:#7c3aed;border-radius:3px;height:6px;width:{{ [pct, 100]|min }}%;opacity:0.7;"></div>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                            {% if data.proc_per_modality.groups[mod]|length > 20 %}
+                            <tr>
+                                <td colspan="3" style="padding:6px 32px;color:#475569;font-size:10px;font-style:italic;">
+                                    … {{ data.proc_per_modality.groups[mod]|length - 20 }} more procedures
+                                </td>
+                            </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
 
         <!-- Demographics row -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -848,6 +926,41 @@
             document.body.appendChild(form);
             form.submit();
             document.body.removeChild(form);
+        }
+
+        // Main export with optional modality filter
+        function doExport() {
+            const start = document.querySelector('input[name="start_date"]').value;
+            const end   = document.querySelector('input[name="end_date"]').value;
+            const modSel = document.getElementById('export-mod-select');
+            const mod   = modSel ? modSel.value : '';
+            const form  = document.createElement('form');
+            form.method = 'POST';
+            form.action = '/report/22/export' + (mod ? '?modality=' + encodeURIComponent(mod) : '');
+            // Carry all current sidebar filter values
+            const sidebarForm = document.querySelector('aside form');
+            if (sidebarForm) {
+                new FormData(sidebarForm).forEach((v, k) => {
+                    const i = document.createElement('input'); i.type='hidden'; i.name=k; i.value=v; form.appendChild(i);
+                });
+            } else {
+                [['start_date', start], ['end_date', end]].forEach(([k, v]) => {
+                    const i = document.createElement('input'); i.type='hidden'; i.name=k; i.value=v; form.appendChild(i);
+                });
+            }
+            document.body.appendChild(form);
+            form.submit();
+            document.body.removeChild(form);
+        }
+
+        // Toggle procedure breakdown collapsible
+        function toggleProcBreakdown(btn) {
+            const body = document.getElementById('proc-breakdown-body');
+            const chev = document.getElementById('proc-breakdown-chevron');
+            const open = body.style.display === 'none' || body.style.display === '';
+            body.style.display = open ? 'block' : 'none';
+            if (chev) chev.style.transform = open ? 'rotate(180deg)' : '';
+            btn.setAttribute('aria-expanded', open ? 'true' : 'false');
         }
 
     </script>

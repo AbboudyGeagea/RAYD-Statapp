@@ -80,23 +80,25 @@ def daily_briefing():
             latest AS (SELECT MAX(study_date) AS d FROM etl_didb_studies),
             s AS MATERIALIZED (
                 SELECT
-                    study_date,
-                    patient_location, patient_class, study_status,
-                    rep_final_timestamp, rep_final_signed_by,
-                    COALESCE(study_modality, 'Unknown') AS modality,
-                    CASE WHEN rep_final_timestamp IS NOT NULL
-                         THEN EXTRACT(EPOCH FROM (rep_final_timestamp - study_date::timestamp))/60
+                    s.study_date,
+                    s.patient_location, s.patient_class, s.study_status,
+                    s.rep_final_timestamp, s.rep_final_signed_by,
+                    COALESCE(m.modality, s.study_modality, 'Unknown') AS modality,
+                    CASE WHEN s.rep_final_timestamp IS NOT NULL
+                         THEN EXTRACT(EPOCH FROM (s.rep_final_timestamp - s.study_date::timestamp))/60
                     END AS tat_min
-                FROM etl_didb_studies
-                WHERE study_date >= (SELECT d FROM latest) - 7
-                  AND COALESCE(study_modality, '') != 'SR'
+                FROM etl_didb_studies s
+                LEFT JOIN aetitle_modality_map m ON m.aetitle = s.storing_ae
+                WHERE s.study_date >= (SELECT d FROM latest) - 7
+                  AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
             ),
             avg30 AS (
-                SELECT COALESCE(COUNT(*)::float / NULLIF(COUNT(DISTINCT study_date),0), 0) AS v
-                FROM etl_didb_studies
-                WHERE study_date BETWEEN (SELECT d FROM latest) - 30
-                                     AND (SELECT d FROM latest) - 1
-                  AND COALESCE(study_modality, '') != 'SR'
+                SELECT COALESCE(COUNT(*)::float / NULLIF(COUNT(DISTINCT s.study_date),0), 0) AS v
+                FROM etl_didb_studies s
+                LEFT JOIN aetitle_modality_map m ON m.aetitle = s.storing_ae
+                WHERE s.study_date BETWEEN (SELECT d FROM latest) - 30
+                                       AND (SELECT d FROM latest) - 1
+                  AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
             ),
             top_mod AS (
                 SELECT modality, COUNT(*) AS cnt
@@ -286,10 +288,12 @@ def yesterday_overview():
         kpi = one("""
             WITH
             s AS MATERIALIZED (
-                SELECT patient_db_uid, storing_ae, patient_location,
-                       referring_physician_first_name, referring_physician_last_name
-                FROM etl_didb_studies
-                WHERE study_date = CURRENT_DATE - 1
+                SELECT s.patient_db_uid, s.storing_ae, s.patient_location,
+                       s.referring_physician_first_name, s.referring_physician_last_name
+                FROM etl_didb_studies s
+                LEFT JOIN aetitle_modality_map m ON m.aetitle = s.storing_ae
+                WHERE s.study_date = CURRENT_DATE - 1
+                  AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
             ),
             o AS MATERIALIZED (
                 SELECT order_status, scheduled_datetime
@@ -297,18 +301,22 @@ def yesterday_overview():
                 WHERE scheduled_datetime::date = CURRENT_DATE - 1
             ),
             fv AS (
-                SELECT patient_db_uid, MIN(study_date) AS first_date
-                FROM etl_didb_studies
-                WHERE study_date >= CURRENT_DATE - 365
-                GROUP BY patient_db_uid
+                SELECT s.patient_db_uid, MIN(s.study_date) AS first_date
+                FROM etl_didb_studies s
+                LEFT JOIN aetitle_modality_map m ON m.aetitle = s.storing_ae
+                WHERE s.study_date >= CURRENT_DATE - 365
+                  AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+                GROUP BY s.patient_db_uid
             ),
             avg7 AS (
                 SELECT COALESCE(
-                    ROUND(COUNT(*)::numeric / NULLIF(COUNT(DISTINCT study_date), 0), 1), 0
+                    ROUND(COUNT(*)::numeric / NULLIF(COUNT(DISTINCT s.study_date), 0), 1), 0
                 ) AS v
-                FROM etl_didb_studies
-                WHERE study_date >= CURRENT_DATE - 8
-                  AND study_date <  CURRENT_DATE - 1
+                FROM etl_didb_studies s
+                LEFT JOIN aetitle_modality_map m ON m.aetitle = s.storing_ae
+                WHERE s.study_date >= CURRENT_DATE - 8
+                  AND s.study_date <  CURRENT_DATE - 1
+                  AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
             ),
             peak AS (
                 SELECT EXTRACT(HOUR FROM scheduled_datetime)::int AS hr, COUNT(*) AS cnt
@@ -348,12 +356,14 @@ def yesterday_overview():
         phys_rows = rows("""
             SELECT
                 COALESCE(NULLIF(TRIM(CONCAT_WS(' ',
-                    referring_physician_first_name,
-                    referring_physician_last_name)), ''), 'Unknown') AS name,
+                    s.referring_physician_first_name,
+                    s.referring_physician_last_name)), ''), 'Unknown') AS name,
                 COUNT(*)::int AS count
-            FROM etl_didb_studies
-            WHERE study_date = CURRENT_DATE - 1
-              AND referring_physician_first_name IS NOT NULL
+            FROM etl_didb_studies s
+            LEFT JOIN aetitle_modality_map m ON m.aetitle = s.storing_ae
+            WHERE s.study_date = CURRENT_DATE - 1
+              AND s.referring_physician_first_name IS NOT NULL
+              AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
             GROUP BY 1
             ORDER BY 2 DESC
             LIMIT 5
@@ -362,10 +372,12 @@ def yesterday_overview():
 
         # ── Query 2b: AE by study count ────────────────────────────────
         ae_rows = rows("""
-            SELECT storing_ae AS ae, COUNT(*)::int AS count
-            FROM etl_didb_studies
-            WHERE study_date = CURRENT_DATE - 1
-              AND storing_ae IS NOT NULL
+            SELECT s.storing_ae AS ae, COUNT(*)::int AS count
+            FROM etl_didb_studies s
+            LEFT JOIN aetitle_modality_map m ON m.aetitle = s.storing_ae
+            WHERE s.study_date = CURRENT_DATE - 1
+              AND s.storing_ae IS NOT NULL
+              AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
             GROUP BY 1
             ORDER BY 2 DESC
         """)
@@ -387,6 +399,7 @@ def yesterday_overview():
                 ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
             WHERE s.study_date = CURRENT_DATE - 1
               AND s.storing_ae IS NOT NULL
+              AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
             GROUP BY s.storing_ae
             HAVING COALESCE(MAX(m.daily_capacity_minutes), MAX(ws.std_opening_minutes), 480) > 0
             ORDER BY
