@@ -6,6 +6,7 @@
     <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/dark.min.css">
     <style>
         :root { --accent: #38bdf8; }
         body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; }
@@ -389,5 +390,17 @@ function exportChart(canvasId, filename) {
 }
 </script>
 {% endif %}
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    flatpickr('input[type="date"]', {
+        dateFormat: 'Y-m-d',
+        altInput:   true,
+        altFormat:  'd/m/Y',
+        allowInput: true,
+        disableMobile: true
+    });
+});
+</script>
 </body>
 </html>

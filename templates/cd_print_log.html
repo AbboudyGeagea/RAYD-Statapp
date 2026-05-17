@@ -5,6 +5,7 @@
     <title>RAYD | Patient CD Log</title>
     <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/dark.min.css">
     <style>
         :root { --accent:#38bdf8; }
         body  { font-family:'Inter',sans-serif; background:#181f2a; color:#e2e8f0; }
@@ -271,6 +272,18 @@ document.getElementById('f-search').addEventListener('keydown', e => {
 });
 
 loadPage(1);
+</script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    flatpickr('input[type="date"]', {
+        dateFormat: 'Y-m-d',
+        altInput:   true,
+        altFormat:  'd/m/Y',
+        allowInput: true,
+        disableMobile: true
+    });
+});
 </script>
 </body>
 </html>

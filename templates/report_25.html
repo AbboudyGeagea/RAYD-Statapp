@@ -11,6 +11,7 @@
     <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
     <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/dark.min.css">
     <style>
         body { background: #181f1c; color: #e2e8f0; font-family: 'Inter', sans-serif; overflow: hidden; font-size: 14px; }
         body { transition: background 0.2s, color 0.2s; }
@@ -2901,6 +2902,10 @@
                     if (techBody && bg.tech_html) {
                         techBody.innerHTML = bg.tech_html;
                         window._bgTechData = bg.tech_data || {};
+                        flatpickr(techBody.querySelectorAll('input[type="date"]'), {
+                            dateFormat: 'Y-m-d', altInput: true, altFormat: 'd/m/Y',
+                            allowInput: true, disableMobile: true
+                        });
                         if (!$('#tab-technicians').hasClass('hidden')) {
                             initTechTrendChart();
                         }
@@ -2957,5 +2962,17 @@
 
     </script>
     </div>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    flatpickr('input[type="date"]', {
+        dateFormat: 'Y-m-d',
+        altInput:   true,
+        altFormat:  'd/m/Y',
+        allowInput: true,
+        disableMobile: true
+    });
+});
+</script>
 </body>
 </html>
