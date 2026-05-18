@@ -415,6 +415,16 @@
           </div>
           {% endif %}
 
+          <div class="mb-3 flex items-center gap-2">
+            <i class="bi bi-search text-[#4b7a63] text-sm"></i>
+            <input id="crit-search"
+                   type="text"
+                   placeholder="Search findings — accession, procedure, modality, impression…"
+                   class="flex-1 bg-[#0f1512] border border-[#1e2d27] rounded-lg px-3 py-1.5 text-sm text-[#e2e8f0] placeholder-[#4b7a63] focus:outline-none focus:border-[#34d399]"
+                   oninput="filterCriticalTable(this.value)">
+            <span id="crit-count" class="text-[10px] text-[#4b7a63] font-bold whitespace-nowrap"></span>
+          </div>
+
           <div id="critical-wrap" style="overflow-x:auto;">
             <div class="empty-state" id="critical-empty">No critical findings in selected period.</div>
             <table class="crit-table" id="critical-table" style="display:none;">
@@ -912,12 +922,28 @@ function buildCritical(log) {
     </tr>` : '';
     return mainRow + detailRow;
   }).join('');
+  filterCriticalTable(document.getElementById('crit-search')?.value || '');
 }
 
 function toggleCritDetail(id) {
   const row = document.getElementById(id);
   if (!row) return;
   row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+}
+
+function filterCriticalTable(q) {
+    const rows  = document.querySelectorAll('#critical-body tr');
+    const term  = q.trim().toLowerCase();
+    let   shown = 0;
+    rows.forEach(function(row) {
+        const text = row.textContent.toLowerCase();
+        const match = !term || text.includes(term);
+        row.style.display = match ? '' : 'none';
+        if (match) shown++;
+    });
+    const total = rows.length;
+    const el = document.getElementById('crit-count');
+    if (el) el.textContent = term ? shown + ' / ' + total + ' shown' : total + ' result' + (total !== 1 ? 's' : '');
 }
 
 function exportCriticalPNG() {

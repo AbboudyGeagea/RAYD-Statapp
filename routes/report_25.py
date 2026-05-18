@@ -202,12 +202,25 @@ def get_gold_standard_data(form_data):
                 r['tat_percentile'] = None
 
     # Technician TAT by AE Station — group df by aetitle, exclude SR/OT
-    tech_tat_cards = []
+    tech_tat_cards   = []
+    tech_tat_outliers = []
     if 'aetitle' in df.columns and 'total_tat_min' in df.columns and 'modality' in df.columns:
         try:
             _excl_mask_ae = df['modality'].str.upper().isin(['SR', 'OT'])
-            _df_ae = df[~_excl_mask_ae & (df['total_tat_min'] > 0)]
-            for ae_title, ae_grp in _df_ae.groupby('aetitle'):
+            tat_df = df[~_excl_mask_ae & (df['total_tat_min'] > 0)].copy()
+            # Split normal vs outliers (> 24h = 1440 min)
+            normal_df  = tat_df[tat_df['total_tat_min'] <= 1440]
+            outlier_df = tat_df[tat_df['total_tat_min'] >  1440]
+
+            # Build tech_tat_outliers list
+            out_cols = [c for c in ['aetitle', 'modality', 'accession_number', 'study_date', 'total_tat_min'] if c in outlier_df.columns]
+            for _, row in outlier_df[out_cols].iterrows():
+                tech_tat_outliers.append({
+                    k: (round(float(v), 1) if k == 'total_tat_min' else str(v))
+                    for k, v in row.items()
+                })
+
+            for ae_title, ae_grp in normal_df.groupby('aetitle'):
                 tat_series = ae_grp['total_tat_min']
                 tech_tat_cards.append({
                     'aetitle': ae_title,
@@ -468,6 +481,7 @@ def get_gold_standard_data(form_data):
         "class_tat": df[df['total_tat_min'] > 0].groupby('patient_class')['total_tat_min'].mean().round(1).to_dict() if 'patient_class' in df.columns else {},
         "rad_cards": rad_cards,
         "tech_tat_cards": tech_tat_cards,
+        "tech_tat_outliers": tech_tat_outliers,
         "modality_split": [{"name": k, "value": int(v)} for k, v in df['modality'].value_counts().items()] if 'modality' in df.columns else [], 
         "hourly_patterns": (lambda: {
             str(r[0]): int(r[1])
@@ -658,11 +672,13 @@ def compute_bg_data(form_data):
             tdf['scheduled_datetime'] = pd.to_datetime(tdf['scheduled_datetime'])
             tdf['done_at']            = pd.to_datetime(tdf['done_at'],      errors='coerce')
             tdf['pacs_done_at']       = pd.to_datetime(tdf['pacs_done_at'], errors='coerce')
-            tdf['tat_min']            = (tdf['done_at']      - tdf['scheduled_datetime']).dt.total_seconds() / 60.0
-            tdf['pacs_tat_min']       = (tdf['pacs_done_at'] - tdf['scheduled_datetime']).dt.total_seconds() / 60.0
+            # Prefer manual done_at; fall back to PACS scanner pacs_done_at
+            tdf['effective_done_at']  = tdf['done_at'].fillna(tdf['pacs_done_at'])
+            tdf['tat_min']            = (tdf['effective_done_at'] - tdf['scheduled_datetime']).dt.total_seconds() / 60.0
+            tdf['pacs_tat_min']       = (tdf['pacs_done_at']      - tdf['scheduled_datetime']).dt.total_seconds() / 60.0
 
-            completed = tdf[tdf['done_at'].notna()].copy()
-            pending   = tdf[tdf['done_at'].isna()].copy()
+            completed = tdf[tdf['effective_done_at'].notna()].copy()
+            pending   = tdf[tdf['effective_done_at'].isna()].copy()
             _tech_completed_df = completed
 
             # Pre-index ER orders: modality → list of (scheduled_datetime, patient_class, accession)
@@ -676,11 +692,11 @@ def compute_bg_data(form_data):
 
             def _find_concurrent_er(row):
                 """Return list of ER accessions whose scheduled_datetime falls inside row's exam window."""
-                if pd.isna(row.get('done_at')):
+                if pd.isna(row.get('effective_done_at')):
                     return []
                 mod   = str(row.get('modality') or '').upper()
                 t0    = row['scheduled_datetime']
-                t1    = row['done_at']
+                t1    = row['effective_done_at']
                 acc   = row.get('accession_number')
                 found = []
                 for er in er_by_modality.get(mod, []):
@@ -698,7 +714,7 @@ def compute_bg_data(form_data):
                 grp = grp.sort_values('scheduled_datetime').reset_index()
                 for i in range(len(grp) - 1):
                     cur, nxt = grp.iloc[i], grp.iloc[i + 1]
-                    if pd.notna(cur['done_at']) and cur['done_at'] > nxt['scheduled_datetime']:
+                    if pd.notna(cur['effective_done_at']) and cur['effective_done_at'] > nxt['scheduled_datetime']:
                         overlap_accessions.add(cur['accession_number'])
 
             flagged_rows = []
@@ -719,7 +735,7 @@ def compute_bg_data(form_data):
                     'technician':     str(r['done_by']) if pd.notna(r.get('done_by')) else '',
                     'patient_class':  str(r.get('patient_class') or ''),
                     'scheduled_at':   r['scheduled_datetime'].strftime('%Y-%m-%d %H:%M'),
-                    'done_at':        r['done_at'].strftime('%Y-%m-%d %H:%M'),
+                    'done_at':        r['effective_done_at'].strftime('%Y-%m-%d %H:%M') if pd.notna(r.get('effective_done_at')) else None,
                     'tat_min':        round(float(tat), 1),
                     'pacs_done_at':   r['pacs_done_at'].strftime('%Y-%m-%d %H:%M') if pd.notna(r.get('pacs_done_at')) else None,
                     'pacs_tat_min':   round(float(pacs_tat), 1) if pd.notna(pacs_tat) else None,
@@ -774,11 +790,13 @@ def compute_bg_data(form_data):
                 return None
 
             # Dept averages computed first so per-tech delta can reference them
+            # TAT > 24h (1440 min) outliers are excluded from dept-level stats
             all_tats = completed['tat_min'].dropna()
+            normal_dept_tats = all_tats[all_tats <= 1440]
             dept_avg = dept_median = None
-            if len(all_tats):
-                dept_avg    = round(float(all_tats.mean()),   1)
-                dept_median = round(float(all_tats.median()), 1)
+            if len(normal_dept_tats):
+                dept_avg    = round(float(normal_dept_tats.mean()),   1)
+                dept_median = round(float(normal_dept_tats.median()), 1)
                 tech_data['summary']['avg_tat']      = dept_avg
                 tech_data['summary']['median_tat']   = dept_median
                 tech_data['summary']['dept_insight'] = _skew_insight(dept_avg, dept_median)
@@ -798,11 +816,15 @@ def compute_bg_data(form_data):
                     'avg_pacs_tat': round(float(ptats.mean()), 1) if len(ptats) else None,
                 })
 
+            import statistics as _stats
             for tech, gdf in completed[completed['done_by'].notna()].groupby('done_by'):
-                tats  = gdf['tat_min'].dropna()
+                all_tats_tech = gdf['tat_min'].dropna().tolist()
+                # Separate outliers (> 24h) before computing stats
+                normal_tats  = [v for v in all_tats_tech if v <= 1440]
+                outlier_tats = [v for v in all_tats_tech if v >  1440]
                 ptats = gdf['pacs_tat_min'].dropna()
-                avg         = round(float(tats.mean()),    1) if len(tats)  else None
-                median      = round(float(tats.median()),  1) if len(tats)  else None
+                avg         = round(sum(normal_tats) / len(normal_tats), 1)        if normal_tats  else None
+                median      = round(_stats.median(normal_tats), 1)                  if normal_tats  else None
                 avg_pacs    = round(float(ptats.mean()),   1) if len(ptats) else None
                 median_pacs = round(float(ptats.median()), 1) if len(ptats) else None
                 flags_count = sum(1 for r in tech_data['flagged'] if r['technician'] == str(tech) and r['flags'])
@@ -822,6 +844,7 @@ def compute_bg_data(form_data):
                     'dept_delta':      dept_delta,
                     'top_modality':    top_mod,
                     'modalities':      mods,
+                    'outlier_count':   len(outlier_tats),
                     'insight':         _skew_insight(avg, median),
                 })
             tech_data['by_technician'].sort(key=lambda x: x['avg_tat'] if x['avg_tat'] is not None else 9999)
