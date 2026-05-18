@@ -119,6 +119,9 @@
                             </span>
                             {% endif %}
                         </button>
+                        <button class="tab-btn" onclick="switchTab('physician', this)">
+                            <i class="bi bi-person-badge mr-1"></i> Physician Names
+                        </button>
                     </div>
                 </div>
 
@@ -244,10 +247,20 @@
                 <div id="tab-procedures" class="space-y-8 hidden">
                     <div id="proc-tab-skeleton" class="flex flex-col items-center justify-center py-24 gap-4">
                         <div class="w-8 h-8 border-2 border-[#28332e] border-t-blue-400 rounded-full animate-spin"></div>
-                        <p class="text-slate-500 text-xs uppercase tracking-widest">Loading procedure dataâ€¦</p>
+                        <p class="text-slate-500 text-xs uppercase tracking-widest">Loading procedure data&hellip;</p>
                     </div>
 
                 </div><!-- end #tab-procedures -->
+
+                <!-- ─────────────────────────────────────────────────────────
+                     TAB: PHYSICIAN NAMES
+                ───────────────────────────────────────────────────────────── -->
+                <div id="tab-physician" class="space-y-8 hidden">
+                    <div id="physician-tab-skeleton" class="flex flex-col items-center justify-center py-24 gap-4">
+                        <div class="w-8 h-8 border-2 border-[#28332e] border-t-blue-400 rounded-full animate-spin"></div>
+                        <p class="text-slate-500 text-xs uppercase tracking-widest">Loading physician data&hellip;</p>
+                    </div>
+                </div><!-- end #tab-physician -->
 
 
             </div>
@@ -495,9 +508,10 @@
 
         // â”€â”€ Tab switching â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         let _procLoaded = false;
+        let _physicianLoaded = false;
 
         function switchTab(name, btn) {
-            ['modality', 'procedures'].forEach(t => {
+            ['modality', 'procedures', 'physician'].forEach(t => {
                 document.getElementById('tab-' + t).classList.add('hidden');
             });
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -515,6 +529,19 @@
                     })
                     .catch(() => {
                         tab.innerHTML = '<p class="text-red-400 text-xs p-8 text-center">Failed to load procedure data. Please refresh.</p>';
+                    });
+            }
+
+            if (name === 'physician' && !_physicianLoaded) {
+                _physicianLoaded = true;
+                const tab = document.getElementById('tab-physician');
+                fetch('/mapping/physician-tab')
+                    .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
+                    .then(html => {
+                        tab.innerHTML = html;
+                    })
+                    .catch(() => {
+                        tab.innerHTML = '<p class="text-red-400 text-xs p-8 text-center">Failed to load physician data. Please refresh.</p>';
                     });
             }
         }

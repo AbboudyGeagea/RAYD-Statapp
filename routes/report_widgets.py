@@ -551,12 +551,18 @@ def widget_cd_burn_summary(db, filters, config):
 
 def widget_rad_modality_matrix(db, filters, config):
     p = _p(filters)
-    _RAD = ("COALESCE(NULLIF(TRIM(CONCAT(s.signing_physician_first_name,' ',"
-            "s.signing_physician_last_name)),''),s.rep_final_signed_by,'Unknown')")
+    _RAD_BASE_RW = ("COALESCE(NULLIF(TRIM(CONCAT(s.signing_physician_first_name,' ',"
+                    "s.signing_physician_last_name)),''),s.rep_final_signed_by,'Unknown')")
+    _PAM_RW = ("LEFT JOIN physician_alias_map pam "
+               "ON pam.dismissed = false "
+               "AND pam.alias = COALESCE(NULLIF(TRIM(CONCAT(s.signing_physician_first_name,' ',"
+               "s.signing_physician_last_name)),''),s.rep_final_signed_by)")
+    _RAD = f"COALESCE(pam.canonical_name, {_RAD_BASE_RW})"
 
     by_modality = db.session.execute(text(f"""
         SELECT {_RAD} AS radiologist, {_MOD_EXPR} AS dim, COUNT(DISTINCT s.study_db_uid) AS cnt
         {_BASE_JOIN}
+        {_PAM_RW}
         {_WHERE}
           AND {_RAD} NOT IN ('','Unknown')
           AND s.rep_final_timestamp IS NOT NULL
@@ -566,6 +572,7 @@ def widget_rad_modality_matrix(db, filters, config):
     by_aetitle = db.session.execute(text(f"""
         SELECT {_RAD} AS radiologist, COALESCE(s.storing_ae,'Unknown') AS dim, COUNT(DISTINCT s.study_db_uid) AS cnt
         {_BASE_JOIN}
+        {_PAM_RW}
         {_WHERE}
           AND {_RAD} NOT IN ('','Unknown')
           AND s.rep_final_timestamp IS NOT NULL

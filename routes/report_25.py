@@ -157,6 +157,17 @@ def get_gold_standard_data(form_data):
     tat_p25    = round(float(tat_vals_all.quantile(0.25)), 1) if len(tat_vals_all) > 0 else 0.0
     tat_p75    = round(float(tat_vals_all.quantile(0.75)), 1) if len(tat_vals_all) > 0 else 0.0
 
+    # Apply physician alias mapping so migrated name variants collapse to canonical
+    try:
+        from utils.physician_aliases import get_alias_dict as _get_aliases
+        _alias_dict = _get_aliases()
+        if _alias_dict and 'reading_radiologist' in df.columns:
+            df['reading_radiologist'] = df['reading_radiologist'].map(
+                lambda x: _alias_dict.get(x, x) if x else x
+            )
+    except Exception:
+        pass
+
     # Rad Performance — exclude SR and OT; only count studies with a final report
     rad_cards = []
     if 'reading_radiologist' in df.columns:
@@ -368,12 +379,13 @@ def get_gold_standard_data(form_data):
     try:
         add_rows = db.session.execute(text(f"""
             SELECT
-                COALESCE(s.rep_final_signed_by, 'Unknown') AS radiologist,
+                COALESCE(pam.canonical_name, s.rep_final_signed_by, 'Unknown') AS radiologist,
                 COUNT(*) AS total,
                 SUM(CASE WHEN s.rep_has_addendum THEN 1 ELSE 0 END) AS addendum_count,
                 ROUND(SUM(CASE WHEN s.rep_has_addendum THEN 1 ELSE 0 END)::numeric / NULLIF(COUNT(*),0) * 100, 1) AS addendum_pct
             FROM etl_didb_studies s
             {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
+            LEFT JOIN physician_alias_map pam ON pam.dismissed = false AND pam.alias = s.rep_final_signed_by
             WHERE s.study_date BETWEEN :start AND :end
               AND s.rep_final_signed_by IS NOT NULL
               AND s.rep_final_timestamp IS NOT NULL
@@ -396,8 +408,13 @@ def get_gold_standard_data(form_data):
     # ── Reports per radiologist × modality / AE title / procedure ────────
     rad_volume_matrix = {"by_modality": [], "by_aetitle": [], "by_procedure": [], "by_month": []}
     try:
-        _RAD25 = ("COALESCE(NULLIF(TRIM(CONCAT(s.signing_physician_first_name,' ',"
-                  "s.signing_physician_last_name)),''),s.rep_final_signed_by,'Unknown')")
+        _RAD25_BASE = ("COALESCE(NULLIF(TRIM(CONCAT(s.signing_physician_first_name,' ',"
+                       "s.signing_physician_last_name)),''),s.rep_final_signed_by,'Unknown')")
+        _PAM25 = ("LEFT JOIN physician_alias_map pam "
+                  "ON pam.dismissed = false "
+                  "AND pam.alias = COALESCE(NULLIF(TRIM(CONCAT(s.signing_physician_first_name,' ',"
+                  "s.signing_physician_last_name)),''),s.rep_final_signed_by)")
+        _RAD25 = "COALESCE(pam.canonical_name, " + _RAD25_BASE + ")"
         _RAD25_OK = (f"AND {_RAD25} NOT IN ('','Unknown')"
                      f" AND s.rep_final_timestamp IS NOT NULL")
         _MJ25 = "LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))"
@@ -406,7 +423,7 @@ def get_gold_standard_data(form_data):
             SELECT {_RAD25} AS radiologist,
                    COALESCE(UPPER(m.modality), 'Unknown') AS dim,
                    COUNT(DISTINCT s.study_db_uid) AS cnt
-            FROM etl_didb_studies s {_MJ25}
+            FROM etl_didb_studies s {_MJ25} {_PAM25}
             WHERE s.study_date BETWEEN :start AND :end
               AND COALESCE(m.modality, s.study_modality, '') != 'SR'
               {_sec_filters} {_RAD25_OK}
@@ -419,6 +436,7 @@ def get_gold_standard_data(form_data):
                    COUNT(DISTINCT s.study_db_uid) AS cnt
             FROM etl_didb_studies s
             {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
+            {_PAM25}
             WHERE s.study_date BETWEEN :start AND :end
               AND COALESCE(s.study_modality, '') != 'SR'
               {_sec_filters} {_RAD25_OK}
@@ -441,6 +459,7 @@ def get_gold_standard_data(form_data):
                    COUNT(DISTINCT s.study_db_uid) AS cnt
             FROM etl_didb_studies s
             {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
+            {_PAM25}
             JOIN top_procs tp ON tp.procedure_code = s.procedure_code
             WHERE s.study_date BETWEEN :start AND :end
               AND COALESCE(s.study_modality, '') != 'SR'
@@ -451,7 +470,7 @@ def get_gold_standard_data(form_data):
             SELECT {_RAD25} AS radiologist,
                    TO_CHAR(s.study_date, 'YYYY-MM') AS dim,
                    COUNT(DISTINCT s.study_db_uid) AS cnt
-            FROM etl_didb_studies s {_MJ25}
+            FROM etl_didb_studies s {_MJ25} {_PAM25}
             WHERE s.study_date BETWEEN :start AND :end
               AND COALESCE(m.modality, s.study_modality, '') != 'SR'
               {_sec_filters} {_RAD25_OK}

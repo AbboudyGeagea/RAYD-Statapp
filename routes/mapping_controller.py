@@ -668,3 +668,136 @@ def rename_cluster():
     except Exception as e:
         db.session.rollback()
         return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# ─── Physician Name Alias Mapping ───────────────────────────────────────────
+
+@mapping_bp.route('/physician-tab')
+@login_required
+def physician_tab():
+    """Lazy-loaded HTML fragment for the Physician Names tab."""
+    if current_user.role not in ('admin',): return abort(403)
+    from utils.physician_aliases import detect_suggestions
+    from sqlalchemy import text as _t
+
+    try:
+        suggestions = detect_suggestions()
+    except Exception as e:
+        suggestions = []
+
+    approved = db.session.execute(_t(
+        "SELECT alias, canonical_name FROM physician_alias_map WHERE dismissed = false ORDER BY canonical_name, alias"
+    )).fetchall()
+
+    return render_template('_mapping_physician_partial.html',
+                           suggestions=suggestions,
+                           approved=approved)
+
+
+@mapping_bp.route('/physician/approve', methods=['POST'])
+@login_required
+def physician_approve():
+    """Approve a single alias -> canonical mapping."""
+    if current_user.role != 'admin': return abort(403)
+    from sqlalchemy import text as _t
+    data = request.get_json(force=True)
+    alias     = str(data.get('alias', '')).strip()
+    canonical = str(data.get('canonical_name', '')).strip()
+    if not alias or not canonical:
+        return jsonify({"status": "error", "message": "alias and canonical_name required"}), 400
+    try:
+        db.session.execute(_t("""
+            INSERT INTO physician_alias_map (alias, canonical_name, dismissed)
+            VALUES (:alias, :canonical, false)
+            ON CONFLICT (alias) DO UPDATE
+                SET canonical_name = EXCLUDED.canonical_name,
+                    dismissed = false
+        """), {"alias": alias, "canonical": canonical})
+        db.session.commit()
+        return jsonify({"status": "success"})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@mapping_bp.route('/physician/approve-all', methods=['POST'])
+@login_required
+def physician_approve_all():
+    """Bulk-approve all suggestions using their suggested canonical."""
+    if current_user.role != 'admin': return abort(403)
+    from utils.physician_aliases import detect_suggestions
+    from sqlalchemy import text as _t
+    data = request.get_json(force=True)
+    # Accepts optional list of {alias, canonical_name} overrides; falls back to auto suggestions
+    pairs = data.get('pairs')
+    if not pairs:
+        try:
+            suggestions = detect_suggestions()
+        except Exception:
+            suggestions = []
+        pairs = []
+        for s in suggestions:
+            canonical = s['suggested_canonical']
+            for v in s['variants']:
+                if v != canonical:
+                    pairs.append({'alias': v, 'canonical_name': canonical})
+    try:
+        for p in pairs:
+            alias     = str(p['alias']).strip()
+            canonical = str(p['canonical_name']).strip()
+            if not alias or not canonical:
+                continue
+            db.session.execute(_t("""
+                INSERT INTO physician_alias_map (alias, canonical_name, dismissed)
+                VALUES (:alias, :canonical, false)
+                ON CONFLICT (alias) DO UPDATE
+                    SET canonical_name = EXCLUDED.canonical_name, dismissed = false
+            """), {"alias": alias, "canonical": canonical})
+        db.session.commit()
+        return jsonify({"status": "success", "count": len(pairs)})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@mapping_bp.route('/physician/dismiss', methods=['POST'])
+@login_required
+def physician_dismiss():
+    """Mark a suggestion as dismissed (not the same person)."""
+    if current_user.role != 'admin': return abort(403)
+    from sqlalchemy import text as _t
+    data = request.get_json(force=True)
+    # Dismiss all variants in a suggestion group by inserting them as self-mappings that are dismissed
+    aliases = data.get('aliases', [])
+    try:
+        for alias in aliases:
+            alias = str(alias).strip()
+            if not alias:
+                continue
+            db.session.execute(_t("""
+                INSERT INTO physician_alias_map (alias, canonical_name, dismissed)
+                VALUES (:alias, :alias, true)
+                ON CONFLICT (alias) DO UPDATE SET dismissed = true
+            """), {"alias": alias})
+        db.session.commit()
+        return jsonify({"status": "success"})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@mapping_bp.route('/physician/delete', methods=['POST'])
+@login_required
+def physician_delete():
+    """Remove an approved mapping (reverts to raw name)."""
+    if current_user.role != 'admin': return abort(403)
+    from sqlalchemy import text as _t
+    data = request.get_json(force=True)
+    alias = str(data.get('alias', '')).strip()
+    try:
+        db.session.execute(_t("DELETE FROM physician_alias_map WHERE alias = :alias"), {"alias": alias})
+        db.session.commit()
+        return jsonify({"status": "success"})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500
