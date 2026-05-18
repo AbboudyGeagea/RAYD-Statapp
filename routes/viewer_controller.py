@@ -418,6 +418,74 @@ def yesterday_overview():
             for r in ae_by_util
         ]
 
+        # ── Query 4: Orders vs PACS studies reconciliation (Mazloum) ──────
+        # Numeric accession numbers allow linking multi-part protocols by proximity (±6).
+        link_row = db.session.execute(text("""
+            WITH orders_yesterday AS (
+                SELECT
+                    o.patient_dbid::TEXT                        AS patient_id,
+                    UPPER(TRIM(COALESCE(o.modality, '')))       AS modality,
+                    o.scheduled_datetime::date                  AS order_date,
+                    o.proc_id                                   AS accession,
+                    REGEXP_REPLACE(o.proc_id, '[^0-9]', '', 'g')::BIGINT AS acc_num
+                FROM etl_orders o
+                WHERE o.scheduled_datetime::date = CURRENT_DATE - 1
+                  AND o.order_status NOT ILIKE '%CA%'
+                  AND o.proc_id ~ '^[0-9]+$'
+                  AND UPPER(TRIM(COALESCE(o.modality, ''))) NOT IN ('SR', 'OT', 'SCN')
+            ),
+            grouped AS (
+                SELECT
+                    patient_id, modality, order_date, accession, acc_num,
+                    acc_num - ROW_NUMBER() OVER (
+                        PARTITION BY patient_id, modality, order_date
+                        ORDER BY acc_num
+                    ) AS grp_key
+                FROM orders_yesterday
+            ),
+            link_groups AS (
+                SELECT
+                    patient_id, modality, order_date, grp_key,
+                    COUNT(*)         AS orders_in_group,
+                    MIN(accession)   AS primary_accession,
+                    MIN(acc_num)     AS min_acc,
+                    MAX(acc_num)     AS max_acc
+                FROM grouped
+                GROUP BY patient_id, modality, order_date, grp_key
+            ),
+            summary AS (
+                SELECT
+                    COUNT(*)                                                        AS total_orders,
+                    COUNT(*) FILTER (WHERE orders_in_group > 1)                    AS linked_groups,
+                    SUM(orders_in_group) FILTER (WHERE orders_in_group > 1)       AS orders_in_linked,
+                    COUNT(*) FILTER (WHERE orders_in_group = 1)                    AS standalone_orders,
+                    COUNT(*) FILTER (WHERE orders_in_group > 1)
+                        + COUNT(*) FILTER (WHERE orders_in_group = 1)              AS expected_studies
+                FROM link_groups
+            )
+            SELECT
+                total_orders,
+                linked_groups,
+                orders_in_linked,
+                standalone_orders,
+                expected_studies
+            FROM summary
+        """)).fetchone()
+
+        orders_link = {
+            'total_orders':      link_row[0] or 0,
+            'linked_groups':     link_row[1] or 0,
+            'orders_in_linked':  link_row[2] or 0,
+            'standalone_orders': link_row[3] or 0,
+            'expected_studies':  link_row[4] or 0,
+        }
+
+        pacs_studies = studies_total
+        delta        = orders_link['expected_studies'] - pacs_studies
+        orders_link['pacs_studies'] = pacs_studies
+        orders_link['delta']        = delta
+        orders_link['delta_pct']    = round(abs(delta) / max(orders_link['expected_studies'], 1) * 100, 1)
+
         return jsonify({
             "orders_total":      orders_total,
             "orders_cancelled":  orders_ca,
@@ -433,6 +501,7 @@ def yesterday_overview():
             "physicians":        physicians,
             "ae_by_count":       ae_by_count_raw,
             "ae_by_util":        util_list,
+            "orders_link":       orders_link,
         })
 
     except Exception as e:

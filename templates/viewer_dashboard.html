@@ -29,6 +29,10 @@
         body.light .tab-btn.active { color: #2b6cb0; border-bottom-color: #2b6cb0; }
         body.light h3 { color: #1a202c !important; }
         body.light p.text-slate-400 { color: #718096 !important; }
+        /* Orders reconciliation card */
+        .rec-kpi { text-align:center; padding:8px 4px; }
+        .rec-val { font-size:1.4em; font-weight:900; color:#e2e8f0; font-family:monospace; line-height:1.1; }
+        .rec-lbl { font-size:9px; color:#4b7a63; text-transform:uppercase; letter-spacing:.06em; margin-top:3px; }
     </style>
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
@@ -117,6 +121,42 @@
                                 <div id="yest-ae-count" class="space-y-2"></div>
                                 <div id="yest-ae-util"  class="space-y-2 hidden"></div>
                             </div>
+                        </div>
+
+                        <!-- Orders vs PACS Studies Reconciliation -->
+                        <div class="exec-card" style="background:#0f1a16;border:1px solid #1a2d22;border-radius:12px;padding:16px 20px;margin-top:12px;">
+                          <div style="font-size:10px;font-weight:800;color:#34d399;letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px;">
+                            Orders &#8596; PACS Reconciliation
+                          </div>
+                          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">
+                            <div class="rec-kpi">
+                              <div class="rec-val" id="rec-total-orders">&#8212;</div>
+                              <div class="rec-lbl">Orders Placed</div>
+                            </div>
+                            <div class="rec-kpi">
+                              <div class="rec-val" id="rec-linked">&#8212;</div>
+                              <div class="rec-lbl">Linked Groups<br><span style="font-size:9px;color:#4b7a63;">(multi-order protocols)</span></div>
+                            </div>
+                            <div class="rec-kpi">
+                              <div class="rec-val" id="rec-expected">&#8212;</div>
+                              <div class="rec-lbl">Expected Studies</div>
+                            </div>
+                            <div class="rec-kpi">
+                              <div class="rec-val" id="rec-pacs">&#8212;</div>
+                              <div class="rec-lbl">PACS Studies</div>
+                            </div>
+                            <div class="rec-kpi">
+                              <div class="rec-val" id="rec-delta" style="font-size:1.1em;font-weight:900;">&#8212;</div>
+                              <div class="rec-lbl">Discrepancy</div>
+                            </div>
+                            <div class="rec-kpi">
+                              <div class="rec-val" id="rec-delta-pct">&#8212;%</div>
+                              <div class="rec-lbl">Variance %</div>
+                            </div>
+                          </div>
+                          <div style="margin-top:8px;font-size:9px;color:#4b7a63;">
+                            Linked groups: same patient, same modality, accessions within &#177;6 (CT full-body protocols, etc.)
+                          </div>
                         </div>
 
                     </div>
@@ -360,6 +400,20 @@
             // AE by utilization
             document.getElementById('yest-ae-util').innerHTML =
                 d.ae_by_util.map(a => bar(a.ae, a.util_pct, 100, '#22c55e', '%')).join('') || '<p style="color:#64748b;font-size:13px;">No utilization data</p>';
+
+            // Orders vs PACS reconciliation
+            if (d.orders_link) {
+                const ol = d.orders_link;
+                document.getElementById('rec-total-orders').textContent = ol.total_orders;
+                document.getElementById('rec-linked').textContent = ol.linked_groups + ' groups (' + ol.orders_in_linked + ' orders)';
+                document.getElementById('rec-expected').textContent = ol.expected_studies;
+                document.getElementById('rec-pacs').textContent = ol.pacs_studies;
+                const delta = ol.delta;
+                const dEl = document.getElementById('rec-delta');
+                dEl.textContent = (delta > 0 ? '+' : '') + delta;
+                dEl.style.color = delta === 0 ? '#34d399' : (Math.abs(delta) <= 3 ? '#fbbf24' : '#f87171');
+                document.getElementById('rec-delta-pct').textContent = ol.delta_pct + '%';
+            }
         }
 
         function switchAeTab(tab) {
