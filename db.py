@@ -2,6 +2,7 @@ import os
 import sys
 import logging
 import oracledb
+from datetime import datetime
 
 # 1. ORACLE MODERNIZATION
 sys.modules["cx_Oracle"] = oracledb 
@@ -460,6 +461,14 @@ class procedure_duration_map(db.Model):
     duration_minutes = db.Column(Integer)
     rvu_value = db.Column(Numeric(10,2), default=0.0)
     modality = db.Column(String(20))
+
+class PhysicianAliasMap(db.Model):
+    __tablename__ = 'physician_alias_map'
+    alias          = db.Column(db.Text, primary_key=True)
+    canonical_name = db.Column(db.Text, nullable=False)
+    dismissed      = db.Column(db.Boolean, nullable=False, default=False)
+    created_at     = db.Column(db.DateTime, default=datetime.utcnow)
+
 
 class aetitle_modality_map(db.Model):
     __tablename__ = 'aetitle_modality_map'

@@ -512,16 +512,21 @@ def _collect_data(start, end, filters):
     """), params).mappings().fetchall()
 
     # ── Radiologist matrix: reports × modality / AE title / procedure ─
-    _RAD = ("COALESCE(NULLIF(TRIM(CONCAT(s.signing_physician_first_name,' ',"
-            "s.signing_physician_last_name)),''),s.rep_final_signed_by)")
-    _RAD_OK = (f"{_RAD} IS NOT NULL AND {_RAD} NOT IN ('','Unknown')"
+    _RAD_BASE_SR = ("COALESCE(NULLIF(TRIM(CONCAT(s.signing_physician_first_name,' ',"
+                    "s.signing_physician_last_name)),''),s.rep_final_signed_by)")
+    _PAM_SR = ("LEFT JOIN physician_alias_map pam "
+               "ON pam.dismissed = false "
+               "AND pam.alias = COALESCE(NULLIF(TRIM(CONCAT(s.signing_physician_first_name,' ',"
+               "s.signing_physician_last_name)),''),s.rep_final_signed_by)")
+    _RAD = f"COALESCE(pam.canonical_name, {_RAD_BASE_SR})"
+    _RAD_OK = (f"{_RAD_BASE_SR} IS NOT NULL AND {_RAD} NOT IN ('','Unknown')"
                f" AND s.rep_final_timestamp IS NOT NULL")
 
     rad_mod_rows = db.session.execute(text(f"""
         SELECT {_RAD} AS radiologist,
                COALESCE(m.modality, s.study_modality, 'Unknown') AS dim,
                COUNT(DISTINCT s.study_db_uid) AS cnt
-        FROM etl_didb_studies s {mj} {pj}
+        FROM etl_didb_studies s {mj} {pj} {_PAM_SR}
         WHERE {where} AND {_RAD_OK}
         GROUP BY 1, 2 ORDER BY 1, 3 DESC
     """), params).mappings().fetchall()
@@ -530,7 +535,7 @@ def _collect_data(start, end, filters):
         SELECT {_RAD} AS radiologist,
                COALESCE(s.storing_ae, 'Unknown') AS dim,
                COUNT(DISTINCT s.study_db_uid) AS cnt
-        FROM etl_didb_studies s {mj} {pj}
+        FROM etl_didb_studies s {mj} {pj} {_PAM_SR}
         WHERE {where} AND {_RAD_OK}
         GROUP BY 1, 2 ORDER BY 1, 3 DESC
     """), params).mappings().fetchall()
@@ -546,7 +551,7 @@ def _collect_data(start, end, filters):
         SELECT {_RAD} AS radiologist,
                s.procedure_code AS proc,
                COUNT(DISTINCT s.study_db_uid) AS cnt
-        FROM etl_didb_studies s {mj} {pj}
+        FROM etl_didb_studies s {mj} {pj} {_PAM_SR}
         JOIN top_procs tp ON tp.procedure_code = s.procedure_code
         WHERE {where} AND {_RAD_OK}
         GROUP BY 1, 2 ORDER BY 2, 3 DESC
@@ -556,7 +561,7 @@ def _collect_data(start, end, filters):
         SELECT {_RAD} AS radiologist,
                TO_CHAR(s.study_date, 'YYYY-MM') AS dim,
                COUNT(DISTINCT s.study_db_uid) AS cnt
-        FROM etl_didb_studies s {mj} {pj}
+        FROM etl_didb_studies s {mj} {pj} {_PAM_SR}
         WHERE {where} AND {_RAD_OK}
         GROUP BY 1, 2 ORDER BY 1, 2
     """), params).mappings().fetchall()
