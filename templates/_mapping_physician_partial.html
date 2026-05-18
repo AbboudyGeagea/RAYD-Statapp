@@ -1,0 +1,166 @@
+<div class="space-y-10">
+
+    <!-- ── Section 1: Suggestions ──────────────────────────────────────────── -->
+    <div>
+        <div class="flex items-end justify-between mb-4">
+            <div>
+                <h2 class="text-xl font-black text-white uppercase tracking-tight">Suggested Matches</h2>
+                <p class="text-[11px] text-slate-400 mt-1">Auto-detected possible duplicates. Review and approve.</p>
+            </div>
+            {% if suggestions %}
+            <button onclick="approveAll()"
+                    class="px-5 py-2 bg-[#60a5fa] text-white text-[10px] font-black rounded-xl hover:bg-blue-500 transition shadow-lg uppercase tracking-widest">
+                <i class="bi bi-check-all mr-1"></i> Approve All
+            </button>
+            {% endif %}
+        </div>
+
+        {% if suggestions %}
+        <div class="space-y-4">
+            {% for s in suggestions %}
+            {% set idx = loop.index %}
+            <div class="card-custom p-6 relative">
+                <!-- Confidence badge -->
+                {% if s.confidence >= 85 %}
+                <span class="absolute top-4 right-4 text-[10px] font-black px-2.5 py-1 rounded-full bg-emerald-900/60 text-emerald-300 border border-emerald-700">
+                    {{ s.confidence }}%
+                </span>
+                {% elif s.confidence >= 70 %}
+                <span class="absolute top-4 right-4 text-[10px] font-black px-2.5 py-1 rounded-full bg-amber-900/60 text-amber-300 border border-amber-700">
+                    {{ s.confidence }}%
+                </span>
+                {% else %}
+                <span class="absolute top-4 right-4 text-[10px] font-black px-2.5 py-1 rounded-full bg-red-900/60 text-red-300 border border-red-700">
+                    {{ s.confidence }}%
+                </span>
+                {% endif %}
+
+                <!-- Variant name list -->
+                <div class="flex flex-wrap gap-6 mb-5 pr-16">
+                    {% for v in s.variants %}
+                    <div class="flex flex-col items-center gap-1">
+                        <span class="font-mono text-sm font-black text-white {% if v == s.suggested_canonical %}text-[#60a5fa]{% endif %}">
+                            {{ v }}
+                            {% if v == s.suggested_canonical %}
+                            <span class="ml-1 text-[8px] font-black text-[#60a5fa] uppercase tracking-widest">(suggested)</span>
+                            {% endif %}
+                        </span>
+                        <span class="text-[9px] text-slate-500">{{ s.report_counts[v] }} reports</span>
+                    </div>
+                    {% if not loop.last %}
+                    <div class="flex items-center text-slate-600 text-lg">&harr;</div>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+
+                <!-- Canonical selector + action buttons -->
+                <div class="flex flex-wrap items-center gap-3">
+                    <label class="text-[9px] text-slate-500 uppercase font-black tracking-widest">Canonical name:</label>
+                    <select id="sel-{{ idx }}"
+                            class="bg-[#181f1c] border border-[#28332e] text-white text-xs font-bold rounded-lg px-3 py-1.5 outline-none focus:border-[#60a5fa] transition">
+                        {% for v in s.variants %}
+                        <option value="{{ v }}" {% if v == s.suggested_canonical %}selected{% endif %}>{{ v }}</option>
+                        {% endfor %}
+                    </select>
+                    <button onclick="approvePhysician({{ s.variants | tojson }}, 'sel-{{ idx }}')"
+                            class="px-4 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-[10px] font-black rounded-lg transition uppercase tracking-widest">
+                        <i class="bi bi-check-lg mr-1"></i> Approve
+                    </button>
+                    <button onclick="dismissPhysician({{ s.variants | tojson }})"
+                            class="px-4 py-1.5 bg-[#1d2522] border border-[#28332e] hover:border-red-500 hover:text-red-400 text-slate-400 text-[10px] font-black rounded-lg transition uppercase tracking-widest">
+                        <i class="bi bi-x-lg mr-1"></i> Not the same person
+                    </button>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="card-custom p-8 text-center text-slate-500 text-sm">
+            <i class="bi bi-check-circle text-2xl mb-2 block text-slate-600"></i>
+            No duplicate names detected.
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- ── Section 2: Approved Mappings ────────────────────────────────────── -->
+    <div>
+        <h2 class="text-xl font-black text-white uppercase tracking-tight mb-4">Approved Mappings</h2>
+
+        {% if approved %}
+        <div class="card-custom overflow-hidden">
+            <table class="w-full text-left text-xs">
+                <thead class="text-[9px] font-black text-slate-500 uppercase border-b border-[#28332e]">
+                    <tr>
+                        <th class="px-6 py-3 text-[#60a5fa]">Alias (raw name)</th>
+                        <th class="px-6 py-3 text-[#60a5fa]">Canonical Name</th>
+                        <th class="px-4 py-3 text-center">Remove</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-[#28332e]">
+                    {% for row in approved %}
+                    <tr class="hover:bg-[#1d2521]/40 transition">
+                        <td class="px-6 py-3 font-mono text-slate-300">{{ row[0] }}</td>
+                        <td class="px-6 py-3 font-bold text-white">{{ row[1] }}</td>
+                        <td class="px-4 py-3 text-center">
+                            <button onclick="deleteMapping({{ row[0] | tojson }})"
+                                    class="text-slate-600 hover:text-red-400 transition text-base font-black"
+                                    title="Remove mapping">
+                                &times;
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="card-custom p-8 text-center text-slate-500 text-sm">
+            <i class="bi bi-person-badge text-2xl mb-2 block text-slate-600"></i>
+            No mappings approved yet.
+        </div>
+        {% endif %}
+    </div>
+
+</div>
+
+<script>
+async function approvePhysician(variants, selectId) {
+    const canonical = document.getElementById(selectId).value;
+    const aliases = variants.filter(v => v !== canonical);
+    for (const alias of aliases) {
+        await fetch('/mapping/physician/approve', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({alias, canonical_name: canonical})
+        });
+    }
+    location.reload();
+}
+
+async function dismissPhysician(variants) {
+    await fetch('/mapping/physician/dismiss', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({aliases: variants})
+    });
+    location.reload();
+}
+
+async function approveAll() {
+    await fetch('/mapping/physician/approve-all', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({})
+    });
+    location.reload();
+}
+
+async function deleteMapping(alias) {
+    await fetch('/mapping/physician/delete', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({alias})
+    });
+    location.reload();
+}
+</script>
