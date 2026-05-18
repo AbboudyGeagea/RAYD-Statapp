@@ -126,10 +126,11 @@
                     <th class="pb-3 pr-1 sticky top-0 bg-[#111413] z-10 w-4" title="Click a row to expand breakdown by imaging type"></th>
                     <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Technician</th>
                     <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right">Exams Done</th>
-                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right text-blue-400" title="Average time from scheduled to marked done (minutes)">Done TAT</th>
+                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right text-blue-400" title="Average time from scheduled to marked done (minutes). TAT &gt; 24h excluded.">Done TAT</th>
                     <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right text-purple-400" title="Average time from scheduled to scanner confirmation (minutes)">Scanner TAT</th>
                     <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right" title="How this technician compares to the team average. Red = slower, green = faster.">vs Team</th>
                     <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right" title="Percentage of this technician's exams that were flagged as abnormal (too early, too late, overlap)">Issues %</th>
+                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right" title="Exams with TAT exceeding 24 hours, excluded from averages">Outliers</th>
                     <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10" title="The imaging type this technician performed most">Main Type</th>
                     <th class="pb-3 sticky top-0 bg-[#111413] z-10">Note</th>
                 </tr>
@@ -161,6 +162,14 @@
                         {% elif t.flag_rate > 0 %}<span class="text-zinc-500 text-[10px]">{{ t.flag_rate }}%</span>
                         {% else %}<span class="text-zinc-600 text-xs">—</span>{% endif %}
                     </td>
+                    <td class="py-2 pr-4 text-right">
+                        {% set oc = t.outlier_count if t.outlier_count is defined else 0 %}
+                        {% if oc > 0 %}
+                        <span class="px-2 py-0.5 rounded bg-red-500/15 border border-red-500/30 text-red-400 text-[10px] font-bold" title="TAT &gt; 24h, excluded from averages">{{ oc }}</span>
+                        {% else %}
+                        <span class="text-zinc-600 text-xs">—</span>
+                        {% endif %}
+                    </td>
                     <td class="py-2 pr-4">
                         {% if t.top_modality %}<span class="px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[9px] font-bold">{{ t.top_modality }}</span>{% endif %}
                     </td>
@@ -171,7 +180,7 @@
                 {% if t.modalities and t.modalities|length > 0 %}
                 <tr id="{{ tid }}" style="display:none;" class="bg-zinc-950/40">
                     <td></td>
-                    <td colspan="8" class="pt-1 pb-3">
+                    <td colspan="9" class="pt-1 pb-3">
                         <div class="flex flex-wrap gap-2 pl-1">
                             {% for m in t.modalities %}
                             <div class="flex flex-col gap-0.5 px-3 py-2 rounded-lg border border-white/5 bg-[#0d1117] min-w-[90px]">
@@ -189,6 +198,7 @@
             </tbody>
         </table>
     </div>
+    <p class="text-[10px] text-zinc-600 mt-2 italic">TAT values &gt; 24h are excluded from averages and shown separately in the Outliers column.</p>
 </div>
 {% endif %}
 
