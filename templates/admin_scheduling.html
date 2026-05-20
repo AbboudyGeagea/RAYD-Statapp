@@ -2,1009 +2,1142 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>RAYD | Scheduling</title>
-    <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAYD · Scheduling</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/dark.min.css">
     <style>
-        :root { --accent: #60a5fa; }
-        body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; }
-        body.light { background: #f0f4f8; color: #1a202c; }
-        body.light aside, body.light header { background: #ffffff !important; border-color: #e2e8f0 !important; }
-        body.light .card { background: #ffffff; border-color: #e2e8f0; }
-        body.light .input-border { background: #f8fafc; border-color: #e2e8f0; color: #1a202c; }
-        body.light .grid-cell { background: #f8fafc; border-color: #e2e8f0; }
-        .card { background: #232b28; border-radius: 1.5rem; padding: 2rem; border: 1px solid #28332e; }
-        .input-border { background: #141b19; border: 1px solid #334155; color: #e2e8f0; padding: 0.9rem 1rem; border-radius: 0.85rem; width: 100%; font-size: 0.875rem; outline: none; transition: border-color 0.2s; }
-        .input-border:focus { border-color: var(--accent); }
-        .tab-btn { background: #141b19; border: 1px solid #334155; color: #94a3b8; padding: 0.65rem 1.15rem; border-radius: 999px; font-size: 0.7rem; font-weight: 900; text-transform: uppercase; letter-spacing: 0.15em; transition: all 0.2s; cursor: pointer; }
-        .tab-btn.active { background: #60a5fa; border-color: #60a5fa; color: #0f172a; }
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-        /* ── Day Grid ─────────────────────────────── */
-        .sched-table { border-collapse: collapse; width: 100%; }
-        .col-hdr { background: #1a2420; padding: 0.6rem 0.75rem; border-bottom: 2px solid #28332e;
-                   border-right: 1px solid #1e2a26; text-align: center; position: sticky; top: 0; z-index: 10; min-width: 160px; }
-        .col-hdr-label { font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; color: #e2e8f0; }
-        .col-hdr-mod   { display: inline-block; font-size: 8px; font-weight: 900; text-transform: uppercase;
-                         letter-spacing: .08em; padding: 2px 6px; border-radius: 4px;
-                         background: #1e293b; color: #94a3b8; margin-left: 4px; }
-        .col-hdr-pool  { color: #64748b; font-style: italic; }
-        .cap-bar-wrap  { margin-top: 5px; height: 4px; background: #1e293b; border-radius: 2px; overflow: hidden; }
-        .cap-bar       { height: 100%; border-radius: 2px; transition: width .3s; }
-        .cap-ok   { background: #34d399; }
-        .cap-warn { background: #fbbf24; }
-        .cap-full { background: #f87171; }
-        .time-td { font-size: 10px; font-weight: 700; color: #475569; padding: 0.4rem 0.75rem;
-                   border-right: 1px solid #1e2a26; border-bottom: 1px solid #1e2a26;
-                   text-align: right; white-space: nowrap; background: #1a2420;
-                   position: sticky; left: 0; z-index: 5; }
-        .grid-cell { border-right: 1px solid #1e2a26; border-bottom: 1px solid #1e2a26;
-                     padding: 3px; min-height: 40px; vertical-align: top;
-                     background: #1c2420; transition: background .15s; }
-        .grid-cell:hover { background: #1e2a26; }
-        .grid-cell.has-appt { background: #1c2824; }
-        .time-tr.hidden-slot { display: none; }
+        :root {
+            --bg:       #0c1210;
+            --surface:  #111a17;
+            --card:     #162019;
+            --border:   #1e2d28;
+            --border2:  #253530;
+            --accent:   #38bdf8;
+            --accent2:  #a78bfa;
+            --green:    #34d399;
+            --amber:    #fbbf24;
+            --red:      #f87171;
+            --text:     #e2e8f0;
+            --muted:    #64748b;
+            --faint:    #334155;
+        }
 
-        /* ── Appointment cards ────────────────────── */
-        .appt-card { border-radius: 0.45rem; padding: 0.3rem 0.45rem; margin-bottom: 3px;
-                     font-size: 11px; line-height: 1.3; cursor: pointer; transition: opacity .15s; }
-        .appt-card:hover { opacity: .85; }
-        .appt-card.manual    { background: rgba(96,165,250,.12);  border-left: 3px solid #60a5fa; }
-        .appt-card.hl7       { background: rgba(167,139,250,.12); border-left: 3px solid #a78bfa; }
-        .appt-card.er        { background: rgba(239,68,68,.15);   border-left: 3px solid #ef4444; }
-        .appt-card.ip        { background: rgba(251,191,36,.12);  border-left: 3px solid #fbbf24; }
-        .appt-card.cancelled { opacity: .45; }
-        .appt-card.cancelled .appt-name,
-        .appt-card.cancelled .appt-proc { text-decoration: line-through; color: #64748b !important; }
-        .status-pill { font-size: 8px; font-weight: 900; padding: 1px 5px; border-radius: 3px;
-                       text-transform: uppercase; display: inline-block; }
-        .pill-hl7  { background: rgba(167,139,250,.12); color: #a78bfa; }
-        .pill-ord  { background: rgba(56,189,248,.12);  color: #38bdf8; }
-        .pill-arr  { background: rgba(167,139,250,.12); color: #a78bfa; }
-        .pill-strt { background: rgba(96,165,250,.12);  color: #60a5fa; }
-        .pill-done { background: rgba(74,222,128,.12);  color: #4ade80; }
-        .pill-canc { background: rgba(239,68,68,.12);   color: #f87171; }
-        .chip { display: inline-flex; align-items: center; gap: 6px; padding: .35rem .75rem;
-                border-radius: 999px; font-size: 11px; font-weight: 700; }
+        html, body { height: 100%; overflow: hidden; font-family: 'Inter', 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); }
 
-        /* ── Week grid ───────────────────────────── */
-        .wk-table { border-collapse: collapse; width: 100%; }
-        .wk-day-hdr { background: #1a2420; padding: .5rem .6rem; font-size: 9px; font-weight: 900;
-                      text-transform: uppercase; letter-spacing: .12em; color: #60a5fa;
-                      border-bottom: 1px solid #28332e; border-right: 1px solid #28332e;
-                      text-align: center; white-space: nowrap; min-width: 100px; }
-        .wk-day-hdr.today-col { color: #34d399; background: rgba(52,211,153,.04); }
-        .wk-row-hdr { background: #1a2420; padding: .45rem .75rem; font-size: 10px; font-weight: 800;
-                      color: #94a3b8; border-bottom: 1px solid #1e2a26; border-right: 2px solid #334155;
-                      white-space: nowrap; }
-        .wk-cell { border-right: 1px solid #1e2a26; border-bottom: 1px solid #1e2a26;
-                   padding: .45rem .5rem; text-align: center; vertical-align: middle;
-                   background: #1c2420; transition: background .15s; cursor: pointer; }
-        .wk-cell:hover { background: #1e2a26; }
-        .wk-cell.today-col { background: rgba(52,211,153,.03); }
-        .wk-cnt { font-size: 18px; font-weight: 900; }
-        .wk-cnt-0 { color: #334155; }
-        .wk-cnt-lo { color: #34d399; }
-        .wk-cnt-md { color: #fbbf24; }
-        .wk-cnt-hi { color: #f87171; }
+        /* ── Top nav ─────────────────────────────────────────────────── */
+        #topnav {
+            height: 52px; display: flex; align-items: center; gap: 12px;
+            padding: 0 20px; background: var(--surface);
+            border-bottom: 1px solid var(--border); flex-shrink: 0; z-index: 30;
+        }
+        .nav-logo { font-size: 13px; font-weight: 900; text-transform: uppercase; letter-spacing: .18em; color: var(--accent); white-space: nowrap; }
+        .nav-sep  { width: 1px; height: 22px; background: var(--border2); flex-shrink: 0; }
+        .nav-date-btn {
+            display: flex; align-items: center; justify-content: center; width: 30px; height: 30px;
+            border-radius: 8px; border: 1px solid var(--border2); color: var(--muted); cursor: pointer;
+            background: transparent; transition: all .15s; flex-shrink: 0;
+        }
+        .nav-date-btn:hover { border-color: var(--accent); color: var(--accent); background: rgba(56,189,248,.06); }
+        .nav-date-label { font-size: 14px; font-weight: 800; color: var(--text); white-space: nowrap; }
+        .nav-today-badge { font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: .12em;
+                           padding: 2px 8px; border-radius: 20px; background: rgba(52,211,153,.12);
+                           color: var(--green); border: 1px solid rgba(52,211,153,.25); flex-shrink: 0; }
+        .nav-stat { display: flex; flex-direction: column; align-items: center; min-width: 48px; }
+        .nav-stat-val { font-size: 16px; font-weight: 900; line-height: 1; }
+        .nav-stat-lbl { font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin-top: 1px; }
+        .nav-action {
+            display: flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 10px;
+            font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .1em;
+            cursor: pointer; border: 1px solid transparent; transition: all .15s; white-space: nowrap; text-decoration: none;
+        }
+        .nav-action.primary { background: var(--accent); color: #0c1210; border-color: var(--accent); }
+        .nav-action.primary:hover { background: #7dd3fc; }
+        .nav-action.ghost { background: transparent; color: var(--muted); border-color: var(--border2); }
+        .nav-action.ghost:hover { border-color: var(--accent); color: var(--accent); }
+        .spacer { flex: 1; }
 
-        /* ── HL7 modal ────────────────────────────── */
-        #hl7-modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:50;
-                     align-items:center; justify-content:center; }
-        #hl7-modal.open { display:flex; }
-        #hl7-modal-box { background:#1e2a26; border:1px solid #334155; border-radius:1.25rem;
-                         padding:2rem; width:100%; max-width:500px; position:relative; }
-        .modal-field-label { font-size:9px; font-weight:800; text-transform:uppercase;
-                             letter-spacing:.1em; color:#475569; margin-bottom:6px; display:block; }
-        .modal-input { background:#141b19; border:1px solid #334155; color:#e2e8f0;
-                       padding:.7rem 1rem; border-radius:.75rem; width:100%;
-                       font-size:.85rem; outline:none; transition:border-color .2s; }
-        .modal-input:focus { border-color:#a78bfa; }
-        .modal-input:disabled { opacity:.4; cursor:not-allowed; }
-        .er-highlight { border-color: #dc2626 !important; background: rgba(220,38,38,.08); }
+        /* ── Layout ─────────────────────────────────────────────────── */
+        #app { display: flex; flex-direction: column; height: 100vh; }
+        #tabs-bar {
+            display: flex; gap: 4px; padding: 8px 20px 0;
+            background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0;
+        }
+        .tab-pill {
+            padding: 7px 16px; border-radius: 8px 8px 0 0; font-size: 10px; font-weight: 900;
+            text-transform: uppercase; letter-spacing: .12em; cursor: pointer; border: none;
+            background: transparent; color: var(--muted); position: relative;
+            transition: color .15s, background .15s; border-bottom: 2px solid transparent;
+        }
+        .tab-pill:hover { color: var(--text); background: rgba(255,255,255,.03); }
+        .tab-pill.active { color: var(--accent); border-bottom-color: var(--accent); background: rgba(56,189,248,.05); }
+        .tab-pill .badge {
+            position: absolute; top: 4px; right: 6px; background: var(--accent2);
+            color: #1e1b4b; font-size: 8px; font-weight: 900; min-width: 16px; height: 16px;
+            border-radius: 8px; display: flex; align-items: center; justify-content: center; padding: 0 3px;
+        }
+        #content { flex: 1; overflow: hidden; }
+        .panel { display: none; height: 100%; overflow: hidden; flex-direction: column; }
+        .panel.active { display: flex; }
 
-        /* ── Print ───────────────────────────────── */
+        /* ── Filters bar ─────────────────────────────────────────────── */
+        #filters-bar {
+            display: flex; align-items: center; gap: 10px; padding: 8px 20px;
+            background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; flex-wrap: wrap;
+        }
+        .filter-chip {
+            display: flex; align-items: center; gap: 5px; padding: 4px 11px; border-radius: 20px;
+            font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .1em;
+            border: 1px solid var(--border2); color: var(--muted); cursor: pointer; transition: all .15s; background: transparent;
+        }
+        .filter-chip:hover { border-color: var(--faint); color: var(--text); }
+        .filter-chip.on { background: rgba(56,189,248,.1); border-color: rgba(56,189,248,.3); color: var(--accent); }
+        .filter-chip.er-chip.on { background: rgba(248,113,113,.1); border-color: rgba(248,113,113,.3); color: var(--red); }
+        .filter-chip.done-chip.on { background: rgba(52,211,153,.08); border-color: rgba(52,211,153,.25); color: var(--green); }
+
+        /* ── Day grid ─────────────────────────────────────────────────── */
+        #grid-scroll { flex: 1; overflow: auto; position: relative; }
+        .sched-wrap { display: inline-block; min-width: 100%; }
+        table.sched { border-collapse: collapse; }
+        table.sched th, table.sched td { border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+
+        .th-time {
+            position: sticky; top: 0; left: 0; z-index: 20; background: var(--surface);
+            width: 58px; min-width: 58px; padding: 10px 10px; text-align: center;
+            font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: .12em; color: var(--muted);
+            border-right: 2px solid var(--border2);
+        }
+        .th-device {
+            position: sticky; top: 0; z-index: 15; background: var(--surface);
+            min-width: 220px; padding: 10px 14px; text-align: left;
+            border-bottom: 2px solid var(--border2);
+        }
+        .th-device-name { font-size: 12px; font-weight: 800; color: var(--text); white-space: nowrap; }
+        .th-device-mod {
+            display: inline-block; font-size: 8px; font-weight: 900; text-transform: uppercase;
+            letter-spacing: .1em; padding: 2px 7px; border-radius: 4px; background: rgba(255,255,255,.05);
+            color: var(--muted); margin-left: 6px; vertical-align: middle;
+        }
+        .th-device-pool { color: var(--muted); font-style: italic; }
+        .cap-wrap { margin-top: 5px; height: 3px; background: var(--border2); border-radius: 2px; overflow: hidden; }
+        .cap-fill { height: 100%; border-radius: 2px; transition: width .4s ease; }
+        .cap-ok   { background: linear-gradient(90deg, var(--green), #6ee7b7); }
+        .cap-warn { background: linear-gradient(90deg, var(--amber), #fde68a); }
+        .cap-full { background: linear-gradient(90deg, var(--red), #fca5a5); box-shadow: 0 0 6px rgba(248,113,113,.4); }
+        .cap-meta { font-size: 8px; color: var(--muted); margin-top: 3px; }
+
+        .td-time {
+            position: sticky; left: 0; z-index: 10; background: var(--surface);
+            width: 58px; min-width: 58px; padding: 0 8px; text-align: right; vertical-align: top;
+            font-size: 10px; font-weight: 700; color: var(--muted); white-space: nowrap;
+            border-right: 2px solid var(--border2); padding-top: 6px;
+        }
+        .td-time.hour-mark { color: var(--text); font-size: 11px; }
+        .td-cell {
+            min-width: 220px; padding: 4px; vertical-align: top; background: var(--card);
+            transition: background .12s;
+        }
+        .td-cell:hover { background: #1a2520; }
+        .tr-odd .td-cell { background: #101a17; }
+        .tr-odd .td-cell:hover { background: #182018; }
+
+        /* ── Appointment cards ──────────────────────────────────────── */
+        .appt {
+            border-radius: 8px; padding: 7px 9px; margin-bottom: 4px;
+            cursor: pointer; position: relative; overflow: hidden;
+            transition: transform .15s, box-shadow .15s;
+        }
+        .appt:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(0,0,0,.4); }
+        .appt::before { content:''; position:absolute; left:0; top:0; bottom:0; width:3px; border-radius:8px 0 0 8px; }
+
+        .appt-manual { background: rgba(56,189,248,.07); }
+        .appt-manual::before { background: var(--accent); }
+        .appt-hl7    { background: rgba(167,139,250,.07); }
+        .appt-hl7::before { background: var(--accent2); }
+        .appt-er     { background: rgba(248,113,113,.1); animation: er-pulse 2s infinite; }
+        .appt-er::before { background: var(--red); }
+        .appt-ip     { background: rgba(251,191,36,.08); }
+        .appt-ip::before { background: var(--amber); }
+        .appt-cancelled { opacity: .35; }
+        .appt-cancelled .appt-name, .appt-cancelled .appt-proc { text-decoration: line-through; }
+
+        @keyframes er-pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(248,113,113,0); }
+            50%       { box-shadow: 0 0 0 4px rgba(248,113,113,.15); }
+        }
+
+        .appt-name { font-size: 12px; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 190px; }
+        .appt-proc { font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 190px; margin-top: 2px; }
+        .appt-meta { display: flex; align-items: center; gap: 5px; margin-top: 5px; flex-wrap: wrap; }
+        .appt-time  { font-size: 9px; color: var(--muted); font-weight: 700; }
+
+        .pill {
+            font-size: 8px; font-weight: 900; text-transform: uppercase; letter-spacing: .06em;
+            padding: 2px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;
+        }
+        .pill-hl7    { background: rgba(167,139,250,.15); color: #c4b5fd; }
+        .pill-nw     { background: rgba(56,189,248,.12);  color: #7dd3fc; }
+        .pill-ar     { background: rgba(167,139,250,.15); color: #c4b5fd; }
+        .pill-ip     { background: rgba(96,165,250,.12);  color: #93c5fd; }
+        .pill-done   { background: rgba(52,211,153,.12);  color: #6ee7b7; }
+        .pill-canc   { background: rgba(248,113,113,.12); color: #fca5a5; }
+        .pill-er     { background: rgba(248,113,113,.2);  color: var(--red); }
+        .pill-sc     { background: rgba(251,191,36,.12);  color: #fde68a; }
+
+        .arrive-quick {
+            font-size: 8px; font-weight: 900; padding: 2px 7px; border-radius: 4px;
+            background: rgba(167,139,250,.1); color: var(--accent2);
+            border: 1px solid rgba(167,139,250,.3); cursor: pointer; text-transform: uppercase;
+            letter-spacing: .06em; transition: background .12s; line-height: 1.5;
+        }
+        .arrive-quick:hover { background: rgba(167,139,250,.2); }
+
+        .slot-empty { height: 36px; }
+        .tr-hidden { display: none; }
+
+        /* ── Week grid ───────────────────────────────────────────────── */
+        #week-grid-wrap { flex: 1; overflow: auto; padding: 16px 20px; }
+        table.wk { border-collapse: collapse; width: 100%; }
+        .wk-hdr-row th { background: var(--surface); padding: 10px 12px; font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: .12em; color: var(--accent); border-bottom: 1px solid var(--border2); border-right: 1px solid var(--border); text-align: center; }
+        .wk-hdr-row th:first-child { text-align: left; min-width: 160px; color: var(--muted); }
+        .wk-hdr-row th.today-col { color: var(--green); background: rgba(52,211,153,.03); }
+        .wk-day-link { display: block; text-decoration: none; color: inherit; transition: opacity .15s; }
+        .wk-day-link:hover { opacity: .75; }
+        .wk-day-num { font-size: 20px; font-weight: 900; letter-spacing: 0; text-transform: none; margin-top: 2px; }
+        .wk-day-total { font-size: 9px; font-weight: 700; margin-top: 3px; color: var(--muted); }
+        .wk-row-hdr { background: var(--surface); padding: 10px 14px; font-size: 10px; font-weight: 800; color: var(--text); border-bottom: 1px solid var(--border); border-right: 2px solid var(--border2); white-space: nowrap; }
+        .wk-row-mod { font-size: 8px; font-weight: 900; text-transform: uppercase; letter-spacing: .1em; padding: 1px 5px; border-radius: 3px; background: rgba(255,255,255,.05); color: var(--muted); margin-left: 5px; }
+        .wk-cell {
+            text-align: center; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border);
+            padding: 14px 8px; cursor: pointer; transition: background .12s, transform .12s;
+            background: var(--card);
+        }
+        .wk-cell:hover { background: #1e2d28; }
+        .wk-cell.today-col { background: rgba(52,211,153,.025); }
+        .wk-cnt { font-size: 22px; font-weight: 900; line-height: 1; }
+        .wk-cnt-0 { color: var(--border2); }
+        .wk-cnt-lo { color: var(--green); text-shadow: 0 0 12px rgba(52,211,153,.3); }
+        .wk-cnt-md { color: var(--amber); text-shadow: 0 0 12px rgba(251,191,36,.3); }
+        .wk-cnt-hi { color: var(--red);   text-shadow: 0 0 12px rgba(248,113,113,.3); }
+        .wk-total-row td { background: rgba(56,189,248,.04); border-top: 2px solid var(--border2); }
+
+        /* ── Form panel ──────────────────────────────────────────────── */
+        #form-scroll { flex: 1; overflow-y: auto; padding: 24px 24px; }
+        .form-card {
+            max-width: 840px; margin: 0 auto;
+            background: var(--card); border: 1px solid var(--border2); border-radius: 16px; padding: 28px;
+        }
+        .form-title { font-size: 16px; font-weight: 900; text-transform: uppercase; letter-spacing: .1em; color: var(--text); margin-bottom: 22px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+        .field-label { display: block; font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: .25em; color: var(--muted); margin-bottom: 7px; }
+        .field-input {
+            width: 100%; background: #0d1512; border: 1px solid var(--border2); color: var(--text);
+            padding: 10px 13px; border-radius: 10px; font-size: 13px; outline: none;
+            transition: border-color .15s, box-shadow .15s;
+        }
+        .field-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(56,189,248,.08); }
+        .field-input::placeholder { color: var(--faint); }
+        .btn-submit {
+            padding: 11px 24px; background: var(--accent); color: #0c1210; border: none;
+            border-radius: 10px; font-size: 11px; font-weight: 900; text-transform: uppercase;
+            letter-spacing: .12em; cursor: pointer; transition: background .15s;
+        }
+        .btn-submit:hover { background: #7dd3fc; }
+        .btn-ghost {
+            padding: 11px 18px; background: transparent; border: 1px solid var(--border2);
+            color: var(--muted); border-radius: 10px; font-size: 11px; font-weight: 900;
+            text-transform: uppercase; letter-spacing: .1em; cursor: pointer; transition: all .15s;
+        }
+        .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+        .btn-danger {
+            padding: 10px 16px; background: transparent; border: 1px solid rgba(248,113,113,.3);
+            color: var(--red); border-radius: 10px; font-size: 11px; font-weight: 900;
+            text-transform: uppercase; letter-spacing: .1em; cursor: pointer; transition: all .15s;
+        }
+        .btn-danger:hover { background: rgba(248,113,113,.1); }
+        .er-glow { border-color: rgba(248,113,113,.5) !important; box-shadow: 0 0 0 3px rgba(248,113,113,.1) !important; }
+
+        /* ── All Bookings panel ──────────────────────────────────────── */
+        #all-scroll { flex: 1; overflow-y: auto; }
+        .all-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .all-table th { position: sticky; top: 0; z-index: 5; background: var(--surface); padding: 10px 16px; font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: .12em; color: var(--accent); border-bottom: 1px solid var(--border2); white-space: nowrap; text-align: left; }
+        .all-table td { padding: 10px 16px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+        .all-table tr:hover td { background: rgba(255,255,255,.02); }
+        .all-table tr.cancelled-row td { opacity: .45; }
+
+        /* ── Worklist panel ─────────────────────────────────────────── */
+        #wl-scroll { flex: 1; overflow-y: auto; }
+        .wl-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; border-bottom: 1px solid var(--border); background: var(--surface); flex-shrink: 0; gap: 10px; flex-wrap: wrap; }
+        .wl-search { background: #0d1512; border: 1px solid var(--border2); color: var(--text); padding: 7px 13px; border-radius: 10px; font-size: 12px; outline: none; width: 240px; }
+        .wl-search:focus { border-color: var(--accent2); }
+        .wl-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .wl-table th { position: sticky; top: 0; z-index: 5; background: var(--surface); padding: 9px 14px; font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); border-bottom: 1px solid var(--border2); white-space: nowrap; text-align: left; }
+        .wl-table td { padding: 9px 14px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+        .wl-table tr:hover td { background: rgba(167,139,250,.03); }
+        .btn-schedule { padding: 5px 13px; background: rgba(167,139,250,.1); border: 1px solid rgba(167,139,250,.25); color: var(--accent2); border-radius: 8px; font-size: 10px; font-weight: 900; text-transform: uppercase; cursor: pointer; transition: background .12s; letter-spacing: .08em; white-space: nowrap; }
+        .btn-schedule:hover { background: rgba(167,139,250,.2); }
+
+        /* ── Modal ──────────────────────────────────────────────────── */
+        #modal-overlay {
+            display: none; position: fixed; inset: 0; z-index: 100;
+            background: rgba(0,0,0,.7); backdrop-filter: blur(6px);
+            align-items: center; justify-content: center;
+        }
+        #modal-overlay.open { display: flex; animation: fade-in .2s ease; }
+        @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+        #modal-box {
+            background: var(--card); border: 1px solid var(--border2);
+            border-radius: 16px; padding: 24px; width: 100%; max-width: 480px;
+            box-shadow: 0 24px 64px rgba(0,0,0,.6);
+            animation: slide-up .2s ease;
+        }
+        @keyframes slide-up { from { transform: translateY(16px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        .modal-title { font-size: 13px; font-weight: 900; text-transform: uppercase; letter-spacing: .1em; color: var(--accent2); margin-bottom: 4px; }
+        .modal-sub   { font-size: 10px; color: var(--muted); margin-bottom: 16px; }
+        .modal-sep   { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
+        .modal-label { font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); display: block; margin-bottom: 5px; }
+        .modal-input { background: #0d1512; border: 1px solid var(--border2); color: var(--text); padding: 9px 12px; border-radius: 9px; width: 100%; font-size: 13px; outline: none; transition: border-color .15s; }
+        .modal-input:focus { border-color: var(--accent2); }
+        .modal-input:disabled { opacity: .4; cursor: not-allowed; }
+        .btn-save-modal { flex: 1; padding: 11px; background: var(--accent2); color: #1e1b4b; border: none; border-radius: 10px; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .1em; cursor: pointer; transition: opacity .15s; }
+        .btn-save-modal:hover { opacity: .85; }
+        .btn-cancel-modal { padding: 11px 20px; background: transparent; border: 1px solid var(--border2); color: var(--muted); border-radius: 10px; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .1em; cursor: pointer; transition: border-color .15s; }
+        .btn-cancel-modal:hover { border-color: var(--faint); }
+        .btn-arrive { width: 100%; padding: 10px; background: rgba(167,139,250,.1); border: 1px solid rgba(167,139,250,.3); color: var(--accent2); border-radius: 9px; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .1em; cursor: pointer; margin-bottom: 10px; transition: background .12s; }
+        .btn-arrive:hover { background: rgba(167,139,250,.2); }
+
+        /* ── Misc ───────────────────────────────────────────────────── */
+        .mod-badge { font-size: 8px; font-weight: 900; text-transform: uppercase; letter-spacing: .1em; padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,.05); color: var(--muted); }
+
+        /* ── Print ──────────────────────────────────────────────────── */
         @media print {
-            aside, header, .no-print { display: none !important; }
-            main { padding: 0 !important; }
-            body { background: #fff !important; color: #000 !important; }
-            .card { border: 1px solid #ccc !important; background: #fff !important; }
-            .col-hdr { background: #f0f0f0 !important; color: #000 !important; }
-            .time-td { background: #f0f0f0 !important; color: #555 !important; }
-            .grid-cell { background: #fff !important; border-color: #ddd !important; }
-            .appt-card.manual { background: #dbeafe !important; border-left: 3px solid #3b82f6; }
-            .appt-card.hl7    { background: #ede9fe !important; border-left: 3px solid #8b5cf6; }
-            .appt-name { color: #111 !important; }
-            .appt-proc { color: #555 !important; }
-            .time-tr.hidden-slot { display: table-row !important; }
-            #panel-grid { display: block !important; }
-            #panel-week, #panel-form, #panel-all, #panel-worklist { display: none !important; }
+            #topnav, #tabs-bar, #filters-bar { display: none !important; }
+            html, body { overflow: visible; height: auto; }
+            #app { height: auto; }
+            #content { overflow: visible; }
+            #panel-grid { display: flex !important; height: auto; }
+            #grid-scroll { overflow: visible; }
+            .tr-hidden { display: none !important; }
+            .appt:hover { transform: none; box-shadow: none; }
+            body { background: #fff; color: #000; }
+            .td-time, .th-time { background: #f0f0f0; color: #555; }
+            .th-device { background: #f5f5f5; }
+            .th-device-name { color: #000; }
+            .td-cell { background: #fff; }
+            .appt-manual { background: #dbeafe; }
+            .appt-hl7    { background: #ede9fe; }
+            .appt-name   { color: #111; }
+            .appt-proc   { color: #555; }
         }
     </style>
 </head>
-<body class="flex flex-col h-screen overflow-hidden">
-    {% include '_header.html' %}
-    <div class="flex flex-1 overflow-hidden">
-        {% include '_sidebar.html' %}
-        <main class="flex-1 overflow-y-auto p-6 bg-[#181f1c]">
-            <div class="max-w-full mx-auto">
+<body>
+<div id="app">
 
-                {% with messages = get_flashed_messages(with_categories=true) %}
-                {% if messages %}
-                <div class="mb-4 space-y-2">
-                    {% for cat, msg in messages %}
-                    <div class="rounded-xl px-4 py-3 text-sm font-semibold {{ 'bg-emerald-500/10 text-emerald-200 border border-emerald-500/20' if cat == 'success' else 'bg-rose-500/10 text-rose-200 border border-rose-500/20' }}">{{ msg }}</div>
-                    {% endfor %}
+    <!-- ── Top nav ──────────────────────────────────────────────────────── -->
+    <div id="topnav">
+        <span class="nav-logo"><i class="bi bi-calendar3-range" style="margin-right:6px;"></i>Scheduling</span>
+        <div class="nav-sep"></div>
+
+        <!-- Date nav -->
+        <a href="{{ url_for('admin.scheduling_page', date=prev_date) }}" class="nav-date-btn" title="Previous day">
+            <i class="bi bi-chevron-left" style="font-size:11px;"></i>
+        </a>
+        <span class="nav-date-label">{{ view_date.strftime('%a, %d %b %Y') }}</span>
+        {% if is_today %}<span class="nav-today-badge">Today</span>{% endif %}
+        <a href="{{ url_for('admin.scheduling_page', date=next_date) }}" class="nav-date-btn" title="Next day">
+            <i class="bi bi-chevron-right" style="font-size:11px;"></i>
+        </a>
+        <a href="{{ url_for('admin.scheduling_page') }}" class="nav-date-btn" title="Go to today" style="font-size:9px;width:auto;padding:0 9px;">Today</a>
+        <input type="date" value="{{ view_date_str }}" onchange="window.location='/admin/scheduling?date='+this.value"
+               style="background:#0d1512;border:1px solid var(--border2);color:var(--text);padding:5px 9px;border-radius:8px;font-size:11px;outline:none;cursor:pointer;">
+
+        <div class="nav-sep"></div>
+
+        <!-- Stats -->
+        <div class="nav-stat">
+            <span class="nav-stat-val" style="color:var(--accent);">{{ total_count }}</span>
+            <span class="nav-stat-lbl">Total</span>
+        </div>
+        {% if class_counts.get('ER') %}
+        <div class="nav-stat">
+            <span class="nav-stat-val" style="color:var(--red);">{{ class_counts['ER'] }}</span>
+            <span class="nav-stat-lbl">ER</span>
+        </div>
+        {% endif %}
+        {% if class_counts.get('IP') %}
+        <div class="nav-stat">
+            <span class="nav-stat-val" style="color:var(--amber);">{{ class_counts['IP'] }}</span>
+            <span class="nav-stat-lbl">IP</span>
+        </div>
+        {% endif %}
+        {% if unscheduled %}
+        <div class="nav-stat" style="cursor:pointer;" onclick="switchTab('worklist')">
+            <span class="nav-stat-val" style="color:var(--accent2);">{{ unscheduled|length }}</span>
+            <span class="nav-stat-lbl">Pending</span>
+        </div>
+        {% endif %}
+
+        <div class="spacer"></div>
+
+        <button onclick="window.print()" class="nav-action ghost"><i class="bi bi-printer"></i> Print</button>
+        <button onclick="switchTab('form')" class="nav-action primary"><i class="bi bi-plus-lg"></i> New Booking</button>
+    </div>
+
+    <!-- ── Tabs bar ─────────────────────────────────────────────────────── -->
+    <div id="tabs-bar">
+        <button class="tab-pill active" id="tab-grid"     onclick="switchTab('grid')"><i class="bi bi-grid-3x3-gap" style="margin-right:5px;"></i>Day View</button>
+        <button class="tab-pill"        id="tab-week"     onclick="switchTab('week')"><i class="bi bi-calendar-week" style="margin-right:5px;"></i>Week View</button>
+        <button class="tab-pill"        id="tab-form"     onclick="switchTab('form')"><i class="bi bi-pencil-square" style="margin-right:5px;"></i>Schedule Case</button>
+        <button class="tab-pill"        id="tab-all"      onclick="switchTab('all')"><i class="bi bi-list-ul" style="margin-right:5px;"></i>All Bookings</button>
+        <button class="tab-pill"        id="tab-worklist" onclick="switchTab('worklist')" style="position:relative;">
+            <i class="bi bi-inbox" style="margin-right:5px;"></i>Worklist
+            {% if unscheduled %}<span class="badge">{{ unscheduled|length }}</span>{% endif %}
+        </button>
+    </div>
+
+    <!-- ── Content ──────────────────────────────────────────────────────── -->
+    <div id="content">
+
+        <!-- ═══ DAY VIEW ═══════════════════════════════════════════════════ -->
+        <div class="panel active" id="panel-grid">
+
+            <!-- Filters bar -->
+            <div id="filters-bar">
+                <!-- 7-day mini strip -->
+                {% for d in strip_dates %}
+                {% set cnt = date_counts.get(d, 0) %}
+                <a href="{{ url_for('admin.scheduling_page', date=d.strftime('%Y-%m-%d')) }}"
+                   style="display:flex;flex-direction:column;align-items:center;padding:3px 8px;border-radius:8px;text-decoration:none;transition:background .15s;{{ 'background:rgba(56,189,248,.12);outline:1px solid rgba(56,189,248,.3);' if d == view_date else 'background:transparent;' }}">
+                    <span style="font-size:8px;color:var(--muted);">{{ d.strftime('%a') }}</span>
+                    <span style="font-size:11px;font-weight:900;color:{{ '#38bdf8' if d == view_date else ('#34d399' if cnt > 0 else 'var(--faint)') }};">{{ cnt if cnt > 0 else '·' }}</span>
+                </a>
+                {% endfor %}
+
+                <div style="width:1px;height:20px;background:var(--border2);margin:0 4px;"></div>
+
+                {% for mod, cnt in mod_counts.most_common() %}
+                <span class="filter-chip" id="fchip-{{ mod }}" onclick="toggleModFilter('{{ mod }}')" title="Toggle {{ mod }}">
+                    <span class="mod-badge">{{ mod }}</span> {{ cnt }}
+                </span>
+                {% endfor %}
+
+                <div style="width:1px;height:20px;background:var(--border2);margin:0 4px;"></div>
+
+                <button class="filter-chip done-chip on" id="btn-hide-done" onclick="toggleDone()" title="Show/hide completed procedures">
+                    <i class="bi bi-eye-slash"></i> Hide Done
+                </button>
+                <button class="filter-chip" id="btn-all-hours" onclick="toggleHours()" title="Show all 24 hours">
+                    <i class="bi bi-clock"></i> All Hours
+                </button>
+            </div>
+
+            <!-- Grid -->
+            <div id="grid-scroll">
+                {% if not columns %}
+                <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:12px;color:var(--muted);">
+                    <i class="bi bi-calendar-x" style="font-size:48px;opacity:.3;"></i>
+                    <p style="font-size:14px;font-weight:600;">No procedures scheduled for this day.</p>
+                    <button onclick="switchTab('form')" class="nav-action primary" style="margin-top:4px;">+ Schedule a Case</button>
+                </div>
+                {% else %}
+                <div class="sched-wrap">
+                <table class="sched">
+                    <thead>
+                        <tr>
+                            <th class="th-time">Time</th>
+                            {% for col in columns %}
+                            <th class="th-device col-th" data-col="{{ col.key }}" data-mod="{{ col.modality }}">
+                                <div class="th-device-name {{ 'th-device-pool' if col.is_pool else '' }}">
+                                    {{ col.label }}
+                                    <span class="th-device-mod">{{ col.modality }}</span>
+                                </div>
+                                {% if not col.is_pool %}
+                                {% set pct = [(col.booked / col.capacity_slots * 100), 100]|min|int %}
+                                <div class="cap-wrap">
+                                    <div class="cap-fill {{ 'cap-full' if pct >= 90 else ('cap-warn' if pct >= 65 else 'cap-ok') }}"
+                                         style="width:{{ pct }}%;"></div>
+                                </div>
+                                <div class="cap-meta">{{ col.booked }} / {{ col.capacity_slots }} slots</div>
+                                {% endif %}
+                            </th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for slot in time_slots %}
+                        {% set is_hour = slot.minutes % 60 == 0 %}
+                        <tr class="slot-row {{ 'tr-odd' if loop.index % 2 == 1 else '' }} {% if not slot.in_work_hours and not slot.has_any %}tr-hidden work-hidden{% endif %}"
+                            data-slot="{{ slot.minutes }}">
+                            <td class="td-time {{ 'hour-mark' if is_hour else '' }}">
+                                {% if is_hour %}{{ slot.label }}{% else %}<span style="opacity:.4;">{{ slot.label }}</span>{% endif %}
+                            </td>
+                            {% for col in columns %}
+                            {% set appts = slot.row.get(col.key, []) %}
+                            <td class="td-cell" data-col="{{ col.key }}" data-mod="{{ col.modality }}">
+                                {% for appt in appts %}
+                                {% if appt.source == 'hl7' %}
+                                {% set is_done = appt.status in ('CM',) %}
+                                {% set is_canc = appt.cancelled %}
+                                <div class="appt appt-hl7 {{ 'appt-er' if appt.class == 'ER' else '' }} {{ 'appt-cancelled' if is_canc else '' }} {{ 'appt-done' if is_done else '' }}"
+                                     data-done="{{ '1' if is_done else '0' }}"
+                                     data-canc="{{ '1' if is_canc else '0' }}"
+                                     data-mod="{{ col.modality }}"
+                                     onclick="openHl7Modal({{ appt.id }}, '{{ appt.name|e }}', '{{ appt.procedure|e }}', '{{ appt.modality }}', '{{ appt.ref|e }}', '{{ appt.status }}', '{{ view_date_str }}T{{ appt.time }}', '{{ appt.aetitle }}')"
+                                     title="{{ appt.name }}">
+                                    <div class="appt-name">{{ appt.name }}</div>
+                                    <div class="appt-proc">{{ appt.procedure }}</div>
+                                    <div class="appt-meta">
+                                        <span class="appt-time">{{ appt.time }}</span>
+                                        <span class="pill pill-hl7">HL7</span>
+                                        {% if is_canc %}<span class="pill pill-canc">{{ appt.status }}</span>
+                                        {% elif appt.status == 'NW' %}<span class="pill pill-nw">Ordered</span>
+                                        {% elif appt.status == 'AR' %}<span class="pill pill-ar">Arrived</span>
+                                        {% elif appt.status == 'SC' %}<span class="pill pill-sc">Scheduled</span>
+                                        {% elif appt.status == 'IP' %}<span class="pill pill-ip">In Progress</span>
+                                        {% elif is_done %}<span class="pill pill-done">Done</span>
+                                        {% endif %}
+                                        {% if appt.status == 'SC' and not is_canc %}
+                                        <button class="arrive-quick" onclick="event.stopPropagation(); arriveHl7Quick({{ appt.id }}, this)">
+                                            <i class="bi bi-box-arrow-in-down-right"></i> Arrive
+                                        </button>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                                {% else %}
+                                {% set is_canc = appt.cancelled %}
+                                <div class="appt {{ 'appt-er' if appt.class == 'ER' else ('appt-ip' if appt.class == 'IP' else 'appt-manual') }} {{ 'appt-cancelled' if is_canc else '' }}"
+                                     data-done="0"
+                                     data-canc="{{ '1' if is_canc else '0' }}"
+                                     data-mod="{{ col.modality }}"
+                                     onclick="editEntry({{ appt.id }}, '{{ view_date_str }}')"
+                                     title="{{ appt.name }}">
+                                    <div class="appt-name">{{ appt.name }}</div>
+                                    <div class="appt-proc">{{ appt.procedure }}</div>
+                                    <div class="appt-meta">
+                                        <span class="appt-time">{{ appt.time }}</span>
+                                        {% if appt.class == 'ER' %}<span class="pill pill-er">ER</span>
+                                        {% elif appt.class == 'IP' %}<span class="pill pill-sc">IP</span>{% endif %}
+                                        {% if is_canc %}<span class="pill pill-canc">Cancelled</span>{% endif %}
+                                        {% if appt.aetitle %}<span style="font-size:8px;color:var(--muted);">{{ appt.aetitle }}</span>{% endif %}
+                                    </div>
+                                </div>
+                                {% endif %}
+                                {% endfor %}
+                                {% if not appts %}<div class="slot-empty"></div>{% endif %}
+                            </td>
+                            {% endfor %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
                 </div>
                 {% endif %}
-                {% endwith %}
-
-                <!-- Header row -->
-                <div class="flex items-center justify-between mb-5 no-print">
-                    <div>
-                        <h2 class="text-white text-2xl font-black uppercase tracking-tight">Scheduling</h2>
-                        <p class="text-slate-500 text-xs mt-1">Daily procedure calendar · device rooms · capacity</p>
-                    </div>
-                    <div class="flex items-center gap-2">
-                        <button onclick="window.print()"
-                            class="px-3 py-2 border border-[#28332e] text-slate-400 text-xs font-black uppercase tracking-widest rounded-xl hover:border-[#60a5fa] hover:text-[#60a5fa] transition-colors">
-                            <i class="bi bi-printer mr-1"></i> Print
-                        </button>
-                        <button onclick="showTab('form')"
-                            class="px-4 py-2.5 bg-[#60a5fa] text-[#0f172a] text-xs font-black uppercase tracking-widest rounded-xl hover:bg-[#93c5fd] transition-colors">
-                            <i class="bi bi-plus-lg mr-1"></i> New Booking
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Tabs -->
-                <div class="flex gap-2 mb-5 flex-wrap no-print">
-                    <button id="tab-btn-grid"     class="tab-btn active" onclick="showTab('grid')">
-                        <i class="bi bi-calendar3 mr-1"></i> Day View
-                    </button>
-                    <button id="tab-btn-week"     class="tab-btn"        onclick="showTab('week')">
-                        <i class="bi bi-calendar-week mr-1"></i> Week View
-                    </button>
-                    <button id="tab-btn-form"      class="tab-btn"        onclick="showTab('form')">
-                        <i class="bi bi-pencil-square mr-1"></i> Schedule Case
-                    </button>
-                    <button id="tab-btn-all"       class="tab-btn"        onclick="showTab('all')">
-                        <i class="bi bi-list-ul mr-1"></i> All Bookings
-                    </button>
-                    <button id="tab-btn-worklist"  class="tab-btn"        onclick="showTab('worklist')" style="position:relative;">
-                        <i class="bi bi-inbox mr-1"></i> Worklist
-                        {% if unscheduled %}
-                        <span style="position:absolute;top:-6px;right:-6px;background:#a78bfa;color:#1e1b4b;font-size:9px;font-weight:900;min-width:18px;height:18px;border-radius:9px;display:flex;align-items:center;justify-content:center;padding:0 4px;">{{ unscheduled|length }}</span>
-                        {% endif %}
-                    </button>
-                </div>
-
-                <!-- ══════════════════ TAB: DAY GRID ══════════════════ -->
-                <div id="panel-grid">
-
-                    <!-- Date nav -->
-                    <div class="flex flex-wrap items-center gap-3 mb-4 no-print">
-                        <a href="{{ url_for('admin.scheduling_page', date=prev_date) }}"
-                           class="p-2 rounded-lg border border-[#28332e] hover:border-[#60a5fa] text-slate-400 hover:text-[#60a5fa] transition-colors">
-                            <i class="bi bi-chevron-left"></i>
-                        </a>
-                        <div class="text-center">
-                            <span class="text-white font-black text-lg">{{ view_date.strftime('%A, %d %B %Y') }}</span>
-                            {% if is_today %}<span class="ml-2 text-xs font-black uppercase tracking-widest text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-full">Today</span>{% endif %}
-                        </div>
-                        <a href="{{ url_for('admin.scheduling_page', date=next_date) }}"
-                           class="p-2 rounded-lg border border-[#28332e] hover:border-[#60a5fa] text-slate-400 hover:text-[#60a5fa] transition-colors">
-                            <i class="bi bi-chevron-right"></i>
-                        </a>
-                        <a href="{{ url_for('admin.scheduling_page') }}"
-                           class="px-3 py-1.5 text-xs font-black uppercase tracking-widest border border-[#28332e] rounded-lg text-slate-400 hover:border-[#60a5fa] hover:text-[#60a5fa] transition-colors">
-                            Today
-                        </a>
-                        <input type="date" value="{{ view_date_str }}"
-                               onchange="window.location='/admin/scheduling?date='+this.value"
-                               class="bg-[#141b19] border border-[#334155] text-slate-300 text-xs rounded-lg px-3 py-1.5 outline-none focus:border-[#60a5fa]">
-                        <!-- Hours toggle -->
-                        <button id="toggle-hours-btn" onclick="toggleHours()"
-                            class="px-3 py-1.5 text-xs font-black uppercase tracking-widest border border-[#28332e] rounded-lg text-slate-400 hover:border-[#60a5fa] hover:text-[#60a5fa] transition-colors">
-                            <i class="bi bi-clock mr-1"></i> <span id="toggle-hours-label">Show All Hours</span>
-                        </button>
-                    </div>
-
-                    <!-- 7-day mini-strip -->
-                    <div class="flex gap-1 mb-4 no-print">
-                        {% for d in strip_dates %}
-                        {% set cnt = date_counts.get(d, 0) %}
-                        <a href="{{ url_for('admin.scheduling_page', date=d.strftime('%Y-%m-%d')) }}"
-                           class="flex flex-col items-center px-2 py-1 rounded-lg transition-colors {{ 'bg-[#60a5fa]/20 border border-[#60a5fa]/40' if d == view_date else 'hover:bg-[#1e2a26]' }}">
-                            <span style="font-size:8px;color:#475569;">{{ d.strftime('%a') }}</span>
-                            <span style="font-size:10px;font-weight:900;color:{{ '#60a5fa' if d == view_date else ('#34d399' if cnt > 0 else '#334155') }};">{{ cnt if cnt > 0 else '·' }}</span>
-                        </a>
-                        {% endfor %}
-                    </div>
-
-                    <!-- Summary chips -->
-                    <div class="flex flex-wrap gap-2 mb-4 no-print">
-                        <span class="chip bg-[#1e2a26] text-slate-300">
-                            <i class="bi bi-calendar3 text-[#60a5fa]"></i>
-                            <span class="font-black">{{ total_count }}</span> total
-                        </span>
-                        {% for mod, cnt in mod_counts.most_common() %}
-                        <span class="chip bg-[#1e2a26] text-slate-300">
-                            <span style="font-size:9px;font-weight:900;text-transform:uppercase;padding:2px 5px;border-radius:3px;background:#1e293b;color:#94a3b8;">{{ mod }}</span>
-                            {{ cnt }}
-                        </span>
-                        {% endfor %}
-                        {% if class_counts.get('ER') %}
-                        <span class="chip bg-red-500/10 text-red-300 border border-red-500/20">
-                            <i class="bi bi-exclamation-circle-fill text-red-400"></i> {{ class_counts['ER'] }} ER
-                        </span>
-                        {% endif %}
-                        {% if class_counts.get('IP') %}
-                        <span class="chip bg-amber-500/10 text-amber-300 border border-amber-500/20">
-                            {{ class_counts['IP'] }} IP
-                        </span>
-                        {% endif %}
-                    </div>
-
-                    <!-- Unscheduled chip -->
-                    {% if unscheduled %}
-                    <div class="mb-4 no-print">
-                        <button onclick="showTab('worklist')"
-                            class="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-violet-400 hover:text-violet-300 px-4 py-2 rounded-xl border border-violet-500/20 bg-violet-500/5 hover:bg-violet-500/10 transition-colors">
-                            <i class="bi bi-inbox-fill"></i>
-                            {{ unscheduled|length }} unscheduled order{{ 's' if unscheduled|length != 1 else '' }} pending
-                            <i class="bi bi-arrow-right text-[10px]"></i>
-                        </button>
-                    </div>
-                    {% endif %}
-
-                    {% if not columns and not unscheduled %}
-                    <div class="card text-center py-16">
-                        <i class="bi bi-calendar-x text-4xl text-slate-600"></i>
-                        <p class="text-slate-500 mt-4 font-semibold">No procedures scheduled for this day.</p>
-                        <button onclick="showTab('form')" class="mt-4 px-4 py-2 bg-[#60a5fa] text-[#0f172a] text-xs font-black uppercase tracking-widest rounded-xl hover:bg-[#93c5fd] transition-colors">
-                            + Schedule a Case
-                        </button>
-                    </div>
-                    {% else %}
-                    <!-- Day grid -->
-                    <div class="card" style="padding:0;overflow:hidden;">
-                        <div class="overflow-auto" style="max-height:calc(100vh - 280px);">
-                            <table class="sched-table" style="min-width:{{ columns|length * 165 + 70 }}px;">
-                                <thead>
-                                    <tr>
-                                        <th class="col-hdr" style="width:65px;min-width:65px;text-align:left;padding-left:.75rem;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.12em;color:#475569;">
-                                            Time
-                                        </th>
-                                        {% for col in columns %}
-                                        <th class="col-hdr">
-                                            <div class="col-hdr-label {{ 'col-hdr-pool' if col.is_pool else '' }}">
-                                                {{ col.label }}
-                                                <span class="col-hdr-mod">{{ col.modality }}</span>
-                                            </div>
-                                            {% if not col.is_pool %}
-                                            {% set pct = [(col.booked / col.capacity_slots * 100), 100]|min|int %}
-                                            <div class="cap-bar-wrap" title="{{ col.booked }} booked / {{ col.capacity_slots }} capacity slots">
-                                                <div class="cap-bar {{ 'cap-full' if pct >= 90 else ('cap-warn' if pct >= 65 else 'cap-ok') }}"
-                                                     style="width:{{ pct }}%;"></div>
-                                            </div>
-                                            <div style="font-size:8px;color:#475569;margin-top:3px;">
-                                                {{ col.booked }} / {{ col.capacity_slots }} slots
-                                            </div>
-                                            {% endif %}
-                                        </th>
-                                        {% endfor %}
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {% for slot in time_slots %}
-                                    <tr class="time-tr {% if not slot.in_work_hours and not slot.has_any %}hidden-slot{% endif %}"
-                                        style="{{ 'background:rgba(255,255,255,.01)' if loop.index % 2 == 0 else '' }}">
-                                        <td class="time-td">{{ slot.label }}</td>
-                                        {% for col in columns %}
-                                        {% set appts = slot.row.get(col.key, []) %}
-                                        <td class="grid-cell {{ 'has-appt' if appts else '' }}">
-                                            {% for appt in appts %}
-                                            {% if appt.source == 'hl7' %}
-                                            <div class="appt-card hl7 {{ 'cancelled' if appt.cancelled else '' }}"
-                                                 onclick="openHl7Modal({{ appt.id }}, '{{ appt.name|e }}', '{{ appt.procedure|e }}', '{{ appt.modality }}', '{{ appt.ref|e }}', '{{ appt.status }}', '{{ view_date_str }}T{{ appt.time }}', '{{ appt.aetitle }}')"
-                                                 title="{{ 'Cancelled' if appt.cancelled else 'Click to reschedule' }}">
-                                                <div class="appt-name font-bold truncate" style="color:{{ '#64748b' if appt.cancelled else '#c4b5fd' }};max-width:150px;">{{ appt.name }}</div>
-                                                <div class="appt-proc truncate" style="color:#64748b;max-width:150px;font-size:10px;">{{ appt.procedure }}</div>
-                                                <div class="flex items-center gap-1 mt-1 flex-wrap">
-                                                    <span style="font-size:9px;color:#64748b;">{{ appt.time }}</span>
-                                                    <span class="status-pill pill-hl7">HL7</span>
-                                                    {% if appt.cancelled %}<span class="status-pill pill-canc">{{ appt.status }}</span>
-                                                    {% elif appt.status == 'NW' %}<span class="status-pill pill-ord">Ordered</span>
-                                                    {% elif appt.status == 'AR' %}<span class="status-pill pill-arr">Arrived</span>
-                                                    {% elif appt.status == 'IP' %}<span class="status-pill pill-strt">In Progress</span>
-                                                    {% elif appt.status == 'CM' %}<span class="status-pill pill-done">Done</span>
-                                                    {% endif %}
-                                                    {% if appt.status == 'SC' and not appt.cancelled %}
-                                                    <button onclick="event.stopPropagation(); arriveHl7Quick({{ appt.id }}, this)"
-                                                        style="font-size:8px;font-weight:900;padding:1px 6px;border-radius:3px;background:rgba(167,139,250,.1);color:#a78bfa;border:1px solid rgba(167,139,250,.25);cursor:pointer;text-transform:uppercase;line-height:1.6;"
-                                                        title="Mark patient as arrived">
-                                                        <i class="bi bi-box-arrow-in-down-right"></i> Arrive
-                                                    </button>
-                                                    {% endif %}
-                                                </div>
-                                            </div>
-                                            {% else %}
-                                            <div class="appt-card {{ 'er' if appt.class == 'ER' else ('ip' if appt.class == 'IP' else 'manual') }} {{ 'cancelled' if appt.cancelled else '' }}"
-                                                 onclick="editEntry({{ appt.id }}, '{{ view_date_str }}')" title="{{ 'Cancelled — click to edit' if appt.cancelled else 'Click to edit' }}">
-                                                <div class="appt-name font-bold truncate" style="color:{{ '#64748b' if appt.cancelled else '#e2e8f0' }};max-width:150px;">{{ appt.name }}</div>
-                                                <div class="appt-proc truncate" style="color:#64748b;max-width:150px;font-size:10px;">{{ appt.procedure }}</div>
-                                                <div class="flex items-center gap-1 mt-1 flex-wrap">
-                                                    <span style="font-size:9px;color:#64748b;">{{ appt.time }}</span>
-                                                    {% if appt.class in ('ER','IP') %}
-                                                    <span class="status-pill {{ 'pill-canc' if appt.class == 'ER' else '' }}" style="{{ 'background:rgba(251,191,36,.1);color:#fbbf24;' if appt.class == 'IP' else '' }}">{{ appt.class }}</span>
-                                                    {% endif %}
-                                                    {% if appt.cancelled %}<span class="status-pill pill-canc">Cancelled</span>{% endif %}
-                                                    {% if appt.aetitle %}
-                                                    <span style="font-size:8px;color:#475569;">{{ appt.aetitle }}</span>
-                                                    {% endif %}
-                                                </div>
-                                            </div>
-                                            {% endif %}
-                                            {% endfor %}
-                                        </td>
-                                        {% endfor %}
-                                    </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                    {% endif %}
-                </div>
-
-                <!-- ══════════════════ TAB: WEEK VIEW ══════════════════ -->
-                <div id="panel-week" class="hidden no-print">
-
-                    <!-- Week nav -->
-                    <div class="flex items-center gap-3 mb-5">
-                        <a href="{{ url_for('admin.scheduling_page', date=prev_week, view='week') }}"
-                           class="p-2 rounded-lg border border-[#28332e] hover:border-[#60a5fa] text-slate-400 hover:text-[#60a5fa] transition-colors">
-                            <i class="bi bi-chevron-left"></i>
-                        </a>
-                        <div class="text-white font-black text-lg">
-                            {{ week_start.strftime('%d %b') }} – {{ week_end.strftime('%d %b %Y') }}
-                        </div>
-                        <a href="{{ url_for('admin.scheduling_page', date=next_week, view='week') }}"
-                           class="p-2 rounded-lg border border-[#28332e] hover:border-[#60a5fa] text-slate-400 hover:text-[#60a5fa] transition-colors">
-                            <i class="bi bi-chevron-right"></i>
-                        </a>
-                        <a href="{{ url_for('admin.scheduling_page', view='week') }}"
-                           class="px-3 py-1.5 text-xs font-black uppercase tracking-widest border border-[#28332e] rounded-lg text-slate-400 hover:border-[#60a5fa] hover:text-[#60a5fa] transition-colors">
-                            This Week
-                        </a>
-                    </div>
-
-                    <div class="card" style="padding:0;overflow:hidden;">
-                        <div class="overflow-auto">
-                            <table class="wk-table">
-                                <thead>
-                                    <tr>
-                                        <th class="wk-row-hdr" style="font-size:9px;color:#475569;">Device / Modality</th>
-                                        {% for d in week_days %}
-                                        {% set is_today_col = (d == view_date) %}
-                                        <th class="wk-day-hdr {{ 'today-col' if is_today_col else '' }}">
-                                            <a href="{{ url_for('admin.scheduling_page', date=d.strftime('%Y-%m-%d')) }}"
-                                               class="block hover:opacity-75 transition-opacity">
-                                                <div>{{ d.strftime('%a') }}</div>
-                                                <div style="font-size:13px;font-weight:900;letter-spacing:0;text-transform:none;margin-top:1px;">{{ d.strftime('%d') }}</div>
-                                                {% if week_totals.get(d.weekday(), 0) %}
-                                                <div style="font-size:10px;color:{{ '#34d399' if is_today_col else '#64748b' }};font-weight:700;margin-top:1px;">
-                                                    {{ week_totals.get(d.weekday(), 0) }} total
-                                                </div>
-                                                {% endif %}
-                                            </a>
-                                        </th>
-                                        {% endfor %}
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {% if week_cols %}
-                                    {% for wc in week_cols %}
-                                    <tr>
-                                        <td class="wk-row-hdr">
-                                            <div style="font-size:11px;font-weight:800;color:#94a3b8;">{{ wc.label }}</div>
-                                            <span style="font-size:8px;font-weight:900;text-transform:uppercase;padding:1px 5px;border-radius:3px;background:#1e293b;color:#64748b;">{{ wc.modality }}</span>
-                                        </td>
-                                        {% for d in week_days %}
-                                        {% set cnt = week_data.get(wc.key, {}).get(d.weekday(), 0) %}
-                                        <td class="wk-cell {{ 'today-col' if (d == view_date) else '' }}"
-                                            onclick="window.location='{{ url_for('admin.scheduling_page', date=d.strftime('%Y-%m-%d')) }}'"
-                                            title="{{ d.strftime('%A %d %b') }} — {{ cnt }} procedure{{ 's' if cnt != 1 else '' }}">
-                                            <span class="wk-cnt {{ 'wk-cnt-0' if cnt == 0 else ('wk-cnt-hi' if cnt >= 8 else ('wk-cnt-md' if cnt >= 4 else 'wk-cnt-lo')) }}">
-                                                {{ cnt if cnt > 0 else '·' }}
-                                            </span>
-                                        </td>
-                                        {% endfor %}
-                                    </tr>
-                                    {% endfor %}
-                                    {% else %}
-                                    <tr>
-                                        <td colspan="{{ week_days|length + 1 }}" style="padding:3rem;text-align:center;color:#475569;font-size:13px;">
-                                            No procedures scheduled this week.
-                                        </td>
-                                    </tr>
-                                    {% endif %}
-                                    <!-- Totals row -->
-                                    <tr style="border-top:2px solid #28332e;">
-                                        <td class="wk-row-hdr" style="color:#60a5fa;font-size:10px;">Total</td>
-                                        {% for d in week_days %}
-                                        {% set tot = week_totals.get(d.weekday(), 0) %}
-                                        <td class="wk-cell {{ 'today-col' if (d == view_date) else '' }}" style="cursor:default;">
-                                            <span style="font-size:14px;font-weight:900;color:{{ '#60a5fa' if tot > 0 else '#334155' }};">{{ tot if tot > 0 else '—' }}</span>
-                                        </td>
-                                        {% endfor %}
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- ══════════════════ TAB: SCHEDULE FORM ══════════════════ -->
-                <div id="panel-form" class="hidden no-print">
-                    <div class="card" id="scheduling-card">
-                        <div class="flex items-center justify-between mb-6">
-                            <h3 class="text-white text-xl font-black uppercase tracking-tight">
-                                {{ 'Edit Entry #' + schedule.id|string if schedule else 'New Scheduling Entry' }}
-                            </h3>
-                            <div class="flex items-center gap-2">
-                                {% if schedule and schedule.patient_class == 'ER' %}
-                                <span class="flex items-center gap-2 px-3 py-1 rounded-full text-xs font-black uppercase bg-red-500/10 text-red-300 border border-red-500/20">
-                                    <i class="bi bi-exclamation-circle-fill"></i> Emergency
-                                </span>
-                                {% endif %}
-                                {% if schedule and not schedule.cancelled %}
-                                <button type="button"
-                                    onclick="cancelEntry({{ schedule.id }})"
-                                    class="px-3 py-1.5 border border-red-500/30 text-red-400 text-xs font-black uppercase tracking-widest rounded-xl hover:bg-red-500/10 transition-colors">
-                                    <i class="bi bi-x-circle mr-1"></i> Cancel Booking
-                                </button>
-                                {% elif schedule and schedule.cancelled %}
-                                <span class="px-3 py-1 rounded-full text-xs font-black uppercase bg-red-500/10 text-red-400 border border-red-500/20">
-                                    Cancelled
-                                </span>
-                                {% endif %}
-                            </div>
-                        </div>
-
-                        <form method="POST" id="scheduling-form">
-                            {% if schedule %}<input type="hidden" name="schedule_id" value="{{ schedule.id }}">{% endif %}
-
-                            <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-5">
-                                <div>
-                                    <label class="block text-[10px] font-black uppercase tracking-[.3em] text-slate-500 mb-2">First Name</label>
-                                    <input type="text" name="first_name" required value="{{ schedule.first_name if schedule else '' }}" class="input-border">
-                                </div>
-                                <div>
-                                    <label class="block text-[10px] font-black uppercase tracking-[.3em] text-slate-500 mb-2">Middle Name</label>
-                                    <input type="text" name="middle_name" value="{{ schedule.middle_name if schedule else '' }}" class="input-border">
-                                </div>
-                                <div>
-                                    <label class="block text-[10px] font-black uppercase tracking-[.3em] text-slate-500 mb-2">Last Name</label>
-                                    <input type="text" name="last_name" required value="{{ schedule.last_name if schedule else '' }}" class="input-border">
-                                </div>
-                            </div>
-
-                            <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-5">
-                                <div>
-                                    <label class="block text-[10px] font-black uppercase tracking-[.3em] text-slate-500 mb-2">Date of Birth</label>
-                                    <input type="date" name="date_of_birth" required value="{{ schedule.date_of_birth.strftime('%Y-%m-%d') if schedule and schedule.date_of_birth else '' }}" class="input-border">
-                                </div>
-                                <div>
-                                    <label class="block text-[10px] font-black uppercase tracking-[.3em] text-slate-500 mb-2">Referring Physician</label>
-                                    <input type="text" name="referring_physician" required value="{{ schedule.referring_physician if schedule else '' }}" class="input-border">
-                                </div>
-                                <div>
-                                    <label class="block text-[10px] font-black uppercase tracking-[.3em] text-slate-500 mb-2">Patient Class</label>
-                                    <select name="patient_class" required onchange="updateErHighlight()" id="patientClassSelect" class="input-border">
-                                        <option value="">Select One</option>
-                                        <option value="OP" {% if schedule and schedule.patient_class == 'OP' %}selected{% endif %}>OP – Outpatient</option>
-                                        <option value="IP" {% if schedule and schedule.patient_class == 'IP' %}selected{% endif %}>IP – Inpatient</option>
-                                        <option value="ER" {% if schedule and schedule.patient_class == 'ER' %}selected{% endif %}>ER – Emergency</option>
-                                    </select>
-                                </div>
-                            </div>
-
-                            <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-5">
-                                <div>
-                                    <label class="block text-[10px] font-black uppercase tracking-[.3em] text-slate-500 mb-2">Procedure Date &amp; Time</label>
-                                    <input type="datetime-local" name="procedure_datetime" required
-                                           value="{{ schedule.procedure_datetime.strftime('%Y-%m-%dT%H:%M') if schedule and schedule.procedure_datetime else '' }}"
-                                           class="input-border">
-                                </div>
-                                <div>
-                                    <label class="block text-[10px] font-black uppercase tracking-[.3em] text-slate-500 mb-2">Modality</label>
-                                    <select name="modality_type" required id="modalitySelect" onchange="filterAeSelect()" class="input-border">
-                                        <option value="">Select One</option>
-                                        {% for code, label in [('CR','CR – Radiography'),('CT','CT – Computed Tomography'),('MR','MR – Magnetic Resonance'),('US','US – Ultrasound'),('DX','DX – Digital X-Ray'),('MG','MG – Mammography'),('RF','RF – Fluoroscopy'),('XC','XC – Photography'),('OT','OT – Other')] %}
-                                        <option value="{{ code }}" {% if schedule and schedule.modality_type == code %}selected{% endif %}>{{ label }}</option>
-                                        {% endfor %}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label class="block text-[10px] font-black uppercase tracking-[.3em] text-slate-500 mb-2">Room / Device</label>
-                                    <select name="aetitle" id="aetitleSelect" class="input-border">
-                                        <option value="">— Any / Unassigned —</option>
-                                        {% for ae in aetitle_list %}
-                                        <option value="{{ ae.aetitle }}" data-mod="{{ ae.modality }}"
-                                            {% if schedule and schedule.aetitle == ae.aetitle %}selected{% endif %}>
-                                            {{ ae.label }} ({{ ae.modality }})
-                                        </option>
-                                        {% endfor %}
-                                    </select>
-                                </div>
-                            </div>
-
-                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
-                                <div>
-                                    <div class="flex items-center justify-between mb-2">
-                                        <label class="text-[10px] font-black uppercase tracking-[.3em] text-slate-500">Procedures</label>
-                                        <button type="button" onclick="addRow('proc-list','procedure_name','Procedure')"
-                                            class="text-[10px] font-black uppercase px-3 py-1.5 rounded-lg bg-[#1e293b] border border-[#334155] hover:border-[#60a5fa] text-slate-300 transition-all">+ Add</button>
-                                    </div>
-                                    <div id="proc-list" class="space-y-2">
-                                        {% for val in (schedule.procedures if schedule and schedule.procedures else ['']) %}
-                                        <div class="flex gap-2">
-                                            <input type="text" name="procedure_name" value="{{ val }}" placeholder="Procedure {{ loop.index }}" class="input-border flex-1">
-                                            {% if not loop.first %}<button type="button" onclick="removeRow(this)" class="px-3 py-2 rounded-lg bg-[#111827] border border-[#334155] text-slate-400 text-sm">✕</button>{% endif %}
-                                        </div>
-                                        {% endfor %}
-                                    </div>
-                                </div>
-                                <div>
-                                    <div class="flex items-center justify-between mb-2">
-                                        <label class="text-[10px] font-black uppercase tracking-[.3em] text-slate-500">Third Party Approvals</label>
-                                        <button type="button" onclick="addRow('tpa-list','third_party_approval','Approval')"
-                                            class="text-[10px] font-black uppercase px-3 py-1.5 rounded-lg bg-[#1e293b] border border-[#334155] hover:border-[#60a5fa] text-slate-300 transition-all">+ Add</button>
-                                    </div>
-                                    <div id="tpa-list" class="space-y-2">
-                                        {% for val in (schedule.third_party_approvals if schedule and schedule.third_party_approvals else ['']) %}
-                                        <div class="flex gap-2">
-                                            <input type="text" name="third_party_approval" value="{{ val }}" placeholder="Approval {{ loop.index }}" class="input-border flex-1">
-                                            {% if not loop.first %}<button type="button" onclick="removeRow(this)" class="px-3 py-2 rounded-lg bg-[#111827] border border-[#334155] text-slate-400 text-sm">✕</button>{% endif %}
-                                        </div>
-                                        {% endfor %}
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="flex gap-3 flex-wrap">
-                                <button type="submit" class="px-6 py-3 bg-[#60a5fa] text-[#0f172a] text-xs font-black uppercase tracking-widest rounded-xl hover:bg-[#93c5fd] transition-colors">
-                                    <i class="bi bi-floppy-fill mr-1"></i>
-                                    {{ 'Update Entry' if schedule else 'Save Entry' }}
-                                </button>
-                                {% if schedule %}
-                                <a href="{{ url_for('admin.scheduling_page', date=view_date_str) }}"
-                                   class="px-6 py-3 border border-[#28332e] text-slate-400 text-xs font-black uppercase tracking-widest rounded-xl hover:border-[#60a5fa] transition-colors">
-                                    New Entry
-                                </a>
-                                {% endif %}
-                                <button type="button" onclick="showTab('grid')"
-                                        class="px-6 py-3 border border-[#28332e] text-slate-400 text-xs font-black uppercase tracking-widest rounded-xl hover:border-[#60a5fa] transition-colors">
-                                    Back to Grid
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-
-                <!-- ══════════════════ TAB: ALL BOOKINGS ══════════════════ -->
-                <div id="panel-all" class="hidden no-print">
-                    <div class="card" style="padding:0;overflow:hidden;">
-                        <div class="px-6 py-4 border-b border-[#28332e] flex items-center justify-between">
-                            <h3 class="text-white font-black uppercase tracking-tight">All Scheduled Bookings</h3>
-                            <span class="text-slate-500 text-xs">{{ schedules|length }} entries</span>
-                        </div>
-                        <div class="overflow-auto">
-                            <table class="w-full text-left">
-                                <thead>
-                                    <tr class="border-b border-[#28332e] bg-[#1a2420]">
-                                        {% for col in ['Patient','DOB','Class','Date & Time','Modality','Room','Referring','Procedures','Insurance',''] %}
-                                        <th class="px-4 py-3 text-[10px] font-black uppercase tracking-[.2em] text-[#60a5fa]">{{ col }}</th>
-                                        {% endfor %}
-                                    </tr>
-                                </thead>
-                                <tbody class="divide-y divide-[#1e2a26]">
-                                    {% if schedules %}
-                                    {% for item in schedules %}
-                                    <tr class="hover:bg-[#1d2522]/50 transition-all {{ 'bg-red-900/10' if item.patient_class == 'ER' else '' }} {{ 'opacity-50' if item.cancelled else '' }}">
-                                        <td class="px-4 py-3 text-sm font-bold">
-                                            {{ item.first_name }} {{ item.last_name }}
-                                            {% if item.cancelled %}<span class="ml-1 text-[9px] font-black uppercase text-red-400">Cancelled</span>{% endif %}
-                                        </td>
-                                        <td class="px-4 py-3 text-sm text-slate-400">{{ item.date_of_birth.strftime('%d/%m/%Y') if item.date_of_birth else '—' }}</td>
-                                        <td class="px-4 py-3">
-                                            <span class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase {{ 'bg-red-500/10 text-red-300' if item.patient_class == 'ER' else ('bg-amber-500/10 text-amber-300' if item.patient_class == 'IP' else 'bg-slate-700 text-slate-300') }}">{{ item.patient_class }}</span>
-                                        </td>
-                                        <td class="px-4 py-3 text-sm text-slate-400">{{ item.procedure_datetime.strftime('%d/%m/%Y %H:%M') if item.procedure_datetime else '—' }}</td>
-                                        <td class="px-4 py-3"><span style="font-size:9px;font-weight:900;text-transform:uppercase;padding:2px 6px;border-radius:4px;background:#1e293b;color:#94a3b8;">{{ item.modality_type or '—' }}</span></td>
-                                        <td class="px-4 py-3 text-sm text-slate-400">{{ item.aetitle or '—' }}</td>
-                                        <td class="px-4 py-3 text-sm text-slate-400">{{ item.referring_physician }}</td>
-                                        <td class="px-4 py-3 text-sm text-slate-400 max-w-[180px] truncate">{{ item.procedures | join(', ') }}</td>
-                                        <td class="px-4 py-3 text-sm text-slate-400 max-w-[150px] truncate">{{ item.third_party_approvals | join(', ') }}</td>
-                                        <td class="px-4 py-3">
-                                            <a href="{{ url_for('admin.scheduling_page', schedule_id=item.id, date=item.procedure_datetime.strftime('%Y-%m-%d') if item.procedure_datetime else view_date_str) }}"
-                                               onclick="setTimeout(()=>showTab('form'),50)"
-                                               class="text-xs font-bold text-[#60a5fa] hover:underline">Edit</a>
-                                        </td>
-                                    </tr>
-                                    {% endfor %}
-                                    {% else %}
-                                    <tr><td colspan="10" class="px-4 py-10 text-slate-500 text-center text-sm">No bookings yet.</td></tr>
-                                    {% endif %}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- ══════════════════ TAB: WORKLIST ══════════════════ -->
-                <div id="panel-worklist" class="hidden no-print">
-                    {% if unscheduled %}
-                    <div class="card" style="padding:0;overflow:hidden;">
-                        <div class="px-5 py-4 border-b border-[#28332e] flex flex-wrap items-center justify-between gap-3">
-                            <div>
-                                <h3 class="text-white font-black uppercase tracking-tight text-sm">Unscheduled Orders</h3>
-                                <p class="text-slate-500 text-[10px] mt-0.5">HL7 orders without a scheduled date/time. Assign a slot using the Schedule button.</p>
-                            </div>
-                            <div class="flex items-center gap-2">
-                                <input type="text" id="worklist-search" placeholder="Search patient or procedure…"
-                                    oninput="filterWorklist()"
-                                    style="background:#141b19;border:1px solid #334155;color:#e2e8f0;padding:6px 12px;border-radius:8px;font-size:11px;outline:none;width:220px;"
-                                    onfocus="this.style.borderColor='#a78bfa'" onblur="this.style.borderColor='#334155'">
-                                <span id="worklist-count-label" class="text-[10px] text-slate-500 font-black uppercase tracking-widest whitespace-nowrap">
-                                    {{ unscheduled|length }} orders
-                                </span>
-                            </div>
-                        </div>
-                        <div class="overflow-x-auto">
-                            <table class="w-full text-left" style="font-size:11px;">
-                                <thead>
-                                    <tr style="border-bottom:1px solid #1e2a26;background:#1a2420;">
-                                        {% for col in ['Patient','Procedure','Modality','Physician','Accession','Received',''] %}
-                                        <th style="padding:8px 14px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:#475569;white-space:nowrap;">{{ col }}</th>
-                                        {% endfor %}
-                                    </tr>
-                                </thead>
-                                <tbody id="worklist-tbody">
-                                    {% for u in unscheduled %}
-                                    <tr class="wl-row" data-search="{{ (u.name ~ ' ' ~ u.procedure)|lower }}"
-                                        style="border-bottom:1px solid #1e2a26;"
-                                        onmouseover="this.style.background='rgba(167,139,250,.05)'"
-                                        onmouseout="this.style.background=''">
-                                        <td style="padding:9px 14px;color:#e2e8f0;font-weight:700;white-space:nowrap;">{{ u.name }}</td>
-                                        <td style="padding:9px 14px;color:#94a3b8;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ u.procedure }}</td>
-                                        <td style="padding:9px 14px;"><span style="font-size:9px;font-weight:900;text-transform:uppercase;padding:2px 6px;border-radius:4px;background:#1e293b;color:#94a3b8;">{{ u.modality }}</span></td>
-                                        <td style="padding:9px 14px;color:#64748b;white-space:nowrap;">{{ u.physician or '—' }}</td>
-                                        <td style="padding:9px 14px;color:#64748b;font-family:monospace;font-size:10px;white-space:nowrap;">{{ u.accession or '—' }}</td>
-                                        <td style="padding:9px 14px;color:#475569;font-size:10px;white-space:nowrap;">{{ u.received }}</td>
-                                        <td style="padding:9px 14px;">
-                                            <button onclick="openHl7Modal({{ u.id }}, '{{ u.name|e }}', '{{ u.procedure|e }}', '{{ u.modality }}', '{{ u.physician|e }}', '', '{{ view_date_str }}T08:00', '')"
-                                                class="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest bg-violet-500/10 text-violet-300 border border-violet-500/20 hover:bg-violet-500/20 transition-colors whitespace-nowrap">
-                                                Schedule
-                                            </button>
-                                        </td>
-                                    </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                        <div id="wl-pagination" class="px-5 py-3 border-t border-[#28332e] flex items-center gap-3 hidden">
-                            <button id="wl-prev" onclick="wlPage(-1)"
-                                style="background:#1d2522;border:1px solid #28332e;color:#94a3b8;font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.08em;padding:4px 12px;border-radius:6px;cursor:pointer;">‹ Prev</button>
-                            <span id="wl-page-label" class="text-[10px] text-slate-500 font-black uppercase tracking-widest"></span>
-                            <button id="wl-next" onclick="wlPage(1)"
-                                style="background:#1d2522;border:1px solid #28332e;color:#94a3b8;font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.08em;padding:4px 12px;border-radius:6px;cursor:pointer;">Next ›</button>
-                        </div>
-                    </div>
-                    {% else %}
-                    <div class="card text-center py-16">
-                        <i class="bi bi-inbox text-4xl text-slate-600"></i>
-                        <p class="text-slate-500 mt-4 font-semibold text-sm">No unscheduled orders.</p>
-                    </div>
-                    {% endif %}
-                </div>
-
-            </div>
-        </main>
-    </div>
-
-    <!-- HL7 Reschedule Modal -->
-    <div id="hl7-modal" onclick="if(event.target===this)closeHl7Modal()">
-        <div id="hl7-modal-box">
-            <div class="flex items-center justify-between mb-5">
-                <div>
-                    <h3 style="color:#c4b5fd;font-size:14px;font-weight:900;text-transform:uppercase;letter-spacing:.08em;">HL7 Order</h3>
-                    <p id="hl7-modal-subtitle" style="color:#475569;font-size:10px;margin-top:2px;">Only the scheduled date &amp; time can be edited.</p>
-                </div>
-                <button onclick="closeHl7Modal()" style="color:#475569;font-size:18px;line-height:1;background:none;border:none;cursor:pointer;">✕</button>
-            </div>
-
-            <div class="grid grid-cols-2 gap-4 mb-4">
-                <div>
-                    <span class="modal-field-label">Patient</span>
-                    <input id="hl7-f-name" class="modal-input" disabled>
-                </div>
-                <div>
-                    <span class="modal-field-label">Modality</span>
-                    <input id="hl7-f-modality" class="modal-input" disabled>
-                </div>
-                <div class="col-span-2">
-                    <span class="modal-field-label">Procedure</span>
-                    <input id="hl7-f-procedure" class="modal-input" disabled>
-                </div>
-                <div>
-                    <span class="modal-field-label">Physician</span>
-                    <input id="hl7-f-physician" class="modal-input" disabled>
-                </div>
-                <div>
-                    <span class="modal-field-label">Status</span>
-                    <input id="hl7-f-status" class="modal-input" disabled>
-                </div>
-            </div>
-
-            <div style="border-top:1px solid #1e293b;padding-top:1rem;margin-bottom:1rem;">
-                <span class="modal-field-label" style="color:#a78bfa;">Scheduled Date &amp; Time</span>
-                <div class="flex gap-2 mb-3">
-                    <input id="hl7-f-datetime" type="datetime-local" class="modal-input" style="flex:1;border-color:#4c1d95;">
-                    <button onclick="suggestSlot()" id="suggest-btn"
-                        style="padding:.7rem 1rem;border-radius:.75rem;background:rgba(167,139,250,.1);border:1px solid rgba(167,139,250,.3);color:#a78bfa;font-size:11px;font-weight:800;white-space:nowrap;cursor:pointer;">
-                        <i class="bi bi-magic"></i> Suggest
-                    </button>
-                </div>
-                <p id="suggest-hint" style="font-size:10px;color:#475569;margin-bottom:.75rem;display:none;"></p>
-                <span class="modal-field-label" style="color:#60a5fa;">Room / Device (optional)</span>
-                <select id="hl7-f-aetitle" class="modal-input" style="border-color:#1e3a5f;">
-                    <option value="">— Any / Unassigned —</option>
-                    {% for ae in aetitle_list %}
-                    <option value="{{ ae.aetitle }}">{{ ae.label }} ({{ ae.modality }})</option>
-                    {% endfor %}
-                </select>
-            </div>
-
-            <div id="hl7-arrive-btn" style="display:none;margin-bottom:.75rem;">
-                <button onclick="arriveHl7()"
-                    style="width:100%;padding:.65rem;border-radius:.85rem;background:rgba(167,139,250,.12);color:#a78bfa;font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.08em;cursor:pointer;border:1px solid rgba(167,139,250,.3);">
-                    <i class="bi bi-box-arrow-in-down-right mr-1"></i> Mark Patient Arrived
-                </button>
-            </div>
-            <div class="flex gap-3">
-                <button onclick="saveHl7Reschedule()"
-                    style="flex:1;padding:.75rem;border-radius:.85rem;background:#a78bfa;color:#1e1b4b;font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.08em;cursor:pointer;border:none;">
-                    <i class="bi bi-floppy-fill mr-1"></i> Save
-                </button>
-                <button onclick="closeHl7Modal()"
-                    style="padding:.75rem 1.5rem;border-radius:.85rem;background:transparent;color:#64748b;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;cursor:pointer;border:1px solid #1e293b;">
-                    Cancel
-                </button>
             </div>
         </div>
+
+        <!-- ═══ WEEK VIEW ══════════════════════════════════════════════════ -->
+        <div class="panel" id="panel-week">
+            <div style="display:flex;align-items:center;gap:10px;padding:12px 20px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;">
+                <a href="{{ url_for('admin.scheduling_page', date=prev_week, view='week') }}" class="nav-date-btn"><i class="bi bi-chevron-left" style="font-size:11px;"></i></a>
+                <span style="font-size:15px;font-weight:800;color:var(--text);">{{ week_start.strftime('%d %b') }} – {{ week_end.strftime('%d %b %Y') }}</span>
+                <a href="{{ url_for('admin.scheduling_page', date=next_week, view='week') }}" class="nav-date-btn"><i class="bi bi-chevron-right" style="font-size:11px;"></i></a>
+                <a href="{{ url_for('admin.scheduling_page', view='week') }}" class="nav-date-btn" style="width:auto;padding:0 10px;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.1em;">This Week</a>
+            </div>
+            <div id="week-grid-wrap">
+                <table class="wk">
+                    <thead>
+                        <tr class="wk-hdr-row">
+                            <th>Device / Room</th>
+                            {% for d in week_days %}
+                            {% set is_td = (d == view_date) %}
+                            <th class="{{ 'today-col' if is_td else '' }}">
+                                <a href="{{ url_for('admin.scheduling_page', date=d.strftime('%Y-%m-%d')) }}" class="wk-day-link">
+                                    {{ d.strftime('%a') }}
+                                    <div class="wk-day-num">{{ d.strftime('%d') }}</div>
+                                    {% if week_totals.get(d.weekday(), 0) %}
+                                    <div class="wk-day-total">{{ week_totals.get(d.weekday(), 0) }} total</div>
+                                    {% endif %}
+                                </a>
+                            </th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% if week_cols %}
+                        {% for wc in week_cols %}
+                        <tr>
+                            <td class="wk-row-hdr">
+                                {{ wc.label }}<span class="wk-row-mod">{{ wc.modality }}</span>
+                            </td>
+                            {% for d in week_days %}
+                            {% set cnt = week_data.get(wc.key, {}).get(d.weekday(), 0) %}
+                            <td class="wk-cell {{ 'today-col' if (d == view_date) else '' }}"
+                                onclick="window.location='{{ url_for('admin.scheduling_page', date=d.strftime('%Y-%m-%d')) }}'"
+                                title="{{ d.strftime('%A %d %b') }} · {{ cnt }} procedure{{ 's' if cnt != 1 else '' }}">
+                                <span class="wk-cnt {{ 'wk-cnt-0' if cnt == 0 else ('wk-cnt-hi' if cnt >= 8 else ('wk-cnt-md' if cnt >= 4 else 'wk-cnt-lo')) }}">
+                                    {{ cnt if cnt > 0 else '·' }}
+                                </span>
+                            </td>
+                            {% endfor %}
+                        </tr>
+                        {% endfor %}
+                        {% else %}
+                        <tr><td colspan="{{ week_days|length + 1 }}" style="padding:3rem;text-align:center;color:var(--muted);font-size:13px;">No procedures scheduled this week.</td></tr>
+                        {% endif %}
+                        <tr class="wk-total-row">
+                            <td class="wk-row-hdr" style="color:var(--accent);">Total</td>
+                            {% for d in week_days %}
+                            {% set tot = week_totals.get(d.weekday(), 0) %}
+                            <td style="text-align:center;padding:12px 8px;border-right:1px solid var(--border);" class="{{ 'today-col' if (d == view_date) else '' }}">
+                                <span style="font-size:18px;font-weight:900;color:{{ 'var(--accent)' if tot > 0 else 'var(--border2)' }};">{{ tot if tot > 0 else '—' }}</span>
+                            </td>
+                            {% endfor %}
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- ═══ SCHEDULE FORM ══════════════════════════════════════════════ -->
+        <div class="panel" id="panel-form">
+            <div id="form-scroll">
+                <div class="form-card">
+                    <div class="form-title">
+                        <span>{{ 'Edit Entry #' + schedule.id|string if schedule else 'New Scheduling Entry' }}</span>
+                        <div style="display:flex;gap:8px;align-items:center;">
+                            {% if schedule and schedule.patient_class == 'ER' %}
+                            <span class="pill pill-er"><i class="bi bi-exclamation-triangle-fill"></i> Emergency</span>
+                            {% endif %}
+                            {% if schedule and not schedule.cancelled %}
+                            <button type="button" class="btn-danger" onclick="cancelEntry({{ schedule.id }})">
+                                <i class="bi bi-x-circle"></i> Cancel Booking
+                            </button>
+                            {% elif schedule and schedule.cancelled %}
+                            <span class="pill pill-canc" style="font-size:10px;padding:4px 10px;">Cancelled</span>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <form method="POST" id="scheduling-form">
+                        {% if schedule %}<input type="hidden" name="schedule_id" value="{{ schedule.id }}">{% endif %}
+
+                        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px;">
+                            <div>
+                                <label class="field-label">First Name</label>
+                                <input type="text" name="first_name" required value="{{ schedule.first_name if schedule else '' }}" class="field-input" placeholder="First name">
+                            </div>
+                            <div>
+                                <label class="field-label">Middle Name</label>
+                                <input type="text" name="middle_name" value="{{ schedule.middle_name if schedule else '' }}" class="field-input" placeholder="Middle name">
+                            </div>
+                            <div>
+                                <label class="field-label">Last Name</label>
+                                <input type="text" name="last_name" required value="{{ schedule.last_name if schedule else '' }}" class="field-input" placeholder="Last name">
+                            </div>
+                        </div>
+
+                        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px;">
+                            <div>
+                                <label class="field-label">Date of Birth</label>
+                                <input type="date" name="date_of_birth" required value="{{ schedule.date_of_birth.strftime('%Y-%m-%d') if schedule and schedule.date_of_birth else '' }}" class="field-input">
+                            </div>
+                            <div>
+                                <label class="field-label">Referring Physician</label>
+                                <input type="text" name="referring_physician" required value="{{ schedule.referring_physician if schedule else '' }}" class="field-input" placeholder="Dr. Name">
+                            </div>
+                            <div>
+                                <label class="field-label">Patient Class</label>
+                                <select name="patient_class" required id="patientClassSelect" onchange="updateErGlow()" class="field-input">
+                                    <option value="">Select one</option>
+                                    <option value="OP" {% if schedule and schedule.patient_class == 'OP' %}selected{% endif %}>OP – Outpatient</option>
+                                    <option value="IP" {% if schedule and schedule.patient_class == 'IP' %}selected{% endif %}>IP – Inpatient</option>
+                                    <option value="ER" {% if schedule and schedule.patient_class == 'ER' %}selected{% endif %}>ER – Emergency</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px;">
+                            <div>
+                                <label class="field-label">Procedure Date &amp; Time</label>
+                                <input type="datetime-local" name="procedure_datetime" required
+                                       value="{{ schedule.procedure_datetime.strftime('%Y-%m-%dT%H:%M') if schedule and schedule.procedure_datetime else '' }}"
+                                       class="field-input">
+                            </div>
+                            <div>
+                                <label class="field-label">Modality</label>
+                                <select name="modality_type" required id="modalitySelect" onchange="filterAeSelect()" class="field-input">
+                                    <option value="">Select one</option>
+                                    {% for code, label in [('CR','CR – Radiography'),('CT','CT – Computed Tomography'),('MR','MR – Magnetic Resonance'),('US','US – Ultrasound'),('DX','DX – Digital X-Ray'),('MG','MG – Mammography'),('RF','RF – Fluoroscopy'),('XC','XC – Photography'),('OT','OT – Other')] %}
+                                    <option value="{{ code }}" {% if schedule and schedule.modality_type == code %}selected{% endif %}>{{ label }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div>
+                                <label class="field-label">Room / Device</label>
+                                <select name="aetitle" id="aetitleSelect" class="field-input">
+                                    <option value="">— Any / Unassigned —</option>
+                                    {% for ae in aetitle_list %}
+                                    <option value="{{ ae.aetitle }}" data-mod="{{ ae.modality }}"
+                                        {% if schedule and schedule.aetitle == ae.aetitle %}selected{% endif %}>
+                                        {{ ae.label }} ({{ ae.modality }})
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:22px;">
+                            <div>
+                                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px;">
+                                    <label class="field-label" style="margin:0;">Procedures</label>
+                                    <button type="button" onclick="addRow('proc-list','procedure_name','Procedure')"
+                                        style="font-size:10px;font-weight:900;padding:3px 10px;border-radius:6px;background:rgba(255,255,255,.05);border:1px solid var(--border2);color:var(--muted);cursor:pointer;">+ Add</button>
+                                </div>
+                                <div id="proc-list" style="display:flex;flex-direction:column;gap:8px;">
+                                    {% for val in (schedule.procedures if schedule and schedule.procedures else ['']) %}
+                                    <div style="display:flex;gap:6px;">
+                                        <input type="text" name="procedure_name" value="{{ val }}" placeholder="Procedure {{ loop.index }}" class="field-input" style="flex:1;">
+                                        {% if not loop.first %}<button type="button" onclick="removeRow(this)" style="padding:0 12px;border-radius:8px;background:#0d1512;border:1px solid var(--border2);color:var(--muted);cursor:pointer;">✕</button>{% endif %}
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                            <div>
+                                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px;">
+                                    <label class="field-label" style="margin:0;">Third Party Approvals</label>
+                                    <button type="button" onclick="addRow('tpa-list','third_party_approval','Approval')"
+                                        style="font-size:10px;font-weight:900;padding:3px 10px;border-radius:6px;background:rgba(255,255,255,.05);border:1px solid var(--border2);color:var(--muted);cursor:pointer;">+ Add</button>
+                                </div>
+                                <div id="tpa-list" style="display:flex;flex-direction:column;gap:8px;">
+                                    {% for val in (schedule.third_party_approvals if schedule and schedule.third_party_approvals else ['']) %}
+                                    <div style="display:flex;gap:6px;">
+                                        <input type="text" name="third_party_approval" value="{{ val }}" placeholder="Approval {{ loop.index }}" class="field-input" style="flex:1;">
+                                        {% if not loop.first %}<button type="button" onclick="removeRow(this)" style="padding:0 12px;border-radius:8px;background:#0d1512;border:1px solid var(--border2);color:var(--muted);cursor:pointer;">✕</button>{% endif %}
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                            <button type="submit" class="btn-submit"><i class="bi bi-floppy-fill"></i> {{ 'Update Entry' if schedule else 'Save Entry' }}</button>
+                            {% if schedule %}
+                            <a href="{{ url_for('admin.scheduling_page', date=view_date_str) }}" class="btn-ghost">New Entry</a>
+                            {% endif %}
+                            <button type="button" onclick="switchTab('grid')" class="btn-ghost">Back to Grid</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══ ALL BOOKINGS ════════════════════════════════════════════════ -->
+        <div class="panel" id="panel-all">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 20px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;">
+                <span style="font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:.1em;color:var(--text);">All Scheduled Bookings</span>
+                <span style="font-size:11px;color:var(--muted);">{{ schedules|length }} entries</span>
+            </div>
+            <div id="all-scroll">
+                <table class="all-table">
+                    <thead>
+                        <tr>
+                            {% for col in ['Patient','DOB','Class','Date & Time','Modality','Room','Referring','Procedures','Insurance',''] %}
+                            <th>{{ col }}</th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% if schedules %}
+                        {% for item in schedules %}
+                        <tr class="{{ 'cancelled-row' if item.cancelled else '' }}">
+                            <td style="font-weight:700;color:{{ 'var(--muted)' if item.cancelled else 'var(--text)' }};">
+                                {{ item.first_name }} {{ item.last_name }}
+                                {% if item.cancelled %}<span class="pill pill-canc" style="margin-left:4px;">Cancelled</span>{% endif %}
+                            </td>
+                            <td style="color:var(--muted);">{{ item.date_of_birth.strftime('%d/%m/%Y') if item.date_of_birth else '—' }}</td>
+                            <td>
+                                <span class="pill {{ 'pill-er' if item.patient_class == 'ER' else ('pill-sc' if item.patient_class == 'IP' else '') }}">{{ item.patient_class }}</span>
+                            </td>
+                            <td style="color:var(--muted);white-space:nowrap;">{{ item.procedure_datetime.strftime('%d/%m/%Y %H:%M') if item.procedure_datetime else '—' }}</td>
+                            <td><span class="mod-badge">{{ item.modality_type or '—' }}</span></td>
+                            <td style="color:var(--muted);">{{ item.aetitle or '—' }}</td>
+                            <td style="color:var(--muted);">{{ item.referring_physician }}</td>
+                            <td style="color:var(--muted);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ item.procedures | join(', ') }}</td>
+                            <td style="color:var(--muted);max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ item.third_party_approvals | join(', ') }}</td>
+                            <td>
+                                <a href="{{ url_for('admin.scheduling_page', schedule_id=item.id, date=item.procedure_datetime.strftime('%Y-%m-%d') if item.procedure_datetime else view_date_str) }}"
+                                   onclick="setTimeout(()=>switchTab('form'),50)"
+                                   style="font-size:11px;font-weight:700;color:var(--accent);text-decoration:none;">Edit</a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        {% else %}
+                        <tr><td colspan="10" style="padding:3rem;text-align:center;color:var(--muted);">No bookings yet.</td></tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- ═══ WORKLIST ════════════════════════════════════════════════════ -->
+        <div class="panel" id="panel-worklist">
+            <div class="wl-header">
+                <div>
+                    <div style="font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:.1em;color:var(--text);">Unscheduled Orders</div>
+                    <div style="font-size:10px;color:var(--muted);margin-top:2px;">HL7 orders received without a scheduled date/time.</div>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px;">
+                    <input type="text" id="worklist-search" class="wl-search" placeholder="Search patient or procedure…" oninput="filterWorklist()">
+                    <span id="worklist-count-label" style="font-size:10px;color:var(--muted);font-weight:800;text-transform:uppercase;letter-spacing:.1em;white-space:nowrap;">{{ unscheduled|length }} orders</span>
+                </div>
+            </div>
+            <div id="wl-scroll">
+                {% if unscheduled %}
+                <table class="wl-table">
+                    <thead>
+                        <tr>
+                            {% for col in ['Patient','Procedure','Modality','Physician','Accession','Received',''] %}
+                            <th>{{ col }}</th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody id="worklist-tbody">
+                        {% for u in unscheduled %}
+                        <tr class="wl-row" data-search="{{ (u.name ~ ' ' ~ u.procedure)|lower }}">
+                            <td style="font-weight:700;color:var(--text);">{{ u.name }}</td>
+                            <td style="color:var(--muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;">{{ u.procedure }}</td>
+                            <td><span class="mod-badge">{{ u.modality }}</span></td>
+                            <td style="color:var(--muted);">{{ u.physician or '—' }}</td>
+                            <td style="color:var(--muted);font-family:monospace;font-size:10px;">{{ u.accession or '—' }}</td>
+                            <td style="color:var(--muted);font-size:10px;">{{ u.received }}</td>
+                            <td>
+                                <button class="btn-schedule" onclick="openHl7Modal({{ u.id }}, '{{ u.name|e }}', '{{ u.procedure|e }}', '{{ u.modality }}', '{{ u.physician|e }}', '', '{{ view_date_str }}T08:00', '')">
+                                    <i class="bi bi-calendar-plus"></i> Schedule
+                                </button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:12px;color:var(--muted);">
+                    <i class="bi bi-inbox" style="font-size:48px;opacity:.3;"></i>
+                    <p style="font-size:14px;font-weight:600;">No unscheduled orders.</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+    </div><!-- #content -->
+</div><!-- #app -->
+
+<!-- ── HL7 Reschedule Modal ──────────────────────────────────────────── -->
+<div id="modal-overlay" onclick="if(event.target===this)closeModal()">
+    <div id="modal-box">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:14px;">
+            <div>
+                <div class="modal-title">HL7 Order</div>
+                <div class="modal-sub" id="modal-subtitle">Only the scheduled date &amp; time can be edited.</div>
+            </div>
+            <button onclick="closeModal()" style="background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;line-height:1;padding:2px;">✕</button>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+            <div>
+                <span class="modal-label">Patient</span>
+                <input id="m-name"     class="modal-input" disabled>
+            </div>
+            <div>
+                <span class="modal-label">Modality</span>
+                <input id="m-modality" class="modal-input" disabled>
+            </div>
+            <div style="grid-column:1/-1;">
+                <span class="modal-label">Procedure</span>
+                <input id="m-procedure" class="modal-input" disabled>
+            </div>
+            <div>
+                <span class="modal-label">Physician</span>
+                <input id="m-physician" class="modal-input" disabled>
+            </div>
+            <div>
+                <span class="modal-label">Status</span>
+                <input id="m-status"   class="modal-input" disabled>
+            </div>
+        </div>
+
+        <hr class="modal-sep">
+
+        <div style="margin-bottom:10px;">
+            <span class="modal-label" style="color:var(--accent2);">Scheduled Date &amp; Time</span>
+            <div style="display:flex;gap:8px;">
+                <input id="m-datetime" type="datetime-local" class="modal-input" style="flex:1;border-color:#4c1d95;">
+                <button onclick="suggestSlot()" id="suggest-btn"
+                    style="padding:9px 13px;border-radius:9px;background:rgba(167,139,250,.1);border:1px solid rgba(167,139,250,.3);color:var(--accent2);font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;transition:background .12s;"
+                    onmouseover="this.style.background='rgba(167,139,250,.2)'" onmouseout="this.style.background='rgba(167,139,250,.1)'">
+                    <i class="bi bi-magic"></i> Suggest
+                </button>
+            </div>
+            <p id="suggest-hint" style="font-size:10px;color:var(--muted);margin-top:5px;display:none;"></p>
+        </div>
+
+        <div style="margin-bottom:14px;">
+            <span class="modal-label" style="color:var(--accent);">Room / Device (optional)</span>
+            <select id="m-aetitle" class="modal-input" style="border-color:#1e3a5f;">
+                <option value="">— Any / Unassigned —</option>
+                {% for ae in aetitle_list %}
+                <option value="{{ ae.aetitle }}">{{ ae.label }} ({{ ae.modality }})</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div id="modal-arrive-btn" style="display:none;margin-bottom:10px;">
+            <button class="btn-arrive" onclick="arriveHl7()">
+                <i class="bi bi-box-arrow-in-down-right"></i> Mark Patient Arrived
+            </button>
+        </div>
+
+        <div style="display:flex;gap:8px;">
+            <button class="btn-save-modal" onclick="saveReschedule()"><i class="bi bi-floppy-fill"></i> Save</button>
+            <button class="btn-cancel-modal" onclick="closeModal()">Cancel</button>
+        </div>
     </div>
+</div>
 
-    <script>
-        // ── Tab switching ─────────────────────────────────────────────────────
-        const PANELS = ['grid','week','form','all','worklist'];
-        function showTab(name) {
-            PANELS.forEach(p => {
-                document.getElementById('panel-'+p).classList.toggle('hidden', p !== name);
-                document.getElementById('tab-btn-'+p).classList.toggle('active', p === name);
+<script>
+    // ── Tab switching ─────────────────────────────────────────────────────
+    const TABS = ['grid','week','form','all','worklist'];
+    function switchTab(name) {
+        TABS.forEach(t => {
+            document.getElementById('panel-'+t).classList.toggle('active', t === name);
+            document.getElementById('tab-'+t).classList.toggle('active', t === name);
+        });
+        if (name === 'worklist') renderWlPage();
+    }
+    function editEntry(id, date) { window.location = `/admin/scheduling?schedule_id=${id}&date=${date}`; }
+
+    // ── Hide done / cancelled ─────────────────────────────────────────────
+    let _hideDone = true;
+    function applyDoneFilter() {
+        document.querySelectorAll('.appt').forEach(card => {
+            const done = card.dataset.done === '1';
+            const canc = card.dataset.canc === '1';
+            card.style.display = (_hideDone && (done || canc)) ? 'none' : '';
+        });
+        // hide rows with no visible cards
+        document.querySelectorAll('.slot-row').forEach(tr => {
+            const cells = tr.querySelectorAll('.td-cell');
+            const hasVisible = Array.from(cells).some(td => {
+                const cards = td.querySelectorAll('.appt');
+                return Array.from(cards).some(c => c.style.display !== 'none');
             });
-            if (name === 'worklist') { _wlPage = 0; renderWlPage(); }
-        }
-
-        function editEntry(id, date) {
-            window.location = `/admin/scheduling?schedule_id=${id}&date=${date}`;
-        }
-
-        // ── Working hours toggle ──────────────────────────────────────────────
-        let _showAll = false;
-        function toggleHours() {
-            _showAll = !_showAll;
-            document.querySelectorAll('.time-tr').forEach(tr => {
-                if (tr.classList.contains('hidden-slot')) {
-                    tr.style.display = _showAll ? '' : 'none';
-                }
-            });
-            document.getElementById('toggle-hours-label').textContent =
-                _showAll ? 'Work Hours Only' : 'Show All Hours';
-        }
-
-        // ── Device filter for Room dropdown ──────────────────────────────────
-        function filterAeSelect() {
-            const mod = document.getElementById('modalitySelect').value;
-            const sel = document.getElementById('aetitleSelect');
-            Array.from(sel.options).forEach(opt => {
-                if (!opt.value) return;
-                opt.hidden = mod ? (opt.dataset.mod !== mod) : false;
-            });
-            if (sel.selectedOptions[0]?.hidden) sel.value = '';
-        }
-
-        // ── Form helpers ──────────────────────────────────────────────────────
-        function addRow(containerId, fieldName, label) {
-            const c   = document.getElementById(containerId);
-            const idx = c.children.length + 1;
-            const div = document.createElement('div');
-            div.className = 'flex gap-2';
-            div.innerHTML = `<input type="text" name="${fieldName}" placeholder="${label} ${idx}" class="input-border flex-1">
-                             <button type="button" onclick="removeRow(this)" class="px-3 py-2 rounded-lg bg-[#111827] border border-[#334155] text-slate-400 text-sm">✕</button>`;
-            c.appendChild(div);
-        }
-        function removeRow(btn) { btn.closest('div').remove(); }
-
-        function updateErHighlight() {
-            const card = document.getElementById('scheduling-card');
-            const val  = document.getElementById('patientClassSelect').value;
-            card.classList.toggle('er-highlight', val === 'ER');
-        }
-
-        // ── Cancel entry ──────────────────────────────────────────────────────
-        async function cancelEntry(id) {
-            if (!confirm('Cancel this booking? This cannot be undone.')) return;
-            const res  = await fetch(`/admin/scheduling/cancel/${id}`, { method: 'POST' });
-            const data = await res.json();
-            if (data.status === 'ok') { window.location.reload(); }
-            else { alert(data.message || 'Failed to cancel.'); }
-        }
-
-        // ── Worklist search + pagination ──────────────────────────────────────
-        const WL_PER_PAGE = 20;
-        let _wlPage = 0;
-        function filterWorklist() { _wlPage = 0; renderWlPage(); }
-        function wlPage(dir) { _wlPage = Math.max(0, _wlPage + dir); renderWlPage(); }
-        function renderWlPage() {
-            const q    = (document.getElementById('worklist-search')?.value || '').toLowerCase();
-            const rows = Array.from(document.querySelectorAll('.wl-row'));
-            const vis  = rows.filter(r => !q || r.dataset.search.includes(q));
-            const total = vis.length;
-            const start = _wlPage * WL_PER_PAGE;
-            rows.forEach(r => r.style.display = 'none');
-            vis.forEach((r, i) => { r.style.display = (i >= start && i < start + WL_PER_PAGE) ? '' : 'none'; });
-            const lbl = document.getElementById('wl-count-label');
-            if (lbl) lbl.textContent = q ? `${total} matching` : `${total} order${total !== 1 ? 's' : ''}`;
-            const pag = document.getElementById('wl-pagination');
-            if (!pag) return;
-            if (total <= WL_PER_PAGE) { pag.classList.add('hidden'); return; }
-            pag.classList.remove('hidden');
-            document.getElementById('wl-page-label').textContent = `${start+1}–${Math.min(start+WL_PER_PAGE, total)} of ${total}`;
-            document.getElementById('wl-prev').disabled = _wlPage === 0;
-            document.getElementById('wl-next').disabled = start + WL_PER_PAGE >= total;
-        }
-
-        // ── HL7 Modal ─────────────────────────────────────────────────────────
-        let _hl7ActiveId = null, _hl7Modality = null, _hl7ActiveDate = null, _hl7ActiveStatus = null;
-
-        function openHl7Modal(id, name, procedure, modality, physician, status, currentDt, currentAe) {
-            _hl7ActiveId     = id;
-            _hl7Modality     = modality;
-            _hl7ActiveDate   = currentDt ? currentDt.slice(0,10) : '{{ view_date_str }}';
-            _hl7ActiveStatus = (status || '').toUpperCase();
-            const fromWorklist = !status;
-
-            document.getElementById('hl7-arrive-btn').style.display =
-                (_hl7ActiveStatus === 'SC' || _hl7ActiveStatus === '') ? 'block' : 'none';
-            document.getElementById('hl7-f-name').value      = name;
-            document.getElementById('hl7-f-procedure').value = procedure;
-            document.getElementById('hl7-f-modality').value  = modality;
-            document.getElementById('hl7-f-physician').value = physician || '';
-            document.getElementById('hl7-f-status').value    = status || '—';
-            document.getElementById('hl7-f-datetime').value  = currentDt || '';
-            document.getElementById('hl7-f-aetitle').value   = currentAe || '';
-            document.getElementById('suggest-hint').style.display = 'none';
-
-            document.getElementById('hl7-f-name').disabled      = true;
-            document.getElementById('hl7-f-procedure').disabled = !fromWorklist;
-            document.getElementById('hl7-f-modality').disabled  = !fromWorklist;
-            document.getElementById('hl7-f-physician').disabled = !fromWorklist;
-            document.getElementById('hl7-f-status').disabled    = true;
-            document.getElementById('hl7-modal-subtitle').textContent = fromWorklist
-                ? 'Patient name cannot be edited. Fill in unknown fields and assign a date & time.'
-                : 'Date, time and room assignment can be edited.';
-            document.getElementById('hl7-modal').classList.add('open');
-        }
-
-        function closeHl7Modal() {
-            document.getElementById('hl7-modal').classList.remove('open');
-            _hl7ActiveId = null;
-        }
-
-        async function suggestSlot() {
-            if (!_hl7ActiveId) return;
-            const modEl = document.getElementById('hl7-f-modality');
-            const modality = (!modEl.disabled && modEl.value) ? modEl.value : _hl7Modality;
-            if (!modality) return;
-            const btn  = document.getElementById('suggest-btn');
-            const hint = document.getElementById('suggest-hint');
-            btn.textContent = '…'; btn.disabled = true;
-            try {
-                const params = new URLSearchParams({ modality, date: _hl7ActiveDate, exclude_id: _hl7ActiveId });
-                const res  = await fetch(`/admin/scheduling/suggest?${params}`);
-                const data = await res.json();
-                if (data.status === 'ok') {
-                    document.getElementById('hl7-f-datetime').value = data.suggested;
-                    hint.textContent = `Best slot: ${data.label} — ${data.load} order${data.load !== 1 ? 's' : ''} already booked.`;
-                    hint.style.color = '#a78bfa';
-                } else {
-                    hint.textContent = 'No suggestion available.'; hint.style.color = '#f87171';
-                }
-            } catch {
-                hint.textContent = 'Error fetching suggestion.'; hint.style.color = '#f87171';
+            // keep if has_any was true initially, or has visible cards
+            if (!hasVisible && tr.classList.contains('work-hidden')) {
+                if (!_showAll) tr.style.display = 'none';
             }
-            hint.style.display = 'block';
-            btn.innerHTML = '<i class="bi bi-magic"></i> Suggest'; btn.disabled = false;
-        }
+        });
+    }
+    function toggleDone() {
+        _hideDone = !_hideDone;
+        const btn = document.getElementById('btn-hide-done');
+        btn.classList.toggle('on', _hideDone);
+        btn.innerHTML = _hideDone
+            ? '<i class="bi bi-eye-slash"></i> Hide Done'
+            : '<i class="bi bi-eye"></i> Show Done';
+        applyDoneFilter();
+    }
 
-        async function saveHl7Reschedule() {
-            if (!_hl7ActiveId) return;
-            const dt = document.getElementById('hl7-f-datetime').value;
-            if (!dt) { alert('Please select a date and time.'); return; }
+    // ── Working hours toggle ──────────────────────────────────────────────
+    let _showAll = false;
+    function toggleHours() {
+        _showAll = !_showAll;
+        document.querySelectorAll('.work-hidden').forEach(tr => {
+            tr.style.display = _showAll ? '' : 'none';
+        });
+        const btn = document.getElementById('btn-all-hours');
+        btn.classList.toggle('on', _showAll);
+        btn.innerHTML = _showAll
+            ? '<i class="bi bi-clock-fill"></i> Work Hours'
+            : '<i class="bi bi-clock"></i> All Hours';
+    }
 
-            const payload = { scheduled_datetime: dt };
-            const procEl = document.getElementById('hl7-f-procedure');
-            const modEl  = document.getElementById('hl7-f-modality');
-            const physEl = document.getElementById('hl7-f-physician');
-            const aeEl   = document.getElementById('hl7-f-aetitle');
-            if (!procEl.disabled) payload.procedure_text  = procEl.value;
-            if (!modEl.disabled)  payload.modality        = modEl.value;
-            if (!physEl.disabled) payload.physician       = physEl.value;
-            payload.target_aetitle = aeEl.value || null;
-
-            const res  = await fetch(`/admin/scheduling/hl7/${_hl7ActiveId}/reschedule`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
+    // ── Modality column filter ────────────────────────────────────────────
+    const _modActive = {};
+    function toggleModFilter(mod) {
+        _modActive[mod] = !_modActive[mod];
+        document.getElementById('fchip-'+mod).classList.toggle('on', _modActive[mod]);
+        const anyOn = Object.values(_modActive).some(v => v);
+        // show/hide columns
+        document.querySelectorAll('.col-th, .td-cell').forEach(el => {
+            if (!anyOn) { el.style.display = ''; return; }
+            el.style.display = (el.dataset.mod === mod || !_modActive[el.dataset.mod] === false) ? '' : 'none';
+        });
+        if (anyOn) {
+            document.querySelectorAll('[data-col],[data-mod]').forEach(el => {
+                const m = el.dataset.mod;
+                if (m) el.style.display = _modActive[m] ? '' : 'none';
             });
-            const data = await res.json();
-            if (data.status === 'ok') { closeHl7Modal(); window.location.reload(); }
-            else { alert(data.message || 'Failed to save.'); }
         }
+    }
 
-        async function arriveHl7() {
-            if (!_hl7ActiveId) return;
-            try {
-                const res  = await fetch(`/admin/scheduling/hl7/${_hl7ActiveId}/arrive`, { method: 'POST', headers: {'Content-Type':'application/json'} });
-                const data = await res.json();
-                if (data.status === 'ok') { closeHl7Modal(); window.location.reload(); }
-                else { alert(data.message || 'Failed to mark arrived.'); }
-            } catch { alert('Request failed.'); }
-        }
-
-        async function arriveHl7Quick(id, btn) {
-            btn.disabled = true;
-            try {
-                const res  = await fetch(`/admin/scheduling/hl7/${id}/arrive`, { method: 'POST', headers: {'Content-Type':'application/json'} });
-                const data = await res.json();
-                if (data.status === 'ok') { window.location.reload(); }
-                else { alert(data.message || 'Failed.'); btn.disabled = false; }
-            } catch { alert('Request failed.'); btn.disabled = false; }
-        }
-
-        // ── Init ──────────────────────────────────────────────────────────────
-        document.addEventListener('DOMContentLoaded', () => {
-            {% if view_mode == 'week' %}
-                showTab('week');
-            {% elif schedule %}
-                showTab('form');
-            {% else %}
-                showTab('grid');
-            {% endif %}
-            if (document.getElementById('patientClassSelect')) updateErHighlight();
-            filterAeSelect();
+    // ── Device select filter by modality ─────────────────────────────────
+    function filterAeSelect() {
+        const mod = document.getElementById('modalitySelect').value;
+        const sel = document.getElementById('aetitleSelect');
+        Array.from(sel.options).forEach(opt => {
+            if (!opt.value) return;
+            opt.hidden = mod ? opt.dataset.mod !== mod : false;
         });
-    </script>
-    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
-    <script>
-    document.addEventListener('DOMContentLoaded', function () {
-        flatpickr('input[type="date"]', {
-            dateFormat: 'Y-m-d', altInput: true, altFormat: 'd/m/Y',
-            allowInput: true, disableMobile: true
+        if (sel.selectedOptions[0]?.hidden) sel.value = '';
+    }
+
+    // ── Form helpers ──────────────────────────────────────────────────────
+    function addRow(cid, fname, label) {
+        const c = document.getElementById(cid);
+        const idx = c.children.length + 1;
+        const d = document.createElement('div');
+        d.style.cssText = 'display:flex;gap:6px;';
+        d.innerHTML = `<input type="text" name="${fname}" placeholder="${label} ${idx}" class="field-input" style="flex:1;">
+                       <button type="button" onclick="removeRow(this)" style="padding:0 12px;border-radius:8px;background:#0d1512;border:1px solid var(--border2);color:var(--muted);cursor:pointer;">✕</button>`;
+        c.appendChild(d);
+    }
+    function removeRow(btn) { btn.closest('div').remove(); }
+
+    function updateErGlow() {
+        const form = document.getElementById('scheduling-form');
+        form.classList.toggle('er-glow', document.getElementById('patientClassSelect').value === 'ER');
+    }
+
+    async function cancelEntry(id) {
+        if (!confirm('Cancel this booking?')) return;
+        const res = await fetch(`/admin/scheduling/cancel/${id}`, { method: 'POST' });
+        const d   = await res.json();
+        if (d.status === 'ok') window.location.reload();
+        else alert(d.message || 'Failed.');
+    }
+
+    // ── Worklist search ───────────────────────────────────────────────────
+    function filterWorklist() {
+        const q = (document.getElementById('worklist-search')?.value || '').toLowerCase();
+        let n = 0;
+        document.querySelectorAll('.wl-row').forEach(r => {
+            const show = !q || r.dataset.search.includes(q);
+            r.style.display = show ? '' : 'none';
+            if (show) n++;
         });
+        const lbl = document.getElementById('worklist-count-label');
+        if (lbl) lbl.textContent = q ? `${n} matching` : `${n} orders`;
+    }
+    function renderWlPage() { filterWorklist(); }
+
+    // ── HL7 Modal ─────────────────────────────────────────────────────────
+    let _mId = null, _mMod = null, _mDate = null, _mStatus = null;
+
+    function openHl7Modal(id, name, proc, mod, phys, status, dt, ae) {
+        _mId     = id; _mMod = mod;
+        _mDate   = dt ? dt.slice(0,10) : '{{ view_date_str }}';
+        _mStatus = (status || '').toUpperCase();
+        const fromWL = !status;
+        document.getElementById('modal-arrive-btn').style.display =
+            (_mStatus === 'SC' || _mStatus === '') ? 'block' : 'none';
+        document.getElementById('m-name').value      = name;
+        document.getElementById('m-procedure').value = proc;
+        document.getElementById('m-modality').value  = mod;
+        document.getElementById('m-physician').value = phys || '';
+        document.getElementById('m-status').value    = status || '—';
+        document.getElementById('m-datetime').value  = dt || '';
+        document.getElementById('m-aetitle').value   = ae || '';
+        document.getElementById('suggest-hint').style.display = 'none';
+        document.getElementById('m-name').disabled      = true;
+        document.getElementById('m-procedure').disabled = !fromWL;
+        document.getElementById('m-modality').disabled  = !fromWL;
+        document.getElementById('m-physician').disabled = !fromWL;
+        document.getElementById('m-status').disabled    = true;
+        document.getElementById('modal-subtitle').textContent = fromWL
+            ? 'Fill in missing details and assign a date & time.'
+            : 'Date, time and room can be edited.';
+        document.getElementById('modal-overlay').classList.add('open');
+    }
+    function closeModal() {
+        document.getElementById('modal-overlay').classList.remove('open');
+        _mId = null;
+    }
+
+    async function suggestSlot() {
+        if (!_mId) return;
+        const modEl = document.getElementById('m-modality');
+        const mod   = (!modEl.disabled && modEl.value) ? modEl.value : _mMod;
+        const btn   = document.getElementById('suggest-btn');
+        const hint  = document.getElementById('suggest-hint');
+        btn.innerHTML = '…'; btn.disabled = true;
+        try {
+            const r = await fetch(`/admin/scheduling/suggest?${new URLSearchParams({modality:mod,date:_mDate,exclude_id:_mId})}`);
+            const d = await r.json();
+            if (d.status === 'ok') {
+                document.getElementById('m-datetime').value = d.suggested;
+                hint.textContent = `Best slot: ${d.label} — ${d.load} already booked.`;
+                hint.style.color = 'var(--accent2)';
+            } else { hint.textContent = 'No suggestion available.'; hint.style.color = 'var(--red)'; }
+        } catch { hint.textContent = 'Request failed.'; hint.style.color = 'var(--red)'; }
+        hint.style.display = 'block';
+        btn.innerHTML = '<i class="bi bi-magic"></i> Suggest'; btn.disabled = false;
+    }
+
+    async function saveReschedule() {
+        if (!_mId) return;
+        const dt = document.getElementById('m-datetime').value;
+        if (!dt) { alert('Please select a date and time.'); return; }
+        const payload = { scheduled_datetime: dt };
+        const procEl = document.getElementById('m-procedure');
+        const modEl  = document.getElementById('m-modality');
+        const physEl = document.getElementById('m-physician');
+        if (!procEl.disabled) payload.procedure_text = procEl.value;
+        if (!modEl.disabled)  payload.modality = modEl.value;
+        if (!physEl.disabled) payload.physician = physEl.value;
+        payload.target_aetitle = document.getElementById('m-aetitle').value || null;
+        const r = await fetch(`/admin/scheduling/hl7/${_mId}/reschedule`, {
+            method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)
+        });
+        const d = await r.json();
+        if (d.status === 'ok') { closeModal(); window.location.reload(); }
+        else alert(d.message || 'Failed.');
+    }
+
+    async function arriveHl7() {
+        if (!_mId) return;
+        const r = await fetch(`/admin/scheduling/hl7/${_mId}/arrive`, { method:'POST', headers:{'Content-Type':'application/json'} });
+        const d = await r.json();
+        if (d.status === 'ok') { closeModal(); window.location.reload(); }
+        else alert(d.message || 'Failed.');
+    }
+
+    async function arriveHl7Quick(id, btn) {
+        btn.disabled = true;
+        const r = await fetch(`/admin/scheduling/hl7/${id}/arrive`, { method:'POST', headers:{'Content-Type':'application/json'} });
+        const d = await r.json();
+        if (d.status === 'ok') window.location.reload();
+        else { alert(d.message || 'Failed.'); btn.disabled = false; }
+    }
+
+    // ── Init ──────────────────────────────────────────────────────────────
+    document.addEventListener('DOMContentLoaded', () => {
+        {% if view_mode == 'week' %}switchTab('week');
+        {% elif schedule %}switchTab('form');
+        {% else %}switchTab('grid');
+        {% endif %}
+        if (document.getElementById('patientClassSelect')) updateErGlow();
+        filterAeSelect();
+        applyDoneFilter();  // hide done entries on load
     });
-    </script>
+</script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    flatpickr('input[type="date"]', {
+        dateFormat: 'Y-m-d', altInput: true, altFormat: 'd/m/Y', allowInput: true, disableMobile: true
+    });
+});
+</script>
 </body>
 </html>
