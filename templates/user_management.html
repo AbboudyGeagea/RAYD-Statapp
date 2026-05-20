@@ -6,35 +6,109 @@
     <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
     <style>
-        :root { --accent: #60a5fa; }
-        body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; }
+        :root { --accent: #60a5fa; --bg: #181f1c; --surface: #232b28; --border: #28332e; --surface2: #1d2522; }
+        body { font-family: 'Inter', sans-serif; background: var(--bg); color: #e2e8f0; }
+
+        /* ── Sidebar items ── */
         .sidebar-item { transition: all 0.2s; border-radius: 0.75rem; margin-bottom: 0.25rem; cursor: pointer; text-decoration: none !important; color: #94a3b8; }
-        .sidebar-item:hover { background: #1d2522; color: var(--accent) !important; }
-        .sidebar-item.active { background: #1d2522; color: var(--accent) !important; border-left: 4px solid var(--accent); }
-        .card { background: #232b28; border-radius: 1.5rem; padding: 2rem; border: 1px solid #28332e; }
+        .sidebar-item:hover { background: var(--surface2); color: var(--accent) !important; }
+        .sidebar-item.active { background: var(--surface2); color: var(--accent) !important; border-left: 4px solid var(--accent); }
+
+        /* ── Tabs ── */
         .tab-btn { transition: all 0.15s; padding: 0.5rem 1.25rem; border-radius: 0.5rem; font-size: 0.7rem; font-weight: 900; letter-spacing: 0.1em; text-transform: uppercase; color: #64748b; cursor: pointer; border: none; background: transparent; }
-        .tab-btn.active { background: #1d2522; color: var(--accent); }
-        .badge { display: inline-flex; align-items: center; justify-content: center; min-width: 1.25rem; height: 1.25rem; border-radius: 9999px; font-size: 0.65rem; font-weight: 900; padding: 0 0.3rem; }
-        .role-badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 0.4rem; font-size: 0.65rem; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; }
-        .status-active   { background: rgba(34,197,94,0.1);   color: #22c55e; border: 1px solid rgba(34,197,94,0.25); }
-        .status-disabled { background: rgba(239,68,68,0.1);   color: #ef4444; border: 1px solid rgba(239,68,68,0.25); }
-        .status-pending  { background: rgba(245,158,11,0.1);  color: #f59e0b; border: 1px solid rgba(245,158,11,0.25); }
-        .role-viewer  { background: rgba(96,165,250,0.1);  color: #60a5fa;  border: 1px solid rgba(96,165,250,0.25); }
-        .role-tec     { background: rgba(168,85,247,0.1);  color: #a855f7;  border: 1px solid rgba(168,85,247,0.25); }
-        .role-finance { background: rgba(52,211,153,0.1);  color: #34d399;  border: 1px solid rgba(52,211,153,0.25); }
-        .role-admin   { background: rgba(245,158,11,0.1);  color: #f59e0b;  border: 1px solid rgba(245,158,11,0.25); }
-        .action-btn { padding: 0.3rem 0.6rem; border-radius: 0.4rem; font-size: 0.65rem; font-weight: 900; letter-spacing: 0.05em; text-transform: uppercase; border: 1px solid transparent; cursor: pointer; transition: all 0.15s; }
-        .action-btn:disabled { opacity: 0.35; cursor: not-allowed; }
-        /* Light mode */
+        .tab-btn.active { background: var(--surface2); color: var(--accent); }
+
+        /* ── Role / status badges ── */
+        .badge-role { display: inline-block; padding: 0.2rem 0.65rem; border-radius: 0.4rem; font-size: 0.6rem; font-weight: 900; letter-spacing: 0.1em; text-transform: uppercase; }
+        .role-viewer   { background: rgba(96,165,250,.12); color: #60a5fa; border: 1px solid rgba(96,165,250,.25); }
+        .role-viewer2  { background: rgba(129,140,248,.12); color: #818cf8; border: 1px solid rgba(129,140,248,.25); }
+        .role-tec      { background: rgba(168,85,247,.12);  color: #a855f7; border: 1px solid rgba(168,85,247,.25); }
+        .role-finance  { background: rgba(52,211,153,.12);  color: #34d399; border: 1px solid rgba(52,211,153,.25); }
+        .role-secretary{ background: rgba(251,146,60,.12);  color: #fb923c; border: 1px solid rgba(251,146,60,.25); }
+        .role-admin    { background: rgba(245,158,11,.12);  color: #f59e0b; border: 1px solid rgba(245,158,11,.25); }
+
+        .st-active   { color: #22c55e; }
+        .st-disabled { color: #ef4444; }
+        .st-pending  { color: #f59e0b; }
+
+        /* ── User card ── */
+        .user-card {
+            background: var(--surface); border: 1px solid var(--border); border-radius: 1.25rem;
+            padding: 1.25rem; cursor: pointer; transition: all 0.15s;
+        }
+        .user-card:hover { border-color: rgba(96,165,250,.35); background: #27312e; transform: translateY(-1px); box-shadow: 0 4px 20px rgba(0,0,0,.2); }
+        .user-card.selected { border-color: var(--accent); box-shadow: 0 0 0 1px rgba(96,165,250,.3); }
+
+        /* ── Avatar ── */
+        .avatar { width: 2.5rem; height: 2.5rem; border-radius: 0.75rem; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; font-weight: 900; flex-shrink: 0; }
+        .av-viewer   { background: rgba(96,165,250,.12);  color: #60a5fa; }
+        .av-viewer2  { background: rgba(129,140,248,.12); color: #818cf8; }
+        .av-tec      { background: rgba(168,85,247,.12);  color: #a855f7; }
+        .av-finance  { background: rgba(52,211,153,.12);  color: #34d399; }
+        .av-secretary{ background: rgba(251,146,60,.12);  color: #fb923c; }
+        .av-admin    { background: rgba(245,158,11,.12);  color: #f59e0b; }
+        .av-pending  { background: rgba(245,158,11,.12);  color: #f59e0b; }
+        .av-default  { background: rgba(100,116,139,.12); color: #64748b; }
+
+        /* ── Permission toggle ── */
+        .toggle-track { width: 2.25rem; height: 1.25rem; border-radius: 9999px; border: 1px solid; transition: all 0.2s; position: relative; flex-shrink: 0; cursor: pointer; }
+        .toggle-track.on  { background: var(--accent); border-color: var(--accent); }
+        .toggle-track.off { background: transparent; border-color: #334155; }
+        .toggle-thumb { position: absolute; top: 2px; width: 0.875rem; height: 0.875rem; border-radius: 9999px; background: white; box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: all 0.2s; }
+        .toggle-track.on  .toggle-thumb { left: calc(100% - 0.875rem - 2px); }
+        .toggle-track.off .toggle-thumb { left: 2px; }
+
+        /* ── Drawer ── */
+        #drawer {
+            position: fixed; top: 0; right: 0; height: 100vh; width: 420px;
+            background: var(--surface); border-left: 1px solid var(--border);
+            z-index: 9999; display: flex; flex-direction: column;
+            transform: translateX(100%); transition: transform 0.25s cubic-bezier(0.4,0,0.2,1);
+            box-shadow: -8px 0 40px rgba(0,0,0,.4);
+        }
+        #drawer.open { transform: translateX(0); }
+        #drawer-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 9998; display: none; }
+        #drawer-overlay.show { display: block; }
+
+        /* ── Action buttons (drawer) ── */
+        .act-btn { display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 0.9rem; border-radius: 0.75rem; font-size: 0.72rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; border: 1px solid var(--border); color: #94a3b8; cursor: pointer; transition: all 0.15s; background: transparent; width: 100%; }
+        .act-btn:hover { background: var(--surface2); }
+        .act-btn.danger:hover { color: #ef4444; border-color: rgba(239,68,68,.3); background: rgba(239,68,68,.05); }
+        .act-btn.warn:hover   { color: #f59e0b; border-color: rgba(245,158,11,.3); background: rgba(245,158,11,.05); }
+        .act-btn.sky:hover    { color: #38bdf8; border-color: rgba(56,189,248,.3); background: rgba(56,189,248,.05); }
+        .act-btn.green:hover  { color: #34d399; border-color: rgba(52,211,153,.3); background: rgba(52,211,153,.05); }
+
+        /* ── Role select (drawer) ── */
+        .role-select { background: var(--surface2); border: 1px solid var(--border); color: #e2e8f0; border-radius: 0.75rem; padding: 0.55rem 0.85rem; font-size: 0.75rem; font-weight: 700; width: 100%; appearance: none; cursor: pointer; outline: none; }
+        .role-select:focus { border-color: var(--accent); }
+
+        /* ── Scrollbar ── */
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 9999px; }
+
+        /* ── Search ── */
+        .search-input { background: var(--surface); border: 1px solid var(--border); color: #e2e8f0; border-radius: 0.75rem; padding: 0.55rem 1rem 0.55rem 2.5rem; font-size: 0.8rem; outline: none; transition: border-color 0.15s; }
+        .search-input:focus { border-color: rgba(96,165,250,.5); }
+        .search-input::placeholder { color: #475569; }
+
+        /* ── Light mode ── */
         body.light { background: #f0f4f8; color: #1a202c; }
-        body.light aside, body.light header { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        body.light aside, body.light header { background: #fff !important; border-color: #e2e8f0 !important; }
         body.light .sidebar-item { color: #4a5568; }
         body.light .sidebar-item:hover, body.light .sidebar-item.active { background: #e2e8f0 !important; color: #2b6cb0 !important; }
         body.light main { background: #f0f4f8 !important; }
-        body.light .card { background: #ffffff; border-color: #e2e8f0; color: #1a202c; }
+        body.light .user-card { background: #fff; border-color: #e2e8f0; color: #1a202c; }
+        body.light .user-card:hover { background: #f8fafc; }
+        body.light #drawer { background: #fff; border-color: #e2e8f0; }
+        body.light .act-btn { border-color: #e2e8f0; color: #64748b; }
+        body.light .act-btn:hover { background: #f0f4f8; }
+        body.light .role-select { background: #f0f4f8; border-color: #e2e8f0; color: #1a202c; }
+        body.light .search-input { background: #fff; border-color: #e2e8f0; color: #1a202c; }
+        body.light .toggle-track.off { border-color: #cbd5e1; }
         body.light .tab-btn.active { background: #e2e8f0; }
-        body.light tbody tr { border-color: #e2e8f0; }
-        body.light tbody tr:hover { background: rgba(0,0,0,0.025) !important; }
+        body.light .perm-row { border-color: #e2e8f0; }
+        body.light .section-label { color: #64748b; }
     </style>
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
@@ -43,182 +117,113 @@
     <div class="flex flex-1 overflow-hidden">
         {% include '_sidebar.html' %}
 
-        <main class="flex-1 overflow-y-auto p-8 bg-[#181f1c]">
-            <div class="card max-w-7xl mx-auto">
+        <main class="flex-1 overflow-y-auto p-6 bg-[#181f1c]">
+            <div class="max-w-6xl mx-auto">
 
-                <!-- Header -->
+                <!-- Page header -->
                 <div class="flex items-center justify-between mb-6">
                     <div>
-                        <h3 class="text-white text-2xl font-black tracking-tight uppercase">User Management</h3>
-                        <p class="text-slate-500 text-[11px] font-bold uppercase tracking-widest mt-1">
-                            {{ users|length }} active &bull;
-                            {% if pending_users %}<span class="text-amber-400">{{ pending_users|length }} pending approval</span>{% else %}0 pending{% endif %}
+                        <h1 class="text-white text-xl font-black tracking-tight">User Management</h1>
+                        <p class="text-slate-500 text-[11px] font-bold uppercase tracking-widest mt-0.5">
+                            {{ users|length }} users
+                            {% if pending_users %}&nbsp;&bull;&nbsp;<span class="text-amber-400">{{ pending_users|length }} pending</span>{% endif %}
                         </p>
                     </div>
-                    <div class="flex items-center gap-2">
-                        <a href="{{ url_for('auth.register') }}"
-                           class="flex items-center gap-2 px-4 py-2.5 bg-[#60a5fa] text-[#0f172a] text-xs font-black uppercase tracking-widest rounded-xl hover:bg-[#93c5fd] transition-colors">
-                            <i class="bi bi-person-plus-fill"></i> Add User
-                        </a>
-                    </div>
+                    <a href="{{ url_for('auth.register') }}"
+                       class="flex items-center gap-2 px-4 py-2 bg-[#60a5fa] text-[#0f172a] text-xs font-black uppercase tracking-widest rounded-xl hover:bg-[#93c5fd] transition-colors">
+                        <i class="bi bi-person-plus-fill"></i> Add User
+                    </a>
                 </div>
 
                 <!-- Tabs -->
-                <div class="flex gap-1 mb-6 border-b border-[#28332e] pb-3">
+                <div class="flex gap-1 mb-5 border-b border-[#28332e] pb-3">
                     <button class="tab-btn active" onclick="switchTab('active', this)">
-                        <i class="bi bi-people-fill mr-1"></i>Active Users
+                        <i class="bi bi-people-fill mr-1.5"></i>Active Users
                     </button>
                     <button class="tab-btn" onclick="switchTab('pending', this)">
-                        <i class="bi bi-clock-history mr-1"></i>Pending Approval
+                        <i class="bi bi-clock-history mr-1.5"></i>Pending
                         {% if pending_users %}
-                        <span class="badge bg-amber-500/20 text-amber-400 ml-1">{{ pending_users|length }}</span>
+                        <span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-500/20 text-amber-400 text-[10px] font-black ml-1">{{ pending_users|length }}</span>
                         {% endif %}
                     </button>
                 </div>
 
-                <!-- ═══════════════════════════════════════════════ TAB: ACTIVE USERS -->
+                <!-- ═══ TAB: ACTIVE USERS ═══ -->
                 <div id="tab-active">
-                    {% if users %}
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-left text-sm">
-                            <thead>
-                                <tr class="border-b border-[#28332e] text-[#60a5fa] text-[10px] uppercase tracking-[0.15em] font-black">
-                                    <th class="pb-4 px-3">User</th>
-                                    <th class="pb-4 px-3">Role</th>
-                                    <th class="pb-4 px-3">Status</th>
-                                    <th class="pb-4 px-3">Last Login</th>
-                                    {% for pk, label in page_keys %}
-                                    <th class="pb-4 px-2 text-center text-[9px]">{{ label }}</th>
-                                    {% endfor %}
-                                    <th class="pb-4 px-3 text-center">Sessions</th>
-                                    <th class="pb-4 px-3 text-center">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-[#28332e]">
-                                {% for u in users %}
-                                <tr class="group hover:bg-[#1d2522]/50 transition-all" id="user-row-{{ u.id }}">
 
-                                    <!-- User identity -->
-                                    <td class="py-4 px-3">
-                                        <div class="flex items-center gap-3">
-                                            <div class="w-8 h-8 rounded-xl flex items-center justify-center text-xs font-black shrink-0
-                                                {% if u.role == 'viewer' %}bg-blue-500/10 text-blue-400
-                                                {% elif u.role == 'tec' %}bg-purple-500/10 text-purple-400
-                                                {% elif u.role == 'finance' %}bg-emerald-500/10 text-emerald-400
-                                                {% else %}bg-slate-500/10 text-slate-400{% endif %}">
-                                                {{ (u.full_name or u.username)[0]|upper }}
-                                            </div>
-                                            <div>
-                                                <div class="font-bold text-white text-xs">{{ u.full_name or u.username }}</div>
-                                                {% if u.full_name %}<div class="text-slate-500 text-[10px]">@{{ u.username }}</div>{% endif %}
-                                                {% if u.email %}<div class="text-slate-600 text-[10px]">{{ u.email }}</div>{% endif %}
-                                            </div>
-                                        </div>
-                                    </td>
-
-                                    <!-- Role -->
-                                    <td class="py-4 px-3">
-                                        <select onchange="changeRole({{ u.id }}, this.value)"
-                                            class="bg-[#1d2522] border border-[#28332e] text-xs font-black uppercase tracking-widest rounded-lg px-3 py-1.5 text-slate-300 focus:outline-none focus:border-[#60a5fa] transition-colors cursor-pointer">
-                                            <option value="viewer"     {% if u.role == 'viewer'     %}selected{% endif %}>Viewer</option>
-                                            <option value="viewer2"    {% if u.role == 'viewer2'    %}selected{% endif %}>Viewer 2</option>
-                                            <option value="tec"        {% if u.role == 'tec'        %}selected{% endif %}>Tec</option>
-                                            <option value="finance"    {% if u.role == 'finance'    %}selected{% endif %}>Finance</option>
-                                            <option value="secretary"  {% if u.role == 'secretary'  %}selected{% endif %}>Secretary</option>
-                                        </select>
-                                    </td>
-
-                                    <!-- Status -->
-                                    <td class="py-4 px-3">
-                                        <span class="role-badge status-{{ u.status }}">{{ u.status }}</span>
-                                        {% if u.password_reset_requested %}
-                                        <span class="role-badge ml-1" style="background:rgba(34,197,94,0.1);color:#4ade80;border:1px solid rgba(34,197,94,0.25)" title="User requested a password reset">
-                                            <i class="bi bi-key-fill"></i> Reset
-                                        </span>
-                                        {% elif u.must_change_password %}
-                                        <span class="role-badge ml-1" style="background:rgba(251,191,36,0.1);color:#fbbf24;border:1px solid rgba(251,191,36,0.25)" title="Must change password on next login">
-                                            <i class="bi bi-key-fill"></i>
-                                        </span>
-                                        {% endif %}
-                                    </td>
-
-                                    <!-- Last login -->
-                                    <td class="py-4 px-3 text-slate-500 text-[10px]">
-                                        {{ u.last_login.strftime('%d %b %Y %H:%M') if u.last_login else '—' }}
-                                    </td>
-
-                                    <!-- Page permission toggles -->
-                                    {% for pk, label in page_keys %}
-                                    <td class="py-4 px-2 text-center">
-                                        {% set enabled = page_perms.get(u.id, {}).get(pk, False) %}
-                                        <button onclick="togglePerm({{ u.id }}, '{{ pk }}', this)"
-                                            data-enabled="{{ 'true' if enabled else 'false' }}"
-                                            title="{{ label }}"
-                                            class="w-9 h-5 rounded-full border transition-all relative inline-flex shrink-0
-                                                   {{ 'bg-[#60a5fa] border-[#60a5fa]' if enabled else 'bg-transparent border-[#334155]' }}">
-                                            <span class="absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all
-                                                         {{ 'left-4' if enabled else 'left-0.5' }}"></span>
-                                        </button>
-                                    </td>
-                                    {% endfor %}
-
-                                    <!-- Sessions -->
-                                    <td class="py-4 px-3 text-center">
-                                        {% set sess_count = sessions_by_user.get(u.id, [])|length %}
-                                        <span class="text-xs {{ 'text-emerald-400 font-bold' if sess_count > 0 else 'text-slate-600' }}">
-                                            {{ sess_count }}
-                                        </span>
-                                        {% if sess_count > 0 %}
-                                        <button onclick="revokeAllSessions({{ u.id }})"
-                                            title="Revoke all sessions"
-                                            class="ml-1 text-slate-600 hover:text-red-400 transition-colors text-xs">
-                                            <i class="bi bi-x-circle"></i>
-                                        </button>
-                                        {% endif %}
-                                    </td>
-
-                                    <!-- Actions -->
-                                    <td class="py-4 px-3">
-                                        <div class="flex items-center gap-1.5 flex-wrap">
-                                            <!-- Force reset -->
-                                            <button onclick="forceReset({{ u.id }}, '{{ u.username }}')"
-                                                title="Force password reset on next login"
-                                                class="action-btn border-[#28332e] text-slate-500 hover:text-amber-400 hover:border-amber-500/30 hover:bg-amber-500/5">
-                                                <i class="bi bi-key-fill"></i>
-                                            </button>
-                                            <!-- Set password directly -->
-                                            <button onclick="setPassword({{ u.id }}, '{{ u.username }}')"
-                                                title="Set password"
-                                                class="action-btn border-[#28332e] text-slate-500 hover:text-sky-400 hover:border-sky-500/30 hover:bg-sky-500/5">
-                                                <i class="bi bi-shield-lock-fill"></i>
-                                            </button>
-                                            <!-- Disable / Enable -->
-                                            {% if u.status == 'active' %}
-                                            <button onclick="disableUser({{ u.id }}, '{{ u.username }}')"
-                                                title="Disable account"
-                                                class="action-btn border-[#28332e] text-slate-500 hover:text-orange-400 hover:border-orange-500/30 hover:bg-orange-500/5">
-                                                <i class="bi bi-pause-circle-fill"></i>
-                                            </button>
-                                            {% else %}
-                                            <button onclick="enableUser({{ u.id }})"
-                                                title="Re-enable account"
-                                                class="action-btn border-[#28332e] text-slate-500 hover:text-emerald-400 hover:border-emerald-500/30 hover:bg-emerald-500/5">
-                                                <i class="bi bi-play-circle-fill"></i>
-                                            </button>
-                                            {% endif %}
-                                            <!-- Delete -->
-                                            <button onclick="deleteUser({{ u.id }}, '{{ u.username }}')"
-                                                title="Delete user"
-                                                class="action-btn border-[#28332e] text-slate-500 hover:text-red-400 hover:border-red-500/30 hover:bg-red-500/5">
-                                                <i class="bi bi-trash3-fill"></i>
-                                            </button>
-                                        </div>
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
+                    <!-- Search + role filter strip -->
+                    <div class="flex items-center gap-3 mb-5">
+                        <div class="relative flex-1 max-w-xs">
+                            <i class="bi bi-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm pointer-events-none"></i>
+                            <input type="text" id="user-search" placeholder="Search users…"
+                                class="search-input w-full" oninput="filterCards()">
+                        </div>
+                        <select id="role-filter" class="role-select !w-auto px-3 pr-8 text-xs"
+                                style="background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%2360a5fa' viewBox='0 0 16 16'%3E%3Cpath d='M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z'/%3E%3C/svg%3E\"); background-repeat:no-repeat; background-position:right 0.75rem center;"
+                                onchange="filterCards()">
+                            <option value="">All roles</option>
+                            <option value="viewer">Viewer</option>
+                            <option value="viewer2">Viewer 2</option>
+                            <option value="tec">Tec</option>
+                            <option value="finance">Finance</option>
+                            <option value="secretary">Secretary</option>
+                        </select>
+                        <span id="filter-count" class="text-slate-500 text-xs font-bold hidden"></span>
                     </div>
+
+                    {% if users %}
+                    <div id="user-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {% for u in users %}
+                        {% set sess_count = sessions_by_user.get(u.id, [])|length %}
+                        <div class="user-card"
+                             id="card-{{ u.id }}"
+                             data-name="{{ (u.full_name or u.username)|lower }}"
+                             data-username="{{ u.username|lower }}"
+                             data-role="{{ u.role }}"
+                             onclick="openDrawer({{ u.id }})">
+
+                            <div class="flex items-start gap-3 mb-3">
+                                <div class="avatar av-{{ u.role }} {% if u.role not in ['viewer','viewer2','tec','finance','secretary','admin'] %}av-default{% endif %}">
+                                    {{ (u.full_name or u.username)[0]|upper }}
+                                </div>
+                                <div class="flex-1 min-w-0">
+                                    <div class="font-bold text-white text-sm leading-tight truncate">{{ u.full_name or u.username }}</div>
+                                    {% if u.full_name %}
+                                    <div class="text-slate-500 text-[11px] truncate">@{{ u.username }}</div>
+                                    {% endif %}
+                                </div>
+                                <span class="badge-role role-{{ u.role }}">{{ u.role }}</span>
+                            </div>
+
+                            <div class="flex items-center justify-between text-[11px]">
+                                <div class="flex items-center gap-1.5">
+                                    <span class="w-1.5 h-1.5 rounded-full inline-block
+                                        {% if u.status == 'active' %}bg-emerald-400{% elif u.status == 'disabled' %}bg-red-400{% else %}bg-amber-400{% endif %}"></span>
+                                    <span class="st-{{ u.status }} font-semibold capitalize">{{ u.status }}</span>
+                                    {% if u.password_reset_requested %}
+                                    <span class="text-emerald-400 ml-1" title="Password reset requested"><i class="bi bi-key-fill text-[10px]"></i></span>
+                                    {% elif u.must_change_password %}
+                                    <span class="text-amber-400 ml-1" title="Must change password"><i class="bi bi-key-fill text-[10px]"></i></span>
+                                    {% endif %}
+                                </div>
+                                <div class="flex items-center gap-2 text-slate-500">
+                                    {% if sess_count > 0 %}
+                                    <span class="flex items-center gap-0.5 text-emerald-400 font-bold">
+                                        <i class="bi bi-circle-fill text-[6px]"></i> {{ sess_count }} online
+                                    </span>
+                                    {% endif %}
+                                    <span class="text-slate-600">{{ u.last_login.strftime('%d %b') if u.last_login else 'Never' }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+
+                    <div id="no-results" class="hidden text-center py-16 text-slate-600">
+                        <i class="bi bi-search text-3xl block mb-3"></i>
+                        <p class="text-sm font-bold">No users match your search</p>
+                    </div>
+
                     {% else %}
                     <div class="text-center py-16 text-slate-600">
                         <i class="bi bi-people text-4xl block mb-3"></i>
@@ -227,63 +232,44 @@
                     {% endif %}
                 </div>
 
-                <!-- ═══════════════════════════════════════════════ TAB: PENDING -->
+                <!-- ═══ TAB: PENDING ═══ -->
                 <div id="tab-pending" class="hidden">
                     {% if pending_users %}
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-left text-sm">
-                            <thead>
-                                <tr class="border-b border-[#28332e] text-[#60a5fa] text-[10px] uppercase tracking-[0.15em] font-black">
-                                    <th class="pb-4 px-3">User</th>
-                                    <th class="pb-4 px-3">Registered</th>
-                                    <th class="pb-4 px-3">Assign Role</th>
-                                    <th class="pb-4 px-3 text-center">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-[#28332e]">
-                                {% for u in pending_users %}
-                                <tr id="pending-row-{{ u.id }}" class="hover:bg-[#1d2522]/50 transition-all">
-                                    <td class="py-4 px-3">
-                                        <div class="flex items-center gap-3">
-                                            <div class="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center text-xs font-black shrink-0">
-                                                {{ (u.full_name or u.username)[0]|upper }}
-                                            </div>
-                                            <div>
-                                                <div class="font-bold text-white text-xs">{{ u.full_name or u.username }}</div>
-                                                {% if u.full_name %}<div class="text-slate-500 text-[10px]">@{{ u.username }}</div>{% endif %}
-                                                {% if u.email %}<div class="text-slate-600 text-[10px]">{{ u.email }}</div>{% endif %}
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td class="py-4 px-3 text-slate-500 text-[10px]">
-                                        {{ u.created_at.strftime('%d %b %Y %H:%M') if u.created_at else '—' }}
-                                    </td>
-                                    <td class="py-4 px-3">
-                                        <select id="pending-role-{{ u.id }}"
-                                            class="bg-[#1d2522] border border-[#28332e] text-xs font-black uppercase tracking-widest rounded-lg px-3 py-1.5 text-slate-300 focus:outline-none focus:border-[#60a5fa]">
-                                            <option value="viewer">Viewer</option>
-                                            <option value="viewer2">Viewer 2</option>
-                                            <option value="tec">Tec</option>
-                                            <option value="finance">Finance</option>
-                                            <option value="secretary">Secretary</option>
-                                        </select>
-                                    </td>
-                                    <td class="py-4 px-3 text-center">
-                                        <div class="flex items-center justify-center gap-2">
-                                            <button onclick="approveUser({{ u.id }})"
-                                                class="action-btn bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20">
-                                                <i class="bi bi-check-lg mr-1"></i>Approve
-                                            </button>
-                                            <button onclick="rejectUser({{ u.id }}, '{{ u.username }}')"
-                                                class="action-btn bg-red-500/10 text-red-400 border border-red-500/30 hover:bg-red-500/20">
-                                                <i class="bi bi-x-lg mr-1"></i>Reject
-                                            </button>
-                                        </div>
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {% for u in pending_users %}
+                        <div class="user-card" id="pending-card-{{ u.id }}" style="cursor:default;">
+                            <div class="flex items-start gap-3 mb-4">
+                                <div class="avatar av-pending">{{ (u.full_name or u.username)[0]|upper }}</div>
+                                <div class="flex-1 min-w-0">
+                                    <div class="font-bold text-white text-sm truncate">{{ u.full_name or u.username }}</div>
+                                    {% if u.full_name %}<div class="text-slate-500 text-[11px]">@{{ u.username }}</div>{% endif %}
+                                    {% if u.email %}<div class="text-slate-600 text-[11px] truncate">{{ u.email }}</div>{% endif %}
+                                    <div class="text-slate-600 text-[11px] mt-0.5">Registered {{ u.created_at.strftime('%d %b %Y') if u.created_at else '—' }}</div>
+                                </div>
+                            </div>
+
+                            <select id="pending-role-{{ u.id }}" class="role-select mb-3 text-xs">
+                                <option value="viewer">Viewer</option>
+                                <option value="viewer2">Viewer 2</option>
+                                <option value="tec">Tec</option>
+                                <option value="finance">Finance</option>
+                                <option value="secretary">Secretary</option>
+                            </select>
+
+                            <div class="flex gap-2">
+                                <button onclick="approveUser({{ u.id }})"
+                                    class="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-black uppercase tracking-wider
+                                           bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20 transition-colors">
+                                    <i class="bi bi-check-lg"></i> Approve
+                                </button>
+                                <button onclick="rejectUser({{ u.id }}, '{{ u.username }}')"
+                                    class="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-black uppercase tracking-wider
+                                           bg-red-500/10 text-red-400 border border-red-500/30 hover:bg-red-500/20 transition-colors">
+                                    <i class="bi bi-x-lg"></i> Reject
+                                </button>
+                            </div>
+                        </div>
+                        {% endfor %}
                     </div>
                     {% else %}
                     <div class="text-center py-16 text-slate-600">
@@ -293,126 +279,398 @@
                     {% endif %}
                 </div>
 
-
-            </div><!-- /card -->
+            </div><!-- /max-w -->
         </main>
     </div>
 
+    <!-- ═══════════════════════════════════════════════════════════ DRAWER OVERLAY -->
+    <div id="drawer-overlay" onclick="closeDrawer()"></div>
+
+    <!-- ═══════════════════════════════════════════════════════════ DRAWER PANEL -->
+    <aside id="drawer" role="dialog" aria-modal="true">
+        <!-- Drawer header -->
+        <div class="flex items-center justify-between px-5 py-4 border-b border-[#28332e] shrink-0">
+            <div class="flex items-center gap-3" id="drawer-identity">
+                <div class="avatar av-default" id="d-avatar">?</div>
+                <div>
+                    <div class="font-black text-white text-sm" id="d-fullname">—</div>
+                    <div class="text-slate-500 text-[11px]" id="d-meta">—</div>
+                </div>
+            </div>
+            <button onclick="closeDrawer()" class="text-slate-500 hover:text-white transition-colors p-1 rounded-lg hover:bg-[#1d2522]">
+                <i class="bi bi-x-lg text-base"></i>
+            </button>
+        </div>
+
+        <!-- Scrollable drawer body -->
+        <div class="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+
+            <!-- Role -->
+            <div>
+                <div class="section-label text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Role</div>
+                <div class="relative">
+                    <select id="d-role" class="role-select pr-8" onchange="changeRole(window._drawerUserId, this.value)"
+                            style="background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%2360a5fa' viewBox='0 0 16 16'%3E%3Cpath d='M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z'/%3E%3C/svg%3E\"); background-repeat:no-repeat; background-position:right 0.75rem center;">
+                        <option value="viewer">Viewer</option>
+                        <option value="viewer2">Viewer 2</option>
+                        <option value="tec">Tec</option>
+                        <option value="finance">Finance</option>
+                        <option value="secretary">Secretary</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Status + last login -->
+            <div class="flex items-center justify-between py-3 border-y border-[#28332e]">
+                <div class="flex items-center gap-2">
+                    <span id="d-status-dot" class="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>
+                    <span id="d-status-text" class="font-bold text-sm">Active</span>
+                    <span id="d-reset-badge" class="hidden text-amber-400 text-xs ml-1" title="Password action pending">
+                        <i class="bi bi-key-fill"></i>
+                    </span>
+                </div>
+                <div class="text-slate-500 text-[11px]" id="d-lastlogin">—</div>
+            </div>
+
+            <!-- Actions -->
+            <div>
+                <div class="section-label text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Actions</div>
+                <div class="space-y-1.5">
+                    <button class="act-btn warn" onclick="drawerForceReset()">
+                        <i class="bi bi-key-fill text-base"></i>
+                        Force password reset on next login
+                    </button>
+                    <button class="act-btn sky" onclick="drawerSetPassword()">
+                        <i class="bi bi-shield-lock-fill text-base"></i>
+                        Set password directly
+                    </button>
+                    <button class="act-btn" id="d-toggle-status-btn" onclick="drawerToggleStatus()">
+                        <i class="bi bi-pause-circle-fill text-base" id="d-toggle-icon"></i>
+                        <span id="d-toggle-label">Disable account</span>
+                    </button>
+                    <button class="act-btn" id="d-sessions-btn" onclick="drawerRevokeSessions()">
+                        <i class="bi bi-broadcast text-base"></i>
+                        <span id="d-sessions-label">No active sessions</span>
+                    </button>
+                    <button class="act-btn danger" onclick="drawerDeleteUser()">
+                        <i class="bi bi-trash3-fill text-base"></i>
+                        Delete user permanently
+                    </button>
+                </div>
+            </div>
+
+            <!-- Permissions -->
+            <div>
+                <div class="section-label text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Page Permissions</div>
+                <div id="d-perms" class="space-y-1">
+                    <!-- filled by JS -->
+                </div>
+            </div>
+
+        </div><!-- /drawer body -->
+    </aside>
+
+    <!-- ═══════════════════════════════════════════════ DATA & SCRIPTS -->
     <script>
-    // ── Tab switching ─────────────────────────────────────────────
+    // ── Server data ──────────────────────────────────────────────────────────────
+    const PAGE_KEYS = {{ page_keys | tojson }};
+
+    const PERM_ICONS = {
+        live_feed:      'bi-broadcast-pin',
+        hl7_orders:     'bi-clipboard-pulse',
+        scheduling:     'bi-calendar-check-fill',
+        cd_print:       'bi-disc-fill',
+        oru:            'bi-file-earmark-text-fill',
+        referring_intel:'bi-person-lines-fill',
+        custom_reports: 'bi-bar-chart-steps',
+        patient_portal: 'bi-hospital',
+        mapping:        'bi-diagram-3-fill',
+        report_ai:      'bi-robot',
+        bitnet:         'bi-cpu-fill',
+        financial:      'bi-currency-dollar',
+    };
+
+    const USERS = {
+        {% for u in users %}
+        {{ u.id }}: {
+            id: {{ u.id }},
+            username: {{ u.username | tojson }},
+            full_name: {{ (u.full_name or '') | tojson }},
+            email: {{ (u.email or '') | tojson }},
+            role: {{ u.role | tojson }},
+            status: {{ u.status | tojson }},
+            last_login: {{ (u.last_login.strftime('%d %b %Y %H:%M') if u.last_login else '') | tojson }},
+            sessions: {{ sessions_by_user.get(u.id, []) | length }},
+            pw_reset_requested: {{ 'true' if u.password_reset_requested else 'false' }},
+            must_change_pw: {{ 'true' if u.must_change_password else 'false' }},
+            perms: {
+                {% for pk, label in page_keys %}
+                {{ pk | tojson }}: {{ 'true' if page_perms.get(u.id, {}).get(pk, False) else 'false' }}{% if not loop.last %},{% endif %}
+                {% endfor %}
+            }
+        }{% if not loop.last %},{% endif %}
+        {% endfor %}
+    };
+
+    // ── Drawer state ─────────────────────────────────────────────────────────────
+    window._drawerUserId = null;
+
+    function openDrawer(uid) {
+        const u = USERS[uid];
+        if (!u) return;
+        window._drawerUserId = uid;
+
+        // Highlight card
+        document.querySelectorAll('.user-card').forEach(c => c.classList.remove('selected'));
+        document.getElementById('card-' + uid)?.classList.add('selected');
+
+        // Avatar + identity
+        const initials = (u.full_name || u.username)[0].toUpperCase();
+        const avEl = document.getElementById('d-avatar');
+        avEl.textContent = initials;
+        avEl.className = 'avatar av-' + u.role;
+
+        document.getElementById('d-fullname').textContent = u.full_name || u.username;
+        const meta = [u.full_name ? '@' + u.username : null, u.email].filter(Boolean).join(' · ');
+        document.getElementById('d-meta').textContent = meta || '@' + u.username;
+
+        // Role
+        document.getElementById('d-role').value = u.role;
+
+        // Status
+        const dot = document.getElementById('d-status-dot');
+        const dotColors = { active: 'bg-emerald-400', disabled: 'bg-red-400', pending: 'bg-amber-400' };
+        dot.className = 'w-2 h-2 rounded-full inline-block ' + (dotColors[u.status] || 'bg-slate-400');
+        document.getElementById('d-status-text').textContent = u.status.charAt(0).toUpperCase() + u.status.slice(1);
+
+        const resetBadge = document.getElementById('d-reset-badge');
+        resetBadge.classList.toggle('hidden', !(u.pw_reset_requested || u.must_change_pw));
+        resetBadge.title = u.pw_reset_requested ? 'Password reset requested by user' : 'Must change password';
+
+        // Last login
+        document.getElementById('d-lastlogin').textContent = u.last_login ? 'Last: ' + u.last_login : 'Never logged in';
+
+        // Toggle status button
+        const isActive = u.status === 'active';
+        const toggleBtn = document.getElementById('d-toggle-status-btn');
+        document.getElementById('d-toggle-icon').className = 'bi text-base ' + (isActive ? 'bi-pause-circle-fill' : 'bi-play-circle-fill');
+        document.getElementById('d-toggle-label').textContent = isActive ? 'Disable account' : 'Re-enable account';
+        toggleBtn.className = 'act-btn ' + (isActive ? 'warn' : 'green');
+
+        // Sessions
+        const sessBtn = document.getElementById('d-sessions-btn');
+        const sessLabel = document.getElementById('d-sessions-label');
+        if (u.sessions > 0) {
+            sessLabel.textContent = 'Revoke ' + u.sessions + ' active session' + (u.sessions > 1 ? 's' : '');
+            sessBtn.disabled = false; sessBtn.style.opacity = '';
+        } else {
+            sessLabel.textContent = 'No active sessions';
+            sessBtn.disabled = true; sessBtn.style.opacity = '0.4';
+        }
+
+        // Permissions
+        const permsEl = document.getElementById('d-perms');
+        permsEl.innerHTML = '';
+        PAGE_KEYS.forEach(([pk, label]) => {
+            const on = u.perms[pk] === true;
+            const icon = PERM_ICONS[pk] || 'bi-shield';
+            const row = document.createElement('div');
+            row.className = 'perm-row flex items-center justify-between py-2.5 border-b border-[#28332e] last:border-0';
+            row.innerHTML = `
+                <div class="flex items-center gap-2.5 text-sm">
+                    <i class="bi ${icon} text-slate-500 w-4 text-center text-sm"></i>
+                    <span class="font-medium text-slate-300">${label}</span>
+                </div>
+                <div class="toggle-track ${on ? 'on' : 'off'}" data-pk="${pk}" data-uid="${uid}" onclick="drawerTogglePerm(this)">
+                    <div class="toggle-thumb"></div>
+                </div>`;
+            permsEl.appendChild(row);
+        });
+
+        // Open
+        document.getElementById('drawer').classList.add('open');
+        document.getElementById('drawer-overlay').classList.add('show');
+    }
+
+    function closeDrawer() {
+        document.getElementById('drawer').classList.remove('open');
+        document.getElementById('drawer-overlay').classList.remove('show');
+        document.querySelectorAll('.user-card').forEach(c => c.classList.remove('selected'));
+        window._drawerUserId = null;
+    }
+
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+
+    // ── API helper ───────────────────────────────────────────────────────────────
+    async function api(url, body) {
+        const res = await fetch(url, {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body),
+        });
+        return res.json();
+    }
+
+    function toast(msg, ok = true) {
+        const t = document.createElement('div');
+        t.className = `fixed bottom-6 right-6 z-[99999] px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest shadow-xl transition-all
+            ${ok ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-red-500/20 text-red-300 border border-red-500/30'}`;
+        t.textContent = msg;
+        document.body.appendChild(t);
+        setTimeout(() => t.remove(), 2800);
+    }
+
+    // ── Drawer actions ───────────────────────────────────────────────────────────
+    async function drawerTogglePerm(el) {
+        const uid = parseInt(el.dataset.uid);
+        const pk  = el.dataset.pk;
+        const next = !el.classList.contains('on');
+        const data = await api('{{ url_for("admin.update_user_permissions") }}', {user_id: uid, page_key: pk, enabled: next});
+        if (data.status === 'ok') {
+            el.classList.toggle('on', next);
+            el.classList.toggle('off', !next);
+            USERS[uid].perms[pk] = next;
+        } else { toast('Error updating permission', false); }
+    }
+
+    async function changeRole(uid, newRole) {
+        const data = await api('{{ url_for("admin.update_user_role") }}', {user_id: uid, role: newRole});
+        if (data.status === 'ok') {
+            USERS[uid].role = newRole;
+            // Update card badge + avatar
+            const card = document.getElementById('card-' + uid);
+            if (card) {
+                card.dataset.role = newRole;
+                card.querySelector('.badge-role').className = 'badge-role role-' + newRole;
+                card.querySelector('.badge-role').textContent = newRole;
+                card.querySelector('.avatar').className = 'avatar av-' + newRole;
+            }
+            document.getElementById('d-avatar').className = 'avatar av-' + newRole;
+            toast('Role updated');
+        } else { toast('Error updating role', false); }
+    }
+
+    async function drawerForceReset() {
+        const uid = window._drawerUserId;
+        const u = USERS[uid];
+        if (!confirm(`Force "${u.username}" to change their password on next login?`)) return;
+        const data = await api('{{ url_for("admin.force_password_reset") }}', {user_id: uid});
+        if (data.status === 'ok') { toast('Password reset flagged'); USERS[uid].must_change_pw = true; openDrawer(uid); }
+        else toast('Error', false);
+    }
+
+    async function drawerSetPassword() {
+        const uid = window._drawerUserId;
+        const u = USERS[uid];
+        const pw = prompt(`Set new password for "${u.username}" (min 6 chars):`);
+        if (!pw) return;
+        const data = await api('{{ url_for("admin.set_user_password") }}', {user_id: uid, password: pw});
+        if (data.status === 'ok') toast('Password updated');
+        else toast(data.message || 'Error', false);
+    }
+
+    async function drawerToggleStatus() {
+        const uid = window._drawerUserId;
+        const u = USERS[uid];
+        if (u.status === 'active') {
+            if (!confirm(`Disable "${u.username}"? All active sessions will be revoked.`)) return;
+            const data = await api('{{ url_for("admin.disable_user") }}', {user_id: uid});
+            if (data.status === 'ok') {
+                USERS[uid].status = 'disabled'; USERS[uid].sessions = 0;
+                updateCardStatus(uid); openDrawer(uid); toast('Account disabled');
+            } else toast('Error', false);
+        } else {
+            const data = await api('{{ url_for("admin.enable_user") }}', {user_id: uid});
+            if (data.status === 'ok') {
+                USERS[uid].status = 'active';
+                updateCardStatus(uid); openDrawer(uid); toast('Account enabled');
+            } else toast('Error', false);
+        }
+    }
+
+    async function drawerRevokeSessions() {
+        const uid = window._drawerUserId;
+        if (!confirm('Revoke all active sessions? User will be logged out immediately.')) return;
+        const data = await api('{{ url_for("admin.revoke_all_sessions") }}', {user_id: uid});
+        if (data.status === 'ok') {
+            USERS[uid].sessions = 0;
+            openDrawer(uid); toast('Sessions revoked');
+        } else toast('Error', false);
+    }
+
+    async function drawerDeleteUser() {
+        const uid = window._drawerUserId;
+        const u = USERS[uid];
+        if (!confirm(`Permanently delete user "${u.username}"? This cannot be undone.`)) return;
+        const data = await api('{{ url_for("admin.delete_user") }}', {user_id: uid});
+        if (data.status === 'ok') {
+            document.getElementById('card-' + uid)?.remove();
+            delete USERS[uid];
+            closeDrawer(); toast('User deleted');
+        } else toast(data.message || 'Error', false);
+    }
+
+    function updateCardStatus(uid) {
+        const card = document.getElementById('card-' + uid);
+        if (!card) return;
+        const u = USERS[uid];
+        const dot = card.querySelector('.w-1\\.5');
+        if (dot) {
+            dot.className = `w-1.5 h-1.5 rounded-full inline-block ${u.status === 'active' ? 'bg-emerald-400' : u.status === 'disabled' ? 'bg-red-400' : 'bg-amber-400'}`;
+        }
+    }
+
+    // ── Pending user actions ─────────────────────────────────────────────────────
+    async function approveUser(userId) {
+        const role = document.getElementById('pending-role-' + userId).value;
+        const data = await api('{{ url_for("admin.approve_user") }}', {user_id: userId, role});
+        if (data.status === 'ok') { document.getElementById('pending-card-' + userId)?.remove(); toast('User approved'); }
+        else toast(data.message || 'Error', false);
+    }
+
+    async function rejectUser(userId, username) {
+        if (!confirm(`Reject and delete registration for "${username}"?`)) return;
+        const data = await api('{{ url_for("admin.reject_user") }}', {user_id: userId});
+        if (data.status === 'ok') { document.getElementById('pending-card-' + userId)?.remove(); toast('Registration rejected'); }
+        else toast(data.message || 'Error', false);
+    }
+
+    // ── Tab switching ────────────────────────────────────────────────────────────
     function switchTab(name, btn) {
         ['active','pending'].forEach(t => {
             document.getElementById('tab-' + t).classList.toggle('hidden', t !== name);
         });
         document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
+        closeDrawer();
     }
 
-    // ── Generic fetch helper ──────────────────────────────────────
-    async function api(url, body) {
-        const res = await fetch(url, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(body),
+    // ── Search / filter ──────────────────────────────────────────────────────────
+    function filterCards() {
+        const q    = document.getElementById('user-search').value.toLowerCase().trim();
+        const role = document.getElementById('role-filter').value;
+        const cards = document.querySelectorAll('#user-grid .user-card');
+        let visible = 0;
+        cards.forEach(card => {
+            const nameMatch = !q || card.dataset.name.includes(q) || card.dataset.username.includes(q);
+            const roleMatch = !role || card.dataset.role === role;
+            const show = nameMatch && roleMatch;
+            card.style.display = show ? '' : 'none';
+            if (show) visible++;
         });
-        return res.json();
+        const countEl = document.getElementById('filter-count');
+        const noRes   = document.getElementById('no-results');
+        if (q || role) {
+            countEl.textContent = visible + ' result' + (visible !== 1 ? 's' : '');
+            countEl.classList.remove('hidden');
+        } else { countEl.classList.add('hidden'); }
+        noRes?.classList.toggle('hidden', visible > 0);
     }
 
-    // ── Permission toggle ─────────────────────────────────────────
-    async function togglePerm(userId, pageKey, btn) {
-        const next = btn.dataset.enabled !== 'true';
-        const data = await api('{{ url_for("admin.update_user_permissions") }}', {user_id: userId, page_key: pageKey, enabled: next});
-        if (data.status === 'ok') {
-            btn.dataset.enabled = next ? 'true' : 'false';
-            btn.className = 'w-9 h-5 rounded-full border transition-all relative inline-flex shrink-0 ' +
-                (next ? 'bg-[#60a5fa] border-[#60a5fa]' : 'bg-transparent border-[#334155]');
-            btn.querySelector('span').className = 'absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ' +
-                (next ? 'left-4' : 'left-0.5');
-        }
-    }
-
-    // ── Role change ───────────────────────────────────────────────
-    async function changeRole(userId, newRole) {
-        await api('{{ url_for("admin.update_user_role") }}', {user_id: userId, role: newRole});
-    }
-
-    // ── Approve pending user ──────────────────────────────────────
-    async function approveUser(userId) {
-        const role = document.getElementById('pending-role-' + userId).value;
-        const data = await api('{{ url_for("admin.approve_user") }}', {user_id: userId, role});
-        if (data.status === 'ok') {
-            document.getElementById('pending-row-' + userId)?.remove();
-            // Refresh to show user in active tab
-            location.reload();
-        } else {
-            alert(data.message || 'Error approving user.');
-        }
-    }
-
-    // ── Reject pending user ───────────────────────────────────────
-    async function rejectUser(userId, username) {
-        if (!confirm(`Reject and delete registration for "${username}"?`)) return;
-        const data = await api('{{ url_for("admin.reject_user") }}', {user_id: userId});
-        if (data.status === 'ok') {
-            document.getElementById('pending-row-' + userId)?.remove();
-        } else {
-            alert(data.message || 'Error rejecting user.');
-        }
-    }
-
-    // ── Force password reset ──────────────────────────────────────
-    async function forceReset(userId, username) {
-        if (!confirm(`Force "${username}" to change their password on next login?`)) return;
-        const data = await api('{{ url_for("admin.force_password_reset") }}', {user_id: userId});
-        if (data.status !== 'ok') alert(data.message || 'Error.');
-        else location.reload();
-    }
-
-    // ── Set password directly ─────────────────────────────────────
-    async function setPassword(userId, username) {
-        const pw = prompt(`Set new password for "${username}" (min 6 chars):`);
-        if (!pw) return;
-        const data = await api('{{ url_for("admin.set_user_password") }}', {user_id: userId, password: pw});
-        if (data.status === 'ok') alert('Password updated. User will be required to change it on next login.');
-        else alert(data.message || 'Error setting password.');
-    }
-
-    // ── Disable account ───────────────────────────────────────────
-    async function disableUser(userId, username) {
-        if (!confirm(`Disable account for "${username}"? All their sessions will be revoked.`)) return;
-        const data = await api('{{ url_for("admin.disable_user") }}', {user_id: userId});
-        if (data.status === 'ok') location.reload();
-        else alert(data.message || 'Error.');
-    }
-
-    // ── Enable account ────────────────────────────────────────────
-    async function enableUser(userId) {
-        const data = await api('{{ url_for("admin.enable_user") }}', {user_id: userId});
-        if (data.status === 'ok') location.reload();
-        else alert(data.message || 'Error.');
-    }
-
-    // ── Revoke all sessions for user ──────────────────────────────
-    async function revokeAllSessions(userId) {
-        if (!confirm('Revoke all active sessions for this user? They will be logged out immediately.')) return;
-        const data = await api('{{ url_for("admin.revoke_all_sessions") }}', {user_id: userId});
-        if (data.status === 'ok') location.reload();
-        else alert(data.message || 'Error.');
-    }
-
-    // ── Delete user ───────────────────────────────────────────────
-    async function deleteUser(userId, username) {
-        if (!confirm(`Permanently delete user "${username}"? This cannot be undone.`)) return;
-        const data = await api('{{ url_for("admin.delete_user") }}', {user_id: userId});
-        if (data.status === 'ok') document.getElementById('user-row-' + userId)?.remove();
-        else alert(data.message || 'Error.');
-    }
-
-    // ── Theme ─────────────────────────────────────────────────────
-    function applyTheme(theme) {
-        document.body.classList.toggle('light', theme === 'light');
+    // ── Theme ────────────────────────────────────────────────────────────────────
+    function applyTheme(t) {
+        document.body.classList.toggle('light', t === 'light');
         const icon = document.getElementById('theme-icon');
-        if (icon) icon.className = theme === 'light' ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
+        if (icon) icon.className = t === 'light' ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
     }
     applyTheme("{{ ui_theme }}");
     function toggleTheme() {
@@ -421,7 +679,6 @@
         fetch('/user/theme', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({theme: next}) });
     }
 
-    // Auto-switch to pending tab if there are pending users and hash says so
     if (window.location.hash === '#pending') {
         document.querySelectorAll('.tab-btn')[1].click();
     }
