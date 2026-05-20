@@ -181,18 +181,32 @@
                         <div class="kpi red"><div class="kpi-label">High Stress AEs</div><div class="kpi-val">{{ u.high_stress|length }}</div><div class="kpi-sub">avg utilization >85%</div></div>
                         <div class="kpi orange"><div class="kpi-label">Under-Utilized AEs</div><div class="kpi-val">{{ u.low_util|length }}</div><div class="kpi-sub">avg utilization <30%</div></div>
                     </div>
-                    <div class="grid gap-6" style="grid-template-columns:280px 1fr;">
-                        <div style="display:flex;flex-direction:column;gap:8px;max-height:500px;overflow-y:auto;">
-                            {% for ae in u.ae_list %}
-                            <div class="ae-card {% if ae.avg_util > 85 %}stress{% elif ae.avg_util < 30 and ae.avg_util > 0 %}low{% else %}normal{% endif %}" onclick="selectAE({{ loop.index0 }})" id="ae-card-{{ loop.index0 }}">
-                                <div class="flex justify-between items-center mb-2"><span style="font-size:13px;font-weight:700;color:white;">{{ ae.ae }}</span><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:{{ '#eb5757' if ae.avg_util > 85 else '#f2994a' if ae.avg_util > 60 else '#27ae60' }};">{{ ae.avg_util }}%</span></div>
-                                <div class="progress-wrap" style="height:4px;"><div class="progress-fill" style="width:{{ [ae.avg_util,100]|min }}%;background:{{ '#eb5757' if ae.avg_util > 85 else '#f2994a' if ae.avg_util > 60 else '#27ae60' }};"></div></div>
-                                {% if ae.modality_mix %}<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:3px;">{% for mm in ae.modality_mix[:4] %}<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:4px;background:rgba(47,128,237,0.15);color:#56ccf2;">{{ mm.modality }} {{ mm.count }}</span>{% endfor %}</div>{% endif %}
-                                {% if ae.anomaly_count > 0 %}<div style="margin-top:4px;font-size:11px;color:#f2994a;font-weight:600;">⚠ {{ ae.anomaly_count }} anomaly days</div>{% endif %}
+                    <!-- AE chip selector -->
+                    <div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;scrollbar-width:thin;">
+                        {% for ae in u.ae_list %}
+                        {% set util_color = '#eb5757' if ae.avg_util > 85 else '#f2994a' if ae.avg_util > 60 else '#27ae60' %}
+                        {% set border_l   = '3px solid #eb5757' if ae.avg_util > 85 else '3px solid #f2994a' if ae.avg_util > 60 else '3px solid #27ae60' %}
+                        <button id="ae-chip-{{ loop.index0 }}" onclick="selectAE({{ loop.index0 }})"
+                            style="flex-shrink:0;min-width:130px;max-width:170px;background:var(--surface);border:1px solid var(--border);border-left:{{ border_l }};border-radius:10px;padding:10px 12px;cursor:pointer;text-align:left;transition:all 0.15s;font-family:'Space Grotesk',sans-serif;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
+                                <span style="font-size:11px;font-weight:700;color:white;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:90px;">{{ ae.ae }}</span>
+                                <span style="font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;color:{{ util_color }};flex-shrink:0;">{{ ae.avg_util }}%</span>
                             </div>
-                            {% endfor %}
-                        </div>
-                        <div class="card flex flex-col"><div class="card-head" id="ae-chart-title">Select an AE to view detail</div><div class="card-desc" id="ae-chart-desc">Click any AE to view its daily utilization trend, anomalies, and 30-day forecast.</div><div id="chart-ae-detail" style="flex:1;min-height:400px;padding:16px;"></div></div>
+                            <div style="background:var(--border);border-radius:4px;height:3px;overflow:hidden;">
+                                <div style="width:{{ [ae.avg_util,100]|min }}%;height:100%;border-radius:4px;background:{{ util_color }};"></div>
+                            </div>
+                            {% if ae.anomaly_count > 0 %}
+                            <div style="margin-top:5px;font-size:9px;color:#f2994a;font-weight:700;">⚠ {{ ae.anomaly_count }} anomalies</div>
+                            {% endif %}
+                        </button>
+                        {% endfor %}
+                    </div>
+
+                    <!-- AE detail chart — full width -->
+                    <div class="card" style="display:flex;flex-direction:column;">
+                        <div class="card-head" id="ae-chart-title">Select an AE to view detail</div>
+                        <div class="card-desc" id="ae-chart-desc">Click any AE chip above to view daily utilization trend, anomalies, and 30-day forecast. Use the zoom bar to navigate dense date ranges.</div>
+                        <div id="chart-ae-detail" style="height:440px;padding:16px;"></div>
                     </div>
                     {% else %}<div class="flex items-center justify-center h-64" style="color:var(--muted);">No utilization data available.</div>{% endif %}
                 </div>
@@ -276,19 +290,80 @@
         }
     }
     const AE_DATA = D.utilization ? D.utilization.ae_list : [];
-    let selectedAE = -1;
     const aeChart = mkChart('chart-ae-detail');
     function selectAE(idx) {
-        document.querySelectorAll('.ae-card').forEach((c,i)=>c.classList.toggle('selected',i===idx));
-        const ae = AE_DATA[idx]; if (!ae||!aeChart) return;
-        document.getElementById('ae-chart-title').textContent=`${ae.ae} — Daily Utilization + 30-Day Forecast`;
-        const mixStr = ae.modality_mix && ae.modality_mix.length ? ' | Mix: ' + ae.modality_mix.slice(0,4).map(m=>`${m.modality}(${m.count})`).join(', ') : '';
-        document.getElementById('ae-chart-desc').textContent=`Avg: ${ae.avg_util}% | Anomalies: ${ae.anomaly_count} | Slope: ${ae.slope>0?'+':''}${ae.slope}%/day${mixStr}`;
-        const all=[...ae.chart.dates,...ae.chart.forecast_dates];
-        const anom=ae.chart.dates.map((d,i)=>ae.chart.anomaly_flags[i]?{value:ae.chart.utils[i],itemStyle:{color:'#eb5757'},symbolSize:10}:{value:ae.chart.utils[i],symbolSize:0});
-        aeChart.setOption({tooltip:{trigger:'axis',formatter:p=>p.map(s=>`${s.marker} ${s.seriesName}: ${s.value!=null?s.value+'%':'—'}`).join('<br>')},legend:{bottom:0,textStyle:{color:'#3d5278',fontSize:11}},grid:{left:60,right:30,top:20,bottom:50},xAxis:{type:'category',data:all,axisLabel:{...axisLabel,rotate:30}},yAxis:{type:'value',min:0,max:110,name:'Util %',nameTextStyle:{color:'#3d5278',fontSize:10},splitLine,axisLabel},series:[{name:'Utilization',type:'line',smooth:true,data:[...ae.chart.utils,...new Array(ae.chart.forecast_dates.length).fill(null)],lineStyle:{color:'#2f80ed',width:2.5},areaStyle:{color:'rgba(47,128,237,0.08)'},itemStyle:{color:'#2f80ed'},symbol:'none'},{name:'Anomaly',type:'scatter',data:[...anom,...new Array(ae.chart.forecast_dates.length).fill(null)],itemStyle:{color:'#eb5757'}},{name:'Forecast',type:'line',smooth:true,data:[...new Array(ae.chart.dates.length).fill(null),...ae.chart.forecast_vals],lineStyle:{color:'#f2994a',width:2,type:'dashed'},itemStyle:{color:'#f2994a'},symbol:'none'},{name:'85% Threshold',type:'line',data:all.map(()=>85),lineStyle:{color:'#eb5757',type:'dashed',width:1,opacity:0.5},symbol:'none',itemStyle:{color:'#eb5757'}}]});
+        // Highlight chip
+        AE_DATA.forEach((_,i) => {
+            const chip = document.getElementById('ae-chip-' + i);
+            if (chip) chip.style.borderColor = i === idx ? 'var(--accent2)' : 'var(--border)';
+        });
+        const ae = AE_DATA[idx]; if (!ae || !aeChart) return;
+        document.getElementById('ae-chart-title').textContent = `${ae.ae} — Daily Utilization + 30-Day Forecast`;
+        const mixStr = ae.modality_mix && ae.modality_mix.length
+            ? '  ·  ' + ae.modality_mix.slice(0,4).map(m=>`${m.modality} (${m.count})`).join(', ') : '';
+        document.getElementById('ae-chart-desc').textContent =
+            `Avg: ${ae.avg_util}%  ·  Anomalies: ${ae.anomaly_count}  ·  Slope: ${ae.slope>0?'+':''}${ae.slope}%/day${mixStr}`;
+
+        const all = [...ae.chart.dates, ...ae.chart.forecast_dates];
+        // Show at most ~14 x-axis labels regardless of range length
+        const interval = Math.max(0, Math.floor(all.length / 14) - 1);
+        const histLen  = ae.chart.dates.length;
+        const foreLen  = ae.chart.forecast_dates.length;
+
+        const anom = ae.chart.dates.map((d, i) =>
+            ae.chart.anomaly_flags[i]
+                ? { value: ae.chart.utils[i], itemStyle: { color: '#eb5757' }, symbolSize: 8 }
+                : { value: ae.chart.utils[i], symbolSize: 0 }
+        );
+
+        aeChart.setOption({
+            tooltip: {
+                trigger: 'axis',
+                formatter: params => params
+                    .filter(p => p.value != null && p.seriesName !== 'Anomaly')
+                    .map(p => `${p.marker} ${p.seriesName}: ${p.value}%`)
+                    .join('<br>')
+            },
+            legend: { bottom: 34, textStyle: { color: '#3d5278', fontSize: 11 } },
+            grid:   { left: 56, right: 24, top: 16, bottom: 80 },
+            dataZoom: [
+                { type: 'inside', start: 0, end: 100 },
+                { type: 'slider', height: 22, bottom: 8,
+                  textStyle: { color: '#3d5278', fontSize: 10 },
+                  borderColor: '#162440', fillerColor: 'rgba(47,128,237,0.1)',
+                  handleStyle: { color: '#2f80ed', borderColor: '#2f80ed' },
+                  moveHandleStyle: { color: '#2f80ed' } }
+            ],
+            xAxis: {
+                type: 'category', data: all,
+                axisLabel: { ...axisLabel, rotate: 40, interval, hideOverlap: true }
+            },
+            yAxis: {
+                type: 'value', min: 0, max: 100,
+                name: 'Util %', nameTextStyle: { color: '#3d5278', fontSize: 10 },
+                splitLine, axisLabel
+            },
+            series: [
+                { name: 'Utilization', type: 'line', smooth: true,
+                  data: [...ae.chart.utils, ...new Array(foreLen).fill(null)],
+                  lineStyle: { color: '#2f80ed', width: 2.5 },
+                  areaStyle: { color: 'rgba(47,128,237,0.07)' },
+                  itemStyle: { color: '#2f80ed' }, symbol: 'none' },
+                { name: 'Anomaly', type: 'scatter',
+                  data: [...anom, ...new Array(foreLen).fill(null)],
+                  itemStyle: { color: '#eb5757' }, z: 10 },
+                { name: 'Forecast', type: 'line', smooth: true,
+                  data: [...new Array(histLen).fill(null), ...ae.chart.forecast_vals],
+                  lineStyle: { color: '#f2994a', width: 2, type: 'dashed' },
+                  itemStyle: { color: '#f2994a' }, symbol: 'circle', symbolSize: 5 },
+                { name: '85% Cap', type: 'line',
+                  data: all.map(() => 85),
+                  lineStyle: { color: '#eb5757', type: 'dashed', width: 1, opacity: 0.4 },
+                  symbol: 'none', itemStyle: { color: '#eb5757' } }
+            ]
+        });
     }
-    if (AE_DATA.length>0) selectAE(0);
+    if (AE_DATA.length > 0) selectAE(0);
     const PHYS_DATA=D.physician?D.physician.physicians:[];
     const physChart=mkChart('chart-physician-detail');
     function selectPhysician(idx) {
