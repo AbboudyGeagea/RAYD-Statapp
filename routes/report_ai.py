@@ -177,6 +177,7 @@ def _get_volume_intelligence(start, end):
         SELECT study_date, COUNT(*) as cnt
         FROM etl_didb_studies
         WHERE study_date BETWEEN :s AND :e
+          AND COALESCE(study_modality, '') != 'SR'
         GROUP BY study_date
         ORDER BY study_date
     """), {"s": start, "e": end}).fetchall()
@@ -202,6 +203,7 @@ def _get_volume_intelligence(start, end):
         LEFT JOIN procedure_duration_map pm ON pm.procedure_code = s.procedure_code
         LEFT JOIN aetitle_modality_map m ON m.aetitle = s.storing_ae
         WHERE s.study_date BETWEEN :s AND :e
+          AND COALESCE(m.modality, s.study_modality, '') != 'SR'
         GROUP BY 1 ORDER BY 2 DESC LIMIT 8
     """), {"s": start, "e": end}).fetchall()
 
@@ -249,6 +251,7 @@ def _get_utilization_intelligence(start, end):
         LEFT JOIN aetitle_modality_map am ON am.aetitle = s.storing_ae
         WHERE s.study_date BETWEEN :s AND :e
           AND s.storing_ae IS NOT NULL
+          AND COALESCE(am.modality, s.study_modality, '') != 'SR'
         GROUP BY 1, 2
         ORDER BY 1, 3 DESC
     """), {"s": start, "e": end}).fetchall()
