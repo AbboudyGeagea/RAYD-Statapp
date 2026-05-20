@@ -48,6 +48,33 @@ def admin_dashboard():
         else "Never"
     )
 
+    # --- 4. ETL Stats for KPI strip ---
+    today_str = date_type.today().isoformat()
+    etl_stats = db.session.execute(text("""
+        SELECT
+            COUNT(*) FILTER (WHERE start_time::date = CURRENT_DATE)                        AS runs_today,
+            COUNT(*) FILTER (WHERE start_time >= NOW() - INTERVAL '7 days' AND status = 'SUCCESS')::float
+              / NULLIF(COUNT(*) FILTER (WHERE start_time >= NOW() - INTERVAL '7 days'), 0) * 100
+                                                                                            AS success_rate_7d,
+            ROUND(AVG(duration_seconds) FILTER (
+                WHERE status = 'SUCCESS' AND duration_seconds IS NOT NULL
+                  AND start_time >= NOW() - INTERVAL '30 days'
+            ))                                                                              AS avg_duration,
+            COALESCE(SUM(records_processed) FILTER (WHERE start_time::date = CURRENT_DATE), 0)
+                                                                                            AS records_today
+        FROM etl_job_log
+    """)).fetchone()
+    runs_today      = int(etl_stats[0] or 0)
+    success_rate_7d = round(float(etl_stats[1] or 0))
+    avg_duration    = int(etl_stats[2] or 0)
+    records_today   = int(etl_stats[3] or 0)
+
+    # Is an ETL job currently running?
+    etl_running = ETLJobLog.query.filter(
+        ETLJobLog.end_time.is_(None),
+        ETLJobLog.status == 'RUNNING'
+    ).first() is not None
+
     # Demo mode settings
     demo_rows = db.session.execute(
         text("SELECT key, value FROM settings WHERE key IN ('demo_mode','demo_start','demo_end','demo_user')")
@@ -80,6 +107,11 @@ def admin_dashboard():
         demo_mode      = demo_mode,
         demo_start     = demo_start,
         demo_end       = demo_end,
+        runs_today     = runs_today,
+        success_rate_7d= success_rate_7d,
+        avg_duration   = avg_duration,
+        records_today  = records_today,
+        etl_running    = etl_running,
     )
 
 
