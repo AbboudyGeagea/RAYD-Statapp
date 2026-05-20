@@ -77,7 +77,14 @@ def daily_briefing():
     try:
         row = db.session.execute(text("""
             WITH
-            latest AS (SELECT MAX(study_date) AS d FROM etl_didb_studies),
+            latest AS (
+                SELECT MAX(s.study_date) AS d
+                FROM etl_didb_studies s
+                LEFT JOIN aetitle_modality_map m
+                    ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
+                WHERE s.study_date <= CURRENT_DATE
+                  AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+            ),
             s AS MATERIALIZED (
                 SELECT
                     s.study_date,
@@ -88,14 +95,16 @@ def daily_briefing():
                          THEN EXTRACT(EPOCH FROM (s.rep_final_timestamp - s.study_date::timestamp))/60
                     END AS tat_min
                 FROM etl_didb_studies s
-                LEFT JOIN aetitle_modality_map m ON m.aetitle = s.storing_ae
+                LEFT JOIN aetitle_modality_map m
+                    ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
                 WHERE s.study_date >= (SELECT d FROM latest) - 7
                   AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
             ),
             avg30 AS (
                 SELECT COALESCE(COUNT(*)::float / NULLIF(COUNT(DISTINCT s.study_date),0), 0) AS v
                 FROM etl_didb_studies s
-                LEFT JOIN aetitle_modality_map m ON m.aetitle = s.storing_ae
+                LEFT JOIN aetitle_modality_map m
+                    ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
                 WHERE s.study_date BETWEEN (SELECT d FROM latest) - 30
                                        AND (SELECT d FROM latest) - 1
                   AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
@@ -295,7 +304,7 @@ def yesterday_overview():
                 SELECT s.patient_db_uid, s.storing_ae, s.patient_location,
                        s.referring_physician_first_name, s.referring_physician_last_name
                 FROM etl_didb_studies s
-                LEFT JOIN aetitle_modality_map m ON m.aetitle = s.storing_ae
+                LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
                 WHERE s.study_date = CURRENT_DATE - 1
                   AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
             ),
@@ -307,7 +316,7 @@ def yesterday_overview():
             fv AS (
                 SELECT s.patient_db_uid, MIN(s.study_date) AS first_date
                 FROM etl_didb_studies s
-                LEFT JOIN aetitle_modality_map m ON m.aetitle = s.storing_ae
+                LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
                 WHERE s.study_date >= CURRENT_DATE - 365
                   AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
                 GROUP BY s.patient_db_uid
@@ -317,7 +326,7 @@ def yesterday_overview():
                     ROUND(COUNT(*)::numeric / NULLIF(COUNT(DISTINCT s.study_date), 0), 1), 0
                 ) AS v
                 FROM etl_didb_studies s
-                LEFT JOIN aetitle_modality_map m ON m.aetitle = s.storing_ae
+                LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
                 WHERE s.study_date >= CURRENT_DATE - 8
                   AND s.study_date <  CURRENT_DATE - 1
                   AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
@@ -364,7 +373,7 @@ def yesterday_overview():
                     s.referring_physician_last_name)), ''), 'Unknown') AS name,
                 COUNT(*)::int AS count
             FROM etl_didb_studies s
-            LEFT JOIN aetitle_modality_map m ON m.aetitle = s.storing_ae
+            LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
             WHERE s.study_date = CURRENT_DATE - 1
               AND s.referring_physician_first_name IS NOT NULL
               AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
@@ -378,7 +387,7 @@ def yesterday_overview():
         ae_rows = rows("""
             SELECT s.storing_ae AS ae, COUNT(*)::int AS count
             FROM etl_didb_studies s
-            LEFT JOIN aetitle_modality_map m ON m.aetitle = s.storing_ae
+            LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
             WHERE s.study_date = CURRENT_DATE - 1
               AND s.storing_ae IS NOT NULL
               AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
