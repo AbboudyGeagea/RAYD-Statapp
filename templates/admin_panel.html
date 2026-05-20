@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>RAYD | ETL Monitor</title>
+    <title>RAYD | ETL Control Room</title>
     <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/dark.min.css">
@@ -10,22 +10,60 @@
         :root { --accent: #60a5fa; }
         body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; }
         body.light { background: #f0f4f8; color: #1a202c; }
+        body.light aside, body.light header { background: #ffffff !important; border-color: #e2e8f0 !important; }
         body.light .sidebar-item { color: #4a5568; }
         body.light .sidebar-item:hover, body.light .sidebar-item.active { background: #e2e8f0; color: #2b6cb0 !important; }
-        body.light aside, body.light header { background: #ffffff !important; border-color: #e2e8f0 !important; }
-        body.light .table-container { background: #ffffff; border-color: #e2e8f0; }
-        body.light .page-btn { background: #e2e8f0; border-color: #cbd5e0; color: #2d3748; }
+        body.light .card { background: #ffffff !important; border-color: #e2e8f0 !important; }
         body.light table td, body.light table th { color: #2d3748; border-color: #e2e8f0; }
+
         .sidebar-item { transition: all 0.2s; border-radius: 0.75rem; margin-bottom: 0.25rem; cursor: pointer; text-decoration: none !important; color: #94a3b8; }
         .sidebar-item:hover { background: #1d2522; color: var(--accent) !important; }
         .sidebar-item.active { background: #1d2522; color: var(--accent) !important; border-left: 4px solid var(--accent); }
-        .table-container { background: #232b28; border-radius: 1.5rem; padding: 2.5rem; border: 1px solid #28332e; }
-        .date-divider { background: rgba(96, 165, 250, 0.05); border-left: 4px solid var(--accent); }
-        .page-btn { padding: 0.6rem 1.2rem; border-radius: 0.75rem; background: #1d2522; border: 1px solid #28332e; transition: all 0.2s; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px; }
-        .page-btn:hover:not(.disabled) { border-color: var(--accent); color: var(--accent); background: rgba(96, 165, 250, 0.05); }
-        .disabled { opacity: 0.2; cursor: not-allowed; }
-        .error-row { background: rgba(239,68,68,0.04); }
-        .error-msg { font-size: 9px; color: #f87171; font-family: monospace; max-width: 260px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: help; }
+
+        .card { background: #232b28; border-radius: 1.25rem; border: 1px solid #28332e; }
+
+        /* KPI cards */
+        .kpi-card { background: #232b28; border: 1px solid #28332e; border-radius: 1.25rem; padding: 1.25rem 1.5rem; }
+        .kpi-val  { font-size: 1.75rem; font-weight: 900; line-height: 1; }
+        .kpi-lbl  { font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: .15em; color: #64748b; margin-top: .35rem; }
+        .kpi-sub  { font-size: 10px; font-weight: 700; color: #475569; margin-top: .2rem; }
+
+        /* Log table */
+        .log-table td, .log-table th { padding: .65rem 1rem; }
+        .log-table tr.date-hdr td {
+            background: rgba(96,165,250,.06);
+            border-left: 3px solid var(--accent);
+            font-size: 9px; font-weight: 900;
+            text-transform: uppercase; letter-spacing: .25em;
+            color: var(--accent); padding: .5rem 1rem;
+        }
+        .log-table tbody tr:not(.date-hdr):hover { background: rgba(255,255,255,.02); }
+        .log-table tr.failed-row { background: rgba(239,68,68,.03); }
+        .err-cell { font-size: 9px; color: #f87171; font-family: monospace; max-width: 200px;
+                    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: help; }
+
+        /* Status pill */
+        .pill-ok   { background:rgba(34,197,94,.1);  color:#4ade80; border:1px solid rgba(34,197,94,.2); }
+        .pill-fail { background:rgba(239,68,68,.1);  color:#f87171; border:1px solid rgba(239,68,68,.2); }
+        .pill-run  { background:rgba(96,165,250,.1); color:#60a5fa; border:1px solid rgba(96,165,250,.2); }
+
+        /* Pager */
+        .pager-btn { padding: .5rem 1.1rem; border-radius: .65rem; background: #1d2522;
+                     border: 1px solid #28332e; font-size: 10px; font-weight: 900;
+                     text-transform: uppercase; letter-spacing: .08em; color: #94a3b8;
+                     transition: all .2s; text-decoration: none; }
+        .pager-btn:hover:not(.off) { border-color: var(--accent); color: var(--accent); }
+        .pager-btn.off { opacity: .25; pointer-events: none; }
+
+        /* Trigger button */
+        .btn-trigger { display:inline-flex; align-items:center; gap:.5rem;
+                       padding:.6rem 1.4rem; border-radius:.85rem; font-size:11px;
+                       font-weight:900; text-transform:uppercase; letter-spacing:.1em;
+                       transition:all .2s; cursor:pointer; border:none; }
+        .btn-primary { background:rgba(96,165,250,.12); border:1px solid rgba(96,165,250,.3); color:#60a5fa; }
+        .btn-primary:hover { background:rgba(96,165,250,.2); border-color:#60a5fa; }
+        .btn-warn   { background:rgba(245,158,11,.1); border:1px solid rgba(245,158,11,.25); color:#f59e0b; }
+        .btn-warn:hover { background:rgba(245,158,11,.2); border-color:#f59e0b; }
     </style>
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
@@ -34,235 +72,338 @@
     <div class="flex flex-1 overflow-hidden">
         {% include '_sidebar.html' %}
 
-        <main class="flex-1 overflow-y-auto p-10 bg-[#181f1c]">
+        <main class="flex-1 overflow-y-auto bg-[#181f1c]">
+            <div class="max-w-7xl mx-auto px-8 py-8 space-y-6">
 
-            <!-- Quick Actions + Demo Mode -->
-            <div class="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                <!-- ── HERO STATUS BAR ─────────────────────────────────── -->
+                <div class="card px-6 py-4 flex items-center justify-between gap-4">
+                    <div class="flex items-center gap-4">
+                        {% if etl_running %}
+                        <div class="flex items-center gap-2">
+                            <span class="w-2.5 h-2.5 bg-blue-400 rounded-full animate-pulse"></span>
+                            <span class="text-sm font-black text-blue-400 uppercase tracking-wide">ETL Running</span>
+                        </div>
+                        {% else %}
+                        <div class="flex items-center gap-2">
+                            <span class="w-2.5 h-2.5 bg-emerald-400 rounded-full"></span>
+                            <span class="text-sm font-black text-emerald-400 uppercase tracking-wide">Systems Operational</span>
+                        </div>
+                        {% endif %}
+                        <div class="h-4 w-px bg-[#28332e]"></div>
+                        <span class="text-xs text-slate-500 font-bold">Last successful sync: <span class="text-slate-300">{{ last_sync_time }}</span></span>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <button onclick="syncMappings()" id="btn-sync-mappings" class="btn-trigger btn-primary">
+                            <i class="bi bi-arrow-repeat"></i> Sync Mappings
+                        </button>
+                        <button onclick="triggerETL()" id="btn-trigger-etl" class="btn-trigger btn-primary">
+                            <i class="bi bi-play-fill"></i> Run ETL Now
+                        </button>
+                    </div>
+                </div>
 
-                <!-- Quick Sync -->
-                <div class="table-container" style="padding:1.5rem;">
-                    <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest mb-1">Quick Sync</p>
-                    <p class="text-slate-500 text-xs mb-4">Populate lookup tables from existing ETL data. Safe to run anytime — never overwrites manual configs.</p>
-                    <div class="flex gap-3 flex-wrap">
-                        <button onclick="syncMappings()" id="btn-sync-mappings"
-                            class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all"
-                            style="background:rgba(96,165,250,0.1);border:1px solid rgba(96,165,250,0.25);color:#60a5fa;">
+                <!-- ── KPI STRIP ────────────────────────────────────────── -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div class="kpi-card">
+                        <div class="kpi-val text-[#60a5fa]">{{ runs_today }}</div>
+                        <div class="kpi-lbl">Runs Today</div>
+                        <div class="kpi-sub">pipeline executions</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-val {% if success_rate_7d >= 95 %}text-emerald-400{% elif success_rate_7d >= 80 %}text-amber-400{% else %}text-red-400{% endif %}">
+                            {{ success_rate_7d }}%
+                        </div>
+                        <div class="kpi-lbl">Success Rate</div>
+                        <div class="kpi-sub">last 7 days</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-val text-slate-200">{{ avg_duration }}s</div>
+                        <div class="kpi-lbl">Avg Duration</div>
+                        <div class="kpi-sub">last 30 days (successful)</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-val text-emerald-400">{{ "{:,}".format(records_today) }}</div>
+                        <div class="kpi-lbl">Records Today</div>
+                        <div class="kpi-sub">rows processed</div>
+                    </div>
+                </div>
+
+                <!-- ── ACTIONS ROW ──────────────────────────────────────── -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+                    <!-- Quick Sync -->
+                    <div class="card p-5">
+                        <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest mb-1">Quick Sync</p>
+                        <p class="text-slate-500 text-xs mb-4">Populate lookup tables from existing ETL data. Safe to run anytime — never overwrites manual configs.</p>
+                        <p id="sync-status" class="text-xs mb-3 hidden"></p>
+                        <button onclick="syncMappings()" id="btn-sync-mappings2" class="btn-trigger btn-primary">
                             <i class="bi bi-arrow-repeat"></i> Sync AE Mappings &amp; Procedures
                         </button>
                     </div>
-                    <p id="sync-status" class="text-xs mt-3 hidden"></p>
-                </div>
 
-                <!-- Demo Mode -->
-                <div class="table-container" style="padding:1.5rem;">
-                    <div class="flex items-center justify-between mb-1">
-                        <p class="text-[10px] font-black text-[#f59e0b] uppercase tracking-widest">Demo Mode</p>
-                        <button onclick="toggleDemoMode(this)"
-                            data-enabled="{{ 'true' if demo_mode else 'false' }}"
-                            class="w-10 h-6 rounded-full border transition-all relative flex-shrink-0
-                                   {{ 'bg-[#f59e0b] border-[#f59e0b]' if demo_mode else 'bg-transparent border-[#334155]' }}">
-                            <span class="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all
-                                         {{ 'left-4' if demo_mode else 'left-0.5' }}"></span>
-                        </button>
-                    </div>
-                    <p class="text-slate-500 text-xs mb-4">Enables all features and displays a banner. Select a date range to scope report data. Only the admin and the demo user may log in while active.</p>
-                    <div class="flex gap-3 flex-wrap items-center mb-3">
-                        <div class="flex items-center gap-2">
-                            <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest">From</label>
-                            <input type="date" id="demo-start" value="{{ demo_start }}"
-                                class="bg-[#181f1c] border border-[#28332e] text-xs font-bold text-white px-3 py-1.5 rounded-lg focus:outline-none focus:border-[#f59e0b] transition-colors">
+                    <!-- Demo Mode -->
+                    <div class="card p-5">
+                        <div class="flex items-center justify-between mb-1">
+                            <p class="text-[10px] font-black text-[#f59e0b] uppercase tracking-widest">Demo Mode</p>
+                            <button onclick="toggleDemoMode(this)"
+                                data-enabled="{{ 'true' if demo_mode else 'false' }}"
+                                class="w-10 h-6 rounded-full border transition-all relative flex-shrink-0
+                                       {{ 'bg-[#f59e0b] border-[#f59e0b]' if demo_mode else 'bg-transparent border-[#334155]' }}">
+                                <span class="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all
+                                             {{ 'left-4' if demo_mode else 'left-0.5' }}"></span>
+                            </button>
                         </div>
-                        <div class="flex items-center gap-2">
-                            <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest">To</label>
-                            <input type="date" id="demo-end" value="{{ demo_end }}"
-                                class="bg-[#181f1c] border border-[#28332e] text-xs font-bold text-white px-3 py-1.5 rounded-lg focus:outline-none focus:border-[#f59e0b] transition-colors">
+                        <p class="text-slate-500 text-xs mb-3">Enables all features and scopes report data to a date range. Only admin and demo user may log in.</p>
+                        <div class="flex gap-3 flex-wrap items-center mb-2">
+                            <div class="flex items-center gap-2">
+                                <label class="text-[10px] font-black text-slate-500 uppercase">From</label>
+                                <input type="date" id="demo-start" value="{{ demo_start }}"
+                                    class="bg-[#181f1c] border border-[#28332e] text-xs font-bold text-white px-3 py-1.5 rounded-lg focus:outline-none focus:border-[#f59e0b]">
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <label class="text-[10px] font-black text-slate-500 uppercase">To</label>
+                                <input type="date" id="demo-end" value="{{ demo_end }}"
+                                    class="bg-[#181f1c] border border-[#28332e] text-xs font-bold text-white px-3 py-1.5 rounded-lg focus:outline-none focus:border-[#f59e0b]">
+                            </div>
                         </div>
-                    </div>
-                    <div class="flex items-center gap-3 flex-wrap">
-                        <div class="flex items-center gap-2">
-                            <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Demo User</label>
+                        <div class="flex items-center gap-2 flex-wrap">
                             <input type="text" id="demo-user" value="{{ demo_user }}" placeholder="username"
-                                class="bg-[#181f1c] border border-[#28332e] text-xs font-bold text-white px-3 py-1.5 rounded-lg focus:outline-none focus:border-[#f59e0b] transition-colors w-36">
+                                class="bg-[#181f1c] border border-[#28332e] text-xs font-bold text-white px-3 py-1.5 rounded-lg focus:outline-none focus:border-[#f59e0b] w-32">
+                            <input type="password" id="demo-password" placeholder="password"
+                                class="bg-[#181f1c] border border-[#28332e] text-xs font-bold text-white px-3 py-1.5 rounded-lg focus:outline-none focus:border-[#f59e0b] w-36">
+                            <button onclick="saveDemoUser()" class="btn-trigger btn-warn" style="padding:.4rem .9rem;font-size:9px;">
+                                Save User
+                            </button>
                         </div>
-                        <div class="flex items-center gap-2">
-                            <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Password</label>
-                            <input type="password" id="demo-password" placeholder="set / reset password"
-                                class="bg-[#181f1c] border border-[#28332e] text-xs font-bold text-white px-3 py-1.5 rounded-lg focus:outline-none focus:border-[#f59e0b] transition-colors w-44">
-                        </div>
-                        <button onclick="saveDemoUser()" class="text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg bg-[#1e293b] border border-[#334155] text-slate-300 hover:border-[#f59e0b] hover:text-[#f59e0b] transition-colors">
-                            Save User
-                        </button>
-                        <span class="text-[10px] text-slate-600">Account is created automatically if it doesn't exist</span>
                     </div>
                 </div>
 
-            </div>
+                <!-- ── ETL HISTORY TABLE ─────────────────────────────────── -->
+                <div class="card overflow-hidden">
 
-            <div class="table-container max-w-7xl mx-auto">
-                <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-10">
-                    <div>
-                        <h3 class="text-white text-3xl font-black tracking-tight uppercase">ETL Pipeline History</h3>
-                        <p class="text-slate-500 text-[11px] font-bold uppercase tracking-widest mt-1">Sorted by Run Date (Newest First)</p>
+                    <!-- Table header row -->
+                    <div class="flex items-center justify-between px-6 py-4 border-b border-[#28332e]">
+                        <div>
+                            <h2 class="text-white text-lg font-black uppercase tracking-tight">Pipeline History</h2>
+                            <p class="text-slate-600 text-[10px] font-bold uppercase tracking-widest mt-0.5">Newest first · Page {{ pagination.page }} of {{ pagination.pages }}</p>
+                        </div>
+                        <form action="{{ url_for('admin.admin_dashboard') }}" method="GET" class="flex items-center gap-2 bg-[#1d2522] px-3 py-2 rounded-xl border border-[#28332e]">
+                            <i class="bi bi-calendar3 text-[#60a5fa] text-xs"></i>
+                            <input type="date" name="date" value="{{ selected_date }}"
+                                   onchange="this.form.submit()"
+                                   class="bg-transparent text-xs font-bold text-white focus:outline-none w-28">
+                            {% if selected_date %}
+                            <a href="{{ url_for('admin.admin_dashboard') }}" class="text-slate-600 hover:text-white transition-colors ml-1"><i class="bi bi-x-circle-fill text-xs"></i></a>
+                            {% endif %}
+                        </form>
                     </div>
 
-                    <form action="{{ url_for('admin.admin_dashboard') }}" method="GET" id="dateFilterForm" class="flex items-center gap-3 bg-[#1d2522] p-2 rounded-xl border border-[#28332e]">
-                        <span class="text-[10px] font-black text-[#60a5fa] uppercase pl-2">Jump to Date</span>
-                        <input type="date" name="date" value="{{ selected_date }}"
-                               onchange="this.form.submit()"
-                               class="bg-transparent text-sm font-bold text-white focus:outline-none px-2 border-r border-[#28332e] mr-2">
-                        {% if selected_date %}
-                        <a href="{{ url_for('admin.admin_dashboard') }}" class="pr-3 text-slate-500 hover:text-white transition-colors"><i class="bi bi-x-circle-fill"></i></a>
-                        {% endif %}
-                    </form>
-                </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full log-table">
+                            <thead>
+                                <tr class="border-b border-[#28332e] text-[#60a5fa] text-[9px] uppercase tracking-widest font-black">
+                                    <th class="px-4 pb-3 pt-4 text-left">Time</th>
+                                    <th class="px-4 pb-3 pt-4 text-left">Job</th>
+                                    <th class="px-4 pb-3 pt-4 text-right">Duration</th>
+                                    <th class="px-4 pb-3 pt-4 text-right">Records</th>
+                                    <th class="px-4 pb-3 pt-4 text-right">Rows/s</th>
+                                    <th class="px-4 pb-3 pt-4 text-center">Alerts</th>
+                                    <th class="px-4 pb-3 pt-4 text-center">Status</th>
+                                    <th class="px-4 pb-3 pt-4 text-left">Error</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-[#28332e]">
+                                {% set last_date = [] %}
+                                {% for log in etl_logs %}
+                                    {% set current_date = log.start_time.strftime('%Y-%m-%d') %}
+                                    {% if current_date != last_date[-1] %}
+                                        <tr class="date-hdr">
+                                            <td colspan="8">
+                                                <i class="bi bi-calendar3 mr-2"></i>
+                                                {{ log.start_time.strftime('%d %b %Y · %A') }}
+                                            </td>
+                                        </tr>
+                                        {% if last_date.append(current_date) %}{% endif %}
+                                    {% endif %}
 
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left">
-                        <thead>
-                            <tr class="border-b border-[#28332e] text-[#60a5fa] text-[10px] uppercase tracking-[0.2em] font-black">
-                                <th class="pb-5 px-4">Run Time</th>
-                                <th class="pb-5 px-4">Job Name</th>
-                                <th class="pb-5 px-4">Duration</th>
-                                <th class="pb-5 px-4">Records</th>
-                                <th class="pb-5 px-4">Rows/sec</th>
-                                <th class="pb-5 px-4">Null Alerts</th>
-                                <th class="pb-5 px-4">Status</th>
-                                <th class="pb-5 px-4">Error</th>
-                                <th class="pb-5 px-4 text-right">Run</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-[#28332e]">
-                            {% set last_date = [] %}
-                            {% for log in etl_logs %}
-                                {% set current_date = log.start_time.strftime('%Y-%m-%d') %}
-                                {% if current_date != last_date[-1] %}
-                                    <tr class="date-divider">
-                                        <td colspan="9" class="py-3 px-4 text-[10px] font-black text-[#60a5fa] uppercase tracking-[0.3em]">
-                                            <i class="bi bi-calendar3 mr-2"></i> {{ log.start_time.strftime('%d %b %Y, %A') }}
+                                    <tr class="{% if log.status == 'FAILED' %}failed-row{% endif %}">
+                                        <td>
+                                            <div class="text-xs font-mono text-slate-300">{{ log.start_time.strftime('%H:%M:%S') }}</div>
+                                            {% if log.end_time %}
+                                            <div class="text-[9px] font-mono text-slate-700">→ {{ log.end_time.strftime('%H:%M:%S') }}</div>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            <div class="text-sm font-bold text-slate-200">{{ log.job_name }}</div>
+                                            <div class="text-[9px] text-slate-700 font-mono">#{{ log.id }}</div>
+                                        </td>
+                                        <td class="text-right">
+                                            {% if log.duration_seconds is not none %}
+                                                <span class="text-xs font-mono text-slate-400">{{ log.duration_seconds }}s</span>
+                                            {% elif log.end_time %}
+                                                <span class="text-xs font-mono text-slate-400">{{ (log.end_time - log.start_time).seconds }}s</span>
+                                            {% else %}
+                                                <span class="text-xs text-blue-400 animate-pulse italic">running</span>
+                                            {% endif %}
+                                        </td>
+                                        <td class="text-right">
+                                            {% if log.records_processed is not none %}
+                                                <span class="text-xs font-mono font-bold text-emerald-400">{{ "{:,}".format(log.records_processed) }}</span>
+                                            {% else %}
+                                                <span class="text-slate-700 text-xs">—</span>
+                                            {% endif %}
+                                        </td>
+                                        <td class="text-right">
+                                            {% if log.rows_per_second is not none %}
+                                                <span class="text-xs font-mono text-sky-400">{{ log.rows_per_second }}</span>
+                                            {% else %}
+                                                <span class="text-slate-700 text-xs">—</span>
+                                            {% endif %}
+                                        </td>
+                                        <td class="text-center">
+                                            {% if log.null_alerts is not none and log.null_alerts > 0 %}
+                                                <span class="text-xs font-mono font-bold text-amber-400">⚠ {{ log.null_alerts }}</span>
+                                            {% else %}
+                                                <span class="text-slate-700 text-xs">—</span>
+                                            {% endif %}
+                                        </td>
+                                        <td class="text-center">
+                                            <span class="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest
+                                                {% if log.status == 'SUCCESS' %}pill-ok
+                                                {% elif log.status == 'FAILED' %}pill-fail
+                                                {% else %}pill-run animate-pulse{% endif %}">
+                                                {{ log.status }}
+                                            </span>
+                                        </td>
+                                        <td>
+                                            {% if log.error_message %}
+                                                <span class="err-cell" title="{{ log.error_message }}">{{ log.error_message }}</span>
+                                            {% else %}
+                                                <span class="text-slate-700 text-xs">—</span>
+                                            {% endif %}
                                         </td>
                                     </tr>
-                                    {% if last_date.append(current_date) %}{% endif %}
-                                {% endif %}
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
 
-                            <tr class="group hover:bg-[#1d2522]/50 transition-all {{ 'error-row' if log.status == 'FAILED' }}">
-
-                                <!-- Run Time -->
-                                <td class="py-4 px-4">
-                                    <div class="text-xs font-mono text-white">{{ log.start_time.strftime('%H:%M:%S') }}</div>
-                                    {% if log.end_time %}
-                                    <div class="text-[9px] font-mono text-slate-600">→ {{ log.end_time.strftime('%H:%M:%S') }}</div>
-                                    {% endif %}
-                                </td>
-
-                                <!-- Job Name -->
-                                <td class="py-4 px-4">
-                                    <div class="text-slate-200 font-bold text-sm">{{ log.job_name }}</div>
-                                    <div class="text-[9px] text-slate-600 font-mono uppercase tracking-tighter">ID: {{ log.id }}</div>
-                                </td>
-
-                                <!-- Duration -->
-                                <td class="py-4 px-4 text-xs font-mono text-slate-400">
-                                    {% if log.duration_seconds is not none %}
-                                        {{ log.duration_seconds }}s
-                                    {% elif log.end_time %}
-                                        {{ (log.end_time - log.start_time).seconds }}s
-                                    {% else %}
-                                        <span class="text-blue-400 animate-pulse italic">Running…</span>
-                                    {% endif %}
-                                </td>
-
-                                <!-- Records Processed -->
-                                <td class="py-4 px-4">
-                                    {% if log.records_processed is not none %}
-                                        <span class="text-xs font-mono font-bold text-emerald-400">
-                                            {{ "{:,}".format(log.records_processed) }}
-                                        </span>
-                                    {% else %}
-                                        <span class="text-slate-700 text-xs">—</span>
-                                    {% endif %}
-                                </td>
-
-                                <!-- Rows per second -->
-                                <td class="py-4 px-4">
-                                    {% if log.rows_per_second is not none %}
-                                        <span class="text-xs font-mono text-sky-400">
-                                            {{ log.rows_per_second }}
-                                        </span>
-                                    {% else %}
-                                        <span class="text-slate-700 text-xs">—</span>
-                                    {% endif %}
-                                </td>
-
-                                <!-- Null Alerts -->
-                                <td class="py-4 px-4">
-                                    {% if log.null_alerts is not none and log.null_alerts > 0 %}
-                                        <span class="text-xs font-mono font-bold text-amber-400">
-                                            ⚠ {{ log.null_alerts }}
-                                        </span>
-                                    {% else %}
-                                        <span class="text-slate-700 text-xs">—</span>
-                                    {% endif %}
-                                </td>
-
-                                <!-- Status -->
-                                <td class="py-4 px-4">
-                                    <span class="px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest
-                                        {% if log.status == 'SUCCESS' %}bg-green-500/10 text-green-400 border border-green-500/20
-                                        {% elif log.status == 'FAILED' %}bg-red-500/10 text-red-400 border border-red-500/20
-                                        {% else %}bg-blue-500/10 text-blue-400 border border-blue-500/20 animate-pulse
-                                        {% endif %}">
-                                        {{ log.status }}
-                                    </span>
-                                </td>
-
-                                <!-- Error Message -->
-                                <td class="py-4 px-4">
-                                    {% if log.error_message %}
-                                        <span class="error-msg" title="{{ log.error_message }}">
-                                            {{ log.error_message }}
-                                        </span>
-                                    {% else %}
-                                        <span class="text-slate-700 text-xs">—</span>
-                                    {% endif %}
-                                </td>
-
-                                <!-- Re-run button -->
-                                <td class="py-4 px-4 text-right">
-                                    <button onclick="triggerJob('{{ log.job_name }}')" class="text-slate-700 hover:text-[#60a5fa] transition-colors">
-                                        <i class="bi bi-play-circle-fill text-xl"></i>
-                                    </button>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-
-                <div class="flex items-center justify-between mt-10 pt-8 border-t border-[#28332e]">
-                    <span class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Page {{ pagination.page }} of {{ pagination.pages }}</span>
-                    <div class="flex gap-3">
-                        <a href="{{ url_for('admin.admin_dashboard', page=pagination.prev_num, date=selected_date) if pagination.has_prev else '#' }}"
-                           class="page-btn {{ 'disabled' if not pagination.has_prev }}">
-                           <i class="bi bi-arrow-left mr-2"></i> Earlier Jobs
-                        </a>
-                        <a href="{{ url_for('admin.admin_dashboard', page=pagination.next_num, date=selected_date) if pagination.has_next else '#' }}"
-                           class="page-btn {{ 'disabled' if not pagination.has_next }}">
-                           Later Jobs <i class="bi bi-arrow-right ml-2"></i>
-                        </a>
+                    <!-- Pagination -->
+                    <div class="flex items-center justify-between px-6 py-4 border-t border-[#28332e]">
+                        <span class="text-[10px] font-black text-slate-600 uppercase tracking-widest">
+                            {{ pagination.total }} total runs
+                        </span>
+                        <div class="flex gap-2">
+                            <a href="{{ url_for('admin.admin_dashboard', page=pagination.prev_num, date=selected_date) if pagination.has_prev else '#' }}"
+                               class="pager-btn {{ 'off' if not pagination.has_prev }}">
+                               <i class="bi bi-arrow-left mr-1"></i> Earlier
+                            </a>
+                            <a href="{{ url_for('admin.admin_dashboard', page=pagination.next_num, date=selected_date) if pagination.has_next else '#' }}"
+                               class="pager-btn {{ 'off' if not pagination.has_next }}">
+                               Later <i class="bi bi-arrow-right ml-1"></i>
+                            </a>
+                        </div>
                     </div>
                 </div>
-            </div>
 
+            </div><!-- /max-w-7xl -->
         </main>
     </div>
 
     <script>
+        // ── Sync Mappings ────────────────────────────────────────
+        async function syncMappings() {
+            ['btn-sync-mappings','btn-sync-mappings2'].forEach(id => {
+                const b = document.getElementById(id);
+                if (b) { b.disabled = true; b.innerHTML = '<i class="bi bi-arrow-repeat animate-spin"></i> Syncing…'; }
+            });
+            const status = document.getElementById('sync-status');
+            if (status) { status.className = 'text-xs mb-3'; status.textContent = ''; }
+            try {
+                const res = await fetch('{{ url_for("admin.sync_mappings") }}', { method: 'POST' });
+                const d = await res.json();
+                if (status) {
+                    status.style.color = d.status === 'ok' ? '#4ade80' : '#f87171';
+                    status.textContent  = d.status === 'ok' ? '✓ Synced successfully.' : 'Error: ' + d.message;
+                    status.classList.remove('hidden');
+                }
+            } catch(e) {
+                if (status) { status.style.color='#f87171'; status.textContent='Request failed.'; status.classList.remove('hidden'); }
+            }
+            ['btn-sync-mappings','btn-sync-mappings2'].forEach(id => {
+                const b = document.getElementById(id);
+                if (b) { b.disabled = false; b.innerHTML = '<i class="bi bi-arrow-repeat"></i> Sync AE Mappings &amp; Procedures'; }
+            });
+        }
+
+        // ── Run ETL ─────────────────────────────────────────────
+        function triggerETL() {
+            if(!confirm('Force-start ETL now?')) return;
+            const btn = document.getElementById('btn-trigger-etl');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="bi bi-hourglass-split animate-spin"></i> Starting…';
+            fetch("{{ url_for('admin.trigger_etl') }}", { method: 'POST' })
+                .then(r => r.json())
+                .then(d => {
+                    if(d.status === 'success') location.reload();
+                    else { alert('Error: ' + d.message); btn.disabled=false; btn.innerHTML='<i class="bi bi-play-fill"></i> Run ETL Now'; }
+                });
+        }
+
+        // ── Demo Mode ────────────────────────────────────────────
+        function _demoPayload(enabled) {
+            return { enabled,
+                start:         document.getElementById('demo-start').value,
+                end:           document.getElementById('demo-end').value,
+                demo_user:     document.getElementById('demo-user').value.trim(),
+                demo_password: document.getElementById('demo-password').value };
+        }
+        async function saveDemoUser() {
+            const btn = document.querySelector('[data-enabled]');
+            const enabled = btn ? btn.dataset.enabled === 'true' : false;
+            const res = await fetch('{{ url_for("admin.set_demo_mode") }}', {
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify(_demoPayload(enabled))
+            });
+            const data = await res.json();
+            if (data.status === 'ok') { document.getElementById('demo-password').value=''; alert('Demo user saved.'); }
+            else alert('Error: ' + (data.message||'unknown'));
+        }
+        async function toggleDemoMode(btn) {
+            const next = btn.dataset.enabled !== 'true';
+            const res = await fetch('{{ url_for("admin.set_demo_mode") }}', {
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify(_demoPayload(next))
+            });
+            if ((await res.json()).status === 'ok') {
+                btn.dataset.enabled = next ? 'true' : 'false';
+                btn.className = 'w-10 h-6 rounded-full border transition-all relative flex-shrink-0 ' +
+                    (next ? 'bg-[#f59e0b] border-[#f59e0b]' : 'bg-transparent border-[#334155]');
+                btn.querySelector('span').className = 'absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ' +
+                    (next ? 'left-4' : 'left-0.5');
+                location.reload();
+            }
+        }
+        ['demo-start','demo-end','demo-user'].forEach(id => {
+            document.getElementById(id)?.addEventListener('change', async () => {
+                const btn = document.querySelector('[data-enabled]');
+                if (!btn || btn.dataset.enabled !== 'true') return;
+                await fetch('{{ url_for("admin.set_demo_mode") }}', {
+                    method:'POST', headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify(_demoPayload(true))
+                });
+            });
+        });
+
+        // ── Per-row re-run (kept for backwards compat) ────────────
+        function triggerJob(jobName) { triggerETL(); }
+
+        // ── User / permission helpers (used by other admin pages) ──
         async function togglePerm(userId, pageKey, btn) {
             const current = btn.dataset.enabled === 'true';
             const next = !current;
             const res = await fetch('{{ url_for("admin.update_user_permissions") }}', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+                method:'POST', headers:{'Content-Type':'application/json'},
                 body: JSON.stringify({user_id: userId, page_key: pageKey, enabled: next})
             });
             if ((await res.json()).status === 'ok') {
@@ -273,166 +414,52 @@
                     (next ? 'left-4' : 'left-0.5');
             }
         }
-
         async function changeRole(userId, newRole) {
             await fetch('{{ url_for("admin.update_user_role") }}', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+                method:'POST', headers:{'Content-Type':'application/json'},
                 body: JSON.stringify({user_id: userId, role: newRole})
             });
         }
-
         async function deleteUser(userId, username) {
             if (!confirm(`Delete user "${username}"? This cannot be undone.`)) return;
             const res = await fetch('{{ url_for("admin.delete_user") }}', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+                method:'POST', headers:{'Content-Type':'application/json'},
                 body: JSON.stringify({user_id: userId})
             });
-            if ((await res.json()).status === 'ok') {
-                document.getElementById('user-row-' + userId)?.remove();
-            }
-        }
-
-        // ── Quick Sync ──────────────────────────────────────────
-        async function syncMappings() {
-            const btn = document.getElementById('btn-sync-mappings');
-            const status = document.getElementById('sync-status');
-            btn.disabled = true;
-            btn.innerHTML = '<i class="bi bi-arrow-repeat animate-spin"></i> Syncing…';
-            status.className = 'text-xs mt-3';
-            status.textContent = '';
-            try {
-                const res = await fetch('{{ url_for("admin.sync_mappings") }}', { method: 'POST' });
-                const d = await res.json();
-                if (d.status === 'ok') {
-                    status.style.color = '#4ade80';
-                    status.textContent = '✓ AE mappings and procedure codes synced successfully.';
-                } else {
-                    status.style.color = '#f87171';
-                    status.textContent = 'Error: ' + d.message;
-                }
-            } catch(e) {
-                status.style.color = '#f87171';
-                status.textContent = 'Request failed.';
-            }
-            btn.disabled = false;
-            btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Sync AE Mappings & Procedures';
-        }
-
-        // ── Demo Mode ───────────────────────────────────────────
-        function _demoPayload(enabled) {
-            return {
-                enabled,
-                start:         document.getElementById('demo-start').value,
-                end:           document.getElementById('demo-end').value,
-                demo_user:     document.getElementById('demo-user').value.trim(),
-                demo_password: document.getElementById('demo-password').value,
-            };
-        }
-
-        async function saveDemoUser() {
-            const btn = document.querySelector('[data-enabled]');
-            const enabled = btn ? btn.dataset.enabled === 'true' : false;
-            const res = await fetch('{{ url_for("admin.set_demo_mode") }}', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(_demoPayload(enabled))
-            });
-            const data = await res.json();
-            if (data.status === 'ok') {
-                document.getElementById('demo-password').value = '';
-                alert('Demo user saved.');
-            } else {
-                alert('Error: ' + (data.message || 'unknown'));
-            }
-        }
-
-        async function toggleDemoMode(btn) {
-            const next = btn.dataset.enabled !== 'true';
-            const res = await fetch('{{ url_for("admin.set_demo_mode") }}', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(_demoPayload(next))
-            });
-            if ((await res.json()).status === 'ok') {
-                btn.dataset.enabled = next ? 'true' : 'false';
-                btn.className = 'w-10 h-6 rounded-full border transition-all relative flex-shrink-0 ' +
-                    (next ? 'bg-[#f59e0b] border-[#f59e0b]' : 'bg-transparent border-[#334155]');
-                btn.querySelector('span').className = 'absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ' +
-                    (next ? 'left-4' : 'left-0.5');
-                location.reload();   // reload to show/hide the header banner
-            }
-        }
-
-        // Save demo settings when any field changes (while demo mode is on)
-        ['demo-start', 'demo-end', 'demo-user'].forEach(id => {
-            document.getElementById(id)?.addEventListener('change', async () => {
-                const btn = document.querySelector('[data-enabled]');
-                if (!btn || btn.dataset.enabled !== 'true') return;
-                await fetch('{{ url_for("admin.set_demo_mode") }}', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(_demoPayload(true))
-                });
-            });
-        });
-
-        function triggerJob(jobName) {
-            if(!confirm(`Force start ${jobName}?`)) return;
-            fetch("{{ url_for('admin.trigger_etl') }}", { method: 'POST' })
-                .then(res => res.json())
-                .then(data => {
-                    if(data.status === 'success') location.reload();
-                    else alert('Error: ' + data.message);
-                });
+            if ((await res.json()).status === 'ok') document.getElementById('user-row-' + userId)?.remove();
         }
     </script>
     <script>
-        // ── Theme ──────────────────────────────────────────────
         const _savedTheme = "{{ ui_theme }}";
-        function applyTheme(theme) {
-            document.body.classList.toggle('light', theme === 'light');
-            document.getElementById('theme-icon').className = theme === 'light' ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
+        function applyTheme(t) {
+            document.body.classList.toggle('light', t === 'light');
+            const ic = document.getElementById('theme-icon');
+            if (ic) ic.className = t === 'light' ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
         }
         applyTheme(_savedTheme);
-
         function toggleTheme() {
             const next = document.body.classList.contains('light') ? 'dark' : 'light';
             applyTheme(next);
-            fetch('/user/theme', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({theme: next})
-            });
+            fetch('/user/theme', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({theme:next}) });
         }
-
-        // ── Sidebar ────────────────────────────────────────────
         function toggleSidebar() {
             const sb = document.getElementById('sidebar');
-            sb.classList.toggle('w-72');
-            sb.classList.toggle('w-14');
+            sb.classList.toggle('w-72'); sb.classList.toggle('w-14');
             sb.querySelectorAll('.sidebar-text').forEach(el => el.classList.toggle('hidden'));
         }
-        // Auto-collapse on small screens
         if (window.innerWidth < 1024) {
             const sb = document.getElementById('sidebar');
-            sb.classList.remove('w-72');
-            sb.classList.add('w-14');
-            sb.querySelectorAll('.sidebar-text').forEach(el => el.classList.add('hidden'));
+            if (sb) { sb.classList.remove('w-72'); sb.classList.add('w-14'); sb.querySelectorAll('.sidebar-text').forEach(el => el.classList.add('hidden')); }
         }
     </script>
-<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-    flatpickr('input[type="date"]', {
-        dateFormat: 'Y-m-d',
-        altInput:   true,
-        altFormat:  'd/m/Y',
-        allowInput: true,
-        disableMobile: true
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function () {
+        flatpickr('input[type="date"]', {
+            dateFormat: 'Y-m-d', altInput: true, altFormat: 'd/m/Y',
+            allowInput: true, disableMobile: true
+        });
     });
-});
-</script>
+    </script>
 </body>
 </html>
