@@ -124,8 +124,9 @@ def daily_briefing():
                 (SELECT COUNT(*)::int FROM s
                  WHERE study_date = (SELECT d FROM latest) AND study_status ILIKE '%unread%')          AS unread,
                 (SELECT COUNT(DISTINCT rep_final_signed_by)::int FROM s
-                 WHERE DATE(rep_final_timestamp) = (SELECT d FROM latest)
-                   AND rep_final_signed_by IS NOT NULL)                                               AS active_rads,
+                 WHERE study_date = (SELECT d FROM latest)
+                   AND rep_final_signed_by IS NOT NULL
+                   AND rep_final_timestamp IS NOT NULL)                                               AS active_rads,
                 (SELECT ROUND(AVG(tat_min)::numeric,1) FROM s
                  WHERE study_date = (SELECT d FROM latest) AND tat_min > 0 AND tat_min < 2880)        AS avg_tat_today,
                 (SELECT ROUND(AVG(tat_min)::numeric,1) FROM s
