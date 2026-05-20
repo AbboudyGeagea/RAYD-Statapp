@@ -123,44 +123,5 @@
 
 </div>
 
-<script>
-async function approvePhysician(variants, selectId) {
-    const canonical = document.getElementById(selectId).value;
-    const aliases = variants.filter(v => v !== canonical);
-    for (const alias of aliases) {
-        await fetch('/mapping/physician/approve', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({alias, canonical_name: canonical})
-        });
-    }
-    location.reload();
-}
-
-async function dismissPhysician(variants) {
-    await fetch('/mapping/physician/dismiss', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({aliases: variants})
-    });
-    location.reload();
-}
-
-async function approveAll() {
-    await fetch('/mapping/physician/approve-all', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({})
-    });
-    location.reload();
-}
-
-async function deleteMapping(alias) {
-    await fetch('/mapping/physician/delete', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({alias})
-    });
-    location.reload();
-}
-</script>
+{# JS functions (approvePhysician, dismissPhysician, approveAll, deleteMapping) live in mapping.html
+   because scripts injected via innerHTML are not executed by browsers. #}

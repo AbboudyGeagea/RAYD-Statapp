@@ -534,15 +534,7 @@
 
             if (name === 'physician' && !_physicianLoaded) {
                 _physicianLoaded = true;
-                const tab = document.getElementById('tab-physician');
-                fetch('/mapping/physician-tab')
-                    .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
-                    .then(html => {
-                        tab.innerHTML = html;
-                    })
-                    .catch(() => {
-                        tab.innerHTML = '<p class="text-red-400 text-xs p-8 text-center">Failed to load physician data. Please refresh.</p>';
-                    });
+                reloadPhysicianTab();
             }
         }
 
@@ -669,6 +661,60 @@
             const next = document.body.classList.contains('light') ? 'dark' : 'light';
             applyTheme(next);
             fetch('/user/theme', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ theme: next }) });
+        }
+
+        // ── Physician alias mapping ───────────────────────────────────────
+        async function approvePhysician(variants, selectId) {
+            const canonical = document.getElementById(selectId).value;
+            const aliases   = variants.filter(v => v !== canonical);
+            for (const alias of aliases) {
+                const r = await fetch('/mapping/physician/approve', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({alias, canonical_name: canonical})
+                });
+                if (!r.ok) { const d = await r.json(); alert(d.message || 'Failed to save.'); return; }
+            }
+            reloadPhysicianTab();
+        }
+
+        async function dismissPhysician(variants) {
+            const r = await fetch('/mapping/physician/dismiss', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({aliases: variants})
+            });
+            if (!r.ok) { alert('Failed to dismiss.'); return; }
+            reloadPhysicianTab();
+        }
+
+        async function approveAll() {
+            const r = await fetch('/mapping/physician/approve-all', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({})
+            });
+            if (!r.ok) { alert('Failed to approve all.'); return; }
+            reloadPhysicianTab();
+        }
+
+        async function deleteMapping(alias) {
+            const r = await fetch('/mapping/physician/delete', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({alias})
+            });
+            if (!r.ok) { alert('Failed to remove.'); return; }
+            reloadPhysicianTab();
+        }
+
+        function reloadPhysicianTab() {
+            const tab = document.getElementById('tab-physician');
+            if (!tab) return;
+            fetch('/mapping/physician-tab')
+                .then(r => { if (!r.ok) throw r; return r.text(); })
+                .then(html => { tab.innerHTML = html; })
+                .catch(() => { tab.innerHTML = '<p class="text-red-400 text-xs p-8 text-center">Failed to reload. Please refresh.</p>'; });
         }
     </script>
 </body>
