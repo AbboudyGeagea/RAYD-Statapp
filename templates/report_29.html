@@ -8,360 +8,471 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/dark.min.css">
     <style>
-        :root { --accent: #60a5fa; }
-        body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; transition: background 0.2s, color 0.2s; }
-        aside { background: #1a2420; border-color: #28332e; }
+        :root { --accent:#60a5fa; --bg:#181f1c; --surface:#232b28; --border:#28332e; --surface2:#1d2522; }
+        body { font-family:'Inter',sans-serif; background:var(--bg); color:#e2e8f0; }
 
-        /* Light mode overrides */
-        body.light { background: #f0f4f8 !important; color: #1a202c !important; }
-        body.light aside, body.light header { background: #ffffff !important; border-color: #e2e8f0 !important; }
-        body.light .sidebar-item { color: #4a5568 !important; }
-        body.light .sidebar-item:hover, body.light .sidebar-item.active { background: #e2e8f0 !important; color: #2b6cb0 !important; }
-        body.light .glass-card { background: #ffffff !important; border-color: #e2e8f0 !important; }
-        body.light .input-dark { background: #ffffff !important; border-color: #e2e8f0 !important; color: #1a202c !important; }
-        .outlier-badge { display:inline-flex; align-items:center; gap:4px; background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.4); color:#f59e0b; border-radius:999px; padding:2px 9px; font-size:10px; font-weight:700; cursor:pointer; position:relative; }
-        .outlier-badge .tooltip { display:none; position:absolute; top:calc(100% + 6px); right:0; background:#1c1917; border:1px solid rgba(245,158,11,0.4); color:#fde68a; font-size:10px; padding:6px 10px; border-radius:8px; white-space:nowrap; z-index:100; }
-        .outlier-badge:hover .tooltip { display:block; }
-        body.light .card-desc { color: #64748b !important; border-color: #f1f5f9 !important; }
-        body.light .section-desc { background: #f0f9ff !important; color: #64748b !important; }
-        body.light .export-png-btn { background: #f8fafc !important; border-color: #e2e8f0 !important; color: #64748b !important; }
-        body.light .btn-csv { background: #eff6ff !important; border-color: #bfdbfe !important; color: #2563eb !important; }
-        body.light .input-filter { background: #ffffff !important; border-color: #e2e8f0 !important; color: #1a202c !important; }
+        /* ── Sidebar ── */
+        .sidebar-item { transition:all 0.2s; border-radius:0.75rem; margin-bottom:0.25rem; cursor:pointer; text-decoration:none !important; color:#94a3b8; }
+        .sidebar-item:hover { background:var(--surface2); color:var(--accent) !important; }
+        .sidebar-item.active { background:var(--surface2); color:var(--accent) !important; border-left:4px solid var(--accent); }
 
-        .sidebar-item { transition: all 0.2s; border-radius: 0.75rem; margin-bottom: 0.25rem; cursor: pointer; }
-        .sidebar-item:hover { background: rgba(96,165,250,0.1); color: var(--accent); }
+        /* ── KPI tile ── */
+        .kpi { background:var(--surface); border:1px solid var(--border); border-radius:1.25rem; padding:1.25rem 1.5rem; }
+        .kpi-val { font-size:1.75rem; font-weight:900; line-height:1; }
+        .kpi-label { font-size:0.6rem; font-weight:900; letter-spacing:0.12em; text-transform:uppercase; color:#64748b; margin-top:0.4rem; }
 
-        .card-custom { background: #232b28; border-radius: 1.5rem; border: 1px solid #28332e; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.3); overflow: hidden; }
-        .chart-container { position: relative; height: 300px; width: 100%; padding: 0 16px 16px 16px; }
-        .status-pill { padding: 2px 8px; border-radius: 9999px; font-size: 10px; font-weight: 900; text-transform: uppercase; }
+        /* ── Chart card ── */
+        .chart-card { background:var(--surface); border:1px solid var(--border); border-radius:1.25rem; overflow:hidden; }
+        .chart-card-head { padding:1.1rem 1.4rem 0; display:flex; align-items:center; justify-content:space-between; }
+        .chart-card-label { font-size:0.65rem; font-weight:900; text-transform:uppercase; letter-spacing:0.1em; color:#94a3b8; }
+        .chart-card-desc { padding:0.5rem 1.4rem 1rem; font-size:0.75rem; color:#64748b; font-style:italic; border-bottom:1px solid var(--border); }
 
-        .card-header-row { padding: 18px 24px 0 24px; display: flex; align-items: center; justify-content: space-between; }
-        .card-title { font-size: 11px; font-weight: 900; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.08em; }
-        .card-desc { padding: 8px 24px 14px 24px; font-size: 13px; color: #64748b; font-style: italic; line-height: 1.55; border-bottom: 1px solid #28332e; }
+        /* ── PNG export btn ── */
+        .png-btn { display:inline-flex; align-items:center; gap:4px; font-size:0.6rem; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; color:#64748b; border:1px solid var(--border); border-radius:5px; padding:3px 8px; background:var(--bg); cursor:pointer; transition:all 0.15s; }
+        .png-btn:hover { color:var(--accent); border-color:var(--accent); }
 
-        .section-desc { font-size: 13px; color: #64748b; font-style: italic; line-height: 1.6; padding: 12px 16px; background: rgba(96,165,250,0.06); border-left: 3px solid #60a5fa; border-radius: 0 8px 8px 0; }
+        /* ── Outlier badge ── */
+        .outlier-badge { display:inline-flex; align-items:center; gap:4px; background:rgba(245,158,11,.15); border:1px solid rgba(245,158,11,.4); color:#f59e0b; border-radius:999px; padding:2px 9px; font-size:9px; font-weight:700; cursor:pointer; position:relative; }
+        .outlier-badge .tip { display:none; position:absolute; top:calc(100% + 6px); right:0; background:#1c1917; border:1px solid rgba(245,158,11,.4); color:#fde68a; font-size:10px; padding:6px 10px; border-radius:8px; white-space:nowrap; z-index:100; }
+        .outlier-badge:hover .tip { display:block; }
 
-        .export-png-btn { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: #64748b; border: 1px solid #28332e; border-radius: 5px; padding: 4px 10px; background: #181f1c; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
-        .export-png-btn:hover { color: #60a5fa; border-color: #60a5fa; }
+        /* ── Severity badges ── */
+        .sev-critical { background:rgba(239,68,68,.12);   color:#ef4444; border:1px solid rgba(239,68,68,.3);  }
+        .sev-warning  { background:rgba(245,158,11,.12);  color:#f59e0b; border:1px solid rgba(245,158,11,.3); }
+        .sev-ok       { background:rgba(52,211,153,.12);  color:#34d399; border:1px solid rgba(52,211,153,.3); }
+        .sev-badge { display:inline-block; padding:0.15rem 0.55rem; border-radius:0.35rem; font-size:0.58rem; font-weight:900; letter-spacing:0.08em; text-transform:uppercase; }
 
-        .btn-csv { width: 100%; padding: 10px; border-radius: 10px; background: rgba(96,165,250,0.1); border: 1px solid #28332e; color: #60a5fa; font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.06em; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; justify-content: center; gap: 6px; }
-        .btn-csv:hover { background: rgba(96,165,250,0.2); border-color: #60a5fa; }
+        /* ── Protocol row ── */
+        .proto-row { border-bottom:1px solid var(--border); padding:0.85rem 1.25rem; transition:background 0.1s; }
+        .proto-row:last-child { border-bottom:none; }
+        .proto-row:hover { background:rgba(255,255,255,.025); }
 
-        .input-filter { background: #181f1c; border: 1px solid #28332e; color: #e2e8f0; border-radius: 8px; padding: 8px 10px; font-size: 12px; width: 100%; outline: none; }
+        /* ── Progress bar ── */
+        .prog-track { height:5px; background:rgba(255,255,255,.06); border-radius:9999px; overflow:hidden; }
+        .prog-fill  { height:100%; border-radius:9999px; transition:width 0.4s ease; }
 
-        ::-webkit-scrollbar { width: 4px; }
-        ::-webkit-scrollbar-thumb { background: #28332e; border-radius: 10px; }
-        label { font-size: 11px; }
-        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
-        .ai-cursor { display:inline-block; animation:blink 1s step-start infinite; color:#60a5fa; }
+        /* ── Search / filter ── */
+        .ctrl-input { background:var(--surface); border:1px solid var(--border); color:#e2e8f0; border-radius:0.75rem; padding:0.5rem 0.9rem; font-size:0.75rem; outline:none; transition:border-color 0.15s; }
+        .ctrl-input:focus { border-color:rgba(96,165,250,.5); }
+        .ctrl-input::placeholder { color:#475569; }
+        .ctrl-select { background:var(--surface); border:1px solid var(--border); color:#e2e8f0; border-radius:0.75rem; padding:0.5rem 2rem 0.5rem 0.9rem; font-size:0.75rem; outline:none; appearance:none; cursor:pointer; }
+        .ctrl-select:focus { border-color:rgba(96,165,250,.5); }
+
+        /* ── Alert card ── */
+        .alert-card { background:rgba(239,68,68,.08); border:1px solid rgba(239,68,68,.25); border-radius:0.9rem; padding:0.75rem 1rem; display:flex; align-items:center; gap:0.75rem; }
+
+        /* ── Empty state ── */
+        .empty-state { background:var(--surface); border:2px dashed var(--border); border-radius:1.5rem; }
+
+        /* ── Sidebar form inputs ── */
+        .sb-input { width:100%; background:var(--surface2); border:1px solid var(--border); border-radius:0.6rem; font-size:0.75rem; font-weight:700; padding:0.55rem 0.75rem; color:#e2e8f0; outline:none; }
+        .sb-input:focus { border-color:var(--accent); }
+
+        /* ── Scrollbar ── */
+        ::-webkit-scrollbar { width:4px; }
+        ::-webkit-scrollbar-thumb { background:var(--border); border-radius:10px; }
+
+        /* ── Light mode ── */
+        body.light { background:#f0f4f8 !important; color:#1a202c !important; }
+        body.light aside, body.light header { background:#fff !important; border-color:#e2e8f0 !important; }
+        body.light .sidebar-item { color:#4a5568 !important; }
+        body.light .sidebar-item:hover, body.light .sidebar-item.active { background:#e2e8f0 !important; color:#2b6cb0 !important; }
+        body.light main { background:#f0f4f8 !important; }
+        body.light .kpi, body.light .chart-card { background:#fff !important; border-color:#e2e8f0 !important; }
+        body.light .kpi-label { color:#64748b; }
+        body.light .chart-card-desc { color:#64748b; border-color:#e2e8f0; }
+        body.light .chart-card-head { border-color:#e2e8f0; }
+        body.light .proto-row { border-color:#f1f5f9; }
+        body.light .proto-row:hover { background:rgba(0,0,0,.02); }
+        body.light .prog-track { background:rgba(0,0,0,.06); }
+        body.light .ctrl-input, body.light .ctrl-select { background:#fff; border-color:#e2e8f0; color:#1a202c; }
+        body.light .ctrl-input::placeholder { color:#94a3b8; }
+        body.light .sb-input { background:#f8fafc; border-color:#e2e8f0; color:#1a202c; }
+        body.light .png-btn { background:#f8fafc; border-color:#e2e8f0; color:#64748b; }
+        body.light .btn-csv { background:rgba(96,165,250,.08) !important; border-color:rgba(96,165,250,.3) !important; }
     </style>
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
-
     {% include '_header.html' %}
 
     <div class="flex flex-1 overflow-hidden">
 
-        <!-- Sidebar -->
-        <aside class="w-64 bg-[#1a2420] border-r border-[#28332e] flex flex-col p-5 shadow-sm z-20 gap-5 overflow-y-auto flex-shrink-0">
-            <nav class="space-y-1">
+        <!-- ═══ SIDEBAR ═══ -->
+        <aside class="w-60 bg-[#1a2420] border-r border-[#28332e] flex flex-col p-5 shadow-sm z-20 gap-5 overflow-y-auto flex-shrink-0">
+            <nav>
                 <a href="{{ url_for('viewer.viewer_dashboard') }}"
-                   class="sidebar-item flex items-center gap-3 px-4 py-3 text-xs font-black text-[#64748b] uppercase tracking-widest border border-[#28332e] mb-4 hover:border-[#60a5fa]/30">
-                    <i class="bi bi-arrow-left-square-fill text-[#60a5fa] text-lg"></i> Dashboard
+                   class="sidebar-item flex items-center gap-3 px-3 py-2.5 text-xs font-black uppercase tracking-widest border border-[#28332e] mb-4 hover:border-[#60a5fa]/30">
+                    <i class="bi bi-arrow-left-square-fill text-[#60a5fa] text-base"></i> Dashboard
                 </a>
             </nav>
 
             <form method="GET" action="{{ url_for('report_29.report_29') }}" class="space-y-4">
                 <p class="text-[10px] font-black text-[#64748b] uppercase tracking-widest">Audit Controls</p>
                 <div>
-                    <label class="font-black text-[#60a5fa] uppercase tracking-wider block mb-1">Start Date</label>
-                    <input type="date" name="start_date" value="{{ display_start }}"
-                           class="w-full bg-[#181f1c] border border-[#28332e] rounded-lg text-xs font-bold p-2 text-[#e2e8f0] focus:ring-2 focus:ring-[#60a5fa] outline-none">
+                    <label class="block text-[10px] font-black text-[#60a5fa] uppercase tracking-wider mb-1">Start Date</label>
+                    <input type="date" name="start_date" value="{{ display_start }}" class="sb-input">
                 </div>
                 <div>
-                    <label class="font-black text-[#60a5fa] uppercase tracking-wider block mb-1">End Date</label>
-                    <input type="date" name="end_date" value="{{ display_end }}"
-                           class="w-full bg-[#181f1c] border border-[#28332e] rounded-lg text-xs font-bold p-2 text-[#e2e8f0] focus:ring-2 focus:ring-[#60a5fa] outline-none">
+                    <label class="block text-[10px] font-black text-[#60a5fa] uppercase tracking-wider mb-1">End Date</label>
+                    <input type="date" name="end_date" value="{{ display_end }}" class="sb-input">
                 </div>
                 <button type="submit"
-                        class="w-full py-3 bg-[#60a5fa] text-white text-xs font-black uppercase tracking-widest rounded-xl shadow-lg hover:bg-blue-400 transition active:scale-95">
+                    class="w-full py-2.5 bg-[#60a5fa] text-[#0f172a] text-xs font-black uppercase tracking-widest rounded-xl hover:bg-[#93c5fd] transition active:scale-95">
                     Run Analysis
                 </button>
             </form>
 
-            <!-- CSV export — only after report runs -->
             {% if run_report %}
             <div class="border-t border-[#28332e] pt-4 space-y-3">
-                <p class="text-[10px] font-black text-[#64748b] uppercase tracking-widest">Export Data</p>
+                <p class="text-[10px] font-black text-[#64748b] uppercase tracking-widest">Export</p>
                 <form method="POST" action="{{ url_for('report_29.export_report_29') }}">
                     <input type="hidden" name="start_date" value="{{ display_start }}">
-                    <input type="hidden" name="end_date" value="{{ display_end }}">
-                    <button type="submit" class="btn-csv">
-                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
-                                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-                        </svg>
-                        Download CSV
+                    <input type="hidden" name="end_date"   value="{{ display_end }}">
+                    <button type="submit"
+                        class="btn-csv w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-[rgba(96,165,250,.1)] border border-[#28332e] text-[#60a5fa] text-xs font-black uppercase tracking-wider hover:bg-[rgba(96,165,250,.2)] transition">
+                        <i class="bi bi-download"></i> Download CSV
                     </button>
                 </form>
-                <p class="text-[11px] text-[#64748b] italic leading-relaxed">
-                    Exports the full protocol density table — procedure code, modality, technician, study count, avg MB, and total GB.
-                </p>
             </div>
             {% endif %}
         </aside>
 
-        <!-- Main -->
-        <main class="flex-1 overflow-y-auto p-10 bg-[#181f1c]">
-            <div class="max-w-6xl mx-auto space-y-8">
+        <!-- ═══ MAIN ═══ -->
+        <main class="flex-1 overflow-y-auto p-6 bg-[#181f1c]">
+            <div class="max-w-6xl mx-auto space-y-6">
 
-                <!-- Page title row -->
-                <div class="flex justify-between items-end">
-                    <div>
-                        <h2 class="text-3xl font-black text-[#e2e8f0] uppercase tracking-tighter leading-none">{{ report_name }}</h2>
-                        <p class="text-[#64748b] text-xs font-black uppercase tracking-[0.2em] mt-2">Target Capacity: 4.0 TB Standard</p>
-                    </div>
-                    <div class="text-right">
-                        <span class="text-xs font-black text-[#64748b] uppercase tracking-widest">Total Archive Size</span>
-                        <div class="text-3xl font-black text-[#60a5fa] leading-none mt-1">
-                            {{ stats.total_tb }} <span class="text-sm">TB</span>
-                        </div>
-                    </div>
+                <!-- Page title -->
+                <div>
+                    <h1 class="text-xl font-black text-white tracking-tight">Infrastructure &amp; Storage Audit</h1>
+                    <p class="text-slate-500 text-[11px] font-bold uppercase tracking-widest mt-0.5">
+                        {% if run_report %}{{ display_start }} → {{ display_end }}{% else %}Select a date range to run the audit{% endif %}
+                    </p>
                 </div>
 
                 {% if run_report %}
 
+                <!-- ── KPI tiles ── -->
+                <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                    <div class="kpi">
+                        <div class="kpi-val text-[#60a5fa]">{{ stats.total_tb }} <span class="text-base font-bold text-slate-500">TB</span></div>
+                        <div class="kpi-label">Total Archive</div>
+                    </div>
+                    <div class="kpi">
+                        <div class="kpi-val text-white">{{ "{:,}".format(stats.total_studies or 0) }}</div>
+                        <div class="kpi-label">Studies</div>
+                    </div>
+                    <div class="kpi">
+                        <div class="kpi-val text-emerald-400">{{ stats.avg_mb_per_study or 0 }} <span class="text-base font-bold text-slate-500">MB</span></div>
+                        <div class="kpi-label">Avg / Study</div>
+                    </div>
+                    <div class="kpi">
+                        <div class="kpi-val {% if alerts %}text-red-400{% else %}text-emerald-400{% endif %}">{{ alerts|length }}</div>
+                        <div class="kpi-label">Critical Hogs</div>
+                    </div>
+                </div>
 
-
-                <!-- Section description -->
-                <p class="section-desc">
-                    Storage audit for the selected period. Identifies which modalities and procedure protocols are consuming the most PACS disk space, flags high-density "storage hog" studies above the 500 MB threshold, and surfaces technician-level patterns that may indicate non-standard acquisition protocols driving excess storage usage.
-                </p>
-
-                <!-- Alerts -->
+                <!-- ── Alerts ── -->
                 {% if alerts %}
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                     {% for alert in alerts %}
-                    <div class="bg-white border-l-4 border-red-500 p-5 rounded-xl shadow-sm flex items-center gap-4">
-                        <div class="h-10 w-10 bg-red-50 rounded-full flex items-center justify-center shrink-0">
-                            <i class="bi bi-exclamation-octagon-fill text-red-500 text-xl"></i>
-                        </div>
+                    <div class="alert-card">
+                        <i class="bi bi-exclamation-octagon-fill text-red-400 text-lg shrink-0"></i>
                         <div>
-                            <p class="text-[10px] font-black text-red-500 uppercase tracking-widest">Storage Alert</p>
-                            <p class="text-sm font-black text-[#e2e8f0] uppercase tracking-tight mt-0.5">{{ alert.msg }}</p>
+                            <p class="text-[10px] font-black text-red-400 uppercase tracking-widest">Storage Alert</p>
+                            <p class="text-xs font-bold text-white mt-0.5">{{ alert.msg }}</p>
                         </div>
                     </div>
                     {% endfor %}
                 </div>
                 {% endif %}
 
-                <!-- Charts row -->
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <!-- ── Charts ── -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
 
-                    <!-- Modality Storage -->
-                    <div class="card-custom">
-                        <div class="card-header-row">
-                            <span class="card-title">Storage Distribution by Modality (GB)</span>
-                            <button class="export-png-btn" onclick="exportChart('modalityChart', 'storage_by_modality')">
-                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-                                </svg>
-                                PNG
+                    <!-- Modality chart -->
+                    <div class="chart-card">
+                        <div class="chart-card-head">
+                            <span class="chart-card-label">Storage by Modality (GB)</span>
+                            <button class="png-btn" onclick="exportChart('modalityChart','storage_by_modality')">
+                                <i class="bi bi-download"></i> PNG
                             </button>
                         </div>
-                        <div class="card-desc">
-                            Total gigabytes consumed per imaging modality in the selected period. Modalities with large bars are the primary drivers of storage growth — useful for prioritizing compression or archiving policies.
-                        </div>
-                        <div class="chart-container pt-4">
+                        <p class="chart-card-desc">Gigabytes consumed per imaging modality — identifies primary storage growth drivers.</p>
+                        <div style="position:relative;height:260px;padding:0 16px 16px">
                             <canvas id="modalityChart"></canvas>
                         </div>
                     </div>
 
-                    <!-- Technician Storage Hogs -->
-                    <div class="card-custom">
-                        <div class="card-header-row">
+                    <!-- Tech hogs chart -->
+                    <div class="chart-card">
+                        <div class="chart-card-head">
                             <div class="flex items-center gap-2">
-                                <span class="card-title">Technician Storage Hogs (Avg MB/Study)</span>
+                                <span class="chart-card-label">AE Storage Density (Avg MB/Study)</span>
                                 {% if tech_bar_json and tech_bar_json.outliers_removed %}
-                                <span class="outlier-badge">⚠ {{ tech_bar_json.outliers_removed }} outliers removed<span class="tooltip">IQR filter applied — extreme avg MB/study values excluded from this chart.</span></span>
+                                <span class="outlier-badge">⚠ {{ tech_bar_json.outliers_removed }} outliers removed
+                                    <span class="tip">IQR filter applied — extreme avg MB/study values excluded.</span>
+                                </span>
                                 {% endif %}
                             </div>
-                            <button class="export-png-btn" onclick="exportChart('techChart', 'technician_storage_hogs')">
-                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-                                </svg>
-                                PNG
+                            <button class="png-btn" onclick="exportChart('techChart','ae_storage_density')">
+                                <i class="bi bi-download"></i> PNG
                             </button>
                         </div>
-                        <div class="card-desc">
-                            Average storage consumed per study, grouped by performing technician. <span class="text-red-500 not-italic font-bold">Red bars (&gt;500 MB)</span> indicate non-standard acquisition — possibly too many series, high-resolution overrides, or missing compression. Threshold: 500 MB.
-                        </div>
-                        <div class="chart-container pt-4">
+                        <p class="chart-card-desc"><span class="text-red-400 not-italic font-bold">Red &gt;500 MB</span> indicates non-standard acquisition — excess series, high-res overrides, or missing compression.</p>
+                        <div style="position:relative;height:260px;padding:0 16px 16px">
                             <canvas id="techChart"></canvas>
                         </div>
                     </div>
                 </div>
 
-                <!-- Protocol Density Table -->
-                <div class="card-custom">
-                    <div class="card-header-row pt-6">
-                        <span class="card-title">Protocol Density Inventory</span>
+                <!-- ── Protocol Density ── -->
+                <div class="chart-card">
+                    <!-- Header -->
+                    <div class="px-5 pt-5 pb-4 border-b border-[#28332e]">
+                        <div class="flex items-start justify-between mb-3">
+                            <div>
+                                <h3 class="text-xs font-black uppercase tracking-widest text-slate-400">Protocol Density Inventory</h3>
+                                <p class="text-[11px] text-slate-600 mt-0.5">Top storage consumers by procedure × AE title. <span class="text-red-400 font-bold not-italic">Critical</span> = &gt;500 MB/study, <span class="text-amber-400 font-bold not-italic">Warning</span> = 250–500 MB, <span class="text-emerald-400 font-bold not-italic">OK</span> = under 250 MB.</p>
+                            </div>
+                            <span id="proto-count" class="text-[10px] font-black text-slate-500 uppercase tracking-widest shrink-0 mt-1"></span>
+                        </div>
+                        <!-- Controls -->
+                        <div class="flex flex-wrap gap-2">
+                            <div class="relative flex-1 min-w-[180px]">
+                                <i class="bi bi-search absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 text-xs pointer-events-none"></i>
+                                <input type="text" id="proto-search" placeholder="Search procedure or AE…"
+                                    class="ctrl-input w-full pl-7" oninput="renderProto()">
+                            </div>
+                            <div class="relative">
+                                <select id="proto-mod" class="ctrl-select pr-7" onchange="renderProto()"
+                                        style="background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' fill='%2360a5fa' viewBox='0 0 16 16'%3E%3Cpath d='M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z'/%3E%3C/svg%3E\");background-repeat:no-repeat;background-position:right 0.6rem center;">
+                                    <option value="">All Modalities</option>
+                                </select>
+                            </div>
+                            <div class="relative">
+                                <select id="proto-sev" class="ctrl-select pr-7" onchange="renderProto()"
+                                        style="background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' fill='%2360a5fa' viewBox='0 0 16 16'%3E%3Cpath d='M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z'/%3E%3C/svg%3E\");background-repeat:no-repeat;background-position:right 0.6rem center;">
+                                    <option value="">All Severity</option>
+                                    <option value="critical">Critical Hog</option>
+                                    <option value="warning">Warning</option>
+                                    <option value="ok">Optimized</option>
+                                </select>
+                            </div>
+                        </div>
                     </div>
-                    <div class="card-desc">
-                        Full breakdown by procedure code and performing technician. <span class="text-red-600 not-italic font-bold">Critical Hog</span> = avg &gt;500 MB/study, <span class="text-amber-600 not-italic font-bold">Warning</span> = 250–500 MB, <span class="text-emerald-600 not-italic font-bold">Optimized</span> = under 250 MB. Runway Impact indicates how aggressively this protocol is consuming available capacity.
+
+                    <!-- Rows container -->
+                    <div id="proto-list"></div>
+
+                    <!-- Load more -->
+                    <div id="proto-more-wrap" class="hidden px-5 py-4 border-t border-[#28332e]">
+                        <button id="proto-more-btn" onclick="loadMoreProto()"
+                            class="w-full py-2.5 rounded-xl border border-[#28332e] text-xs font-black uppercase tracking-widest text-slate-500 hover:text-[#60a5fa] hover:border-[#60a5fa]/40 transition">
+                            Show more
+                        </button>
                     </div>
-                    <div class="overflow-x-auto px-6 pb-6">
-                        <table class="w-full text-left">
-                            <thead class="border-b border-[#28332e] text-xs font-black text-[#64748b] uppercase tracking-wider">
-                                <tr>
-                                    <th class="pb-4 pr-4 pt-4">Procedure / Tech</th>
-                                    <th class="pb-4 pr-4">Modality</th>
-                                    <th class="pb-4 text-right">Studies</th>
-                                    <th class="pb-4 text-right">Avg Density (MB)</th>
-                                    <th class="pb-4 text-right">Runway Impact</th>
-                                    <th class="pb-4 text-right">Total GB</th>
-                                </tr>
-                            </thead>
-                            <tbody class="text-sm font-bold text-[#94a3b8] divide-y divide-white/5">
-                                {% for row in table_data %}
-                                <tr class="hover:bg-white/[0.02] transition">
-                                    <td class="py-4">
-                                        <p class="uppercase font-black text-[#e2e8f0] text-sm">{{ row.study_description or row.procedure_code or 'N/A' }}</p>
-                                        <p class="text-xs text-[#64748b] uppercase mt-0.5">Tech: {{ row.performing_technician or 'Unassigned' }}</p>
-                                    </td>
-                                    <td class="py-4">
-                                        <span class="px-2.5 py-1 bg-white/5 text-[#94a3b8] rounded text-xs font-black uppercase">
-                                            {{ row.modality }}
-                                        </span>
-                                    </td>
-                                    <td class="py-4 text-right text-[#64748b] text-sm">{{ "{:,}".format(row.study_count) }}</td>
-                                    <td class="py-4 text-right text-sm">
-                                        <span class="{% if row.avg_mb_per_study > 500 %}text-red-600 font-black{% elif row.avg_mb_per_study > 250 %}text-amber-600{% else %}text-emerald-600{% endif %}">
-                                            {{ "{:,.1f}".format(row.avg_mb_per_study or 0) }} MB
-                                        </span>
-                                    </td>
-                                    <td class="py-4 text-right">
-                                        {% if row.avg_mb_per_study > 500 %}
-                                            <span class="status-pill bg-red-100 text-red-600">Critical Hog</span>
-                                        {% elif row.avg_mb_per_study > 250 %}
-                                            <span class="status-pill bg-amber-100 text-amber-600">Warning</span>
-                                        {% else %}
-                                            <span class="status-pill bg-emerald-100 text-emerald-600">Optimized</span>
-                                        {% endif %}
-                                    </td>
-                                    <td class="py-4 text-right text-[#e2e8f0] font-black text-sm">{{ "{:,.2f}".format(row.total_gb) }}</td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
+
+                    <!-- Empty state -->
+                    <div id="proto-empty" class="hidden py-12 text-center">
+                        <i class="bi bi-search text-3xl text-slate-700 block mb-2"></i>
+                        <p class="text-slate-600 text-sm font-bold">No protocols match your filters</p>
                     </div>
                 </div>
 
                 {% else %}
-                <div class="h-96 flex flex-col items-center justify-center text-center card-custom border-dashed border-2 border-[#28332e]">
-                    <div class="bg-white/5 p-6 rounded-full mb-4">
-                        <i class="bi bi-hdd-network text-4xl text-[#64748b]"></i>
+                <!-- Not yet run -->
+                <div class="empty-state h-80 flex flex-col items-center justify-center text-center">
+                    <div class="bg-white/5 p-5 rounded-full mb-4">
+                        <i class="bi bi-hdd-network text-4xl text-slate-600"></i>
                     </div>
-                    <p class="text-[#64748b] font-black uppercase tracking-[0.2em] text-sm">Ready for Storage Audit</p>
-                    <p class="text-[#94a3b8] text-xs mt-2">Select a date range and click Run Analysis</p>
+                    <p class="text-slate-500 font-black uppercase tracking-widest text-sm">Ready for Storage Audit</p>
+                    <p class="text-slate-600 text-xs mt-2">Select a date range and click Run Analysis</p>
                 </div>
                 {% endif %}
 
-            </div>
+            </div><!-- /max-w -->
         </main>
     </div>
 
     <script>
-    // ── Chart registry for PNG export ────────────────────────────────────────
+    // ── Chart registry ───────────────────────────────────────────────────────────
     const chartInstances = {};
-
     function exportChart(id, filename) {
-        const instance = chartInstances[id];
-        if (!instance) return;
-        const url = instance.toBase64Image('image/png', 1);
+        const inst = chartInstances[id];
+        if (!inst) return;
         const a = document.createElement('a');
-        a.href = url;
+        a.href = inst.toBase64Image('image/png', 1);
         a.download = `${filename}_{{ display_start }}_to_{{ display_end }}.png`;
         a.click();
     }
 
     {% if run_report %}
 
-    const sharedOptions = {
-        indexAxis: 'y',
-        responsive: true,
-        maintainAspectRatio: false,
+    // ── Shared chart options ─────────────────────────────────────────────────────
+    const sharedOpts = {
+        indexAxis: 'y', responsive: true, maintainAspectRatio: false,
         plugins: { legend: { display: false } },
         scales: {
-            x: {
-                grid: { display: false },
-                ticks: { color: '#64748b', font: { size: 12, weight: 'bold' } }
-            },
-            y: {
-                grid: { display: false },
-                ticks: { color: '#94a3b8', font: { size: 12, weight: 'bold' } }
-            }
+            x: { grid: { display: false }, ticks: { color: '#64748b', font: { size: 11, weight: 'bold' } } },
+            y: { grid: { display: false }, ticks: { color: '#94a3b8', font: { size: 11, weight: 'bold' } } }
         }
     };
 
-    // Modality Storage chart
     chartInstances['modalityChart'] = new Chart(document.getElementById('modalityChart'), {
         type: 'bar',
         data: {{ modality_bar_json | tojson }},
-        options: sharedOptions
+        options: sharedOpts
     });
 
-    // Technician Hogs chart — colour-coded by threshold
-    const techData = {{ tech_bar_json | tojson if tech_bar_json else '{"labels":[], "data":[]}' }};
+    const techData = {{ tech_bar_json | tojson if tech_bar_json else '{"labels":[],"data":[]}' }};
     chartInstances['techChart'] = new Chart(document.getElementById('techChart'), {
         type: 'bar',
         data: {
             labels: techData.labels,
-            datasets: [{
-                label: 'Avg MB / Study',
-                data: techData.data,
-                backgroundColor: techData.data.map(v => v > 500 ? '#ef4444' : v > 250 ? '#f59e0b' : '#10b981'),
-                borderRadius: 4
-            }]
+            datasets: [{ label: 'Avg MB/Study', data: techData.data, borderRadius: 4,
+                backgroundColor: techData.data.map(v => v > 500 ? '#ef4444' : v > 250 ? '#f59e0b' : '#10b981') }]
         },
-        options: {
-            ...sharedOptions,
-            plugins: {
-                legend: { display: false },
-                tooltip: {
-                    callbacks: {
-                        label: ctx => `${ctx.parsed.x.toFixed(1)} MB/study`
-                    }
-                }
-            }
-        }
+        options: { ...sharedOpts, plugins: { legend: { display: false },
+            tooltip: { callbacks: { label: ctx => `${ctx.parsed.x.toFixed(1)} MB/study` } } } }
     });
+
+    // ── Protocol density data ────────────────────────────────────────────────────
+    const PROTO_DATA = {{ table_data | tojson }};
+
+    const PAGE_SIZE = 20;
+    let protoVisible = PAGE_SIZE;
+    let protoFiltered = [];
+
+    // Populate modality filter
+    const mods = [...new Set(PROTO_DATA.map(r => r.modality).filter(Boolean))].sort();
+    const modSel = document.getElementById('proto-mod');
+    mods.forEach(m => { const o = document.createElement('option'); o.value = m; o.textContent = m; modSel.appendChild(o); });
+
+    // Max GB for progress bars
+    const maxGB = Math.max(...PROTO_DATA.map(r => +r.total_gb || 0), 0.001);
+
+    function sevClass(avg) {
+        if (avg > 500) return 'critical';
+        if (avg > 250) return 'warning';
+        return 'ok';
+    }
+    function sevLabel(avg) {
+        if (avg > 500) return 'Critical Hog';
+        if (avg > 250) return 'Warning';
+        return 'Optimized';
+    }
+    function sevColor(s) {
+        return s === 'critical' ? '#ef4444' : s === 'warning' ? '#f59e0b' : '#10b981';
+    }
+    function fmtGB(v) { return (+v).toFixed(2); }
+    function fmtMB(v) { return (+v).toFixed(1); }
+    function fmtNum(v) { return (+v).toLocaleString(); }
+
+    function renderProto() {
+        protoVisible = PAGE_SIZE;
+        const q   = document.getElementById('proto-search').value.toLowerCase().trim();
+        const mod = document.getElementById('proto-mod').value;
+        const sev = document.getElementById('proto-sev').value;
+
+        protoFiltered = PROTO_DATA.filter(r => {
+            const proc = (r.procedure_code || '').toLowerCase();
+            const ae   = (r.performing_technician || '').toLowerCase();
+            const qOk  = !q || proc.includes(q) || ae.includes(q);
+            const mOk  = !mod || r.modality === mod;
+            const sOk  = !sev || sevClass(r.avg_mb_per_study || 0) === sev;
+            return qOk && mOk && sOk;
+        });
+
+        buildRows();
+    }
+
+    function buildRows() {
+        const list    = document.getElementById('proto-list');
+        const moreWrap= document.getElementById('proto-more-wrap');
+        const empty   = document.getElementById('proto-empty');
+        const count   = document.getElementById('proto-count');
+
+        const slice = protoFiltered.slice(0, protoVisible);
+
+        count.textContent = protoFiltered.length
+            ? `${Math.min(protoVisible, protoFiltered.length)} of ${protoFiltered.length}`
+            : '';
+
+        if (protoFiltered.length === 0) {
+            list.innerHTML = '';
+            empty.classList.remove('hidden');
+            moreWrap.classList.add('hidden');
+            return;
+        }
+        empty.classList.add('hidden');
+
+        list.innerHTML = slice.map(r => {
+            const sev  = sevClass(r.avg_mb_per_study || 0);
+            const pct  = Math.round(((+r.total_gb || 0) / maxGB) * 100);
+            const color= sevColor(sev);
+            const proc = r.procedure_code || 'N/A';
+            const ae   = r.performing_technician || 'Unassigned';
+            return `
+            <div class="proto-row">
+                <div class="flex items-center justify-between gap-4">
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2 mb-0.5 flex-wrap">
+                            <span class="font-black text-white text-sm truncate">${proc}</span>
+                            <span class="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-white/5 text-slate-400">${r.modality || '—'}</span>
+                            <span class="sev-badge sev-${sev}">${sevLabel(r.avg_mb_per_study || 0)}</span>
+                        </div>
+                        <div class="text-[11px] text-slate-500 mb-2">
+                            <i class="bi bi-hdd text-[10px] mr-1"></i>${ae}
+                        </div>
+                        <div class="prog-track">
+                            <div class="prog-fill" style="width:${pct}%;background:${color};opacity:0.7;"></div>
+                        </div>
+                    </div>
+                    <div class="text-right shrink-0 space-y-0.5">
+                        <div class="font-black text-white text-sm">${fmtGB(r.total_gb)} <span class="text-slate-500 font-normal text-xs">GB</span></div>
+                        <div class="text-[11px] text-slate-500">${fmtNum(r.study_count)} studies</div>
+                        <div class="text-[11px] font-bold" style="color:${color}">${fmtMB(r.avg_mb_per_study || 0)} MB/study</div>
+                    </div>
+                </div>
+            </div>`;
+        }).join('');
+
+        moreWrap.classList.toggle('hidden', protoVisible >= protoFiltered.length);
+        if (moreWrap.classList.contains('hidden') === false) {
+            document.getElementById('proto-more-btn').textContent =
+                `Show ${Math.min(PAGE_SIZE, protoFiltered.length - protoVisible)} more of ${protoFiltered.length - protoVisible} remaining`;
+        }
+    }
+
+    function loadMoreProto() {
+        protoVisible += PAGE_SIZE;
+        buildRows();
+    }
+
+    // Initial render
+    renderProto();
+
     {% endif %}
 
-
-    function applyTheme(theme) {
-        document.body.classList.toggle('light', theme === 'light');
+    // ── Theme ────────────────────────────────────────────────────────────────────
+    function applyTheme(t) {
+        document.body.classList.toggle('light', t === 'light');
         const icon = document.getElementById('theme-icon');
-        if (icon) icon.className = theme === 'light' ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
+        if (icon) icon.className = t === 'light' ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
     }
     applyTheme("{{ ui_theme }}");
     function toggleTheme() {
         const next = document.body.classList.contains('light') ? 'dark' : 'light';
         applyTheme(next);
-        fetch('/user/theme', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({theme: next}) });
+        fetch('/user/theme', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({theme:next}) });
     }
     </script>
-<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-    flatpickr('input[type="date"]', {
-        dateFormat: 'Y-m-d',
-        altInput:   true,
-        altFormat:  'd/m/Y',
-        allowInput: true,
-        disableMobile: true
+
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {
+        flatpickr('input[type="date"]', { dateFormat:'Y-m-d', altInput:true, altFormat:'d/m/Y', allowInput:true, disableMobile:true });
     });
-});
-</script>
+    </script>
 </body>
 </html>
