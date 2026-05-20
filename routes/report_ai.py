@@ -126,9 +126,10 @@ def _generate_explanation(section, data):
 
 def _get_storage_intelligence(start, end):
     rows = db.session.execute(text("""
-        SELECT study_date, total_gb
+        SELECT study_date, SUM(total_gb) AS total_gb
         FROM summary_storage_daily
         WHERE study_date BETWEEN :s AND :e
+        GROUP BY study_date
         ORDER BY study_date
     """), {"s": start, "e": end}).fetchall()
 
