@@ -335,8 +335,12 @@ class SchedulingEntry(db.Model):
     patient_class = db.Column(String(10), nullable=False)
     procedure_datetime = db.Column(DateTime, nullable=False)
     modality_type = db.Column(String(50), nullable=False)
+    aetitle = db.Column(String(50), nullable=True)
     procedures = db.Column(JSONB, nullable=False, server_default='[]')
     third_party_approvals = db.Column(JSONB, nullable=False, server_default='[]')
+    cancelled = db.Column(Boolean, nullable=False, server_default='false')
+    cancelled_at = db.Column(DateTime, nullable=True)
+    cancelled_by = db.Column(String(100), nullable=True)
     created_at = db.Column(DateTime, server_default=func.now())
     updated_at = db.Column(DateTime, server_default=func.now(), onupdate=func.now())
 

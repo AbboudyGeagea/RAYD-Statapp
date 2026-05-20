@@ -119,34 +119,13 @@ def admin_dashboard():
 @login_required
 def scheduling_page():
     from db import user_has_page
+    from collections import defaultdict, Counter
     if current_user.role != 'admin' and not user_has_page(current_user, 'scheduling'):
         flash("Access denied.", "danger")
         return redirect(url_for('viewer.viewer_dashboard'))
 
-    # Ensure table exists
-    try:
-        db.session.execute(text("""
-            CREATE TABLE IF NOT EXISTS scheduling_entries (
-                id                    SERIAL PRIMARY KEY,
-                first_name            TEXT NOT NULL,
-                middle_name           TEXT NOT NULL,
-                last_name             TEXT NOT NULL,
-                date_of_birth         DATE NOT NULL,
-                referring_physician   TEXT NOT NULL,
-                patient_class         TEXT NOT NULL,
-                procedure_datetime    TIMESTAMP WITHOUT TIME ZONE NOT NULL,
-                modality_type         VARCHAR(50) NOT NULL,
-                procedures            JSONB NOT NULL DEFAULT '[]',
-                third_party_approvals JSONB NOT NULL DEFAULT '[]',
-                created_at            TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW(),
-                updated_at            TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
-            )
-        """))
-        db.session.commit()
-    except Exception:
-        db.session.rollback()
-
     # ── Date navigation ───────────────────────────────────────────────────────
+    view_mode     = request.args.get('view', 'day')  # 'day' or 'week'
     view_date_str = request.args.get('date', datetime.now().strftime('%Y-%m-%d'))
     try:
         view_date = datetime.strptime(view_date_str, '%Y-%m-%d').date()
@@ -155,6 +134,12 @@ def scheduling_page():
     prev_date = (view_date - timedelta(days=1)).strftime('%Y-%m-%d')
     next_date = (view_date + timedelta(days=1)).strftime('%Y-%m-%d')
     is_today  = (view_date == datetime.now().date())
+
+    # week boundaries (Mon–Sun of current week)
+    week_start = view_date - timedelta(days=view_date.weekday())
+    week_end   = week_start + timedelta(days=6)
+    prev_week  = (week_start - timedelta(days=7)).strftime('%Y-%m-%d')
+    next_week  = (week_start + timedelta(days=7)).strftime('%Y-%m-%d')
 
     # 7-day procedure count strip
     strip_start = view_date - timedelta(days=3)
@@ -168,36 +153,75 @@ def scheduling_page():
               AND (message_type IS NULL OR message_type NOT LIKE 'ADT%')
             GROUP BY 1
         """), {"s": strip_start, "e": strip_end}).fetchall()
-        date_counts = {r.d: r.cnt for r in count_rows}
+        manual_count_rows = db.session.execute(text("""
+            SELECT DATE(procedure_datetime) AS d, COUNT(*) AS cnt
+            FROM scheduling_entries
+            WHERE DATE(procedure_datetime) BETWEEN :s AND :e
+              AND (cancelled IS NULL OR cancelled = false)
+            GROUP BY 1
+        """), {"s": strip_start, "e": strip_end}).fetchall()
+        date_counts: dict = {}
+        for r in count_rows:
+            date_counts[r.d] = date_counts.get(r.d, 0) + r.cnt
+        for r in manual_count_rows:
+            date_counts[r.d] = date_counts.get(r.d, 0) + r.cnt
     except Exception:
         date_counts = {}
     strip_dates = [strip_start + timedelta(days=i) for i in range(7)]
+
+    # ── Device list (for columns + form dropdown) ─────────────────────────────
+    device_rows = []
+    mod_to_aetitles: dict = {}
+    device_map: dict = {}   # aetitle → {label, modality, capacity_slots}
+    aetitle_list = []       # ordered list for form dropdown
+    try:
+        device_rows = db.session.execute(text("""
+            SELECT m.aetitle,
+                   m.modality,
+                   COALESCE(m.description, m.aetitle) AS label,
+                   COALESCE(dws.std_opening_minutes, m.daily_capacity_minutes, 480) AS capacity_minutes
+            FROM aetitle_modality_map m
+            LEFT JOIN device_weekly_schedule dws
+                ON dws.aetitle = m.aetitle AND dws.day_of_week = :dow
+            ORDER BY m.modality, m.aetitle
+        """), {"dow": view_date.weekday()}).fetchall()
+        for r in device_rows:
+            device_map[r.aetitle] = {
+                'aetitle':        r.aetitle,
+                'modality':       r.modality,
+                'label':          r.label,
+                'capacity_slots': max(1, (r.capacity_minutes or 480) // 30),
+            }
+            mod_to_aetitles.setdefault(r.modality, []).append(r.aetitle)
+            aetitle_list.append({'aetitle': r.aetitle, 'label': r.label, 'modality': r.modality})
+    except Exception:
+        pass
 
     # ── Handle form POST ──────────────────────────────────────────────────────
     schedule_id = request.args.get('schedule_id', type=int)
     schedule = db.session.get(SchedulingEntry, schedule_id) if schedule_id else None
 
     if request.method == 'POST':
-        form_schedule_id      = request.form.get('schedule_id', type=int)
-        first_name            = (request.form.get('first_name')            or '').strip()
-        middle_name           = (request.form.get('middle_name')           or '').strip()
-        last_name             = (request.form.get('last_name')             or '').strip()
-        date_of_birth_raw     = (request.form.get('date_of_birth')         or '').strip()
-        referring_physician   = (request.form.get('referring_physician')   or '').strip()
-        patient_class         = (request.form.get('patient_class')         or '').strip()
+        form_schedule_id       = request.form.get('schedule_id', type=int)
+        first_name             = (request.form.get('first_name')            or '').strip()
+        middle_name            = (request.form.get('middle_name')           or '').strip()
+        last_name              = (request.form.get('last_name')             or '').strip()
+        date_of_birth_raw      = (request.form.get('date_of_birth')         or '').strip()
+        referring_physician    = (request.form.get('referring_physician')   or '').strip()
+        patient_class          = (request.form.get('patient_class')         or '').strip()
         procedure_datetime_raw = request.form.get('procedure_datetime', '').strip()
-        modality_type         = (request.form.get('modality_type')         or '').strip()
-        procedures            = [p.strip() for p in request.form.getlist('procedure_name')       if p.strip()]
-        third_party_approvals = [p.strip() for p in request.form.getlist('third_party_approval') if p.strip()]
+        modality_type          = (request.form.get('modality_type')         or '').strip()
+        aetitle_val            = (request.form.get('aetitle')               or '').strip() or None
+        procedures             = [p.strip() for p in request.form.getlist('procedure_name')       if p.strip()]
+        third_party_approvals  = [p.strip() for p in request.form.getlist('third_party_approval') if p.strip()]
 
         if not all([first_name, middle_name, last_name, date_of_birth_raw,
-                    referring_physician, patient_class, procedure_datetime_raw,
-                    modality_type, procedures, third_party_approvals]):
+                    referring_physician, patient_class, procedure_datetime_raw, modality_type]):
             flash("Please complete all required scheduling fields.", "danger")
         else:
             try:
-                date_of_birth      = datetime.strptime(date_of_birth_raw,      '%Y-%m-%d').date()
-                procedure_datetime = datetime.strptime(procedure_datetime_raw,  '%Y-%m-%dT%H:%M')
+                date_of_birth      = datetime.strptime(date_of_birth_raw,     '%Y-%m-%d').date()
+                procedure_datetime = datetime.strptime(procedure_datetime_raw, '%Y-%m-%dT%H:%M')
             except ValueError:
                 flash("Please enter valid date and datetime values.", "danger")
                 date_of_birth = procedure_datetime = None
@@ -212,35 +236,36 @@ def scheduling_page():
                         entry.patient_class = patient_class
                         entry.procedure_datetime = procedure_datetime
                         entry.modality_type = modality_type
-                        entry.procedures = procedures
-                        entry.third_party_approvals = third_party_approvals
+                        entry.aetitle = aetitle_val
+                        entry.procedures = procedures or []
+                        entry.third_party_approvals = third_party_approvals or []
                         entry.updated_at = datetime.utcnow()
                         db.session.commit()
                         return redirect(url_for('admin.scheduling_page',
-                                                schedule_id=entry.id, date=procedure_datetime.strftime('%Y-%m-%d')))
+                                                schedule_id=entry.id,
+                                                date=procedure_datetime.strftime('%Y-%m-%d')))
                 else:
                     new_entry = SchedulingEntry(
                         first_name=first_name, middle_name=middle_name, last_name=last_name,
                         date_of_birth=date_of_birth, referring_physician=referring_physician,
                         patient_class=patient_class, procedure_datetime=procedure_datetime,
-                        modality_type=modality_type, procedures=procedures,
-                        third_party_approvals=third_party_approvals,
+                        modality_type=modality_type, aetitle=aetitle_val,
+                        procedures=procedures or [], third_party_approvals=third_party_approvals or [],
                     )
                     db.session.add(new_entry)
                     db.session.commit()
                     return redirect(url_for('admin.scheduling_page',
-                                            schedule_id=new_entry.id, date=procedure_datetime.strftime('%Y-%m-%d')))
+                                            schedule_id=new_entry.id,
+                                            date=procedure_datetime.strftime('%Y-%m-%d')))
 
-    # ── Build day grid ────────────────────────────────────────────────────────
-    # Collect appointments from both sources for view_date
+    # ── Collect appointments for day view ─────────────────────────────────────
     appointments = []
-
-    # Source 1: manually entered scheduling entries
     day_start = datetime.combine(view_date, datetime.min.time())
     day_end   = datetime.combine(view_date, datetime.max.time())
+
     manual_entries = SchedulingEntry.query.filter(
         SchedulingEntry.procedure_datetime >= day_start,
-        SchedulingEntry.procedure_datetime <= day_end
+        SchedulingEntry.procedure_datetime <= day_end,
     ).order_by(SchedulingEntry.procedure_datetime).all()
 
     for e in manual_entries:
@@ -250,18 +275,21 @@ def scheduling_page():
             'time':      e.procedure_datetime.strftime('%H:%M'),
             'hour_slot': e.procedure_datetime.hour * 60 + (30 if e.procedure_datetime.minute >= 30 else 0),
             'modality':  e.modality_type or 'OT',
+            'aetitle':   e.aetitle or '',
             'name':      f"{e.first_name} {e.last_name}",
             'procedure': ', '.join(e.procedures) if e.procedures else '',
             'class':     e.patient_class,
             'ref':       e.referring_physician,
+            'cancelled': bool(e.cancelled),
         })
 
-    # Source 2: HL7 orders from HIS (scheduled for this day, all statuses)
     unscheduled = []
     try:
         hl7_rows = db.session.execute(text("""
             SELECT id, patient_name, patient_id, procedure_code, procedure_text,
-                   modality, scheduled_datetime, ordering_physician, order_status, accession_number
+                   modality, scheduled_datetime, ordering_physician, order_status,
+                   accession_number,
+                   COALESCE(target_aetitle, '') AS target_aetitle
             FROM hl7_orders
             WHERE DATE(scheduled_datetime) = :d
               AND (message_type IS NULL OR message_type NOT LIKE 'ADT%')
@@ -271,7 +299,7 @@ def scheduling_page():
         for r in hl7_rows:
             if not r.scheduled_datetime:
                 continue
-            dt = r.scheduled_datetime
+            dt     = r.scheduled_datetime
             status = (r.order_status or '').upper()
             appointments.append({
                 'source':    'hl7',
@@ -279,6 +307,7 @@ def scheduling_page():
                 'time':      dt.strftime('%H:%M'),
                 'hour_slot': dt.hour * 60 + (30 if dt.minute >= 30 else 0),
                 'modality':  (r.modality or 'OT').strip().upper(),
+                'aetitle':   r.target_aetitle or '',
                 'name':      r.patient_name or f"ID: {r.patient_id or '—'}",
                 'procedure': (r.procedure_text or r.procedure_code or '—')[:60],
                 'class':     'OP',
@@ -288,7 +317,6 @@ def scheduling_page():
                 'cancelled': status in ('CA', 'DC'),
             })
 
-        # Unscheduled HL7 orders (no scheduled_datetime) — worklist
         unscheduled_rows = db.session.execute(text("""
             SELECT id, patient_name, patient_id, procedure_code, procedure_text,
                    modality, ordering_physician, order_status, accession_number, received_at
@@ -309,54 +337,131 @@ def scheduling_page():
                 'physician': r.ordering_physician or '',
                 'status':    (r.order_status or ''),
                 'accession': r.accession_number or '',
-                'received':  r.received_at.strftime('%H:%M') if r.received_at else '',
+                'received':  r.received_at.strftime('%d/%m %H:%M') if r.received_at else '',
             }
             for r in unscheduled_rows
         ]
     except Exception:
         pass
 
-    # Build grid: time_slot (minutes) → modality → [appointments]
-    from collections import defaultdict
-    grid_raw = defaultdict(lambda: defaultdict(list))
-    modalities_set = []
-    for appt in appointments:
-        slot = appt['hour_slot']
-        mod  = appt['modality']
-        grid_raw[slot][mod].append(appt)
-        if mod not in modalities_set:
-            modalities_set.append(mod)
-    modalities_set.sort()
+    # ── Build per-device columns ──────────────────────────────────────────────
+    # col_key: aetitle string if device assigned, else "{MODALITY}-any" pool
+    grid_raw: dict = defaultdict(lambda: defaultdict(list))
+    col_keys_seen: list = []
 
-    # Time slots 00:00 – 23:30 (full 24 h)
+    def _col_key_for(appt: dict) -> str:
+        ae = appt.get('aetitle', '').strip()
+        if ae and ae in device_map:
+            return ae
+        mod = appt['modality']
+        ae_list = mod_to_aetitles.get(mod, [])
+        if len(ae_list) == 1:
+            return ae_list[0]
+        return f"_pool_{mod}"
+
+    for appt in appointments:
+        ck = _col_key_for(appt)
+        appt['col_key'] = ck
+        grid_raw[appt['hour_slot']][ck].append(appt)
+        if ck not in col_keys_seen:
+            col_keys_seen.append(ck)
+
+    # Build ordered columns: first all AE titles (from device_map, sorted), then any pool cols
+    ordered_cols = [ae for ae in device_map if ae in col_keys_seen]
+    for ck in col_keys_seen:
+        if ck not in ordered_cols:
+            ordered_cols.append(ck)
+
+    def _col_meta(ck: str) -> dict:
+        if ck in device_map:
+            d = device_map[ck]
+            booked = sum(len(grid_raw[s].get(ck, [])) for s in grid_raw)
+            return {
+                'key':            ck,
+                'label':          d['label'],
+                'modality':       d['modality'],
+                'capacity_slots': d['capacity_slots'],
+                'booked':         booked,
+                'is_pool':        False,
+            }
+        mod = ck.replace('_pool_', '')
+        booked = sum(len(grid_raw[s].get(ck, [])) for s in grid_raw)
+        return {
+            'key':            ck,
+            'label':          mod,
+            'modality':       mod,
+            'capacity_slots': 16,
+            'booked':         booked,
+            'is_pool':        True,
+        }
+
+    columns = [_col_meta(ck) for ck in ordered_cols]
+
+    # Time slots: 07:00–20:00 default (show_all toggle expands to 00:00–23:30)
     time_slots = []
     for h in range(0, 24):
         for m in (0, 30):
             minutes = h * 60 + m
             label   = f"{h:02d}:{m:02d}"
-            row     = {mod: grid_raw[minutes].get(mod, []) for mod in modalities_set}
+            row     = {ck: grid_raw[minutes].get(ck, []) for ck in ordered_cols}
             has_any = any(row.values())
-            time_slots.append({'minutes': minutes, 'label': label, 'row': row, 'has_any': has_any})
+            in_work_hours = 7 * 60 <= minutes <= 20 * 60
+            time_slots.append({
+                'minutes':       minutes,
+                'label':         label,
+                'row':           row,
+                'has_any':       has_any,
+                'in_work_hours': in_work_hours,
+            })
 
-    # Summary counts
-    from collections import Counter
-    mod_counts = Counter(a['modality'] for a in appointments)
-    class_counts = Counter(a['class'] for a in appointments)
+    mod_counts   = Counter(a['modality']  for a in appointments)
+    class_counts = Counter(a['class']     for a in appointments)
 
-    # AE titles per modality for column headers
+    # ── Week view data ────────────────────────────────────────────────────────
+    week_data = {}  # col_key → {weekday_int: count}
+    week_totals = {}  # weekday_int → count
     try:
-        ae_rows = db.session.execute(text(
-            "SELECT modality, array_agg(aetitle ORDER BY aetitle) AS aetitles "
-            "FROM aetitle_modality_map GROUP BY modality"
-        )).fetchall()
-        mod_to_aetitles = {r.modality: r.aetitles for r in ae_rows}
+        hl7_week = db.session.execute(text("""
+            SELECT DATE(scheduled_datetime) AS d,
+                   UPPER(TRIM(COALESCE(target_aetitle, modality, 'OT'))) AS col_key,
+                   COUNT(*) AS cnt
+            FROM hl7_orders
+            WHERE DATE(scheduled_datetime) BETWEEN :ws AND :we
+              AND (order_status IS NULL OR order_status NOT IN ('CA','DC'))
+            GROUP BY 1, 2
+        """), {"ws": week_start, "we": week_end}).fetchall()
+        man_week = db.session.execute(text("""
+            SELECT DATE(procedure_datetime) AS d,
+                   COALESCE(aetitle, modality_type, 'OT') AS col_key,
+                   COUNT(*) AS cnt
+            FROM scheduling_entries
+            WHERE DATE(procedure_datetime) BETWEEN :ws AND :we
+              AND (cancelled IS NULL OR cancelled = false)
+            GROUP BY 1, 2
+        """), {"ws": week_start, "we": week_end}).fetchall()
+
+        for r in list(hl7_week) + list(man_week):
+            dow = r.d.weekday()
+            ck  = r.col_key
+            week_data.setdefault(ck, {})[dow] = week_data.get(ck, {}).get(dow, 0) + r.cnt
+            week_totals[dow] = week_totals.get(dow, 0) + r.cnt
     except Exception:
-        mod_to_aetitles = {}
+        pass
+
+    # Week column meta: use same device_map for labels
+    week_col_keys = list(week_data.keys())
+    week_cols = []
+    for ck in week_col_keys:
+        if ck in device_map:
+            week_cols.append({'key': ck, 'label': device_map[ck]['label'], 'modality': device_map[ck]['modality']})
+        else:
+            week_cols.append({'key': ck, 'label': ck, 'modality': ck})
+    week_cols.sort(key=lambda c: (c['modality'], c['label']))
+    week_days = [week_start + timedelta(days=i) for i in range(7)]
 
     # All saved entries for "All Bookings" tab
     schedules = SchedulingEntry.query.order_by(
-        SchedulingEntry.updated_at.desc().nullslast(),
-        SchedulingEntry.id.desc()
+        SchedulingEntry.procedure_datetime.desc()
     ).all()
 
     return render_template('admin_scheduling.html',
@@ -364,20 +469,46 @@ def scheduling_page():
         schedules=schedules,
         view_date=view_date,
         view_date_str=view_date_str,
+        view_mode=view_mode,
         prev_date=prev_date,
         next_date=next_date,
         is_today=is_today,
         time_slots=time_slots,
-        modalities=modalities_set,
+        columns=columns,
         appointments=appointments,
         unscheduled=unscheduled,
         mod_counts=mod_counts,
         class_counts=class_counts,
         total_count=len(appointments),
-        mod_to_aetitles=mod_to_aetitles,
         date_counts=date_counts,
         strip_dates=strip_dates,
+        aetitle_list=aetitle_list,
+        # week view
+        week_start=week_start,
+        week_end=week_end,
+        week_days=week_days,
+        week_cols=week_cols,
+        week_data=week_data,
+        week_totals=week_totals,
+        prev_week=prev_week,
+        next_week=next_week,
     )
+
+
+@admin_bp.route('/scheduling/cancel/<int:entry_id>', methods=['POST'])
+@login_required
+def cancel_scheduling_entry(entry_id):
+    from db import user_has_page
+    if current_user.role != 'admin' and not user_has_page(current_user, 'scheduling'):
+        return abort(403)
+    entry = db.session.get(SchedulingEntry, entry_id)
+    if not entry:
+        return jsonify({'status': 'error', 'message': 'Entry not found'}), 404
+    entry.cancelled    = True
+    entry.cancelled_at = datetime.utcnow()
+    entry.cancelled_by = current_user.username
+    db.session.commit()
+    return jsonify({'status': 'ok'})
 
 
 @admin_bp.route('/scheduling/hl7/<int:hl7_id>/arrive', methods=['POST'])
@@ -440,6 +571,9 @@ def reschedule_hl7(hl7_id):
     if 'physician' in data:
         params['physician'] = (data['physician'] or '').strip()
         set_clauses.append('ordering_physician = :physician')
+    if 'target_aetitle' in data:
+        params['ae'] = (data['target_aetitle'] or '').strip() or None
+        set_clauses.append('target_aetitle = :ae')
 
     db.session.execute(
         text(f"UPDATE hl7_orders SET {', '.join(set_clauses)} WHERE id = :id"),
@@ -464,11 +598,12 @@ def suggest_hl7_slot():
 
     day_start = datetime.combine(view_date, datetime.min.time())
     day_end   = datetime.combine(view_date, datetime.max.time())
-    slot_counts = {}
+    slot_counts: dict = {}
 
     manual_rows = db.session.execute(text("""
         SELECT procedure_datetime FROM scheduling_entries
         WHERE modality_type = :mod AND procedure_datetime BETWEEN :s AND :e
+          AND (cancelled IS NULL OR cancelled = false)
     """), {'mod': modality, 's': day_start, 'e': day_end}).fetchall()
     for r in manual_rows:
         slot = r.procedure_datetime.hour * 60 + (30 if r.procedure_datetime.minute >= 30 else 0)
