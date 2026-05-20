@@ -342,6 +342,7 @@ def _get_physician_intelligence(start, end):
         FROM etl_didb_studies
         WHERE study_date BETWEEN :s AND :e
           AND referring_physician_first_name IS NOT NULL
+          AND COALESCE(study_modality, '') != 'SR'
         GROUP BY 1, 2
         ORDER BY 1, 2
     """), {"s": start, "e": end}).fetchall()
@@ -364,6 +365,7 @@ def _get_physician_intelligence(start, end):
         LEFT JOIN aetitle_modality_map am ON am.aetitle = s.storing_ae
         WHERE s.study_date BETWEEN :s AND :e
           AND s.referring_physician_first_name IS NOT NULL
+          AND COALESCE(am.modality, s.study_modality, '') != 'SR'
         GROUP BY 1, 2
         ORDER BY 1, 3 DESC
     """), {"s": start, "e": end}).fetchall()
