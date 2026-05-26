@@ -273,7 +273,8 @@ def create_app():
 
     # --- QUERY MONITOR ---
     from utils.query_monitor import init_query_monitor
-    init_query_monitor(app, db.engine)
+    with app.app_context():
+        init_query_monitor(app, db.engine)
 
     # --- ROUTES ---
     register_blueprints(app)
