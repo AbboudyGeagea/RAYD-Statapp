@@ -37,6 +37,7 @@ from routes.groups_route        import groups_bp
 from routes.custom_reports      import custom_reports_bp
 from routes.cd_print_log        import cd_print_bp
 from routes.health_bp           import health_bp
+from routes.resource_monitor    import resource_monitor_bp
 
 logger = logging.getLogger("REGISTRY")
 
@@ -255,6 +256,7 @@ def register_blueprints(app):
 
     # ── Core (always registered) ──────────────────────────────
     app.register_blueprint(health_bp)
+    app.register_blueprint(resource_monitor_bp)
     app.register_blueprint(api_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(admin_bp,         url_prefix='/admin')

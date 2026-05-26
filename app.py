@@ -271,6 +271,10 @@ def create_app():
     def load_user(user_id):
         return db.session.get(User, int(user_id))
 
+    # --- QUERY MONITOR ---
+    from utils.query_monitor import init_query_monitor
+    init_query_monitor(app, db.engine)
+
     # --- ROUTES ---
     register_blueprints(app)
 
@@ -762,6 +766,25 @@ def create_app():
         hours=1,
         id='cd_surf_etl',
         name='CD Surf ETL — hourly sync',
+        replace_existing=True
+    )
+
+    def purge_old_audit_logs():
+        with app.app_context():
+            try:
+                db.session.execute(text(
+                    "DELETE FROM query_audit_log WHERE captured_at < NOW() - INTERVAL '10 days'"
+                ))
+                db.session.commit()
+            except Exception as e:
+                db.session.rollback()
+                logger.error(f"[Purge] query_audit_log: {e}")
+
+    scheduler.add_job(
+        func=purge_old_audit_logs,
+        trigger=CronTrigger(hour=3, minute=15),
+        id='purge_query_audit_log',
+        name='Purge query audit log > 10 days',
         replace_existing=True
     )
 
