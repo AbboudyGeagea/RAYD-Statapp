@@ -11,10 +11,14 @@ Add to requirements.txt:
     twilio==8.5.0
 """
 
+import os
 import re
+import time
 import secrets
 import string
+import hashlib
 import logging
+import threading
 from datetime import datetime
 from flask import Blueprint, render_template, request, redirect, session, abort, url_for
 from sqlalchemy import text
@@ -22,6 +26,12 @@ from db import db
 
 logger = logging.getLogger("PATIENT_PORTAL")
 portal_bp = Blueprint("portal", __name__)
+
+# Server-side one-time token map: token → {"url": str, "ts": float}
+# Viewer credentials never touch the session cookie.
+_viewer_token_map: dict = {}
+_viewer_token_lock = threading.Lock()
+_VIEWER_TOKEN_TTL  = 30  # seconds — single-use, short-lived
 
 
 # ─────────────────────────────────────────────
@@ -150,6 +160,7 @@ def process_orm_for_portal(raw_message, accession_number):
         from routes.portal_bp import process_orm_for_portal
         process_orm_for_portal(raw_message, accession_number)
     """
+    mrn = None  # initialised before try so the except block can reference it safely
     try:
         mrn, full_name, phone = _parse_pid_from_hl7(raw_message)
 
@@ -159,50 +170,39 @@ def process_orm_for_portal(raw_message, accession_number):
 
         config = _get_config()
 
-        # Check if user already exists for this MRN
-        existing = db.session.execute(
-            text("SELECT id FROM patient_portal_users WHERE mrn = :mrn"),
-            {"mrn": mrn}
-        ).fetchone()
+        # Atomically upsert the portal user record.
+        # Always generate a password upfront; for existing rows the ON CONFLICT SET
+        # clause deliberately omits password_hash, so the generated value is never
+        # applied and the existing patient's login is preserved.
+        password = _generate_password()
+        from werkzeug.security import generate_password_hash
+        pwd_hash = generate_password_hash(password, method='pbkdf2:sha256')
 
-        if existing:
-            # Update accession and phone; issue a new password so we can send it
-            password = _generate_password()
-            from werkzeug.security import generate_password_hash
-            pwd_hash = generate_password_hash(password, method='pbkdf2:sha256')
-            db.session.execute(text("""
-                UPDATE patient_portal_users
-                SET accession_number = :acc,
-                    phone = COALESCE(:phone, phone),
-                    full_name = COALESCE(:name, full_name),
-                    password_hash = :pwd,
-                    updated_at = NOW()
-                WHERE mrn = :mrn
-            """), {"acc": accession_number, "phone": phone,
-                   "name": full_name, "mrn": mrn, "pwd": pwd_hash})
-        else:
-            # New patient — generate password, hash it, create record
-            password = _generate_password()
-            from werkzeug.security import generate_password_hash
-            pwd_hash = generate_password_hash(password, method='pbkdf2:sha256')
-            db.session.execute(text("""
-                INSERT INTO patient_portal_users
-                    (mrn, full_name, phone, accession_number, username, password_hash)
-                VALUES
-                    (:mrn, :name, :phone, :acc, :mrn, :pwd)
-                ON CONFLICT (username) DO UPDATE SET
-                    accession_number = EXCLUDED.accession_number,
-                    phone = COALESCE(EXCLUDED.phone, patient_portal_users.phone),
-                    full_name = COALESCE(EXCLUDED.full_name, patient_portal_users.full_name),
-                    updated_at = NOW()
-            """), {
-                "mrn": mrn, "name": full_name, "phone": phone,
-                "acc": accession_number, "pwd": pwd_hash
-            })
-
+        result = db.session.execute(text("""
+            INSERT INTO patient_portal_users
+                (mrn, full_name, phone, accession_number, username, password_hash)
+            VALUES
+                (:mrn, :name, :phone, :acc, :mrn, :pwd)
+            ON CONFLICT (mrn) DO UPDATE SET
+                accession_number = EXCLUDED.accession_number,
+                phone            = COALESCE(EXCLUDED.phone, patient_portal_users.phone),
+                full_name        = COALESCE(EXCLUDED.full_name, patient_portal_users.full_name),
+                updated_at       = NOW()
+            RETURNING (xmax = 0) AS is_new_row
+        """), {
+            "mrn": mrn, "name": full_name, "phone": phone,
+            "acc": accession_number, "pwd": pwd_hash
+        })
+        row = result.fetchone()
+        is_new = bool(row[0]) if row else True
         db.session.commit()
 
-        # Send WhatsApp only if phone available and not already sent for this accession
+        if not is_new:
+            # Existing patient — credentials unchanged, no WhatsApp needed.
+            logger.info(f"Portal: updated accession {accession_number} for existing MRN {mrn} (no password change)")
+            return
+
+        # Send WhatsApp only for newly created patients (and only if phone is available)
         if phone:
             success, err = _send_whatsapp(phone, mrn, password, accession_number, config)
             if success:
@@ -218,6 +218,21 @@ def process_orm_for_portal(raw_message, accession_number):
     except Exception as e:
         logger.error(f"Portal ORM hook error: {e}", exc_info=True)
         db.session.rollback()
+        # Persist to dead-letter table so the hook can be retried or investigated.
+        try:
+            db.session.execute(text("""
+                INSERT INTO portal_failed_hooks
+                    (mrn, accession_number, raw_message, error_message)
+                VALUES (:mrn, :acc, :msg, :err)
+            """), {
+                "mrn": mrn,
+                "acc": accession_number,
+                "msg": (raw_message or "")[:4000],
+                "err": str(e)[:500],
+            })
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
 
 
 # ─────────────────────────────────────────────
@@ -291,25 +306,34 @@ def portal_redirect():
     if not base_url:
         return "Viewer not configured. Please contact the radiology department.", 503
 
-    # Build viewer URL with credentials server-side, proxied via session token
-    import hashlib, time
-    token = hashlib.sha256(f"{accession}{time.time()}{os.urandom(8).hex()}".encode()).hexdigest()[:32]
-    session['viewer_token'] = token
-    session['viewer_url'] = f"{base_url}?user={viewer_user}&pass={viewer_pass}&{acc_param}={accession}"
+    viewer_url = f"{base_url}?user={viewer_user}&pass={viewer_pass}&{acc_param}={accession}"
 
+    # Store credentials in server-side map only — never in the session cookie.
+    now = time.time()
+    token = hashlib.sha256(
+        f"{accession}{now}{os.urandom(16).hex()}".encode()
+    ).hexdigest()[:48]
+    with _viewer_token_lock:
+        # Evict expired tokens
+        expired = [k for k, v in _viewer_token_map.items() if now - v["ts"] > _VIEWER_TOKEN_TTL]
+        for k in expired:
+            del _viewer_token_map[k]
+        _viewer_token_map[token] = {"url": viewer_url, "ts": now}
+
+    session['viewer_token'] = token
     return redirect(url_for('portal.portal_viewer_proxy', token=token))
 
 
 @portal_bp.route("/portal/view/<token>")
 def portal_viewer_proxy(token):
-    """Proxy the viewer redirect so credentials never appear in browser history."""
-    if session.get('viewer_token') != token or 'portal_mrn' not in session:
+    """Proxy the viewer redirect so credentials never appear in browser history or the session cookie."""
+    if session.pop('viewer_token', None) != token or 'portal_mrn' not in session:
         return redirect(url_for("portal.portal_login"))
-    viewer_url = session.pop('viewer_url', '')
-    session.pop('viewer_token', None)
-    if not viewer_url:
+    with _viewer_token_lock:
+        entry = _viewer_token_map.pop(token, None)
+    if not entry or (time.time() - entry["ts"]) > _VIEWER_TOKEN_TTL:
         return redirect(url_for("portal.portal_login"))
-    return redirect(viewer_url)
+    return redirect(entry["url"])
 
 
 @portal_bp.route("/portal/logout")

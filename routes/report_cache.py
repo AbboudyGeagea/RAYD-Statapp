@@ -1,10 +1,14 @@
 """
 routes/report_cache.py
 ──────────────────────
-Simple in-memory TTL cache for report query results.
+Thread-safe in-memory TTL cache for report query results.
 
 Keyed on (report_id, MD5 of form params). Avoids redundant DB hits
 when the same report is run twice with identical settings within TTL.
+
+A background daemon thread runs every 5 minutes to evict entries whose
+TTL has expired (lazy eviction on read also still applies). This prevents
+unbounded memory growth in long-running Gunicorn workers.
 
 Usage:
     from routes.report_cache import cache_get, cache_put
@@ -19,11 +23,16 @@ Usage:
 """
 import hashlib
 import json
+import logging
 import time
+import threading
+
+logger = logging.getLogger(__name__)
 
 _store: dict = {}
+_lock = threading.Lock()
 _TTL = 300       # 5 minutes
-_MAX_SIZE = 200  # max entries before eviction
+_MAX_SIZE = 200  # max entries before LRU eviction
 
 
 def _make_key(report_id: int, form_data) -> str:
@@ -34,17 +43,29 @@ def _make_key(report_id: int, form_data) -> str:
             raw = form_data.to_dict(flat=False)
         else:
             raw = {k: [v] for k, v in dict(form_data).items()}
-        serialized = json.dumps(sorted(raw.items()), default=str, sort_keys=True)
+        raw_sorted = {k: sorted(v) if isinstance(v, list) else v for k, v in raw.items()}
+        serialized = json.dumps(sorted(raw_sorted.items()), default=str, sort_keys=True)
     except Exception:
         serialized = str(form_data)
     h = hashlib.md5(serialized.encode()).hexdigest()
     return f"r{report_id}:{h}"
 
 
+def _evict_expired() -> int:
+    """Remove all entries past their TTL. Returns count removed. Thread-safe."""
+    now = time.time()
+    with _lock:
+        expired = [k for k, v in _store.items() if now - v["ts"] >= _TTL]
+        for k in expired:
+            del _store[k]
+    return len(expired)
+
+
 def cache_get(report_id: int, form_data):
     """Return cached result tuple or None if missing/expired."""
     key = _make_key(report_id, form_data)
-    entry = _store.get(key)
+    with _lock:
+        entry = _store.get(key)
     if entry and (time.time() - entry["ts"]) < _TTL:
         return entry["data"]
     return None
@@ -53,23 +74,51 @@ def cache_get(report_id: int, form_data):
 def cache_put(report_id: int, form_data, data) -> None:
     """Store result. Evicts oldest entry if over _MAX_SIZE."""
     key = _make_key(report_id, form_data)
-    _store[key] = {"data": data, "ts": time.time()}
-    if len(_store) > _MAX_SIZE:
-        oldest = min(_store, key=lambda k: _store[k]["ts"])
-        del _store[oldest]
+    now = time.time()
+    with _lock:
+        _store[key] = {"data": data, "ts": now}
+        if len(_store) > _MAX_SIZE:
+            oldest = min(_store, key=lambda k: _store[k]["ts"])
+            del _store[oldest]
 
 
 def cache_invalidate(report_id: int = None) -> int:
     """Remove entries for a report_id, or all if None. Returns count removed."""
-    if report_id is None:
-        count = len(_store)
-        _store.clear()
-        return count
-    prefix = f"r{report_id}:"
-    keys = [k for k in list(_store) if k.startswith(prefix)]
-    for k in keys:
-        del _store[k]
-    return len(keys)
+    with _lock:
+        if report_id is None:
+            count = len(_store)
+            _store.clear()
+            return count
+        prefix = f"r{report_id}:"
+        keys = [k for k in list(_store) if k.startswith(prefix)]
+        for k in keys:
+            del _store[k]
+        return len(keys)
+
+
+# ── Background eviction thread ─────────────────────────────────────────────
+# Runs every 5 minutes to remove expired entries. Daemon so it never blocks
+# interpreter shutdown. This prevents unbounded cache growth when entries
+# expire but are never re-requested (i.e. no lazy-eviction opportunity).
+
+def _eviction_loop(interval: int = 300) -> None:
+    while True:
+        time.sleep(interval)
+        try:
+            removed = _evict_expired()
+            if removed:
+                logger.debug("report_cache: evicted %d expired entries", removed)
+        except Exception:
+            logger.exception("report_cache: eviction loop error")
+
+
+_eviction_thread = threading.Thread(
+    target=_eviction_loop,
+    kwargs={"interval": _TTL},
+    name="report-cache-eviction",
+    daemon=True,
+)
+_eviction_thread.start()
 
 
 # ── Filter-options cache ───────────────────────────────────────────────────
@@ -86,12 +135,11 @@ def get_filter_options(db) -> dict:
     from cache, re-querying only when the TTL has expired.
     Each field is fetched independently so one failure never blanks the rest.
     """
-    import logging
     from sqlalchemy import text
 
-    log = logging.getLogger(__name__)
+    with _lock:
+        entry = _store.get(_FILTER_KEY)
 
-    entry = _store.get(_FILTER_KEY)
     if entry and (time.time() - entry["ts"]) < _FILTER_TTL:
         return entry["data"]
 
@@ -111,8 +159,9 @@ def get_filter_options(db) -> dict:
             row = db.session.execute(text(sql)).fetchone()
             data[key] = list(row[0]) if row and row[0] else []
         except Exception as exc:
-            log.error("filter_options[%s] failed: %s", key, exc)
+            logger.error("filter_options[%s] failed: %s", key, exc)
             db.session.rollback()
 
-    _store[_FILTER_KEY] = {"data": data, "ts": time.time()}
+    with _lock:
+        _store[_FILTER_KEY] = {"data": data, "ts": time.time()}
     return data

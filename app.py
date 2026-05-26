@@ -284,7 +284,7 @@ def create_app():
         return response
 
     # --- AUTH CHECKS ---
-    _AUTH_PASSTHROUGH = frozenset({'auth.login', 'auth.logout', 'auth.register', 'auth.profile_password', 'static'})
+    _AUTH_PASSTHROUGH = frozenset({'auth.login', 'auth.logout', 'auth.register', 'auth.profile_password', 'static', 'health.health', 'health.readiness'})
 
     @app.before_request
     def check_auth():

@@ -46,7 +46,9 @@ def conflict_count():
 @patient_conflicts_bp.route('/patients/conflicts/export')
 @login_required
 def conflict_export():
-    rows = db.session.execute(text(_CONFLICT_SQL)).mappings().fetchall()
+    # Fetch all rows and close the DB transaction before building the CSV.
+    with db.engine.connect() as conn:
+        rows = [dict(r) for r in conn.execute(text(_CONFLICT_SQL)).mappings().fetchall()]
 
     buf = io.StringIO()
     writer = csv.writer(buf)
