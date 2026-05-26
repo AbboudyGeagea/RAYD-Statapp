@@ -7,9 +7,24 @@ from flask import Blueprint, render_template, request, abort, jsonify
 from flask_login import login_required, current_user
 from sqlalchemy import text
 from db import db, get_go_live_date, user_has_page
+from routes.report_cache import cache_get, cache_put
 
 logger = logging.getLogger("REPORT_AI")
 report_ai_bp = Blueprint("report_ai", __name__)
+
+# Report ID used as the cache namespace for all AI-intelligence sections.
+# Must not collide with numeric report IDs used by other routes.
+_AI_CACHE_REPORT_ID = 9900
+
+
+def _ai_cache_get(section: str, start: str, end: str):
+    """Look up a cached AI-intelligence section result."""
+    return cache_get(_AI_CACHE_REPORT_ID, {"section": section, "start": start, "end": end})
+
+
+def _ai_cache_put(section: str, start: str, end: str, data) -> None:
+    """Store an AI-intelligence section result in the shared cache."""
+    cache_put(_AI_CACHE_REPORT_ID, {"section": section, "start": start, "end": end}, data)
 
 # ─────────────────────────────────────────────
 #  HELPERS
@@ -125,6 +140,10 @@ def _generate_explanation(section, data):
 # ─────────────────────────────────────────────
 
 def _get_storage_intelligence(start, end):
+    cached = _ai_cache_get("storage", start, end)
+    if cached is not None:
+        return cached
+
     rows = db.session.execute(text("""
         SELECT study_date, SUM(total_gb) AS total_gb
         FROM summary_storage_daily
@@ -170,10 +189,15 @@ def _get_storage_intelligence(start, end):
         }
     }
     data["explanation"] = _generate_explanation("storage", data)["storage"]
+    _ai_cache_put("storage", start, end, data)
     return data
 
 
 def _get_volume_intelligence(start, end):
+    cached = _ai_cache_get("volume", start, end)
+    if cached is not None:
+        return cached
+
     rows = db.session.execute(text("""
         SELECT study_date, COUNT(*) as cnt
         FROM etl_didb_studies
@@ -223,10 +247,15 @@ def _get_volume_intelligence(start, end):
         }
     }
     data["explanation"] = _generate_explanation("volume", data)["volume"]
+    _ai_cache_put("volume", start, end, data)
     return data
 
 
 def _get_utilization_intelligence(start, end):
+    cached = _ai_cache_get("utilization", start, end)
+    if cached is not None:
+        return cached
+
     # Pull utilization per AE per day using proc_duration
     rows = db.session.execute(text("""
         SELECT
@@ -332,10 +361,15 @@ def _get_utilization_intelligence(start, end):
         "ae_list":       ae_results
     }
     data["explanation"] = _generate_explanation("utilization", data)["utilization"]
+    _ai_cache_put("utilization", start, end, data)
     return data
 
 
 def _get_physician_intelligence(start, end):
+    cached = _ai_cache_get("physician", start, end)
+    if cached is not None:
+        return cached
+
     rows = db.session.execute(text("""
         SELECT
             COALESCE(NULLIF(TRIM(CONCAT_WS(' ',
@@ -422,6 +456,7 @@ def _get_physician_intelligence(start, end):
         "growing":    growing[:5]
     }
     data["explanation"] = _generate_explanation("physician", data)["physician"]
+    _ai_cache_put("physician", start, end, data)
     return data
 
 

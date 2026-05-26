@@ -776,6 +776,8 @@ def update_user_role():
         user.role = new_role
         _apply_role_default_permissions(user, new_role)
         _admin_audit('role_changed', user.id, {'from': old_role, 'to': new_role})
+        # Invalidate all existing sessions so the user re-logs in with the new role
+        active_sessions.query.filter_by(user_id=user.id).delete()
         db.session.commit()
 
     return jsonify({'status': 'ok'})

@@ -11,20 +11,15 @@ viewer_bp = Blueprint('viewer', __name__, url_prefix='/viewer')
 
 
 def seed_report_access(user_id):
-    """Grant access to every ReportTemplate for a user, skipping existing rows."""
-    from db import ReportTemplate
-    all_reports = ReportTemplate.query.filter_by(is_base=True).all()
-    existing_ids = {
-        r.report_template_id
-        for r in ReportAccessControl.query.filter_by(user_id=user_id).all()
-    }
-    new_rows = [
-        ReportAccessControl(user_id=user_id, report_template_id=r.report_id, is_enabled=True)
-        for r in all_reports if r.report_id not in existing_ids
-    ]
-    if new_rows:
-        db.session.bulk_save_objects(new_rows)
-        db.session.commit()
+    """Grant access to every base ReportTemplate for a user. Single upsert, idempotent."""
+    db.session.execute(text("""
+        INSERT INTO report_access_control (user_id, report_template_id, is_enabled)
+        SELECT :uid, report_id, TRUE
+        FROM report_template
+        WHERE is_base = TRUE
+        ON CONFLICT (user_id, report_template_id) DO NOTHING
+    """), {"uid": user_id})
+    db.session.commit()
 
 
 @viewer_bp.route('/')
@@ -75,6 +70,7 @@ def viewer_dashboard():
 @login_required
 def daily_briefing():
     try:
+        db.session.execute(text("SET LOCAL timezone = 'Asia/Beirut'"))
         row = db.session.execute(text("""
             WITH
             latest AS (
@@ -295,6 +291,7 @@ def yesterday_overview():
         # MATERIALIZED forces PG to compute s/o once and reuse across all
         # scalar subqueries.  The first_visit window is capped at 1 year —
         # the old unbounded GROUP BY scanned the entire table every time.
+        db.session.execute(text("SET LOCAL timezone = 'Asia/Beirut'"))
         kpi = one("""
             WITH
             s AS MATERIALIZED (
