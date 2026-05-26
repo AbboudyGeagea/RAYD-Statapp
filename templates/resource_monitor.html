@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | Resource Monitor</title>
+    <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
+    <style>
+        :root { --accent:#f43f5e; }
+        body  { font-family:'Inter',sans-serif; background:#181f1c; color:#e2e8f0; }
+        .card { background:#232b28; border:1px solid #28332e; border-radius:1.25rem; }
+        .kpi-card { background:#232b28; border:1px solid #28332e; border-radius:1rem; padding:1.25rem 1.5rem; }
+        .kpi-card.red   { border-color:rgba(244,63,94,0.35);  background:rgba(244,63,94,0.06); }
+        .kpi-card.green { border-color:rgba(34,197,94,0.35);  background:rgba(34,197,94,0.06); }
+        .kpi-card.amber { border-color:rgba(251,191,36,0.35); background:rgba(251,191,36,0.06); }
+        .kpi-card.blue  { border-color:rgba(96,165,250,0.35); background:rgba(96,165,250,0.06); }
+        .sidebar-item { transition:all 0.2s; border-radius:0.75rem; margin-bottom:0.25rem; cursor:pointer; text-decoration:none!important; color:#94a3b8; }
+        .sidebar-item:hover { background:#1d2522; color:var(--accent)!important; }
+        .sidebar-item.active { background:#1d2522; color:var(--accent)!important; border-left:4px solid var(--accent); }
+        .section-title { font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:0.15em; color:#f43f5e; margin-bottom:0.75rem; }
+        .badge-rm { background:rgba(96,165,250,0.15); color:#60a5fa; border:1px solid rgba(96,165,250,0.3); font-size:9px; font-weight:900; padding:2px 8px; border-radius:4px; text-transform:uppercase; letter-spacing:0.08em; }
+        /* ms speed badges */
+        .ms-green  { background:rgba(34,197,94,0.15);  color:#22c55e; border:1px solid rgba(34,197,94,0.3);  }
+        .ms-amber  { background:rgba(251,191,36,0.15); color:#fbbf24; border:1px solid rgba(251,191,36,0.3); }
+        .ms-red    { background:rgba(244,63,94,0.15);  color:#f43f5e; border:1px solid rgba(244,63,94,0.3);  }
+        .ms-badge  { display:inline-block; padding:2px 8px; border-radius:4px; font-size:10px; font-weight:900; font-variant-numeric:tabular-nums; }
+        /* slow-list rows */
+        .slow-row  { border:1px solid #28332e; border-radius:0.75rem; padding:0.75rem 1rem; cursor:pointer; transition:background 0.15s; }
+        .slow-row:hover { background:#1d2522; }
+        .slow-row-detail { display:none; margin-top:0.5rem; padding:0.75rem; background:#181f1c; border-radius:0.5rem; font-size:12px; }
+        .slow-row-detail.open { display:block; }
+        /* Light mode */
+        body.light { background:#f0f4f8; color:#1a202c; }
+        body.light aside, body.light header { background:#ffffff!important; border-color:#e2e8f0!important; }
+        body.light .sidebar-item { color:#4a5568; }
+        body.light .sidebar-item:hover, body.light .sidebar-item.active { background:#e2e8f0!important; color:#c0392b!important; }
+        body.light .card, body.light .kpi-card { background:#ffffff; border-color:#e2e8f0; }
+        body.light .kpi-card.red   { background:#fff5f5; border-color:#fca5a5; }
+        body.light .kpi-card.green { background:#f0fdf4; border-color:#86efac; }
+        body.light .kpi-card.amber { background:#fffbeb; border-color:#fcd34d; }
+        body.light .kpi-card.blue  { background:#eff6ff; border-color:#93c5fd; }
+        body.light .slow-row { border-color:#e2e8f0; }
+        body.light .slow-row:hover { background:#f1f5f9; }
+        body.light .slow-row-detail { background:#f8fafc; }
+        body.light .text-slate-400 { color:#4a5568!important; }
+        body.light .text-slate-500 { color:#718096!important; }
+        body.light .text-white { color:#1a202c!important; }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+
+{% include '_header.html' %}
+
+<div class="flex flex-1 overflow-hidden">
+    {% include '_sidebar.html' %}
+
+    <main class="flex-1 overflow-y-auto bg-[#181f1c] p-8">
+
+        <!-- Page header -->
+        <div class="flex items-center justify-between mb-8">
+            <div>
+                <div class="flex items-center gap-3 mb-1">
+                    <span class="badge-rm">Admin</span>
+                    <h1 class="text-2xl font-black text-white tracking-tight">Resource Monitor</h1>
+                </div>
+                <p class="text-slate-400 text-sm">Query performance, endpoint response times and cache efficiency — last 10 days.</p>
+            </div>
+            <button onclick="loadData()"
+                class="px-4 py-1.5 bg-[#f43f5e] text-white text-xs font-black uppercase tracking-widest rounded-lg hover:bg-[#fb7185] transition-colors">
+                <i class="bi bi-arrow-clockwise mr-1"></i>Refresh
+            </button>
+        </div>
+
+        <!-- Loading -->
+        <div id="loading" class="text-center py-20 text-slate-500 text-sm font-bold uppercase tracking-widest">
+            <i class="bi bi-hourglass-split text-2xl block mb-3"></i>Loading monitor data…
+        </div>
+
+        <div id="content" class="hidden space-y-6">
+
+            <!-- KPI Cards -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4" id="kpi-row"></div>
+
+            <!-- Trend chart -->
+            <div class="card p-5">
+                <p class="section-title"><i class="bi bi-graph-up mr-1"></i> 10-Day Response Time Trend — Avg ms per Endpoint</p>
+                <div style="position:relative; height:280px;">
+                    <canvas id="chart-trend"></canvas>
+                </div>
+            </div>
+
+            <!-- Slowest requests list -->
+            <div>
+                <p class="section-title"><i class="bi bi-stopwatch mr-1"></i> Top 10 Slowest Requests (last 10 days)</p>
+                <div class="space-y-2" id="slow-list"></div>
+            </div>
+
+        </div><!-- #content -->
+
+    </main>
+</div>
+
+<script>
+/* ── helpers ───────────────────────────────────────────────── */
+function msBadge(ms) {
+    ms = Math.round(ms);
+    const cls = ms < 500 ? 'ms-green' : ms < 2000 ? 'ms-amber' : 'ms-red';
+    return `<span class="ms-badge ${cls}">${ms.toLocaleString()} ms</span>`;
+}
+
+const ENDPOINT_COLORS = [
+    '#f43f5e','#60a5fa','#34d399','#fbbf24','#a78bfa','#fb923c','#94a3b8'
+];
+
+let trendChart = null;
+
+/* ── load everything ──────────────────────────────────────── */
+async function loadData() {
+    document.getElementById('loading').classList.remove('hidden');
+    document.getElementById('content').classList.add('hidden');
+
+    try {
+        const r = await fetch('/admin/resource-monitor/data');
+        const d = await r.json();
+
+        if (d.error) {
+            document.getElementById('loading').innerHTML =
+                `<i class="bi bi-exclamation-triangle text-red-400 text-2xl block mb-3"></i>
+                 <span class="text-red-400">${d.error}</span>`;
+            return;
+        }
+
+        document.getElementById('loading').classList.add('hidden');
+        document.getElementById('content').classList.remove('hidden');
+
+        renderKPIs(d.summary);
+        renderTrend(d.trend);
+        renderSlowest(d.slowest);
+
+    } catch(err) {
+        document.getElementById('loading').innerHTML =
+            `<i class="bi bi-exclamation-triangle text-red-400 text-2xl block mb-3"></i>
+             <span class="text-red-400">Failed to load: ${err}</span>`;
+    }
+}
+
+/* ── KPI cards ────────────────────────────────────────────── */
+function renderKPIs(s) {
+    const avgCls  = s.avg_ms < 500  ? 'green' : s.avg_ms < 2000  ? 'amber' : 'red';
+    const maxCls  = s.max_ms < 2000 ? 'green' : s.max_ms < 5000  ? 'amber' : 'red';
+    const cacheCls= s.cache_hit_pct >= 30 ? 'green' : s.cache_hit_pct >= 10 ? 'amber' : 'blue';
+
+    document.getElementById('kpi-row').innerHTML = `
+        <div class="kpi-card blue col-span-1">
+            <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Total Requests</p>
+            <p class="text-2xl font-black text-white">${s.total_requests.toLocaleString()}</p>
+            <p class="text-[10px] text-slate-500 mt-1">last 10 days (non-error)</p>
+        </div>
+        <div class="kpi-card ${avgCls} col-span-1">
+            <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Avg Response</p>
+            <p class="text-2xl font-black text-white">${s.avg_ms.toLocaleString()} ms</p>
+            <p class="text-[10px] text-slate-500 mt-1">across all monitored endpoints</p>
+        </div>
+        <div class="kpi-card ${maxCls} col-span-1">
+            <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Slowest Request</p>
+            <p class="text-2xl font-black text-white">${s.max_ms.toLocaleString()} ms</p>
+            <p class="text-[10px] text-slate-500 mt-1 truncate" title="${s.slowest_endpoint}">${s.slowest_endpoint}</p>
+        </div>
+        <div class="kpi-card ${cacheCls} col-span-1">
+            <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Cache Hit Rate</p>
+            <p class="text-2xl font-black text-white">${s.cache_hit_pct}%</p>
+            <p class="text-[10px] text-slate-500 mt-1">requests served from cache</p>
+        </div>
+    `;
+}
+
+/* ── trend chart (Chart.js line) ──────────────────────────── */
+function renderTrend(rows) {
+    if (trendChart) { trendChart.destroy(); trendChart = null; }
+
+    // Collect all unique days and endpoints
+    const daysSet = new Set();
+    const epSet   = new Set();
+    rows.forEach(r => { daysSet.add(r.day); epSet.add(r.endpoint); });
+    const days = Array.from(daysSet).sort();
+    const endpoints = Array.from(epSet);
+
+    // Build per-endpoint series: day → avg_ms (average if multiple rows map to same ep after "Other" merge)
+    const series = {};
+    rows.forEach(r => {
+        if (!series[r.endpoint]) series[r.endpoint] = {};
+        if (!series[r.endpoint][r.day]) {
+            series[r.endpoint][r.day] = { sum: 0, n: 0 };
+        }
+        series[r.endpoint][r.day].sum += r.avg_ms;
+        series[r.endpoint][r.day].n   += 1;
+    });
+
+    const datasets = endpoints.map((ep, i) => ({
+        label: ep,
+        data: days.map(d => {
+            const s = series[ep]?.[d];
+            return s ? Math.round(s.sum / s.n) : null;
+        }),
+        borderColor: ENDPOINT_COLORS[i % ENDPOINT_COLORS.length],
+        backgroundColor: ENDPOINT_COLORS[i % ENDPOINT_COLORS.length] + '22',
+        borderWidth: 2,
+        pointRadius: 3,
+        tension: 0.35,
+        spanGaps: true,
+        fill: false,
+    }));
+
+    const ctx = document.getElementById('chart-trend').getContext('2d');
+    trendChart = new Chart(ctx, {
+        type: 'line',
+        data: { labels: days, datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: {
+                    labels: { color: '#94a3b8', font: { size: 10 }, boxWidth: 12, padding: 12 },
+                },
+                tooltip: {
+                    callbacks: {
+                        label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y != null ? ctx.parsed.y.toLocaleString() + ' ms' : '—'}`,
+                    },
+                },
+            },
+            scales: {
+                x: {
+                    ticks: { color: '#94a3b8', font: { size: 10 } },
+                    grid:  { color: '#28332e' },
+                },
+                y: {
+                    ticks: {
+                        color: '#94a3b8', font: { size: 10 },
+                        callback: v => v.toLocaleString() + ' ms',
+                    },
+                    grid: { color: '#28332e' },
+                },
+            },
+        },
+    });
+}
+
+/* ── slowest list ─────────────────────────────────────────── */
+function renderSlowest(rows) {
+    const container = document.getElementById('slow-list');
+    if (!rows.length) {
+        container.innerHTML = '<p class="text-slate-500 text-sm text-center py-6">No data yet.</p>';
+        return;
+    }
+
+    container.innerHTML = rows.map((r, idx) => `
+        <div class="slow-row" onclick="toggleDetail(${idx})">
+            <div class="flex items-center justify-between gap-3">
+                <div class="flex items-center gap-3 min-w-0">
+                    <span class="text-slate-500 text-xs font-black w-5 shrink-0">#${idx + 1}</span>
+                    <span class="font-mono text-xs text-slate-300 truncate" title="${r.endpoint}">${r.endpoint}</span>
+                    ${r.cache_hit ? '<span class="text-[9px] font-black uppercase px-1.5 py-0.5 rounded" style="background:rgba(34,197,94,0.15);color:#22c55e;border:1px solid rgba(34,197,94,0.3);">CACHE HIT</span>' : ''}
+                </div>
+                <div class="flex items-center gap-3 shrink-0">
+                    ${msBadge(r.total_ms)}
+                    <span class="text-xs text-slate-500">${r.query_count} quer${r.query_count === 1 ? 'y' : 'ies'}</span>
+                    <span class="text-xs text-slate-500"><i class="bi bi-person"></i> ${r.username}</span>
+                    <span class="text-xs text-slate-600">${r.ts}</span>
+                    <i class="bi bi-chevron-down text-slate-500 text-xs transition-transform" id="chevron-${idx}"></i>
+                </div>
+            </div>
+            <div class="slow-row-detail" id="detail-${idx}">
+                <p class="text-slate-500 text-xs"><i class="bi bi-hourglass-split mr-1"></i>Loading…</p>
+            </div>
+        </div>
+    `).join('');
+
+    // Store row ids for detail fetch
+    window._slowRows = rows;
+}
+
+let _openIdx = null;
+
+async function toggleDetail(idx) {
+    const detail  = document.getElementById(`detail-${idx}`);
+    const chevron = document.getElementById(`chevron-${idx}`);
+    const isOpen  = detail.classList.contains('open');
+
+    // Close previous
+    if (_openIdx !== null && _openIdx !== idx) {
+        const prev = document.getElementById(`detail-${_openIdx}`);
+        const pchv = document.getElementById(`chevron-${_openIdx}`);
+        if (prev)  prev.classList.remove('open');
+        if (pchv)  pchv.style.transform = '';
+    }
+
+    if (isOpen) {
+        detail.classList.remove('open');
+        chevron.style.transform = '';
+        _openIdx = null;
+        return;
+    }
+
+    detail.classList.add('open');
+    chevron.style.transform = 'rotate(180deg)';
+    _openIdx = idx;
+
+    const row = window._slowRows[idx];
+    if (detail.dataset.loaded) return;
+
+    try {
+        const r = await fetch(`/admin/resource-monitor/row/${row.id}`);
+        const d = await r.json();
+        detail.dataset.loaded = '1';
+
+        if (d.error) {
+            detail.innerHTML = `<p class="text-red-400 text-xs">${d.error}</p>`;
+            return;
+        }
+
+        const filterKeys = Object.keys(d.filters || {});
+        const filtersHtml = filterKeys.length
+            ? filterKeys.map(k => `
+                <span class="inline-block mr-2 mb-1 px-2 py-0.5 rounded text-[10px]"
+                      style="background:#1a2520;border:1px solid #28332e;color:#94a3b8;">
+                    <span class="text-slate-500">${k}:</span>
+                    <span class="text-white font-bold">${String(d.filters[k]).substring(0, 40)}</span>
+                </span>`).join('')
+            : '<span class="text-slate-600 text-xs">No filters</span>';
+
+        const queriesHtml = (d.queries || []).length
+            ? `<div class="space-y-1 mt-2">` +
+              (d.queries || []).map((q, qi) => `
+                <div class="flex items-center gap-3 text-xs">
+                    <span class="text-slate-600 w-5">#${qi + 1}</span>
+                    ${msBadge(q.duration_ms)}
+                    <span class="text-slate-500">${(q.rows || 0).toLocaleString()} row${q.rows !== 1 ? 's' : ''}</span>
+                </div>`).join('') +
+              `</div>`
+            : '<p class="text-slate-600 text-xs mt-1">No individual query timings.</p>';
+
+        detail.innerHTML = `
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <p class="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-1">
+                        <i class="bi bi-funnel mr-1"></i>Filters Used
+                    </p>
+                    <div>${filtersHtml}</div>
+                </div>
+                <div>
+                    <p class="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-1">
+                        <i class="bi bi-list-ol mr-1"></i>Query Breakdown
+                    </p>
+                    ${queriesHtml}
+                </div>
+            </div>`;
+    } catch(err) {
+        detail.innerHTML = `<p class="text-red-400 text-xs">Failed to load detail: ${err}</p>`;
+    }
+}
+
+/* ── theme ────────────────────────────────────────────────── */
+function applyTheme(theme) {
+    document.body.classList.toggle('light', theme === 'light');
+    const icon = document.getElementById('theme-icon');
+    if (icon) icon.className = theme === 'light' ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
+    if (trendChart) {
+        const gridColor = theme === 'light' ? '#e2e8f0' : '#28332e';
+        const textColor = theme === 'light' ? '#4a5568'  : '#94a3b8';
+        trendChart.options.scales.x.ticks.color = textColor;
+        trendChart.options.scales.x.grid.color  = gridColor;
+        trendChart.options.scales.y.ticks.color = textColor;
+        trendChart.options.scales.y.grid.color  = gridColor;
+        trendChart.options.plugins.legend.labels.color = textColor;
+        trendChart.update();
+    }
+}
+applyTheme("{{ ui_theme }}");
+function toggleTheme() {
+    const next = document.body.classList.contains('light') ? 'dark' : 'light';
+    applyTheme(next);
+    fetch('/user/theme', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({theme:next})});
+}
+
+loadData();
+</script>
+</body>
+</html>
