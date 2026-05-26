@@ -90,6 +90,7 @@ def report_23():
             SELECT modality, patient_class, age_at_exam, study_date, patient_db_uid
             FROM base_data
             WHERE study_date BETWEEN :s AND :e{extra_where}
+            LIMIT 100000
         """)
 
         demo_sql = text(f"""
@@ -221,7 +222,7 @@ def report_23():
                         _age_order = ['[0-1 month]', '[1 month - 1 year]', '[1-12 years]', '[13-18]', '[19-35]', '[36-64]', '[65+]']
                         df_agg['_am_bucket'] = pd.cut(
                             df_agg['age_at_exam'],
-                            bins=[-0.001, 0.083, 1, 12.999, 18, 35, 64, 999],
+                            bins=[-0.001, 0.083, 1, 12.999, 18, 35, 64.999, 999],
                             labels=_age_order
                         )
                         am_piv = df_agg.dropna(subset=['modality']).groupby(['modality', '_am_bucket']).size().unstack(fill_value=0)
@@ -362,7 +363,10 @@ def conflict_count():
 @report_23_bp.route('/patients/conflicts/export')
 @login_required
 def conflict_export():
-    rows = db.session.execute(text(_CONFLICT_SQL)).mappings().fetchall()
+    # Fetch all rows and close the DB transaction before streaming the CSV.
+    with db.engine.connect() as conn:
+        rows = conn.execute(text(_CONFLICT_SQL)).mappings().fetchall()
+        rows = [dict(r) for r in rows]
 
     def generate():
         buf = io.StringIO()
