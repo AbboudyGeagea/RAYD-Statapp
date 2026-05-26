@@ -87,7 +87,15 @@ _BITNET_ALLOWED_HOSTS = frozenset(
 
 def _assert_bitnet_host(url: str) -> None:
     from urllib.parse import urlparse
-    host = urlparse(url).hostname or ""
+    parsed = urlparse(url)
+    # Reject URLs with embedded credentials — e.g. http://user:pass@evil.com or
+    # http://localhost@evil.com — these bypass naive hostname checks.
+    if parsed.username or parsed.password:
+        raise ValueError(
+            "SSRF guard: BITNET_SERVER must not contain embedded credentials. "
+            "Use BITNET_ALLOWED_HOSTS to whitelist the target host instead."
+        )
+    host = parsed.hostname or ""
     if host not in _BITNET_ALLOWED_HOSTS:
         raise ValueError(
             f"BITNET_SERVER host '{host}' is not in BITNET_ALLOWED_HOSTS. "
@@ -109,6 +117,12 @@ _response_cache      = {}
 _response_cache_lock = threading.Lock()
 RESPONSE_TTL         = 300        # 5 min — same question gets cached answer
 CACHE_MAX            = 200
+
+# ── Rate limiter (H7) ─────────────────────────────────────────
+_rate_limiter: dict      = {}
+_rate_limiter_lock       = threading.Lock()
+_RATE_LIMIT              = 20     # max calls per window
+_RATE_WINDOW             = 60     # seconds
 
 # ── Base‑context cache (always-on queries) ────────────────────
 _base_cache      = {"facts": [], "ts": 0}
@@ -267,29 +281,87 @@ def _check_avx512() -> bool | None:
     return None
 
 
-# ── Health check ──────────────────────────────────────────────
+# ── Health check (L5) ─────────────────────────────────────────
+# llama-server exposes GET /health which returns {"status":"ok"} when the
+# model is fully loaded.  Some older builds omit /health entirely, so we
+# fall back to a lightweight POST /completion probe if /health returns a
+# non-2xx status or is absent, giving a more reliable "model ready" signal.
 @bitnet_bp.route("/ai/health")
 @login_required
 def health():
+    avx = _check_avx512()
+    # -- primary: /health (llama-server ≥ b1 has this endpoint) --------------
     try:
         resp = requests.get(f"{BITNET_SERVER}/health", timeout=5)
-        data = resp.json()
+        if resp.ok:
+            data   = resp.json()
+            status = data.get("status", "unknown")
+            return jsonify({
+                "server":     BITNET_SERVER,
+                "status":     status,
+                "ready":      status == "ok",
+                "mode":       "llama-server (persistent)",
+                "cpu_avx512": avx,
+                "check":      "health",
+            })
+        # /health returned an error status — fall through to /completion probe
+        health_err = f"/health returned HTTP {resp.status_code}"
+    except Exception as e:
+        health_err = str(e)
+
+    # -- fallback: minimal /completion probe ----------------------------------
+    try:
+        probe_payload = {
+            "prompt": "<|im_start|>user\nping<|im_end|>\n<|im_start|>assistant\n",
+            "n_predict": 1,
+            "temperature": 0.0,
+            "stream": False,
+        }
+        resp2 = requests.post(f"{BITNET_SERVER}/completion", json=probe_payload, timeout=10)
+        if resp2.ok:
+            return jsonify({
+                "server":     BITNET_SERVER,
+                "status":     "ok",
+                "ready":      True,
+                "mode":       "llama-server (persistent)",
+                "cpu_avx512": avx,
+                "check":      "completion_probe",
+                "health_note": health_err,
+            })
         return jsonify({
             "server":     BITNET_SERVER,
-            "status":     data.get("status", "unknown"),
-            "ready":      data.get("status") == "ok",
+            "status":     "unavailable",
+            "ready":      False,
             "mode":       "llama-server (persistent)",
-            "cpu_avx512": _check_avx512(),
+            "cpu_avx512": avx,
+            "check":      "completion_probe",
+            "error":      f"/completion returned HTTP {resp2.status_code}",
+            "health_note": health_err,
         })
-    except Exception as e:
-        return jsonify({"server": BITNET_SERVER, "ready": False, "error": str(e),
-                        "cpu_avx512": _check_avx512()})
+    except Exception as e2:
+        return jsonify({
+            "server":     BITNET_SERVER,
+            "ready":      False,
+            "error":      str(e2),
+            "health_note": health_err,
+            "cpu_avx512": avx,
+        })
 
 
 # ── Chat endpoint ─────────────────────────────────────────────
 @bitnet_bp.route("/ai/chat", methods=["POST"])
 @login_required
 def chat():
+    # ── Rate limit (H7): 20 requests per 60s per IP ───────────
+    now = time.time()
+    ip  = request.remote_addr or "unknown"
+    with _rate_limiter_lock:
+        calls = [t for t in _rate_limiter.get(ip, []) if now - t < _RATE_WINDOW]
+        if len(calls) >= _RATE_LIMIT:
+            return jsonify({"error": "Rate limit exceeded. Please wait before sending another message."}), 429
+        calls.append(now)
+        _rate_limiter[ip] = calls
+
     _ensure_ai_tables()
     body    = request.get_json(force=True)
     message = (body.get("message") or "").strip()
@@ -592,6 +664,14 @@ def feedback():
         )
         db.session.add(entry)
         db.session.commit()
+
+        # M6: thumbs-down → evict the cached answer so the next request
+        # goes to inference fresh instead of serving the same bad response.
+        if vote == "down":
+            bad_key = hashlib.md5(question.lower().encode()).hexdigest()
+            with _response_cache_lock:
+                _response_cache.pop(bad_key, None)
+
         return jsonify({"ok": True})
     except Exception as e:
         db.session.rollback()

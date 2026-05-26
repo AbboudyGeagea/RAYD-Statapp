@@ -52,7 +52,7 @@ def get_report_data(start, end):
         df['age'] = df['birth_date'].apply(calculate_age)
         df['age'] = pd.to_numeric(df['age'], errors='coerce')
         
-        bins = [-1, 8, 18, 64, 150]
+        bins = [-0.001, 8.999, 18.999, 64.999, 150]
         labels = ['0-8', '9-18', '19-64', '65+']
         
         # Use observed=False in groupby later, and fillna for categories
