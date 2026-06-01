@@ -1,3 +1,21 @@
+"""
+ETL_JOBS/etl_runner.py
+-----------------------
+Main ETL orchestrator: pulls data from the Oracle PACS source into PostgreSQL.
+
+Execution phases (in order):
+  Phase 1 — Studies        (etl_didb_studies)
+  Phase 2 — Series         (etl_series)
+  Phase 3 — Raw images     (etl_didb_raw_images)
+  Phase 4 — Image locations(etl_image_locations)
+  Phase 5 — Patients       (etl_patients_view)
+  Phase 6 — Orders         (etl_orders)
+  Phase 7 — Storage summary(etl_analytics_refresh)
+  Phase 8 — Procedure duration mapping (strategies A–E, see _perform_migration)
+  Phase 9 — Procedure clustering (optional TF-IDF + ensemble, etl_phase9_clustering)
+
+Triggered by APScheduler in app.py or manually via `python app.py -m`.
+"""
 import os, sys, logging, gc
 from datetime import datetime
 from sqlalchemy import text
