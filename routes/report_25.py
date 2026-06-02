@@ -1,4 +1,21 @@
+"""
+routes/report_25.py
+-------------------
+Report 25 — Device & Radiologist Performance Dashboard.
+
+Covers: AE-station utilisation matrix, technician TAT, radiologist RVU/TAT
+performance cards, shift patterns, and NLP-driven insight signals.
+
+The heavy data-fetch (get_gold_standard_data) runs synchronously and is
+cached for 5 minutes (report_cache).  A second background endpoint
+(/report/25/bg) computes shift patterns, technician monitoring and AI
+insights after the page has already loaded, so the initial render stays fast.
+
+Register in registry.py:
+    import routes.report_25
+"""
 import json
+import logging
 import pandas as pd
 import io
 from datetime import date
@@ -9,6 +26,8 @@ from sqlalchemy import text
 from db import db, get_etl_cutoff_date
 from routes.report_cache import cache_get, cache_put
 from routes.insights_engine import run_tech_insights, run_rad_insights
+
+logger = logging.getLogger("report_25")
 
 report_25_bp = Blueprint("report_25", __name__)
 
@@ -29,14 +48,21 @@ def _load_shift_config():
     return defaults
 
 def get_gold_standard_data(form_data):
+    """
+    Main data-fetch for Report 25.  Runs the SQL template from the DB,
+    applies active filters, and computes all KPI structures returned to
+    the template and the background endpoint.
+
+    Returns a 3-tuple: (data_dict | None, start_date_str, end_date_str).
+    Returns (None, start, end) when the query produces no rows, so callers
+    can render an appropriate empty state.
+    """
     # Cache hit check — skip full DB scan for identical re-runs within 5 min
     cached = cache_get(25, form_data)
     if cached is not None:
         return cached
 
-    print("\n--- [DIAGNOSTIC START: REPORT 25] ---")
-    
-    go_live = get_etl_cutoff_date() 
+    go_live = get_etl_cutoff_date()
     start = form_data.get("start_date") or (go_live.strftime("%Y-%m-%d") if go_live else "2024-01-01")
     end = form_data.get("end_date") or date.today().strftime("%Y-%m-%d")
     
@@ -81,11 +107,9 @@ def get_gold_standard_data(form_data):
     sql_exec = f"SELECT * FROM ({template_res[0]}) as sub WHERE {' AND '.join(where_clauses)}"
     df = pd.DataFrame(db.session.execute(text(sql_exec), params).mappings().all())
     
-    if df.empty: 
-        print("!! WARNING: Query returned 0 rows.")
+    if df.empty:
+        logger.warning("Report 25 query returned 0 rows (start=%s end=%s)", start, end)
         return None, start, end
-
-    print(f"STEP 1: Columns found: {list(df.columns)}")
 
     # 4. Defensive Data Cleaning
     # If the SQL returns 'rvu_value' instead of 'rvu', let's map it automatically
@@ -95,9 +119,8 @@ def get_gold_standard_data(form_data):
     for col in ['total_tat_min', 'proc_duration', 'rvu']:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-            print(f"STEP 2/3: Column '{col}' sum: {df[col].sum()}")
         else:
-            print(f"!! ALERT: Column '{col}' MISSING. Defaulting to 0.0")
+            logger.warning("Report 25: expected column '%s' missing from query result — defaulting to 0", col)
             df[col] = 0.0
     
     df['study_date_dt'] = pd.to_datetime(df['study_date'], errors='coerce') if 'study_date' in df.columns else pd.to_datetime(date.today())
@@ -142,8 +165,12 @@ def get_gold_standard_data(form_data):
                 ae_total_cap += total_cap
 
             ae_avg = round((ae_total_load / ae_total_cap * 100), 1) if ae_total_cap > 0 else 0
-            if ae_avg > 85: high_stress += 1
-            elif 0 < ae_avg < 30: under_utilized += 1
+            # >85% utilisation → device is overloaded (standard capacity-management threshold)
+            # <30% utilisation → device is underutilised (less than a third of booked capacity used)
+            if ae_avg > 85:
+                high_stress += 1
+            elif 0 < ae_avg < 30:
+                under_utilized += 1
 
             matrix_rows.append({
                 "ae": ae, "days": days_util, "avg": ae_avg,
@@ -241,10 +268,7 @@ def get_gold_standard_data(form_data):
                 })
             tech_tat_cards.sort(key=lambda x: x['avg_tat'])
         except Exception:
-            pass
-
-    print(f"STEP 4: Final Summary RVU: {df['rvu'].sum()}")
-    print("--- [DIAGNOSTIC END] ---\n")
+            logger.warning("Failed to build tech TAT cards", exc_info=True)
 
     # shift_patterns and ts_rows are deferred to /report/25/bg (background endpoint)
     shift_patterns = {}
@@ -315,7 +339,7 @@ def get_gold_standard_data(form_data):
                 for _, r in mod_g.iterrows()
             ]
     except Exception:
-        pass
+        logger.warning("Failed to build modality TAT breakdown", exc_info=True)
 
     # Unread study aging buckets
     unread_aging = []
@@ -342,6 +366,7 @@ def get_gold_standard_data(form_data):
         for bucket, modality, cnt in aging_rows:
             unread_aging.append({'bucket': bucket, 'modality': modality, 'cnt': int(cnt)})
     except Exception:
+        logger.exception("Failed to load unread aging buckets")
         db.session.rollback()
 
     # Studies per shift
@@ -372,6 +397,7 @@ def get_gold_standard_data(form_data):
         for shift, modality, cnt in shift_rows:
             shift_breakdown.append({'shift': shift, 'modality': modality, 'cnt': int(cnt)})
     except Exception:
+        logger.exception("Failed to load shift breakdown")
         db.session.rollback()
 
     # Addendum rate by radiologist
@@ -403,6 +429,7 @@ def get_gold_standard_data(form_data):
         overall_pct = round(total_addenda / total_studies * 100, 1) if total_studies > 0 else 0.0
         addendum_data = {'overall_pct': overall_pct, 'total_addenda': total_addenda, 'by_rad': by_rad}
     except Exception:
+        logger.exception("Failed to load addendum rate data")
         db.session.rollback()
 
     # ── Reports per radiologist × modality / AE title / procedure ────────
@@ -476,9 +503,9 @@ def get_gold_standard_data(form_data):
               {_sec_filters} {_RAD25_OK}
             GROUP BY 1, 2 ORDER BY 1, 2
         """), params).mappings().fetchall()]
-    except Exception as _e:
+    except Exception:
+        logger.exception("Failed to build radiologist × modality/AE/procedure volume matrix")
         db.session.rollback()
-        print(f"rad_volume_matrix error: {_e}")
 
     # tech_data and insights are deferred to /report/25/bg (background endpoint)
     tech_data = {
@@ -655,9 +682,9 @@ def compute_bg_data(form_data):
                     'hm_max':         hm_max,
                     'daily_log':      daily_log[-60:],
                 }
-    except Exception as _e:
+    except Exception:
+        logger.exception("Failed to compute shift patterns (background)")
         db.session.rollback()
-        print(f"BG shift pattern error: {_e}")
 
     # ── Technician monitoring ─────────────────────────────────────────────
     tech_data = {
@@ -881,9 +908,9 @@ def compute_bg_data(form_data):
                 })
             tech_data['by_modality'].sort(key=lambda x: x['avg_tat'] if x['avg_tat'] is not None else 9999)
 
-    except Exception as _e:
+    except Exception:
+        logger.exception("Failed to build technician monitoring data (background)")
         db.session.rollback()
-        print(f"BG technician error: {_e}")
 
     # ── Acknowledgements for flagged exams ────────────────────────────────
     try:
@@ -909,8 +936,8 @@ def compute_bg_data(form_data):
     try:
         if not _tech_completed_df.empty:
             tech_insights = run_tech_insights(_tech_completed_df)
-    except Exception as _ie:
-        print(f"BG tech insights error: {_ie}")
+    except Exception:
+        logger.exception("Failed to run technician insight signals (background)")
     try:
         _signing_df = None
         if ts_rows:
@@ -919,8 +946,8 @@ def compute_bg_data(form_data):
         main_cached = cache_get(25, form_data)
         rad_cards = main_cached[0].get('rad_cards', []) if main_cached and main_cached[0] else []
         rad_insights = run_rad_insights(rad_cards, _signing_df)
-    except Exception as _ie:
-        print(f"BG rad insights error: {_ie}")
+    except Exception:
+        logger.exception("Failed to run radiologist insight signals (background)")
 
     result = {
         'shift_patterns': shift_patterns,

@@ -1,4 +1,17 @@
-# report_controller.py
+"""
+routes/report_controller.py
+----------------------------
+Dynamic report execution engine for user-defined report templates.
+
+Templates are stored in the report_template DB table (SQL query + metadata).
+Users configure dimensions (grouping axes) and filter values at runtime;
+this module builds the final parameterised SQL, executes it, and returns
+column-oriented JSON for the frontend charts.
+
+Register in registry.py:
+    from routes.report_controller import report_bp
+    app.register_blueprint(report_bp)
+"""
 from flask import Blueprint, request, jsonify, current_app
 from flask_login import login_required, current_user
 from datetime import date
@@ -10,7 +23,7 @@ from db import (
     ReportTemplate,
     ReportDimension,
     ReportAccessControl,
-    GoLiveDate
+    get_go_live_date,
 )
 
 report_bp = Blueprint('report', __name__, url_prefix='/report')
@@ -27,10 +40,6 @@ def parse_iso_date(value):
     except ValueError:
         return None
 
-
-def get_go_live_date():
-    rec = GoLiveDate.query.first()
-    return rec.go_live_date if rec else None
 
 
 # --------------------------------------------------

@@ -27,6 +27,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from sqlalchemy import create_engine, text
+from utils.stats import _pct, _fmt
 
 logging.basicConfig(
     level=logging.INFO,
@@ -162,22 +163,11 @@ def _collect(conn, start, end):
 
 # ── Text generation ───────────────────────────────────────────────────────────
 
-def _pct(cur, prev):
-    try:
-        c, p = float(cur or 0), float(prev or 0)
-        return round((c - p) / p * 100, 1) if p else None
-    except Exception:
-        return None
-
 def _chg(p):
     if p is None: return ""
     sign = "+" if p >= 0 else ""
     arrow = " ↑↑" if p > 20 else " ↑" if p > 0 else " ↓↓" if p < -20 else " ↓"
     return f", {sign}{p}%{arrow} vs prior"
-
-def _fmt(n):
-    try:    return f"{int(n):,}"
-    except: return "—"
 
 
 def _briefing(label, cur, prev, start, end):

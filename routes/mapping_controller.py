@@ -261,9 +261,8 @@ def upload_modality_map():
         flash("Modality & Weekly Schedules synchronized successfully.", "success")
     except Exception as e:
         db.session.rollback()
-        # This will show you exactly if it's a DB error or a naming error
+        logging.getLogger("mapping").exception("AE/modality CSV upload failed")
         flash(f"Upload Error: {str(e)}", "danger")
-        print(f"DEBUG ERROR: {str(e)}") # Check your terminal for this!
         
     return redirect(url_for('mapping.mapping_page'))
     
