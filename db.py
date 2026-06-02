@@ -1,11 +1,27 @@
+"""
+db.py
+-----
+SQLAlchemy setup, ORM models, and shared DB helpers.
+
+Exports used across the application:
+  db                — the SQLAlchemy extension instance (init via init_db(app))
+  OracleConnector   — thin wrapper around oracledb for PACS Oracle connections
+  get_pg_engine()   — returns db.engine (PostgreSQL)
+  get_etl_cutoff_date() / get_go_live_date() — earliest ETL date from go_live_config
+  chunked_upsert()  — bulk upsert with automatic row-by-row fallback on type errors
+
+The cx_Oracle shim on line 8 lets legacy code that still imports cx_Oracle work
+without modification; oracledb is the modern drop-in replacement.
+"""
 import os
 import sys
 import logging
 import oracledb
 from datetime import datetime
 
-# 1. ORACLE MODERNIZATION
-sys.modules["cx_Oracle"] = oracledb 
+# oracledb is the modern replacement for the deprecated cx_Oracle package.
+# This shim lets any code that still imports cx_Oracle resolve to oracledb.
+sys.modules["cx_Oracle"] = oracledb
 
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
@@ -13,6 +29,8 @@ from sqlalchemy import text, BigInteger, ForeignKey, Numeric, Boolean, Integer, 
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
+
+logger = logging.getLogger("db")
 
 db = SQLAlchemy()
 
@@ -26,7 +44,7 @@ class OracleConnector:
         from utils.crypto import decrypt
         params = DBParams.query.filter(DBParams.name.ilike('%oracle%')).first()
         if not params:
-            raise Exception("No Oracle configuration found in db_params table.")
+            raise RuntimeError("No Oracle configuration found in db_params table.")
 
         dsn = oracledb.makedsn(params.host, params.port, sid=params.sid)
         connect_kwargs = {
@@ -48,19 +66,27 @@ def get_pg_engine():
     return db.engine
 
 def get_etl_cutoff_date():
+    """Return the go-live date from go_live_config, or None if not yet configured."""
     try:
-        result = db.session.execute(text("SELECT go_live_date FROM go_live_config ORDER BY id DESC LIMIT 1")).fetchone()
+        result = db.session.execute(
+            text("SELECT go_live_date FROM go_live_config ORDER BY id DESC LIMIT 1")
+        ).fetchone()
         return result[0] if result else None
-    except Exception: return None
+    except Exception:
+        logger.exception("Could not read go_live_config")
+        return None
 
 def get_go_live_date():
     return get_etl_cutoff_date()
 
 def etl_analytics_refresh():
+    """Trigger the analytics summary stored procedure. Called by APScheduler."""
     try:
         db.session.execute(text("SELECT refresh_analytics_summary();"))
         db.session.commit()
-    except Exception: db.session.rollback()
+    except Exception:
+        logger.exception("analytics refresh stored procedure failed")
+        db.session.rollback()
 
 def chunked_upsert(engine, table_name, col_names, data, constraint_col):
     """

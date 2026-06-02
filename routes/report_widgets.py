@@ -17,15 +17,18 @@ from sqlalchemy import text
 
 _BASE_JOIN = """
     FROM etl_didb_studies s
-    LEFT JOIN aetitle_modality_map m ON m.aetitle = s.storing_ae
+    LEFT JOIN LATERAL (
+        SELECT modality FROM aetitle_modality_map
+        WHERE aetitle = s.storing_ae LIMIT 1
+    ) m ON TRUE
 """
 
 _WHERE = """
     WHERE s.study_date BETWEEN :date_from AND :date_to
-      AND COALESCE(m.modality, s.study_modality, '') != 'SR'
+      AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
       AND (CAST(:modality AS TEXT)      IS NULL OR COALESCE(m.modality, s.study_modality) = :modality)
       AND (CAST(:physician_id AS BIGINT) IS NULL OR s.reading_physician_id = :physician_id)
-      AND (CAST(:patient_class AS TEXT)  IS NULL OR s.patient_class = :patient_class)
+      AND (CAST(:patient_class AS TEXT)  IS NULL OR UPPER(s.patient_class) = UPPER(:patient_class))
 """
 
 _MOD_EXPR = "COALESCE(m.modality, s.study_modality, 'Unknown')"
@@ -324,35 +327,71 @@ def widget_patient_class(db, filters, config):
 
 def widget_shift_breakdown(db, filters, config):
     p = _p(filters)
-    # Read shift times from settings
+
+    # Shift hours are stored as integers by the save-shifts form (e.g. 7, 15, 23).
     shift_rows = db.session.execute(text("""
         SELECT key, value FROM settings
         WHERE key IN ('shift_morning_start','shift_morning_end',
-                      'shift_afternoon_start','shift_afternoon_end',
-                      'shift_night_start','shift_night_end')
+                      'shift_afternoon_start','shift_afternoon_end')
     """)).fetchall()
-    shifts = {r.key: r.value for r in shift_rows}
-    m_start = shifts.get("shift_morning_start",   "07:00")
-    m_end   = shifts.get("shift_morning_end",     "14:59")
-    a_start = shifts.get("shift_afternoon_start", "15:00")
-    a_end   = shifts.get("shift_afternoon_end",   "21:59")
+    sc = {}
+    for r in shift_rows:
+        try:
+            sc[r.key] = int(r.value)
+        except (ValueError, TypeError):
+            pass
+
+    ms  = sc.get("shift_morning_start",    7)
+    me  = sc.get("shift_morning_end",     15)
+    a_s = sc.get("shift_afternoon_start", 15)
+    a_e = sc.get("shift_afternoon_end",   23)
+
+    # Build optional secondary filters (only when values are set)
+    sec = ""
+    sec_params = {}
+    if p.get("patient_class"):
+        sec += " AND UPPER(s.patient_class) = UPPER(:patient_class)"
+        sec_params["patient_class"] = p["patient_class"]
+    if p.get("physician_id"):
+        sec += " AND s.reading_physician_id = :physician_id"
+        sec_params["physician_id"] = p["physician_id"]
+    if p.get("modality"):
+        sec += " AND COALESCE(m.modality, s.study_modality) = :modality"
+        sec_params["modality"] = p["modality"]
 
     rows = db.session.execute(text(f"""
         SELECT
             CASE
-                WHEN CAST(s.rep_final_timestamp AS TIME) BETWEEN CAST(:m_start AS TIME) AND CAST(:m_end AS TIME)
-                    THEN 'Morning'
-                WHEN CAST(s.rep_final_timestamp AS TIME) BETWEEN CAST(:a_start AS TIME) AND CAST(:a_end AS TIME)
-                    THEN 'Afternoon'
+                WHEN EXTRACT(HOUR FROM o.scheduled_datetime) >= :ms
+                 AND EXTRACT(HOUR FROM o.scheduled_datetime) <  :me  THEN 'Morning'
+                WHEN EXTRACT(HOUR FROM o.scheduled_datetime) >= :a_s
+                 AND EXTRACT(HOUR FROM o.scheduled_datetime) <  :a_e THEN 'Afternoon'
                 ELSE 'Night'
             END AS shift,
-            COUNT(*) AS count
-        {_BASE_JOIN} {_WHERE}
-          AND s.rep_final_timestamp IS NOT NULL
-        GROUP BY 1 ORDER BY 2 DESC
-    """), {**p, "m_start": m_start, "m_end": m_end, "a_start": a_start, "a_end": a_end}).fetchall()
+            COUNT(DISTINCT s.study_db_uid) AS count
+        FROM etl_orders o
+        JOIN etl_didb_studies s ON s.study_db_uid = o.study_db_uid
+        LEFT JOIN LATERAL (
+            SELECT modality FROM aetitle_modality_map
+            WHERE aetitle = s.storing_ae LIMIT 1
+        ) m ON TRUE
+        WHERE s.study_date BETWEEN :date_from AND :date_to
+          AND o.scheduled_datetime IS NOT NULL
+          AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+          {sec}
+        GROUP BY 1
+        ORDER BY 2 DESC
+    """), {"date_from": p["date_from"], "date_to": p["date_to"],
+           "ms": ms, "me": me, "a_s": a_s, "a_e": a_e,
+           **sec_params}).fetchall()
+
     total = sum(r.count for r in rows)
-    return {"rows": [{"shift": r.shift, "count": r.count, "pct": _pct(r.count, total)} for r in rows]}
+    return {
+        "rows": [
+            {"shift": r.shift, "count": r.count, "pct": _pct(r.count, total)}
+            for r in rows
+        ]
+    }
 
 
 def widget_device_util(db, filters, config):
@@ -401,7 +440,10 @@ def widget_referring_phys(db, filters, config):
 
 _FIN_JOIN = """
     FROM etl_didb_studies s
-    LEFT JOIN aetitle_modality_map m    ON m.aetitle = s.storing_ae
+    LEFT JOIN LATERAL (
+        SELECT modality FROM aetitle_modality_map
+        WHERE aetitle = s.storing_ae LIMIT 1
+    ) m ON TRUE
     LEFT JOIN etl_orders o              ON o.study_db_uid = s.study_db_uid
     LEFT JOIN procedure_duration_map pdm
            ON UPPER(TRIM(o.proc_id)) = UPPER(TRIM(pdm.procedure_code))
@@ -409,11 +451,11 @@ _FIN_JOIN = """
 
 _FIN_WHERE = """
     WHERE s.study_date BETWEEN :date_from AND :date_to
-      AND COALESCE(UPPER(TRIM(COALESCE(m.modality, s.study_modality, ''))), '') != 'SR'
+      AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
       AND s.study_has_report = true
       AND (CAST(:modality AS TEXT)      IS NULL OR COALESCE(m.modality, s.study_modality) = :modality)
       AND (CAST(:physician_id AS BIGINT) IS NULL OR s.reading_physician_id = :physician_id)
-      AND (CAST(:patient_class AS TEXT)  IS NULL OR s.patient_class = :patient_class)
+      AND (CAST(:patient_class AS TEXT)  IS NULL OR UPPER(s.patient_class) = UPPER(:patient_class))
 """
 
 

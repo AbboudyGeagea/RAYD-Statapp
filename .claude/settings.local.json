@@ -20,7 +20,24 @@
       "Bash(python -m pip --version)",
       "Bash(python3 -m pip --version)",
       "Bash(python3 -m pip install huggingface_hub -q)",
-      "Bash(git config *)"
+      "Bash(git config *)",
+      "Bash(git merge *)",
+      "Bash(docker exec rayd_db psql -U etl_user -d etl_db -c ' *)",
+      "Bash(findstr POSTGRES)",
+      "Bash(PGPASSWORD=SecureCrynBabe psql -h localhost -p 5432 -U etl_user -d etl_db -c ' *)",
+      "PowerShell(head -20)",
+      "Bash(grep -rhi \"CREATE TABLE\" \"d:\\\\Intermedic\\\\Statistics app\\\\RAYD-Statapp\\\\init-db\\\\schema.sql\" \"d:\\\\Intermedic\\\\Statistics app\\\\RAYD-Statapp\\\\migrations\\\\\" 2>/dev/null | sed 's/.*CREATE TABLE\\\\s*\\\\\\(IF NOT EXISTS\\\\s*\\\\\\)\\\\?//' | sed 's/\\(.*//' | tr -d '[:space:]\"' | sort -u)",
+      "Read(//d/Intermedic/Statistics app/RAYD-Statapp/migrations\" 2>/dev/null | sed 's/.*CREATE TABLE/s*/\\(IF NOT EXISTS/s*/\\)/?/' | sed 's/\\(.*/**)",
+      "Bash(Get-ChildItem -Path \"D:\\\\Intermedic\\\\Statistics app\\\\RAYD-Statapp\\\\routes\" -Filter \"*.py\")",
+      "Bash(Select-Object -ExpandProperty Name)",
+      "Bash(Sort-Object)",
+      "Bash(Get-ChildItem -Path \"D:\\\\Intermedic\\\\Statistics app\\\\RAYD-Statapp\" -Recurse -File)",
+      "Bash(Select-Object FullName)",
+      "Bash(cd \"/d/Intermedic/Statistics app/RAYD-Statapp\" && find . -type f -name \"*.py\" | grep -v venv | sort)",
+      "Read(//d/d/Intermedic/Statistics app/**)",
+      "Bash(awk -F: '{print $3}')",
+      "Bash(awk '{print $2}')",
+      "Read(//d/Intermedic/Statistics app/**)"
     ]
   }
 }
