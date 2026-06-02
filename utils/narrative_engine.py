@@ -1,3 +1,17 @@
+"""
+utils/narrative_engine.py
+--------------------------
+Rule-based plain-language diagnostic engine for radiology KPIs.
+
+Converts a stats dict into a human-readable diagnosis string that explains
+whether key metrics (TAT, utilisation, order matching, storage) are healthy,
+degraded, or critical.  Used by the AI assistant and the daily briefing.
+
+Thresholds below are based on Intermedic's observed operational baseline:
+  - Orphan orders > 200  → systemic integration gap (normal baseline < 50)
+  - Orphan orders  50-200 → elevated mismatch, warrants audit
+  - At-risk physicians  ≥ 3 → concerning churn pattern
+"""
 import re
 
 

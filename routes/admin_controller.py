@@ -972,19 +972,68 @@ def audit_log():
         return abort(403)
 
     category = request.args.get('category', '')
+    actor_id = request.args.get('user_id', '', type=str)
+
     q = UserAuditLog.query.order_by(UserAuditLog.created_at.desc())
     if category:
         q = q.filter(UserAuditLog.event_category == category)
+    if actor_id:
+        q = q.filter(UserAuditLog.actor_user_id == int(actor_id))
     entries = q.limit(500).all()
 
-    user_map = {u.id: u.username for u in User.query.all()}
+    all_users = User.query.order_by(User.username).all()
+    user_map = {u.id: u.username for u in all_users}
 
     categories = ['auth', 'user_mgmt', 'report', 'etl', 'ai', 'config']
     return render_template('admin_audit.html',
         entries=entries,
         user_map=user_map,
+        all_users=all_users,
         categories=categories,
         active_category=category,
+        active_user_id=actor_id,
+    )
+
+
+@admin_bp.route('/audit/export')
+@login_required
+def audit_log_export():
+    import csv, io
+    if current_user.role != 'admin':
+        return abort(403)
+
+    category = request.args.get('category', '')
+    actor_id = request.args.get('user_id', '', type=str)
+
+    q = UserAuditLog.query.order_by(UserAuditLog.created_at.desc())
+    if category:
+        q = q.filter(UserAuditLog.event_category == category)
+    if actor_id:
+        q = q.filter(UserAuditLog.actor_user_id == int(actor_id))
+    entries = q.limit(5000).all()
+
+    user_map = {u.id: u.username for u in User.query.all()}
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(['time', 'category', 'action', 'user', 'target', 'ip', 'detail'])
+    for e in entries:
+        target = user_map.get(e.target_user_id, '') if e.target_user_id else (e.resource_type or '')
+        writer.writerow([
+            e.created_at.strftime('%Y-%m-%d %H:%M:%S') if e.created_at else '',
+            e.event_category or '',
+            e.action or '',
+            user_map.get(e.actor_user_id, ''),
+            target,
+            e.ip_address or '',
+            e.detail if e.detail else '',
+        ])
+
+    from flask import Response
+    return Response(
+        buf.getvalue(),
+        mimetype='text/csv',
+        headers={'Content-Disposition': 'attachment; filename=audit_log.csv'},
     )
 
 
