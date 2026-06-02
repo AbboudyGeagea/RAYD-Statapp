@@ -54,30 +54,54 @@
                             {{ entries|length }} events &bull; last 500 &bull; admin only
                         </p>
                     </div>
-                    <div class="text-slate-600 text-xs font-mono">{{ now.strftime('%d %b %Y %H:%M') if now is defined else '' }}</div>
+                    <div class="flex items-center gap-3">
+                        <div class="text-slate-600 text-xs font-mono">{{ now.strftime('%d %b %Y %H:%M') if now is defined else '' }}</div>
+                        <a id="export-btn"
+                           href="{{ url_for('admin.audit_log_export', category=active_category, user_id=active_user_id) }}"
+                           class="pill pill-all on text-[10px]">
+                            <i class="bi bi-download"></i> Export CSV
+                        </a>
+                    </div>
                 </div>
 
-                <!-- Category filter pills -->
-                <div class="flex flex-wrap gap-2 mb-6">
-                    <a href="{{ url_for('admin.audit_log') }}"
-                       class="pill pill-all {{ 'on' if not active_category else '' }}">
-                        <i class="bi bi-grid-3x3-gap-fill"></i> All
-                    </a>
-                    {% set cat_icons = {
-                        'auth':      ('bi-shield-lock-fill',    'Auth'),
-                        'user_mgmt': ('bi-people-fill',         'Users'),
-                        'report':    ('bi-bar-chart-fill',      'Reports'),
-                        'etl':       ('bi-arrow-repeat',        'ETL'),
-                        'ai':        ('bi-robot',               'AI'),
-                        'config':    ('bi-gear-fill',           'Config'),
-                    } %}
-                    {% for cat in categories %}
-                    {% set icon, label = cat_icons.get(cat, ('bi-circle', cat)) %}
-                    <a href="{{ url_for('admin.audit_log', category=cat) }}"
-                       class="pill pill-{{ cat }} {{ 'on' if active_category == cat else '' }}">
-                        <i class="bi {{ icon }}"></i> {{ label }}
-                    </a>
-                    {% endfor %}
+                <!-- Filters row -->
+                <div class="flex flex-wrap items-center gap-4 mb-6">
+                    <!-- Category filter pills -->
+                    <div class="flex flex-wrap gap-2">
+                        <a href="{{ url_for('admin.audit_log', user_id=active_user_id) }}"
+                           class="pill pill-all {{ 'on' if not active_category else '' }}">
+                            <i class="bi bi-grid-3x3-gap-fill"></i> All
+                        </a>
+                        {% set cat_icons = {
+                            'auth':      ('bi-shield-lock-fill',    'Auth'),
+                            'user_mgmt': ('bi-people-fill',         'Users'),
+                            'report':    ('bi-bar-chart-fill',      'Reports'),
+                            'etl':       ('bi-arrow-repeat',        'ETL'),
+                            'ai':        ('bi-robot',               'AI'),
+                            'config':    ('bi-gear-fill',           'Config'),
+                        } %}
+                        {% for cat in categories %}
+                        {% set icon, label = cat_icons.get(cat, ('bi-circle', cat)) %}
+                        <a href="{{ url_for('admin.audit_log', category=cat, user_id=active_user_id) }}"
+                           class="pill pill-{{ cat }} {{ 'on' if active_category == cat else '' }}">
+                            <i class="bi {{ icon }}"></i> {{ label }}
+                        </a>
+                        {% endfor %}
+                    </div>
+
+                    <!-- User filter dropdown -->
+                    <div class="ml-auto">
+                        <select id="user-filter"
+                                onchange="applyUserFilter(this.value)"
+                                class="bg-[#181f1c] border border-[#28332e] text-slate-300 text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-[#60a5fa] cursor-pointer">
+                            <option value="">All users</option>
+                            {% for u in all_users %}
+                            <option value="{{ u.id }}" {{ 'selected' if active_user_id == u.id|string else '' }}>
+                                {{ u.username }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
                 </div>
 
                 <!-- Table -->
@@ -172,6 +196,27 @@
     </div>
 
     <script>
+        function applyUserFilter(userId) {
+            const url = new URL(window.location.href);
+            if (userId) url.searchParams.set('user_id', userId);
+            else url.searchParams.delete('user_id');
+            window.location.href = url.toString();
+        }
+
+        // Keep export href in sync when JS isn't re-navigating
+        (function() {
+            const sel = document.getElementById('user-filter');
+            const btn = document.getElementById('export-btn');
+            if (sel && btn) {
+                sel.addEventListener('change', function() {
+                    const url = new URL(btn.href);
+                    if (sel.value) url.searchParams.set('user_id', sel.value);
+                    else url.searchParams.delete('user_id');
+                    btn.href = url.toString();
+                });
+            }
+        })();
+
         function applyTheme(theme) {
             document.body.classList.toggle('light', theme === 'light');
             const icon = document.getElementById('theme-icon');
