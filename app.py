@@ -351,6 +351,12 @@ def create_app():
             db.session.execute(text(
                 "ALTER TABLE procedure_duration_map ADD COLUMN IF NOT EXISTS modality VARCHAR(20)"
             ))
+            db.session.execute(text(
+                "ALTER TABLE procedure_duration_map ADD COLUMN IF NOT EXISTS clinical_rvu NUMERIC(10,2) DEFAULT 1.0"
+            ))
+            db.session.execute(text(
+                "ALTER TABLE procedure_duration_map ADD COLUMN IF NOT EXISTS technical_rvu NUMERIC(10,2) DEFAULT 1.0"
+            ))
             db.session.execute(text("""
                 CREATE TABLE IF NOT EXISTS procedure_modality_conflicts (
                     id              SERIAL PRIMARY KEY,
