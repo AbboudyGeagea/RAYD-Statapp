@@ -111,7 +111,7 @@
 
                                                     <td class="px-6 py-3">
                                                         <input type="text"
-                                                               value="{{ proc.procedure_name or '' }}"
+                                                               value="{{ proc.procedure_name or proc_name_map.get(proc.procedure_code, '') }}"
                                                                placeholder="—"
                                                                @blur="updateProcName('{{ proc.procedure_code }}', $event.target.value, $event.target)"
                                                                class="proc-input w-full min-w-[140px] py-1.5 text-xs text-slate-300 placeholder-slate-600">
