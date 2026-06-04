@@ -216,8 +216,8 @@ def _sync_lookup_tables(engine):
 
         # 3. Procedure codes: distinct from orders, default 15 min / 1.0 RVU
         r = conn.execute(text("""
-            INSERT INTO procedure_duration_map (procedure_code, duration_minutes, rvu_value)
-            SELECT DISTINCT TRIM(proc_id), 15, 1.0
+            INSERT INTO procedure_duration_map (procedure_code, duration_minutes, clinical_rvu, technical_rvu)
+            SELECT DISTINCT TRIM(proc_id), 15, 1.0, 1.0
             FROM etl_orders
             WHERE proc_id IS NOT NULL AND TRIM(proc_id) != ''
               AND COALESCE(modality, '') != 'SR'
