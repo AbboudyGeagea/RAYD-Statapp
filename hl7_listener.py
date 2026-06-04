@@ -145,6 +145,19 @@ PACS_AUTODONE_SQL = """
  RETURNING modality, patient_id
 """
 
+SCN_INSERT_SQL = """
+    INSERT INTO hl7_scn_studies
+        (accession_number, patient_id, patient_name, procedure_code,
+         procedure_text, modality, storing_ae, patient_class, study_datetime)
+    VALUES
+        (:accession_number, :patient_id, :patient_name, :procedure_code,
+         :procedure_text, :modality, :storing_ae, :patient_class, :study_datetime)
+    ON CONFLICT (accession_number) DO UPDATE SET
+        study_datetime = EXCLUDED.study_datetime,
+        modality       = COALESCE(EXCLUDED.modality,      hl7_scn_studies.modality),
+        patient_class  = COALESCE(EXCLUDED.patient_class, hl7_scn_studies.patient_class)
+"""
+
 # Same patient, same modality, accession numeric value within ±5, not already done.
 PACS_NEIGHBOUR_SQL = """
     UPDATE hl7_orders
@@ -422,7 +435,6 @@ def parse_pacs_completion(raw_message):
     """
     Detect and parse a PACS study-completion ORM^O01.
     Identified by ORC-1 = 'SC'  AND  ORC-5 = 'CM'.
-    Extracts patient_id (PID-3), accession_number (OBR-3), and pacs_done_at (MSH-7).
     Returns a dict on success, or None if this is not a PACS completion.
     """
     text     = raw_message.replace('\r\n', '\r').replace('\n', '\r')
@@ -434,19 +446,29 @@ def parse_pacs_completion(raw_message):
     if _field(orc, 1) != 'SC' or _field(orc, 5) != 'CM':
         return None
 
-    pid            = _seg(segments, 'PID')
-    obr            = _seg(segments, 'OBR')
-    patient_id     = _component(_field(pid, 3, ''), 0) or None
-    accession_number = _component(_field(obr, 3, ''), 0) or None
-    pacs_done_at   = _parse_hl7_datetime(_field(msh, 6))
+    pid  = _seg(segments, 'PID')
+    obr  = _seg(segments, 'OBR')
+    pv1  = _seg(segments, 'PV1')
 
+    accession_number = (_component(_field(obr, 3, ''), 0)
+                        or _component(_field(orc, 3, ''), 0) or None)
     if not accession_number:
         return None
 
+    pacs_done_at  = _parse_hl7_datetime(_field(msh, 6))
+    proc_raw      = _field(obr, 4, '')
+
     return {
-        'patient_id':       patient_id,
+        'patient_id':       _component(_field(pid, 3, ''), 0) or None,
         'accession_number': accession_number,
         'pacs_done_at':     pacs_done_at or datetime.now(),
+        'patient_name':     _format_name(_field(pid, 5)),
+        'procedure_code':   _component(proc_raw, 0) or None,
+        'procedure_text':   _component(proc_raw, 1) or None,
+        'modality':         _field(obr, 24) or _field(obr, 19) or None,
+        'storing_ae':       _field(msh, 3) or None,
+        'patient_class':    _field(pv1, 2) or _field(pid, 18) or None,
+        'study_datetime':   pacs_done_at or datetime.now(),
     }
 
 
@@ -543,6 +565,7 @@ def _handle_client(conn, addr, app):
                         if pacs:
                             # PACS study-complete: auto-done the matching order and any
                             # neighbour orders (same patient + modality, accession ±5).
+                            # Also write to hl7_scn_studies for real-time today count.
                             with app.app_context():
                                 from sqlalchemy import text
                                 from db import db
@@ -563,6 +586,7 @@ def _handle_client(conn, addr, app):
                                             },
                                         )
                                         neighbour_count = nb.rowcount
+                                    db.session.execute(text(SCN_INSERT_SQL), pacs)
                                     db.session.commit()
                                 except Exception:
                                     db.session.rollback()

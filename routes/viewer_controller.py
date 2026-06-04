@@ -78,7 +78,7 @@ def daily_briefing():
                 FROM etl_didb_studies s
                 LEFT JOIN aetitle_modality_map m
                     ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
-                WHERE s.study_date <= CURRENT_DATE
+                WHERE s.study_date <= CURRENT_DATE - 1
                   AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
             ),
             s AS MATERIALIZED (
@@ -156,6 +156,17 @@ def daily_briefing():
          unread, active_rads, avg_tat_today, avg_tat_prev,
          er_tat_today, er_tat_prev, top_modality, top_mod_count,
          active_classes, avg_tat_30d) = row
+
+        # Real-time today count from PACS completion messages.
+        # Falls back to ETL snapshot if no SCN messages received yet today.
+        scn_today = db.session.execute(text("""
+            SELECT COUNT(*)::int
+            FROM hl7_scn_studies
+            WHERE study_datetime::date = CURRENT_DATE
+              AND COALESCE(modality, '') NOT IN ('SR', 'OT')
+        """)).scalar() or 0
+        if scn_today > 0:
+            today_count = scn_today
 
         today_count    = today_count    or 0
         last_week_count= last_week_count or 0
