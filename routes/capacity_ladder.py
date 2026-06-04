@@ -354,7 +354,7 @@ def suggestions():
             SELECT
                 s.procedure_code                       AS code,
                 COALESCE(pm.duration_minutes, 15)      AS duration,
-                COALESCE(pm.rvu_value, 1.0)            AS rvu,
+                COALESCE(pm.technical_rvu, 1.0)        AS rvu,
                 COUNT(*)                               AS freq
             FROM etl_didb_studies s
             LEFT JOIN aetitle_modality_map m   ON m.aetitle = s.storing_ae
@@ -362,7 +362,7 @@ def suggestions():
             WHERE s.procedure_code IS NOT NULL
               AND COALESCE(pm.duration_minutes, 15) > 0
               {mod_filter}
-            GROUP BY s.procedure_code, pm.duration_minutes, pm.rvu_value
+            GROUP BY s.procedure_code, pm.duration_minutes, pm.technical_rvu
             ORDER BY freq DESC
             LIMIT 60
         """), mod_params).mappings().fetchall()
@@ -373,7 +373,7 @@ def suggestions():
             fallback = db.session.execute(text("""
                 SELECT procedure_code AS code,
                        duration_minutes AS duration,
-                       COALESCE(rvu_value, 1.0) AS rvu,
+                       COALESCE(technical_rvu, 1.0) AS rvu,
                        0 AS freq
                 FROM procedure_duration_map
                 WHERE duration_minutes > 0

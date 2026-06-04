@@ -518,7 +518,8 @@ CREATE TABLE public.procedure_duration_map (
     id integer NOT NULL,
     procedure_code character varying NOT NULL,
     duration_minutes integer NOT NULL,
-    rvu_value numeric(10,2) DEFAULT 0.0
+    clinical_rvu  numeric(10,2) NOT NULL DEFAULT 1.0,
+    technical_rvu numeric(10,2) NOT NULL DEFAULT 1.0
 );
 
 

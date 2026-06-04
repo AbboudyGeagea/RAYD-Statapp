@@ -45,9 +45,9 @@ def _collect(start: str, end: str) -> dict:
     # ── By modality ─────────────────────────────────────────────────────────
     mod_rows = db.session.execute(text(f"""
         SELECT
-            {_MOD_EXPR}                           AS modality,
-            COUNT(DISTINCT s.study_db_uid)         AS study_count,
-            COALESCE(SUM(pdm.rvu_value), 0)        AS total_rvu
+            {_MOD_EXPR}                                AS modality,
+            COUNT(DISTINCT s.study_db_uid)              AS study_count,
+            COALESCE(SUM(pdm.technical_rvu), 0)         AS total_rvu
         {_STUDY_BASE}
         GROUP BY 1
         ORDER BY total_rvu DESC
@@ -64,8 +64,8 @@ def _collect(start: str, end: str) -> dict:
     trend_rows = db.session.execute(text(f"""
         SELECT
             TO_CHAR(DATE_TRUNC('month', s.study_date), 'YYYY-MM') AS month,
-            {_MOD_EXPR}                                           AS modality,
-            COALESCE(SUM(pdm.rvu_value), 0)                       AS total_rvu
+            {_MOD_EXPR}                                                        AS modality,
+            COALESCE(SUM(pdm.clinical_rvu + pdm.technical_rvu), 0)             AS total_rvu
         FROM etl_didb_studies s
         LEFT JOIN aetitle_modality_map m ON m.aetitle = s.storing_ae
         LEFT JOIN etl_orders o           ON o.study_db_uid = s.study_db_uid
@@ -99,7 +99,7 @@ def _collect(start: str, end: str) -> dict:
             COALESCE(s.rep_final_signed_by, 'Unassigned') AS physician,
             COUNT(DISTINCT s.study_db_uid)                AS study_count,
             {_MOD_EXPR}                                   AS modality,
-            COALESCE(SUM(pdm.rvu_value), 0)               AS total_rvu
+            COALESCE(SUM(pdm.clinical_rvu), 0)            AS total_rvu
         {_STUDY_BASE}
           AND s.rep_final_signed_by IS NOT NULL
           AND s.rep_final_timestamp IS NOT NULL
@@ -127,8 +127,8 @@ def _collect(start: str, end: str) -> dict:
                 UPPER(TRIM(o.proc_id))
             )                                      AS procedure_description,
             {_MOD_EXPR}                            AS modality,
-            COUNT(DISTINCT s.study_db_uid)         AS study_count,
-            COALESCE(SUM(pdm.rvu_value), 0)        AS total_rvu
+            COUNT(DISTINCT s.study_db_uid)                          AS study_count,
+            COALESCE(SUM(pdm.clinical_rvu + pdm.technical_rvu), 0)  AS total_rvu
         {_STUDY_BASE}
           AND o.proc_id IS NOT NULL
           AND TRIM(o.proc_id) != ''

@@ -61,9 +61,10 @@ def export_procedure_csv():
     rows = ProcedureDurationMap.query.order_by(ProcedureDurationMap.procedure_code).all()
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(['procedure_code', 'procedure_name', 'duration_minutes', 'rvu_value', 'modality'])
+    w.writerow(['procedure_code', 'procedure_name', 'duration_minutes', 'clinical_rvu', 'technical_rvu', 'modality'])
     for r in rows:
-        w.writerow([r.procedure_code, r.procedure_name or '', r.duration_minutes, r.rvu_value, r.modality or ''])
+        w.writerow([r.procedure_code, r.procedure_name or '', r.duration_minutes,
+                    r.clinical_rvu, r.technical_rvu, r.modality or ''])
     buf.seek(0)
     return Response(
         buf.getvalue(),
@@ -279,18 +280,24 @@ def upload_procedure_map():
         df.columns = [str(c).strip().lower() for c in df.columns]
 
         # LAYER OF PROTECTION: Schema Validation
-        required = {'procedure_code', 'duration_minutes', 'rvu_value'}
-        if not required.issubset(df.columns):
-            flash("Upload Aborted: CSV headers must include procedure_code, duration_minutes, rvu_value", "danger")
+        # Accept old single-column format (rvu_value) for backward compatibility
+        has_split_rvu = 'clinical_rvu' in df.columns and 'technical_rvu' in df.columns
+        has_legacy_rvu = 'rvu_value' in df.columns
+        required = {'procedure_code', 'duration_minutes'}
+        if not required.issubset(df.columns) or (not has_split_rvu and not has_legacy_rvu):
+            flash("Upload Aborted: CSV headers must include procedure_code, duration_minutes, and either clinical_rvu + technical_rvu (or legacy rvu_value)", "danger")
             return redirect(url_for('mapping.mapping_page'))
         has_name_col = 'procedure_name' in df.columns
 
         # LAYER OF PROTECTION: Data Integrity Check (Dry Run)
         for idx, row in df.iterrows():
             try:
-                # Ensure we can actually convert these before doing any DB work
                 _ = int(float(row['duration_minutes']))
-                _ = float(row['rvu_value'])
+                if has_split_rvu:
+                    _ = float(row['clinical_rvu'])
+                    _ = float(row['technical_rvu'])
+                else:
+                    _ = float(row['rvu_value'])
                 if pd.isna(row['procedure_code']): raise ValueError("Empty Code")
             except Exception:
                 flash(f"Protection Alert: Row {idx+2} contains invalid data. Entire upload canceled.", "danger")
@@ -300,14 +307,21 @@ def upload_procedure_map():
         for _, row in df.iterrows():
             p_code = str(row['procedure_code']).strip().upper()
             duration = int(float(row['duration_minutes']))
-            rvu = float(row['rvu_value'])
+            if has_split_rvu:
+                clinical_rvu  = float(row['clinical_rvu'])  or 1.0
+                technical_rvu = float(row['technical_rvu']) or 1.0
+            else:
+                legacy = float(row['rvu_value']) or 1.0
+                clinical_rvu  = legacy
+                technical_rvu = legacy
 
             modality = str(row.get('modality', '')).strip().upper() if 'modality' in df.columns and pd.notna(row.get('modality')) else None
             name = str(row.get('procedure_name', '')).strip() if has_name_col and pd.notna(row.get('procedure_name')) else None
 
             mapping, created = get_or_create(ProcedureDurationMap, procedure_code=p_code)
             mapping.duration_minutes = duration
-            mapping.rvu_value = rvu
+            mapping.clinical_rvu  = clinical_rvu
+            mapping.technical_rvu = technical_rvu
             if modality:
                 mapping.modality = modality
             if name:
@@ -368,9 +382,10 @@ def update_single_procedure():
             dur = int(data.get('duration', 0))
             if dur > 0:
                 mapping.duration_minutes = dur
-            rvu = data.get('rvu')
-            if rvu is not None and str(rvu).strip():
-                mapping.rvu_value = float(rvu)
+            if 'clinical_rvu' in data and str(data['clinical_rvu']).strip():
+                mapping.clinical_rvu = max(float(data['clinical_rvu']), 0)
+            if 'technical_rvu' in data and str(data['technical_rvu']).strip():
+                mapping.technical_rvu = max(float(data['technical_rvu']), 0)
             if 'modality' in data:
                 mapping.modality = str(data['modality']).strip().upper() or None
             if 'name' in data:
@@ -621,6 +636,30 @@ def add_cluster():
         """), {"name": name}).fetchone()
         db.session.commit()
         return jsonify({"status": "success", "group_id": row[0]})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@mapping_bp.route('/ae/delete', methods=['POST'])
+@login_required
+def delete_ae_entry():
+    """Delete an AE title and its associated schedule / exceptions (CASCADE)."""
+    if current_user.role != 'admin': return abort(403)
+    data = request.get_json(force=True)
+    ae = str(data.get('aetitle', '')).strip().upper()
+    if not ae:
+        return jsonify({"status": "error", "message": "aetitle required"}), 400
+    try:
+        entry = AETitleModalityMap.query.filter_by(aetitle=ae).first()
+        if not entry:
+            return jsonify({"status": "error", "message": "AE title not found"}), 404
+        db.session.delete(entry)
+        db.session.commit()
+        from utils.audit import log_event
+        log_event('ae_deleted', category='config', resource_type='aetitle_modality_map',
+                  detail={'aetitle': ae})
+        return jsonify({"status": "success"})
     except Exception as e:
         db.session.rollback()
         return jsonify({"status": "error", "message": str(e)}), 500

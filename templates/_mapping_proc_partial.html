@@ -13,7 +13,7 @@
                                 <i class="bi bi-calculator text-2xl text-slate-500"></i>
                                 <div>
                                     <div class="text-xs font-bold text-slate-400">Upload Procedure CSV</div>
-                                    <div class="text-[9px] text-slate-600 mt-0.5 uppercase">procedure_code · procedure_name · duration_minutes · rvu_value · modality</div>
+                                    <div class="text-[9px] text-slate-600 mt-0.5 uppercase">procedure_code · procedure_name · duration_minutes · clinical_rvu · technical_rvu · modality</div>
                                 </div>
                             </div>
                         </form>
@@ -85,7 +85,8 @@
                                                     <th class="px-6 py-3">Procedure Name</th>
                                                     <th class="px-6 py-3 text-center">Modality</th>
                                                     <th class="px-6 py-3 text-center">Duration (min)</th>
-                                                    <th class="px-6 py-3 text-center">RVU</th>
+                                                    <th class="px-6 py-3 text-center" title="Clinical RVU — radiologist productivity">RVU Clinical</th>
+                                                    <th class="px-6 py-3 text-center" title="Technical RVU — device / technician">RVU Technical</th>
                                                     <th class="px-6 py-3 text-right">Status</th>
                                                 </tr>
                                             </thead>
@@ -132,13 +133,21 @@
 
                                                     <td class="px-6 py-3 text-center">
                                                         <input type="number" value="{{ proc.duration_minutes }}"
-                                                               @change="updateProcData('{{ proc.procedure_code }}', $event.target.value, '{{ proc.rvu_value }}', '{{ proc.modality or '' }}', $event.target)"
+                                                               @change="updateProcField('{{ proc.procedure_code }}', 'duration', $event.target.value, $event.target)"
                                                                class="proc-input w-20 py-1.5">
                                                     </td>
 
                                                     <td class="px-6 py-3 text-center">
-                                                        <input type="number" step="0.1" value="{{ proc.rvu_value }}"
-                                                               @change="updateProcData('{{ proc.procedure_code }}', $event.target.closest('tr').querySelector('input[type=number]').value, $event.target.value, $event.target.closest('tr').querySelector('select').value, $event.target)"
+                                                        <input type="number" step="0.01" value="{{ proc.clinical_rvu }}"
+                                                               title="Clinical RVU (radiologist)"
+                                                               @change="updateProcField('{{ proc.procedure_code }}', 'clinical_rvu', $event.target.value, $event.target)"
+                                                               class="proc-input w-20 py-1.5">
+                                                    </td>
+
+                                                    <td class="px-6 py-3 text-center">
+                                                        <input type="number" step="0.01" value="{{ proc.technical_rvu }}"
+                                                               title="Technical RVU (device / technician)"
+                                                               @change="updateProcField('{{ proc.procedure_code }}', 'technical_rvu', $event.target.value, $event.target)"
                                                                class="proc-input w-20 py-1.5">
                                                     </td>
 
