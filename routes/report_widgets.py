@@ -470,15 +470,16 @@ def _rvu_rate(modality):
 def widget_rvu_summary(db, filters, config):
     p = _p(filters)
     row = db.session.execute(text(f"""
-        SELECT COUNT(DISTINCT s.study_db_uid)  AS total_studies,
-               COALESCE(SUM(pdm.rvu_value), 0) AS total_rvu
+        SELECT COUNT(DISTINCT s.study_db_uid)                                    AS total_studies,
+               COALESCE(SUM(pdm.clinical_rvu + pdm.technical_rvu), 0)            AS total_rvu
         {_FIN_JOIN} {_FIN_WHERE}
     """), p).fetchone()
     total_studies = row.total_studies or 0
     total_rvu     = float(row.total_rvu or 0)
 
     mod_rows = db.session.execute(text(f"""
-        SELECT {_MOD_EXPR} AS modality, COALESCE(SUM(pdm.rvu_value), 0) AS rvu
+        SELECT {_MOD_EXPR} AS modality,
+               COALESCE(SUM(pdm.clinical_rvu + pdm.technical_rvu), 0) AS rvu
         {_FIN_JOIN} {_FIN_WHERE}
         GROUP BY 1
     """), p).fetchall()
@@ -498,8 +499,8 @@ def widget_revenue_by_modality(db, filters, config):
     p = _p(filters)
     rows = db.session.execute(text(f"""
         SELECT {_MOD_EXPR} AS modality,
-               COUNT(DISTINCT s.study_db_uid)  AS study_count,
-               COALESCE(SUM(pdm.rvu_value), 0) AS total_rvu
+               COUNT(DISTINCT s.study_db_uid)         AS study_count,
+               COALESCE(SUM(pdm.technical_rvu), 0)    AS total_rvu
         {_FIN_JOIN} {_FIN_WHERE}
         GROUP BY 1 ORDER BY 3 DESC
     """), p).fetchall()
@@ -519,9 +520,9 @@ def widget_revenue_by_physician(db, filters, config):
     rows = db.session.execute(text(f"""
         SELECT s.reading_physician_first_name AS first_name,
                s.reading_physician_last_name  AS last_name,
-               COUNT(DISTINCT s.study_db_uid) AS studies,
-               COALESCE(SUM(pdm.rvu_value), 0) AS total_rvu,
-               {_MOD_EXPR}                    AS top_modality
+               COUNT(DISTINCT s.study_db_uid)      AS studies,
+               COALESCE(SUM(pdm.clinical_rvu), 0)   AS total_rvu,
+               {_MOD_EXPR}                           AS top_modality
         {_FIN_JOIN} {_FIN_WHERE}
           AND s.reading_physician_last_name IS NOT NULL
         GROUP BY 1, 2, 5

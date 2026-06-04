@@ -112,16 +112,16 @@ def get_gold_standard_data(form_data):
         return None, start, end
 
     # 4. Defensive Data Cleaning
-    # If the SQL returns 'rvu_value' instead of 'rvu', let's map it automatically
-    if 'rvu_value' in df.columns and 'rvu' not in df.columns:
-        df['rvu'] = df['rvu_value']
-
-    for col in ['total_tat_min', 'proc_duration', 'rvu']:
+    for col in ['total_tat_min', 'proc_duration', 'clinical_rvu', 'technical_rvu']:
         if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(1.0 if col.endswith('_rvu') else 0)
         else:
-            logger.warning("Report 25: expected column '%s' missing from query result — defaulting to 0", col)
-            df[col] = 0.0
+            logger.warning("Report 25: expected column '%s' missing from query result — defaulting", col)
+            df[col] = 1.0 if col.endswith('_rvu') else 0.0
+    # backward compat: old template still emits a single 'rvu' column
+    if 'rvu' in df.columns and 'clinical_rvu' not in df.columns:
+        df['clinical_rvu']  = pd.to_numeric(df['rvu'], errors='coerce').fillna(1.0)
+        df['technical_rvu'] = df['clinical_rvu']
     
     df['study_date_dt'] = pd.to_datetime(df['study_date'], errors='coerce') if 'study_date' in df.columns else pd.to_datetime(date.today())
 
@@ -174,7 +174,7 @@ def get_gold_standard_data(form_data):
 
             matrix_rows.append({
                 "ae": ae, "days": days_util, "avg": ae_avg,
-                "total_rvu": round(ae_df['rvu'].sum(), 1),
+                "total_rvu": round(ae_df['technical_rvu'].sum(), 1),
                 "total_cap": ae_total_cap,
             })
 
@@ -209,14 +209,14 @@ def get_gold_standard_data(form_data):
             drill = []
             loc_col = 'patient_location' if 'patient_location' in df.columns else 'modality'
             for loc, l_df in r_df.groupby(loc_col):
-                mods = [{"m": m, "avg": round(m_df['total_tat_min'].mean(), 1), "count": len(m_df), "rvu": round(m_df['rvu'].sum(), 1)} for m, m_df in l_df.groupby('modality')]
-                drill.append({"loc": loc, "mods": mods, "loc_rvu": round(l_df['rvu'].sum(), 1)})
+                mods = [{"m": m, "avg": round(m_df['total_tat_min'].mean(), 1), "count": len(m_df), "rvu": round(m_df['clinical_rvu'].sum(), 1)} for m, m_df in l_df.groupby('modality')]
+                drill.append({"loc": loc, "mods": mods, "loc_rvu": round(l_df['clinical_rvu'].sum(), 1)})
 
             # Only count studies with a mapped duration — unmapped studies (0 min)
             # would contribute RVU without time, inflating the rate
             r_df_mapped = r_df[r_df['proc_duration'] > 0]
             total_scan_hours = r_df_mapped['proc_duration'].sum() / 60
-            rvu_per_hour = round(r_df_mapped['rvu'].sum() / total_scan_hours, 2) if total_scan_hours > 0 else 0.0
+            rvu_per_hour = round(r_df_mapped['clinical_rvu'].sum() / total_scan_hours, 2) if total_scan_hours > 0 else 0.0
 
             r_df_valid = r_df[r_df['total_tat_min'] > 0]
             rad_cards.append({
@@ -224,7 +224,7 @@ def get_gold_standard_data(form_data):
                 "count": int(len(r_df)),
                 "overall": round(r_df_valid['total_tat_min'].mean(), 1) if len(r_df_valid) > 0 else 0.0,
                 "tat_median": round(float(r_df[r_df['total_tat_min'] > 0]['total_tat_min'].median()), 1) if (r_df['total_tat_min'] > 0).any() else 0.0,
-                "total_rvu": round(r_df['rvu'].sum(), 1),
+                "total_rvu": round(r_df['clinical_rvu'].sum(), 1),
                 "rvu_per_hour": rvu_per_hour,
                 "drilldown": drill
             })
@@ -520,7 +520,10 @@ def get_gold_standard_data(form_data):
             "total": len(df), "global_util": f"{(sum(r['avg'] * r.get('total_cap', 1) for r in matrix_rows) / sum(r.get('total_cap', 1) for r in matrix_rows) if matrix_rows and sum(r.get('total_cap', 1) for r in matrix_rows) > 0 else 0):.1f}%",
             "er_wait": f"{df[df['accession_number'].str.upper().str.startswith('2XE').fillna(False) & (df['total_tat_min'] > 0)]['total_tat_min'].mean():.1f}m" if 'accession_number' in df.columns and (df['accession_number'].str.upper().str.startswith('2XE').fillna(False) & (df['total_tat_min'] > 0)).any() else "0m",
             "high_stress_count": high_stress, "low_util_count": under_utilized,
-            "work_hours": round(total_active_mins / 60, 1), "total_rvu": round(df['rvu'].sum(), 1),
+            "work_hours": round(total_active_mins / 60, 1),
+            "total_rvu": round(df['clinical_rvu'].sum() + df['technical_rvu'].sum(), 1),
+            "clinical_rvu": round(df['clinical_rvu'].sum(), 1),
+            "technical_rvu": round(df['technical_rvu'].sum(), 1),
             "tat_median": tat_median, "tat_p25": tat_p25, "tat_p75": tat_p75,
         },
         "matrix": matrix_rows, 
