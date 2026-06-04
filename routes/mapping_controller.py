@@ -124,6 +124,21 @@ def procedures_tab():
 
     duration_mappings = ProcedureDurationMap.query.order_by(ProcedureDurationMap.procedure_code).all()
 
+    # Build a code→description lookup from etl_orders for procedures whose
+    # procedure_name is NULL (i.e. never manually named).
+    try:
+        _name_rows = db.session.execute(_t("""
+            SELECT UPPER(TRIM(proc_id)) AS code,
+                   MODE() WITHIN GROUP (ORDER BY UPPER(TRIM(proc_text))) AS name
+            FROM etl_orders
+            WHERE proc_id IS NOT NULL AND TRIM(proc_id) != ''
+              AND proc_text IS NOT NULL AND TRIM(proc_text) != ''
+            GROUP BY UPPER(TRIM(proc_id))
+        """)).fetchall()
+        proc_name_map = {r.code: r.name for r in _name_rows}
+    except Exception:
+        proc_name_map = {}
+
     try:
         conflicts = db.session.execute(
             _t("SELECT procedure_code, modalities, sample_count FROM procedure_modality_conflicts ORDER BY sample_count DESC")
@@ -194,6 +209,7 @@ def procedures_tab():
     return render_template(
         '_mapping_proc_partial.html',
         duration_mappings=duration_mappings,
+        proc_name_map=proc_name_map,
         conflicts=conflicts,
         conflict_codes=conflict_codes,
         fuzzy_map=fuzzy_map,
