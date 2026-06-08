@@ -509,6 +509,7 @@ class aetitle_modality_map(db.Model):
     room_name = db.Column(String(100))
     description = db.Column(db.Text)
     daily_capacity_minutes = db.Column(Integer, default=480)
+    display_aetitle = db.Column(String(100))
     weekly_schedules = relationship("device_weekly_schedule", back_populates="device")
     exceptions = relationship("device_exceptions", back_populates="device")
 

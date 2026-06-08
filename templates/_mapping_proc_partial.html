@@ -88,6 +88,7 @@
                                                     <th class="px-6 py-3 text-center" title="Clinical RVU — radiologist productivity">RVU Clinical</th>
                                                     <th class="px-6 py-3 text-center" title="Technical RVU — device / technician">RVU Technical</th>
                                                     <th class="px-6 py-3 text-right">Status</th>
+                                                    <th class="px-3 py-3"></th>
                                                 </tr>
                                             </thead>
                                             <tbody class="divide-y divide-[#28332e]/60">
@@ -161,6 +162,13 @@
                                                         {% else %}
                                                         <span class="text-[9px] font-black uppercase px-2 py-1 rounded bg-slate-800 text-slate-500">Auto</span>
                                                         {% endif %}
+                                                    </td>
+                                                    <td class="px-3 py-3 text-center">
+                                                        <button onclick="deleteProcedure('{{ proc.procedure_code }}', this)"
+                                                                title="Delete this procedure"
+                                                                class="text-red-400 hover:text-red-300 transition text-xs p-1 rounded hover:bg-red-900/20">
+                                                            <i class="bi bi-trash3-fill"></i>
+                                                        </button>
                                                     </td>
                                                 </tr>
                                                 {% endfor %}
