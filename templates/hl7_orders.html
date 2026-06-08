@@ -390,7 +390,8 @@
   <div class="controls-spacer"></div>
 
   <div class="stats-chips">
-    <div class="chip">Orders today <span id="totalCount">{{ total }}</span></div>
+    <div class="chip"><span id="performedCount">{{ performed }}</span> performed</div>
+    <div class="chip" style="border-color:rgba(224,92,92,0.35);color:var(--red);"><span id="cancelledCount">{{ cancelled }}</span> cancelled</div>
     <button onclick="openHl7Parser()" style="background:rgba(0,180,216,0.08);border:1px solid rgba(0,180,216,0.25);color:var(--accent);font-family:var(--mono);font-size:10px;padding:4px 12px;border-radius:4px;cursor:pointer;letter-spacing:0.08em;text-transform:uppercase;" title="Paste and validate an HL7 message template">
       <i class="bi bi-braces" style="margin-right:5px;"></i>HL7 Parser
     </button>
@@ -593,7 +594,8 @@
       const res  = await fetch('/hl7-orders/data?' + params.toString());
       const data = await res.json();
 
-      document.getElementById('totalCount').textContent = data.total;
+      document.getElementById('performedCount').textContent = data.total;
+      document.getElementById('cancelledCount').textContent = data.cancelled || 0;
       updateLastRefresh();
 
       if (data.total === 0) return;
