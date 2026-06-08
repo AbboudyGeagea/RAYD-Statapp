@@ -202,6 +202,15 @@
                value="{{ map.description or '' }}"
                title="Station description"
                onchange="saveAeDescription('{{ map.aetitle.upper() }}', this)">
+        <input type="text"
+               class="proc-input mt-1 w-full px-2 py-1 text-[10px] {% if map.display_aetitle %}border-amber-500/60{% endif %}"
+               placeholder="Display As (e.g. EBW)"
+               value="{{ map.display_aetitle or '' }}"
+               title="Report alias — studies from this AE will appear under this name in reports"
+               onchange="saveAeDisplayAlias('{{ map.aetitle.upper() }}', this)">
+        {% if map.display_aetitle %}
+        <div class="text-[8px] text-amber-400 font-bold mt-0.5 uppercase tracking-wider">→ {{ map.display_aetitle }}</div>
+        {% endif %}
     </td>
 
     {% for day_idx in range(7) %}
@@ -544,6 +553,29 @@
             }
         }
 
+        // ── Inline AE display alias save ──────────────────────────────
+        async function saveAeDisplayAlias(aetitle, el) {
+            el.classList.add('saving');
+            try {
+                const res = await fetch('/mapping/ae/update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ aetitle, display_aetitle: el.value.trim() })
+                });
+                if (res.ok) {
+                    el.classList.remove('saving');
+                    el.classList.add('saved');
+                    setTimeout(() => el.classList.remove('saved'), 1500);
+                } else {
+                    alert('Failed to save display alias.');
+                    el.classList.remove('saving');
+                }
+            } catch (e) {
+                alert('Failed to save display alias.');
+                el.classList.remove('saving');
+            }
+        }
+
         // â”€â”€ Tab switching â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         let _procLoaded = false;
         let _physicianLoaded = false;
@@ -573,6 +605,29 @@
             if (name === 'physician' && !_physicianLoaded) {
                 _physicianLoaded = true;
                 reloadPhysicianTab();
+            }
+        }
+
+        // ── Delete procedure ──────────────────────────────────────────
+        async function deleteProcedure(code, btn) {
+            if (!confirm(`Delete procedure “${code}”?\n\nThis removes it from the catalog and any canonical clusters. Historical study data is not affected.`)) return;
+            btn.disabled = true;
+            try {
+                const res = await fetch('/mapping/procedure/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code })
+                });
+                if (res.ok) {
+                    btn.closest('tr').remove();
+                } else {
+                    const data = await res.json();
+                    alert('Delete failed: ' + (data.message || 'unknown error'));
+                    btn.disabled = false;
+                }
+            } catch (e) {
+                alert('Delete failed: network error.');
+                btn.disabled = false;
             }
         }
 

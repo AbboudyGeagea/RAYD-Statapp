@@ -35,11 +35,11 @@ def export_modality_csv():
     rows = AETitleModalityMap.query.order_by(AETitleModalityMap.aetitle).all()
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(['aetitle', 'modality', 'room_name', 'daily_capacity_minutes'])
+    w.writerow(['aetitle', 'modality', 'room_name', 'daily_capacity_minutes', 'display_aetitle'])
     for r in rows:
         sched = next((s for s in r.weekly_schedules if s.day_of_week == 0), None)
         cap = sched.std_opening_minutes if sched else 720
-        w.writerow([r.aetitle, r.modality, r.room_name or '', cap])
+        w.writerow([r.aetitle, r.modality, r.room_name or '', cap, r.display_aetitle or ''])
     buf.seek(0)
     return Response(
         buf.getvalue(),
@@ -245,10 +245,15 @@ def upload_modality_map():
             # Description (optional column)
             desc = str(row.get('description', '')).strip() if 'description' in df.columns and pd.notna(row.get('description')) else None
 
+            # Display alias (optional column)
+            display_ae = str(row.get('display_aetitle', '')).strip().upper() if 'display_aetitle' in df.columns and pd.notna(row.get('display_aetitle')) else None
+            if display_ae == '':
+                display_ae = None
+
             # 1. Sync Parent (AETitleModalityMap) — keep both tables in sync
             parent = AETitleModalityMap.query.filter_by(aetitle=ae).first()
             if not parent:
-                parent = AETitleModalityMap(aetitle=ae, modality=mod, room_name=room, daily_capacity_minutes=cap, description=desc)
+                parent = AETitleModalityMap(aetitle=ae, modality=mod, room_name=room, daily_capacity_minutes=cap, description=desc, display_aetitle=display_ae)
                 db.session.add(parent)
             else:
                 parent.modality = mod
@@ -257,6 +262,8 @@ def upload_modality_map():
                     parent.room_name = room
                 if desc is not None:
                     parent.description = desc or None
+                if display_ae is not None:
+                    parent.display_aetitle = display_ae
             
             # Flush tells the DB about the parent so the Foreign Key doesn't fail
             db.session.flush()
@@ -409,6 +416,33 @@ def update_single_procedure():
             db.session.commit()
             return jsonify({"status": "success"})
         return jsonify({"status": "error", "message": "Procedure not found"}), 404
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@mapping_bp.route('/procedure/delete', methods=['POST'])
+@login_required
+def delete_procedure():
+    """Delete a procedure from the catalog (admin only)."""
+    if current_user.role != 'admin': return abort(403)
+    from sqlalchemy import text as _t
+    data = request.get_json(force=True)
+    try:
+        p_code = str(data['code']).strip().upper()
+        mapping = ProcedureDurationMap.query.filter_by(procedure_code=p_code).first()
+        if not mapping:
+            return jsonify({"status": "error", "message": "Procedure not found"}), 404
+        # Remove from canonical members first to avoid FK violation
+        db.session.execute(_t(
+            "DELETE FROM procedure_canonical_members WHERE procedure_code = :code"
+        ), {"code": p_code})
+        db.session.delete(mapping)
+        db.session.commit()
+        from utils.audit import log_event
+        log_event('procedure_deleted', category='config', resource_type='procedure_duration_map',
+                  detail={'procedure_code': p_code})
+        return jsonify({"status": "success"})
     except Exception as e:
         db.session.rollback()
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -698,6 +732,9 @@ def update_ae_entry():
             entry.room_name = str(data['room_name']).strip() or None
         if 'description' in data:
             entry.description = str(data['description']).strip() or None
+        if 'display_aetitle' in data:
+            val = str(data['display_aetitle']).strip().upper()
+            entry.display_aetitle = val or None
         db.session.commit()
         return jsonify({"status": "success"})
     except Exception as e:
