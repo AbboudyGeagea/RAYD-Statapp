@@ -25,6 +25,18 @@ DEFAULT_FIELD_MAP = [
 ]
 
 
+def _count_orders(date_str):
+    """Return (performed, cancelled) for a given date. CA = cancelled, everything else = performed."""
+    row = db.session.execute(text("""
+        SELECT
+            COUNT(*) FILTER (WHERE UPPER(COALESCE(order_status, '')) != 'CA') AS performed,
+            COUNT(*) FILTER (WHERE UPPER(COALESCE(order_status, '')) = 'CA')  AS cancelled
+        FROM hl7_orders
+        WHERE DATE(scheduled_datetime) = :d OR DATE(received_at) = :d
+    """), {"d": date_str}).fetchone()
+    return (int(row[0] or 0), int(row[1] or 0))
+
+
 def _fetch_orders(date_str=None, modality=None, status=None):
     """Fetch hl7_orders with optional filters. Returns list of dicts."""
     filters = ["1=1", "(order_status IS NULL OR order_status <> 'CM')"]
@@ -91,6 +103,7 @@ def hl7_orders_page():
 
     orders              = _fetch_orders(date_str, modality or None, status or None)
     modalities, statuses = _fetch_filter_options()
+    performed, cancelled = _count_orders(date_str)
 
     return render_template(
         'hl7_orders.html',
@@ -100,24 +113,18 @@ def hl7_orders_page():
         statuses   = statuses,
         selected_modality = modality,
         selected_status   = status,
-        total      = len(orders),
+        performed  = performed,
+        cancelled  = cancelled,
     )
 
 
 @hl7_orders_bp.route('/hl7-orders/count')
 @login_required
 def hl7_orders_count():
-    """Lightweight endpoint — today's order count only, used by sidebar badge."""
+    """Lightweight endpoint — today's order counts, used by sidebar badge."""
     today = date.today().isoformat()
-    row = db.session.execute(
-        text("""
-            SELECT COUNT(*) FROM hl7_orders
-            WHERE (DATE(scheduled_datetime) = :d OR DATE(received_at) = :d)
-              AND (order_status IS NULL OR order_status <> 'CM')
-        """),
-        {"d": today}
-    ).scalar()
-    return jsonify({"count": int(row or 0)})
+    performed, cancelled = _count_orders(today)
+    return jsonify({"count": performed, "cancelled": cancelled})
 
 
 @hl7_orders_bp.route('/hl7-orders/field-map', methods=['GET'])
@@ -176,6 +183,7 @@ def hl7_orders_data():
     status   = request.args.get('status', '')
 
     orders = _fetch_orders(date_str, modality or None, status or None)
+    performed, cancelled = _count_orders(date_str)
 
     # Serialize datetimes
     for o in orders:
@@ -183,4 +191,4 @@ def hl7_orders_data():
             if hasattr(v, 'isoformat'):
                 o[k] = v.isoformat()
 
-    return jsonify({"orders": orders, "total": len(orders)})
+    return jsonify({"orders": orders, "total": performed, "cancelled": cancelled})

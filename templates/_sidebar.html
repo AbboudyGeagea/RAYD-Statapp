@@ -146,7 +146,10 @@
             <a href="{{ url_for('hl7_orders.hl7_orders_page') }}"
                class="sidebar-item {% if ep.startswith('hl7_orders.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
                 <i class="bi bi-clipboard2-pulse flex-shrink-0" style="color:#f43f5e;"></i> HL7 Orders
-                <span id="hl7-sidebar-badge" style="display:none;font-size:9px;font-weight:900;padding:1px 6px;border-radius:10px;background:rgba(244,63,94,0.18);color:#f43f5e;border:1px solid rgba(244,63,94,0.3);margin-left:auto;"></span>
+                <span style="margin-left:auto;display:flex;gap:3px;align-items:center;">
+                  <span id="hl7-sidebar-badge" style="display:none;font-size:9px;font-weight:900;padding:1px 6px;border-radius:10px;background:rgba(244,63,94,0.18);color:#f43f5e;border:1px solid rgba(244,63,94,0.3);"></span>
+                  <span id="hl7-sidebar-cancel-badge" style="display:none;font-size:9px;font-weight:900;padding:1px 5px;border-radius:10px;background:rgba(224,92,92,0.15);color:#f87171;border:1px solid rgba(224,92,92,0.3);" title="Cancelled orders"></span>
+                </span>
             </a>
             {% endif %}
             {% if license.get('cd_print') and (current_user.role == 'admin' or current_user|user_has_page('cd_print')) %}
@@ -308,12 +311,16 @@ function sgToggle(key) {
         try {
             const r = await fetch('/hl7-orders/count');
             const d = await r.json();
-            const count = d.count || 0;
-            const badge = document.getElementById('hl7-sidebar-badge');
-            if (badge) { badge.textContent = count; badge.style.display = count > 0 ? 'inline' : 'none'; }
-            if (_hl7Prev >= 0 && count > _hl7Prev) _hl7Toast(count - _hl7Prev);
-            _hl7Prev = count;
-            sessionStorage.setItem('hl7_count', count);
+            const count     = d.count     || 0;
+            const cancelled = d.cancelled || 0;
+            const total     = count + cancelled;
+            const badge       = document.getElementById('hl7-sidebar-badge');
+            const cancelBadge = document.getElementById('hl7-sidebar-cancel-badge');
+            if (badge)       { badge.textContent = count;          badge.style.display       = count     > 0 ? 'inline' : 'none'; }
+            if (cancelBadge) { cancelBadge.textContent = '×' + cancelled; cancelBadge.style.display = cancelled > 0 ? 'inline' : 'none'; }
+            if (_hl7Prev >= 0 && total > _hl7Prev) _hl7Toast(total - _hl7Prev);
+            _hl7Prev = total;
+            sessionStorage.setItem('hl7_count', total);
         } catch(e) {}
     }
 
