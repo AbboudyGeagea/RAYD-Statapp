@@ -61,7 +61,6 @@ DEFAULT_LICENSE = {
     "referring_intel": True,
     # ── Tier 3: Enterprise ───────────────────────────────────
     "financial":       True,   # Revenue Intelligence
-    "bitnet_ai":       True,   # AI Assistant + Teaching Center
     "scheduling":      True,
     "live_feed":       True,
     "patient_portal":  True,
@@ -79,7 +78,7 @@ DEFAULT_LICENSE = {
 #                 user management, activity log, modality/procedure config
 #  Professional — + HL7 orders, report intelligence, custom reports,
 #                 patient CD log, ER dashboard, capacity ladder, saved reports
-#  Enterprise   — + revenue intelligence, AI assistant, scheduling, live AE status
+#  Enterprise   — + revenue intelligence, scheduling, live AE status, patient portal
 #
 TIER_PRESETS = {
     "essential": {
@@ -97,7 +96,6 @@ TIER_PRESETS = {
         "super_report":    False,
         "referring_intel": False,
         "financial":       False,
-        "bitnet_ai":       False,
         "scheduling":      False,
         "live_feed":       False,
         "patient_portal":  False,
@@ -122,7 +120,6 @@ TIER_PRESETS = {
         "super_report":    True,
         "referring_intel": True,
         "financial":       False,
-        "bitnet_ai":       False,
         "scheduling":      False,
         "live_feed":       False,
         "patient_portal":  False,
@@ -328,16 +325,10 @@ def register_blueprints(app):
     # ── Scheduling (Enterprise — license only; route is in admin_bp) ─
     logger.info(f"  scheduling: {'enabled' if lic.get('scheduling', False) else 'not licensed — sidebar hidden'}")
 
-    # ── BitNet AI Assistant (Enterprise — license + config flag) ──
-    if lic.get('bitnet_ai', False) and app.config.get("BITNET_ENABLED", True):
-        try:
-            from routes.bitnet_service import bitnet_bp
-            app.register_blueprint(bitnet_bp)
-            logger.info("  bitnet_ai: enabled")
-        except Exception as e:
-            logger.warning(f"  bitnet_ai: disabled — {e}")
-    else:
-        logger.info("  bitnet_ai: not licensed — skipped")
+    # ── AI Alerts (always on — pure SQL anomaly detection) ────────
+    from routes.ai_alerts import ai_alerts_bp
+    app.register_blueprint(ai_alerts_bp)
+    logger.info("  ai_alerts: enabled")
 
     # ── Inject license into templates ─────────────────────────
     @app.context_processor

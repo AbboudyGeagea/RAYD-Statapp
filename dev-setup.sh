@@ -31,7 +31,6 @@ POSTGRES_DB=etl_db
 MASTER_ADMIN_KEY=admin123
 PATIENT_PORTAL_ENABLED=false
 LIVE_FEED_ENABLED=true
-BITNET_ENABLED=false
 EOF
     echo "  .env created with dev defaults."
 fi

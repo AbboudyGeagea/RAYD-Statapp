@@ -91,7 +91,7 @@ def admin_dashboard():
     for p in all_perms:
         page_perms.setdefault(p.user_id, {})[p.page_key] = p.is_enabled
 
-    page_keys = ['live_feed', 'hl7_orders', 'report_ai', 'bitnet', 'oru', 'mapping', 'patient_portal']
+    page_keys = ['live_feed', 'hl7_orders', 'report_ai', 'oru', 'mapping', 'patient_portal']
 
     return render_template(
         'admin_panel.html',
@@ -651,7 +651,6 @@ def _get_user_page_columns():
         ('patient_portal',  'Patient Portal'),
         ('mapping',         'Modality / Procedures'),
         ('report_ai',       'AI Reports'),
-        ('bitnet',          'AI Assistant'),
         ('financial',       'Revenue Intelligence'),
     ]
 
@@ -1157,7 +1156,7 @@ def set_demo_mode():
             db.session.add(user)
             db.session.flush()
             # Grant all page permissions to the new demo account — patient_portal is always excluded
-            for page_key in ['live_feed', 'hl7_orders', 'report_ai', 'bitnet', 'oru', 'mapping']:
+            for page_key in ['live_feed', 'hl7_orders', 'report_ai', 'oru', 'mapping']:
                 db.session.add(UserPagePermission(user_id=user.id, page_key=page_key, is_enabled=True))
 
         # Always strip patient_portal from the demo user, even if previously granted manually
