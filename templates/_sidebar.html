@@ -36,7 +36,7 @@
 {% set admin_on      = ep in ['admin.admin_dashboard','admin.user_management','admin.audit_log','admin.hl7_forward_config'] or ep.startswith('db_manager.') or ep.startswith('mapping.') %}
 {% set ops_on        = ep.startswith('live_feed.') or ep == 'admin.scheduling_page' or ep.startswith('hl7_orders.') or ep.startswith('cd_print.') %}
 {% set analytics_on  = ep.startswith('oru.') or ep.startswith('referring_intel.') or ep.startswith('custom_reports.') or ep.startswith('portal_admin.') %}
-{% set ai_on         = ep in ['bitnet.assistant_page','bitnet.ai_admin'] or ep.startswith('report_ai.') %}
+{% set ai_on         = ep.startswith('report_ai.') %}
 {% set finance_on    = ep.startswith('financial_dashboard.') %}
 {% set help_on       = ep.startswith('docs.') %}
 
@@ -199,25 +199,6 @@
         </div>
         {% endif %}
 
-        <!-- ── AI ─────────────────────────────────────────────────── -->
-        {% if config.BITNET_ENABLED and (current_user.role == 'admin' or current_user|user_has_page('bitnet')) %}
-        <button class="sg-btn" onclick="sgToggle('ai')">
-            <span class="flex items-center gap-2"><i class="bi bi-robot" style="color:#10b981;"></i> AI</span>
-            <i id="chev-ai" class="bi bi-chevron-down sg-chevron {% if ai_on %}open{% endif %}"></i>
-        </button>
-        <div id="sg-ai" class="sg-body {% if not ai_on %}closed{% endif %} space-y-0.5 mb-2">
-            <a href="{{ url_for('bitnet.assistant_page') }}"
-               class="sidebar-item {% if ep == 'bitnet.assistant_page' %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
-                <i class="bi bi-robot flex-shrink-0" style="color:#10b981;"></i> AI Assistant
-            </a>
-            {% if current_user.role == 'admin' %}
-            <a href="{{ url_for('bitnet.ai_admin') }}"
-               class="sidebar-item {% if ep == 'bitnet.ai_admin' %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
-                <i class="bi bi-mortarboard-fill flex-shrink-0" style="color:#a78bfa;"></i> AI Teaching Center
-            </a>
-            {% endif %}
-        </div>
-        {% endif %}
 
         <!-- ── FINANCE ─────────────────────────────────────────────── -->
         {% if license.get('financial') and (current_user.role == 'admin' or current_user|user_has_page('financial')) %}

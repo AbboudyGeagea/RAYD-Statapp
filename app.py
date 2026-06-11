@@ -151,7 +151,6 @@ def create_app():
         if demo_mode:
             cfg = dict(app.config)
             cfg['LIVE_FEED_ENABLED']       = True
-            cfg['BITNET_ENABLED']          = True
             cfg['PATIENT_PORTAL_ENABLED']  = True
 
         oracle_configured = False

@@ -9,12 +9,9 @@ Usage in app.py:
     from config import config
     app.config.from_object(config)
 
-Usage in templates:
-    {% if config.BITNET_ENABLED %}
-
 Usage in Python:
     from flask import current_app
-    if current_app.config["BITNET_ENABLED"]:
+    if current_app.config["LIVE_FEED_ENABLED"]:
         ...
 """
 
@@ -56,15 +53,6 @@ class Config:
     # ── Live AE Feed ──────────────────────────────────────────
     LIVE_FEED_ENABLED = _bool("LIVE_FEED_ENABLED", default=True)
 
-    # ── BitNet AI Assistant ───────────────────────────────────
-    # Set BITNET_ENABLED=true in docker-compose environment to activate.
-    # All other BITNET_ vars are optional — defaults work for standard setup.
-    BITNET_ENABLED = _bool("BITNET_ENABLED", default=False)
-    BITNET_DIR     = os.environ.get("BITNET_DIR",     "/home/stats/BitNet")
-    BITNET_MODEL   = os.environ.get("BITNET_MODEL",   "")   # auto-detected if empty
-    BITNET_THREADS = int(os.environ.get("BITNET_THREADS", "4"))
-    BITNET_CTX     = int(os.environ.get("BITNET_CTX",     "2048"))
-    BITNET_TOKENS  = int(os.environ.get("BITNET_TOKENS",  "512"))
 
 
 # Single instance imported everywhere

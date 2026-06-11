@@ -23,7 +23,7 @@ Sidebar folder → module prefix mapping
   portal         routes.portal
   oru            routes.oru_analytics, nlp_worker
   referring_intel routes.referring_intel
-  ai             routes.bitnet_service, routes.ai_teaching
+  ai             routes.ai_alerts
   financial      routes.financial_dashboard
   auth           auth.*
   app            everything else (db, report_cache, …)
@@ -52,8 +52,7 @@ _MODULE_FOLDER_MAP: dict = {
     "routes.hl7_orders_route":         "hl7",
     "hl7_listener":                    "hl7",
     # AI
-    "routes.bitnet_service":           "ai",
-    "routes.ai_teaching":              "ai",
+    "routes.ai_alerts":                "ai",
     # Financial
     "routes.financial_dashboard":      "financial",
     # Mapping / config
