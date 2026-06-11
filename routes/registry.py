@@ -78,7 +78,7 @@ DEFAULT_LICENSE = {
 #                 user management, activity log, modality/procedure config
 #  Professional — + HL7 orders, report intelligence, custom reports,
 #                 patient CD log, ER dashboard, capacity ladder, saved reports
-#  Enterprise   — + revenue intelligence, AI assistant, scheduling, live AE status
+#  Enterprise   — + revenue intelligence, scheduling, live AE status, patient portal
 #
 TIER_PRESETS = {
     "essential": {
