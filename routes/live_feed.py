@@ -135,6 +135,7 @@ def live_status():
             )
               AND COALESCE(o.order_status, '') NOT IN ('CA', 'CM')
               AND (o.message_type IS NULL OR o.message_type NOT LIKE 'ADT%')
+              AND o.pacs_done_at IS NULL
             ORDER BY COALESCE(o.scheduled_datetime, o.received_at)
         """)).mappings().fetchall()
 
@@ -229,6 +230,7 @@ def live_status():
             )
               AND COALESCE(o.order_status, '') NOT IN ('CA', 'CM')
               AND (o.message_type IS NULL OR o.message_type NOT LIKE 'ADT%')
+              AND o.pacs_done_at IS NULL
               AND s.accession_number IS NULL
               AND o.linked_accession_number IS NULL
               AND o.linked_study_db_uid IS NULL
@@ -374,6 +376,7 @@ def live_orphans():
             )
               AND COALESCE(o.order_status, '') NOT IN ('CA', 'CM')
               AND (o.message_type IS NULL OR o.message_type NOT LIKE 'ADT%')
+              AND o.pacs_done_at IS NULL
               AND s.accession_number IS NULL
               AND o.linked_accession_number IS NULL
               AND o.linked_study_db_uid IS NULL

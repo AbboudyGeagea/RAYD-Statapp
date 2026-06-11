@@ -116,10 +116,6 @@ POSTGRES_DB=${PG_DB}
 
 TZ=Asia/Beirut
 LIVE_FEED_ENABLED=true
-BITNET_ENABLED=true
-BITNET_SERVER=http://172.17.0.1:8081
-BITNET_TOKENS=200
-BITNET_TIMEOUT=120
 EOF
 
     ok ".env created."
@@ -354,9 +350,9 @@ case "$TIER_CHOICE" in
 esac
 
 # Tier presets inlined — no Flask/Python import needed on the host
-_JSON_ESS='{"tier":"essential","reports":[22,23,25,27,29,30],"export":true,"adapter_mapper":true,"hl7_orders":false,"oru_analytics":false,"custom_reports":false,"cd_print":false,"er_dashboard":false,"capacity_ladder":false,"saved_reports":false,"super_report":false,"referring_intel":false,"financial":false,"bitnet_ai":false,"scheduling":false,"live_feed":false,"patient_portal":false,"ai_report":false,"max_users":0,"max_sessions":0,"expires":"","max_studies_per_report":0}'
-_JSON_PRO='{"tier":"professional","reports":[22,23,25,27,29,30],"export":true,"adapter_mapper":true,"hl7_orders":true,"oru_analytics":true,"custom_reports":true,"cd_print":true,"er_dashboard":true,"capacity_ladder":true,"saved_reports":true,"super_report":true,"referring_intel":true,"financial":false,"bitnet_ai":false,"scheduling":false,"live_feed":false,"patient_portal":false,"ai_report":false,"max_users":0,"max_sessions":0,"expires":"","max_studies_per_report":0}'
-_JSON_ENT='{"tier":"enterprise","reports":[22,23,25,27,29,30],"export":true,"adapter_mapper":true,"hl7_orders":true,"oru_analytics":true,"custom_reports":true,"cd_print":true,"er_dashboard":true,"capacity_ladder":true,"saved_reports":true,"super_report":true,"referring_intel":true,"financial":true,"bitnet_ai":true,"scheduling":true,"live_feed":true,"patient_portal":true,"ai_report":true,"max_users":0,"max_sessions":0,"expires":"","max_studies_per_report":0}'
+_JSON_ESS='{"tier":"essential","reports":[22,23,25,27,29,30],"export":true,"adapter_mapper":true,"hl7_orders":false,"oru_analytics":false,"custom_reports":false,"cd_print":false,"er_dashboard":false,"capacity_ladder":false,"saved_reports":false,"super_report":false,"referring_intel":false,"financial":false,"scheduling":false,"live_feed":false,"patient_portal":false,"ai_report":false,"max_users":0,"max_sessions":0,"expires":"","max_studies_per_report":0}'
+_JSON_PRO='{"tier":"professional","reports":[22,23,25,27,29,30],"export":true,"adapter_mapper":true,"hl7_orders":true,"oru_analytics":true,"custom_reports":true,"cd_print":true,"er_dashboard":true,"capacity_ladder":true,"saved_reports":true,"super_report":true,"referring_intel":true,"financial":false,"scheduling":false,"live_feed":false,"patient_portal":false,"ai_report":false,"max_users":0,"max_sessions":0,"expires":"","max_studies_per_report":0}'
+_JSON_ENT='{"tier":"enterprise","reports":[22,23,25,27,29,30],"export":true,"adapter_mapper":true,"hl7_orders":true,"oru_analytics":true,"custom_reports":true,"cd_print":true,"er_dashboard":true,"capacity_ladder":true,"saved_reports":true,"super_report":true,"referring_intel":true,"financial":true,"scheduling":true,"live_feed":true,"patient_portal":true,"ai_report":true,"max_users":0,"max_sessions":0,"expires":"","max_studies_per_report":0}'
 
 case "$TIER_KEY" in
     essential)    LICENSE_JSON="$_JSON_ESS" ;;
@@ -436,7 +432,7 @@ print(json.dumps(d))
 
     echo ""
     echo "  Enterprise features:"
-    for feat in financial bitnet_ai scheduling live_feed patient_portal ai_report; do
+    for feat in financial scheduling live_feed patient_portal ai_report; do
         CURRENT=$(echo "$LICENSE_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('$feat', False))")
         read -r -p "    Enable $feat? (current: $CURRENT) [y/n/Enter=keep]: " TOGGLE
         if [[ "${TOGGLE,,}" == "y" ]]; then
@@ -511,51 +507,29 @@ INSERT INTO go_live_config (go_live_date) VALUES ('${GO_LIVE}');
 fi
 
 # ──────────────────────────────────────────────────────
-# STEP 7: Qwen2.5-7B AI assistant setup (optional)
+# STEP 7: Remove legacy Qwen2.5-7B / llama.cpp installation
+# Runs once — sentinel at /opt/rayd/.qwen_removed prevents repeat.
 # ──────────────────────────────────────────────────────
-info "Step 7/7 — Qwen2.5-7B AI assistant setup..."
+_QWEN_CLEANUP_DONE="/opt/rayd/.qwen_removed"
+if [ ! -f "$_QWEN_CLEANUP_DONE" ]; then
+    info "Step 7/7 — Removing legacy Qwen/llama.cpp AI installation..."
 
-# Clean up legacy BitNet / llama-server installation
-for old_svc in llama-server bitnet; do
-    if systemctl is-active --quiet "$old_svc" 2>/dev/null; then
-        info "Stopping legacy service: $old_svc"
-        systemctl stop "$old_svc" 2>/dev/null || true
-    fi
-    if systemctl is-enabled --quiet "$old_svc" 2>/dev/null; then
-        systemctl disable "$old_svc" 2>/dev/null || true
-    fi
-    if [ -f "/etc/systemd/system/${old_svc}.service" ]; then
-        rm -f "/etc/systemd/system/${old_svc}.service"
-        info "Removed legacy unit file: ${old_svc}.service"
-    fi
-done
-systemctl daemon-reload 2>/dev/null || true
+    for svc in qwen-server llama-server bitnet; do
+        systemctl stop    "$svc" 2>/dev/null || true
+        systemctl disable "$svc" 2>/dev/null || true
+        rm -f "/etc/systemd/system/${svc}.service"
+    done
+    systemctl daemon-reload 2>/dev/null || true
 
-# Remove old Llama model to free disk space (~4.4 GB)
-OLD_MODEL="/home/stats/BitNet/models/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf"
-if [ -f "$OLD_MODEL" ]; then
-    info "Removing old Llama 3.1 model file..."
-    rm -f "$OLD_MODEL"
-    ok "Freed space from old model."
-fi
+    rm -rf /opt/llama.cpp
+    rm -rf /home/stats/Qwen
+    rm -rf /opt/bitnet
 
-# Remove old BitNet installation directory
-if [ -d "/opt/bitnet" ]; then
-    info "Removing /opt/bitnet..."
-    rm -rf "/opt/bitnet"
-    ok "Removed /opt/bitnet."
-fi
-
-SETUP_SCRIPT="${SCRIPT_DIR}/scripts/setup_qwen_prod.sh"
-
-if [ "${BITNET_ENABLED:-true}" != "true" ]; then
-    warn "Qwen AI assistant is disabled. Skipping model setup."
-    warn "To enable later, set BITNET_ENABLED=true in .env and re-run this script."
-elif [ ! -f "$SETUP_SCRIPT" ]; then
-    warn "Setup script not found at $SETUP_SCRIPT — skipping Qwen setup."
+    mkdir -p /opt/rayd
+    touch "$_QWEN_CLEANUP_DONE"
+    ok "Legacy AI files removed."
 else
-    info "Running Qwen2.5-7B production setup (downloads ~4.4 GB model on first run)..."
-    bash "$SETUP_SCRIPT"
+    info "Step 7/7 — Qwen cleanup already done, skipping."
 fi
 
 # ──────────────────────────────────────────────────────

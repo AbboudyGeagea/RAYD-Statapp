@@ -25,7 +25,6 @@ services:
       - MASTER_ADMIN_KEY=dev-admin-key
       - PATIENT_PORTAL_ENABLED=false
       - LIVE_FEED_ENABLED=true
-      - BITNET_ENABLED=false
       - LD_LIBRARY_PATH=/opt/oracle/instantclient_21_13
     depends_on:
       db:

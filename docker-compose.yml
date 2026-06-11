@@ -46,15 +46,8 @@ services:
       - PATIENT_PORTAL_ENABLED=${PATIENT_PORTAL_ENABLED:-false}
       - LIVE_FEED_ENABLED=${LIVE_FEED_ENABLED:-true}
 
-      # ── BitNet AI Assistant ───────────────────────────────────
-      - BITNET_ENABLED=${BITNET_ENABLED:-true}
-      - BITNET_SERVER=${BITNET_SERVER:-http://172.17.0.1:8081}
-      - BITNET_TOKENS=${BITNET_TOKENS:-200}
-      - BITNET_TIMEOUT=${BITNET_TIMEOUT:-120}
-
     volumes:
       - /opt/rayd/logs:/opt/rayd/logs
-      - /home/stats/BitNet:/home/stats/BitNet:ro
       - ./static:/app/static
 
     depends_on:
