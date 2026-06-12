@@ -120,11 +120,13 @@ def live_status():
                 o.procedure_text,
                 o.procedure_code,
                 o.modality,
-                COALESCE(NULLIF(o.order_status, ''), 'SC') AS order_status,
+                COALESCE(NULLIF(o.order_status, ''), 'AR') AS order_status,
                 COALESCE(pm.duration_minutes, 15) AS duration,
                 (pm.procedure_code IS NULL)        AS unknown_code,
                 o.linked_accession_number,
-                o.linked_study_db_uid
+                o.linked_study_db_uid,
+                o.arrived_at,
+                o.started_at
             FROM hl7_orders o
             LEFT JOIN procedure_duration_map pm
                    ON pm.procedure_code = o.procedure_code
@@ -174,7 +176,9 @@ def live_status():
                 is_present = o_status in ("AR", "IP")  # physically at facility
 
                 if sched <= now or is_present:
-                    dob = o["date_of_birth"]
+                    dob        = o["date_of_birth"]
+                    arrived_at = o["arrived_at"]
+                    started_at = o["started_at"]
                     active_orders.append({
                         "order_id":            o["id"],
                         "message_id":          o["message_id"],
@@ -190,6 +194,8 @@ def live_status():
                         "end_time":            end_time.strftime("%H:%M"),
                         "mins_remaining":      mins_remaining,
                         "overrun":             overrun,
+                        "arrived_at":          arrived_at.strftime("%H:%M") if arrived_at else None,
+                        "started_at":          started_at.strftime("%H:%M") if started_at else None,
                     })
                     # Countdown to next non-overrun finish
                     if not overrun and mins_remaining > 0:
@@ -522,8 +528,10 @@ def arrive_order():
         if not row:
             return jsonify({"error": "Order not found"}), 404
         prev = row["order_status"]
+        if prev == "AR":
+            return jsonify({"ok": True})  # already arrived (HL7 auto-set), no-op
         if prev != "SC":
-            return jsonify({"error": f"Expected SC, current status is {prev}"}), 400
+            return jsonify({"error": f"Cannot arrive from status {prev}"}), 400
         db.session.execute(text("""
             UPDATE hl7_orders SET order_status='AR', arrived_at=NOW(), arrived_by=:user
             WHERE message_id=:mid

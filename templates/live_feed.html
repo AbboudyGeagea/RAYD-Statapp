@@ -226,11 +226,16 @@
 
     <!-- ── Grid ──────────────────────────────────────────────────────────────── -->
     <div class="flex-1 p-6">
-        <!-- Modality filter chips -->
-        <div id="mod-filter-bar" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;"></div>
+        <!-- Filter bars -->
+        <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px;">
+            <!-- Modality filter -->
+            <div id="mod-filter-bar" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+            <!-- Status filter -->
+            <div id="status-filter-bar" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+        </div>
 
         <div id="tile-grid" class="grid gap-4"
-             style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr));">
+             style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr));">
             <div class="ae-tile tile-free animate-pulse" style="height:160px;"></div>
             <div class="ae-tile tile-free animate-pulse" style="height:160px;"></div>
             <div class="ae-tile tile-free animate-pulse" style="height:160px;"></div>
@@ -242,7 +247,7 @@
 <script>
 let _countdownTimer = null;
 let _eventSource    = null;
-let _pollTimer      = null;  // fallback polling when SSE is unavailable
+let _pollTimer      = null;
 
 const CIRC = 81.7;
 
@@ -267,14 +272,9 @@ function startCountdown(seconds) {
     let remaining = seconds;
     const ring = document.getElementById('refresh-ring');
     ring.style.strokeDashoffset = 0;
-
     _countdownTimer = setInterval(() => {
         remaining--;
-        if (remaining <= 0) {
-            clearInterval(_countdownTimer);
-            loadStatus();
-            return;
-        }
+        if (remaining <= 0) { clearInterval(_countdownTimer); loadStatus(); return; }
         ring.style.strokeDashoffset = CIRC * (1 - remaining / seconds);
     }, 1000);
 }
@@ -288,96 +288,107 @@ async function loadStatus() {
 
         renderTiles(data.tiles);
         renderModFilter(data.tiles);
+        renderStatusFilter(data.tiles);
         renderSummary(data.tiles, data.orphan_orders);
         document.getElementById('last-update').textContent = `Updated ${data.as_of}`;
 
-        // next_refresh_in is in minutes → seconds, min 30s
         const secs = Math.max((data.next_refresh_in || 60) * 60, 30);
         startCountdown(secs);
     } catch(e) { console.error('Status load failed:', e); }
 }
 
-// ── SSE — primary push mechanism ──────────────────────────────────────
+// ── SSE ───────────────────────────────────────────────────────────────
 function setSseStatus(state) {
     const dot   = document.getElementById('sse-dot');
     const label = document.getElementById('sse-label');
-    dot.className   = 'sse-dot ' + { live:'sse-live', polling:'sse-polling', off:'sse-off' }[state];
+    dot.className     = 'sse-dot ' + { live:'sse-live', polling:'sse-polling', off:'sse-off' }[state];
     label.textContent = { live:'Live', polling:'Polling', off:'Offline' }[state];
 }
 
 function startSSE() {
     if (_eventSource) { _eventSource.close(); _eventSource = null; }
     clearInterval(_pollTimer);
-
     _eventSource = new EventSource('/viewer/live/events');
-
     _eventSource.onopen = () => setSseStatus('live');
-
     _eventSource.onmessage = (e) => {
-        if (e.data === 'new_order') {
-            clearInterval(_countdownTimer);
-            loadStatus();
-        }
+        if (e.data === 'new_order') { clearInterval(_countdownTimer); loadStatus(); }
     };
-
     _eventSource.onerror = () => {
-        _eventSource.close();
-        _eventSource = null;
+        _eventSource.close(); _eventSource = null;
         setSseStatus('polling');
-        // Fall back to polling every 15s; retry SSE after 30s
         _pollTimer = setInterval(checkVersionFallback, 15000);
         setTimeout(startSSE, 30000);
     };
 }
 
-// ── Fallback version poll (used only when SSE is unavailable) ──────────
 let _lastVersion = null;
 async function checkVersionFallback() {
     try {
         const res  = await fetch('/viewer/live/version');
         const data = await res.json();
-        if (_lastVersion && data.version !== _lastVersion) {
-            clearInterval(_countdownTimer);
-            loadStatus();
-        }
+        if (_lastVersion && data.version !== _lastVersion) { clearInterval(_countdownTimer); loadStatus(); }
         _lastVersion = data.version;
     } catch(e) {}
 }
 
-// ── Fallback version endpoint (still needed) ──────────────────────────
-// (kept in backend for the polling fallback above)
-
-// ── Modality filter ───────────────────────────────────────────────────
-let _modFilter  = null;
-let _lastTiles  = [];
+// ── Filters ───────────────────────────────────────────────────────────
+let _modFilter    = null;
+let _statusFilter = null;  // null=All, 'AR'=Arrived, 'IP'=In Progress
+let _lastTiles    = [];
 
 function setModFilter(mod) {
-    _modFilter = (_modFilter === mod) ? null : mod;  // toggle off if same chip clicked
+    _modFilter = (_modFilter === mod) ? null : mod;
     renderTiles(_lastTiles);
     renderModFilter(_lastTiles);
+}
+
+function setStatusFilter(s) {
+    _statusFilter = (_statusFilter === s) ? null : s;
+    renderTiles(_lastTiles);
+    renderStatusFilter(_lastTiles);
+}
+
+function _chipStyle(active, color) {
+    const base = `display:inline-flex;align-items:center;gap:5px;padding:3px 12px;border-radius:999px;` +
+        `font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:0.1em;` +
+        `cursor:pointer;border:1px solid;transition:all .15s;`;
+    if (active && color)
+        return base + `background:rgba(${hexToRgb(color)},0.15);border-color:${color};color:${color};`;
+    if (active)
+        return base + `background:rgba(96,165,250,0.2);border-color:#60a5fa;color:#60a5fa;`;
+    return base + `background:rgba(255,255,255,0.03);border-color:#1e2a26;color:#475569;`;
 }
 
 function renderModFilter(tiles) {
     const bar  = document.getElementById('mod-filter-bar');
     const mods = [...new Set(tiles.map(t => t.modality))].sort();
     if (mods.length <= 1) { bar.innerHTML = ''; return; }
-
-    const chipStyle = (active) =>
-        `display:inline-flex;align-items:center;gap:5px;padding:3px 12px;border-radius:999px;font-size:10px;font-weight:900;` +
-        `text-transform:uppercase;letter-spacing:0.1em;cursor:pointer;border:1px solid;transition:all .15s;` +
-        (active
-            ? `background:rgba(96,165,250,0.2);border-color:#60a5fa;color:#60a5fa;`
-            : `background:rgba(255,255,255,0.03);border-color:#1e2a26;color:#475569;`);
-
-    const allActive = _modFilter === null;
-    let html = `<span onclick="setModFilter(null)" style="${chipStyle(allActive)}">All</span>`;
+    let html = `<span onclick="setModFilter(null)" style="${_chipStyle(_modFilter===null)}">All modalities</span>`;
     for (const mod of mods) {
-        const active = _modFilter === mod;
-        const color  = MOD_COLOR[mod] || '#64748b';
-        html += `<span onclick="setModFilter('${mod}')" style="${chipStyle(active)}${active ? `background:rgba(${hexToRgb(color)},0.15);border-color:${color};color:${color};` : ''}">
-            ${escHtml(mod)}
-        </span>`;
+        const color = MOD_COLOR[mod] || '#64748b';
+        html += `<span onclick="setModFilter('${mod}')" style="${_chipStyle(_modFilter===mod, color)}">${escHtml(mod)}</span>`;
     }
+    bar.innerHTML = html;
+}
+
+function renderStatusFilter(tiles) {
+    const bar = document.getElementById('status-filter-bar');
+    // Count per status across all tiles
+    let arCount = 0, ipCount = 0;
+    tiles.forEach(t => (t.active_orders||[]).forEach(o => {
+        if (o.order_status === 'AR') arCount++;
+        else if (o.order_status === 'IP') ipCount++;
+    }));
+    if (arCount + ipCount === 0) { bar.innerHTML = ''; return; }
+
+    const allActive = _statusFilter === null;
+    let html = `<span onclick="setStatusFilter(null)" style="${_chipStyle(allActive)}">All statuses</span>`;
+    if (arCount > 0)
+        html += `<span onclick="setStatusFilter('AR')" style="${_chipStyle(_statusFilter==='AR','#a78bfa')}">
+            <i class="bi bi-clock-history" style="font-size:9px;"></i> Arrived (${arCount})</span>`;
+    if (ipCount > 0)
+        html += `<span onclick="setStatusFilter('IP')" style="${_chipStyle(_statusFilter==='IP','#60a5fa')}">
+            <i class="bi bi-play-circle" style="font-size:9px;"></i> In Progress (${ipCount})</span>`;
     bar.innerHTML = html;
 }
 
@@ -389,30 +400,28 @@ function hexToRgb(hex) {
 // ── Render tiles ──────────────────────────────────────────────────────
 function renderTiles(tiles) {
     _lastTiles = tiles;
-    const visible = _modFilter ? tiles.filter(t => t.modality === _modFilter) : tiles;
+    let visible = _modFilter ? tiles.filter(t => t.modality === _modFilter) : tiles;
+    // When status filter active, keep tiles but filter their orders inside buildTile
     document.getElementById('tile-grid').innerHTML = visible.map(buildTile).join('');
 }
 
 function buildTile(t) {
-    const cls = {
-        busy:'tile-busy', delayed:'tile-delayed', free:'tile-free', closed:'tile-closed'
-    }[t.status] || 'tile-free';
-
-    const dotCls = {
-        busy:'dot-busy', delayed:'dot-delayed', free:'dot-free', closed:'dot-closed'
-    }[t.status] || 'dot-free';
-
-    const modColor    = MOD_COLOR[t.modality?.toUpperCase()] || '#64748b';
+    const cls      = { busy:'tile-busy', delayed:'tile-delayed', free:'tile-free', closed:'tile-closed' }[t.status] || 'tile-free';
+    const dotCls   = { busy:'dot-busy', delayed:'dot-delayed', free:'dot-free', closed:'dot-closed' }[t.status] || 'dot-free';
+    const modColor = MOD_COLOR[t.modality?.toUpperCase()] || '#64748b';
     const statusLabel = { busy:'Active', delayed:'⚠ Delayed', free:'Free', closed:'Closed' }[t.status] || t.status;
 
-    // Active order rows
     let ordersHtml = '';
     if (t.active_orders && t.active_orders.length > 0) {
-        const overruns  = t.active_orders.filter(o => o.overrun);
-        const ontime    = t.active_orders.filter(o => !o.overrun);
-        const COLLAPSE  = 2; // show only first N overruns inline; rest in toggle
+        // Apply status filter
+        let orders = t.active_orders;
+        if (_statusFilter) orders = orders.filter(o => o.order_status === _statusFilter);
 
-        const buildRow  = (o, hidden = false) => {
+        const overruns = orders.filter(o => o.overrun);
+        const ontime   = orders.filter(o => !o.overrun);
+        const COLLAPSE = 2;
+
+        const buildRow = (o, hidden = false) => {
             const rowCls    = o.overrun ? 'order-row overrun' : 'order-row';
             const timeBadge = o.overrun
                 ? `<span class="badge badge-overrun"><i class="bi bi-clock-history"></i> ${Math.abs(o.mins_remaining)}m overdue</span>`
@@ -423,12 +432,47 @@ function buildTile(t) {
             const linkedBadge = o.linked_accession_number
                 ? `<span class="badge badge-mins" title="Linked accession ${escHtml(o.linked_accession_number)}"><i class="bi bi-link-45deg"></i> Linked</span>`
                 : '';
-            const o_status = o.order_status || 'SC';
+            const o_status = o.order_status || 'AR';
 
-            const statusBadge = o_status === 'AR'
-                ? `<span style="font-size:9px;font-weight:900;padding:2px 7px;border-radius:5px;background:rgba(167,139,250,0.12);color:#a78bfa;text-transform:uppercase;border:1px solid rgba(167,139,250,0.2);">Arrived</span>`
-                : o_status === 'IP'
-                ? `<span style="font-size:9px;font-weight:900;padding:2px 7px;border-radius:5px;background:rgba(96,165,250,0.12);color:#60a5fa;text-transform:uppercase;border:1px solid rgba(96,165,250,0.2);">Started</span>`
+            // Status badge with timestamp
+            let statusBadge = '';
+            if (o_status === 'AR') {
+                const arrivedTxt = o.arrived_at ? ` ${escHtml(o.arrived_at)}` : '';
+                statusBadge = `<span style="font-size:9px;font-weight:900;padding:2px 7px;border-radius:5px;background:rgba(167,139,250,0.12);color:#a78bfa;text-transform:uppercase;border:1px solid rgba(167,139,250,0.2);">
+                    <i class="bi bi-person-check" style="margin-right:2px;"></i>Arrived${arrivedTxt}</span>`;
+            } else if (o_status === 'IP') {
+                const startedTxt = o.started_at ? ` ${escHtml(o.started_at)}` : '';
+                statusBadge = `<span style="font-size:9px;font-weight:900;padding:2px 7px;border-radius:5px;background:rgba(96,165,250,0.12);color:#60a5fa;text-transform:uppercase;border:1px solid rgba(96,165,250,0.2);">
+                    <i class="bi bi-play-fill" style="margin-right:2px;"></i>Started${startedTxt}</span>`;
+            }
+
+            // Action buttons
+            const mid = escHtml(o.message_id);
+            let actionBtns = '';
+            if (o_status === 'AR') {
+                actionBtns = `<button onclick="startOrder('${mid}')"
+                    style="font-size:9px;font-weight:900;padding:3px 10px;border-radius:6px;cursor:pointer;
+                    background:rgba(96,165,250,0.12);color:#60a5fa;border:1px solid rgba(96,165,250,0.3);
+                    transition:background 0.15s;" title="Start exam">
+                    <i class="bi bi-play-fill"></i> Start
+                </button>`;
+            } else if (o_status === 'IP') {
+                actionBtns = `<button onclick="dismissOrder('${mid}')"
+                    style="font-size:9px;font-weight:900;padding:3px 10px;border-radius:6px;cursor:pointer;
+                    background:rgba(74,222,128,0.1);color:#4ade80;border:1px solid rgba(74,222,128,0.25);
+                    transition:background 0.15s;" title="Mark done">
+                    <i class="bi bi-check2"></i> Done
+                </button>`;
+            }
+
+            const canRevert = REVERT_ROLES.includes(USER_ROLE) && o_status !== 'AR';
+            const revertBtn = canRevert
+                ? `<button onclick="revertOrder('${mid}')"
+                    style="font-size:9px;font-weight:900;padding:3px 8px;border-radius:6px;cursor:pointer;
+                    background:rgba(148,163,184,0.06);color:#475569;border:1px solid rgba(148,163,184,0.12);
+                    transition:background 0.15s;" title="Revert one step">
+                    <i class="bi bi-arrow-counterclockwise"></i>
+                  </button>`
                 : '';
 
             return `<div class="${rowCls}" style="flex-direction:column;align-items:stretch;gap:5px;"${hidden ? ' style="display:none;"' : ''}>
@@ -446,11 +490,15 @@ function buildTile(t) {
                     <span style="color:#1e293b;">·</span>
                     <span title="Referring physician"><i class="bi bi-hospital" style="margin-right:3px;"></i>${escHtml(o.referring_physician)}</span>
                 </div>
-                <div style="display:flex;align-items:center;gap:6px;justify-content:space-between;">
-                    ${timeBadge}
-                    <div style="display:flex;gap:6px;align-items:center;">
+                <div style="display:flex;align-items:center;gap:6px;justify-content:space-between;flex-wrap:wrap;">
+                    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                        ${timeBadge}
                         ${linkedBadge}
                         ${statusBadge}
+                    </div>
+                    <div style="display:flex;gap:5px;align-items:center;">
+                        ${actionBtns}
+                        ${revertBtn}
                     </div>
                 </div>
             </div>`;
@@ -459,21 +507,21 @@ function buildTile(t) {
         let rows = ontime.map(o => buildRow(o)).join('');
 
         if (overruns.length > 0) {
-            const visible = overruns.slice(0, COLLAPSE);
-            const hidden  = overruns.slice(COLLAPSE);
-            rows += visible.map(o => buildRow(o)).join('');
-            if (hidden.length > 0) {
+            const visOverruns = overruns.slice(0, COLLAPSE);
+            const hidOverruns = overruns.slice(COLLAPSE);
+            rows += visOverruns.map(o => buildRow(o)).join('');
+            if (hidOverruns.length > 0) {
                 const uid = 'ov_' + Math.random().toString(36).slice(2, 7);
-                rows += hidden.map(o => buildRow(o, true).replace('style="display:none;"', `id="${uid}" style="display:none;"`)).join('');
+                rows += hidOverruns.map(o => buildRow(o, true).replace('style="display:none;"', `id="${uid}" style="display:none;"`)).join('');
                 rows += `<button onclick="toggleOverruns('${uid}', this)"
                     style="font-size:10px;font-weight:800;color:#f59e0b;background:rgba(245,158,11,0.06);
                     border:1px solid rgba(245,158,11,0.2);border-radius:6px;padding:3px 10px;cursor:pointer;width:100%;text-align:center;">
-                    <i class="bi bi-chevron-down"></i> ${hidden.length} more overdue
+                    <i class="bi bi-chevron-down"></i> ${hidOverruns.length} more overdue
                 </button>`;
             }
         }
 
-        ordersHtml = `<div class="flex flex-col gap-2">${rows}</div>`;
+        if (rows) ordersHtml = `<div class="flex flex-col gap-2">${rows}</div>`;
     }
 
     let stateHtml = '';
@@ -525,17 +573,8 @@ function openAddProc(code) {
     document.getElementById('add-proc-modal').classList.remove('hidden');
     document.getElementById('modal-duration').focus();
 }
-
-function closeModal() {
-    document.getElementById('add-proc-modal').classList.add('hidden');
-}
-
-// Close on backdrop click
-document.getElementById('add-proc-modal').addEventListener('click', function(e) {
-    if (e.target === this) closeModal();
-});
-
-// Save on Enter key
+function closeModal() { document.getElementById('add-proc-modal').classList.add('hidden'); }
+document.getElementById('add-proc-modal').addEventListener('click', function(e) { if (e.target === this) closeModal(); });
 document.getElementById('modal-duration').addEventListener('keydown', function(e) {
     if (e.key === 'Enter') saveProcedure();
     if (e.key === 'Escape') closeModal();
@@ -545,86 +584,52 @@ async function saveProcedure() {
     const code     = document.getElementById('modal-proc-code').value.trim();
     const duration = parseInt(document.getElementById('modal-duration').value);
     if (!code || isNaN(duration) || duration < 1) return;
-
     try {
         const res  = await fetch('/viewer/live/add_procedure', {
-            method:  'POST',
-            headers: {'Content-Type': 'application/json'},
-            body:    JSON.stringify({ procedure_code: code, duration_minutes: duration }),
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body:   JSON.stringify({ procedure_code: code, duration_minutes: duration }),
         });
         const data = await res.json();
-        if (data.ok) {
-            closeModal();
-            loadStatus();
-        } else {
-            alert('Error: ' + (data.error || 'Unknown error'));
-        }
-    } catch(e) {
-        alert('Save failed: ' + e);
-    }
+        if (data.ok) { closeModal(); loadStatus(); }
+        else alert('Error: ' + (data.error || 'Unknown error'));
+    } catch(e) { alert('Save failed: ' + e); }
 }
 
-async function linkOrder(messageId, accession) {
-    try {
-        const res  = await fetch('/viewer/live/link', {
-            method:  'POST',
-            headers: {'Content-Type': 'application/json'},
-            body:    JSON.stringify({ message_id: messageId, linked_accession_number: accession }),
-        });
-        const data = await res.json();
-        if (data.ok) {
-            closeLinkModal();
-            loadStatus();
-        } else {
-            alert('Link error: ' + (data.error || 'Unknown error'));
-        }
-    } catch(e) {
-        alert('Link failed: ' + e);
-    }
-}
-
+// ── Link order modal ──────────────────────────────────────────────────
 function openLinkModal(messageId) {
     document.getElementById('modal-link-message-id').value = messageId;
-    document.getElementById('modal-link-accession').value = '';
+    document.getElementById('modal-link-accession').value  = '';
     document.getElementById('link-order-modal').classList.remove('hidden');
     document.getElementById('modal-link-accession').focus();
 }
-
-function closeLinkModal() {
-    document.getElementById('link-order-modal').classList.add('hidden');
-}
-
+function closeLinkModal() { document.getElementById('link-order-modal').classList.add('hidden'); }
 function saveLink() {
     const messageId = document.getElementById('modal-link-message-id').value;
     const accession = document.getElementById('modal-link-accession').value.trim();
-    if (!messageId || !accession) {
-        alert('Both message ID and accession are required.');
-        return;
-    }
+    if (!messageId || !accession) { alert('Both fields are required.'); return; }
     linkOrder(messageId, accession);
 }
-
-// ── Order workflow buttons ─────────────────────────────────────────────
-async function arriveOrder(messageId) {
+async function linkOrder(messageId, accession) {
     try {
-        const res  = await fetch('/viewer/live/arrive', {
+        const res  = await fetch('/viewer/live/link', {
             method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ message_id: messageId }),
+            body:   JSON.stringify({ message_id: messageId, linked_accession_number: accession }),
         });
         const data = await res.json();
-        if (data.ok) { loadStatus(); }
-        else alert('Cannot arrive: ' + (data.error || 'Unknown error'));
-    } catch(e) { console.error('Arrive failed:', e); }
+        if (data.ok) { closeLinkModal(); loadStatus(); }
+        else alert('Link error: ' + (data.error || 'Unknown error'));
+    } catch(e) { alert('Link failed: ' + e); }
 }
 
+// ── Order workflow buttons ────────────────────────────────────────────
 async function startOrder(messageId) {
     try {
         const res  = await fetch('/viewer/live/start', {
             method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ message_id: messageId }),
+            body:   JSON.stringify({ message_id: messageId }),
         });
         const data = await res.json();
-        if (data.ok) { loadStatus(); }
+        if (data.ok) loadStatus();
         else alert('Cannot start: ' + (data.error || 'Unknown error'));
     } catch(e) { console.error('Start failed:', e); }
 }
@@ -632,25 +637,24 @@ async function startOrder(messageId) {
 async function dismissOrder(messageId) {
     try {
         const res  = await fetch('/viewer/live/dismiss', {
-            method:  'POST',
-            headers: {'Content-Type': 'application/json'},
-            body:    JSON.stringify({ message_id: messageId }),
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body:   JSON.stringify({ message_id: messageId }),
         });
         const data = await res.json();
-        if (data.ok) { loadStatus(); }
+        if (data.ok) loadStatus();
         else alert('Cannot mark done: ' + (data.error || 'Unknown error'));
     } catch(e) { console.error('Dismiss failed:', e); }
 }
 
 async function revertOrder(messageId) {
-    if (!confirm('Revert this order to its previous status?')) return;
+    if (!confirm('Revert this order one step back?')) return;
     try {
         const res  = await fetch('/viewer/live/revert', {
             method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ message_id: messageId }),
+            body:   JSON.stringify({ message_id: messageId }),
         });
         const data = await res.json();
-        if (data.ok) { loadStatus(); }
+        if (data.ok) loadStatus();
         else alert('Cannot revert: ' + (data.error || 'Unknown error'));
     } catch(e) { console.error('Revert failed:', e); }
 }
@@ -666,13 +670,7 @@ function toggleOverruns(uid, btn) {
         : `<i class="bi bi-chevron-up"></i> hide`;
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────
-function escHtml(s) {
-    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-// ── Patient Waiting Time TAT ──────────────────────────────────────────
-// ── Orphan Orders Modal ───────────────────────────────────────────────
+// ── Orphan orders modal ───────────────────────────────────────────────
 async function openOrphanModal() {
     const count = parseInt(document.getElementById('cnt-orphan').textContent) || 0;
     if (count === 0) return;
@@ -689,7 +687,7 @@ async function openOrphanModal() {
                         <span style="font-family:monospace;font-weight:900;color:#f97316;font-size:12px;">${escHtml(o.patient_id)}</span>
                         <span style="font-size:9px;font-weight:900;background:rgba(249,115,22,0.12);color:#f97316;border:1px solid rgba(249,115,22,0.25);border-radius:4px;padding:2px 7px;text-transform:uppercase;">${escHtml(o.modality)}</span>
                     </div>
-                    <span style="color:#64748b;font-family:monospace;font-size:10px;">${escHtml(o.accession_number)} · Scheduled ${escHtml(o.scheduled_at)}</span>
+                    <span style="color:#64748b;font-family:monospace;font-size:10px;">${escHtml(o.accession_number)} · Arrived ${escHtml(o.scheduled_at)}</span>
                     <span style="color:#94a3b8;font-size:11px;">${escHtml(o.procedure_text)}</span>
                 </div>`).join('');
         }
@@ -699,6 +697,11 @@ async function openOrphanModal() {
 document.getElementById('orphan-modal').addEventListener('click', function(e) {
     if (e.target === this) this.classList.add('hidden');
 });
+
+// ── Helpers ───────────────────────────────────────────────────────────
+function escHtml(s) {
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
 
 // ── Boot ──────────────────────────────────────────────────────────────
 loadStatus();

@@ -93,6 +93,10 @@ ACK_AA      = "AA"             # Application Accept
 ACK_AE      = "AE"             # Application Error
 
 # ── SQL ───────────────────────────────────────────────────────────────────────
+
+# New orders always arrive as AR (no scheduling step needed).
+# arrived_at/arrived_by are set on first insert and never overwritten on conflict,
+# so re-sent or duplicate HL7 messages won't reset the workflow state.
 INSERT_SQL = """
     INSERT INTO hl7_orders (
         message_id, message_datetime, message_type,
@@ -102,16 +106,18 @@ INSERT_SQL = """
         modality, scheduled_datetime,
         ordering_physician, order_status,
         patient_class, patient_location,
-        raw_message, received_at
+        raw_message, received_at,
+        arrived_at, arrived_by
     ) VALUES (
         :message_id, :message_datetime, :message_type,
         :patient_id, :patient_name, :date_of_birth, :gender,
         :accession_number, :placer_order_number,
         :procedure_code, :procedure_text,
         :modality, :scheduled_datetime,
-        :ordering_physician, :order_status,
+        :ordering_physician, 'AR',
         :patient_class, :patient_location,
-        :raw_message, :received_at
+        :raw_message, :received_at,
+        NOW(), 'HL7'
     )
     ON CONFLICT (message_id) DO UPDATE SET
         message_datetime   = EXCLUDED.message_datetime,
@@ -126,11 +132,24 @@ INSERT_SQL = """
         modality           = EXCLUDED.modality,
         scheduled_datetime = EXCLUDED.scheduled_datetime,
         ordering_physician = EXCLUDED.ordering_physician,
-        order_status       = EXCLUDED.order_status,
         patient_class      = EXCLUDED.patient_class,
         patient_location   = EXCLUDED.patient_location,
         raw_message        = EXCLUDED.raw_message,
         received_at        = EXCLUDED.received_at
+"""
+
+# Cancel an order when ORC-1 = 'CA' arrives from CHN/HIS.
+# Matches by accession_number first, falls back to placer_order_number.
+# Does not touch already-completed (CM) orders.
+CANCEL_SQL = """
+    UPDATE hl7_orders
+       SET order_status = 'CA'
+     WHERE (
+               (:accession_number IS NOT NULL AND accession_number = :accession_number)
+            OR (:placer_order_number IS NOT NULL AND placer_order_number = :placer_order_number)
+           )
+       AND order_status NOT IN ('CM', 'CA')
+ RETURNING id, message_id
 """
 
 
@@ -598,52 +617,92 @@ def _handle_client(conn, addr, app):
                             )
 
                         else:
-                            # ── Regular ORM^O01: new/updated HIS order ───
-                            parsed = parse_orm_o01(raw_message)
+                            # ── Check for ORC order-control = CA (cancellation) ─
+                            orc_ctrl = _field(_seg(segments, 'ORC'), 1)
 
-                            if parsed:
-                                # Apply any admin-saved field-map overrides.
-                                field_map = _get_field_map(app)
-                                if field_map:
-                                    seg_dict = {
-                                        s.split('|')[0]: s
-                                        for s in segments
-                                    }
-                                    parsed = _apply_field_map(seg_dict, parsed, field_map)
-
+                            if orc_ctrl == 'CA':
+                                # CHN/HIS cancels an existing order.
+                                # Identify the order by accession_number (OBR-3)
+                                # or placer_order_number (ORC-2).
+                                orc_seg = _seg(segments, 'ORC')
+                                obr_seg = _seg(segments, 'OBR')
+                                placer  = _component(_field(orc_seg, 2, ''), 0) or None
+                                acc     = (
+                                    _component(_field(orc_seg, 3, ''), 0)
+                                    or _component(_field(obr_seg, 3, ''), 0)
+                                    or None
+                                )
+                                cancelled = []
                                 with app.app_context():
                                     from sqlalchemy import text
                                     from db import db
                                     try:
-                                        db.session.execute(text(INSERT_SQL), parsed)
-                                        db.session.execute(
-                                            text("SELECT pg_notify('hl7_new_order', :mid)"),
-                                            {"mid": str(parsed.get("message_id") or "")}
+                                        result = db.session.execute(
+                                            text(CANCEL_SQL),
+                                            {'accession_number': acc,
+                                             'placer_order_number': placer},
                                         )
+                                        cancelled = result.fetchall()
+                                        if cancelled:
+                                            db.session.execute(
+                                                text("SELECT pg_notify('hl7_new_order', 'cancel')")
+                                            )
                                         db.session.commit()
                                     except Exception:
                                         db.session.rollback()
                                         raise
-
                                 logger.info(
-                                    f"✅ HL7 stored | msg_id={parsed['message_id']} "
-                                    f"| patient={parsed['patient_id']} "
-                                    f"| accession={parsed['accession_number']}"
+                                    f"❌ HL7 CA cancel | acc={acc} | placer={placer} "
+                                    f"| rows_cancelled={len(cancelled)}"
                                 )
 
-                                try:
-                                    from routes.portal_bp import process_orm_for_portal
+                            else:
+                                # ── Regular ORM^O01: new/updated HIS order ───
+                                parsed = parse_orm_o01(raw_message)
+
+                                if parsed:
+                                    # Apply any admin-saved field-map overrides.
+                                    field_map = _get_field_map(app)
+                                    if field_map:
+                                        seg_dict = {
+                                            s.split('|')[0]: s
+                                            for s in segments
+                                        }
+                                        parsed = _apply_field_map(seg_dict, parsed, field_map)
+
                                     with app.app_context():
-                                        process_orm_for_portal(
-                                            raw_message,
-                                            parsed.get('accession_number', '')
-                                        )
+                                        from sqlalchemy import text
+                                        from db import db
+                                        try:
+                                            db.session.execute(text(INSERT_SQL), parsed)
+                                            db.session.execute(
+                                                text("SELECT pg_notify('hl7_new_order', :mid)"),
+                                                {"mid": str(parsed.get("message_id") or "")}
+                                            )
+                                            db.session.commit()
+                                        except Exception:
+                                            db.session.rollback()
+                                            raise
+
                                     logger.info(
-                                        f"✅ Portal hook fired | "
-                                        f"accession={parsed.get('accession_number')}"
+                                        f"✅ HL7 stored | msg_id={parsed['message_id']} "
+                                        f"| patient={parsed['patient_id']} "
+                                        f"| accession={parsed['accession_number']}"
                                     )
-                                except Exception as portal_err:
-                                    logger.warning(f"⚠ Portal hook error: {portal_err}")
+
+                                    try:
+                                        from routes.portal_bp import process_orm_for_portal
+                                        with app.app_context():
+                                            process_orm_for_portal(
+                                                raw_message,
+                                                parsed.get('accession_number', '')
+                                            )
+                                        logger.info(
+                                            f"✅ Portal hook fired | "
+                                            f"accession={parsed.get('accession_number')}"
+                                        )
+                                    except Exception as portal_err:
+                                        logger.warning(f"⚠ Portal hook error: {portal_err}")
 
                     ack = _build_ack(msh, ACK_AA)
 

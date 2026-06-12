@@ -79,6 +79,19 @@ def export_procedure_csv():
 def mapping_page():
     if current_user.role not in ('admin', 'viewer', 'viewer2') and not user_has_page(current_user, 'mapping'): return abort(403)
 
+    # Ensure columns added after initial schema deployment exist (idempotent).
+    from sqlalchemy import text as _t
+    try:
+        db.session.execute(_t("""
+            ALTER TABLE aetitle_modality_map
+                ADD COLUMN IF NOT EXISTS room_name       VARCHAR(100),
+                ADD COLUMN IF NOT EXISTS description     TEXT,
+                ADD COLUMN IF NOT EXISTS display_aetitle VARCHAR(100)
+        """))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
     modality_mappings = AETitleModalityMap.query.order_by(AETitleModalityMap.aetitle).all()
 
     today = datetime.now().date()
