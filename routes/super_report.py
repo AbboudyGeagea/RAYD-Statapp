@@ -265,6 +265,7 @@ def _build_where(start, end, filters):
     clauses = [
         "s.study_date BETWEEN :start AND :end",
         "COALESCE(m.modality, s.study_modality, 'Unknown') != 'SR'",
+        "COALESCE(m.exclude_from_stats, FALSE) = FALSE",
     ]
     params  = {"start": start, "end": end}
 

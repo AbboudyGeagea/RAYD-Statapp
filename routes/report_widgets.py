@@ -18,7 +18,7 @@ from sqlalchemy import text
 _BASE_JOIN = """
     FROM etl_didb_studies s
     LEFT JOIN LATERAL (
-        SELECT modality FROM aetitle_modality_map
+        SELECT modality, exclude_from_stats FROM aetitle_modality_map
         WHERE aetitle = s.storing_ae LIMIT 1
     ) m ON TRUE
 """
@@ -26,6 +26,7 @@ _BASE_JOIN = """
 _WHERE = """
     WHERE s.study_date BETWEEN :date_from AND :date_to
       AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+      AND COALESCE(m.exclude_from_stats, FALSE) = FALSE
       AND (CAST(:modality AS TEXT)      IS NULL OR COALESCE(m.modality, s.study_modality) = :modality)
       AND (CAST(:physician_id AS BIGINT) IS NULL OR s.reading_physician_id = :physician_id)
       AND (CAST(:patient_class AS TEXT)  IS NULL OR UPPER(s.patient_class) = UPPER(:patient_class))

@@ -67,7 +67,11 @@ def get_gold_standard_data(form_data):
     end = form_data.get("end_date") or date.today().strftime("%Y-%m-%d")
     
     params = {"start": start, "end": end}
-    where_clauses = ["study_date BETWEEN :start AND :end", "COALESCE(modality, '') NOT IN ('SR', 'OT')"]
+    where_clauses = [
+        "study_date BETWEEN :start AND :end",
+        "COALESCE(modality, '') NOT IN ('SR', 'OT')",
+        "aetitle NOT IN (SELECT x.aetitle FROM aetitle_modality_map x WHERE x.exclude_from_stats = TRUE)",
+    ]
     
     if form_data.get("class_enabled") == "on" and form_data.getlist("patient_class"):
         where_clauses.append("patient_class IN :classes")
@@ -86,7 +90,7 @@ def get_gold_standard_data(form_data):
         params["locations"] = tuple(form_data.getlist("patient_location"))
 
     # Build secondary filter fragments for raw SQL queries against etl_didb_studies (prefix "s.")
-    _sec_filters = ""
+    _sec_filters = " AND s.storing_ae NOT IN (SELECT aetitle FROM aetitle_modality_map WHERE exclude_from_stats = TRUE)"
     if "classes" in params:
         _sec_filters += " AND s.patient_class IN :classes"
     if "modalities" in params:

@@ -210,6 +210,7 @@ def _sync_lookup_tables(engine):
             SELECT m.aetitle, d.day_of_week, COALESCE(m.daily_capacity_minutes, 480)
             FROM aetitle_modality_map m
             CROSS JOIN generate_series(0, 6) AS d(day_of_week)
+            WHERE COALESCE(m.exclude_from_stats, FALSE) = FALSE
             ON CONFLICT (aetitle, day_of_week) DO NOTHING
         """))
         logger.info(f"Phase 8 — Step 2 (Weekly Schedule): {r.rowcount} new schedule rows inserted")

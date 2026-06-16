@@ -79,6 +79,7 @@ def er_data():
             WHERE s.study_date BETWEEN :start AND :end
               AND {_ER_WHERE}
               AND COALESCE(m.modality, s.study_modality, 'Unknown') NOT IN ('SR', 'OT')
+              AND COALESCE(m.exclude_from_stats, FALSE) = FALSE
         )
         """
 
@@ -115,6 +116,7 @@ def er_data():
               AND (s.rep_final_timestamp IS NULL AND COALESCE(s.study_has_report, false) = false)
               AND {_ER_WHERE}
               AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+              AND COALESCE(m.exclude_from_stats, FALSE) = FALSE
             ORDER BY waiting_min DESC
             LIMIT 50
         """), {}).mappings().fetchall()

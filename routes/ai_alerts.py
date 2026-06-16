@@ -76,6 +76,7 @@ def alerts():
                     FROM etl_didb_studies
                     WHERE study_date >= CURRENT_DATE - INTERVAL '6 weeks'
                       AND storing_ae IS NOT NULL
+                      AND storing_ae NOT IN (SELECT aetitle FROM aetitle_modality_map WHERE exclude_from_stats = TRUE)
                     GROUP BY 1, 2
                 ),
                 stats AS (

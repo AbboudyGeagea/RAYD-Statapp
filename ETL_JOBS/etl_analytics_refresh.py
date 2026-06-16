@@ -36,6 +36,7 @@ from db import (
     etl_image_locations,
     ETLJobLog,
     get_etl_cutoff_date,
+    AETitleModalityMap,
 )
 
 logger = logging.getLogger("ETL_WORKER")
@@ -87,6 +88,10 @@ def refresh_storage_summary():
             )
             .filter(etl_didb_studies.study_date >= go_live)
             .filter(etl_didb_studies.study_modality != 'SR')
+            .filter(etl_didb_studies.storing_ae.notin_(
+                db.session.query(AETitleModalityMap.aetitle)
+                .filter(AETitleModalityMap.exclude_from_stats == True)
+            ))
             .group_by(
                 etl_didb_studies.study_date,
                 etl_didb_studies.storing_ae,

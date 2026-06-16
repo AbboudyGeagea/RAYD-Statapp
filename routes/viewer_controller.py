@@ -382,6 +382,7 @@ def yesterday_overview():
             WHERE s.study_date = CURRENT_DATE - 1
               AND s.referring_physician_first_name IS NOT NULL
               AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+              AND COALESCE(m.exclude_from_stats, FALSE) = FALSE
             GROUP BY 1
             ORDER BY 2 DESC
             LIMIT 5
@@ -396,6 +397,7 @@ def yesterday_overview():
             WHERE s.study_date = CURRENT_DATE - 1
               AND s.storing_ae IS NOT NULL
               AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+              AND COALESCE(m.exclude_from_stats, FALSE) = FALSE
             GROUP BY 1
             ORDER BY 2 DESC
         """)
@@ -418,6 +420,7 @@ def yesterday_overview():
             WHERE s.study_date = CURRENT_DATE - 1
               AND s.storing_ae IS NOT NULL
               AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+              AND COALESCE(m.exclude_from_stats, FALSE) = FALSE
             GROUP BY s.storing_ae
             HAVING COALESCE(MAX(m.daily_capacity_minutes), MAX(ws.std_opening_minutes), 480) > 0
             ORDER BY

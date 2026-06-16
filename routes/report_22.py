@@ -94,6 +94,7 @@ def report_22():
             LEFT JOIN aetitle_modality_map m ON s.storing_ae = m.aetitle
             LEFT JOIN etl_patient_view p ON p.patient_db_uid::TEXT = s.patient_db_uid::TEXT
             WHERE COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+              AND COALESCE(m.exclude_from_stats, FALSE) = FALSE
         """
 
         cte = f"WITH base_data AS ({base_sql})"
