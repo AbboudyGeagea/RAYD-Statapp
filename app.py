@@ -554,6 +554,25 @@ def create_app():
             db.session.rollback()
             logger.warning(f"[Migration] hl7_orders.patient_class/location: {e}")
 
+    # --- MIGRATION: workflow columns on hl7_orders (done_by/done_at/arrived_at/started_at) ---
+    with app.app_context():
+        try:
+            for col_ddl in [
+                "ALTER TABLE hl7_orders ADD COLUMN IF NOT EXISTS done_at     TIMESTAMP",
+                "ALTER TABLE hl7_orders ADD COLUMN IF NOT EXISTS done_by     VARCHAR(100)",
+                "ALTER TABLE hl7_orders ADD COLUMN IF NOT EXISTS arrived_at  TIMESTAMP",
+                "ALTER TABLE hl7_orders ADD COLUMN IF NOT EXISTS arrived_by  VARCHAR(100)",
+                "ALTER TABLE hl7_orders ADD COLUMN IF NOT EXISTS started_at  TIMESTAMP",
+                "ALTER TABLE hl7_orders ADD COLUMN IF NOT EXISTS started_by  VARCHAR(100)",
+                "CREATE INDEX IF NOT EXISTS idx_hl7_orders_done_at    ON hl7_orders (done_at)",
+                "CREATE INDEX IF NOT EXISTS idx_hl7_orders_arrived_at ON hl7_orders (arrived_at)",
+            ]:
+                db.session.execute(text(col_ddl))
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            logger.warning(f"[Migration] hl7_orders workflow columns: {e}")
+
     # --- MIGRATION: patient portal password_hash column ---
     with app.app_context():
         try:
