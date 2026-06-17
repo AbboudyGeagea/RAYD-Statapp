@@ -709,19 +709,24 @@ def add_cluster():
 def delete_ae_entry():
     """Delete an AE title and its associated schedule / exceptions (CASCADE)."""
     if current_user.role != 'admin': return abort(403)
+    from sqlalchemy import func
     data = request.get_json(force=True)
     ae = str(data.get('aetitle', '')).strip().upper()
     if not ae:
         return jsonify({"status": "error", "message": "aetitle required"}), 400
     try:
-        entry = AETitleModalityMap.query.filter_by(aetitle=ae).first()
-        if not entry:
+        # Case-insensitive match; fetch all rows in case duplicates exist
+        entries = AETitleModalityMap.query.filter(
+            func.upper(func.trim(AETitleModalityMap.aetitle)) == ae
+        ).all()
+        if not entries:
             return jsonify({"status": "error", "message": "AE title not found"}), 404
-        db.session.delete(entry)
+        for entry in entries:
+            db.session.delete(entry)
         db.session.commit()
         from utils.audit import log_event
         log_event('ae_deleted', category='config', resource_type='aetitle_modality_map',
-                  detail={'aetitle': ae})
+                  detail={'aetitle': ae, 'rows_deleted': len(entries)})
         return jsonify({"status": "success"})
     except Exception as e:
         db.session.rollback()

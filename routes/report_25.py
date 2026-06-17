@@ -90,7 +90,8 @@ def get_gold_standard_data(form_data):
         params["locations"] = tuple(form_data.getlist("patient_location"))
 
     # Build secondary filter fragments for raw SQL queries against etl_didb_studies (prefix "s.")
-    _sec_filters = " AND s.storing_ae NOT IN (SELECT aetitle FROM aetitle_modality_map WHERE exclude_from_stats = TRUE)"
+    # UPPER/TRIM ensures the exclusion is case-insensitive (storing_ae from PACS may vary in case)
+    _sec_filters = " AND UPPER(TRIM(s.storing_ae)) NOT IN (SELECT UPPER(TRIM(aetitle)) FROM aetitle_modality_map WHERE exclude_from_stats = TRUE)"
     if "classes" in params:
         _sec_filters += " AND s.patient_class IN :classes"
     if "modalities" in params:
@@ -199,49 +200,71 @@ def get_gold_standard_data(form_data):
     except Exception:
         pass
 
-    # Rad Performance — exclude SR and OT; only count studies with a final report
+    # Rad Performance — counts reports by DATE(rep_final_timestamp) so that
+    # studies finalized from a prior-day backlog are correctly attributed to
+    # the date the radiologist actually signed, not the study acquisition date.
+    _MJ25 = "LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))"
+    _RAD25_BASE = ("COALESCE(NULLIF(TRIM(CONCAT(s.signing_physician_first_name,' ',"
+                   "s.signing_physician_last_name)),''),s.rep_final_signed_by,'Unknown')")
+    _PAM25 = ("LEFT JOIN physician_alias_map pam "
+              "ON pam.dismissed = false "
+              "AND pam.alias = COALESCE(NULLIF(TRIM(CONCAT(s.signing_physician_first_name,' ',"
+              "s.signing_physician_last_name)),''),s.rep_final_signed_by)")
+    _RAD25 = "COALESCE(pam.canonical_name, " + _RAD25_BASE + ")"
+    _RAD25_OK = (f"AND {_RAD25} NOT IN ('','Unknown')"
+                 f" AND s.rep_final_timestamp IS NOT NULL")
     rad_cards = []
-    if 'reading_radiologist' in df.columns:
-        _excl_mask = df['modality'].str.upper().isin(['SR', 'OT']) if 'modality' in df.columns else pd.Series(False, index=df.index)
-        _df_rads = df[~_excl_mask]
-        # Only count studies that have a final report (rep_final_timestamp is not null)
-        if 'rep_final_timestamp' in _df_rads.columns:
-            _df_rads = _df_rads[_df_rads['rep_final_timestamp'].notna()]
-        elif 'study_has_report' in _df_rads.columns:
-            _df_rads = _df_rads[_df_rads['study_has_report'] == True]
-        for rad, r_df in _df_rads.groupby('reading_radiologist'):
-            drill = []
-            loc_col = 'patient_location' if 'patient_location' in df.columns else 'modality'
-            for loc, l_df in r_df.groupby(loc_col):
-                mods = [{"m": m, "avg": round(m_df['total_tat_min'].mean(), 1), "count": len(m_df), "rvu": round(m_df['clinical_rvu'].sum(), 1)} for m, m_df in l_df.groupby('modality')]
-                drill.append({"loc": loc, "mods": mods, "loc_rvu": round(l_df['clinical_rvu'].sum(), 1)})
-
-            # Only count studies with a mapped duration — unmapped studies (0 min)
-            # would contribute RVU without time, inflating the rate
-            r_df_mapped = r_df[r_df['proc_duration'] > 0]
-            total_scan_hours = r_df_mapped['proc_duration'].sum() / 60
-            rvu_per_hour = round(r_df_mapped['clinical_rvu'].sum() / total_scan_hours, 2) if total_scan_hours > 0 else 0.0
-
-            r_df_valid = r_df[r_df['total_tat_min'] > 0]
-            rad_cards.append({
-                "name": rad,
-                "count": int(len(r_df)),
-                "overall": round(r_df_valid['total_tat_min'].mean(), 1) if len(r_df_valid) > 0 else 0.0,
-                "tat_median": round(float(r_df[r_df['total_tat_min'] > 0]['total_tat_min'].median()), 1) if (r_df['total_tat_min'] > 0).any() else 0.0,
-                "total_rvu": round(r_df['clinical_rvu'].sum(), 1),
-                "rvu_per_hour": rvu_per_hour,
-                "drilldown": drill
-            })
-
-        # Add percentile rank among peers (lower TAT = better = lower percentile)
-        peer_tats = sorted([r['overall'] for r in rad_cards if r['overall'] > 0])
-        n = len(peer_tats)
-        for r in rad_cards:
-            if r['overall'] > 0 and n > 0:
-                rank = sum(1 for t in peer_tats if t <= r['overall'])
-                r['tat_percentile'] = round(rank / n * 100)
-            else:
-                r['tat_percentile'] = None
+    try:
+        _rc_sql = f"""
+            SELECT
+                {_RAD25} AS reading_radiologist,
+                COALESCE(UPPER(m.modality), UPPER(s.study_modality), 'Unknown') AS modality,
+                COALESCE(s.patient_location, '') AS patient_location,
+                GREATEST(EXTRACT(EPOCH FROM (s.rep_final_timestamp - s.study_date::timestamp)) / 60, 0) AS total_tat_min,
+                COALESCE(pm.duration_minutes, 0) AS proc_duration,
+                COALESCE(pm.clinical_rvu, 1.0) AS clinical_rvu
+            FROM etl_didb_studies s {_MJ25} {_PAM25}
+            LEFT JOIN procedure_duration_map pm ON UPPER(TRIM(s.procedure_code)) = UPPER(TRIM(pm.procedure_code))
+            WHERE DATE(s.rep_final_timestamp) BETWEEN :start AND :end
+              AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+              AND COALESCE(m.exclude_from_stats, FALSE) = FALSE
+              {_sec_filters} {_RAD25_OK}
+        """
+        _rc_df = pd.DataFrame(db.session.execute(text(_rc_sql), params).mappings().all())
+        if not _rc_df.empty:
+            for col in ['total_tat_min', 'proc_duration', 'clinical_rvu']:
+                _rc_df[col] = pd.to_numeric(_rc_df[col], errors='coerce').fillna(0)
+            for rad, r_df in _rc_df.groupby('reading_radiologist'):
+                drill = []
+                for loc, l_df in r_df.groupby('patient_location'):
+                    mods = [{"m": m, "avg": round(m_df['total_tat_min'].mean(), 1), "count": len(m_df), "rvu": round(m_df['clinical_rvu'].sum(), 1)} for m, m_df in l_df.groupby('modality')]
+                    drill.append({"loc": loc or 'Unknown', "mods": mods, "loc_rvu": round(l_df['clinical_rvu'].sum(), 1)})
+                # Only count studies with a mapped duration — unmapped studies (0 min)
+                # would contribute RVU without time, inflating the rate
+                r_df_mapped = r_df[r_df['proc_duration'] > 0]
+                total_scan_hours = r_df_mapped['proc_duration'].sum() / 60
+                rvu_per_hour = round(r_df_mapped['clinical_rvu'].sum() / total_scan_hours, 2) if total_scan_hours > 0 else 0.0
+                r_df_valid = r_df[r_df['total_tat_min'] > 0]
+                rad_cards.append({
+                    "name": rad,
+                    "count": int(len(r_df)),
+                    "overall": round(r_df_valid['total_tat_min'].mean(), 1) if len(r_df_valid) > 0 else 0.0,
+                    "tat_median": round(float(r_df[r_df['total_tat_min'] > 0]['total_tat_min'].median()), 1) if (r_df['total_tat_min'] > 0).any() else 0.0,
+                    "total_rvu": round(r_df['clinical_rvu'].sum(), 1),
+                    "rvu_per_hour": rvu_per_hour,
+                    "drilldown": drill
+                })
+            peer_tats = sorted([r['overall'] for r in rad_cards if r['overall'] > 0])
+            n = len(peer_tats)
+            for r in rad_cards:
+                if r['overall'] > 0 and n > 0:
+                    rank = sum(1 for t in peer_tats if t <= r['overall'])
+                    r['tat_percentile'] = round(rank / n * 100)
+                else:
+                    r['tat_percentile'] = None
+    except Exception:
+        logger.exception("Failed to build radiologist performance cards")
+        db.session.rollback()
 
     # Technician TAT by AE Station — group df by aetitle, exclude SR/OT
     tech_tat_cards   = []
@@ -439,24 +462,14 @@ def get_gold_standard_data(form_data):
     # ── Reports per radiologist × modality / AE title / procedure ────────
     rad_volume_matrix = {"by_modality": [], "by_aetitle": [], "by_procedure": [], "by_month": []}
     try:
-        _RAD25_BASE = ("COALESCE(NULLIF(TRIM(CONCAT(s.signing_physician_first_name,' ',"
-                       "s.signing_physician_last_name)),''),s.rep_final_signed_by,'Unknown')")
-        _PAM25 = ("LEFT JOIN physician_alias_map pam "
-                  "ON pam.dismissed = false "
-                  "AND pam.alias = COALESCE(NULLIF(TRIM(CONCAT(s.signing_physician_first_name,' ',"
-                  "s.signing_physician_last_name)),''),s.rep_final_signed_by)")
-        _RAD25 = "COALESCE(pam.canonical_name, " + _RAD25_BASE + ")"
-        _RAD25_OK = (f"AND {_RAD25} NOT IN ('','Unknown')"
-                     f" AND s.rep_final_timestamp IS NOT NULL")
-        _MJ25 = "LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))"
-
         rad_volume_matrix["by_modality"] = [dict(r) for r in db.session.execute(text(f"""
             SELECT {_RAD25} AS radiologist,
                    COALESCE(UPPER(m.modality), 'Unknown') AS dim,
                    COUNT(DISTINCT s.study_db_uid) AS cnt
             FROM etl_didb_studies s {_MJ25} {_PAM25}
-            WHERE s.study_date BETWEEN :start AND :end
+            WHERE DATE(s.rep_final_timestamp) BETWEEN :start AND :end
               AND COALESCE(m.modality, s.study_modality, '') != 'SR'
+              AND COALESCE(m.exclude_from_stats, FALSE) = FALSE
               {_sec_filters} {_RAD25_OK}
             GROUP BY 1, 2 ORDER BY 1, 3 DESC
         """), params).mappings().fetchall()]
@@ -468,7 +481,7 @@ def get_gold_standard_data(form_data):
             FROM etl_didb_studies s
             {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
             {_PAM25}
-            WHERE s.study_date BETWEEN :start AND :end
+            WHERE DATE(s.rep_final_timestamp) BETWEEN :start AND :end
               AND COALESCE(s.study_modality, '') != 'SR'
               {_sec_filters} {_RAD25_OK}
             GROUP BY 1, 2 ORDER BY 1, 3 DESC
@@ -479,7 +492,7 @@ def get_gold_standard_data(form_data):
                 SELECT s.procedure_code
                 FROM etl_didb_studies s
                 {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
-                WHERE s.study_date BETWEEN :start AND :end
+                WHERE DATE(s.rep_final_timestamp) BETWEEN :start AND :end
                   AND s.rep_final_timestamp IS NOT NULL
                   AND s.procedure_code IS NOT NULL AND s.procedure_code != ''
                   {_sec_filters}
@@ -492,18 +505,19 @@ def get_gold_standard_data(form_data):
             {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
             {_PAM25}
             JOIN top_procs tp ON tp.procedure_code = s.procedure_code
-            WHERE s.study_date BETWEEN :start AND :end
+            WHERE DATE(s.rep_final_timestamp) BETWEEN :start AND :end
               AND COALESCE(s.study_modality, '') != 'SR'
               {_sec_filters} {_RAD25_OK}
             GROUP BY 1, 2 ORDER BY 2, 3 DESC
         """), params).mappings().fetchall()]
         rad_volume_matrix["by_month"] = [dict(r) for r in db.session.execute(text(f"""
             SELECT {_RAD25} AS radiologist,
-                   TO_CHAR(s.study_date, 'YYYY-MM') AS dim,
+                   TO_CHAR(DATE(s.rep_final_timestamp), 'YYYY-MM') AS dim,
                    COUNT(DISTINCT s.study_db_uid) AS cnt
             FROM etl_didb_studies s {_MJ25} {_PAM25}
-            WHERE s.study_date BETWEEN :start AND :end
+            WHERE DATE(s.rep_final_timestamp) BETWEEN :start AND :end
               AND COALESCE(m.modality, s.study_modality, '') != 'SR'
+              AND COALESCE(m.exclude_from_stats, FALSE) = FALSE
               {_sec_filters} {_RAD25_OK}
             GROUP BY 1, 2 ORDER BY 1, 2
         """), params).mappings().fetchall()]
