@@ -107,6 +107,7 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 APPLIED=0
 SKIPPED=0
 FAILED=0
+NEEDS_FIX_AE=0
 
 for f in $(ls "$SCRIPT_DIR/migrations"/[0-9]*.sql 2>/dev/null | sort); do
     name=$(basename "$f")
@@ -125,6 +126,7 @@ for f in $(ls "$SCRIPT_DIR/migrations"/[0-9]*.sql 2>/dev/null | sort); do
         pg_exec "INSERT INTO schema_migrations (filename) VALUES ('${name}');" 2>/dev/null || true
         ok "  Applied : $name"
         APPLIED=$((APPLIED+1))
+        [ "$name" = "0052_rename_storing_ae_to_original_storing_ae.sql" ] && NEEDS_FIX_AE=1
     else
         warn "  FAILED  : $name — check manually"
         FAILED=$((FAILED+1))
@@ -153,6 +155,19 @@ if ! docker exec rayd_service curl -sf http://localhost:8080/ -o /dev/null 2>/de
     warn "App did not respond within 90 s — check logs: $COMPOSE logs rayd-app --tail 40"
 else
     ok "App is responding."
+fi
+
+# ──────────────────────────────────────────────────────
+# ONE-TIME BACKFILL: re-populate original_storing_ae from Oracle
+# Runs only when migration 0052 was applied in this update.
+# ──────────────────────────────────────────────────────
+if [ "$NEEDS_FIX_AE" -eq 1 ]; then
+    info "Running one-time ORIGINAL_STORING_AE backfill (migration 0052)..."
+    if $COMPOSE exec -T rayd-app python app.py -fix-ae; then
+        ok "ORIGINAL_STORING_AE backfill complete."
+    else
+        warn "Backfill failed — run manually: $COMPOSE exec rayd-app python app.py -fix-ae"
+    fi
 fi
 
 # ──────────────────────────────────────────────────────
