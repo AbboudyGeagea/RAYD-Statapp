@@ -72,24 +72,24 @@ def alerts():
             # Device volume outliers: this-week count > prior avg + 2σ
             for r in conn.execute(text("""
                 WITH weekly_ae AS (
-                    SELECT storing_ae, DATE_TRUNC('week', study_date) AS wk, COUNT(*) AS cnt
+                    SELECT original_storing_ae, DATE_TRUNC('week', study_date) AS wk, COUNT(*) AS cnt
                     FROM etl_didb_studies
                     WHERE study_date >= CURRENT_DATE - INTERVAL '6 weeks'
-                      AND storing_ae IS NOT NULL
-                      AND storing_ae NOT IN (SELECT aetitle FROM aetitle_modality_map WHERE exclude_from_stats = TRUE)
+                      AND original_storing_ae IS NOT NULL
+                      AND original_storing_ae NOT IN (SELECT aetitle FROM aetitle_modality_map WHERE exclude_from_stats = TRUE)
                     GROUP BY 1, 2
                 ),
                 stats AS (
-                    SELECT storing_ae, AVG(cnt) AS avg_cnt, STDDEV(cnt) AS std_cnt
+                    SELECT original_storing_ae, AVG(cnt) AS avg_cnt, STDDEV(cnt) AS std_cnt
                     FROM weekly_ae WHERE wk < DATE_TRUNC('week', CURRENT_DATE)
-                    GROUP BY storing_ae
+                    GROUP BY original_storing_ae
                 ),
                 this_week AS (
-                    SELECT storing_ae, cnt FROM weekly_ae
+                    SELECT original_storing_ae, cnt FROM weekly_ae
                     WHERE wk = DATE_TRUNC('week', CURRENT_DATE)
                 )
-                SELECT t.storing_ae, t.cnt, s.avg_cnt, s.std_cnt
-                FROM this_week t JOIN stats s ON t.storing_ae = s.storing_ae
+                SELECT t.original_storing_ae, t.cnt, s.avg_cnt, s.std_cnt
+                FROM this_week t JOIN stats s ON t.original_storing_ae = s.original_storing_ae
                 WHERE s.std_cnt > 0 AND t.cnt > s.avg_cnt + 2 * s.std_cnt
                 ORDER BY (t.cnt - s.avg_cnt) / s.std_cnt DESC LIMIT 3
             """)).fetchall():

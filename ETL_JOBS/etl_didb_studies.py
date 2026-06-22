@@ -49,7 +49,7 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
 
         col_names = [
             'study_db_uid', 'patient_db_uid', 'study_instance_uid', 'accession_number',
-            'study_id', 'storing_ae', 'study_date', 'study_description',
+            'study_id', 'original_storing_ae', 'study_date', 'study_description',
             'study_body_part', 'study_age', 'age_at_exam', 'number_of_study_series',
             'number_of_study_images', 'study_status', 'patient_class', 'procedure_code',
             'referring_physician_first_name', 'referring_physician_mid_name',
@@ -75,7 +75,7 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
                 SELECT
                     s.STUDY_DB_UID, s.PATIENT_DB_UID, s.STUDY_INSTANCE_UID, s.ACCESSION_NUMBER,
                     s.STUDY_ID,
-                    UPPER(TRIM(s.STORING_AE)),
+                    UPPER(TRIM(s.ORIGINAL_STORING_AE)),
                     s.STUDY_DATE,
                     CAST(SUBSTR(s.STUDY_DESCRIPTION, 1, 4000) AS VARCHAR2(4000)),
                     s.STUDY_BODY_PART, s.STUDY_AGE,
@@ -106,7 +106,7 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
                 SELECT
                     s.STUDY_DB_UID, s.PATIENT_DB_UID, s.STUDY_INSTANCE_UID, s.ACCESSION_NUMBER,
                     s.STUDY_ID,
-                    UPPER(TRIM(s.STORING_AE)),
+                    UPPER(TRIM(s.ORIGINAL_STORING_AE)),
                     s.STUDY_DATE,
                     CAST(SUBSTR(s.STUDY_DESCRIPTION, 1, 4000) AS VARCHAR2(4000)),
                     s.STUDY_BODY_PART, s.STUDY_AGE,

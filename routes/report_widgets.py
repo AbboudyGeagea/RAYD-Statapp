@@ -19,7 +19,7 @@ _BASE_JOIN = """
     FROM etl_didb_studies s
     LEFT JOIN LATERAL (
         SELECT modality, exclude_from_stats FROM aetitle_modality_map
-        WHERE aetitle = s.storing_ae LIMIT 1
+        WHERE aetitle = s.original_storing_ae LIMIT 1
     ) m ON TRUE
 """
 
@@ -374,7 +374,7 @@ def widget_shift_breakdown(db, filters, config):
         JOIN etl_didb_studies s ON s.study_db_uid = o.study_db_uid
         LEFT JOIN LATERAL (
             SELECT modality FROM aetitle_modality_map
-            WHERE aetitle = s.storing_ae LIMIT 1
+            WHERE aetitle = s.original_storing_ae LIMIT 1
         ) m ON TRUE
         WHERE s.study_date BETWEEN :date_from AND :date_to
           AND o.scheduled_datetime IS NOT NULL
@@ -399,9 +399,9 @@ def widget_device_util(db, filters, config):
     p = _p(filters)
     top_n = int(config.get("top_n") or 10)
     rows = db.session.execute(text(f"""
-        SELECT s.storing_ae AS ae_title, {_MOD_EXPR} AS modality, COUNT(*) AS count
+        SELECT s.original_storing_ae AS ae_title, {_MOD_EXPR} AS modality, COUNT(*) AS count
         {_BASE_JOIN} {_WHERE}
-          AND s.storing_ae IS NOT NULL
+          AND s.original_storing_ae IS NOT NULL
         GROUP BY 1, 2 ORDER BY 3 DESC
         LIMIT :top_n
     """), {**p, "top_n": top_n}).fetchall()
@@ -443,7 +443,7 @@ _FIN_JOIN = """
     FROM etl_didb_studies s
     LEFT JOIN LATERAL (
         SELECT modality FROM aetitle_modality_map
-        WHERE aetitle = s.storing_ae LIMIT 1
+        WHERE aetitle = s.original_storing_ae LIMIT 1
     ) m ON TRUE
     LEFT JOIN etl_orders o              ON o.study_db_uid = s.study_db_uid
     LEFT JOIN procedure_duration_map pdm
@@ -614,7 +614,7 @@ def widget_rad_modality_matrix(db, filters, config):
     """), p).fetchall()
 
     by_aetitle = db.session.execute(text(f"""
-        SELECT {_RAD} AS radiologist, COALESCE(s.storing_ae,'Unknown') AS dim, COUNT(DISTINCT s.study_db_uid) AS cnt
+        SELECT {_RAD} AS radiologist, COALESCE(s.original_storing_ae,'Unknown') AS dim, COUNT(DISTINCT s.study_db_uid) AS cnt
         {_BASE_JOIN}
         {_PAM_RW}
         {_WHERE}

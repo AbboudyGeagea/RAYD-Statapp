@@ -398,7 +398,7 @@
     // Multi-select listbox (hold Ctrl to pick multiple)
     const MULTI_FILTERS = [
         { key:'modality',         label:'Modality' },
-        { key:'storing_ae',       label:'AE Title' },
+        { key:'original_storing_ae',       label:'AE Title' },
         { key:'study_status',     label:'Study Status' },
         { key:'patient_class',    label:'Patient Class' },
         { key:'patient_location', label:'Patient Location' },
@@ -481,7 +481,7 @@
         MULTI_FILTERS.forEach(fc => {
             const vals = data[fc.key] || [];
             if (!vals.length) return;
-            const isAE = fc.key === 'storing_ae';
+            const isAE = fc.key === 'original_storing_ae';
             const div = document.createElement('div');
             div.innerHTML = `
                 <span class="f-label">${fc.label}</span>

@@ -25,7 +25,7 @@ TARGET_SCHEMA = {
             "study_instance_uid":       {"type": "string",    "required": False, "description": "DICOM Study Instance UID"},
             "accession_number":         {"type": "string",    "required": False, "description": "Accession number"},
             "study_id":                 {"type": "string",    "required": False, "description": "Study ID"},
-            "storing_ae":               {"type": "string",    "required": False, "description": "AE title of the storing/sending device"},
+            "original_storing_ae":               {"type": "string",    "required": False, "description": "AE title of the storing/sending device"},
             "study_date":               {"type": "date",      "required": True,  "description": "Date the study was performed"},
             "study_description":        {"type": "string",    "required": False, "description": "Study description / body part / protocol name"},
             "study_body_part":          {"type": "string",    "required": False, "description": "Body part examined"},

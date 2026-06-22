@@ -14,7 +14,7 @@ from db import db
 logger = logging.getLogger("REFERRING_INTEL")
 referring_intel_bp = Blueprint("referring_intel", __name__)
 
-_MJ = "LEFT JOIN aetitle_modality_map m ON s.storing_ae = m.aetitle"
+_MJ = "LEFT JOIN aetitle_modality_map m ON s.original_storing_ae = m.aetitle"
 _SR = "COALESCE(m.modality, s.study_modality, '') != 'SR'"
 _PHY = "TRIM(CONCAT(s.referring_physician_first_name, ' ', s.referring_physician_last_name))"
 

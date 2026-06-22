@@ -63,7 +63,7 @@ def refresh_storage_summary():
         agg_query = (
             db.session.query(
                 etl_didb_studies.study_date,
-                func.coalesce(etl_didb_studies.storing_ae, 'UNKNOWN').label("storing_ae"),
+                func.coalesce(etl_didb_studies.original_storing_ae, 'UNKNOWN').label("original_storing_ae"),
                 func.coalesce(etl_didb_studies.study_modality, 'UNKNOWN').label("modality"),
                 func.coalesce(etl_didb_studies.procedure_code, 'UNKNOWN').label("procedure_code"),
                 func.round(
@@ -88,25 +88,25 @@ def refresh_storage_summary():
             )
             .filter(etl_didb_studies.study_date >= go_live)
             .filter(etl_didb_studies.study_modality != 'SR')
-            .filter(etl_didb_studies.storing_ae.notin_(
+            .filter(etl_didb_studies.original_storing_ae.notin_(
                 db.session.query(AETitleModalityMap.aetitle)
                 .filter(AETitleModalityMap.exclude_from_stats == True)
             ))
             .group_by(
                 etl_didb_studies.study_date,
-                etl_didb_studies.storing_ae,
+                etl_didb_studies.original_storing_ae,
                 etl_didb_studies.study_modality,
                 etl_didb_studies.procedure_code,
             )
         )
 
         insert_stmt = insert(summary_storage_daily).from_select(
-            ["study_date", "storing_ae", "modality", "procedure_code",
+            ["study_date", "original_storing_ae", "modality", "procedure_code",
              "total_gb", "study_count"],
             agg_query,
         )
         upsert_stmt = insert_stmt.on_conflict_do_update(
-            index_elements=["study_date", "storing_ae", "modality", "procedure_code"],
+            index_elements=["study_date", "original_storing_ae", "modality", "procedure_code"],
             set_={
                 "total_gb":    insert_stmt.excluded.total_gb,
                 "study_count": insert_stmt.excluded.study_count,

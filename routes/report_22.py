@@ -31,7 +31,7 @@ def get_where_params(form):
         params["mod"] = form.get("f_mod")
 
     if form.get("f_ae_active") == "on" and form.get("f_ae"):
-        where += " AND UPPER(storing_ae) = UPPER(:ae)"
+        where += " AND UPPER(original_storing_ae) = UPPER(:ae)"
         params["ae"] = form.get("f_ae")
         
     return where, params
@@ -84,14 +84,14 @@ def report_22():
 
         base_sql = """
             SELECT
-                s.study_db_uid, s.procedure_code, s.study_date, s.storing_ae, s.study_description,
+                s.study_db_uid, s.procedure_code, s.study_date, s.original_storing_ae, s.study_description,
                 m.modality, s.study_status, s.patient_db_uid, p.sex, p.age_group,
                 s.patient_class,
                 s.age_at_exam,
                 COALESCE(NULLIF(TRIM(CONCAT_WS(' ', s.referring_physician_first_name, s.referring_physician_last_name)), ''), 'Unknown') as physician,
                 s.patient_location, p.fallback_id as patient_id
             FROM etl_didb_studies s
-            LEFT JOIN aetitle_modality_map m ON s.storing_ae = m.aetitle
+            LEFT JOIN aetitle_modality_map m ON s.original_storing_ae = m.aetitle
             LEFT JOIN etl_patient_view p ON p.patient_db_uid::TEXT = s.patient_db_uid::TEXT
             WHERE COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
               AND COALESCE(m.exclude_from_stats, FALSE) = FALSE
@@ -327,7 +327,7 @@ def report_22():
             age_map[age] = age_map.get(age, 0) + count
 
         # 4. Tree Flow Logic
-        res_flow = db.session.execute(text(f"{cte} SELECT COALESCE(modality, 'UNMAPPED'), COALESCE(storing_ae, 'Unknown AE'), COALESCE(study_description, 'No Description'), COUNT(*) FROM base_data {where} GROUP BY 1, 2, 3"), params).fetchall()
+        res_flow = db.session.execute(text(f"{cte} SELECT COALESCE(modality, 'UNMAPPED'), COALESCE(original_storing_ae, 'Unknown AE'), COALESCE(study_description, 'No Description'), COUNT(*) FROM base_data {where} GROUP BY 1, 2, 3"), params).fetchall()
 
         total_vol = 0
         mod_map = {}
@@ -442,16 +442,16 @@ def status_drilldown_22():
                 COALESCE(p.fallback_id, '') AS patient_id,
                 s.study_date,
                 COALESCE(m.modality, 'N/A') AS modality,
-                s.storing_ae,
+                s.original_storing_ae,
                 COALESCE(s.procedure_code, 'N/A') AS procedure_code,
                 COALESCE(s.study_description, '') AS description,
-                COALESCE(s.storing_ae, 'N/A') AS ae,
+                COALESCE(s.original_storing_ae, 'N/A') AS ae,
                 s.study_status, s.patient_class, p.sex,
                 COALESCE(NULLIF(TRIM(CONCAT_WS(' ',
                     s.referring_physician_first_name,
                     s.referring_physician_last_name)), ''), 'Unknown') AS physician
             FROM etl_didb_studies s
-            LEFT JOIN aetitle_modality_map m ON s.storing_ae = m.aetitle
+            LEFT JOIN aetitle_modality_map m ON s.original_storing_ae = m.aetitle
             LEFT JOIN etl_patient_view p ON p.patient_db_uid::TEXT = s.patient_db_uid::TEXT
             WHERE COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
         )
@@ -507,7 +507,7 @@ def export_report_22():
                    TRIM(CONCAT_WS(' ', s.referring_physician_first_name, s.referring_physician_last_name)) as physician,
                    p.fallback_id as patient_id
             FROM etl_didb_studies s
-            LEFT JOIN aetitle_modality_map m ON s.storing_ae = m.aetitle
+            LEFT JOIN aetitle_modality_map m ON s.original_storing_ae = m.aetitle
             LEFT JOIN etl_patient_view p ON p.patient_db_uid::TEXT = s.patient_db_uid::TEXT
             WHERE COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
         )

@@ -107,7 +107,7 @@ def run_saved_report(saved_id):
         where_clauses = []
         # VERY IMPORTANT: use bound params; this naive builder only demonstrates idea
         ALLOWED_COLUMNS = {
-            'modality', 'aetitle', 'storing_ae', 'patient_class',
+            'modality', 'aetitle', 'original_storing_ae', 'patient_class',
             'patient_location', 'study_date', 'referring_physician',
             'reading_physician', 'procedure_code', 'order_status',
         }

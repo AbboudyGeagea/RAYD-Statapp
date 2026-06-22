@@ -25,7 +25,7 @@ SYSTEM_TYPES = {
                     "study_instance_uid":      {"pg_type": "TEXT",                   "aliases": ["stu_instance_uid", "study_uid", "dicom_study_uid"]},
                     "accession_number":        {"pg_type": "TEXT",                   "aliases": ["accession_no", "acc_number", "accession"]},
                     "study_id":                {"pg_type": "TEXT",                   "aliases": ["stu_id"]},
-                    "storing_ae":              {"pg_type": "TEXT",                   "aliases": ["ae_title", "aetitle", "source_ae", "station_ae"]},
+                    "original_storing_ae":              {"pg_type": "TEXT",                   "aliases": ["ae_title", "aetitle", "source_ae", "station_ae"]},
                     "study_date":              {"pg_type": "DATE",                   "aliases": ["stu_dt", "exam_date", "study_dt", "studydate"]},
                     "study_description":       {"pg_type": "TEXT",                   "aliases": ["stu_description", "exam_description", "study_desc"]},
                     "study_body_part":         {"pg_type": "TEXT",                   "aliases": ["body_part", "body_part_examined", "bodypart"]},

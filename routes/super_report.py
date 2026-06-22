@@ -173,8 +173,8 @@ def super_report_filters():
             return sorted([r[0] for r in rows if r[0] is not None and str(r[0]).strip() != ''])
 
         return jsonify({
-            "modality":            distinct("SELECT DISTINCT COALESCE(m.modality, s.study_modality) FROM etl_didb_studies s LEFT JOIN aetitle_modality_map m ON s.storing_ae = m.aetitle WHERE COALESCE(m.modality, s.study_modality) IS NOT NULL"),
-            "storing_ae":          distinct("SELECT DISTINCT storing_ae FROM etl_didb_studies WHERE storing_ae IS NOT NULL"),
+            "modality":            distinct("SELECT DISTINCT COALESCE(m.modality, s.study_modality) FROM etl_didb_studies s LEFT JOIN aetitle_modality_map m ON s.original_storing_ae = m.aetitle WHERE COALESCE(m.modality, s.study_modality) IS NOT NULL"),
+            "original_storing_ae":          distinct("SELECT DISTINCT original_storing_ae FROM etl_didb_studies WHERE original_storing_ae IS NOT NULL"),
             "study_status":        distinct("SELECT DISTINCT study_status FROM etl_didb_studies WHERE study_status IS NOT NULL"),
             "report_status":       distinct("SELECT DISTINCT report_status FROM etl_didb_studies WHERE report_status IS NOT NULL"),
             "order_status":        distinct("SELECT DISTINCT order_status FROM etl_didb_studies WHERE order_status IS NOT NULL"),
@@ -231,7 +231,7 @@ def super_report():
         delta = 30
 
     filters = {k: request.args.getlist(k) for k in [
-        "modality","storing_ae","study_status","report_status","order_status",
+        "modality","original_storing_ae","study_status","report_status","order_status",
         "patient_class","patient_location","body_part","procedure_code",
         "signing_physician","referring_physician","sex","age_group",
         "order_control","order_modality","series_modality","body_part_series","protocol_name"
@@ -270,7 +270,7 @@ def _build_where(start, end, filters):
     params  = {"start": start, "end": end}
 
     multi = {
-        "storing_ae":          ("s.storing_ae",         "storing_ae"),
+        "original_storing_ae":          ("s.original_storing_ae",         "original_storing_ae"),
         "study_status":        ("s.study_status",        "study_status"),
         "report_status":       ("s.report_status",       "report_status"),
         "order_status":        ("s.order_status",        "order_status"),
@@ -315,14 +315,14 @@ def _build_where(start, end, filters):
 
 def _collect_data(start, end, filters):
     where, params = _build_where(start, end, filters)
-    mj = "LEFT JOIN aetitle_modality_map m ON s.storing_ae = m.aetitle"
+    mj = "LEFT JOIN aetitle_modality_map m ON s.original_storing_ae = m.aetitle"
     pj = "LEFT JOIN etl_patient_view p ON p.patient_db_uid = s.patient_db_uid"
 
     kpis = db.session.execute(text(f"""
         SELECT COUNT(DISTINCT s.study_db_uid)     AS total_studies,
                COUNT(DISTINCT s.patient_db_uid)   AS total_patients,
                SUM(s.number_of_study_images)      AS total_images,
-               COUNT(DISTINCT s.storing_ae)       AS active_aes,
+               COUNT(DISTINCT s.original_storing_ae)       AS active_aes,
                COUNT(*) FILTER (WHERE s.study_has_report=TRUE) AS studies_with_report
         FROM etl_didb_studies s {mj} {pj} WHERE {where}
     """), params).mappings().fetchone()
@@ -425,10 +425,10 @@ def _collect_data(start, end, filters):
 
     # Busiest AE title by study count in period
     ae_busy_row = db.session.execute(text(f"""
-        SELECT s.storing_ae AS aetitle, COUNT(*) AS cnt
+        SELECT s.original_storing_ae AS aetitle, COUNT(*) AS cnt
         FROM etl_didb_studies s {mj} {pj}
-        WHERE {where} AND s.storing_ae IS NOT NULL
-        GROUP BY s.storing_ae ORDER BY cnt DESC LIMIT 1
+        WHERE {where} AND s.original_storing_ae IS NOT NULL
+        GROUP BY s.original_storing_ae ORDER BY cnt DESC LIMIT 1
     """), params).mappings().fetchone()
 
     # Most idle configured AE (fewest studies in period — includes 0-study AEs)
@@ -436,11 +436,11 @@ def _collect_data(start, end, filters):
         SELECT am.aetitle, COALESCE(sub.cnt, 0) AS cnt
         FROM aetitle_modality_map am
         LEFT JOIN (
-            SELECT storing_ae, COUNT(*) AS cnt
+            SELECT original_storing_ae, COUNT(*) AS cnt
             FROM etl_didb_studies
             WHERE study_date BETWEEN :start AND :end
-            GROUP BY storing_ae
-        ) sub ON sub.storing_ae = am.aetitle
+            GROUP BY original_storing_ae
+        ) sub ON sub.original_storing_ae = am.aetitle
         ORDER BY cnt ASC LIMIT 1
     """), {"start": start, "end": end}).mappings().fetchone()
 
@@ -535,7 +535,7 @@ def _collect_data(start, end, filters):
 
     rad_ae_rows = db.session.execute(text(f"""
         SELECT {_RAD} AS radiologist,
-               COALESCE(s.storing_ae, 'Unknown') AS dim,
+               COALESCE(s.original_storing_ae, 'Unknown') AS dim,
                COUNT(DISTINCT s.study_db_uid) AS cnt
         FROM etl_didb_studies s {mj} {pj} {_PAM_SR}
         WHERE {where} AND {_RAD_OK}

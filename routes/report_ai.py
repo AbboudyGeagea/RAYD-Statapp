@@ -226,7 +226,7 @@ def _get_volume_intelligence(start, end):
             COUNT(*) as cnt
         FROM etl_didb_studies s
         LEFT JOIN procedure_duration_map pm ON pm.procedure_code = s.procedure_code
-        LEFT JOIN aetitle_modality_map m ON m.aetitle = s.storing_ae
+        LEFT JOIN aetitle_modality_map m ON m.aetitle = s.original_storing_ae
         WHERE s.study_date BETWEEN :s AND :e
           AND COALESCE(m.modality, s.study_modality, '') != 'SR'
         GROUP BY 1 ORDER BY 2 DESC LIMIT 8
@@ -259,7 +259,7 @@ def _get_utilization_intelligence(start, end):
     # Pull utilization per AE per day using proc_duration
     rows = db.session.execute(text("""
         SELECT
-            s.storing_ae,
+            s.original_storing_ae,
             s.study_date,
             COALESCE(SUM(pm.duration_minutes), 0) as load_mins
         FROM etl_didb_studies s
@@ -273,14 +273,14 @@ def _get_utilization_intelligence(start, end):
     ae_modality_mix = {}
     mix_rows = db.session.execute(text("""
         SELECT
-            s.storing_ae,
+            s.original_storing_ae,
             UPPER(TRIM(COALESCE(pm.modality, am.modality, s.study_modality))) AS modality,
             COUNT(*) AS cnt
         FROM etl_didb_studies s
         LEFT JOIN procedure_duration_map pm ON pm.procedure_code = s.procedure_code
-        LEFT JOIN aetitle_modality_map am ON am.aetitle = s.storing_ae
+        LEFT JOIN aetitle_modality_map am ON am.aetitle = s.original_storing_ae
         WHERE s.study_date BETWEEN :s AND :e
-          AND s.storing_ae IS NOT NULL
+          AND s.original_storing_ae IS NOT NULL
           AND COALESCE(am.modality, s.study_modality, '') != 'SR'
         GROUP BY 1, 2
         ORDER BY 1, 3 DESC
@@ -400,7 +400,7 @@ def _get_physician_intelligence(start, end):
             COUNT(*) as cnt
         FROM etl_didb_studies s
         LEFT JOIN procedure_duration_map pm ON pm.procedure_code = s.procedure_code
-        LEFT JOIN aetitle_modality_map am ON am.aetitle = s.storing_ae
+        LEFT JOIN aetitle_modality_map am ON am.aetitle = s.original_storing_ae
         WHERE s.study_date BETWEEN :s AND :e
           AND s.referring_physician_first_name IS NOT NULL
           AND COALESCE(am.modality, s.study_modality, '') != 'SR'

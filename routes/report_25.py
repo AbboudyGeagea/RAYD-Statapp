@@ -90,14 +90,14 @@ def get_gold_standard_data(form_data):
         params["locations"] = tuple(form_data.getlist("patient_location"))
 
     # Build secondary filter fragments for raw SQL queries against etl_didb_studies (prefix "s.")
-    # UPPER/TRIM ensures the exclusion is case-insensitive (storing_ae from PACS may vary in case)
-    _sec_filters = " AND UPPER(TRIM(s.storing_ae)) NOT IN (SELECT UPPER(TRIM(aetitle)) FROM aetitle_modality_map WHERE exclude_from_stats = TRUE)"
+    # UPPER/TRIM ensures the exclusion is case-insensitive (original_storing_ae from PACS may vary in case)
+    _sec_filters = " AND UPPER(TRIM(s.original_storing_ae)) NOT IN (SELECT UPPER(TRIM(aetitle)) FROM aetitle_modality_map WHERE exclude_from_stats = TRUE)"
     if "classes" in params:
         _sec_filters += " AND s.patient_class IN :classes"
     if "modalities" in params:
         _sec_filters += " AND UPPER(TRIM(m.modality)) IN :modalities"
     if "aetitles" in params:
-        _sec_filters += " AND s.storing_ae IN :aetitles"
+        _sec_filters += " AND s.original_storing_ae IN :aetitles"
     if "locations" in params:
         _sec_filters += " AND s.patient_location IN :locations"
     # Whether secondary queries need the modality JOIN
@@ -203,7 +203,7 @@ def get_gold_standard_data(form_data):
     # Rad Performance — counts reports by DATE(rep_final_timestamp) so that
     # studies finalized from a prior-day backlog are correctly attributed to
     # the date the radiologist actually signed, not the study acquisition date.
-    _MJ25 = "LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))"
+    _MJ25 = "LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.original_storing_ae)) = UPPER(TRIM(m.aetitle))"
     _RAD25_BASE = ("COALESCE(NULLIF(TRIM(CONCAT(s.signing_physician_first_name,' ',"
                    "s.signing_physician_last_name)),''),s.rep_final_signed_by,'Unknown')")
     _PAM25 = ("LEFT JOIN physician_alias_map pam "
@@ -382,7 +382,7 @@ def get_gold_standard_data(form_data):
                 COALESCE(UPPER(m.modality), 'N/A') AS modality,
                 COUNT(*) AS cnt
             FROM etl_didb_studies s
-            LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
+            LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.original_storing_ae)) = UPPER(TRIM(m.aetitle))
             WHERE s.study_status ILIKE '%unread%'
               AND s.study_date BETWEEN :start AND :end
               {_sec_filters}
@@ -411,7 +411,7 @@ def get_gold_standard_data(form_data):
                 COUNT(*) AS cnt
             FROM etl_orders o
             JOIN etl_didb_studies s ON s.study_db_uid = o.study_db_uid
-            LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
+            LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.original_storing_ae)) = UPPER(TRIM(m.aetitle))
             WHERE s.study_date BETWEEN :start AND :end
               AND o.scheduled_datetime IS NOT NULL
               {_sec_filters}
@@ -437,7 +437,7 @@ def get_gold_standard_data(form_data):
                 SUM(CASE WHEN s.rep_has_addendum THEN 1 ELSE 0 END) AS addendum_count,
                 ROUND(SUM(CASE WHEN s.rep_has_addendum THEN 1 ELSE 0 END)::numeric / NULLIF(COUNT(*),0) * 100, 1) AS addendum_pct
             FROM etl_didb_studies s
-            {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
+            {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.original_storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
             LEFT JOIN physician_alias_map pam ON pam.dismissed = false AND pam.alias = s.rep_final_signed_by
             WHERE s.study_date BETWEEN :start AND :end
               AND s.rep_final_signed_by IS NOT NULL
@@ -476,10 +476,10 @@ def get_gold_standard_data(form_data):
 
         rad_volume_matrix["by_aetitle"] = [dict(r) for r in db.session.execute(text(f"""
             SELECT {_RAD25} AS radiologist,
-                   COALESCE(s.storing_ae, 'Unknown') AS dim,
+                   COALESCE(s.original_storing_ae, 'Unknown') AS dim,
                    COUNT(DISTINCT s.study_db_uid) AS cnt
             FROM etl_didb_studies s
-            {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
+            {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.original_storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
             {_PAM25}
             WHERE DATE(s.rep_final_timestamp) BETWEEN :start AND :end
               AND COALESCE(s.study_modality, '') != 'SR'
@@ -491,7 +491,7 @@ def get_gold_standard_data(form_data):
             WITH top_procs AS (
                 SELECT s.procedure_code
                 FROM etl_didb_studies s
-                {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
+                {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.original_storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
                 WHERE DATE(s.rep_final_timestamp) BETWEEN :start AND :end
                   AND s.rep_final_timestamp IS NOT NULL
                   AND s.procedure_code IS NOT NULL AND s.procedure_code != ''
@@ -502,7 +502,7 @@ def get_gold_standard_data(form_data):
                    s.procedure_code AS proc,
                    COUNT(DISTINCT s.study_db_uid) AS cnt
             FROM etl_didb_studies s
-            {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
+            {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.original_storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
             {_PAM25}
             JOIN top_procs tp ON tp.procedure_code = s.procedure_code
             WHERE DATE(s.rep_final_timestamp) BETWEEN :start AND :end
@@ -556,7 +556,7 @@ def get_gold_standard_data(form_data):
                 SELECT EXTRACT(HOUR FROM o.scheduled_datetime)::int AS hr, COUNT(*) AS cnt
                 FROM etl_orders o
                 JOIN etl_didb_studies s ON s.study_db_uid = o.study_db_uid
-                {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
+                {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.original_storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
                 WHERE s.study_date BETWEEN :start AND :end
                   AND o.scheduled_datetime IS NOT NULL
                   {_sec_filters}
@@ -617,7 +617,7 @@ def compute_bg_data(form_data):
     _sec_filters = ""
     if "classes"    in params: _sec_filters += " AND s.patient_class IN :classes"
     if "modalities" in params: _sec_filters += " AND UPPER(TRIM(m.modality)) IN :modalities"
-    if "aetitles"   in params: _sec_filters += " AND s.storing_ae IN :aetitles"
+    if "aetitles"   in params: _sec_filters += " AND s.original_storing_ae IN :aetitles"
     if "locations"  in params: _sec_filters += " AND s.patient_location IN :locations"
     _sec_needs_mod_join = "modalities" in params
 
@@ -639,7 +639,7 @@ def compute_bg_data(form_data):
                 s.rep_final_timestamp,
                 s.accession_number
             FROM etl_didb_studies s
-            {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
+            {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.original_storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
             WHERE s.rep_final_timestamp IS NOT NULL
               AND s.rep_final_timestamp::date BETWEEN :start AND :end
               {_sec_filters}
@@ -1185,7 +1185,7 @@ def patient_journey_api():
                 s.rep_final_signed_by
             FROM etl_didb_studies s
             LEFT JOIN aetitle_modality_map m
-                ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
+                ON UPPER(TRIM(s.original_storing_ae)) = UPPER(TRIM(m.aetitle))
             WHERE s.accession_number = ANY(:accns)
         """), {'accns': accn_list}).mappings().fetchall()
         studies_map = {r['accession_number']: dict(r) for r in study_rows}

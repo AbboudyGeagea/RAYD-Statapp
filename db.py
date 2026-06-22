@@ -440,7 +440,7 @@ class etl_didb_studies(db.Model):
     patient_db_uid = db.Column(BigInteger)
     study_instance_uid = db.Column(Text)
     accession_number = db.Column(Text)
-    storing_ae = db.Column(Text)
+    original_storing_ae = db.Column(Text)
     study_date = db.Column(Date)
     procedure_code = db.Column(Text)
     last_update = db.Column(DateTime, server_default=func.now())
@@ -534,7 +534,7 @@ class summary_storage_daily(db.Model):
     __tablename__ = 'summary_storage_daily'
     id = db.Column(Integer, primary_key=True)
     study_date = db.Column(Date, index=True)
-    storing_ae = db.Column(String(100))
+    original_storing_ae = db.Column(String(100))
     modality = db.Column(String(50))
     procedure_code = db.Column(String(255))
     total_gb = db.Column(Numeric(12, 4), default=0)

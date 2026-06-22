@@ -24,7 +24,7 @@ def get_report_data(start, end):
             o.scheduled_datetime,
             o.has_study,
             s.study_date,
-            s.storing_ae,
+            s.original_storing_ae,
             s.procedure_code,
             p.birth_date,
             p.sex,
@@ -123,7 +123,7 @@ def report_27():
                 "duration_outliers_removed": duration_outliers_removed,
                 "hourly":                    df_a['scheduled_datetime'].dt.hour.value_counts().sort_index().to_dict(),
                 "status_mix":                df_a['order_status'].value_counts().to_dict(),
-                "ae_mix":                    df_a['storing_ae'].fillna('Unknown').value_counts().to_dict(),
+                "ae_mix":                    df_a['original_storing_ae'].fillna('Unknown').value_counts().to_dict(),
                 "demo":                      df_a.groupby(['age_group', 'sex'], observed=False).size().unstack(fill_value=0).to_dict('index'),
             }
 

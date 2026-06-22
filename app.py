@@ -837,5 +837,24 @@ if __name__ == '__main__':
                 print("✅ Manual Sync Finished.")
             except Exception as e:
                 print(f"❌ Manual Sync Failed: {e}")
+
+    # ONE-TIME FIX: python app.py -fix-ae
+    # Re-populates original_storing_ae from Oracle's ORIGINAL_STORING_AE for
+    # all historical studies (run once after migration 0052).
+    elif len(sys.argv) > 1 and sys.argv[1] == '-fix-ae':
+        with app.app_context():
+            try:
+                from ETL_JOBS.etl_fix_original_ae import run_fix_original_ae
+                from db import get_etl_cutoff_date, get_pg_engine
+                go_live = get_etl_cutoff_date()
+                if not go_live:
+                    print("❌ No go-live date found in go_live_config — cannot run fix.")
+                else:
+                    print(f"🔧 Fixing original_storing_ae from go-live date {go_live} ...")
+                    updated = run_fix_original_ae(get_pg_engine(), go_live)
+                    print(f"✅ Fix complete — {updated:,} rows updated.")
+            except Exception as e:
+                print(f"❌ Fix failed: {e}")
+
     else:
         app.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)

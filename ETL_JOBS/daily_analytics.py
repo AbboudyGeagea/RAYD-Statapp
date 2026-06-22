@@ -138,7 +138,7 @@ def _collect(conn, start, end):
         SELECT COALESCE(m.modality, s.study_modality, 'Unknown') AS modality,
                COUNT(*) AS cnt
         FROM etl_didb_studies s
-        LEFT JOIN aetitle_modality_map m ON m.aetitle = s.storing_ae
+        LEFT JOIN aetitle_modality_map m ON m.aetitle = s.original_storing_ae
         WHERE s.study_date BETWEEN :s AND :e
         GROUP BY 1 ORDER BY cnt DESC LIMIT 5
     """), p).fetchall()

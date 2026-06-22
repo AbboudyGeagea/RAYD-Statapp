@@ -149,7 +149,7 @@ def get_filter_options(db) -> dict:
         "classes":    "SELECT ARRAY_AGG(DISTINCT patient_class   ORDER BY patient_class)   FROM etl_didb_studies WHERE patient_class   IS NOT NULL",
         "locations":  "SELECT ARRAY_AGG(DISTINCT patient_location ORDER BY patient_location) FROM etl_didb_studies WHERE patient_location IS NOT NULL",
         "statuses":   "SELECT ARRAY_AGG(DISTINCT study_status    ORDER BY study_status)    FROM etl_didb_studies WHERE study_status    IS NOT NULL",
-        "aetitles":   "SELECT ARRAY_AGG(DISTINCT storing_ae ORDER BY storing_ae) FROM etl_didb_studies WHERE storing_ae IS NOT NULL AND storing_ae NOT IN (SELECT aetitle FROM aetitle_modality_map WHERE exclude_from_stats = TRUE)",
+        "aetitles":   "SELECT ARRAY_AGG(DISTINCT original_storing_ae ORDER BY original_storing_ae) FROM etl_didb_studies WHERE original_storing_ae IS NOT NULL AND original_storing_ae NOT IN (SELECT aetitle FROM aetitle_modality_map WHERE exclude_from_stats = TRUE)",
         "modalities": "SELECT ARRAY_AGG(DISTINCT modality        ORDER BY modality)        FROM aetitle_modality_map WHERE modality IS NOT NULL AND modality != 'SR'",
         "sex_values": "SELECT ARRAY_AGG(DISTINCT sex             ORDER BY sex)             FROM etl_patient_view WHERE sex IS NOT NULL",
     }

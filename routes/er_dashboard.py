@@ -75,7 +75,7 @@ def er_data():
                      THEN EXTRACT(EPOCH FROM (s.rep_final_timestamp - {_STUDY_DT})) / 60.0
                 END AS final_tat_min
             FROM etl_didb_studies s
-            LEFT JOIN aetitle_modality_map m ON m.aetitle = s.storing_ae
+            LEFT JOIN aetitle_modality_map m ON m.aetitle = s.original_storing_ae
             WHERE s.study_date BETWEEN :start AND :end
               AND {_ER_WHERE}
               AND COALESCE(m.modality, s.study_modality, 'Unknown') NOT IN ('SR', 'OT')
@@ -111,7 +111,7 @@ def er_data():
                 COALESCE(m.modality, s.study_modality, '?') AS modality,
                 ROUND(EXTRACT(EPOCH FROM (NOW() - {_STUDY_DT})) / 60.0) AS waiting_min
             FROM etl_didb_studies s
-            LEFT JOIN aetitle_modality_map m ON m.aetitle = s.storing_ae
+            LEFT JOIN aetitle_modality_map m ON m.aetitle = s.original_storing_ae
             WHERE s.study_date = CURRENT_DATE
               AND (s.rep_final_timestamp IS NULL AND COALESCE(s.study_has_report, false) = false)
               AND {_ER_WHERE}

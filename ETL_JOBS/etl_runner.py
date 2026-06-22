@@ -181,23 +181,23 @@ def _sync_lookup_tables(engine):
         # 1. AE → Modality: pick the most frequent modality per AE from series data
         r = conn.execute(text("""
             INSERT INTO aetitle_modality_map (aetitle, modality, daily_capacity_minutes)
-            SELECT storing_ae, modality, 480
+            SELECT original_storing_ae, modality, 480
             FROM (
                 SELECT
-                    s.storing_ae,
+                    s.original_storing_ae,
                     ser.modality,
                     ROW_NUMBER() OVER (
-                        PARTITION BY s.storing_ae
+                        PARTITION BY s.original_storing_ae
                         ORDER BY COUNT(*) DESC
                     ) AS rn
                 FROM etl_didb_studies s
                 JOIN etl_didb_serieses ser ON ser.study_db_uid = s.study_db_uid
-                WHERE s.storing_ae IS NOT NULL
-                  AND TRIM(s.storing_ae) != ''
+                WHERE s.original_storing_ae IS NOT NULL
+                  AND TRIM(s.original_storing_ae) != ''
                   AND ser.modality IS NOT NULL
                   AND TRIM(ser.modality) != ''
                   AND ser.modality != 'SR'
-                GROUP BY s.storing_ae, ser.modality
+                GROUP BY s.original_storing_ae, ser.modality
             ) ranked
             WHERE rn = 1
             ON CONFLICT (aetitle) DO NOTHING
@@ -377,7 +377,7 @@ def _sync_lookup_tables(engine):
                     TRIM(s.procedure_code) AS procedure_code,
                     MODE() WITHIN GROUP (ORDER BY am.modality) AS modality
                 FROM etl_didb_studies s
-                JOIN aetitle_modality_map am ON am.aetitle = s.storing_ae
+                JOIN aetitle_modality_map am ON am.aetitle = s.original_storing_ae
                 WHERE s.procedure_code IS NOT NULL
                   AND TRIM(s.procedure_code) != ''
                   AND am.modality IS NOT NULL
