@@ -636,14 +636,20 @@ def create_app():
                 "CREATE INDEX IF NOT EXISTS idx_users_group_id ON users (group_id)"
             ))
             # Seed default groups if missing
+            # JSON passed as bind params to avoid SQLAlchemy misreading :true/:false as placeholders
             db.session.execute(text("""
                 INSERT INTO permission_groups (name, description, permissions) VALUES
-                ('Administrators','Full system access','{"can_export":true,"can_configure":true,"can_manage_users":true,"can_view_finance":true,"can_use_ai":true,"can_view_etl":true,"can_view_reports":["*"]}'),
-                ('Radiologists','Reading physicians','{"can_export":true,"can_configure":false,"can_manage_users":false,"can_view_finance":false,"can_use_ai":true,"can_view_etl":false,"can_view_reports":["*"]}'),
-                ('Technicians','Imaging technicians','{"can_export":false,"can_configure":false,"can_manage_users":false,"can_view_finance":false,"can_use_ai":false,"can_view_etl":false,"can_view_reports":["*"]}'),
-                ('Finance','Finance team','{"can_export":true,"can_configure":false,"can_manage_users":false,"can_view_finance":true,"can_use_ai":false,"can_view_etl":false,"can_view_reports":["*"]}')
+                ('Administrators',  'Full system access',    :p_admin),
+                ('Radiologists',    'Reading physicians',    :p_rad),
+                ('Technicians',     'Imaging technicians',   :p_tec),
+                ('Finance',         'Finance team',          :p_fin)
                 ON CONFLICT (name) DO NOTHING
-            """))
+            """), {
+                'p_admin': '{"can_export":true,"can_configure":true,"can_manage_users":true,"can_view_finance":true,"can_use_ai":true,"can_view_etl":true,"can_view_reports":["*"]}',
+                'p_rad':   '{"can_export":true,"can_configure":false,"can_manage_users":false,"can_view_finance":false,"can_use_ai":true,"can_view_etl":false,"can_view_reports":["*"]}',
+                'p_tec':   '{"can_export":false,"can_configure":false,"can_manage_users":false,"can_view_finance":false,"can_use_ai":false,"can_view_etl":false,"can_view_reports":["*"]}',
+                'p_fin':   '{"can_export":true,"can_configure":false,"can_manage_users":false,"can_view_finance":true,"can_use_ai":false,"can_view_etl":false,"can_view_reports":["*"]}',
+            })
             db.session.commit()
         except Exception as e:
             db.session.rollback()
