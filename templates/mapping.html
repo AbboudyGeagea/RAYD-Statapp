@@ -193,8 +193,8 @@
 {% for map in modality_mappings %}
 <tr class="hover:bg-[#1d2521]/40 transition">
     <td class="px-6 py-3">
-        <div class="font-mono text-xs font-bold text-white">{{ map.aetitle.upper() }}</div>
-        <div class="text-[9px] text-[#60a5fa] font-black uppercase tracking-widest">{{ map.modality.upper() }}</div>
+        <div class="font-mono text-xs font-bold text-white">{{ (map.aetitle or '')|upper }}</div>
+        <div class="text-[9px] text-[#60a5fa] font-black uppercase tracking-widest">{{ (map.modality or '')|upper }}</div>
         {% if map.room_name %}<div class="text-[9px] text-[#34d399] mt-0.5">{{ map.room_name }}</div>{% endif %}
         <input type="text"
                class="proc-input mt-1 w-full px-2 py-1 text-[10px]"
