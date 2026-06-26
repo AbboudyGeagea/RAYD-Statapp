@@ -677,14 +677,7 @@ def create_app():
         except Exception:
             pass
 
-        if demo_mode:
-            logger.info("⏸  [Startup Check] Demo mode — skipping ETL.")
-        elif not has_oracle:
-            logger.info("⏸  [Startup Check] No Oracle source configured — skipping ETL.")
-        elif is_db_empty():
-            trigger_initial_etl(app)
-        else:
-            logger.info("✅ [Startup Check] All critical tables have data — skipping initial ETL.")
+        logger.info("⏸  [Startup Check] Auto-ETL disabled — trigger manually: python app.py -m")
 
     # --- SCHEDULER (5:00 AM AUTO-SYNC) ---
     scheduler = BackgroundScheduler(timezone=pytz.timezone("Asia/Beirut"))
