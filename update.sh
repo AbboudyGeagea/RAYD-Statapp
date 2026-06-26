@@ -108,7 +108,6 @@ APPLIED=0
 SKIPPED=0
 FAILED=0
 NEEDS_FIX_AE=0
-NEEDS_ETL_RELOAD=0
 
 for f in $(ls "$SCRIPT_DIR/migrations"/[0-9]*.sql 2>/dev/null | sort); do
     name=$(basename "$f")
@@ -128,7 +127,6 @@ for f in $(ls "$SCRIPT_DIR/migrations"/[0-9]*.sql 2>/dev/null | sort); do
         ok "  Applied : $name"
         APPLIED=$((APPLIED+1))
         [ "$name" = "0052_rename_storing_ae_to_original_storing_ae.sql" ] && NEEDS_FIX_AE=1
-        [ "$name" = "0054_clear_etl_data_for_reload.sql" ] && NEEDS_ETL_RELOAD=1
     else
         warn "  FAILED  : $name — check manually"
         FAILED=$((FAILED+1))
@@ -169,18 +167,6 @@ if [ "$NEEDS_FIX_AE" -eq 1 ]; then
         ok "ORIGINAL_STORING_AE backfill complete."
     else
         warn "Backfill failed — run manually: $COMPOSE exec rayd-app python app.py -fix-ae"
-    fi
-fi
-
-# ──────────────────────────────────────────────────────
-# ONE-TIME ETL RELOAD: triggered when migration 0054 was applied.
-# ──────────────────────────────────────────────────────
-if [ "$NEEDS_ETL_RELOAD" -eq 1 ]; then
-    info "Running one-time full ETL reload (migration 0054)..."
-    if $COMPOSE exec -T rayd-app python app.py -m; then
-        ok "Full ETL reload complete."
-    else
-        warn "ETL reload failed — run manually: $COMPOSE exec rayd-app python app.py -m"
     fi
 fi
 
