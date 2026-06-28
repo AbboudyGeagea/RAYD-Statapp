@@ -4,4 +4,4 @@
 
 UPDATE report_template
 SET base_sql = REPLACE(base_sql, 'storing_ae', 'original_storing_ae')
-WHERE base_sql LIKE '%storing_ae%';
+WHERE base_sql LIKE '%%storing_ae%%';
