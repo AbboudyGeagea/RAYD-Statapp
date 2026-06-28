@@ -3,5 +3,12 @@
 -- storing_ae → original_storing_ae column rename (migration 0052).
 
 UPDATE report_template
-SET base_sql = REPLACE(base_sql, 'storing_ae', 'original_storing_ae')
+SET base_sql =
+    REPLACE(
+        REPLACE(
+            REPLACE(base_sql, 'original_storing_ae', '__OAE__'),
+            'storing_ae', 'original_storing_ae'
+        ),
+        '__OAE__', 'original_storing_ae'
+    )
 WHERE base_sql LIKE '%%storing_ae%%';

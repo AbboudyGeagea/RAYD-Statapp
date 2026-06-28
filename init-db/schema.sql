@@ -225,7 +225,7 @@ CREATE TABLE public.etl_didb_studies (
     study_instance_uid text,
     accession_number text,
     study_id text,
-    storing_ae text,
+    original_storing_ae text,
     study_date date,
     study_description text,
     study_body_part text,
@@ -794,7 +794,7 @@ CREATE TABLE public.summary_storage_daily (
     procedure_code character varying(255),
     total_gb numeric(12,4) DEFAULT 0,
     study_count integer DEFAULT 0,
-    storing_ae character varying(100)
+    original_storing_ae character varying(100)
 );
 
 
@@ -1014,7 +1014,7 @@ ALTER TABLE ONLY public.device_exceptions
 --
 
 ALTER TABLE ONLY public.summary_storage_daily
-    ADD CONSTRAINT _date_ae_mod_proc_uc UNIQUE (study_date, storing_ae, modality, procedure_code);
+    ADD CONSTRAINT _date_ae_mod_proc_uc UNIQUE (study_date, original_storing_ae, modality, procedure_code);
 
 
 --
@@ -1587,11 +1587,11 @@ COPY public.go_live_config (id, go_live_date) FROM stdin;
 --
 
 COPY public.report_template (report_id, report_name, long_description, report_sql_query, required_parameters, created_by_user_id, creation_date, visualization_type, is_base) FROM stdin;
-22	Studies Fact	Counts all studies between the selected date range. If start date is empty, uses Go-Live Date.	SELECT\r\n    s.study_db_uid,\r\n    s.procedure_code,\r\n    s.study_date,\r\n    s.storing_ae,        \r\n    m.modality,          \r\n    s.study_status,\r\n    s.patient_db_uid,\r\n    -- Add the actual Patient ID for accurate unique counting\r\n    p.fallback_id as patient_id, \r\n    p.sex,\r\n    p.age_group,\r\n    s.last_update,\r\n    s.patient_class,\r\n    -- Create a single field for the Physician Name\r\n    TRIM(CONCAT(s.referring_physician_first_name, ' ', s.referring_physician_last_name)) as referring_physician,\r\n    s.signing_physician_first_name,    \r\n    s.signing_physician_last_name,    \r\n    s.signing_physician_id,\r\n    s.patient_location\r\nFROM etl_didb_studies s\r\nLEFT JOIN aetitle_modality_map m ON s.storing_ae = m.aetitle\r\nLEFT JOIN etl_patient_view p ON p.patient_db_uid = s.patient_db_uid\r\nWHERE 1=1	start_date,end_date	\N	\N	table	t
-27	Order base Reports	Patient-level demographics and utilization base report	SELECT\r\n    o.order_dbid,\r\n    o.order_status,\r\n    o.proc_id,\r\n    o.proc_text,\r\n    o.scheduled_datetime,\r\n    o.has_study,\r\n    s.study_date,\r\n    s.storing_ae,\r\n    s.procedure_code,\r\n    p.birth_date,\r\n    p.sex,\r\n    COALESCE(m.duration_minutes, 0) as duration_minutes\r\nFROM etl_orders o\r\nLEFT JOIN etl_didb_studies s \r\n    ON s.study_db_uid = o.study_db_uid\r\nLEFT JOIN etl_patient_view p \r\n    ON p.patient_db_uid = o.patient_dbid\r\nLEFT JOIN procedure_duration_map m \r\n    ON m.procedure_code = s.procedure_code OR m.procedure_code = o.proc_id	start_date,end_date	\N	\N	table	t
-23	Patient Demographics	Base report for Patients Fact	SELECT \r\n    p.patient_db_uid, \r\n    p.birth_date, \r\n    p.sex, \r\n    p.age_group,\r\n    s.age_at_exam, \r\n    p.fallback_id,\r\n    s.study_db_uid, \r\n    s.study_date, \r\n    s.storing_ae,\r\n    m.modality,\r\n    o.order_dbid,\r\n    s.patient_class,\r\n    o.proc_id\r\nFROM etl_patient_view p\r\nLEFT JOIN etl_didb_studies s ON s.patient_db_uid = p.patient_db_uid\r\nLEFT JOIN etl_orders o ON o.patient_dbid = p.patient_db_uid\r\nLEFT JOIN aetitle_modality_map m ON s.storing_ae = m.aetitle\r\nWHERE 1=1	start_date,end_date	\N	\N	bar	t
-25	Modality Device Fact	Calculates average turnaround time (TAT) in minutes per signing physician.	SELECT \r\n    UPPER(TRIM(s.storing_ae)) as aetitle,\r\n    COALESCE(UPPER(m.modality), 'N/A') as modality,\r\n    s.study_date,\r\n    s.patient_class,\r\n    s.patient_location,\r\n    s.rep_final_signed_by as reading_radiologist,\r\n    s.procedure_code,\r\n    -- TAT Calculation\r\n    EXTRACT(EPOCH FROM (s.rep_final_timestamp - s.study_date))/60 as total_tat_min,\r\n    -- Work Duration from Procedure Map (Default to 15 if missing)\r\n    COALESCE(pm.duration_minutes, 15) as proc_duration,\r\n    -- RVU Value from Procedure Map (Default to 1.0 if missing)\r\n    COALESCE(pm.rvu_value, 1.0) as rvu,\r\n    -- Base Daily Capacity from Modality Map (Default to 480 if missing)\r\n    COALESCE(m.daily_capacity_minutes, 480) as base_daily_capacity,\r\n    s.patient_db_uid as patient_id\r\nFROM etl_didb_studies s\r\nLEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))\r\nLEFT JOIN procedure_duration_map pm ON UPPER(TRIM(s.procedure_code)) = UPPER(TRIM(pm.procedure_code))\r\nWHERE s.study_date BETWEEN :start AND :end\r\n  AND s.rep_final_timestamp IS NOT NULL\r\n  AND s.rep_final_signed_by IS NOT NULL	start_date,end_date	\N	\N	bar	t
-29	Storage Calculation	Calculate the Storage usage for different Modalities, Patients, Procedures in a specific period of time. 	\r\nSELECT\r\n    study_date,\r\n    COALESCE(modality, 'N/A')            AS modality,\r\n    COALESCE(procedure_code, 'UNKNOWN')   AS procedure_code,\r\n    COALESCE(storing_ae, 'Unknown')       AS storing_ae,\r\n    SUM(total_gb)                           AS total_gb,\r\n    SUM(study_count)                        AS study_count\r\nFROM summary_storage_daily\r\nWHERE study_date BETWEEN :start AND :end\r\nGROUP BY study_date, modality, procedure_code, storing_ae\r\nORDER BY total_gb DESC\r\n	start_date,end_date	\N	\N	table	t
+22	Studies Fact	Counts all studies between the selected date range. If start date is empty, uses Go-Live Date.	SELECT\r\n    s.study_db_uid,\r\n    s.procedure_code,\r\n    s.study_date,\r\n    s.original_storing_ae,        \r\n    m.modality,          \r\n    s.study_status,\r\n    s.patient_db_uid,\r\n    -- Add the actual Patient ID for accurate unique counting\r\n    p.fallback_id as patient_id, \r\n    p.sex,\r\n    p.age_group,\r\n    s.last_update,\r\n    s.patient_class,\r\n    -- Create a single field for the Physician Name\r\n    TRIM(CONCAT(s.referring_physician_first_name, ' ', s.referring_physician_last_name)) as referring_physician,\r\n    s.signing_physician_first_name,    \r\n    s.signing_physician_last_name,    \r\n    s.signing_physician_id,\r\n    s.patient_location\r\nFROM etl_didb_studies s\r\nLEFT JOIN aetitle_modality_map m ON s.original_storing_ae = m.aetitle\r\nLEFT JOIN etl_patient_view p ON p.patient_db_uid = s.patient_db_uid\r\nWHERE 1=1	start_date,end_date	\N	\N	table	t
+27	Order base Reports	Patient-level demographics and utilization base report	SELECT\r\n    o.order_dbid,\r\n    o.order_status,\r\n    o.proc_id,\r\n    o.proc_text,\r\n    o.scheduled_datetime,\r\n    o.has_study,\r\n    s.study_date,\r\n    s.original_storing_ae,\r\n    s.procedure_code,\r\n    p.birth_date,\r\n    p.sex,\r\n    COALESCE(m.duration_minutes, 0) as duration_minutes\r\nFROM etl_orders o\r\nLEFT JOIN etl_didb_studies s \r\n    ON s.study_db_uid = o.study_db_uid\r\nLEFT JOIN etl_patient_view p \r\n    ON p.patient_db_uid = o.patient_dbid\r\nLEFT JOIN procedure_duration_map m \r\n    ON m.procedure_code = s.procedure_code OR m.procedure_code = o.proc_id	start_date,end_date	\N	\N	table	t
+23	Patient Demographics	Base report for Patients Fact	SELECT \r\n    p.patient_db_uid, \r\n    p.birth_date, \r\n    p.sex, \r\n    p.age_group,\r\n    s.age_at_exam, \r\n    p.fallback_id,\r\n    s.study_db_uid, \r\n    s.study_date, \r\n    s.original_storing_ae,\r\n    m.modality,\r\n    o.order_dbid,\r\n    s.patient_class,\r\n    o.proc_id\r\nFROM etl_patient_view p\r\nLEFT JOIN etl_didb_studies s ON s.patient_db_uid = p.patient_db_uid\r\nLEFT JOIN etl_orders o ON o.patient_dbid = p.patient_db_uid\r\nLEFT JOIN aetitle_modality_map m ON s.original_storing_ae = m.aetitle\r\nWHERE 1=1	start_date,end_date	\N	\N	bar	t
+25	Modality Device Fact	Calculates average turnaround time (TAT) in minutes per signing physician.	SELECT \r\n    UPPER(TRIM(s.original_storing_ae)) as aetitle,\r\n    COALESCE(UPPER(m.modality), 'N/A') as modality,\r\n    s.study_date,\r\n    s.patient_class,\r\n    s.patient_location,\r\n    s.rep_final_signed_by as reading_radiologist,\r\n    s.procedure_code,\r\n    -- TAT Calculation\r\n    EXTRACT(EPOCH FROM (s.rep_final_timestamp - s.study_date))/60 as total_tat_min,\r\n    -- Work Duration from Procedure Map (Default to 15 if missing)\r\n    COALESCE(pm.duration_minutes, 15) as proc_duration,\r\n    -- RVU Value from Procedure Map (Default to 1.0 if missing)\r\n    COALESCE(pm.rvu_value, 1.0) as rvu,\r\n    -- Base Daily Capacity from Modality Map (Default to 480 if missing)\r\n    COALESCE(m.daily_capacity_minutes, 480) as base_daily_capacity,\r\n    s.patient_db_uid as patient_id\r\nFROM etl_didb_studies s\r\nLEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.original_storing_ae)) = UPPER(TRIM(m.aetitle))\r\nLEFT JOIN procedure_duration_map pm ON UPPER(TRIM(s.procedure_code)) = UPPER(TRIM(pm.procedure_code))\r\nWHERE s.study_date BETWEEN :start AND :end\r\n  AND s.rep_final_timestamp IS NOT NULL\r\n  AND s.rep_final_signed_by IS NOT NULL	start_date,end_date	\N	\N	bar	t
+29	Storage Calculation	Calculate the Storage usage for different Modalities, Patients, Procedures in a specific period of time. 	\r\nSELECT\r\n    study_date,\r\n    COALESCE(modality, 'N/A')            AS modality,\r\n    COALESCE(procedure_code, 'UNKNOWN')   AS procedure_code,\r\n    COALESCE(original_storing_ae, 'Unknown')       AS original_storing_ae,\r\n    SUM(total_gb)                           AS total_gb,\r\n    SUM(study_count)                        AS study_count\r\nFROM summary_storage_daily\r\nWHERE study_date BETWEEN :start AND :end\r\nGROUP BY study_date, modality, procedure_code, original_storing_ae\r\nORDER BY total_gb DESC\r\n	start_date,end_date	\N	\N	table	t
 
 30	Patient Media Distribution	CD and DVD burn history from CD surf. Shows burn volume by month, media type (CD vs DVD), and modality.	\N	start_date,end_date	\N	\N	bar	t
 \.
@@ -1729,7 +1729,7 @@ CREATE TABLE IF NOT EXISTS hl7_scn_studies (
     procedure_code   VARCHAR(100),
     procedure_text   TEXT,
     modality         VARCHAR(20),
-    storing_ae       VARCHAR(100),
+    original_storing_ae VARCHAR(100),
     patient_class    VARCHAR(50),
     study_datetime   TIMESTAMP,
     order_status     VARCHAR(20) DEFAULT 'CM',

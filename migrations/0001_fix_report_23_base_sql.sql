@@ -12,12 +12,12 @@ SET report_sql_query =
     p.fallback_id,
     s.study_db_uid,
     s.study_date,
-    s.storing_ae,
+    s.original_storing_ae,
     m.modality,
     s.patient_class,
     s.procedure_code AS proc_id
 FROM etl_didb_studies s
 LEFT JOIN etl_patient_view p ON s.patient_db_uid::text = p.patient_db_uid::text
-LEFT JOIN aetitle_modality_map m ON s.storing_ae = m.aetitle
+LEFT JOIN aetitle_modality_map m ON s.original_storing_ae = m.aetitle
 WHERE 1=1'
 WHERE report_id = 23;

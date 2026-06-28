@@ -167,10 +167,10 @@ PACS_AUTODONE_SQL = """
 SCN_INSERT_SQL = """
     INSERT INTO hl7_scn_studies
         (accession_number, patient_id, patient_name, procedure_code,
-         procedure_text, modality, storing_ae, patient_class, study_datetime)
+         procedure_text, modality, original_storing_ae, patient_class, study_datetime)
     VALUES
         (:accession_number, :patient_id, :patient_name, :procedure_code,
-         :procedure_text, :modality, :storing_ae, :patient_class, :study_datetime)
+         :procedure_text, :modality, :original_storing_ae, :patient_class, :study_datetime)
     ON CONFLICT (accession_number) DO UPDATE SET
         study_datetime = EXCLUDED.study_datetime,
         modality       = COALESCE(EXCLUDED.modality,      hl7_scn_studies.modality),
@@ -485,7 +485,7 @@ def parse_pacs_completion(raw_message):
         'procedure_code':   _component(proc_raw, 0) or None,
         'procedure_text':   _component(proc_raw, 1) or None,
         'modality':         _field(obr, 24) or _field(obr, 19) or None,
-        'storing_ae':       _field(msh, 3) or None,
+        'original_storing_ae': _field(msh, 3) or None,
         'patient_class':    _field(pv1, 2) or _field(pid, 18) or None,
         'study_datetime':   pacs_done_at or datetime.now(),
     }

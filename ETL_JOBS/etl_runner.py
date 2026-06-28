@@ -204,6 +204,13 @@ def _sync_lookup_tables(engine):
         """))
         logger.info(f"Phase 8 — Step 1 (AE→Modality): {r.rowcount} new AEs inserted")
 
+        # Always exclude NonDICOMAAgent regardless of what ETL pulled from Oracle
+        conn.execute(text("""
+            UPDATE aetitle_modality_map
+            SET exclude_from_stats = TRUE
+            WHERE UPPER(TRIM(aetitle)) = 'NONDICOMAGENT'
+        """))
+
         # 2. Default weekly schedule for any new AEs (uses daily_capacity_minutes from map)
         r = conn.execute(text("""
             INSERT INTO device_weekly_schedule (aetitle, day_of_week, std_opening_minutes)

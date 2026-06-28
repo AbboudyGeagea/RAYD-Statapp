@@ -27,8 +27,8 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_etl_didb_studies_patient_db_uid
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_etl_didb_studies_study_date
     ON etl_didb_studies(study_date);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_etl_didb_studies_storing_ae_date
-    ON etl_didb_studies(storing_ae, study_date);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_etl_didb_studies_original_storing_ae_date
+    ON etl_didb_studies(original_storing_ae, study_date);
 
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_etl_orders_patient_dbid
     ON etl_orders(patient_dbid);

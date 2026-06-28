@@ -498,7 +498,7 @@ def create_app():
                     procedure_code   VARCHAR(100),
                     procedure_text   TEXT,
                     modality         VARCHAR(20),
-                    storing_ae       VARCHAR(100),
+                    original_storing_ae VARCHAR(100),
                     patient_class    VARCHAR(50),
                     study_datetime   TIMESTAMP,
                     order_status     VARCHAR(20) DEFAULT 'CM',

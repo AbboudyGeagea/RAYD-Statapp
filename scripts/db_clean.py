@@ -44,6 +44,7 @@ ETL_TABLES = [
     "etl_orders",
     "summary_storage_daily",
     "analytics_snapshots",
+    "aetitle_modality_map",  # CASCADE wipes device_weekly_schedule + device_exceptions
 ]
 
 

@@ -3,5 +3,12 @@
 -- This corrects all stored report SQL to use the renamed column.
 
 UPDATE report_template
-SET report_sql_query = REPLACE(report_sql_query, 'storing_ae', 'original_storing_ae')
+SET report_sql_query =
+    REPLACE(
+        REPLACE(
+            REPLACE(report_sql_query, 'original_storing_ae', '__OAE__'),
+            'storing_ae', 'original_storing_ae'
+        ),
+        '__OAE__', 'original_storing_ae'
+    )
 WHERE report_sql_query LIKE '%%storing_ae%%';
