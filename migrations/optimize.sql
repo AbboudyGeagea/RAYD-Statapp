@@ -40,7 +40,7 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_summary_storage_daily_date
     ON summary_storage_daily(study_date);
 
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_summary_storage_daily_ae_date
-    ON summary_storage_daily(storing_ae, study_date);
+    ON summary_storage_daily(original_storing_ae, study_date);
 
 
 -- ── 3. Materialized view for Report 25 (Gold Standard) ───────
