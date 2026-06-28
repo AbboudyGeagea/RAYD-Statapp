@@ -195,6 +195,7 @@
 
         <div class="flex-1 overflow-y-auto p-10">
             {% if run_report %}
+            {% if data %}
 
             <!-- ── DEPARTMENT PULSE ───────────────────────────────────────── -->
             {% set _reported = data.rad_cards | map(attribute='count') | sum %}
@@ -1746,6 +1747,13 @@
                 </div>
             </div>
 
+            {% else %}
+            <div class="h-full flex flex-col items-center justify-center opacity-40">
+                <i class="bi bi-inbox text-6xl mb-4"></i>
+                <h2 class="text-2xl font-black uppercase tracking-tighter">No Data</h2>
+                <p class="text-sm mt-2">No studies found for the selected period. ETL may still be loading.</p>
+            </div>
+            {% endif %}
             {% else %}
             <div class="h-full flex flex-col items-center justify-center opacity-20">
                 <i class="bi bi-cpu text-6xl mb-4"></i>
