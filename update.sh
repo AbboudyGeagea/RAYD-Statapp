@@ -97,12 +97,14 @@ ok "Database ready."
 # ──────────────────────────────────────────────────────
 info "Step 3/3 — Applying pending migrations..."
 
-# Ensure migration tracking table exists
+# Ensure migration tracking table exists and uses 'name' column (Flask-compatible).
+# Old installs may have 'filename' column — rename it silently.
 pg_exec "
 CREATE TABLE IF NOT EXISTS schema_migrations (
-    filename TEXT PRIMARY KEY,
+    name TEXT PRIMARY KEY,
     applied_at TIMESTAMP DEFAULT now()
 );" 2>/dev/null || true
+pg_exec "ALTER TABLE schema_migrations RENAME COLUMN filename TO name;" 2>/dev/null || true
 
 APPLIED=0
 SKIPPED=0
@@ -112,7 +114,7 @@ for f in $(ls "$SCRIPT_DIR/migrations"/[0-9]*.sql 2>/dev/null | sort); do
     name=$(basename "$f")
 
     already=$(docker exec rayd_db psql -U "$PG_USER" -d "$PG_DB" -tAc \
-        "SELECT COUNT(*) FROM schema_migrations WHERE filename='${name}';" 2>/dev/null || echo "0")
+        "SELECT COUNT(*) FROM schema_migrations WHERE name='${name}';" 2>/dev/null || echo "0")
 
     if [ "${already:-0}" -gt "0" ]; then
         SKIPPED=$((SKIPPED+1))
@@ -122,7 +124,7 @@ for f in $(ls "$SCRIPT_DIR/migrations"/[0-9]*.sql 2>/dev/null | sort); do
     info "  Applying: $name"
     docker cp "$f" rayd_db:/tmp/rayd_migration.sql
     if docker exec rayd_db psql -U "$PG_USER" -d "$PG_DB" -f /tmp/rayd_migration.sql -q 2>/dev/null; then
-        pg_exec "INSERT INTO schema_migrations (filename) VALUES ('${name}');" 2>/dev/null || true
+        pg_exec "INSERT INTO schema_migrations (name) VALUES ('${name}');" 2>/dev/null || true
         ok "  Applied : $name"
         APPLIED=$((APPLIED+1))
     else
