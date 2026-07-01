@@ -225,7 +225,7 @@ def get_gold_standard_data(form_data):
                 COALESCE(pm.clinical_rvu, 1.0) AS clinical_rvu
             FROM etl_didb_studies s {_MJ25} {_PAM25}
             LEFT JOIN procedure_duration_map pm ON UPPER(TRIM(s.procedure_code)) = UPPER(TRIM(pm.procedure_code))
-            WHERE DATE(s.rep_final_timestamp) BETWEEN :start AND :end
+            WHERE s.study_date BETWEEN :start AND :end
               AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
               AND COALESCE(m.exclude_from_stats, FALSE) = FALSE
               {_sec_filters} {_RAD25_OK}
