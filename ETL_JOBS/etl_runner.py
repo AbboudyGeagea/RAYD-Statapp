@@ -116,6 +116,37 @@ def _perform_migration(engine):
             except Exception as _e:
                 logger.warning(f"Phase 2b (study_modality backfill) skipped: {_e}")
 
+            # ── PHASE 2c: Correct original_storing_ae from series station_name ─
+            # Studies stored via NonDICOMAgent or SVSM (PACS document-routing
+            # layers) have a meaningless study-level AE. Replace it with the
+            # dominant station_name from the study's own series, which reflects
+            # the physical acquisition device (e.g. AE_RMIEDMCT1, ARIETTA60).
+            logger.info("📋 Phase 2c: Correcting original_storing_ae from series station_name")
+            try:
+                with engine.begin() as _c:
+                    _r = _c.execute(text("""
+                        UPDATE etl_didb_studies s
+                        SET original_storing_ae = sub.station_name
+                        FROM (
+                            SELECT study_db_uid,
+                                   MODE() WITHIN GROUP (ORDER BY station_name) AS station_name
+                            FROM etl_didb_serieses
+                            WHERE station_name IS NOT NULL
+                              AND TRIM(station_name) != ''
+                              AND modality NOT IN ('SR', 'OT')
+                            GROUP BY study_db_uid
+                        ) sub
+                        WHERE s.study_db_uid = sub.study_db_uid
+                          AND (
+                            UPPER(TRIM(COALESCE(s.original_storing_ae, '')))
+                                IN ('NONDICOMAGENT', 'SVSM', '')
+                            OR s.original_storing_ae IS NULL
+                          )
+                    """))
+                logger.info(f"✅ Phase 2c done — {_r.rowcount:,} studies corrected with real station_name")
+            except Exception as _e:
+                logger.warning(f"Phase 2c (station_name correction) skipped: {_e}")
+
             # ── PHASE 3: Raw Images ───────────────────────────────────────
             logger.info("📋 Phase 3: Raw Images")
             run_raw_images_etl(engine, src, 'etl_didb_raw_images', database_module.chunked_upsert, active_ids)
@@ -138,15 +169,17 @@ def _perform_migration(engine):
         run_orders_etl(engine, src, 'etl_orders', database_module.chunked_upsert, go_live)
         logger.info("✅ Phase 6 done")
 
-        # ── PHASE 7: Storage Summary (all tables must be populated first) ─
-        logger.info("📋 Phase 7: Storage Summary Rollup")
-        refresh_storage_summary()
-        logger.info("✅ Phase 7 done")
-
-        # ── PHASE 8: Auto-sync lookup tables ─────────────────────────────
+        # ── PHASE 8: AE mappings & procedure codes (before storage rollup) ─
+        # Must run before Phase 7 so the storage summary can join the
+        # fully-populated aetitle_modality_map (including device_description).
         logger.info("📋 Phase 8: Syncing AE mappings & procedure codes")
         _sync_lookup_tables(engine)
         logger.info("✅ Phase 8 done")
+
+        # ── PHASE 7: Storage Summary ──────────────────────────────────────
+        logger.info("📋 Phase 7: Storage Summary Rollup")
+        refresh_storage_summary()
+        logger.info("✅ Phase 7 done")
 
         # ── Mark overall sync SUCCESS ─────────────────────────────────────
         with engine.begin() as conn:
@@ -204,6 +237,26 @@ def _sync_lookup_tables(engine):
             ON CONFLICT (aetitle) DO NOTHING
         """))
         logger.info(f"Phase 8 — Step 1 (AE→Modality): {r.rowcount} new AEs inserted")
+
+        # Populate device_description from series manufacturer + model name
+        conn.execute(text("""
+            UPDATE aetitle_modality_map m
+            SET device_description = sub.description
+            FROM (
+                SELECT
+                    UPPER(TRIM(ser.station_name)) AS ae,
+                    MODE() WITHIN GROUP (
+                        ORDER BY TRIM(ser.manufacturer || ' ' || COALESCE(ser.manufacturer_model_name, ''))
+                    ) AS description
+                FROM etl_didb_serieses ser
+                WHERE ser.station_name IS NOT NULL AND TRIM(ser.station_name) != ''
+                  AND ser.manufacturer IS NOT NULL AND TRIM(ser.manufacturer) != ''
+                GROUP BY UPPER(TRIM(ser.station_name))
+            ) sub
+            WHERE UPPER(TRIM(m.aetitle)) = sub.ae
+              AND sub.description IS NOT NULL AND TRIM(sub.description) != ''
+        """))
+        logger.info("Phase 8 — Step 1b: device_description populated from series")
 
         # 2. Default weekly schedule for any new AEs (uses daily_capacity_minutes from map)
         r = conn.execute(text("""

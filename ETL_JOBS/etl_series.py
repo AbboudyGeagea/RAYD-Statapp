@@ -47,7 +47,7 @@ def run_series_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, stud
                 'series_instance_uid', 'series_number', 'modality', 'number_of_series_images',
                 'body_part_examined', 'protocol_name', 'series_description', 'series_icon_blob_len',
                 'institution_name', 'station_name', 'manufacturer', 'institutional_department_name',
-                'last_update'
+                'manufacturer_model_name', 'last_update'
             ]
 
             skipped_fk = 0
@@ -62,7 +62,7 @@ def run_series_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, stud
                     series_instance_uid, series_number, modality, number_of_series_images,
                     body_part_examined, protocol_name, series_description, series_icon_blob_len,
                     institution_name, station_name, manufacturer, institutional_department_name,
-                    CURRENT_TIMESTAMP FROM medistore.didb_serieses
+                    manufacturer_model_name, CURRENT_TIMESTAMP FROM medistore.didb_serieses
                     WHERE study_db_uid IN ({','.join(binds)})
                 """
                 params = dict(zip([b.strip(':') for b in binds], chunk))
