@@ -704,12 +704,12 @@ def create_app():
             except Exception:
                 pass
             from ETL_JOBS.etl_runner import execute_sync
-            logger.info(f"⏰ [5:00 AM] Scheduled ETL Start: {datetime.now()}")
+            logger.info(f"⏰ [ETL] Scheduled ETL Start: {datetime.now()}")
             execute_sync(app)
 
     scheduler.add_job(
         func=scheduled_etl,
-        trigger=CronTrigger(hour=5, minute=0),
+        trigger=IntervalTrigger(hours=5),
         id='daily_etl_sync',
         name='Sync Data from Oracle',
         replace_existing=True
