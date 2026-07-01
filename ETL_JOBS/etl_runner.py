@@ -194,6 +194,7 @@ def _sync_lookup_tables(engine):
                 JOIN etl_didb_serieses ser ON ser.study_db_uid = s.study_db_uid
                 WHERE s.original_storing_ae IS NOT NULL
                   AND TRIM(s.original_storing_ae) != ''
+                  AND UPPER(TRIM(s.original_storing_ae)) NOT IN ('NONDICOMAGENT', 'SVSM')
                   AND ser.modality IS NOT NULL
                   AND TRIM(ser.modality) != ''
                   AND ser.modality != 'SR'
@@ -203,13 +204,6 @@ def _sync_lookup_tables(engine):
             ON CONFLICT (aetitle) DO NOTHING
         """))
         logger.info(f"Phase 8 — Step 1 (AE→Modality): {r.rowcount} new AEs inserted")
-
-        # Always exclude NonDICOMAAgent regardless of what ETL pulled from Oracle
-        conn.execute(text("""
-            UPDATE aetitle_modality_map
-            SET exclude_from_stats = TRUE
-            WHERE UPPER(TRIM(aetitle)) = 'NONDICOMAGENT'
-        """))
 
         # 2. Default weekly schedule for any new AEs (uses daily_capacity_minutes from map)
         r = conn.execute(text("""
