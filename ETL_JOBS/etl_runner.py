@@ -116,37 +116,6 @@ def _perform_migration(engine):
             except Exception as _e:
                 logger.warning(f"Phase 2b (study_modality backfill) skipped: {_e}")
 
-            # ── PHASE 2c: Correct original_storing_ae from series station_name ─
-            # Studies stored via NonDICOMAgent or SVSM (PACS document-routing
-            # layers) have a meaningless study-level AE. Replace it with the
-            # dominant station_name from the study's own series, which reflects
-            # the physical acquisition device (e.g. AE_RMIEDMCT1, ARIETTA60).
-            logger.info("📋 Phase 2c: Correcting original_storing_ae from series station_name")
-            try:
-                with engine.begin() as _c:
-                    _r = _c.execute(text("""
-                        UPDATE etl_didb_studies s
-                        SET original_storing_ae = sub.station_name
-                        FROM (
-                            SELECT study_db_uid,
-                                   MODE() WITHIN GROUP (ORDER BY station_name) AS station_name
-                            FROM etl_didb_serieses
-                            WHERE station_name IS NOT NULL
-                              AND TRIM(station_name) != ''
-                              AND modality NOT IN ('SR', 'OT')
-                            GROUP BY study_db_uid
-                        ) sub
-                        WHERE s.study_db_uid = sub.study_db_uid
-                          AND (
-                            UPPER(TRIM(COALESCE(s.original_storing_ae, '')))
-                                IN ('NONDICOMAGENT', 'SVSM', '')
-                            OR s.original_storing_ae IS NULL
-                          )
-                    """))
-                logger.info(f"✅ Phase 2c done — {_r.rowcount:,} studies corrected with real station_name")
-            except Exception as _e:
-                logger.warning(f"Phase 2c (station_name correction) skipped: {_e}")
-
             # ── PHASE 3: Raw Images ───────────────────────────────────────
             logger.info("📋 Phase 3: Raw Images")
             run_raw_images_etl(engine, src, 'etl_didb_raw_images', database_module.chunked_upsert, active_ids)
