@@ -327,27 +327,24 @@ def report_22():
             age_map[age] = age_map.get(age, 0) + count
 
         # 4. Tree Flow Logic
-        res_flow = db.session.execute(text(f"{cte} SELECT COALESCE(modality, 'UNMAPPED'), COALESCE(original_storing_ae, 'Unknown AE'), COALESCE(study_description, 'No Description'), COUNT(*) FROM base_data {where} GROUP BY 1, 2, 3"), params).fetchall()
+        # Modality-only site (migration 0063): the AE level would duplicate the
+        # modality node, so the tree flows Modality -> Top procedures directly.
+        res_flow = db.session.execute(text(f"{cte} SELECT COALESCE(modality, 'UNMAPPED'), COALESCE(study_description, 'No Description'), COUNT(*) FROM base_data {where} GROUP BY 1, 2"), params).fetchall()
 
         total_vol = 0
         mod_map = {}
-        for mod, ae, desc, count in res_flow:
+        for mod, desc, count in res_flow:
             total_vol += count
-            if mod not in mod_map: mod_map[mod] = {"count": 0, "aes": {}}
-            if ae not in mod_map[mod]["aes"]: mod_map[mod]["aes"][ae] = {"count": 0, "procs": {}}
-            mod_map[mod]["aes"][ae]["procs"][desc] = mod_map[mod]["aes"][ae]["procs"].get(desc, 0) + count
-            mod_map[mod]["aes"][ae]["count"] += count
+            if mod not in mod_map: mod_map[mod] = {"count": 0, "procs": {}}
+            mod_map[mod]["procs"][desc] = mod_map[mod]["procs"].get(desc, 0) + count
             mod_map[mod]["count"] += count
 
         final_tree = {"name": f"TOTAL\n{total_vol}", "children": []}
         for m_name, m_data in mod_map.items():
             m_node = {"name": f"{m_name}\n{m_data['count']}", "children": []}
-            for ae_name, ae_data in m_data["aes"].items():
-                ae_node = {"name": f"{ae_name}\n({ae_data['count']})", "children": []}
-                top_procs = sorted(ae_data["procs"].items(), key=lambda x: x[1], reverse=True)[:5]
-                for p_name, p_count in top_procs:
-                    ae_node["children"].append({"name": f"{p_name}: {p_count}"})
-                m_node["children"].append(ae_node)
+            top_procs = sorted(m_data["procs"].items(), key=lambda x: x[1], reverse=True)[:5]
+            for p_name, p_count in top_procs:
+                m_node["children"].append({"name": f"{p_name}: {p_count}"})
             final_tree["children"].append(m_node)
 
         # Build physician → modality stacked bar data

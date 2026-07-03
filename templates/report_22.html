@@ -81,15 +81,6 @@
                     </select>
                 </div>
 
-                <div class="flex flex-col gap-1">
-                    <div class="flex justify-between items-center"><label class="mb-0">Storing AE</label>
-                        <input type="checkbox" name="f_ae_active" onchange="document.getElementById('f_ae').disabled = !this.checked" {% if filters.f_ae_active %}checked{% endif %}>
-                    </div>
-                    <select name="f_ae" id="f_ae" class="input-dark" {% if not filters.f_ae_active %}disabled{% endif %}
-                            data-filter-key="aetitles"
-                            data-selected="{{ filters.ae or '' }}">
-                    </select>
-                </div>
             </div>
 
             <button type="submit" style="background:#60a5fa; color:#0a1628; font-weight:900; font-size:10px; text-transform:uppercase; letter-spacing:0.08em; border-radius:10px; padding:12px; width:100%; border:none; cursor:pointer; transition:filter 0.15s;" onmouseover="this.style.filter='brightness(1.1)'" onmouseout="this.style.filter=''">Update Dashboard</button>
@@ -236,9 +227,9 @@
 
         <!-- Tree Flow -->
         <div class="card">
-            <div class="card-header">Modality ➜ AE Source ➜ Top 5 Procedures</div>
+            <div class="card-header">Modality ➜ Top 5 Procedures</div>
             <div class="card-desc">
-                A hierarchical breakdown of study volume across the selected period. Starting from total studies, it branches by imaging modality (CT, MR, US…), then by the DICOM AE title that received the study, and finally shows the top 5 procedure descriptions per AE. Node sizes reflect study count.
+                A hierarchical breakdown of study volume across the selected period. Starting from total studies, it branches by imaging modality (CT, MR, US…) and shows the top 5 procedure descriptions per modality. Node sizes reflect study count.
             </div>
             <div id="tree_chart" class="tree-container"></div>
         </div>
