@@ -2,7 +2,7 @@ import sys
 import os
 import logging
 import oracledb
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from hl7_listener import start_mllp_listener
 # 1. ORACLE ALIAS (Must be before other imports)
 sys.modules["cx_Oracle"] = oracledb
@@ -710,6 +710,9 @@ def create_app():
     scheduler.add_job(
         func=scheduled_etl,
         trigger=IntervalTrigger(hours=5),
+        # First run 5 minutes after boot — otherwise every container restart
+        # (update.sh) pushes the next sync a full 5 hours out.
+        next_run_time=datetime.now() + timedelta(minutes=5),
         id='daily_etl_sync',
         name='Sync Data from Oracle',
         replace_existing=True
