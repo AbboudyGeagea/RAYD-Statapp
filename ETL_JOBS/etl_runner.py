@@ -91,14 +91,19 @@ def _perform_migration(engine):
             run_series_etl(engine, src, 'etl_didb_serieses', database_module.chunked_upsert, active_ids)
             logger.info("✅ Phase 2 done")
 
-            # ── PHASE 2b: Backfill study_modality from series ──────
-            # study_modality is not in the DIDB_STUDIES Oracle query, but Phase 7
-            # (storage rollup) and Phase 8 (procedure mapping) both depend on it.
-            # Derive the most common modality from series so it is never left NULL.
-            logger.info("📋 Phase 2b: Backfilling study_modality from series data")
+            # ── PHASE 2b: Backfill study_modality + normalize storing AE ──
+            # MODALITY-ONLY SITE (see migrations/0063): the PACS destroys device
+            # AE identity ('NonDicomAgent' overwrite), so original_storing_ae is
+            # normalized to the MODALITY GROUP every run. Phase 1 re-pulls the
+            # polluted AE from Oracle, so this must run on every sync.
+            #
+            # study_modality tiers: real modality wins over OT (scanned docs),
+            # OT wins over SR (structured reports), so no study is misfiled.
+            logger.info("📋 Phase 2b: Backfilling study_modality + normalizing storing AE")
             try:
                 with engine.begin() as _c:
-                    _r = _c.execute(text("""
+                    # Tier 1: studies with at least one real-modality series
+                    _r1 = _c.execute(text("""
                         UPDATE etl_didb_studies s
                         SET study_modality = sub.modality
                         FROM (
@@ -106,15 +111,63 @@ def _perform_migration(engine):
                                    MODE() WITHIN GROUP (ORDER BY modality) AS modality
                             FROM etl_didb_serieses
                             WHERE modality IS NOT NULL AND TRIM(modality) != ''
+                              AND modality NOT IN ('SR', 'OT')
                             GROUP BY study_db_uid
                         ) sub
                         WHERE s.study_db_uid = sub.study_db_uid
-                          AND (s.study_modality IS NULL
-                               OR s.study_modality != sub.modality)
+                          AND s.study_modality IS DISTINCT FROM sub.modality
                     """))
-                logger.info(f"✅ Phase 2b done — {_r.rowcount:,} studies updated with study_modality")
+                    # Tier 2: document-only studies (no real-modality series) -> OT
+                    _r2 = _c.execute(text("""
+                        UPDATE etl_didb_studies s
+                        SET study_modality = sub.modality
+                        FROM (
+                            SELECT ser.study_db_uid,
+                                   MODE() WITHIN GROUP (ORDER BY ser.modality) AS modality
+                            FROM etl_didb_serieses ser
+                            WHERE ser.modality IS NOT NULL AND TRIM(ser.modality) != ''
+                              AND ser.modality != 'SR'
+                              AND NOT EXISTS (
+                                  SELECT 1 FROM etl_didb_serieses x
+                                  WHERE x.study_db_uid = ser.study_db_uid
+                                    AND x.modality IS NOT NULL AND TRIM(x.modality) != ''
+                                    AND x.modality NOT IN ('SR', 'OT')
+                              )
+                            GROUP BY ser.study_db_uid
+                        ) sub
+                        WHERE s.study_db_uid = sub.study_db_uid
+                          AND s.study_modality IS DISTINCT FROM sub.modality
+                    """))
+                    # Tier 3: SR-only studies stay SR (filtered by SR convention)
+                    _c.execute(text("""
+                        UPDATE etl_didb_studies s
+                        SET study_modality = 'SR'
+                        WHERE s.study_modality IS DISTINCT FROM 'SR'
+                          AND EXISTS (
+                              SELECT 1 FROM etl_didb_serieses x
+                              WHERE x.study_db_uid = s.study_db_uid
+                          )
+                          AND NOT EXISTS (
+                              SELECT 1 FROM etl_didb_serieses x
+                              WHERE x.study_db_uid = s.study_db_uid
+                                AND x.modality IS NOT NULL AND TRIM(x.modality) != ''
+                                AND x.modality != 'SR'
+                          )
+                    """))
+                    # Normalize: original_storing_ae = modality group, never NULL
+                    _rn = _c.execute(text("""
+                        UPDATE etl_didb_studies
+                        SET original_storing_ae =
+                            COALESCE(NULLIF(TRIM(study_modality), ''), 'OT')
+                        WHERE original_storing_ae IS DISTINCT FROM
+                              COALESCE(NULLIF(TRIM(study_modality), ''), 'OT')
+                    """))
+                logger.info(
+                    f"✅ Phase 2b done — modality: {_r1.rowcount + _r2.rowcount:,} updated, "
+                    f"storing AE normalized: {_rn.rowcount:,}"
+                )
             except Exception as _e:
-                logger.warning(f"Phase 2b (study_modality backfill) skipped: {_e}")
+                logger.warning(f"Phase 2b (modality backfill/normalize) skipped: {_e}")
 
             # ── PHASE 3: Raw Images ───────────────────────────────────────
             logger.info("📋 Phase 3: Raw Images")
@@ -138,10 +191,10 @@ def _perform_migration(engine):
         run_orders_etl(engine, src, 'etl_orders', database_module.chunked_upsert, go_live)
         logger.info("✅ Phase 6 done")
 
-        # ── PHASE 8: AE mappings & procedure codes (before storage rollup) ─
+        # ── PHASE 8: Modality map & procedure codes (before storage rollup) ─
         # Must run before Phase 7 so the storage summary can join the
-        # fully-populated aetitle_modality_map (including device_description).
-        logger.info("📋 Phase 8: Syncing AE mappings & procedure codes")
+        # fully-populated aetitle_modality_map.
+        logger.info("📋 Phase 8: Syncing modality map & procedure codes")
         _sync_lookup_tables(engine)
         logger.info("✅ Phase 8 done")
 
@@ -180,52 +233,19 @@ def _sync_lookup_tables(engine):
         # Enable trigram extension for fuzzy matching
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
 
-        # 1. AE → Modality: pick the most frequent modality per AE from series data
+        # 1. MODALITY-ONLY SITE (see migrations/0063): original_storing_ae holds
+        #    the modality group, so the map gets one row per modality
+        #    (aetitle = modality). SR is never mapped — it stays filtered out.
         r = conn.execute(text("""
             INSERT INTO aetitle_modality_map (aetitle, modality, daily_capacity_minutes)
-            SELECT original_storing_ae, modality, 480
-            FROM (
-                SELECT
-                    s.original_storing_ae,
-                    ser.modality,
-                    ROW_NUMBER() OVER (
-                        PARTITION BY s.original_storing_ae
-                        ORDER BY COUNT(*) DESC
-                    ) AS rn
-                FROM etl_didb_studies s
-                JOIN etl_didb_serieses ser ON ser.study_db_uid = s.study_db_uid
-                WHERE s.original_storing_ae IS NOT NULL
-                  AND TRIM(s.original_storing_ae) != ''
-                  AND UPPER(TRIM(s.original_storing_ae)) NOT IN ('NONDICOMAGENT', 'SVSM')
-                  AND ser.modality IS NOT NULL
-                  AND TRIM(ser.modality) != ''
-                  AND ser.modality != 'SR'
-                GROUP BY s.original_storing_ae, ser.modality
-            ) ranked
-            WHERE rn = 1
+            SELECT DISTINCT s.original_storing_ae, s.original_storing_ae, 480
+            FROM etl_didb_studies s
+            WHERE s.original_storing_ae IS NOT NULL
+              AND TRIM(s.original_storing_ae) != ''
+              AND s.original_storing_ae != 'SR'
             ON CONFLICT (aetitle) DO NOTHING
         """))
-        logger.info(f"Phase 8 — Step 1 (AE→Modality): {r.rowcount} new AEs inserted")
-
-        # Populate device_description from series manufacturer + model name
-        conn.execute(text("""
-            UPDATE aetitle_modality_map m
-            SET device_description = sub.description
-            FROM (
-                SELECT
-                    UPPER(TRIM(ser.station_name)) AS ae,
-                    MODE() WITHIN GROUP (
-                        ORDER BY TRIM(ser.manufacturer || ' ' || COALESCE(ser.manufacturer_model_name, ''))
-                    ) AS description
-                FROM etl_didb_serieses ser
-                WHERE ser.station_name IS NOT NULL AND TRIM(ser.station_name) != ''
-                  AND ser.manufacturer IS NOT NULL AND TRIM(ser.manufacturer) != ''
-                GROUP BY UPPER(TRIM(ser.station_name))
-            ) sub
-            WHERE UPPER(TRIM(m.aetitle)) = sub.ae
-              AND sub.description IS NOT NULL AND TRIM(sub.description) != ''
-        """))
-        logger.info("Phase 8 — Step 1b: device_description populated from series")
+        logger.info(f"Phase 8 — Step 1 (modality map): {r.rowcount} new modality rows inserted")
 
         # 2. Default weekly schedule for any new AEs (uses daily_capacity_minutes from map)
         r = conn.execute(text("""
