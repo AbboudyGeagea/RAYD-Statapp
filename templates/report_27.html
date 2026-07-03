@@ -117,7 +117,7 @@
                     </button>
                 </form>
                 <p class="text-[11px] text-slate-600 italic leading-relaxed">
-                    Exports all order rows for the Audit Timeline range — includes order status, procedure codes, scheduled time, study match, age, and AE title.
+                    Exports all order rows for the Audit Timeline range — includes order status, procedure codes, scheduled time, study match, age, and modality.
                 </p>
             </div>
             {% endif %}
@@ -255,15 +255,15 @@
 
                 <div class="data-card flex flex-col" style="height:380px;">
                     <div class="card-header">
-                        <span>Modality Distribution (AE)</span>
-                        <button class="export-pdf-btn" onclick="exportChartPdf('chart_ae','Modality Distribution (AE)','ae_distribution')"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
-                        <button class="export-png-btn" onclick="exportChart('chart_ae', 'ae_distribution')">
+                        <span>Modality Distribution</span>
+                        <button class="export-pdf-btn" onclick="exportChartPdf('chart_ae','Modality Distribution','modality_distribution')"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
+                        <button class="export-png-btn" onclick="exportChart('chart_ae', 'modality_distribution')">
                             <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                             PNG
                         </button>
                     </div>
                     <div class="card-desc">
-                        Number of linked PACS studies per storing AE title (imaging device). Shows which physical machines received the most studies in the period — cross-reference with Infrastructure tab for utilization context.
+                        Number of linked PACS studies per modality group (CT, MR, US…). Shows which modalities received the most studies in the period — cross-reference with Infrastructure tab for utilization context.
                     </div>
                     <div id="chart_ae" class="flex-1 p-2"></div>
                 </div>
