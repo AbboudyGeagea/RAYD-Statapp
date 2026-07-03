@@ -207,7 +207,7 @@
                     <div class="chart-card">
                         <div class="chart-card-head">
                             <div class="flex items-center gap-2">
-                                <span class="chart-card-label">AE Storage Density (Avg MB/Study)</span>
+                                <span class="chart-card-label">Modality Storage Density (Avg MB/Study)</span>
                                 {% if tech_bar_json and tech_bar_json.outliers_removed %}
                                 <span class="outlier-badge">⚠ {{ tech_bar_json.outliers_removed }} outliers removed
                                     <span class="tip">IQR filter applied — extreme avg MB/study values excluded.</span>
@@ -232,7 +232,7 @@
                         <div class="flex items-start justify-between mb-3">
                             <div>
                                 <h3 class="text-xs font-black uppercase tracking-widest text-slate-400">Protocol Density Inventory</h3>
-                                <p class="text-[11px] text-slate-600 mt-0.5">Top storage consumers by procedure × AE title. <span class="text-red-400 font-bold not-italic">Critical</span> = &gt;500 MB/study, <span class="text-amber-400 font-bold not-italic">Warning</span> = 250–500 MB, <span class="text-emerald-400 font-bold not-italic">OK</span> = under 250 MB.</p>
+                                <p class="text-[11px] text-slate-600 mt-0.5">Top storage consumers by procedure × modality. <span class="text-red-400 font-bold not-italic">Critical</span> = &gt;500 MB/study, <span class="text-amber-400 font-bold not-italic">Warning</span> = 250–500 MB, <span class="text-emerald-400 font-bold not-italic">OK</span> = under 250 MB.</p>
                             </div>
                             <span id="proto-count" class="text-[10px] font-black text-slate-500 uppercase tracking-widest shrink-0 mt-1"></span>
                         </div>
@@ -240,7 +240,7 @@
                         <div class="flex flex-wrap gap-2">
                             <div class="relative flex-1 min-w-[180px]">
                                 <i class="bi bi-search absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 text-xs pointer-events-none"></i>
-                                <input type="text" id="proto-search" placeholder="Search procedure or AE…"
+                                <input type="text" id="proto-search" placeholder="Search procedure…"
                                     class="ctrl-input w-full pl-7" oninput="renderProto()">
                             </div>
                             <div class="relative">
@@ -376,8 +376,7 @@
 
         protoFiltered = PROTO_DATA.filter(r => {
             const proc = (r.procedure_code || '').toLowerCase();
-            const ae   = (r.performing_technician || '').toLowerCase();
-            const qOk  = !q || proc.includes(q) || ae.includes(q);
+            const qOk  = !q || proc.includes(q);
             const mOk  = !mod || r.modality === mod;
             const sOk  = !sev || sevClass(r.avg_mb_per_study || 0) === sev;
             return qOk && mOk && sOk;
@@ -411,7 +410,6 @@
             const pct  = Math.round(((+r.total_gb || 0) / maxGB) * 100);
             const color= sevColor(sev);
             const proc = r.procedure_code || 'N/A';
-            const ae   = r.performing_technician || 'Unassigned';
             return `
             <div class="proto-row">
                 <div class="flex items-center justify-between gap-4">
@@ -420,9 +418,6 @@
                             <span class="font-black text-white text-sm truncate">${proc}</span>
                             <span class="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-white/5 text-slate-400">${r.modality || '—'}</span>
                             <span class="sev-badge sev-${sev}">${sevLabel(r.avg_mb_per_study || 0)}</span>
-                        </div>
-                        <div class="text-[11px] text-slate-500 mb-2">
-                            <i class="bi bi-hdd text-[10px] mr-1"></i>${ae}
                         </div>
                         <div class="prog-track">
                             <div class="prog-fill" style="width:${pct}%;background:${color};opacity:0.7;"></div>

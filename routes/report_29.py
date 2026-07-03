@@ -76,9 +76,9 @@ def report_29():
                 }]
             }
 
-            # 2. Top AE titles by avg MB/study (IQR filter to exclude freak outliers)
+            # 2. Storage density per modality — avg MB/study (IQR outlier filter)
             ae_agg = (
-                df.groupby("original_storing_ae")[["total_gb", "study_count"]]
+                df.groupby("modality")[["total_gb", "study_count"]]
                 .sum().reset_index()
             )
             ae_agg["avg_mb"] = (
@@ -95,7 +95,7 @@ def report_29():
                 tech_outliers_removed = 0
             ae_agg_filtered = ae_agg_filtered.sort_values("avg_mb", ascending=False).head(15)
             tech_bar_json = {
-                "labels": ae_agg_filtered["original_storing_ae"].tolist(),
+                "labels": ae_agg_filtered["modality"].tolist(),
                 "data":   ae_agg_filtered["avg_mb"].tolist(),
                 "outliers_removed": tech_outliers_removed
             }
@@ -119,16 +119,15 @@ def report_29():
                     "msg":  f"Storage Hog: {row['procedure_code']} ({row['avg_mb']} MB/avg)"
                 })
 
-            # 4. Table — aggregate by procedure + modality + AE
+            # 4. Table — aggregate by procedure + modality
             table_df = (
-                df.groupby(["procedure_code", "modality", "original_storing_ae"])
+                df.groupby(["procedure_code", "modality"])
                 .agg(study_count=("study_count", "sum"), total_gb=("total_gb", "sum"))
                 .reset_index()
             )
             table_df["avg_mb_per_study"] = (
                 table_df["total_gb"] * 1024 / table_df["study_count"]
             ).round(2)
-            table_df = table_df.rename(columns={"original_storing_ae": "performing_technician"})
             table_data = table_df.sort_values("total_gb", ascending=False).to_dict(orient="records")
 
     return render_template(
