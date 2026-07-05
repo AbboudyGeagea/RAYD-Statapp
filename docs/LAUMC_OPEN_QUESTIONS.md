@@ -1,130 +1,187 @@
 # LAUMC — Open Questions & Needed Inputs
 
-One place for everything unresolved. Answer inline (one line each is enough).
-Where a **Default** is stated, silence = I proceed with the default.
+Everything I still need to know, in plain language. For each one I explain **why I'm asking**
+and **what changes depending on your answer**, so you can see why it matters.
+
+Just write your answer on the "Answer:" line. Where I've written a **Default**, that means:
+if you say nothing, I'll go with that and move on — so you only need to reply if you disagree.
 
 ---
 
-## A. RIS — site_worklist & lifecycle
+## A. About the RIS worklist and how an order moves through its life
 
-**A1. Status ladder** — full `STATUS_KEY` lookup list (code → label). Known: 10 Requested
-Signed, 30 Cancelled by OP, 40 Scheduled, 50 Cancelled, 130 Signed 1, 140 Signed 2,
-160 Approved. Missing: the 40→130 gap (arrived / started / exam-done) and anything else.
+**A1. The full list of order statuses.**
+From your export I could see some of the status codes and their meanings (10 = Requested
+Signed, 40 = Scheduled, 160 = Approved, and a few others). But the codes between "Scheduled"
+and "Signed" are missing from my sample — and those are exactly the ones I need: **patient
+arrived, exam started, exam finished.** Those three moments are what power the live floor map
+and the true waiting-time numbers.
+*What I need:* the complete list of status codes and what each one means.
 > Answer:
 
-**A2. LINKED_ID semantics** — sibling SPS rows in the export share one `1008…` value
-(REPORT_KEY?). Is that the linking mechanism, and what exactly does `LINKED_ID` hold?
+**A2. How do you link several exams into one report?**
+When a patient gets, say, a CT abdomen and a CT pelvis together, your system seems to tie them
+into a single report. I saw evidence of this in the export (sibling exams sharing one report
+number). I need to know exactly which field tells me "these belong together," so RAYD counts
+them as **two exams but one report** — otherwise the report statistics double-count.
+*What I need:* confirmation of which column is the link (is it `LINKED_ID`, `REPORT_KEY`, or
+something else?).
 > Answer:
 
-**A3. `1004…` and `1006…` ID prefixes** — which columns are these (PPS_KEY? DICTATION_KEY?
-REPORT_KEY?)? The DDL will likely answer this; flagging in case it doesn't.
+**A3. Two ID columns I couldn't identify.**
+In the export there were two ID columns I couldn't match to a name (my sample had no headers).
+The table schema you're sending will probably answer this on its own — just flagging it so we
+don't forget to check.
 > Answer:
 
-**A4. Issuer population timing** — is `ISSUER_OF_PLACER_ORDER_NUMBER` set at ORDER CREATION
-or only at SCHEDULING? Pre-scheduling rows show `ORG_STRUCTURE_KEY = 1` (default), so site
-attribution for never-scheduled orders depends on this.
-**Default**: never-scheduled orders go to an "unassigned" bucket visible only to all-sites users.
+**A4. When does the order get stamped with its site (Rafic Hariri vs SJH)?**
+The site marker (`SAP_PROD` / `SAP_SJH`) — does it get written the moment the order is
+**created**, or only later when it gets **scheduled**? This matters for one specific case: an
+order that's created and then cancelled before it's ever scheduled. If the site is stamped at
+creation, I can still tell you which hospital that cancelled order belonged to. If not, I
+can't.
+**Default:** cancelled-before-scheduling orders that have no site go into an "unassigned"
+bucket that only managers who see both sites can view.
 > Answer:
 
-**A5. WORKLIST_STATUS_HISTORY** — does it hold the complete transition log (every status,
-every row)? How far back? (Decides whether wait-time/exam-duration KPIs are backfillable
-for all history.)
+**A5. Is there a complete history of every status change?**
+The schema showed a table that looks like it logs every status change with a timestamp
+(WORKLIST_STATUS_HISTORY). If that table holds the **full history going back years**, then I
+can calculate waiting times and exam durations for **all your historical data**, not just from
+go-live onward — a much richer starting point. I just need to confirm it's complete and how
+far back it goes.
 > Answer:
 
-**A6. Grouped orders → PACS studies** — the hospital-workflow trap you flagged: when linked
-SPS (e.g. CT abdo+pelvis) are acquired, does PACS create ONE study or one study per
-accession? (RIS side is now understood; this is about the PACS side of the join.)
+**A6. When linked exams are done, does PACS make one study or several?**
+This is the workflow question you flagged yourself. When those linked exams (CT abdomen +
+pelvis) are actually performed, does the PACS end up with **one study** or **one study per
+exam**? I need this to match the RIS orders to the PACS studies correctly. You mentioned you'd
+validate this with the hospital's actual workflow.
 > Answer:
 
-**A7. Adapter table list** — besides `site_worklist`, which RIS tables should RAYD import?
-My wanted list: procedure catalog (SPS_CODE/RP_CODE lookups), STATUS_KEY lookup,
-person/resource lookup (radiologists, technicians, referrers), org-structure lookup,
-WORKLIST_STATUS_HISTORY. Anything else / anything to drop?
-> Answer:
-
----
-
-## B. HL7 feeds
-
-**B1. RAYD's feed identity** — does RAYD subscribe to the SAP hub (as CareStream/PAXERABROKER
-do) or to a RIS outbound feed? Related: which stream carries the arrived/started/done events?
-**Alternative to consider**: skip a status HL7 feed entirely and poll WORKLIST_STATUS_HISTORY
-every 30–60 s for the live feed / floor map — simpler, one less integration, DB is already
-authoritative. Acceptable?
-> Answer:
-
-**B2. ORC-5 E-code vocabulary** — full list (E0001 = new, E0003 ≈ confirmed observed).
-Comes with the integration document if you still have it.
-> Answer:
-
-**B3. ORU: MSH-4 semantics** — Carestream sent `2`. Site-stable per site, or fixed broker ID?
-**Default**: ignore MSH-4; site via accession lookup (already agreed).
-> Answer:
-
-**B4. ORU status codes** — `FAP` = final/approved observed. What are the codes for
-preliminary and addendum/amended reports? Are amended ORUs re-sent?
-> Answer:
-
-**B5. ORU per accession or per link group** — for linked SPS with one report, does each
-accession get its own ORU (duplicated text)?
-**Default**: dedupe reports by shared report/LINK id regardless.
+**A7. Which other RIS tables should I pull besides the worklist?**
+The worklist is the main table, but I'll need the small "lookup" tables it points to — the
+ones that translate codes into names. My wish list: the procedure/exam catalog, the status-code
+list, the people list (radiologists, technicians, referring doctors), the department list, and
+the status-history table. **Is anything missing from this list, or anything I should skip?**
 > Answer:
 
 ---
 
-## C. PACS
+## B. About the live message feeds (HL7)
 
-**C1. Main PACS product/schema** — is LAUMC's main PACS the same DIDB/`medistore` Oracle
-schema as existing RAYD sites (the didb_studies.csv suggests yes), with Carestream as the
-reporting layer? Confirms the existing PACS ETL works as-is with SITE_ID added.
+**B1. Where does RAYD plug in to receive live messages — and do we even need to?**
+Your messages flow through a central hub (SAP) out to several systems. Two questions in one:
+first, does RAYD tap into that hub, or into a feed coming directly out of the RIS? Second — and
+this might make life simpler — instead of receiving live "arrived/started/done" messages at
+all, **RAYD could just check the RIS status-history table every 30–60 seconds** for the live
+board and floor map. One less connection to set up and maintain, and the database already has
+the truth. Is that acceptable to you?
 > Answer:
 
-**C2. PACS IS_LINKED / LINK_ID columns** — exact table + column names on the PACS side.
+**B2. The order-status codes inside the HL7 messages.**
+Separate from the database status codes (A1) — the live messages carry their own status codes
+(I saw "E0001" for a new order). I need the full list of these codes too. This usually lives in
+the integration document you mentioned you might still have.
 > Answer:
 
-**C3. Report timestamps at LAUMC** — do `rep_prelim_timestamp` / `rep_final_timestamp` /
-signer columns populate in DIDB the same way as existing sites (reporting stays PACS-side)?
+**B3. The report messages don't say which site — is that always true?**
+The radiology report messages (from Carestream) didn't carry a clear site marker. My plan is to
+figure out the site by matching the report's accession number back to its order. Just
+confirming that's the right approach and there's no site field I overlooked.
+**Default:** match report → order by accession number to determine the site.
 > Answer:
 
-**C4. Mammo SITE_ID bug** — any planned PACS-side fix, or does RAYD's RIS-authoritative
-site + mismatch monitor remain the permanent compensation?
-**Default**: permanent compensation; monitor quantifies it.
+**B4. Preliminary vs final vs corrected reports.**
+The report message I saw was marked "final/approved" (code FAP). What are the codes for a
+**preliminary** report and a **corrected/amended** report? And when a radiologist amends a
+report, does the system send a fresh message, or update the old one? This affects how RAYD
+tracks report turnaround time.
 > Answer:
 
----
-
-## D. Data pulls still to run (from LAUMC_DATA_REQUEST.md)
-
-**D1.** A3 suspect-AE investigation results (legacy SJH PACS) — planned Monday.
-**D2.** B1 SITE_ID distribution + B2 two-site DIDB_STUDIES extract (main PACS).
-**D3.** B4 main-PACS AE inventory → decides per-device vs per-modality capacity tables.
-**D4.** SITE_WORKLIST DDL / column list (you're sending — the headerless export is decoded
-but unverified).
-**D5.** E4 legacy SJH PACS connection details + schema owner.
-**D6.** B5 aggregated image backfill extract (can wait until near go-live).
-
----
-
-## E. Deployment configuration facts
-
-**E1. Shift hours** — do RH and SJH share shift times, or per-site settings needed?
-> Answer:
-
-**E2. Go-live date + required stats history depth** (sets go_live_config + backfill window).
-> Answer:
-
-**E3. User list with site assignments** — who sees RH / SJH / both (HOD = both confirmed).
-Can arrive later, but needed before user creation.
-> Answer:
-
-**E4. Feature set at LAUMC** — portal is REMOVED (confirmed). Any other pages to disable
-(financial? scheduling? CD print?)?
-> Answer:
-
-**E5. Floor map inputs** (when we get there): floor plan image/SVG per site + room↔AE list.
-Not blocking anything else.
+**B5. For linked exams, does each exam get its own report message?**
+Following on from A2 — when several exams share one report, does RAYD receive **one report
+message per exam** (with the same text repeated), or just one? I want to avoid counting the
+same report several times.
+**Default:** if the same report arrives more than once, keep only one.
 > Answer:
 
 ---
 
-*RDMS and BI-RADS: parked by explicit decision — not in scope, no questions.*
+## C. About the PACS
+
+**C1. Is LAUMC's main PACS the same type RAYD already knows?**
+The studies export you sent looks like the same PACS database structure RAYD already reads at
+other sites, with Carestream sitting on top as the reporting layer. If that's right, RAYD's
+existing PACS data pull works almost as-is — I just add the site marker. Confirming this saves
+a lot of work.
+> Answer:
+
+**C2. Where does PACS store its own "linked studies" marker?**
+You mentioned PACS also has a linking field (IS_LINKED / LINK_ID). I need the exact table and
+column name on the PACS side.
+> Answer:
+
+**C3. Do the report timestamps land in PACS the normal way?**
+Since reporting stays on the PACS side, do the preliminary/final report times and the signing
+radiologist's name get recorded in the PACS database the same way they do at your other sites?
+If yes, the turnaround-time reports work unchanged.
+> Answer:
+
+**C4. The SJH mammography site-labeling bug — is it being fixed, or do we work around it?**
+You flagged that SJH mammograms currently show up as Rafic Hariri in the PACS. My plan is to
+trust the RIS for the correct site and flag the mismatches in a monitoring report. Is the PACS
+bug going to be fixed at some point, or should RAYD's workaround be considered the permanent
+solution?
+**Default:** RAYD's workaround is permanent; the monitor report tracks how often it happens.
+> Answer:
+
+---
+
+## D. Data extracts still to pull
+
+These are things to export and send when you can (SQL for each is in `LAUMC_DATA_REQUEST.md`):
+
+- **D1.** The suspect device-name (AE title) investigation on the old SJH PACS — you planned
+  this for Monday.
+- **D2.** The studies count by site + a few weeks of studies covering **both** sites, from the
+  main PACS.
+- **D3.** The device inventory on the main PACS — this decides whether LAUMC gets
+  **per-device** statistics (each machine tracked separately) or just per-modality.
+- **D4.** The worklist table's column list / schema — you're already sending this. My decoded
+  version of the headerless export needs this to be confirmed correct.
+- **D5.** Connection details for the old SJH PACS (so I can run the device investigation).
+- **D6.** The image-storage summary extract — this one can wait until closer to go-live.
+
+---
+
+## E. Deployment setup decisions
+
+**E1. Do the two hospitals run the same working hours?**
+Do Rafic Hariri and SJH share the same shift times (morning/afternoon/night), or does each site
+need its own hours configured? Affects the shift and utilization reports.
+> Answer:
+
+**E2. Go-live date, and how far back should the statistics go?**
+When do you want this live, and how much history should RAYD load and show?
+> Answer:
+
+**E3. Who sees what?**
+The list of users and which site(s) each one can see (you've confirmed the department head sees
+both). This can come later, but I need it before setting up accounts.
+> Answer:
+
+**E4. Which features should be turned off at LAUMC?**
+The patient portal is removed — confirmed. Is there anything else to hide at this site (the
+financial dashboard? scheduling? CD printing)?
+> Answer:
+
+**E5. Floor-map materials (only when we build that part).**
+A floor plan drawing for each site, and a list of which room holds which machine. Nothing else
+depends on this, so no rush.
+> Answer:
+
+---
+
+*Note: the radiation-dose feature and the mammography BI-RADS reporting are both set aside on
+purpose — not part of this work, no questions here.*
