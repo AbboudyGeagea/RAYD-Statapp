@@ -215,10 +215,12 @@ with counts. (Parked from Q8/Q9 — fine to deliver with the HL7 pull.)
 - Full `order_status` / `order_control` vocabularies (with C4).
 - **Confirm ORC-2.2 / OBR-2.2 content**: does the issuer of placer order number (`SAP_PROD` /
   `SAP_SJH`) appear in ORM messages? If yes, HL7 orders get site directly from the message.
-- **Status-transition events (floor-map prerequisite)**: does/can the RIS emit ORM status
-  updates for patient ARRIVED → IN-PROGRESS → COMPLETED (or an ADT feed)? Arrival events are
-  the difference between a real live floor map (waiting counts per room) and inference.
-  Vendor-controlled — decide what the RIS will emit at LAUMC.
+- **Status-transition events — RESOLVED 2026-07-04**: RIS emits SCHEDULED datetime, ARRIVED,
+  STARTED, and EXAM DONE, plus ORU from PACS. Full measured state machine — live floor map
+  (exact waiting counts + room busy state), true wait time (ARRIVED→STARTED), and measured
+  exam durations (STARTED→DONE, can calibrate procedure_duration_map with actuals) are all
+  viable. Still needed from samples: the exact ORM status field values/codes for each
+  transition, to configure the listener field map.
 
 ---
 
