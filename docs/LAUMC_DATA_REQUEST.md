@@ -275,7 +275,19 @@ with counts. (Parked from Q8/Q9 — fine to deliver with the HL7 pull.)
 - **Vendor rulings 2026-07-05**: ORU site = accession-lookup enrichment (confirmed, no site in
   ORU). **Patient portal COMPLETELY REMOVED from the LAUMC installation** — routes/blueprints
   physically absent, not license-disabled. ZDC/PDF/base64 ignored — plain text only for NLP.
-- **Radiation Dose Management System (RDMS) — approved for analysis, "gold" feature**:
+- **RDMS status (2026-07-05): OPTIONAL leverage card, NOT in LAUMC scope.** Vendor has no
+  domain basis to commercialize it; positioning is "the dose data already flows through our
+  pipeline — module can be activated on demand" (true: Phase 1 is days of work). Analysis
+  kept below for when leverage is needed.
+- **Catalog tables (modalities + procedures) EMPTY BY DESIGN at LAUMC** — filled by adapter
+  import from the RIS, which is the richer source (three-level hierarchy seen in orderSigned:
+  SPS_CODE_KEY / RP_CODE_KEY / PROCEDURE_CODE_KEY; coded families like J17G-01C). Likely
+  schema change: extend procedure tables with the RIS code hierarchy + department/duration/
+  active-flag attributes. aetitle_modality_map likewise seeded from the AE inventory (A1/B4),
+  not hand-typed. Deployment step = import → review → approve; re-import is a scheduled sync.
+  Exact schema delta pends the RIS DB schema (procedure catalog + site_worklist are the two
+  most-wanted tables from it).
+- **Radiation Dose Management System (RDMS) — analysis (optional module)**:
   Phase 1 = regex extraction of dictated dose (DLP mGy-cm, DAP, AGD, NM activity) from ORU
   text via the existing NLP worker into a new `radiation_dose` table + dashboard with
   per-device/procedure/site splits and a dictation-coverage meter. LAUMC-unique: per-device
