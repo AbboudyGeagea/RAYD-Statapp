@@ -251,9 +251,31 @@ with counts. (Parked from Q8/Q9 — fine to deliver with the HL7 pull.)
     (data-quality panel: quick-reg records pending completion), not just silently NULLed.
   - ORC-5 codes observed so far: `E0001` (new, CONFIME_STATUS=N), `E0003` (+ORC-6=Y,
     CONFIME_STATUS=Y — likely confirmed/released). Full vocabulary still pending.
+- **From real ORU sample (2026-07-05, Carestream)**:
+  - Accession = **OBR-3 filler order number** (13-digit, e.g. 1005003377256) — the ONLY join
+    key: ORU carries NO placer order number and NO procedure code.
+  - Two signers with timestamps: principal reader (prelim) + approver (final) as LDAP email
+    identities → prelim/final TAT per radiologist measurable.
+  - Result status `FAP` (final/approved) in OBR-25/OBX-11 — need prelim + amended codes.
+  - **Linked-study evidence live**: OBR-4 = "CT ABDOMEN" but report title = "CT ABDOMEN AND
+    PELVIS" → IS_LINKED/LINK_ID case. OPEN: does each linked accession get its own ORU with
+    duplicated text? ETL must pull IS_LINKED/LINK_ID; report-level stats count per LINK_ID
+    group, procedure-level per accession.
+  - **MSH-4 = `2`** — unknown vocabulary (not 0/1, SAP_*, or 1000/2000). OPEN: is Carestream
+    MSH-4 site-stable per site (would give ORU direct site) or a fixed broker ID? Until
+    confirmed, ORU site enrichment stays accession-lookup-first.
+  - ZDC|0|RTF + ZDC|1|PDF carry the complete signed report (base64, hundreds of KB). OPEN
+    decision: store PDF for patient portal / CD print, or skip. Listener MUST handle large
+    messages and never parse ZDC as OBX.
+  - Impression extraction = OBX lines after the `Impression:` marker; sections are labeled
+    (Clinical information / Technique / Findings / Impression).
+  - Radiation dose in narrative ("total exam DLP: NNN mGy-cm") — regex-extractable for a
+    future per-device/site dose dashboard.
+  - ORU is HL7 v2.3, ORM v2.3.1 — parser tolerates both.
 - **Still pending**: full ORC-5 status vocabulary + which RIS outbound stream carries
-  ARRIVED/STARTED/DONE events for RAYD; integration document; RIS DB schema (drives adapter
-  mapping + ER classification + accession join).
+  ARRIVED/STARTED/DONE events for RAYD; ORU prelim/amended status codes; MSH-4 semantics;
+  ORU-per-accession-vs-per-link; store-signed-PDF decision; integration document; RIS DB
+  schema (drives adapter mapping + ER classification + accession join + IS_LINKED/LINK_ID).
 - Listener must dedupe ORC-1 NW vs RQ (TPA clearance resubmission) on placer order number.
 - **Status-transition events — RESOLVED 2026-07-04**: RIS emits SCHEDULED datetime, ARRIVED,
   STARTED, and EXAM DONE, plus ORU from PACS. Full measured state machine — live floor map
