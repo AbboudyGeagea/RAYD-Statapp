@@ -213,6 +213,12 @@ with counts. (Parked from Q8/Q9 — fine to deliver with the HL7 pull.)
   in MSH/OBR/PV1 hints at site (MSH-4 sending facility especially).
 - Sample ORM messages if any will flow to RAYD.
 - Full `order_status` / `order_control` vocabularies (with C4).
+- **Confirm ORC-2.2 / OBR-2.2 content**: does the issuer of placer order number (`SAP_PROD` /
+  `SAP_SJH`) appear in ORM messages? If yes, HL7 orders get site directly from the message.
+- **Status-transition events (floor-map prerequisite)**: does/can the RIS emit ORM status
+  updates for patient ARRIVED → IN-PROGRESS → COMPLETED (or an ADT feed)? Arrival events are
+  the difference between a real live floor map (waiting counts per room) and inference.
+  Vendor-controlled — decide what the RIS will emit at LAUMC.
 
 ---
 
