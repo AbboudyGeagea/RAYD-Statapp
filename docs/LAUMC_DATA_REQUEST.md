@@ -298,10 +298,31 @@ with counts. (Parked from Q8/Q9 — fine to deliver with the HL7 pull.)
   attach per LINK_ID group (not per accession) or linked studies double-count.
   Vendor questions: (a) Carestream dose tables? (b) dose dictation mandated by policy —
   expected coverage? (c) technologist identity per exam in RIS?
-- **Still pending**: full ORC-5 status vocabulary + which RIS outbound stream carries
-  ARRIVED/STARTED/DONE events for RAYD; ORU prelim/amended status codes; MSH-4 semantics;
-  ORU-per-accession-vs-per-link; integration document; RIS DB schema (drives adapter mapping +
-  ER classification + accession join + IS_LINKED/LINK_ID).
+- **From SITE_WORKLIST export (2026-07-05, headerless, RH 2018-era rows)**:
+  - **ID prefix system**: `1001`=requisition/group, `1002`=visit, `1003`=RIS order (per SPS),
+    `1005`=SPS/accession (matches ORU OBR-3), `1008`=result/report. `1004`/`1006` unknown.
+  - **Linking mechanism found**: sibling SPS rows share ONE `1008` result ID (TROYA 3×MR → one
+    report; BATAL MG+US → one; KANSO 2×CR; SAADE 2×MR). Report-level stats dedupe on the 1008
+    ID; procedure-level stays per 1005. CONFIRM: is the shared 1008 ID the LINK_ID?
+  - **Status ladder decoded from code↔label pairs**: 10 Requested Signed, 30 Cancelled by OP,
+    40 Scheduled, 50 Cancelled, 130 Signed 1, 140 Signed 2, 160 Approved. Signed 1 vs 2 =
+    single vs double signature. **GAP 40→130 must contain arrived/started/exam-done codes —
+    full ladder is the top-wanted item** (also the listener field-map vocabulary).
+  - **Accession minted at scheduling confirmed**: pre-scheduling cancellations have empty
+    1004/1005/1006 → no accession ever; order-funnel must count vanished-before-scheduling
+    demand.
+  - **site_worklist rows MUTATE FOR YEARS** (2018 rows with last_update 2026-07-03) → adapter
+    watermark on last_update + upsert, never append-only.
+  - ORG_STRUCTURE_KEY present per row (3926=RH, 5320=SJH per XML) — 4th site-correlated value;
+    issuer column stays authoritative per vendor ruling, org-structure as cross-check.
+  - Test pollution: "test" patients + service account 9271030205716 (SERVICE-PROD, CSH) →
+    ETL exclusion list needed.
+  - Modality per SPS in RIS (independent of PACS) → order-funnel by modality even for
+    never-performed orders.
+- **Still pending**: SITE_WORKLIST column header list / DESCRIBE (export was headerless);
+  full status ladder incl. 40→130 gap codes (arrived/started/done); confirm 1008 = LINK_ID;
+  meaning of 1004/1006 IDs; ORU prelim/amended status codes; MSH-4 semantics; which RIS
+  outbound stream carries status events for RAYD; integration document; rest of RIS DB schema.
 - Listener must dedupe ORC-1 NW vs RQ (TPA clearance resubmission) on placer order number.
 - **Status-transition events — RESOLVED 2026-07-04**: RIS emits SCHEDULED datetime, ARRIVED,
   STARTED, and EXAM DONE, plus ORU from PACS. Full measured state machine — live floor map
