@@ -213,8 +213,20 @@ with counts. (Parked from Q8/Q9 — fine to deliver with the HL7 pull.)
   in MSH/OBR/PV1 hints at site (MSH-4 sending facility especially).
 - Sample ORM messages if any will flow to RAYD.
 - Full `order_status` / `order_control` vocabularies (with C4).
-- **Confirm ORC-2.2 / OBR-2.2 content**: does the issuer of placer order number (`SAP_PROD` /
-  `SAP_SJH`) appear in ORM messages? If yes, HL7 orders get site directly from the message.
+- **ORC-2.2 issuer — RESOLVED 2026-07-05 (negative)**: real ORM samples show NO issuer in
+  ORC-2/OBR-2 and identical MSH-3 (`SAP_P`) for both sites. `SAP_PROD`/`SAP_SJH` exists only in
+  the RIS DB column. Wire-level discriminators found: **PV1-3.7 building code (`1000`=RH,
+  `2000`=SJH)** and `-J` suffix on locations (`EM-J`, `ER-J` in PV1-3.1/ORC-17).
+  **Preferred fix**: RIS stamps site explicitly in its outbound feed to RAYD (MSH-4 =
+  SAP_PROD/SAP_SJH); PV1-3.7 parse as fallback. ER detection at LAUMC is location-based
+  (`EM*`/`ER*` prefix; PV1-2 stays 'O' even for ER patients).
+- **NEW — confirm from samples**: (a) which feed RAYD receives — RIS outbound (can be stamped)
+  or a copy of the SAP→RIS feed (must infer); (b) which field PACS uses as accession —
+  OBR-1 (`04276091`, looks like SPS id) vs ORC-2/OBR-2 placer order (`0018013961`) — must match
+  `site_worklist.sps_id` and `DIDB_STUDIES.ACCESSION_NUMBER`; (c) full ORC-5 status vocabulary
+  (`E0001` = new/ordered; codes for ARRIVED / STARTED / EXAM DONE); (d) is PV1-3.7 building
+  code universal across all departments at each campus; (e) listener must dedupe ORC-1 NW vs
+  RQ (TPA clearance resubmission) on placer order number.
 - **Status-transition events — RESOLVED 2026-07-04**: RIS emits SCHEDULED datetime, ARRIVED,
   STARTED, and EXAM DONE, plus ORU from PACS. Full measured state machine — live floor map
   (exact waiting counts + room busy state), true wait time (ARRIVED→STARTED), and measured
