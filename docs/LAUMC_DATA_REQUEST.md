@@ -235,15 +235,20 @@ with counts. (Parked from Q8/Q9 — fine to deliver with the HL7 pull.)
   - RIS webservice payload carries `<SITE_ID>` (1000/2000) AND issuer (SAP_*) explicitly —
     RIS DB has both vocabularies; adapter pulls site directly. Confirmed end-to-end.
   - `PLACER_GROUP_NUMBER` (OBR-1) is a requisition GROUP: one group can span multiple placer
-    orders (e.g. CT abdomen + CT pelvis). **OPEN: does site_worklist mint one sps_id per order
-    or per group?** Decides group-aware join logic (procedure counts vs study counts).
-  - Messages appear in duplicate with identical MSH-10 control IDs → listener ingest must be
-    idempotent on MSH-10 in addition to placer-order dedupe.
-  - Full ADT feed exists on the SAP hub (A01/A02/A08, ward/room/bed locations, receivers:
-    RIS, CareStream, PAXERABROKER) — RAYD could subscribe as another receiver; bed-level ADT
-    is optional future floor-map fuel.
+    orders (e.g. CT abdomen + CT pelvis). **TRAP — workflow-dependent**: vendor confirming how
+    the hospital actually treats grouped orders (one sps_id per order vs per group, one
+    acquired study vs two). Join logic will be built group-aware either way.
+  - **Duplicate delivery is PERMANENT** (SAP Mirth server bug, no fix available): every message
+    can arrive twice with identical MSH-10. Listener idempotency on MSH-10 is a mandatory
+    ingest requirement, not defensive coding.
+  - Full ADT feed exists on the SAP hub (A01/A02/A08, ward/room/bed, receivers: RIS,
+    CareStream, PAXERABROKER). Vendor has no control over the sender → listener contract is
+    **whitelist-and-discard**: parse ORM/ORU, ACK and silently ignore all other message types;
+    never NAK/error/queue on unwanted types. Bed-level ADT noted as optional future
+    floor-map fuel only.
   - ER quick-registrations use placeholder DOB `9999-11-11` + gender `U` → age_at_exam must
-    NULL-out future/placeholder DOBs.
+    NULL-out future/placeholder DOBs, AND these records must be **surfaced to the sys admin**
+    (data-quality panel: quick-reg records pending completion), not just silently NULLed.
   - ORC-5 codes observed so far: `E0001` (new, CONFIME_STATUS=N), `E0003` (+ORC-6=Y,
     CONFIME_STATUS=Y — likely confirmed/released). Full vocabulary still pending.
 - **Still pending**: full ORC-5 status vocabulary + which RIS outbound stream carries
