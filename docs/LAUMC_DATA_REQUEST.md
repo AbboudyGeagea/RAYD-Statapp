@@ -272,10 +272,24 @@ with counts. (Parked from Q8/Q9 — fine to deliver with the HL7 pull.)
   - Radiation dose in narrative ("total exam DLP: NNN mGy-cm") — regex-extractable for a
     future per-device/site dose dashboard.
   - ORU is HL7 v2.3, ORM v2.3.1 — parser tolerates both.
+- **Vendor rulings 2026-07-05**: ORU site = accession-lookup enrichment (confirmed, no site in
+  ORU). **Patient portal COMPLETELY REMOVED from the LAUMC installation** — routes/blueprints
+  physically absent, not license-disabled. ZDC/PDF/base64 ignored — plain text only for NLP.
+- **Radiation Dose Management System (RDMS) — approved for analysis, "gold" feature**:
+  Phase 1 = regex extraction of dictated dose (DLP mGy-cm, DAP, AGD, NM activity) from ORU
+  text via the existing NLP worker into a new `radiation_dose` table + dashboard with
+  per-device/procedure/site splits and a dictation-coverage meter. LAUMC-unique: per-device
+  dose profiles (AE survives), cross-site cumulative patient dose, RH-vs-SJH DRL benchmarking,
+  pediatric panel. Phase 2 depends on vendor: does Carestream DB expose RDSR-derived dose
+  values in queryable tables? Phase 3 = DRL reference table + outlier alerts (reuse critical-
+  findings pattern) + effective-dose estimates (DLP × k-factor) + cumulative view. Dose must
+  attach per LINK_ID group (not per accession) or linked studies double-count.
+  Vendor questions: (a) Carestream dose tables? (b) dose dictation mandated by policy —
+  expected coverage? (c) technologist identity per exam in RIS?
 - **Still pending**: full ORC-5 status vocabulary + which RIS outbound stream carries
   ARRIVED/STARTED/DONE events for RAYD; ORU prelim/amended status codes; MSH-4 semantics;
-  ORU-per-accession-vs-per-link; store-signed-PDF decision; integration document; RIS DB
-  schema (drives adapter mapping + ER classification + accession join + IS_LINKED/LINK_ID).
+  ORU-per-accession-vs-per-link; integration document; RIS DB schema (drives adapter mapping +
+  ER classification + accession join + IS_LINKED/LINK_ID).
 - Listener must dedupe ORC-1 NW vs RQ (TPA clearance resubmission) on placer order number.
 - **Status-transition events — RESOLVED 2026-07-04**: RIS emits SCHEDULED datetime, ARRIVED,
   STARTED, and EXAM DONE, plus ORU from PACS. Full measured state machine — live floor map
