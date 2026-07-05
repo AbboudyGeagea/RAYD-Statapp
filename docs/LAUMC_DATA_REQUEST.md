@@ -220,13 +220,20 @@ with counts. (Parked from Q8/Q9 — fine to deliver with the HL7 pull.)
   **Preferred fix**: RIS stamps site explicitly in its outbound feed to RAYD (MSH-4 =
   SAP_PROD/SAP_SJH); PV1-3.7 parse as fallback. ER detection at LAUMC is location-based
   (`EM*`/`ER*` prefix; PV1-2 stays 'O' even for ER patients).
-- **NEW — confirm from samples**: (a) which feed RAYD receives — RIS outbound (can be stamped)
-  or a copy of the SAP→RIS feed (must infer); (b) which field PACS uses as accession —
-  OBR-1 (`04276091`, looks like SPS id) vs ORC-2/OBR-2 placer order (`0018013961`) — must match
-  `site_worklist.sps_id` and `DIDB_STUDIES.ACCESSION_NUMBER`; (c) full ORC-5 status vocabulary
-  (`E0001` = new/ordered; codes for ARRIVED / STARTED / EXAM DONE); (d) is PV1-3.7 building
-  code universal across all departments at each campus; (e) listener must dedupe ORC-1 NW vs
-  RQ (TPA clearance resubmission) on placer order number.
+- **RESOLVED 2026-07-05 (vendor)**:
+  (a) Site vocabularies are FINAL — one pair of sites, three vocabularies, all via `sites`
+      table: PACS DB `0`/`1`, RIS DB `SAP_PROD`/`SAP_SJH`, HL7/MLLP `1000`/`2000` (PV1-3.7).
+      Each ingestion path resolves ONLY its own vocabulary.
+  (b) OBR-1 is an internal SAP tracking number. The real RIS↔PACS accession is minted at
+      SCHEDULING time = `site_worklist.sps_id`. SAP ORMs therefore carry no accession —
+      HL7 lifecycle events key on placer order number; the RIS DB is the join hub
+      (placer order → sps_id → PACS study).
+  (c) PV1-3.7 building code is very safe — the whole integration is built on it.
+  (d) ER location-prefix mapping (`EM*`/`ER*`, `-J` = SJH) confirmed correct; primary ER
+      classification will come from the RIS DB anyway.
+- **Still pending**: ORC-5 status vocabulary → vendor to share the full integration document
+  if available; RIS DB schema (drives adapter mapping + ER classification + accession join).
+- Listener must dedupe ORC-1 NW vs RQ (TPA clearance resubmission) on placer order number.
 - **Status-transition events — RESOLVED 2026-07-04**: RIS emits SCHEDULED datetime, ARRIVED,
   STARTED, and EXAM DONE, plus ORU from PACS. Full measured state machine — live floor map
   (exact waiting counts + room busy state), true wait time (ARRIVED→STARTED), and measured
