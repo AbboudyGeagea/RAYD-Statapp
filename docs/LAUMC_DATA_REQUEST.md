@@ -275,7 +275,19 @@ with counts. (Parked from Q8/Q9 — fine to deliver with the HL7 pull.)
 - **Vendor rulings 2026-07-05**: ORU site = accession-lookup enrichment (confirmed, no site in
   ORU). **Patient portal COMPLETELY REMOVED from the LAUMC installation** — routes/blueprints
   physically absent, not license-disabled. ZDC/PDF/base64 ignored — plain text only for NLP.
-- **RDMS status (2026-07-05): OPTIONAL leverage card, NOT in LAUMC scope.** Vendor has no
+- **NULL handling in SITE_WORKLIST (vendor warning 2026-07-05, verified in sample)**: NULLs
+  follow the order lifecycle — rows are progressive documents (status 10/30: nearly all NULL,
+  ORG_STRUCTURE_KEY collapses to default `1`; status 40: no performed/report fields; even 160
+  rows have sparse dictation/Arabic/BIRADS blocks). Rules: (1) all non-key adapter columns
+  nullable, upsert overwrites NULL→value; (2) lifecycle stage from STATUS_KEY only, never
+  NULL-shape inference; (3) time metrics computed only over non-NULL timestamp pairs, NULL
+  count surfaced as coverage; (4) ingest normalizes ''/' '/NULL to NULL; (5) placeholders
+  ("Referring, Generic" 4101031379966, test patients, CSH service acct) are pollution with
+  their own exclusion list — distinct from NULLs. OPEN: is ISSUER_OF_PLACER_ORDER_NUMBER
+  populated at order creation or only at scheduling? (decides site attribution for
+  never-scheduled demand; default proposal: "unassigned" bucket for all-sites users).
+- **RDMS status (updated 2026-07-05): IGNORED for now per vendor — finish what's in hand.
+  Analysis below retained for future leverage only; do not plan, discuss, or scope it.** Vendor has no
   domain basis to commercialize it; positioning is "the dose data already flows through our
   pipeline — module can be activated on demand" (true: Phase 1 is days of work). Analysis
   kept below for when leverage is needed.
