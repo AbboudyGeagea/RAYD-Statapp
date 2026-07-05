@@ -231,8 +231,24 @@ with counts. (Parked from Q8/Q9 — fine to deliver with the HL7 pull.)
   (c) PV1-3.7 building code is very safe — the whole integration is built on it.
   (d) ER location-prefix mapping (`EM*`/`ER*`, `-J` = SJH) confirmed correct; primary ER
       classification will come from the RIS DB anyway.
-- **Still pending**: ORC-5 status vocabulary → vendor to share the full integration document
-  if available; RIS DB schema (drives adapter mapping + ER classification + accession join).
+- **From full MLLP log capture (2026-07-05)**:
+  - RIS webservice payload carries `<SITE_ID>` (1000/2000) AND issuer (SAP_*) explicitly —
+    RIS DB has both vocabularies; adapter pulls site directly. Confirmed end-to-end.
+  - `PLACER_GROUP_NUMBER` (OBR-1) is a requisition GROUP: one group can span multiple placer
+    orders (e.g. CT abdomen + CT pelvis). **OPEN: does site_worklist mint one sps_id per order
+    or per group?** Decides group-aware join logic (procedure counts vs study counts).
+  - Messages appear in duplicate with identical MSH-10 control IDs → listener ingest must be
+    idempotent on MSH-10 in addition to placer-order dedupe.
+  - Full ADT feed exists on the SAP hub (A01/A02/A08, ward/room/bed locations, receivers:
+    RIS, CareStream, PAXERABROKER) — RAYD could subscribe as another receiver; bed-level ADT
+    is optional future floor-map fuel.
+  - ER quick-registrations use placeholder DOB `9999-11-11` + gender `U` → age_at_exam must
+    NULL-out future/placeholder DOBs.
+  - ORC-5 codes observed so far: `E0001` (new, CONFIME_STATUS=N), `E0003` (+ORC-6=Y,
+    CONFIME_STATUS=Y — likely confirmed/released). Full vocabulary still pending.
+- **Still pending**: full ORC-5 status vocabulary + which RIS outbound stream carries
+  ARRIVED/STARTED/DONE events for RAYD; integration document; RIS DB schema (drives adapter
+  mapping + ER classification + accession join).
 - Listener must dedupe ORC-1 NW vs RQ (TPA clearance resubmission) on placer order number.
 - **Status-transition events — RESOLVED 2026-07-04**: RIS emits SCHEDULED datetime, ARRIVED,
   STARTED, and EXAM DONE, plus ORU from PACS. Full measured state machine — live floor map
