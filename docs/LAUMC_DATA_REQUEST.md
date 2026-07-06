@@ -287,7 +287,28 @@ with counts. (Parked from Q8/Q9 — fine to deliver with the HL7 pull.)
   populated at order creation or only at scheduling? (decides site attribution for
   never-scheduled demand; default proposal: "unassigned" bucket for all-sites users).
 - **RDMS status (updated 2026-07-05): IGNORED for now per vendor — finish what's in hand.
-  Analysis below retained for future leverage only; do not plan, discuss, or scope it.** Vendor has no
+  Analysis below retained for future leverage only; do not plan, discuss, or scope it.**
+
+  **Competitive benchmark vs Medsquare RDM (from their 2023 brochure, analyzed 2026-07-05):**
+  Medsquare RDM is a true DACS built on DICOM RDSR ingestion (per-acquisition structured dose),
+  which RAYD does NOT have. But most of RDM's *value/reporting layer* runs on data already in
+  RAYD's ORU pipeline. Key insight: the ORU dictation carries dose + contrast + renal function
+  in one line (sample: "85 ml nonionic iodinated contrast (creatinine 0.66 mg/dl)... total exam
+  DLP: 687.59 mGy-cm") — 3 of RDM's headline data points, regex-extractable.
+  - **Tier 1 (RAYD can do on existing ORU data)**: problematic-procedure dose dashboard, DRL
+    benchmarking (national+local, Euratom 2013/59 compliance), threshold alerts (reuse critical-
+    findings mechanism), compare dose by modality/procedure/radiologist/device/site, cumulative
+    cross-site patient dose (RAYD does this better than per-site DACS), iodine+creatinine
+    tracking, pediatric/high-risk filters (age_at_exam), NLP indication tags, per-device dose
+    (AE survives at LAUMC), 1-click reports + multi-criteria search + export, CT effective-dose
+    estimate (DLP×k-factor).
+  - **Tier 2 (needs RDSR listener — real new work)**: per-acquisition dose, effective dose all
+    modalities, SSDE, auto-submission to national authorities.
+  - **Tier 3 (out of scope — RDM's physics core)**: Peak Skin Dose maps + time-scale evolution,
+    Organ Dose, patient-centering/isocenter, modality QC/maintenance, DICOM Q/R of dose history.
+  - **Positioning**: RAYD could offer a "dose insights" layer (~60% of daily-use RDM features)
+    on zero new infra — NOT a DACS, don't sell as one; interventional Peak Skin Dose + true
+    per-acquisition physics stay Medsquare's domain. Vendor has no
   domain basis to commercialize it; positioning is "the dose data already flows through our
   pipeline — module can be activated on demand" (true: Phase 1 is days of work). Analysis
   kept below for when leverage is needed.
