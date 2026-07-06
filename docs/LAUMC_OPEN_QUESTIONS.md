@@ -17,7 +17,8 @@ and "Signed" are missing from my sample — and those are exactly the ones I nee
 arrived, exam started, exam finished.** Those three moments are what power the live floor map
 and the true waiting-time numbers.
 *What I need:* the complete list of status codes and what each one means.
-> Answer:
+> **Answer (2026-07-05):** Not readily available — user will pull the status codes manually.
+> Not blocking anything except the final floor-map labels.
 
 **A2. How do you link several exams into one report?**
 When a patient gets, say, a CT abdomen and a CT pelvis together, your system seems to tie them
@@ -26,7 +27,9 @@ number). I need to know exactly which field tells me "these belong together," so
 them as **two exams but one report** — otherwise the report statistics double-count.
 *What I need:* confirmation of which column is the link (is it `LINKED_ID`, `REPORT_KEY`, or
 something else?).
-> Answer:
+> **Answer (2026-07-05):** Coming in ~2 hours for RIS and PACS. ORU (report message) link
+> to be verified separately — but per B5 that's fine either way (duplicate reports just get
+> deduped).
 
 **A3. Two ID columns I couldn't identify.**
 In the export there were two ID columns I couldn't match to a name (my sample had no headers).
@@ -50,7 +53,20 @@ The schema showed a table that looks like it logs every status change with a tim
 can calculate waiting times and exam durations for **all your historical data**, not just from
 go-live onward — a much richer starting point. I just need to confirm it's complete and how
 far back it goes.
-> Answer:
+> **Answer (2026-07-05):** That history table is NOT in use — we build the logic ourselves.
+> BUT the timestamp of each status IS stored somewhere; user will pull that.
+>
+> **⭐ SHARPENED FOLLOW-UP (most important thing to check in the schema tomorrow):**
+> Where those status-timestamps live decides our whole live-data method. Two possibilities:
+> - **(Best case)** Each status has its OWN column that stays on the row — e.g. an
+>   arrived-time column, a started-time column, a done-time column, all accumulating.
+>   → Then RAYD just reads the worklist every 30-60s and captures everything, even if a
+>   patient moves through all three states between two reads. Nothing lost. Simplest possible.
+> - **(Harder case)** There's only ONE "current status + one timestamp" that gets overwritten
+>   each change. → Then reading periodically could miss fast in-between transitions, and we'd
+>   need a different approach.
+>
+> Which one is it? (Strong bet: separate accumulating columns.)
 
 **A6. When linked exams are done, does PACS make one study or several?**
 This is the workflow question you flagged yourself. When those linked exams (CT abdomen +
@@ -77,7 +93,21 @@ this might make life simpler — instead of receiving live "arrived/started/done
 all, **RAYD could just check the RIS status-history table every 30–60 seconds** for the live
 board and floor map. One less connection to set up and maintain, and the database already has
 the truth. Is that acceptable to you?
-> Answer:
+> **Answer (2026-07-05):** User asked which is safer — an Oracle TRIGGER on the RIS that pushes
+> data, or RAYD SELECTing from the RIS like usual.
+>
+> **RECOMMENDATION: RAYD polls (SELECT), read-only, NO trigger.** Reasons:
+> - RAYD never writes to the production clinical RIS — nothing to blame if the RIS misbehaves.
+> - No schema change to a live clinical system (a trigger is a permanent support liability,
+>   even for you as the vendor).
+> - A trigger fires inside the radiologist's transaction — adds risk/latency to clinical work.
+>   If RAYD is down, a push trigger errors into the void; a poll just resumes quietly.
+> - Same read-only watermark pattern RAYD already uses everywhere else. 30-60s is plenty fast
+>   for a floor board.
+> - Depends on A5 being the "best case" (separate accumulating timestamp columns) — if so,
+>   polling is lossless and this is the whole solution. **Confirm A5 first.**
+> - This also means "which live feed does RAYD tap" mostly disappears — for the live board and
+>   floor map, RAYD reads the RIS DB directly.
 
 **B2. The order-status codes inside the HL7 messages.**
 Separate from the database status codes (A1) — the live messages carry their own status codes
