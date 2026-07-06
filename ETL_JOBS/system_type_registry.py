@@ -170,10 +170,11 @@ SYSTEM_TYPES = {
                 },
             },
             "std_visits": {
-                # LAUMC source: the RIS visit/encounter table (one row per patient visit).
-                # Rich for stats: IP/OP/ER mix, admissions by ward/room/bed, TPA/insurance
-                # mix, length-of-stay, exams-per-visit. Column aliases below match what the
-                # RIS/ADT feed exposes (VISIT_NUMBER, PATIENT_CLASS, ADMIT_DATE_TIME, ...).
+                # LAUMC source: the RIS `visit` table (one row per patient visit).
+                # *** PROVISIONAL — columns below are INFERRED from the HL7/ADT feed, NOT the
+                # real table schema. Replace with the actual `visit` schema when provided. ***
+                # Intended stats: IP/OP/ER mix, admissions by ward/room/bed, TPA/insurance
+                # mix, length-of-stay, exams-per-visit.
                 "description": "Patient visits / encounters (RIS)",
                 "pk": "visit_key",
                 "incremental_key": "last_update",
