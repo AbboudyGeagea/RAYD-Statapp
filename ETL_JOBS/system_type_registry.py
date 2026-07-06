@@ -124,25 +124,49 @@ SYSTEM_TYPES = {
         "label": "Radiology Information System",
         "tables": {
             "std_orders": {
-                "description": "Radiology orders / scheduled procedures",
-                "pk": "order_dbid",
+                # LAUMC source: CSHRIS.SITE_WORKLIST — one row per scheduled procedure step
+                # (SPS = one exam = one accession). Aliases below match the real RIS column
+                # names so the auto-mapper resolves them without manual mapping.
+                "description": "Radiology orders / scheduled procedures (RIS worklist)",
+                "pk": "site_worklist_key",
+                "incremental_key": "last_update",   # LAUMC rows mutate for years -> watermark
                 "columns": {
-                    "order_dbid":          {"pg_type": "BIGINT NOT NULL",         "aliases": ["order_id", "ord_dbid", "order_db_uid"]},
-                    "patient_dbid":        {"pg_type": "TEXT",                    "aliases": ["patient_id", "pat_dbid", "patient_db_uid"]},
+                    # --- identity / keys ---
+                    "site_worklist_key":   {"pg_type": "BIGINT NOT NULL",        "aliases": ["site_worklist_key", "worklist_key", "sw_key"]},
+                    "order_dbid":          {"pg_type": "BIGINT",                 "aliases": ["order_id", "ord_dbid", "order_db_uid", "order_key"]},
+                    "order_group_key":     {"pg_type": "BIGINT",                 "aliases": ["order_group_key", "ordering_group_key"]},
+                    "linked_id":           {"pg_type": "BIGINT",                 "aliases": ["linked_id"]},  # links several exams -> one report; report-level dedup
+                    "patient_dbid":        {"pg_type": "TEXT",                   "aliases": ["patient_id", "pat_dbid", "patient_db_uid", "patient_person_key"]},
+                    "visit_dbid":          {"pg_type": "TEXT",                   "aliases": ["visit_id", "encounter_id", "visit_key"]},
+                    "requested_procedure_id": {"pg_type": "TEXT",               "aliases": ["requested_procedure_id"]},
+                    "report_key":          {"pg_type": "BIGINT",                 "aliases": ["report_key", "dictation_key"]},
                     "study_db_uid":        {"pg_type": "BIGINT",                 "aliases": ["stu_db_uid"]},
-                    "visit_dbid":          {"pg_type": "TEXT",                    "aliases": ["visit_id", "encounter_id"]},
-                    "study_instance_uid":  {"pg_type": "TEXT",                    "aliases": []},
-                    "proc_id":             {"pg_type": "TEXT",                    "aliases": ["procedure_code", "proc_code"]},
-                    "proc_text":           {"pg_type": "TEXT",                    "aliases": ["procedure_text", "procedure_name", "proc_description"]},
-                    "scheduled_datetime":  {"pg_type": "TIMESTAMP",              "aliases": ["scheduled_dt", "schedule_date", "exam_datetime"]},
-                    "order_status":        {"pg_type": "TEXT",                    "aliases": ["ord_status", "status"]},
-                    "modality":            {"pg_type": "TEXT",                    "aliases": []},
-                    "has_study":           {"pg_type": "BOOLEAN DEFAULT FALSE",   "aliases": []},
-                    "order_control":       {"pg_type": "TEXT",                    "aliases": ["ord_control"]},
-                    "accession_number":    {"pg_type": "TEXT",                    "aliases": ["accession_no", "acc_number"]},
-                    "referring_physician": {"pg_type": "TEXT",                    "aliases": ["ref_physician", "ordering_physician"]},
-                    "priority":            {"pg_type": "TEXT",                    "aliases": ["order_priority", "urgency"]},
-                    "last_update":         {"pg_type": "TIMESTAMP DEFAULT NOW()", "aliases": []},
+                    "study_instance_uid":  {"pg_type": "TEXT",                   "aliases": []},
+                    # --- accessions (the RIS<->PACS join) ---
+                    "accession_number":    {"pg_type": "TEXT",                   "aliases": ["accession_no", "acc_number", "sps_id"]},          # RIS accession
+                    "pacs_accession_number": {"pg_type": "TEXT",                 "aliases": ["pacs_sps_id"]},                                    # accession as PACS stores it -> direct join to studies
+                    # --- procedure / modality ---
+                    "proc_id":             {"pg_type": "TEXT",                   "aliases": ["procedure_code", "proc_code", "sps_code_key", "rp_code_key"]},
+                    "proc_text":           {"pg_type": "TEXT",                   "aliases": ["procedure_text", "procedure_name", "proc_description", "description"]},
+                    "modality":            {"pg_type": "TEXT",                   "aliases": ["modality_type"]},
+                    # --- status / lifecycle ---
+                    "status_key":          {"pg_type": "INTEGER",                "aliases": ["status_key"]},                                    # -> worklist_status_map -> canonical stage
+                    "order_status":        {"pg_type": "TEXT",                   "aliases": ["ord_status", "status"]},                          # RIS text label
+                    "order_control":       {"pg_type": "TEXT",                   "aliases": ["ord_control"]},
+                    "priority":            {"pg_type": "TEXT",                   "aliases": ["order_priority", "urgency"]},
+                    "has_study":           {"pg_type": "BOOLEAN DEFAULT FALSE",  "aliases": []},
+                    # --- timestamps (arrived/started have NO source column -> event log only) ---
+                    "request_datetime":    {"pg_type": "TIMESTAMP",             "aliases": ["request_datetime", "sps_created_date"]},
+                    "scheduled_datetime":  {"pg_type": "TIMESTAMP",             "aliases": ["scheduled_dt", "schedule_date", "exam_datetime", "scheduled_date"]},
+                    "performed_datetime":  {"pg_type": "TIMESTAMP",             "aliases": ["performed_date"]},
+                    "approved_datetime":   {"pg_type": "TIMESTAMP",             "aliases": ["approved_date"]},
+                    # --- site resolution (SITE_WORKLIST carries ORG_STRUCTURE_KEY: 3926=RH,5320=SJH) ---
+                    "org_structure_key":   {"pg_type": "TEXT",                   "aliases": ["org_structure_key"]},
+                    # --- people ---
+                    "referring_physician": {"pg_type": "TEXT",                   "aliases": ["ref_physician", "ordering_physician", "reffering_phisician", "reffering_doctor"]},
+                    "technician":          {"pg_type": "TEXT",                   "aliases": ["technician"]},
+                    # --- watermark ---
+                    "last_update":         {"pg_type": "TIMESTAMP DEFAULT NOW()","aliases": ["last_update_date"]},
                 },
             },
             "std_procedure_codes": {
