@@ -19,6 +19,12 @@ and the true waiting-time numbers.
 *What I need:* the complete list of status codes and what each one means.
 > **Answer (2026-07-05):** Not readily available — user will pull the status codes manually.
 > Not blocking anything except the final floor-map labels.
+>
+> **✅ FULLY ANSWERED (2026-07-06):** Complete STATUS_KEY lookup table received. Core states:
+> 40 Scheduled, 60 Arrived, 70 Started, 100 Exam Done, 110-160 report chain, 20/30/50/90 cancels.
+> ~30 custom sub-statuses roll up to these via a base-status pointer (RAYD maps via category +
+> pointer, never hardcodes). Full detail in LAUMC_DATA_REQUEST.md. This unblocks the live board,
+> floor map, wait-time and exam-duration KPIs.
 
 **A2. How do you link several exams into one report?**
 When a patient gets, say, a CT abdomen and a CT pelvis together, your system seems to tie them

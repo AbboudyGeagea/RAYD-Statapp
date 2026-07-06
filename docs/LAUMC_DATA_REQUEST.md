@@ -377,8 +377,28 @@ with counts. (Parked from Q8/Q9 — fine to deliver with the HL7 pull.)
     duration minutes, not status.
   - Site code in **PV1-10** in RIS-outbound (was PV1-3.7 in SAP-inbound) → format-specific
     parse. 3 HL7 versions now: 2.3 (ORU), 2.3.1 (SAP-inbound ORM), 2.4 (RIS-outbound ORM).
-- **Still pending**: STATUS_KEY numeric values per state (Scheduled/Arrived/Started/Completed/
-  etc.); confirm RAYD can be added as recipient on RIS outbound feed;
+- **STATUS_KEY lookup table received (2026-07-06) — full lifecycle decoded.** Columns:
+  key, name, label, flagA, HL7-ORC5-code (NW/SC/CM/CA/DC/IP), normalized-category, level
+  (ORDER/SPS/PPS), config-date, flagB, phase-group-A, phase-group-B, base-status-pointer.
+  - **Core lifecycle**: 5/10 Requested, 40 Scheduled, **60 Arrived (wait starts)**,
+    **70 Started/In-Progress (on table)**, **100 Exam Done (completed)**, report chain
+    110 Dictated→120 Prelim Typed→130 Signed 1→140 Signed 2→150 Signed 3→160 Approved.
+    Cancels: 20 (by RIS→30), 30 (by OP), 50 (Cancelled), 90 (Discontinued), 1300 Rejected +more.
+  - **KPIs**: wait = t(60)→t(70); exam duration = t(70)→t(100); report TAT along 100→160.
+  - **CRITICAL RULE — aliases roll up to core states via the base-status pointer; NEVER hardcode
+    60/70/100**: Arrived-family {60, 1823 Porter, 1826 Oral STR, 1831 General, 1762 Preparation};
+    Started-family {70, 1822 In Progress, 1824 Contrast, 2223 Pre Exam}; Scheduled-family
+    {40, 1723 DNA, 1825 Call, 1827 Changed, 1829 Req n.a.}; ExamDone-family {100, 1828 To Report,
+    1724 Series, 1726 NRR}; many Cancel variants. Seed RAYD's status map from this table but
+    curate — drop deprecated junk ("REQUESTED-Remove", "IN PROGRESS-deleteMe", trailing spaces).
+  - **Message vs DB nuance**: outbound ORM carries only coarse HL7 code (`A`=Scheduled AND
+    Arrived, `SC` broad) — precise state is STATUS_KEY in the DB. **Design: RAYD builds its own
+    status-history (the RIS's WORKLIST_STATUS_HISTORY is unused).** Each outbound ORM = real-time
+    "row X changed at time T" trigger → read STATUS_KEY(X), map to canonical stage, append
+    (worklist_key, stage, T). Arrived/started have no DB timestamp column → message arrival time
+    IS the transition time (why real-time feed beats polling for those two).
+- **Still pending**: does outbound ORM carry numeric STATUS_KEY (skip per-event DB read) or
+  always read from row?; confirm RAYD can be added as recipient on RIS outbound feed;
   full status ladder incl. 40→130 gap codes (arrived/started/done); confirm 1008 = LINK_ID;
   meaning of 1004/1006 IDs; ORU prelim/amended status codes; MSH-4 semantics; which RIS
   outbound stream carries status events for RAYD; integration document; rest of RIS DB schema.
