@@ -352,7 +352,33 @@ with counts. (Parked from Q8/Q9 — fine to deliver with the HL7 pull.)
     ETL exclusion list needed.
   - Modality per SPS in RIS (independent of PACS) → order-funnel by modality even for
     never-performed orders.
-- **Still pending**: SITE_WORKLIST column header list / DESCRIBE (export was headerless);
+- **SITE_WORKLIST columns received (2026-07-06, schema `CSHRIS.SITE_WORKLIST`, 63 cols)**. Key:
+  - `SPS_ID` = RIS accession; **`PACS_SPS_ID` = same study's accession as PACS stores it** →
+    direct clean join to didb_studies (no accession-matching guesswork).
+  - `LINKED_ID` + `ORDER_GROUP_KEY` present → linking mechanism confirmed as real columns.
+  - Timestamp columns: `SCHEDULED_DATE`, `PERFORMED_DATE`, `APPROVED_DATE`, `REQUEST_DATETIME`,
+    `SPS_CREATED_DATE`, `ROW_CREATED_DATE`, `REPORT_LAST_MODIFIED_DATE`, `MESSAGE_CREATED_DATE`,
+    `LAST_UPDATE_DATE`. **NO arrived-date or started-date column** → those two milestones only
+    exist as status events, not columns (see below).
+  - Other useful: `STATUS_KEY` (numeric status = source of truth), `MODALITY_TYPE`, `TECHNICIAN`,
+    `REFFERING_PHISICIAN`/`REFFERING_DOCTOR`, `BIRAD_CATEGORY`, `ORG_STRUCTURE_KEY`,
+    `REPORT_KEY`/`DICTATION_KEY`, `ASSIGNRADCODEPERSONKEY`, `DECEASED`, `INTO_PRIVATE_FOLDER`.
+- **RIS EMITS OUTBOUND status-change ORMs (2026-07-06)** — headers `MSH|^~\&|RIS|CARESTREAM|HIS|
+  SAP|...`, HL7 v2.4, every one `ORC-1=SC`. Already flows to Carestream/HIS/SAP → **RAYD can
+  subscribe as another recipient; NO Oracle trigger, no DB write.** These carry arrived/started
+  (which have no DB column) with per-event timestamps in OBR.
+  - **REVISED live-data design = HYBRID, both read-only, no trigger**: (a) subscribe to RIS-
+    outbound status ORMs for live arrived/started/completed; (b) poll DB for column-backed
+    milestones (scheduled/performed/approved) + historical backfill. Confirm they can add RAYD
+    as a destination on the RIS outbound feed.
+  - ORC-5 decoded from 4 labeled samples: Completed=`CM`, Started=`IP` (both standard/clear);
+    Scheduled=`A` AND Arrived=`A` (SAME code — cannot distinguish from HL7 alone). **Need the
+    STATUS_KEY numeric value per state (with A1).** Trailing OBR numbers (5/10/30) = procedure
+    duration minutes, not status.
+  - Site code in **PV1-10** in RIS-outbound (was PV1-3.7 in SAP-inbound) → format-specific
+    parse. 3 HL7 versions now: 2.3 (ORU), 2.3.1 (SAP-inbound ORM), 2.4 (RIS-outbound ORM).
+- **Still pending**: STATUS_KEY numeric values per state (Scheduled/Arrived/Started/Completed/
+  etc.); confirm RAYD can be added as recipient on RIS outbound feed;
   full status ladder incl. 40→130 gap codes (arrived/started/done); confirm 1008 = LINK_ID;
   meaning of 1004/1006 IDs; ORU prelim/amended status codes; MSH-4 semantics; which RIS
   outbound stream carries status events for RAYD; integration document; rest of RIS DB schema.

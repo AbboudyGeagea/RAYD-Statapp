@@ -67,6 +67,12 @@ far back it goes.
 >   need a different approach.
 >
 > Which one is it? (Strong bet: separate accumulating columns.)
+>
+> **PARTIALLY ANSWERED (2026-07-06) from the column list:** the worklist HAS dedicated columns
+> for scheduled / performed / approved — but NOT for arrived or started. So arrived & started
+> only exist as status events, not columns. GOOD NEWS: the RIS already emits those as outbound
+> HL7 messages (see B1), so RAYD subscribes to that feed for arrived/started and polls the DB
+> for the rest. Still need: the STATUS_KEY numeric value for each state.
 
 **A6. When linked exams are done, does PACS make one study or several?**
 This is the workflow question you flagged yourself. When those linked exams (CT abdomen +
@@ -108,6 +114,13 @@ the truth. Is that acceptable to you?
 >   polling is lossless and this is the whole solution. **Confirm A5 first.**
 > - This also means "which live feed does RAYD tap" mostly disappears — for the live board and
 >   floor map, RAYD reads the RIS DB directly.
+>
+> **UPDATED (2026-07-06):** Your status samples revealed the RIS ALREADY emits outbound HL7
+> status messages (arrived/started/completed) to Carestream/HIS/SAP. So the cleanest design is
+> a HYBRID, still no trigger: RAYD subscribes to that existing RIS-outbound feed for the live
+> moments (especially arrived/started, which have no DB column), and polls the DB for the rest
+> and for history. **One thing to confirm: can RAYD be added as a recipient of that RIS-outbound
+> feed?** (Standard HL7 subscription — not a DB change.)
 
 **B2. The order-status codes inside the HL7 messages.**
 Separate from the database status codes (A1) — the live messages carry their own status codes
