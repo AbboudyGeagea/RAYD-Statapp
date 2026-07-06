@@ -169,6 +169,32 @@ SYSTEM_TYPES = {
                     "last_update":         {"pg_type": "TIMESTAMP DEFAULT NOW()","aliases": ["last_update_date"]},
                 },
             },
+            "std_visits": {
+                # LAUMC source: the RIS visit/encounter table (one row per patient visit).
+                # Rich for stats: IP/OP/ER mix, admissions by ward/room/bed, TPA/insurance
+                # mix, length-of-stay, exams-per-visit. Column aliases below match what the
+                # RIS/ADT feed exposes (VISIT_NUMBER, PATIENT_CLASS, ADMIT_DATE_TIME, ...).
+                "description": "Patient visits / encounters (RIS)",
+                "pk": "visit_key",
+                "incremental_key": "last_update",
+                "columns": {
+                    "visit_key":         {"pg_type": "BIGINT NOT NULL",         "aliases": ["visit_key", "visit_dbid", "encounter_key"]},
+                    "visit_number":      {"pg_type": "TEXT",                    "aliases": ["visit_number", "visit_id", "encounter_id"]},
+                    "patient_dbid":      {"pg_type": "TEXT",                    "aliases": ["patient_id", "patient_person_key", "pat_dbid"]},
+                    "patient_class":     {"pg_type": "TEXT",                    "aliases": ["patient_class", "patient_class_key", "pat_class"]},   # IP / OP / ER
+                    "admit_datetime":    {"pg_type": "TIMESTAMP",              "aliases": ["admit_datetime", "admit_date_time", "admit_date"]},
+                    "discharge_datetime":{"pg_type": "TIMESTAMP",              "aliases": ["discharge_datetime", "discharge_date_time", "discharge_date"]},
+                    "location_poc":      {"pg_type": "TEXT",                    "aliases": ["location_point_of_care", "point_of_care", "ward"]},
+                    "location_room":     {"pg_type": "TEXT",                    "aliases": ["location_room", "room"]},
+                    "location_bed":      {"pg_type": "TEXT",                    "aliases": ["location_bed", "bed"]},
+                    "attending_physician":{"pg_type": "TEXT",                   "aliases": ["attending_physician", "attending_doctor"]},
+                    "referring_physician":{"pg_type": "TEXT",                   "aliases": ["referring_physician", "reffering_phisician", "reffering_doctor"]},
+                    "insurance_name":    {"pg_type": "TEXT",                    "aliases": ["insurance_name", "third_party_payer", "tpa", "payer"]},
+                    "org_structure_key": {"pg_type": "TEXT",                    "aliases": ["org_structure_key"]},   # site resolution (3926=RH, 5320=SJH)
+                    "hl7_building":      {"pg_type": "TEXT",                    "aliases": ["building", "hospital_service", "location_building"]},  # PV1 building 1000/2000
+                    "last_update":       {"pg_type": "TIMESTAMP DEFAULT NOW()", "aliases": ["last_update_date"]},
+                },
+            },
             "std_procedure_codes": {
                 "description": "Procedure catalog / exam codes",
                 "pk": "proc_id",
