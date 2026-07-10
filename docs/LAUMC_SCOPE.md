@@ -29,6 +29,26 @@ Detail and data findings live in `LAUMC_DATA_REQUEST.md`; open questions in
 8. **Flexible custom reports / self-service dashboards** *(added 2026-07-07)* — extend the existing
    widget composer (`custom_reports.py` + `report_widgets.py` + `saved_reports`) so users build,
    arrange, save and share their own multi-widget dashboards. See "Custom reports" note below.
+9. **RIS RTF → plain-text report ingestion as the durable NLP feed** *(added 2026-07-07)* — PACS
+   stores reports encrypted, so today NLP is fed only by the (lossy, forward-only) ORU stream.
+   The RIS holds every report (back to 2018) as RTF. Pull RTF → convert to plain text (`striprtf`,
+   pure-Python, ~1-5 ms/report) → durable, complete, RE-PROCESSABLE report store. Wins: kills the
+   encryption blocker, enables NLP over FULL history (not just since-listener-start), re-runnable
+   when the NLP model improves, smaller storage, clean text for CRN. RIS = source of truth for
+   report content (watermark `REPORT_LAST_MODIFIED_DATE` catches amendments); reconcile by
+   accession. Verify on a real sample: full report (findings+impression) present + Arabic renders.
+10. **Closed-loop Critical Result Notification (CRN)** *(added 2026-07-07, demo-requested)* —
+   detect critical result (RAYD's existing NLP critical-keyword engine + native ORU flag if present)
+   → notify referring physician via their preferred channel (email / SMS / WhatsApp, per-referring
+   `referring_contacts` lookup, optional time-of-day routing) → one-click tokenized acknowledgment
+   link (channel-agnostic URL → token landing page records who+when) → escalation if unacknowledged
+   → **write the ack back to the RIS as an HL7 message** over existing MLLP (`hl7_forward.py`),
+   ideally recorded as a native worklist status; RIS MSA ACK closes the loop. New pieces: SMTP +
+   SMS/WhatsApp adapters (external providers; WhatsApp needs Business API + template approval),
+   `crn_notifications` table, public ack endpoint. Caveats: "Referring, Generic" placeholder orders
+   need an exception queue; keep PHI out of message bodies (minimal + secure link); CRN *timing*
+   uses a fast trigger (real-time ORU or frequent RIS poll) while content comes from the RIS store.
+   Accreditation-grade (Joint Commission closed-loop critical results / ACR actionable findings).
 
 ## Out of scope — removed from LAUMC
 
