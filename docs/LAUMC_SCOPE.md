@@ -23,20 +23,21 @@ Detail and data findings live in `LAUMC_DATA_REQUEST.md`; open questions in
 7. **RIS-sourced reporting (architectural direction)** *(2026-07-07)* — RIS data is cleaner and a
    superset of demand (sees no-shows/cancellations PACS never records; both deployed 2018-12-18 so
    equal history depth). Approach: build ONE unified exam view joining RIS `SITE_WORKLIST` ↔ PACS
-   `didb_studies` on `PACS_SPS_ID` (clean 1:1); reports pick RIS columns for funnel/TAT/lifecycle,
+   `didb_studies` — **join key: `SITE_WORKLIST.SPS_ID` = `medistore.didb_studies.ACCESSION_NUMBER`**
+   (corrected 2026-07-07; NOT PACS_SPS_ID). Reports pick RIS columns for funnel/TAT/lifecycle,
    PACS columns for device/image/storage. Migrate reports to the view incrementally — reuse, not
    rewrite. NOT a wholesale switch (per-device + storage stay PACS).
 8. **Flexible custom reports / self-service dashboards** *(added 2026-07-07)* — extend the existing
    widget composer (`custom_reports.py` + `report_widgets.py` + `saved_reports`) so users build,
    arrange, save and share their own multi-widget dashboards. See "Custom reports" note below.
-9. **RIS RTF → plain-text report ingestion as the durable NLP feed** *(added 2026-07-07)* — PACS
+9. **RIS report text as the durable NLP feed** *(added 2026-07-07; simplified 2026-07-07)* — PACS
    stores reports encrypted, so today NLP is fed only by the (lossy, forward-only) ORU stream.
-   The RIS holds every report (back to 2018) as RTF. Pull RTF → convert to plain text (`striprtf`,
-   pure-Python, ~1-5 ms/report) → durable, complete, RE-PROCESSABLE report store. Wins: kills the
-   encryption blocker, enables NLP over FULL history (not just since-listener-start), re-runnable
-   when the NLP model improves, smaller storage, clean text for CRN. RIS = source of truth for
-   report content (watermark `REPORT_LAST_MODIFIED_DATE` catches amendments); reconcile by
-   accession. Verify on a real sample: full report (findings+impression) present + Arabic renders.
+   The RIS holds every report (back to 2018) as **plain text already** in `report.DOCUMENT_PLAIN_TEXT`
+   — NO RTF conversion needed (earlier RTF plan dropped). ETL pulls that column directly → durable,
+   complete, RE-PROCESSABLE report store. Wins: kills the encryption blocker, enables NLP over FULL
+   history (not just since-listener-start), re-runnable when the NLP model improves, small storage,
+   clean text for CRN. RIS = source of truth for report content (watermark `REPORT_LAST_MODIFIED_DATE`
+   catches amendments); reconcile by accession. Verify on a sample: full report + Arabic renders.
 10. **Closed-loop Critical Result Notification (CRN)** *(added 2026-07-07, demo-requested)* —
    detect critical result (RAYD's existing NLP critical-keyword engine + native ORU flag if present)
    → notify referring physician via their preferred channel (email / SMS / WhatsApp, per-referring
@@ -54,10 +55,13 @@ Detail and data findings live in `LAUMC_DATA_REQUEST.md`; open questions in
 
 - **Patient portal** — COMPLETELY REMOVED (physically absent, not license-disabled). ZDC/PDF
   report payloads ignored; plain text only for NLP.
-- **Scheduling module** *(removed 2026-07-07)* — remove completely from LAUMC. It is already
-  license-gated (`scheduling` flag; routes in `admin_bp`, sidebar hidden when off), so the
-  mechanism is: LAUMC license has `scheduling=false` → routes not reachable, sidebar hidden.
-  If physical code removal (not just gating) is required on the LAUMC branch, that is a follow-up.
+- **Scheduling module** *(removed 2026-07-07)* — remove completely from LAUMC. Already
+  license-gated (`scheduling` flag; routes in `admin_bp`, sidebar hidden when off). Mechanism:
+  LAUMC license `scheduling=false` → routes not reachable, sidebar hidden. Physical code removal
+  on the LAUMC branch is the intended end-state (like the portal).
+- **Patient portal module** *(removal confirmed as build task 2026-07-07)* — remove the portal
+  module entirely from LAUMC (blueprint + routes + sidebar), physically absent, alongside
+  scheduling. (Previously noted "removed"; now an explicit removal task.)
 
 ## Optional / leverage only (not planned)
 

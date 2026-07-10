@@ -143,8 +143,9 @@ SYSTEM_TYPES = {
                     "study_db_uid":        {"pg_type": "BIGINT",                 "aliases": ["stu_db_uid"]},
                     "study_instance_uid":  {"pg_type": "TEXT",                   "aliases": []},
                     # --- accessions (the RIS<->PACS join) ---
-                    "accession_number":    {"pg_type": "TEXT",                   "aliases": ["accession_no", "acc_number", "sps_id"]},          # RIS accession
-                    "pacs_accession_number": {"pg_type": "TEXT",                 "aliases": ["pacs_sps_id"]},                                    # accession as PACS stores it -> direct join to studies
+                    # JOIN KEY: accession_number (= SITE_WORKLIST.SPS_ID) == medistore.didb_studies.ACCESSION_NUMBER
+                    "accession_number":    {"pg_type": "TEXT",                   "aliases": ["accession_no", "acc_number", "sps_id"]},          # RIS accession == PACS didb_studies.accession_number (THE join key)
+                    "pacs_accession_number": {"pg_type": "TEXT",                 "aliases": ["pacs_sps_id"]},                                    # separate PACS-side id; NOT the studies join key
                     # --- procedure / modality ---
                     "proc_id":             {"pg_type": "TEXT",                   "aliases": ["procedure_code", "proc_code", "sps_code_key", "rp_code_key"]},
                     "proc_text":           {"pg_type": "TEXT",                   "aliases": ["procedure_text", "procedure_name", "proc_description", "description"]},
