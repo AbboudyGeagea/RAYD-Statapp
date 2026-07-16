@@ -40,21 +40,27 @@ def _load_map(app=None):
     try:
         from db import db
         rows = db.session.execute(text("""
-            SELECT id, pacs_site_id, ris_issuer, ris_org_struct, hl7_building, is_default
+            SELECT id, pacs_site_id, ris_issuer, hl7_building, is_default
             FROM sites
             WHERE active
         """)).fetchall()
+        # org -> site is MANY-to-one (RIS sub-departments: 3926/5521/5120 -> RH, 5320 -> SJH),
+        # held in site_org_map (migration 0052), seeded from the RIS ORG_STRUCTURE hierarchy.
+        org_rows = db.session.execute(text(
+            "SELECT org_structure_key, site_id FROM site_org_map"
+        )).fetchall()
     except Exception as e:
         logger.error(f"site map load failed: {e}")
         return {"pacs": {}, "issuer": {}, "org": {}, "building": {}, "default": None}
 
     m = {"pacs": {}, "issuer": {}, "org": {}, "building": {}, "default": None}
-    for sid, pacs, issuer, org, bldg, is_default in rows:
+    for sid, pacs, issuer, bldg, is_default in rows:
         if pacs   is not None: m["pacs"][str(pacs).strip()]        = sid
         if issuer is not None: m["issuer"][str(issuer).strip().upper()] = sid
-        if org    is not None: m["org"][str(org).strip()]          = sid
         if bldg   is not None: m["building"][str(bldg).strip()]    = sid
         if is_default:         m["default"] = sid
+    for org_key, sid in org_rows:
+        m["org"][str(org_key).strip()] = sid
     return m
 
 
@@ -72,17 +78,21 @@ def invalidate_cache():
     _cache = None
 
 
-def _resolve(kind, value):
-    """Generic lookup with default fallback. Returns canonical site id or None."""
+def _resolve(kind, value, fallback_to_default=True):
+    """Generic lookup. Returns canonical site id or None."""
     if value is None:
-        return _get_map()["default"]
+        return _get_map()["default"] if fallback_to_default else None
     key = str(value).strip()
     if kind == "issuer":
         key = key.upper()
     sid = _get_map()[kind].get(key)
     if sid is not None:
         return sid
-    # Unknown value → default site, but log once-ish so genuinely new codes surface.
+    if not fallback_to_default:
+        # org keys: root '1' (LAUMC, pre-scheduling) and unknown sub-orgs stay UNASSIGNED
+        # (NULL) rather than being misattributed to the default site. Fail-closed.
+        return None
+    # Unknown value → default site, but log so genuinely new codes surface.
     default = _get_map()["default"]
     logger.warning(f"site_resolver: unmapped {kind} value {value!r} → default site {default}")
     return default
@@ -99,8 +109,9 @@ def resolve_ris_issuer(issuer):
 
 
 def resolve_ris_org(org_structure_key):
-    """RIS ORG_STRUCTURE_KEY ('3926','5320') → canonical site id (worklist site source)."""
-    return _resolve("org", org_structure_key)
+    """RIS ORG_STRUCTURE_KEY → canonical site id via site_org_map (many-to-one:
+    3926/5521/5120 → RH, 5320 → SJH). Root '1' / unknown → None (unassigned), never default."""
+    return _resolve("org", org_structure_key, fallback_to_default=False)
 
 
 def resolve_hl7_building(building):

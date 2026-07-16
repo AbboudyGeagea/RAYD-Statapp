@@ -119,101 +119,288 @@ SYSTEM_TYPES = {
     },
 
     # ── RIS ─────────────────────────────────────────────────────────────
+    # LAUMC RIS (CSHRIS schema, Oracle 12). Real schemas confirmed by vendor 2026-07-07
+    # (docs/LAUMC_RIS_TABLES.md). Target column names = lowercase source column names so
+    # the auto-mapper resolves 1:1 without aliases.
+    #
+    # GLOBAL EXTRACT RULE: the RIS holds more than LAUMC's two sites. Pull ONLY rows for
+    # LAUMC: ORDERS filtered by ISSUER_OF_PLACER_ORDER_NUMBER IN ('SAP_PROD','SAP_SJH');
+    # org-keyed tables resolve site via site_org_map (3926/5521/5120=RH, 5320=SJH).
+    # Columns confirmed all-NULL at LAUMC are omitted entirely (PACS_SPS_ID, *_FLAGSET,
+    # DICTATED_BY_TEST, ORDERED_PROCEDURES). Report blobs (DOCUMENT, DOCUMENT_TEXT, MAP,
+    # PDF_DOCUMENT) are omitted — plain text only, per vendor ruling.
     "RIS": {
         "db_name_suffix": "ris",
         "label": "Radiology Information System",
         "tables": {
-            "std_orders": {
-                # LAUMC source: CSHRIS.SITE_WORKLIST — one row per scheduled procedure step
-                # (SPS = one exam = one accession). Aliases below match the real RIS column
-                # names so the auto-mapper resolves them without manual mapping.
-                "description": "Radiology orders / scheduled procedures (RIS worklist)",
+            "std_worklist": {
+                # Source: CSHRIS.SITE_WORKLIST — 1 row per SPS (exam). Current status only
+                # (mutated in place); RAYD builds its own worklist_status_history.
+                # sps_id ('100500…') = the accession minted at scheduling = PACS accession.
+                "description": "RIS worklist — one row per scheduled procedure step (exam)",
                 "pk": "site_worklist_key",
-                "incremental_key": "last_update",   # LAUMC rows mutate for years -> watermark
+                "incremental_key": "last_update_date",   # rows mutate for years → upsert
                 "columns": {
-                    # --- identity / keys ---
-                    "site_worklist_key":   {"pg_type": "BIGINT NOT NULL",        "aliases": ["site_worklist_key", "worklist_key", "sw_key"]},
-                    "order_dbid":          {"pg_type": "BIGINT",                 "aliases": ["order_id", "ord_dbid", "order_db_uid", "order_key"]},
-                    "order_group_key":     {"pg_type": "BIGINT",                 "aliases": ["order_group_key", "ordering_group_key"]},
-                    "linked_id":           {"pg_type": "BIGINT",                 "aliases": ["linked_id"]},  # links several exams -> one report; report-level dedup
-                    "patient_dbid":        {"pg_type": "TEXT",                   "aliases": ["patient_id", "pat_dbid", "patient_db_uid", "patient_person_key"]},
-                    "visit_dbid":          {"pg_type": "TEXT",                   "aliases": ["visit_id", "encounter_id", "visit_key"]},
-                    "requested_procedure_id": {"pg_type": "TEXT",               "aliases": ["requested_procedure_id"]},
-                    "report_key":          {"pg_type": "BIGINT",                 "aliases": ["report_key", "dictation_key"]},
-                    "study_db_uid":        {"pg_type": "BIGINT",                 "aliases": ["stu_db_uid"]},
-                    "study_instance_uid":  {"pg_type": "TEXT",                   "aliases": []},
-                    # --- accessions (the RIS<->PACS join) ---
-                    # JOIN KEY: accession_number (= SITE_WORKLIST.SPS_ID) == medistore.didb_studies.ACCESSION_NUMBER
-                    "accession_number":    {"pg_type": "TEXT",                   "aliases": ["accession_no", "acc_number", "sps_id"]},          # RIS accession == PACS didb_studies.accession_number (THE join key)
-                    "pacs_accession_number": {"pg_type": "TEXT",                 "aliases": ["pacs_sps_id"]},                                    # separate PACS-side id; NOT the studies join key
-                    # --- procedure / modality ---
-                    "proc_id":             {"pg_type": "TEXT",                   "aliases": ["procedure_code", "proc_code", "sps_code_key", "rp_code_key"]},
-                    "proc_text":           {"pg_type": "TEXT",                   "aliases": ["procedure_text", "procedure_name", "proc_description", "description"]},
-                    "modality":            {"pg_type": "TEXT",                   "aliases": ["modality_type"]},
-                    # --- status / lifecycle ---
-                    "status_key":          {"pg_type": "INTEGER",                "aliases": ["status_key"]},                                    # -> worklist_status_map -> canonical stage
-                    "order_status":        {"pg_type": "TEXT",                   "aliases": ["ord_status", "status"]},                          # RIS text label
-                    "order_control":       {"pg_type": "TEXT",                   "aliases": ["ord_control"]},
-                    "priority":            {"pg_type": "TEXT",                   "aliases": ["order_priority", "urgency"]},
-                    "has_study":           {"pg_type": "BOOLEAN DEFAULT FALSE",  "aliases": []},
-                    # --- timestamps (arrived/started have NO source column -> event log only) ---
-                    "request_datetime":    {"pg_type": "TIMESTAMP",             "aliases": ["request_datetime", "sps_created_date"]},
-                    "scheduled_datetime":  {"pg_type": "TIMESTAMP",             "aliases": ["scheduled_dt", "schedule_date", "exam_datetime", "scheduled_date"]},
-                    "performed_datetime":  {"pg_type": "TIMESTAMP",             "aliases": ["performed_date"]},
-                    "approved_datetime":   {"pg_type": "TIMESTAMP",             "aliases": ["approved_date"]},
-                    # --- site resolution (SITE_WORKLIST carries ORG_STRUCTURE_KEY: 3926=RH,5320=SJH) ---
-                    "org_structure_key":   {"pg_type": "TEXT",                   "aliases": ["org_structure_key"]},
-                    # --- people ---
-                    "referring_physician": {"pg_type": "TEXT",                   "aliases": ["ref_physician", "ordering_physician", "reffering_phisician", "reffering_doctor"]},
-                    "technician":          {"pg_type": "TEXT",                   "aliases": ["technician"]},
-                    # --- watermark ---
-                    "last_update":         {"pg_type": "TIMESTAMP DEFAULT NOW()","aliases": ["last_update_date"]},
+                    "site_worklist_key":     {"pg_type": "BIGINT NOT NULL", "aliases": []},
+                    "patient_person_key":    {"pg_type": "BIGINT",  "aliases": []},
+                    "visit_key":             {"pg_type": "BIGINT",  "aliases": []},
+                    "order_key":             {"pg_type": "BIGINT",  "aliases": []},
+                    "requested_procedure_id": {"pg_type": "TEXT",   "aliases": []},
+                    "sps_id":                {"pg_type": "TEXT",    "aliases": []},   # accession (100500…) = PACS accession
+                    "pps_key":               {"pg_type": "BIGINT",  "aliases": []},
+                    "dictation_key":         {"pg_type": "BIGINT",  "aliases": []},
+                    "report_key":            {"pg_type": "BIGINT",  "aliases": []},   # → std_reports
+                    "org_structure_key":     {"pg_type": "TEXT",    "aliases": []},   # → site_org_map → site
+                    "order_priority":        {"pg_type": "TEXT",    "aliases": []},
+                    "scheduled_date":        {"pg_type": "TIMESTAMP", "aliases": []},
+                    "sps_code_key":          {"pg_type": "BIGINT",  "aliases": []},   # → std_procedure_codes
+                    "last_update_date":      {"pg_type": "TIMESTAMP", "aliases": []},
+                    "status_key":            {"pg_type": "INTEGER", "aliases": []},   # → worklist_status_map
+                    "rp_code_key":           {"pg_type": "BIGINT",  "aliases": []},
+                    "ordering_organization_key": {"pg_type": "BIGINT", "aliases": []},
+                    "status":                {"pg_type": "TEXT",    "aliases": []},   # RIS label (traceability)
+                    "deceased":              {"pg_type": "TEXT",    "aliases": []},
+                    "pps_code_key":          {"pg_type": "BIGINT",  "aliases": []},
+                    "requested_by_person_key": {"pg_type": "BIGINT", "aliases": []},
+                    "requested_by_resource_id": {"pg_type": "TEXT", "aliases": []},
+                    "request_datetime":      {"pg_type": "TIMESTAMP", "aliases": []},
+                    "justified_by_person_key": {"pg_type": "BIGINT", "aliases": []},
+                    "modality_type":         {"pg_type": "TEXT",    "aliases": []},   # CT/MR/US…
+                    "recall_pps_key":        {"pg_type": "BIGINT",  "aliases": []},
+                    "followup_pps_key":      {"pg_type": "BIGINT",  "aliases": []},
+                    "linked_id":             {"pg_type": "BIGINT",  "aliases": []},   # multi-SPS → one report/study
+                    "justified_by_resource_id_key": {"pg_type": "BIGINT", "aliases": []},
+                    "last_name":             {"pg_type": "TEXT",    "aliases": []},   # denormalized patient
+                    "message_created_by":    {"pg_type": "TEXT",    "aliases": []},
+                    "description":           {"pg_type": "TEXT",    "aliases": []},   # procedure text
+                    "message_cr_key":        {"pg_type": "BIGINT",  "aliases": []},
+                    "order_group_key":       {"pg_type": "BIGINT",  "aliases": []},
+                    "message_created_date":  {"pg_type": "TIMESTAMP", "aliases": []},
+                    "report_last_modified_date": {"pg_type": "TIMESTAMP", "aliases": []},
+                    "row_created_date":      {"pg_type": "TIMESTAMP", "aliases": []},
+                    "performed_date":        {"pg_type": "TIMESTAMP", "aliases": []},  # exam done
+                    "gender_description":    {"pg_type": "TEXT",    "aliases": []},
+                    "name_prefix":           {"pg_type": "TEXT",    "aliases": []},
+                    "sps_created_date":      {"pg_type": "TIMESTAMP", "aliases": []},  # accession minted
+                    "followup_type_key":     {"pg_type": "BIGINT",  "aliases": []},
+                    "assignradcodepersonkey": {"pg_type": "BIGINT", "aliases": []},   # assigned radiologist
+                    "into_private_folder":   {"pg_type": "TEXT",    "aliases": []},
+                    "birad_category":        {"pg_type": "TEXT",    "aliases": []},   # parked BI-RADS
+                    "ordering_group_key":    {"pg_type": "BIGINT",  "aliases": []},
+                    "birads_birads_key":     {"pg_type": "BIGINT",  "aliases": []},
+                    "lock_session_key":      {"pg_type": "BIGINT",  "aliases": []},
+                    "approved_date":         {"pg_type": "TIMESTAMP", "aliases": []},  # report approved
+                    "firstarabic":           {"pg_type": "TEXT",    "aliases": []},
+                    "lastarabicname":        {"pg_type": "TEXT",    "aliases": []},
+                    "reffering_phisician":   {"pg_type": "TEXT",    "aliases": []},   # [sic] source spelling
+                    "reffering_doctor":      {"pg_type": "TEXT",    "aliases": []},   # [sic]
+                    "requested_by_resource_id_name": {"pg_type": "TEXT", "aliases": []},
+                    "prot_hold_by_person_key": {"pg_type": "BIGINT", "aliases": []},
+                    "technician":            {"pg_type": "TEXT",    "aliases": []},
+                    "site_id":               {"pg_type": "INTEGER", "aliases": []},   # RAYD-resolved (enrichment)
                 },
             },
-            "std_visits": {
-                # LAUMC source: the RIS `visit` table (one row per patient visit).
-                # *** PROVISIONAL — columns below are INFERRED from the HL7/ADT feed, NOT the
-                # real table schema. Replace with the actual `visit` schema when provided. ***
-                # Intended stats: IP/OP/ER mix, admissions by ward/room/bed, TPA/insurance
-                # mix, length-of-stay, exams-per-visit.
-                "description": "Patient visits / encounters (RIS)",
-                "pk": "visit_key",
-                "incremental_key": "last_update",
+            "std_orders": {
+                # Source: CSHRIS.ORDERS — 1 row per HIS order (header; parent of std_worklist
+                # rows via order_key). Carries the AUTHORITATIVE site issuer.
+                # EXTRACT FILTER: issuer_of_placer_order_number IN ('SAP_PROD','SAP_SJH').
+                "description": "RIS order headers from HIS (1 per order; parent of worklist SPS)",
+                "pk": "order_key",
+                "incremental_key": "created_on_date",   # ≤500 rows/day across both sites
                 "columns": {
-                    "visit_key":         {"pg_type": "BIGINT NOT NULL",         "aliases": ["visit_key", "visit_dbid", "encounter_key"]},
-                    "visit_number":      {"pg_type": "TEXT",                    "aliases": ["visit_number", "visit_id", "encounter_id"]},
-                    "patient_dbid":      {"pg_type": "TEXT",                    "aliases": ["patient_id", "patient_person_key", "pat_dbid"]},
-                    "patient_class":     {"pg_type": "TEXT",                    "aliases": ["patient_class", "patient_class_key", "pat_class"]},   # IP / OP / ER
-                    "admit_datetime":    {"pg_type": "TIMESTAMP",              "aliases": ["admit_datetime", "admit_date_time", "admit_date"]},
-                    "discharge_datetime":{"pg_type": "TIMESTAMP",              "aliases": ["discharge_datetime", "discharge_date_time", "discharge_date"]},
-                    "location_poc":      {"pg_type": "TEXT",                    "aliases": ["location_point_of_care", "point_of_care", "ward"]},
-                    "location_room":     {"pg_type": "TEXT",                    "aliases": ["location_room", "room"]},
-                    "location_bed":      {"pg_type": "TEXT",                    "aliases": ["location_bed", "bed"]},
-                    "attending_physician":{"pg_type": "TEXT",                   "aliases": ["attending_physician", "attending_doctor"]},
-                    "referring_physician":{"pg_type": "TEXT",                   "aliases": ["referring_physician", "reffering_phisician", "reffering_doctor"]},
-                    "insurance_name":    {"pg_type": "TEXT",                    "aliases": ["insurance_name", "third_party_payer", "tpa", "payer"]},
-                    "org_structure_key": {"pg_type": "TEXT",                    "aliases": ["org_structure_key"]},   # site resolution (3926=RH, 5320=SJH)
-                    "hl7_building":      {"pg_type": "TEXT",                    "aliases": ["building", "hospital_service", "location_building"]},  # PV1 building 1000/2000
-                    "last_update":       {"pg_type": "TIMESTAMP DEFAULT NOW()", "aliases": ["last_update_date"]},
+                    "order_key":             {"pg_type": "BIGINT NOT NULL", "aliases": []},
+                    "visit_key":             {"pg_type": "BIGINT",  "aliases": []},
+                    "patient_person_key":    {"pg_type": "BIGINT",  "aliases": []},
+                    "accession_number":      {"pg_type": "TEXT",    "aliases": []},   # HIS/SAP accession (NOT the PACS join)
+                    "issuer_of_accession_number": {"pg_type": "TEXT", "aliases": []},
+                    "reason_for_order":      {"pg_type": "TEXT",    "aliases": []},
+                    "request_datetime":      {"pg_type": "TIMESTAMP", "aliases": []},
+                    "parent_placer_order_number": {"pg_type": "TEXT", "aliases": []},
+                    "placer_group_number":   {"pg_type": "TEXT",    "aliases": []},
+                    "placer_order_number":   {"pg_type": "TEXT",    "aliases": []},   # HL7 lifecycle key
+                    "issuer_of_placer_order_number": {"pg_type": "TEXT", "aliases": []},  # SAP_PROD/SAP_SJH → site (authoritative)
+                    "filler_order_number":   {"pg_type": "TEXT",    "aliases": []},
+                    "issuer_of_filler_order_number": {"pg_type": "TEXT", "aliases": []},
+                    "comments":              {"pg_type": "TEXT",    "aliases": []},
+                    "priority_key":          {"pg_type": "BIGINT",  "aliases": []},
+                    "ordering_organization_key": {"pg_type": "BIGINT", "aliases": []},
+                    "status_key":            {"pg_type": "INTEGER", "aliases": []},
+                    "isolation_status":      {"pg_type": "TEXT",    "aliases": []},
+                    "order_department":      {"pg_type": "TEXT",    "aliases": []},
+                    "special_instructions":  {"pg_type": "TEXT",    "aliases": []},
+                    "protocol_required_flag": {"pg_type": "TEXT",   "aliases": []},
+                    "protocol_completed_flag": {"pg_type": "TEXT",  "aliases": []},
+                    "org_structure_key":     {"pg_type": "TEXT",    "aliases": []},   # cross-check vs issuer
+                    "visitation_comments":   {"pg_type": "TEXT",    "aliases": []},
+                    "schedule_priority_key": {"pg_type": "BIGINT",  "aliases": []},
+                    "justification_status_key": {"pg_type": "BIGINT", "aliases": []},
+                    "justified_on_date":     {"pg_type": "TIMESTAMP", "aliases": []},
+                    "created_on_date":       {"pg_type": "TIMESTAMP", "aliases": []},
+                    "signed_by_date":        {"pg_type": "TIMESTAMP", "aliases": []},
+                    "requesting_address_key": {"pg_type": "BIGINT", "aliases": []},
+                    "requesting_report_delivery_key": {"pg_type": "BIGINT", "aliases": []},  # CRN routing
+                    "requesting_image_delivery_key":  {"pg_type": "BIGINT", "aliases": []},
+                    "requesting_send_to":    {"pg_type": "TEXT",    "aliases": []},   # CRN routing
+                    "signed_by_resource_id_key":    {"pg_type": "BIGINT", "aliases": []},
+                    "requested_by_resource_id_key": {"pg_type": "BIGINT", "aliases": []},
+                    "justified_by_resource_id_key": {"pg_type": "BIGINT", "aliases": []},
+                    "recommended_schedule_date": {"pg_type": "TIMESTAMP", "aliases": []},
+                    "followup_pps_key":      {"pg_type": "BIGINT",  "aliases": []},
+                    "status_reason_key":     {"pg_type": "BIGINT",  "aliases": []},
+                    "created_by_resource_id_key": {"pg_type": "BIGINT", "aliases": []},
+                    "cancelled_by_person_key": {"pg_type": "BIGINT", "aliases": []},
+                    "ordering_group_key":    {"pg_type": "BIGINT",  "aliases": []},
+                    "followup_type_key":     {"pg_type": "BIGINT",  "aliases": []},
+                    "review_eorder_flag":    {"pg_type": "TEXT",    "aliases": []},
+                    "second_opinion_eorder_flag": {"pg_type": "TEXT", "aliases": []},
+                    "import_study_order":    {"pg_type": "TEXT",    "aliases": []},
+                    "site_id":               {"pg_type": "INTEGER", "aliases": []},   # RAYD-resolved (from issuer)
+                },
+            },
+            "std_reports": {
+                # Source: CSHRIS.REPORT — 1 row per report VERSION (report_key repeats across
+                # versions; is_max_version marks current). Accession is PER-VERSION (amended
+                # versions get a new sequence) → current-study join uses the max-version row.
+                # DOCUMENT_PLAIN_TEXT = THE durable NLP feed / CRN body (full labeled sections:
+                # INDICATION/TECHNIQUE/FINDINGS/IMPRESSION). Blobs omitted per ruling.
+                # NOTE Qr3: signature dates pulled RAW; PACS↔RIS status mapping deferred.
+                "description": "RIS report versions — plain-text content + full signature chain",
+                "pk": "report_key, version",
+                "incremental_key": "last_modified_date",
+                "columns": {
+                    "report_key":            {"pg_type": "BIGINT NOT NULL", "aliases": []},
+                    "version":               {"pg_type": "INTEGER NOT NULL", "aliases": []},
+                    "is_max_version":        {"pg_type": "TEXT",    "aliases": []},   # current-version flag
+                    "reported_acc_number":   {"pg_type": "TEXT",    "aliases": []},   # accession (per-version!)
+                    "version_status_key":    {"pg_type": "BIGINT",  "aliases": []},
+                    "finalization_state":    {"pg_type": "TEXT",    "aliases": []},
+                    "interpretation_type_key": {"pg_type": "BIGINT", "aliases": []},
+                    "addendum":              {"pg_type": "TEXT",    "aliases": []},
+                    "report_template_key":   {"pg_type": "BIGINT",  "aliases": []},
+                    "format":                {"pg_type": "TEXT",    "aliases": []},
+                    "body_key":              {"pg_type": "BIGINT",  "aliases": []},
+                    "cr_message_key":        {"pg_type": "BIGINT",  "aliases": []},
+                    "distributed":           {"pg_type": "TEXT",    "aliases": []},
+                    "note_to_rad_flag":      {"pg_type": "TEXT",    "aliases": []},
+                    "print_rules_gui_override": {"pg_type": "TEXT", "aliases": []},
+                    # --- content ---
+                    "document_plain_text":   {"pg_type": "TEXT",    "aliases": []},   # THE NLP feed
+                    # --- report chain timestamps (raw; mapping deferred per Qr3) ---
+                    "report_created_date":   {"pg_type": "TIMESTAMP", "aliases": []},
+                    "draft_date":            {"pg_type": "TIMESTAMP", "aliases": []},
+                    "wet_read_date":         {"pg_type": "TIMESTAMP", "aliases": []},
+                    "transcription_date":    {"pg_type": "TIMESTAMP", "aliases": []},
+                    "verified1_date":        {"pg_type": "TIMESTAMP", "aliases": []},
+                    "verified2_date":        {"pg_type": "TIMESTAMP", "aliases": []},
+                    "verified3_date":        {"pg_type": "TIMESTAMP", "aliases": []},
+                    "approved_date":         {"pg_type": "TIMESTAMP", "aliases": []},
+                    "reviewed_date":         {"pg_type": "TIMESTAMP", "aliases": []},
+                    "returned_date":         {"pg_type": "TIMESTAMP", "aliases": []},
+                    "report_time":           {"pg_type": "TIMESTAMP", "aliases": []},
+                    "last_modified_date":    {"pg_type": "TIMESTAMP", "aliases": []},
+                    # --- people (resource keys → PERSON/RESOURCE table, next session) ---
+                    "reported_by":           {"pg_type": "TEXT",    "aliases": []},
+                    "report_to":             {"pg_type": "TEXT",    "aliases": []},
+                    "transcribed_by_resource_id_key": {"pg_type": "BIGINT", "aliases": []},
+                    "verified1_by_resource_id_key":   {"pg_type": "BIGINT", "aliases": []},
+                    "verified2_by_resource_id_key":   {"pg_type": "BIGINT", "aliases": []},
+                    "verified3_by_resource_id_key":   {"pg_type": "BIGINT", "aliases": []},
+                    "approved_by_resource_id_key":    {"pg_type": "BIGINT", "aliases": []},
+                    "created_by_resource_id_key":     {"pg_type": "BIGINT", "aliases": []},
+                    "last_modified_resource_id_key":  {"pg_type": "BIGINT", "aliases": []},
+                    "signed_behalf_resource_id_key":  {"pg_type": "BIGINT", "aliases": []},
+                    "wet_read_by_resource_id_key":    {"pg_type": "BIGINT", "aliases": []},
+                    "reviewed_by_resource_id_key":    {"pg_type": "BIGINT", "aliases": []},
+                    "returned_by_resource_id_key":    {"pg_type": "BIGINT", "aliases": []},
+                    "draft_by_resource_id_key":       {"pg_type": "BIGINT", "aliases": []},
+                    # --- effort metrics (per-radiologist productivity) ---
+                    "character_count":       {"pg_type": "INTEGER", "aliases": []},
+                    "word_count":            {"pg_type": "INTEGER", "aliases": []},
+                    "line_count":            {"pg_type": "INTEGER", "aliases": []},
+                    "total_lines_in_document": {"pg_type": "INTEGER", "aliases": []},
+                    "minutes_of_editing_for_session": {"pg_type": "NUMERIC", "aliases": []},
+                    "site_id":               {"pg_type": "INTEGER", "aliases": []},   # RAYD-resolved (via accession)
+                },
+            },
+            "std_devices": {
+                # Source: CSHRIS.MODALITY merged with MODALITY_TYPE (vendor: "merge them
+                # already in one table"). ae_title = PACS didb_studies.storing_ae (the
+                # per-device RIS↔PACS join). One-time load; reload occasionally.
+                # modality = MODALITY_TYPE.CODE resolved at ETL time via modality_type_key.
+                "description": "Device/room registry (MODALITY + MODALITY_TYPE merged)",
+                "pk": "modality_key",
+                "columns": {
+                    "modality_key":          {"pg_type": "BIGINT NOT NULL", "aliases": []},
+                    "code":                  {"pg_type": "TEXT",    "aliases": []},   # room code (CT64, MAMO1…)
+                    "description":           {"pg_type": "TEXT",    "aliases": []},   # room display name
+                    "ae_title":              {"pg_type": "TEXT",    "aliases": []},   # = didb_studies.storing_ae
+                    "station_name":          {"pg_type": "TEXT",    "aliases": []},
+                    "modality_type_key":     {"pg_type": "BIGINT",  "aliases": []},
+                    "modality":              {"pg_type": "TEXT",    "aliases": []},   # resolved CT/MR/US… (ETL transform)
+                    "org_structure_key":     {"pg_type": "TEXT",    "aliases": []},   # → site_org_map → site
+                    "active":                {"pg_type": "TEXT",    "aliases": []},
+                    "site_id":               {"pg_type": "INTEGER", "aliases": []},   # RAYD-resolved
                 },
             },
             "std_procedure_codes": {
-                "description": "Procedure catalog / exam codes",
-                "pk": "proc_id",
+                # Source: CSHRIS.SPS_CODE — the procedure catalog. sps_code_key joins
+                # std_worklist.sps_code_key. duration = scheduled minutes (capacity math);
+                # measured actuals come later from status timestamps.
+                "description": "Procedure catalog (SPS codes) with scheduled durations",
+                "pk": "sps_code_key",
+                "incremental_key": "last_updated",
                 "columns": {
-                    "proc_id":            {"pg_type": "TEXT NOT NULL",            "aliases": ["procedure_code", "proc_code", "code"]},
-                    "proc_text":          {"pg_type": "TEXT",                     "aliases": ["procedure_text", "procedure_name", "description"]},
-                    "modality":           {"pg_type": "TEXT",                     "aliases": []},
-                    "body_part":          {"pg_type": "TEXT",                     "aliases": ["body_region"]},
-                    "department":         {"pg_type": "TEXT",                     "aliases": ["dept"]},
-                    "default_duration":   {"pg_type": "INTEGER",                 "aliases": ["duration_minutes", "expected_minutes"]},
-                    "is_active":          {"pg_type": "BOOLEAN DEFAULT TRUE",     "aliases": ["active"]},
-                    "last_update":        {"pg_type": "TIMESTAMP DEFAULT NOW()",  "aliases": []},
+                    "sps_code_key":          {"pg_type": "BIGINT NOT NULL", "aliases": []},
+                    "code":                  {"pg_type": "TEXT",    "aliases": []},   # J17G-01C…
+                    "description":           {"pg_type": "TEXT",    "aliases": []},
+                    "duration":              {"pg_type": "INTEGER", "aliases": []},   # scheduled minutes
+                    "minimum_study_duration": {"pg_type": "INTEGER", "aliases": []},
+                    "active":                {"pg_type": "TEXT",    "aliases": []},
+                    "body_part_key":         {"pg_type": "BIGINT",  "aliases": []},
+                    "laterality_key":        {"pg_type": "BIGINT",  "aliases": []},
+                    "coding_scheme_key":     {"pg_type": "BIGINT",  "aliases": []},
+                    "document_together_group_key": {"pg_type": "BIGINT", "aliases": []},
+                    "contra_indication_warning_text": {"pg_type": "TEXT", "aliases": []},
+                    "last_updated":          {"pg_type": "TIMESTAMP", "aliases": []},
+                },
+            },
+            "std_visits": {
+                # Source: CSHRIS.VISIT (real schema, supersedes earlier inference).
+                # visit_number = HL7 PV1.19 (links live ADT/ORM to visits). Exclude
+                # DELETED='Y' rows from stats. Feeds case-mix/payer/LOS.
+                "description": "Patient visits/encounters (RIS)",
+                "pk": "visit_key",
+                "incremental_key": "created_on_date",
+                "columns": {
+                    "visit_key":             {"pg_type": "BIGINT NOT NULL", "aliases": []},
+                    "patient_person_key":    {"pg_type": "BIGINT",  "aliases": []},
+                    "patient_class_key":     {"pg_type": "BIGINT",  "aliases": []},   # → IP/OP/ER lookup (pending)
+                    "preadmit_number":       {"pg_type": "TEXT",    "aliases": []},
+                    "visit_number":          {"pg_type": "TEXT",    "aliases": []},   # = HL7 PV1.19
+                    "financial_class_key":   {"pg_type": "BIGINT",  "aliases": []},   # → payer/TPA lookup (pending)
+                    "admit_date_time":       {"pg_type": "TIMESTAMP", "aliases": []},
+                    "discharge_date_time":   {"pg_type": "TIMESTAMP", "aliases": []},
+                    "expected_admit_date_time":    {"pg_type": "TIMESTAMP", "aliases": []},
+                    "expected_discharge_date_time": {"pg_type": "TIMESTAMP", "aliases": []},
+                    "visit_description":     {"pg_type": "TEXT",    "aliases": []},
+                    "visit_priority_key":    {"pg_type": "BIGINT",  "aliases": []},
+                    "hospital_service_key":  {"pg_type": "BIGINT",  "aliases": []},
+                    "visit_indicator":       {"pg_type": "TEXT",    "aliases": []},
+                    "issuer_of_visit_number": {"pg_type": "TEXT",   "aliases": []},
+                    "issuer_of_preadmit_number": {"pg_type": "TEXT", "aliases": []},
+                    "alternate_visit_id":    {"pg_type": "TEXT",    "aliases": []},
+                    "mobility_status_key":   {"pg_type": "BIGINT",  "aliases": []},
+                    "created_by_person_key": {"pg_type": "BIGINT",  "aliases": []},
+                    "created_on_date":       {"pg_type": "TIMESTAMP", "aliases": []},
+                    "patient_account_number": {"pg_type": "TEXT",   "aliases": []},
+                    "is_master":             {"pg_type": "TEXT",    "aliases": []},
+                    "deleted":               {"pg_type": "TEXT",    "aliases": []},   # exclude 'Y' from stats
+                    "deleted_date":          {"pg_type": "TIMESTAMP", "aliases": []},
+                    "site_id":               {"pg_type": "INTEGER", "aliases": []},   # RAYD-resolved
                 },
             },
         },
     },
-
     # ── LIS ─────────────────────────────────────────────────────────────
     "LIS": {
         "db_name_suffix": "lis",
