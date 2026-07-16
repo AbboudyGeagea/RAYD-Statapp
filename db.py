@@ -371,7 +371,8 @@ class SchedulingEntry(db.Model):
     updated_at = db.Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 ALL_FEATURE_KEYS = [
-    'live_feed', 'hl7_orders', 'report_ai', 'oru', 'mapping', 'patient_portal', 'scheduling',
+    # patient_portal + scheduling: modules removed at LAUMC (see docs/LAUMC_SCOPE.md)
+    'live_feed', 'hl7_orders', 'report_ai', 'oru', 'mapping',
     'financial', 'cd_print', 'referring_intel', 'custom_reports',
 ]
 

@@ -631,19 +631,7 @@ def _handle_client(conn, addr, app):
                                     f"| accession={parsed['accession_number']}"
                                 )
 
-                                try:
-                                    from routes.portal_bp import process_orm_for_portal
-                                    with app.app_context():
-                                        process_orm_for_portal(
-                                            raw_message,
-                                            parsed.get('accession_number', '')
-                                        )
-                                    logger.info(
-                                        f"✅ Portal hook fired | "
-                                        f"accession={parsed.get('accession_number')}"
-                                    )
-                                except Exception as portal_err:
-                                    logger.warning(f"⚠ Portal hook error: {portal_err}")
+                                # (patient portal hook removed — module absent at LAUMC)
 
                     ack = _build_ack(msh, ACK_AA)
 

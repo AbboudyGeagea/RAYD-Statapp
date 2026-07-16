@@ -37,7 +37,19 @@
       "Read(//d/d/Intermedic/Statistics app/**)",
       "Bash(awk -F: '{print $3}')",
       "Bash(awk '{print $2}')",
-      "Read(//d/Intermedic/Statistics app/**)"
+      "Read(//d/Intermedic/Statistics app/**)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(git commit -m 'docs\\(LAUMC\\): add data pull list for RIS/PACS discovery and migration prep *)",
+      "Bash(git commit -m 'docs\\(LAUMC\\): vendor rulings — Mirth duplicate bug permanent \\(MSH-10 dedupe mandatory\\), whitelist-and-discard listener contract, quick-reg data-quality panel, group workflow pending *)",
+      "Bash(git commit -m 'docs\\(LAUMC\\): rulings — no portal at LAUMC, plain-text NLP only; RDMS feature analysis \\(dose extraction, DRLs, per-device profiles, cumulative cross-site dose\\) *)",
+      "Bash(git commit -m 'docs\\(LAUMC\\): consolidate all open questions and needed inputs into one answerable document *)",
+      "Bash(git commit -m 'docs\\(LAUMC\\): rewrite open questions in plain language with why-it-matters context *)",
+      "Bash(python -c \"import ast,sys; ast.parse\\(open\\('ETL_JOBS/system_type_registry.py',encoding='utf-8'\\).read\\(\\)\\); print\\('registry: OK'\\)\")",
+      "Bash(python -c ' *)",
+      "Bash(git commit -m 'feat\\(LAUMC\\): multi-site foundation — sites map, status lifecycle map, status-history, site_id columns, RIS worklist adapter schema *)",
+      "Bash(git commit -m 'feat\\(LAUMC\\): add RIS std_visits table to registry — IP/OP/ER mix, ward/room/bed, TPA/insurance, length-of-stay stats *)"
     ]
   }
 }

@@ -184,8 +184,7 @@ def login():
             return redirect(url_for('admin.admin_dashboard'))
         if user.role == 'tec':
             return redirect(url_for('hl7_orders.hl7_orders_page'))
-        if user.role == 'secretary':
-            return redirect(url_for('admin.scheduling_page'))
+        # (scheduling module removed at LAUMC — secretaries land on the dashboard)
         return redirect(url_for('viewer.viewer_dashboard'))
 
     return render_template('login.html')

@@ -61,7 +61,8 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
             'rep_transcribed_by', 'rep_transcribed_timestamp',
             'rep_final_signed_by', 'rep_final_timestamp',
             'rep_addendum_by', 'rep_addendum_timestamp', 'rep_has_addendum',
-            'is_linked_study', 'patient_location'
+            'is_linked_study', 'patient_location',
+            'pacs_site_id_raw'   # raw PACS SITE_ID ('0'=RH, '1'=SJH) — resolved to sites.id by enrichment
         ]
 
         ora_conn = OracleConnector.get_connection(oracle_source)
@@ -98,7 +99,8 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
                     s.REP_ADDENDUM_BY, s.REP_ADDENDUM_TIMESTAMP,
                     CASE WHEN s.REP_HAS_ADDENDUM = 'Y' THEN 'true' ELSE 'false' END,
                     CASE WHEN s.IS_LINKED_STUDY = 'Y' THEN 'true' ELSE 'false' END,
-                    SUBSTR(s.PATIENT_LOCATION, 1, 3)
+                    SUBSTR(s.PATIENT_LOCATION, 1, 3),
+                    TO_CHAR(s.SITE_ID)
                 FROM medistore.didb_studies s
                 LEFT JOIN medistore.didb_patients_view p ON p.PATIENT_DB_UID = s.PATIENT_DB_UID
         """
@@ -125,7 +127,8 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
                     s.REP_ADDENDUM_BY, s.REP_ADDENDUM_TIMESTAMP,
                     CASE WHEN s.REP_HAS_ADDENDUM = 'Y' THEN 'true' ELSE 'false' END,
                     CASE WHEN s.IS_LINKED_STUDY = 'Y' THEN 'true' ELSE 'false' END,
-                    SUBSTR(s.PATIENT_LOCATION, 1, 3)
+                    SUBSTR(s.PATIENT_LOCATION, 1, 3),
+                    TO_CHAR(s.SITE_ID)
                 FROM medistore.didb_studies s
         """
 

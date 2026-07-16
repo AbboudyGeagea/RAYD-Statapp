@@ -15,7 +15,7 @@
 #   sudo bash update.sh              # pulls from main
 #   sudo bash update.sh CHN          # pulls from CHN branch
 #   sudo bash update.sh Mazloum      # pulls from Mazloum branch
-
+#   sudo bash update.sh <LAUMC>        # pulls from LAUMC branch
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

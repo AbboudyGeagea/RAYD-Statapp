@@ -293,7 +293,7 @@ def create_app():
     @app.before_request
     def check_auth():
         ep = request.endpoint or ''
-        if request.path.startswith('/static/') or ep.startswith('portal.') or ep in _AUTH_PASSTHROUGH or ep.startswith('auth.'):
+        if request.path.startswith('/static/') or ep in _AUTH_PASSTHROUGH or ep.startswith('auth.'):
             return
 
         if not current_user.is_authenticated:
@@ -554,17 +554,7 @@ def create_app():
             db.session.rollback()
             logger.warning(f"[Migration] hl7_orders.patient_class/location: {e}")
 
-    # --- MIGRATION: patient portal password_hash column ---
-    with app.app_context():
-        try:
-            db.session.execute(text("""
-                ALTER TABLE patient_portal_users
-                ADD COLUMN IF NOT EXISTS password_hash VARCHAR(256)
-            """))
-            db.session.commit()
-        except Exception as e:
-            db.session.rollback()
-            logger.warning(f"[Migration] patient_portal_users.password_hash: {e}")
+    # (patient_portal_users migration removed — portal module absent at LAUMC)
 
     # --- MIGRATION: encrypt db_params passwords ---
     with app.app_context():

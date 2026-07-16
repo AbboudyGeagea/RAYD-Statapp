@@ -20,8 +20,6 @@ from routes.api_controller   import api_bp
 from routes.hl7_orders       import hl7_orders_bp
 from routes.etl_gear_route   import etl_gear_bp
 from routes.report_ai        import report_ai_bp
-from routes.portal_bp        import portal_bp
-from routes.portal_admin     import portal_admin_bp
 from routes.super_report     import super_report_bp
 from routes.capacity_ladder  import capacity_ladder_bp
 from routes.live_feed        import live_feed_bp
@@ -61,9 +59,9 @@ DEFAULT_LICENSE = {
     "referring_intel": True,
     # ── Tier 3: Enterprise ───────────────────────────────────
     "financial":       True,   # Revenue Intelligence
-    "scheduling":      True,
+    "scheduling":      False,  # LAUMC: module removed
     "live_feed":       True,
-    "patient_portal":  True,
+    "patient_portal":  False,  # LAUMC: module removed
     "ai_report":       True,
     # ── Limits (0 = unlimited) ───────────────────────────────
     "max_users":              0,
@@ -307,13 +305,7 @@ def register_blueprints(app):
             for url, display_name in fallbacks:
                 _register_not_licensed_route(app, url, display_name, tier)
 
-    # ── Patient Portal (Enterprise — license + config flag) ──────
-    if lic.get('patient_portal', False) and app.config.get("PATIENT_PORTAL_ENABLED", True):
-        app.register_blueprint(portal_bp)
-        app.register_blueprint(portal_admin_bp)
-        logger.info("  patient_portal: enabled")
-    else:
-        logger.info("  patient_portal: not licensed — skipped")
+    # ── Patient Portal: module REMOVED at LAUMC (routes physically absent) ──
 
     # ── Live AE Feed (Enterprise — license + config flag) ────────
     if lic.get('live_feed', False) and app.config.get("LIVE_FEED_ENABLED", True):
@@ -322,8 +314,7 @@ def register_blueprints(app):
     else:
         logger.info("  live_feed: not licensed — skipped")
 
-    # ── Scheduling (Enterprise — license only; route is in admin_bp) ─
-    logger.info(f"  scheduling: {'enabled' if lic.get('scheduling', False) else 'not licensed — sidebar hidden'}")
+    # ── Scheduling: module REMOVED at LAUMC (routes physically absent) ──
 
     # ── AI Alerts (always on — pure SQL anomaly detection) ────────
     from routes.ai_alerts import ai_alerts_bp
@@ -335,5 +326,4 @@ def register_blueprints(app):
     def inject_license():
         return {
             "license":              lic,
-            "portal_admin_enabled": "portal_admin" in app.blueprints,
         }
