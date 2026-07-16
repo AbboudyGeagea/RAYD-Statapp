@@ -1,0 +1,22 @@
+[Unit]
+# Re-applies the HL7 (MLLP 6661) source-IP whitelist after boot.
+# iptables rules are not persistent across reboots, and Docker rebuilds its chains
+# when the daemon starts — so this must run AFTER docker is up.
+Description=RAYD HL7 port whitelist (DOCKER-USER)
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Adjust if RAYD is installed elsewhere.
+WorkingDirectory=/opt/rayd
+ExecStart=/usr/bin/env bash /opt/rayd/scripts/hl7_firewall.sh
+# If HL7_ALLOWED_IPS is unset the script exits 1 by design (fail-safe, no deny-all).
+# Surface that loudly rather than masking it.
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

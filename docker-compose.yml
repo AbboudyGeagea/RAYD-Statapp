@@ -23,7 +23,13 @@ services:
     container_name: rayd_service
     restart: always
     ports:
-      - "6661:6661"
+      # HL7/MLLP listener — the senders (Carestream PACS, SAP/Mirth HIS, RIS) are REMOTE
+      # hosts, so this cannot be bound to 127.0.0.1 without killing HL7 ingestion.
+      # Access control is enforced by a source-IP whitelist: scripts/hl7_firewall.sh
+      # (DOCKER-USER chain — published ports bypass INPUT, see the script's comments).
+      # HL7_BIND_ADDR optionally narrows the listener to one host interface as defence
+      # in depth; it defaults to 0.0.0.0 so existing deployments are unaffected.
+      - "${HL7_BIND_ADDR:-0.0.0.0}:6661:6661"
     env_file:
       - .env
     environment:
