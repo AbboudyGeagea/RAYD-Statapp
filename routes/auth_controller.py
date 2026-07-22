@@ -7,6 +7,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from sqlalchemy import text
 
 from db import User, UserPagePermission, UserAuditLog, active_sessions, db
+from utils.rate_limit import limiter
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -122,6 +123,11 @@ def register():
 # ── login ─────────────────────────────────────────────────────────────────────
 
 @auth_bp.route('/login', methods=['GET', 'POST'])
+# Brute-force protection: 5 credential submissions per minute per client IP.
+# methods=["POST"] is deliberate — this route also serves the login PAGE on GET, and
+# limiting GET would lock a user out for simply reloading the form.
+# Keyed on the real client IP (nginx X-Forwarded-For + ProxyFix); see utils/rate_limit.py.
+@limiter.limit("5 per minute", methods=["POST"])
 def login():
     if current_user.is_authenticated:
         dest = 'admin.admin_dashboard' if current_user.role == 'admin' else 'viewer.viewer_dashboard'

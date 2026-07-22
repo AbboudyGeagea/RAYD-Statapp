@@ -24,6 +24,6 @@
 #       return {"config": app.config}
 #
 # This lets templates do:
-#   {% if config.BITNET_ENABLED %}
-#     <a href="/ai/assistant">AI Assistant</a>
+#   {% if config.SOME_FEATURE_FLAG %}
+#     <a href="/some/page">Feature</a>
 #   {% endif %}

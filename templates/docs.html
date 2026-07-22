@@ -238,9 +238,6 @@
                 <div class="nav-group-label" data-group="config">Configuration</div>
                 <div class="nav-item" data-topic="mapping"    data-group="config" onclick="showTopic('mapping',this)"><i class="bi bi-sliders"         style="color:#a78bfa"></i> Modality &amp; Devices</div>
                 <div class="nav-item" data-topic="etl"        data-group="config" onclick="showTopic('etl',this)"><i class="bi bi-arrow-repeat"    style="color:#fbbf24"></i> ETL Pipeline</div>
-                <div class="nav-item" data-topic="ai"         data-group="config" onclick="showTopic('ai',this)"><i class="bi bi-robot"            style="color:#f43f5e"></i> AI Assistant</div>
-                <div class="nav-item" data-topic="aiteaching" data-group="config" onclick="showTopic('aiteaching',this)"><i class="bi bi-mortarboard"      style="color:#f43f5e"></i> AI Teaching Center</div>
-                <div class="nav-item" data-topic="portal"     data-group="config" onclick="showTopic('portal',this)"><i class="bi bi-person-badge"    style="color:#60a5fa"></i> Patient Portal</div>
 
             </aside>
 
@@ -307,8 +304,6 @@
                                 <p class="ov-label" style="color:#f43f5e">Configuration</p>
                                 <p><strong>Modality &amp; Devices</strong> — AE titles, room names, schedules, RVU</p>
                                 <p><strong>ETL Pipeline</strong> — data sync status and manual trigger</p>
-                                <p><strong>AI Assistant</strong> — conversational analytics in Arabic &amp; English</p>
-                                <p><strong>Patient Portal</strong> — patient self-service access management</p>
                             </div>
                         </div>
                     </div>
@@ -1151,109 +1146,7 @@
                 </div>
 
 
-                <!-- ══ AI ASSISTANT ══════════════════════════ -->
-                <div class="topic-panel" id="topic-ai">
-                    <div class="flex items-center gap-3 mb-1">
-                        <span class="tag tag-kpi" style="background:rgba(244,63,94,0.15);color:#f43f5e;">AI</span>
-                        <h1 class="topic-title">AI Assistant</h1>
-                    </div>
-                    <p class="topic-desc">An on-premise conversational analytics assistant. Ask questions in Arabic or English and receive answers backed by real data from the database — the model cannot invent numbers. All conversations remain within your server infrastructure.</p>
-
-                    <div class="chart-card">
-                        <div class="flex flex-wrap items-center gap-2 mb-1">
-                            <span class="tag tag-text"><i class="bi bi-chat-dots"></i> Chat</span>
-                            <span class="chart-card-title">Conversational Interface</span>
-                        </div>
-                        <p class="chart-q">Can I ask "how many CT studies did we do last week?" and get a reliable, data-backed answer?</p>
-                        <p class="chart-a">Yes. The system fetches the actual numbers from the database before generating any text — it cannot invent figures. Responses include inline charts and links to the relevant detailed report. Supports Arabic and English in the same session.</p>
-                    </div>
-
-                    <div class="chart-card">
-                        <div class="flex flex-wrap items-center gap-2 mb-1">
-                            <span class="tag tag-kpi"><i class="bi bi-exclamation-triangle"></i> Alerts</span>
-                            <span class="chart-card-title">Proactive Anomaly Alerts</span>
-                        </div>
-                        <p class="chart-q">Are there any TAT spikes, storage surges, or device volume outliers happening this week that have not been noticed yet?</p>
-                        <p class="chart-a">The alert panel surfaces these automatically — no question needed. Check it weekly alongside the ETL status to catch operational anomalies before the next management review meeting.</p>
-                    </div>
-
-                    <div class="chart-card">
-                        <div class="flex flex-wrap items-center gap-2 mb-1">
-                            <span class="tag tag-kpi"><i class="bi bi-hand-thumbs-down"></i> Feedback</span>
-                            <span class="chart-card-title">Answer Feedback</span>
-                        </div>
-                        <p class="chart-q">What should I do if the AI gives a wrong or unhelpful answer?</p>
-                        <p class="chart-a">Click thumbs-down on that response. An admin can then review the feedback in the AI Teaching Center and add a correction — it takes effect immediately with no model retraining. Your single click makes the system smarter for everyone.</p>
-                    </div>
-
-                    <div class="chart-card">
-                        <div class="flex flex-wrap items-center gap-2 mb-1">
-                            <span class="tag tag-text"><i class="bi bi-gear"></i> Setup</span>
-                            <span class="chart-card-title">Availability &amp; Response Time</span>
-                        </div>
-                        <p class="chart-q">Why is the AI assistant sometimes slow or unavailable?</p>
-                        <p class="chart-a">The AI runs entirely on the server's CPU — no internet connection or external API is used. Response time is 5–15 seconds per question. Identical questions within 5 minutes are answered instantly from cache. If unavailable, check whether the llama-server service is running on the host machine.</p>
-                    </div>
-                </div>
-
-
-                <!-- ══ AI TEACHING CENTER ══════════════════════════ -->
-                <div class="topic-panel" id="topic-aiteaching">
-                    <div class="flex items-center gap-3 mb-1">
-                        <span class="tag tag-kpi" style="background:rgba(244,63,94,0.15);color:#f43f5e;">AI</span>
-                        <h1 class="topic-title">AI Teaching Center</h1>
-                    </div>
-                    <p class="topic-desc">Admin page at <code>/ai/admin</code> for reviewing user feedback and teaching the AI correct answers. The AI improves continuously without model retraining, GPU resources, or any technical work — weekly review takes 5–10 minutes.</p>
-
-                    <div class="chart-card">
-                        <div class="flex flex-wrap items-center gap-2 mb-1">
-                            <span class="tag tag-table"><i class="bi bi-hand-thumbs-down"></i> Review</span>
-                            <span class="chart-card-title">Feedback Review</span>
-                        </div>
-                        <p class="chart-q">Which AI answers did users mark as wrong this week?</p>
-                        <p class="chart-a">Click "Teach" on any thumbs-down entry — keywords are auto-extracted and pre-filled in the correction form. Click "Dismiss" to mark as reviewed without teaching. A weekly 10-minute review keeps the system accurate without technical expertise.</p>
-                    </div>
-
-                    <div class="chart-card">
-                        <div class="flex flex-wrap items-center gap-2 mb-1">
-                            <span class="tag tag-table"><i class="bi bi-lightbulb"></i> Corrections</span>
-                            <span class="chart-card-title">Corrections Management</span>
-                        </div>
-                        <p class="chart-q">How do I make the AI always answer a specific type of question correctly going forward?</p>
-                        <p class="chart-a">Add a correction with keyword triggers and the correct answer — it activates immediately. Each correction applies to all similar future questions, not just the exact original phrasing. Corrections cost negligible extra processing and can be disabled at any time.</p>
-                    </div>
-                </div>
-
-
-                <!-- ══ PATIENT PORTAL ══════════════════════════ -->
-                <div class="topic-panel" id="topic-portal">
-                    <div class="flex items-center gap-3 mb-1">
-                        <span class="tag tag-bar" style="background:rgba(96,165,250,0.15);color:#60a5fa;">Portal</span>
-                        <h1 class="topic-title">Patient Portal</h1>
-                    </div>
-                    <p class="topic-desc">A patient-facing web interface for viewing imaging history and report status. The Portal Admin panel gives staff full control over patient access and token management.</p>
-
-                    <div class="chart-card">
-                        <div class="flex flex-wrap items-center gap-2 mb-1">
-                            <span class="tag tag-table"><i class="bi bi-person"></i> Patient View</span>
-                            <span class="chart-card-title">Patient Self-Service Portal</span>
-                        </div>
-                        <p class="chart-q">Can a patient check the status of their own scan without calling the radiology reception?</p>
-                        <p class="chart-a">Yes — authenticated patients see their own imaging timeline, study status, and report summary. This reduces inbound enquiry calls during peak hours. Cross-patient data access is architecturally impossible — each patient only ever sees their own records.</p>
-                    </div>
-
-                    <div class="chart-card">
-                        <div class="flex flex-wrap items-center gap-2 mb-1">
-                            <span class="tag tag-table"><i class="bi bi-shield-lock"></i> Admin</span>
-                            <span class="chart-card-title">Portal Admin — Access Management</span>
-                        </div>
-                        <p class="chart-q">Which patients currently have portal access — and how do I revoke access for a specific patient immediately?</p>
-                        <p class="chart-a">The admin panel shows all active tokens with last-login dates and expiry status. Generate, send, or revoke access in one click. The full access log is an auditable compliance record — a requirement under healthcare data governance frameworks for patient data access.</p>
-                    </div>
-                </div>
-
-
-                <!-- Footer -->
+                                                                <!-- Footer -->
                 <div class="doc-footer">
                     <p>RAYD Analytics Platform &middot; All calculations run on your server &middot; No external data transmission</p>
                 </div>

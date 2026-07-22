@@ -76,7 +76,6 @@ fi
 info "Step 3/5 — Setting script permissions..."
 
 chmod +x "${SCRIPT_DIR}/scripts/postgres_mcp.sh"
-chmod +x "${SCRIPT_DIR}/scripts/start_qwen_server.sh" 2>/dev/null || true
 ok "Scripts are executable."
 
 # ── 4. Register MCP servers ───────────────────────────────────────────────────

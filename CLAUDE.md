@@ -13,7 +13,6 @@ analytics dashboards for radiologists and administrators.
 | Database | PostgreSQL 15 (`rayd_db` container) |
 | NLP worker | medspaCy in separate `rayd_nlp` container |
 | Reverse proxy | nginx (`rayd_proxy` container) |
-| AI assistant | Qwen2.5-7B via llama.cpp at `http://172.17.0.1:8081` |
 | ETL source | Oracle PACS via `oracledb` (cx_Oracle compatible) |
 | Scheduling | APScheduler (inside main container) |
 
@@ -37,7 +36,6 @@ routes/
   oru_analytics.py              — HL7 ORU analytics (NLP word cloud, critical findings log)
   viewer_controller.py          — daily briefing, home dashboard
   mapping_controller.py         — AE/modality/procedure mapping config (lazy-loaded tabs)
-  bitnet_service.py             — Qwen2.5-7B AI assistant proxy (ChatML format)
   hl7_orders_route.py           — HL7 order analytics
   report_cache.py               — shared cache/dropdown helpers
 ETL_JOBS/
@@ -46,7 +44,6 @@ ETL_JOBS/
 nlp_worker/worker.py            — standalone medspaCy batch loop (polls every 60s)
 migrations/NNNN_*.sql           — schema migrations (canonical source of truth)
 init-db/schema.sql              — initial schema applied by docker-entrypoint
-scripts/setup_qwen_prod.sh      — one-shot Qwen2.5-7B production setup on Ubuntu host
 install.sh                      — full production install script
 ```
 
@@ -174,8 +171,7 @@ procedure_exceptions    — legacy exceptions table (see device_exceptions for c
 3. **Modality source** — prefer `aetitle_modality_map.modality` over `study_modality`; fall back to `study_modality` if no mapping exists.
 4. **Expensive CTEs** — `etl_orders` scans with `MODE() WITHIN GROUP` must use `WITH ... AS MATERIALIZED`.
 5. **hl7_oru_analysis** — written only by `nlp_worker/worker.py`; route handlers read it but never write it.
-6. **Qwen prompt format** — ChatML: `<|im_start|>system\n...<|im_end|>\n<|im_start|>user\n...<|im_end|>\n<|im_start|>assistant\n`
-7. **Password encryption** — Oracle and external DB passwords are encrypted via `utils/crypto.py` using `SECRET_KEY`.
+6. **Password encryption** — Oracle and external DB passwords are encrypted via `utils/crypto.py` using `SECRET_KEY`.
 
 ## Dev Workflow
 

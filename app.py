@@ -261,6 +261,18 @@ def create_app():
     from db_migrations import run_migrations
     run_migrations(app)
 
+    # --- RATE LIMITING (brute-force protection on /login) ---
+    # Must be initialised before blueprints register their limited routes.
+    from utils.rate_limit import limiter
+    limiter.init_app(app)
+
+    @app.errorhandler(429)
+    def handle_rate_limit(e):
+        # Show the login form with a clear message instead of a bare 429 page.
+        _flash('Too many login attempts. Please wait a minute and try again.', 'danger')
+        logger.warning(f"Rate limit hit: {request.remote_addr} on {request.path}")
+        return render_template('login.html'), 429
+
     # --- LOGIN MANAGER ---
     login_manager = LoginManager()
     login_manager.login_view = 'auth.login'

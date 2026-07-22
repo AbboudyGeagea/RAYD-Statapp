@@ -332,8 +332,7 @@ echo "                    saved reports, referring intel"
 echo "                    Unlimited users/sessions"
 echo ""
 echo "  3) Enterprise   — Everything in Professional, plus:"
-echo "                    Revenue intelligence, AI assistant + teaching center,"
-echo "                    scheduling, live AE status, patient portal"
+echo "                    Revenue intelligence, AI reports, live AE status"
 echo "                    Unlimited users/sessions"
 echo ""
 echo "  4) Custom       — Start from Enterprise and toggle features manually"
@@ -507,33 +506,7 @@ INSERT INTO go_live_config (go_live_date) VALUES ('${GO_LIVE}');
 fi
 
 # ──────────────────────────────────────────────────────
-# STEP 7: Remove legacy Qwen2.5-7B / llama.cpp installation
-# Runs once — sentinel at /opt/rayd/.qwen_removed prevents repeat.
-# ──────────────────────────────────────────────────────
-_QWEN_CLEANUP_DONE="/opt/rayd/.qwen_removed"
-if [ ! -f "$_QWEN_CLEANUP_DONE" ]; then
-    info "Step 7/7 — Removing legacy Qwen/llama.cpp AI installation..."
-
-    for svc in qwen-server llama-server bitnet; do
-        systemctl stop    "$svc" 2>/dev/null || true
-        systemctl disable "$svc" 2>/dev/null || true
-        rm -f "/etc/systemd/system/${svc}.service"
-    done
-    systemctl daemon-reload 2>/dev/null || true
-
-    rm -rf /opt/llama.cpp
-    rm -rf /home/stats/Qwen
-    rm -rf /opt/bitnet
-
-    mkdir -p /opt/rayd
-    touch "$_QWEN_CLEANUP_DONE"
-    ok "Legacy AI files removed."
-else
-    info "Step 7/7 — Qwen cleanup already done, skipping."
-fi
-
-# ──────────────────────────────────────────────────────
-# STEP 8: Initial ETL — run phase by phase (operator paced)
+# STEP 7: Initial ETL — run phase by phase (operator paced)
 #
 # LAUMC is a large site: the full sync walks studies -> series -> raw images
 # (100M+ rows) -> image locations -> patients -> orders -> rollups. Running all

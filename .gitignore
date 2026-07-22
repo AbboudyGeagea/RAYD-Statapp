@@ -20,3 +20,7 @@ instance/
 graphify-out/
 RAYD-Statapp/
 .last_req_hash
+
+# stray scratch/backup files
+Untitled Document*
+.env.bak.*
