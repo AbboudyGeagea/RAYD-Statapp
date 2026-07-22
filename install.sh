@@ -533,6 +533,39 @@ else
 fi
 
 # ──────────────────────────────────────────────────────
+# STEP 8: Initial ETL — run phase by phase (operator paced)
+#
+# LAUMC is a large site: the full sync walks studies -> series -> raw images
+# (100M+ rows) -> image locations -> patients -> orders -> rollups. Running all
+# phases back-to-back can overwhelm the Oracle source, so the ETL is offered
+# phase-by-phase: you are asked before each one and can skip or quit at any point.
+# Phases already completed are kept, so a run can be resumed on another day.
+# ──────────────────────────────────────────────────────
+echo ""
+echo "  ── Initial ETL ────────────────────────────────────────────────────────────"
+echo "  The initial sync runs in phases. Heavy phases (raw images, image locations)"
+echo "  can take hours and put real load on the PACS Oracle server."
+echo ""
+echo "    1) Run now, phase by phase  — you approve each phase before it starts"
+echo "    2) Skip for now             — run it later at a quieter time"
+echo "  ─────────────────────────────────────────────────────────────────────────"
+read -r -p "  Choice [1-2] (default 2): " ETL_CHOICE
+ETL_CHOICE="${ETL_CHOICE:-2}"
+
+if [ "$ETL_CHOICE" = "1" ]; then
+    info "Starting phase-paced ETL — you will be prompted before each phase."
+    echo ""
+    # -e sets the interactive flag inside the container; the exec allocates a TTY so
+    # the per-phase prompts work. A non-zero exit (e.g. operator quit) must not abort
+    # the installer, hence the '|| true'.
+    $COMPOSE exec -e RAYD_ETL_INTERACTIVE=1 rayd-app python app.py -m || true
+    echo ""
+    ok "ETL session finished (any skipped phases can be run later)."
+else
+    info "Initial ETL skipped — run it when convenient (commands below)."
+fi
+
+# ──────────────────────────────────────────────────────
 # DONE
 # ──────────────────────────────────────────────────────
 echo ""
@@ -545,6 +578,17 @@ echo "  Logs:     $COMPOSE logs -f"
 echo "  Restart:  $COMPOSE restart"
 echo "  Stop:     $COMPOSE down"
 echo ""
-echo "  To run a manual ETL sync:"
+echo "  ETL — phase by phase (asks before each phase, recommended):"
+echo "    $COMPOSE exec -e RAYD_ETL_INTERACTIVE=1 rayd-app python app.py -m"
+echo ""
+echo "  ETL — specific phases only (no prompts; good for off-hours/cron):"
+echo "    $COMPOSE exec -e RAYD_ETL_PHASES=1 rayd-app python app.py -m       # studies"
+echo "    $COMPOSE exec -e RAYD_ETL_PHASES=2,2b rayd-app python app.py -m    # series"
+echo "    $COMPOSE exec -e RAYD_ETL_PHASES=3 rayd-app python app.py -m       # raw images (heavy)"
+echo "    $COMPOSE exec -e RAYD_ETL_PHASES=4 rayd-app python app.py -m       # image locations (heavy)"
+echo "    $COMPOSE exec -e RAYD_ETL_PHASES=5,6 rayd-app python app.py -m     # patients + orders"
+echo "    $COMPOSE exec -e RAYD_ETL_PHASES=7,8 rayd-app python app.py -m     # rollups + lookups"
+echo ""
+echo "  ETL — everything at once (original behaviour, heaviest):"
 echo "    $COMPOSE exec rayd-app python app.py -m"
 echo ""

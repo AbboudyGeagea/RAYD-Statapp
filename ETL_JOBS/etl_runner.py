@@ -59,6 +59,93 @@ def execute_sync(app=None):
         _perform_migration(engine)
 
 
+# ── Phase pacing (LAUMC) ──────────────────────────────────────────────────────
+# The full sync is heavy (studies -> series -> 166M raw images -> locations ...).
+# On large sites the Oracle source cannot absorb all phases back-to-back, so phases
+# can be paced:
+#
+#   RAYD_ETL_INTERACTIVE=1   prompt before every phase (y = run, n = skip, q = quit)
+#   RAYD_ETL_PHASES=1,2      run ONLY these phases, no prompting (for scripted/cron pacing)
+#
+# With neither set the behaviour is exactly as before — other sites are unaffected.
+_PHASE_LABELS = {
+    '1':  ('Studies',            'Oracle: DIDB_STUDIES  — heavy'),
+    '2':  ('Series',             'Oracle: DIDB_SERIESES — heavy'),
+    '2b': ('Modality backfill',  'PostgreSQL only — cheap'),
+    '3':  ('Raw Images',         'Oracle: DIDB_RAW_IMAGES — VERY heavy (100M+ rows)'),
+    '4':  ('Image Locations',    'Oracle: DIDB_IMAGE_LOCATIONS — VERY heavy'),
+    '5':  ('Patients',           'Oracle: DIDB_PATIENTS_VIEW — moderate'),
+    '6':  ('Orders',             'Oracle: orders — moderate'),
+    '7':  ('Storage Summary',    'PostgreSQL rollup — cheap'),
+    '8':  ('Lookup tables',      'PostgreSQL (AE map, procedure codes) — cheap'),
+}
+
+
+def _interactive_enabled():
+    return os.getenv('RAYD_ETL_INTERACTIVE', '').strip().lower() in ('1', 'true', 'yes', 'y')
+
+
+def _phase_enabled(num):
+    """Honour RAYD_ETL_PHASES; empty/unset means every phase is eligible."""
+    sel = os.getenv('RAYD_ETL_PHASES', '').strip()
+    if not sel:
+        return True
+    allowed = {p.strip().lower() for p in sel.replace(';', ',').split(',') if p.strip()}
+    return str(num).lower() in allowed
+
+
+def _confirm_phase(num):
+    """
+    Decide whether to run a phase. Returns True/False; raises KeyboardInterrupt on 'q'.
+    Order: RAYD_ETL_PHASES filter first, then the interactive prompt.
+    """
+    label, cost = _PHASE_LABELS.get(str(num), (str(num), ''))
+
+    if not _phase_enabled(num):
+        logger.info(f"⏭  Phase {num} ({label}) — not in RAYD_ETL_PHASES, skipped")
+        return False
+
+    if not _interactive_enabled():
+        return True
+
+    prompt = f"\n  ▶ Phase {num} — {label}\n      {cost}\n      run it?  [y]es / [n]o skip / [q]uit : "
+    try:
+        ans = input(prompt).strip().lower()
+    except (EOFError, OSError):
+        # Interactive pacing was requested but there is no TTY (e.g. plain `docker exec`
+        # without -it, or a cron run). Running everything anyway is exactly what the
+        # operator was trying to avoid, so stop and explain instead.
+        raise RuntimeError(
+            "RAYD_ETL_INTERACTIVE=1 but no interactive terminal is attached.\n"
+            "  Use:  docker compose exec rayd-app python app.py -m\n"
+            "  Or select phases non-interactively, e.g.:  RAYD_ETL_PHASES=1,2"
+        )
+
+    if ans in ('q', 'quit', 'exit'):
+        raise KeyboardInterrupt("ETL stopped by operator")
+    if ans in ('n', 'no', 's', 'skip'):
+        logger.info(f"⏭  Phase {num} ({label}) skipped by operator")
+        return False
+    return True
+
+
+def _ensure_active_ids(engine, active_ids):
+    """
+    Phases 2-4 need the study-id set produced by Phase 1. When Phase 1 is skipped
+    (resuming a paced backfill on a later day) that set is gone, so rebuild it from
+    the studies already loaded into PostgreSQL.
+    """
+    if active_ids:
+        return active_ids
+    with engine.connect() as conn:
+        rows = conn.execute(text(
+            "SELECT study_db_uid FROM etl_didb_studies WHERE study_db_uid IS NOT NULL"
+        )).fetchall()
+    ids = [r[0] for r in rows]
+    logger.info(f"↻  Phase 1 not run this pass — loaded {len(ids):,} study IDs from PostgreSQL")
+    return ids
+
+
 def _perform_migration(engine):
     start_time = datetime.now()
 
@@ -76,25 +163,38 @@ def _perform_migration(engine):
         logger.info(f"🚀 Starting 4TB Sync | Cutoff: {go_live}")
         src = "PROD_ORACLE"
 
+        if _interactive_enabled():
+            logger.info("⏸  Interactive pacing ON — you will be asked before each phase.")
+        elif os.getenv('RAYD_ETL_PHASES', '').strip():
+            logger.info(f"⏸  Phase filter active: RAYD_ETL_PHASES={os.getenv('RAYD_ETL_PHASES')}")
+
+        active_ids = []
+
         # ── PHASE 1: Studies ──────────────────────────────────────────────
-        logger.info("📋 Phase 1: Studies")
-        s_count, active_ids = run_studies_etl(
-            engine, src, 'etl_didb_studies', database_module.chunked_upsert, go_live
-        )
-        logger.info(f"✅ Phase 1 done — {s_count:,} studies, {len(active_ids):,} active IDs")
+        if _confirm_phase(1):
+            logger.info("📋 Phase 1: Studies")
+            s_count, active_ids = run_studies_etl(
+                engine, src, 'etl_didb_studies', database_module.chunked_upsert, go_live
+            )
+            logger.info(f"✅ Phase 1 done — {s_count:,} studies, {len(active_ids):,} active IDs")
+            if not active_ids:
+                logger.warning("No active study IDs returned by Phase 1.")
 
-        if not active_ids:
-            logger.warning("No active study IDs — skipping phases 2-6.")
-        else:
-            # ── PHASE 2: Series ───────────────────────────────────────────
-            logger.info("📋 Phase 2: Series")
-            run_series_etl(engine, src, 'etl_didb_serieses', database_module.chunked_upsert, active_ids)
-            logger.info("✅ Phase 2 done")
+        # ── PHASE 2: Series ───────────────────────────────────────────────
+        if _confirm_phase(2):
+            active_ids = _ensure_active_ids(engine, active_ids)
+            if not active_ids:
+                logger.warning("Phase 2 skipped — no studies loaded yet (run Phase 1 first).")
+            else:
+                logger.info("📋 Phase 2: Series")
+                run_series_etl(engine, src, 'etl_didb_serieses', database_module.chunked_upsert, active_ids)
+                logger.info("✅ Phase 2 done")
 
-            # ── PHASE 2b: Backfill study_modality from series ──────
-            # study_modality is not in the DIDB_STUDIES Oracle query, but Phase 7
-            # (storage rollup) and Phase 8 (procedure mapping) both depend on it.
-            # Derive the most common modality from series so it is never left NULL.
+        # ── PHASE 2b: Backfill study_modality from series ──────────────────
+        # study_modality is not in the DIDB_STUDIES Oracle query, but Phase 7
+        # (storage rollup) and Phase 8 (procedure mapping) both depend on it.
+        # Derive the most common modality from series so it is never left NULL.
+        if _confirm_phase('2b'):
             logger.info("📋 Phase 2b: Backfilling study_modality from series data")
             try:
                 with engine.begin() as _c:
@@ -116,37 +216,51 @@ def _perform_migration(engine):
             except Exception as _e:
                 logger.warning(f"Phase 2b (study_modality backfill) skipped: {_e}")
 
-            # ── PHASE 3: Raw Images ───────────────────────────────────────
-            logger.info("📋 Phase 3: Raw Images")
-            run_raw_images_etl(engine, src, 'etl_didb_raw_images', database_module.chunked_upsert, active_ids)
-            logger.info("✅ Phase 3 done")
+        # ── PHASE 3: Raw Images ───────────────────────────────────────────
+        if _confirm_phase(3):
+            active_ids = _ensure_active_ids(engine, active_ids)
+            if not active_ids:
+                logger.warning("Phase 3 skipped — no studies loaded yet (run Phase 1 first).")
+            else:
+                logger.info("📋 Phase 3: Raw Images")
+                run_raw_images_etl(engine, src, 'etl_didb_raw_images', database_module.chunked_upsert, active_ids)
+                logger.info("✅ Phase 3 done")
 
-            # ── PHASE 4: Image Locations (FK depends on raw images) ───────
-            logger.info("📋 Phase 4: Image Locations")
-            run_images_etl(engine, src, 'etl_image_locations', database_module.chunked_upsert, active_ids)
-            logger.info("✅ Phase 4 done")
+        # ── PHASE 4: Image Locations (FK depends on raw images) ────────────
+        if _confirm_phase(4):
+            active_ids = _ensure_active_ids(engine, active_ids)
+            if not active_ids:
+                logger.warning("Phase 4 skipped — no studies loaded yet (run Phase 1 first).")
+            else:
+                logger.info("📋 Phase 4: Image Locations")
+                run_images_etl(engine, src, 'etl_image_locations', database_module.chunked_upsert, active_ids)
+                logger.info("✅ Phase 4 done")
 
         # ── PHASE 5: Patients ─────────────────────────────────────────────
-        logger.info("📋 Phase 5: Patients")
-        ora_conn = database_module.OracleConnector.get_connection(sysdba=False)
-        run_patients_etl(ora_conn, engine, logger)
-        ora_conn.close()
-        logger.info("✅ Phase 5 done")
+        if _confirm_phase(5):
+            logger.info("📋 Phase 5: Patients")
+            ora_conn = database_module.OracleConnector.get_connection(sysdba=False)
+            run_patients_etl(ora_conn, engine, logger)
+            ora_conn.close()
+            logger.info("✅ Phase 5 done")
 
         # ── PHASE 6: Orders ───────────────────────────────────────────────
-        logger.info("📋 Phase 6: Orders")
-        run_orders_etl(engine, src, 'etl_orders', database_module.chunked_upsert, go_live)
-        logger.info("✅ Phase 6 done")
+        if _confirm_phase(6):
+            logger.info("📋 Phase 6: Orders")
+            run_orders_etl(engine, src, 'etl_orders', database_module.chunked_upsert, go_live)
+            logger.info("✅ Phase 6 done")
 
         # ── PHASE 7: Storage Summary (all tables must be populated first) ─
-        logger.info("📋 Phase 7: Storage Summary Rollup")
-        refresh_storage_summary()
-        logger.info("✅ Phase 7 done")
+        if _confirm_phase(7):
+            logger.info("📋 Phase 7: Storage Summary Rollup")
+            refresh_storage_summary()
+            logger.info("✅ Phase 7 done")
 
         # ── PHASE 8: Auto-sync lookup tables ─────────────────────────────
-        logger.info("📋 Phase 8: Syncing AE mappings & procedure codes")
-        _sync_lookup_tables(engine)
-        logger.info("✅ Phase 8 done")
+        if _confirm_phase(8):
+            logger.info("📋 Phase 8: Syncing AE mappings & procedure codes")
+            _sync_lookup_tables(engine)
+            logger.info("✅ Phase 8 done")
 
         # ── Mark overall sync SUCCESS ─────────────────────────────────────
         with engine.begin() as conn:
@@ -155,6 +269,18 @@ def _perform_migration(engine):
                 "WHERE status='RUNNING' AND job_name='4TB_SYNC'"
             ))
         logger.info("✅ 4TB Sync Complete.")
+
+    except KeyboardInterrupt:
+        # Operator answered 'q' (or pressed Ctrl-C) while pacing phases. This is a
+        # deliberate stop, not a failure — record it as such so the ETL history is honest.
+        logger.warning("⏹  ETL stopped by operator — phases already completed are kept.")
+        with engine.begin() as conn:
+            conn.execute(
+                text("UPDATE etl_job_log SET status='STOPPED', end_time=now(), "
+                     "error_message='Stopped by operator during phase pacing' "
+                     "WHERE status='RUNNING' AND job_name='4TB_SYNC'")
+            )
+        return
 
     except Exception as e:
         logger.error(f"🛑 Migration Error: {e}", exc_info=True)
