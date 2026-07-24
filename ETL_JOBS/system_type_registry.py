@@ -153,7 +153,7 @@ SYSTEM_TYPES = {
                     "org_structure_key":     {"pg_type": "TEXT",    "aliases": []},   # → site_org_map → site
                     "order_priority":        {"pg_type": "TEXT",    "aliases": []},
                     "scheduled_date":        {"pg_type": "TIMESTAMP", "aliases": []},
-                    "sps_code_key":          {"pg_type": "BIGINT",  "aliases": []},   # → std_procedure_codes
+                    "sps_code_key":          {"pg_type": "BIGINT",  "aliases": []},   # → procedure catalog (procedure_duration_map)
                     "last_update_date":      {"pg_type": "TIMESTAMP", "aliases": []},
                     "status_key":            {"pg_type": "INTEGER", "aliases": []},   # → worklist_status_map
                     "rp_code_key":           {"pg_type": "BIGINT",  "aliases": []},
@@ -322,48 +322,12 @@ SYSTEM_TYPES = {
                     "site_id":               {"pg_type": "INTEGER", "aliases": []},   # RAYD-resolved (via accession)
                 },
             },
-            "std_devices": {
-                # Source: CSHRIS.MODALITY merged with MODALITY_TYPE (vendor: "merge them
-                # already in one table"). ae_title = PACS didb_studies.storing_ae (the
-                # per-device RIS↔PACS join). One-time load; reload occasionally.
-                # modality = MODALITY_TYPE.CODE resolved at ETL time via modality_type_key.
-                "description": "Device/room registry (MODALITY + MODALITY_TYPE merged)",
-                "pk": "modality_key",
-                "columns": {
-                    "modality_key":          {"pg_type": "BIGINT NOT NULL", "aliases": []},
-                    "code":                  {"pg_type": "TEXT",    "aliases": []},   # room code (CT64, MAMO1…)
-                    "description":           {"pg_type": "TEXT",    "aliases": []},   # room display name
-                    "ae_title":              {"pg_type": "TEXT",    "aliases": []},   # = didb_studies.storing_ae
-                    "station_name":          {"pg_type": "TEXT",    "aliases": []},
-                    "modality_type_key":     {"pg_type": "BIGINT",  "aliases": []},
-                    "modality":              {"pg_type": "TEXT",    "aliases": []},   # resolved CT/MR/US… (ETL transform)
-                    "org_structure_key":     {"pg_type": "TEXT",    "aliases": []},   # → site_org_map → site
-                    "active":                {"pg_type": "TEXT",    "aliases": []},
-                    "site_id":               {"pg_type": "INTEGER", "aliases": []},   # RAYD-resolved
-                },
-            },
-            "std_procedure_codes": {
-                # Source: CSHRIS.SPS_CODE — the procedure catalog. sps_code_key joins
-                # std_worklist.sps_code_key. duration = scheduled minutes (capacity math);
-                # measured actuals come later from status timestamps.
-                "description": "Procedure catalog (SPS codes) with scheduled durations",
-                "pk": "sps_code_key",
-                "incremental_key": "last_updated",
-                "columns": {
-                    "sps_code_key":          {"pg_type": "BIGINT NOT NULL", "aliases": []},
-                    "code":                  {"pg_type": "TEXT",    "aliases": []},   # J17G-01C…
-                    "description":           {"pg_type": "TEXT",    "aliases": []},
-                    "duration":              {"pg_type": "INTEGER", "aliases": []},   # scheduled minutes
-                    "minimum_study_duration": {"pg_type": "INTEGER", "aliases": []},
-                    "active":                {"pg_type": "TEXT",    "aliases": []},
-                    "body_part_key":         {"pg_type": "BIGINT",  "aliases": []},
-                    "laterality_key":        {"pg_type": "BIGINT",  "aliases": []},
-                    "coding_scheme_key":     {"pg_type": "BIGINT",  "aliases": []},
-                    "document_together_group_key": {"pg_type": "BIGINT", "aliases": []},
-                    "contra_indication_warning_text": {"pg_type": "TEXT", "aliases": []},
-                    "last_updated":          {"pg_type": "TIMESTAMP", "aliases": []},
-                },
-            },
+            # NOTE: RIS MODALITY and SPS_CODE do NOT get their own std_* target tables.
+            # They load into RAYD's EXISTING `aetitle_modality_map` and `procedure_duration_map`
+            # (extended by migration 0053) so all reports/capacity/mapping-tab code stays
+            # unchanged. Import policy is fill-only (ON CONFLICT DO NOTHING; never delete).
+            # A dedicated RIS import (built once the RIS connection + final MODALITY/SPS_CODE
+            # DDL land) resolves MODALITY_TYPE->modality and ORG_STRUCTURE->site during load.
             "std_visits": {
                 # Source: CSHRIS.VISIT (real schema, supersedes earlier inference).
                 # visit_number = HL7 PV1.19 (links live ADT/ORM to visits). Exclude

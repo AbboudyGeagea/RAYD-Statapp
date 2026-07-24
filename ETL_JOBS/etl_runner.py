@@ -133,8 +133,8 @@ def _lookup_from_pacs():
     """
     Phase 8 auto-fills aetitle_modality_map + procedure_duration_map by mining PACS
     studies/orders. At LAUMC that is wrong: modalities/devices come from the RIS
-    MODALITY table (-> std_devices) and procedures from SPS_CODE (-> std_procedure_codes),
-    or a manual end-user import. Disable the PACS auto-fill with:
+    MODALITY table (loaded into aetitle_modality_map) and procedures from SPS_CODE
+    (loaded into procedure_duration_map), or a manual end-user import. Disable the PACS auto-fill with:
         RAYD_ETL_LOOKUP_FROM_PACS=false
     Default is enabled, so other sites are unaffected.
     """
@@ -279,8 +279,8 @@ def _perform_migration(engine):
             else:
                 logger.info(
                     "⏭  Phase 8 skipped — RAYD_ETL_LOOKUP_FROM_PACS is off. "
-                    "Modalities come from the RIS MODALITY table (std_devices) and procedures "
-                    "from SPS_CODE (std_procedure_codes), or a manual end-user import — "
+                    "Modalities come from the RIS MODALITY table (loaded into aetitle_modality_map) "
+                    "and procedures from SPS_CODE (into procedure_duration_map), or manual import — "
                     "NOT auto-filled from PACS."
                 )
 

@@ -135,7 +135,18 @@ authoritative site issuer and the HIS-side placer/filler numbers.
 
 ---
 
-## MODALITY  →  target `std_devices` (device/room registry)  [ONE-TIME insert, static config]
+> **RETARGETED (2026-07, vendor-confirmed):** MODALITY does NOT get a separate `std_devices`
+> table — it loads into RAYD's **existing `aetitle_modality_map`** (extended by migration 0053
+> with station_name, room_code, active, ris_modality_key). Reason: every report / capacity
+> ladder / device grid / mapping tab already reads `aetitle_modality_map`, so a new table would
+> force a full-codebase rewrite for no gain. Same for SPS_CODE → **`procedure_duration_map`**
+> (see below). Import policy = FILL-ONLY: insert new devices, `ON CONFLICT (aetitle) DO NOTHING`
+> so manual edits + RAYD-owned `daily_capacity_minutes` survive; RIS never deletes rows.
+> Column map: AE_TITLE→aetitle, MODALITY_TYPE→modality (resolved), DESCRIPTION→description,
+> STATION_NAME→station_name, CODE→room_code, ORG_STRUCTURE_KEY→site_id (via site_org_map),
+> ACTIVE→active, MODALITY_KEY→ris_modality_key.
+
+## MODALITY  →  loads into existing `aetitle_modality_map`  (was std_devices — retargeted)
 **Role:** device/room registry. **Maps `AE_TITLE` → room CODE + DESCRIPTION + STATION_NAME +
 MODALITY_TYPE + SITE.** This is the backbone of per-device analytics and is far richer than the
 manual `aetitle_modality_map` — likely REPLACES/populates it. `AE_TITLE` joins to PACS
@@ -201,7 +212,14 @@ site resolution then joins org_structure_key → site_org_map → site_id.
 - Qog1 — Confirm **VASC (5120) counts as RH** for site stats (its devices are RH, but its parent
   is the LAUMC root, not RH). If it should be its own bucket instead, say so.
 
-## SPS_CODE (Procedures)  →  target `std_procedure_codes`  (catalog; periodic reload)
+> **RETARGETED (2026-07):** SPS_CODE loads into RAYD's **existing `procedure_duration_map`**
+> (extended by 0053 with active, body_part, ris_sps_code_key; procedure_name + modality already
+> exist), NOT a separate `std_procedure_codes`. Same fill-only policy (`ON CONFLICT
+> (procedure_code) DO NOTHING`; RAYD-owned RVUs preserved). Map: CODE→procedure_code,
+> DESCRIPTION→procedure_name, DURATION→duration_minutes, ACTIVE→active,
+> BODY_PART_KEY→body_part (resolved), SPS_CODE_KEY→ris_sps_code_key.
+
+## SPS_CODE (Procedures)  →  loads into existing `procedure_duration_map`  (was std_procedure_codes)
 **Role:** the procedure/exam catalog. `SPS_CODE_KEY` joins to `SITE_WORKLIST.SPS_CODE_KEY` (and
 `ORDERS`). Populates RAYD's procedure catalog + the duration map (was "empty by design, filled
 by RIS import"). ~coded families visible: J17=CT, J43=MRI, 93xxx/76645=US/biopsy (CODING_SCHEME).
