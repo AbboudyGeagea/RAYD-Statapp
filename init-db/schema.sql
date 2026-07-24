@@ -1677,6 +1677,12 @@ ALTER TABLE public.scheduling_entries OWNER TO etl_user;
 -- Tables added over time via app.py migrations and migration files.
 -- Included here so fresh installs work without relying on startup migration order.
 --
+-- IMPORTANT: pg_dump (above) ran `set_config('search_path', '', false)` and fully
+-- qualified every one of its own object names. The statements BELOW are unqualified,
+-- so without restoring the schema they all fail with
+--   "ERROR: no schema has been selected to create in"
+-- and the second half of the database never gets created. Restore it here.
+SET search_path TO public;
 
 CREATE TABLE IF NOT EXISTS hl7_oru_reports (
     id               SERIAL PRIMARY KEY,

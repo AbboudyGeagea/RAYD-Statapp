@@ -11,6 +11,7 @@ Usage:
 """
 
 import os
+import re
 import logging
 from sqlalchemy import text
 
@@ -81,23 +82,45 @@ def run_migrations(app):
                 logger.error(f"[migrations] FAILED: {filename} — {e}")
 
 
+_DOLLAR_TAG_RE = re.compile(r'\$([A-Za-z_][A-Za-z0-9_]*)?\$')
+
+
 def _split_sql(sql):
-    """Split a SQL file into individual statements, ignoring semicolons in comments."""
+    """
+    Split a SQL file into individual statements on ';'.
+
+    Dollar-quote aware: a ';' inside a dollar-quoted block ($$...$$ or $tag$...$tag$,
+    as used by `DO $$ ... $$;` and `CREATE FUNCTION ... $body$ ... $body$;`) does NOT
+    terminate a statement. Without this, a block like
+        DO $$ BEGIN ... CREATE ROLE x LOGIN; ... END $$;
+    is cut at the inner ';' and fails with "unterminated dollar-quoted string".
+
+    Full-line comments and blank lines outside a block are skipped.
+    """
     statements = []
     current = []
+    in_dollar = None          # active dollar tag (e.g. '$$' or '$body$'), or None
     for line in sql.splitlines():
         stripped = line.strip()
-        if stripped.startswith("--") or stripped == "":
+        if in_dollar is None and (stripped.startswith("--") or stripped == ""):
             continue
+        # Toggle dollar-quote state on each tag found on this line.
+        for m in _DOLLAR_TAG_RE.finditer(line):
+            tag = m.group(0)
+            if in_dollar is None:
+                in_dollar = tag           # opening a block
+            elif in_dollar == tag:
+                in_dollar = None          # closing the matching block
+            # a different tag while inside a block is literal text — ignore
         current.append(line)
-        if stripped.rstrip().endswith(";"):
+        if in_dollar is None and stripped.rstrip().endswith(";"):
             stmt = "\n".join(current).rstrip().rstrip(";").strip()
             if stmt:
                 statements.append(stmt)
             current = []
     # Catch any trailing statement without a semicolon
     if current:
-        stmt = "\n".join(current).strip()
+        stmt = "\n".join(current).strip().rstrip(";").strip()
         if stmt:
             statements.append(stmt)
     return statements
