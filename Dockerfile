@@ -12,7 +12,16 @@ RUN apt-get update && apt-get install -y \
     tzdata \
     curl \
     wget \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    # Oracle Instant Client 21.x links against libaio.so.1. On Debian's 64-bit
+    # time_t transition the runtime ships as libaio.so.1t64, so create the legacy
+    # SONAME symlink the client expects when it is missing. No-op (skipped) on
+    # images that already provide libaio.so.1, so this stays safe across bases.
+    && if [ ! -e /usr/lib/x86_64-linux-gnu/libaio.so.1 ] \
+       && [ -e /usr/lib/x86_64-linux-gnu/libaio.so.1t64 ]; then \
+         ln -s libaio.so.1t64 /usr/lib/x86_64-linux-gnu/libaio.so.1; \
+       fi \
+    && ldconfig
 
 # 2. Set the working directory inside the container
 WORKDIR /app
@@ -33,6 +42,9 @@ RUN chmod +x /app/scripts/entrypoint.sh
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV LD_LIBRARY_PATH=/opt/oracle/instantclient_21_13
+# Where db.init_oracle_thick_mode() loads the Oracle Instant Client from.
+# Override to relocate the client; must match the bind mount in docker-compose.yml.
+ENV ORACLE_CLIENT_LIB_DIR=/opt/oracle/instantclient_21_13
 
 # 6. Expose the internal port (Nginx will handle 443 externally)
 EXPOSE 8080

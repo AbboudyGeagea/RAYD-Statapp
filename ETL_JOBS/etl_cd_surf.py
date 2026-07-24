@@ -39,6 +39,10 @@ def _get_cd_surf_conn(pg_engine=None):
     """Return an oracledb connection to the CD surf instance from db_params."""
     import oracledb
     from utils.crypto import decrypt
+    # Enable THICK mode before connecting (idempotent) — needed for Oracle
+    # accounts with a legacy 10g password verifier (DPY-3015).
+    from db import init_oracle_thick_mode
+    init_oracle_thick_mode()
 
     if pg_engine is None:
         from sqlalchemy import create_engine

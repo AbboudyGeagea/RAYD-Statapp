@@ -59,6 +59,12 @@ services:
     volumes:
       - /opt/rayd/logs:/opt/rayd/logs
       - ./static:/app/static
+      # Oracle Instant Client (installed on the host by install.sh Step 2).
+      # python-oracledb needs these libraries INSIDE the container to run in
+      # THICK mode — required for PACS accounts that still use a legacy 10g
+      # password verifier (thin mode fails with DPY-3015). LD_LIBRARY_PATH above
+      # and ORACLE_CLIENT_LIB_DIR both point here. Read-only: the app only reads.
+      - /opt/oracle/instantclient_21_13:/opt/oracle/instantclient_21_13:ro
 
     depends_on:
       db:

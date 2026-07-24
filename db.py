@@ -32,6 +32,90 @@ from sqlalchemy.orm import relationship
 
 logger = logging.getLogger("db")
 
+# ----------------------------------------------------------------
+# ORACLE THICK MODE
+# ----------------------------------------------------------------
+# python-oracledb runs in THIN mode by default (pure Python, no Oracle client
+# libraries). Thin mode only supports 11g/12c password verifiers. The PACS
+# Oracle accounts at some sites (e.g. LAUMC) still use the legacy 10g verifier
+# (type 0x939), which thin mode rejects with:
+#
+#     DPY-3015: password verifier type 0x939 is not supported by
+#               python-oracledb in thin mode
+#
+# The only client-side fix that does NOT require touching the production PACS
+# is to switch to THICK mode, which delegates authentication to the Oracle
+# Instant Client libraries — those DO support the old verifier. This must be
+# done ONCE per process, before the first oracledb.connect().
+_ORACLE_THICK_INIT_DONE = False
+
+
+def init_oracle_thick_mode():
+    """
+    Enable python-oracledb THICK mode using the Oracle Instant Client.
+
+    Idempotent and defensive:
+      * Safe to call any number of times — only the first call does work.
+      * NEVER raises. If the Instant Client can't be found/loaded it logs a
+        clear, actionable error and leaves the driver in thin mode. That way a
+        site that does not need Oracle (or hasn't installed the client yet)
+        still boots and serves its Postgres-backed dashboards; only the actual
+        Oracle/ETL calls will fail — and they fail with a message that points
+        straight at the fix instead of a cryptic traceback.
+
+    The client location is configurable via ORACLE_CLIENT_LIB_DIR and defaults
+    to /opt/oracle/instantclient_21_13 (where install.sh puts it on the host and
+    where docker-compose bind-mounts it into the container).
+    """
+    global _ORACLE_THICK_INIT_DONE
+    if _ORACLE_THICK_INIT_DONE:
+        return
+
+    lib_dir = os.getenv("ORACLE_CLIENT_LIB_DIR", "/opt/oracle/instantclient_21_13")
+
+    try:
+        if not os.path.isdir(lib_dir):
+            logger.error(
+                "Oracle Instant Client directory not found at '%s'. "
+                "python-oracledb will stay in THIN mode, which CANNOT authenticate "
+                "against the PACS Oracle when it uses a legacy 10g password verifier "
+                "(DPY-3015). Fix: install the Instant Client on the host (install.sh "
+                "Step 2 -> /opt/oracle/instantclient_21_13) and make sure it is "
+                "bind-mounted into the container, or point ORACLE_CLIENT_LIB_DIR at it.",
+                lib_dir,
+            )
+            return
+
+        oracledb.init_oracle_client(lib_dir=lib_dir)
+        _ORACLE_THICK_INIT_DONE = True
+        logger.info(
+            "python-oracledb THICK mode enabled via Oracle Instant Client at '%s'.",
+            lib_dir,
+        )
+
+    except Exception as exc:  # noqa: BLE001 — never let client init crash the app
+        msg = str(exc)
+        # Benign case: thick mode was already initialised earlier in this process
+        # (init_oracle_client raises if called twice). Treat as success.
+        if "already" in msg.lower():
+            _ORACLE_THICK_INIT_DONE = True
+            logger.debug("python-oracledb thick mode already initialised: %s", msg)
+            return
+        logger.error(
+            "Failed to enable python-oracledb THICK mode from '%s': %s. "
+            "Oracle connections will not work until the Instant Client is reachable "
+            "(verify the client dir is bind-mounted into the container and that "
+            "libaio / libaio.so.1 is installed).",
+            lib_dir, msg,
+        )
+
+
+# Attempt thick-mode init at import time so it runs once, before any Oracle
+# connection is opened, for BOTH the web process (gunicorn imports app -> db)
+# and the ETL process (python app.py -m -> app -> db). Wrapped so a missing
+# client never blocks application startup.
+init_oracle_thick_mode()
+
 db = SQLAlchemy()
 
 # ----------------------------------------------------------------
@@ -42,6 +126,8 @@ class OracleConnector:
     @staticmethod
     def get_connection(sysdba=False):
         from utils.crypto import decrypt
+        # Ensure thick mode is active before the first connect (idempotent).
+        init_oracle_thick_mode()
         params = DBParams.query.filter(DBParams.name.ilike('%oracle%')).first()
         if not params:
             raise RuntimeError("No Oracle configuration found in db_params table.")

@@ -148,6 +148,10 @@ def _make_foreign_conn(row):
 
     if 'oracle' in db_type:
         import oracledb
+        # Enable THICK mode before connecting (idempotent) — needed for PACS
+        # accounts with a legacy 10g password verifier (DPY-3015).
+        from db import init_oracle_thick_mode
+        init_oracle_thick_mode()
         dsn    = oracledb.makedsn(host, int(port or 1521), sid=sid)
         kwargs = {"user": username, "password": password, "dsn": dsn}
         if mode == 'SYSDBA':
