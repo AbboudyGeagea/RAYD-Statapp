@@ -51,6 +51,10 @@ services:
       # ── Feature Flags ─────────────────────────────────────────
       - PATIENT_PORTAL_ENABLED=${PATIENT_PORTAL_ENABLED:-false}
       - LIVE_FEED_ENABLED=${LIVE_FEED_ENABLED:-true}
+      # ETL Phase 8 auto-fills modalities/procedures from PACS. LAUMC sources these
+      # from the RIS (std_devices / std_procedure_codes) or manual import, so it sets
+      # this false in .env. Default '1' preserves the old behaviour for other sites.
+      - RAYD_ETL_LOOKUP_FROM_PACS=${RAYD_ETL_LOOKUP_FROM_PACS:-1}
 
     volumes:
       - /opt/rayd/logs:/opt/rayd/logs

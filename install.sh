@@ -116,6 +116,10 @@ POSTGRES_DB=${PG_DB}
 
 TZ=Asia/Beirut
 LIVE_FEED_ENABLED=true
+
+# LAUMC: modalities/procedures come from the RIS (std_devices / std_procedure_codes)
+# or manual import — do NOT auto-fill them from PACS in ETL Phase 8.
+RAYD_ETL_LOOKUP_FROM_PACS=false
 EOF
 
     ok ".env created."

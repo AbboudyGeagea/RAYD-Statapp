@@ -129,6 +129,20 @@ def _confirm_phase(num):
     return True
 
 
+def _lookup_from_pacs():
+    """
+    Phase 8 auto-fills aetitle_modality_map + procedure_duration_map by mining PACS
+    studies/orders. At LAUMC that is wrong: modalities/devices come from the RIS
+    MODALITY table (-> std_devices) and procedures from SPS_CODE (-> std_procedure_codes),
+    or a manual end-user import. Disable the PACS auto-fill with:
+        RAYD_ETL_LOOKUP_FROM_PACS=false
+    Default is enabled, so other sites are unaffected.
+    """
+    return os.getenv('RAYD_ETL_LOOKUP_FROM_PACS', '1').strip().lower() not in (
+        '0', 'false', 'no', 'off'
+    )
+
+
 def _ensure_active_ids(engine, active_ids):
     """
     Phases 2-4 need the study-id set produced by Phase 1. When Phase 1 is skipped
@@ -256,11 +270,19 @@ def _perform_migration(engine):
             refresh_storage_summary()
             logger.info("✅ Phase 7 done")
 
-        # ── PHASE 8: Auto-sync lookup tables ─────────────────────────────
+        # ── PHASE 8: Auto-sync lookup tables (PACS-derived) ──────────────
         if _confirm_phase(8):
-            logger.info("📋 Phase 8: Syncing AE mappings & procedure codes")
-            _sync_lookup_tables(engine)
-            logger.info("✅ Phase 8 done")
+            if _lookup_from_pacs():
+                logger.info("📋 Phase 8: Syncing AE mappings & procedure codes")
+                _sync_lookup_tables(engine)
+                logger.info("✅ Phase 8 done")
+            else:
+                logger.info(
+                    "⏭  Phase 8 skipped — RAYD_ETL_LOOKUP_FROM_PACS is off. "
+                    "Modalities come from the RIS MODALITY table (std_devices) and procedures "
+                    "from SPS_CODE (std_procedure_codes), or a manual end-user import — "
+                    "NOT auto-filled from PACS."
+                )
 
         # ── Mark overall sync SUCCESS ─────────────────────────────────────
         with engine.begin() as conn:
