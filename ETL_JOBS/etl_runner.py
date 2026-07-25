@@ -12,7 +12,8 @@ Execution phases (in order):
   Phase 6 — Orders         (etl_orders)
   Phase 7 — Storage summary(etl_analytics_refresh)
   Phase 8 — Procedure duration mapping (strategies A–E, see _perform_migration)
-  Phase 9 — Procedure clustering (optional TF-IDF + ensemble, etl_phase9_clustering)
+  Phase 9 — RIS Reports (LAUMC dual-source: RIS REPORT.DOCUMENT_PLAIN_TEXT ->
+            hl7_oru_reports; skipped unless a RIS db_params source is configured)
 
 Triggered by APScheduler in app.py or manually via `python app.py -m`.
 """
@@ -39,6 +40,7 @@ from etl_image_locations   import run_images_etl
 from etl_patients_view     import run_patients_etl
 from etl_orders            import run_orders_etl
 from etl_analytics_refresh import refresh_storage_summary
+from etl_ris_reports       import run_ris_reports_etl
 
 logger = logging.getLogger("ETL_WORKER")
 
@@ -78,6 +80,7 @@ _PHASE_LABELS = {
     '6':  ('Orders',             'Oracle: orders — moderate'),
     '7':  ('Storage Summary',    'PostgreSQL rollup — cheap'),
     '8':  ('Lookup tables',      'PostgreSQL (AE map, procedure codes) — cheap'),
+    '9':  ('RIS Reports',        'Oracle RIS: REPORT -> hl7_oru_reports — moderate (LAUMC)'),
 }
 
 
@@ -283,6 +286,29 @@ def _perform_migration(engine):
                     "and procedures from SPS_CODE (into procedure_duration_map), or manual import — "
                     "NOT auto-filled from PACS."
                 )
+
+        # ── PHASE 9: RIS Reports → hl7_oru_reports (LAUMC dual-source) ────
+        # Pulls plain-text reports from the RIS REPORT table into hl7_oru_reports
+        # (the live HL7 ORU listener fills the same rows in real time). Only runs
+        # when a distinct RIS Oracle source is configured in db_params, otherwise
+        # get_connection() would fall back to the PACS source and query the wrong DB.
+        if _confirm_phase(9):
+            ris_src = os.getenv('RAYD_RIS_SOURCE', 'oracle_RIS')
+            with engine.connect() as _c:
+                _ris_ok = _c.execute(
+                    text("SELECT 1 FROM db_params WHERE name = :n"), {"n": ris_src}
+                ).fetchone()
+            if not _ris_ok:
+                logger.info(
+                    f"⏭  Phase 9 skipped — no RIS source configured. Add a db_params entry "
+                    f"named '{ris_src}' (or set RAYD_RIS_SOURCE) pointing at the RIS Oracle."
+                )
+            else:
+                logger.info("📋 Phase 9: RIS Reports → hl7_oru_reports")
+                run_ris_reports_etl(
+                    engine, ris_src, 'hl7_oru_reports', database_module.chunked_upsert, go_live
+                )
+                logger.info("✅ Phase 9 done")
 
         # ── Mark overall sync SUCCESS ─────────────────────────────────────
         with engine.begin() as conn:

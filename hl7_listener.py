@@ -238,12 +238,26 @@ ORU_INSERT_SQL = """
     INSERT INTO hl7_oru_reports
         (procedure_code, procedure_name, modality, physician_id,
          patient_id, accession_number,
-         report_text, impression_text, result_datetime, received_at)
+         report_text, impression_text, result_datetime, received_at, report_source)
     VALUES
         (:procedure_code, :procedure_name, :modality, :physician_id,
          :patient_id, :accession_number,
-         :report_text, :impression_text, :result_datetime, :received_at)
-    ON CONFLICT DO NOTHING
+         :report_text, :impression_text, :result_datetime, :received_at, 'hl7')
+    ON CONFLICT (accession_number) DO UPDATE SET
+        -- FILL-ONLY. The RIS batch (report_source='ris') carries the authoritative,
+        -- complete, decrypted plain text; the live ORU can be partial or (at LAUMC)
+        -- encrypted, so it must never overwrite a value that already exists — it only
+        -- fills gaps. Order of arrival is irrelevant: whoever wrote a field first keeps it,
+        -- except the RIS ETL which deliberately wins on report_text/impression_text.
+        procedure_code  = COALESCE(hl7_oru_reports.procedure_code,  EXCLUDED.procedure_code),
+        procedure_name  = COALESCE(hl7_oru_reports.procedure_name,  EXCLUDED.procedure_name),
+        modality        = COALESCE(hl7_oru_reports.modality,        EXCLUDED.modality),
+        physician_id    = COALESCE(hl7_oru_reports.physician_id,    EXCLUDED.physician_id),
+        patient_id      = COALESCE(hl7_oru_reports.patient_id,      EXCLUDED.patient_id),
+        report_text     = COALESCE(hl7_oru_reports.report_text,     EXCLUDED.report_text),
+        impression_text = COALESCE(hl7_oru_reports.impression_text, EXCLUDED.impression_text),
+        result_datetime = COALESCE(hl7_oru_reports.result_datetime, EXCLUDED.result_datetime),
+        report_source   = COALESCE(hl7_oru_reports.report_source,   'hl7')
 """
 
 # OBX value types that are clearly non-text — skip these, accept everything else
