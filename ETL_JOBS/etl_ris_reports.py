@@ -28,7 +28,7 @@ etl_patient_view), exactly as migration 0049 describes for ORU rows.
 
 Config (env):
     RAYD_RIS_REPORT_TABLE   fully-qualified RIS table/synonym (default: REPORT)
-The RIS connection itself is a db_params row selected by name (default 'oracle_RIS',
+The RIS connection itself is a db_params row selected by name (default 'ris',
 override with RAYD_RIS_SOURCE) — see etl_runner Phase 9.
 """
 import os

@@ -101,8 +101,8 @@ def init_query_monitor(app, engine):
                     (endpoint, report_id, total_ms, query_count, queries,
                      filters, user_id, username, ip_address, http_status, cache_hit)
                 VALUES
-                    (:ep, :rid, :tms, :qc, :queries::jsonb,
-                     :filters::jsonb, :uid, :uname, :ip, :status, :cache)
+                    (:ep, :rid, :tms, :qc, CAST(:queries AS jsonb),
+                     CAST(:filters AS jsonb), :uid, :uname, :ip, :status, :cache)
             """), {
                 "ep":      request.path,
                 "rid":     report_id,

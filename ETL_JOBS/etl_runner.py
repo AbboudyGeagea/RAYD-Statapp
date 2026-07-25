@@ -293,7 +293,7 @@ def _perform_migration(engine):
         # when a distinct RIS Oracle source is configured in db_params, otherwise
         # get_connection() would fall back to the PACS source and query the wrong DB.
         if _confirm_phase(9):
-            ris_src = os.getenv('RAYD_RIS_SOURCE', 'oracle_RIS')
+            ris_src = os.getenv('RAYD_RIS_SOURCE', 'ris')
             with engine.connect() as _c:
                 _ris_ok = _c.execute(
                     text("SELECT 1 FROM db_params WHERE name = :n"), {"n": ris_src}
