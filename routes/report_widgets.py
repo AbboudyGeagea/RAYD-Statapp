@@ -27,7 +27,7 @@ _WHERE = """
     WHERE s.study_date BETWEEN :date_from AND :date_to
       AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
       AND (CAST(:modality AS TEXT)      IS NULL OR COALESCE(m.modality, s.study_modality) = :modality)
-      AND (CAST(:physician_id AS BIGINT) IS NULL OR s.reading_physician_id = :physician_id)
+      AND (CAST(:physician_id AS TEXT) IS NULL OR s.reading_physician_id = :physician_id)
       AND (CAST(:patient_class AS TEXT)  IS NULL OR UPPER(s.patient_class) = UPPER(:patient_class))
 """
 
@@ -40,7 +40,9 @@ def _p(filters):
         "date_from":    filters.get("date_from"),
         "date_to":      filters.get("date_to"),
         "modality":     filters.get("modality") or None,
-        "physician_id": int(filters["physician_id"]) if filters.get("physician_id") else None,
+        # reading_physician_id is TEXT (some sites' PACS emits a composite ID, not a
+        # pure integer) — keep the filter value as a string, don't force int().
+        "physician_id": str(filters["physician_id"]) if filters.get("physician_id") else None,
         "patient_class": filters.get("patient_class") or None,
     }
 
@@ -454,7 +456,7 @@ _FIN_WHERE = """
       AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
       AND s.study_has_report = true
       AND (CAST(:modality AS TEXT)      IS NULL OR COALESCE(m.modality, s.study_modality) = :modality)
-      AND (CAST(:physician_id AS BIGINT) IS NULL OR s.reading_physician_id = :physician_id)
+      AND (CAST(:physician_id AS TEXT) IS NULL OR s.reading_physician_id = :physician_id)
       AND (CAST(:patient_class AS TEXT)  IS NULL OR UPPER(s.patient_class) = UPPER(:patient_class))
 """
 

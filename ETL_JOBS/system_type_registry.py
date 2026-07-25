@@ -42,10 +42,12 @@ SYSTEM_TYPES = {
                     "referring_physician_last_name":  {"pg_type": "TEXT",            "aliases": ["ref_phys_last", "ref_physician_family_name"]},
                     "reading_physician_first_name":  {"pg_type": "TEXT",            "aliases": ["read_phys_first", "reading_physician_given_name"]},
                     "reading_physician_last_name":   {"pg_type": "TEXT",            "aliases": ["read_phys_last", "reading_physician_family_name"]},
-                    "reading_physician_id":          {"pg_type": "BIGINT",          "aliases": []},
+                    # TEXT, not BIGINT: some sites' PACS emits a composite ID (e.g.
+                    # LAUMC's "ad-login@domain.com_numericid"), not a pure integer.
+                    "reading_physician_id":          {"pg_type": "TEXT",            "aliases": []},
                     "signing_physician_first_name":  {"pg_type": "TEXT",            "aliases": ["sign_phys_first", "signing_physician_given_name"]},
                     "signing_physician_last_name":   {"pg_type": "TEXT",            "aliases": ["sign_phys_last", "signing_physician_family_name"]},
-                    "signing_physician_id":          {"pg_type": "BIGINT",          "aliases": []},
+                    "signing_physician_id":          {"pg_type": "TEXT",            "aliases": []},
                     "report_status":           {"pg_type": "TEXT",                   "aliases": ["rep_status"]},
                     "order_status":            {"pg_type": "TEXT",                   "aliases": ["ord_status"]},
                     "study_has_report":        {"pg_type": "BOOLEAN DEFAULT FALSE",  "aliases": ["has_report"]},

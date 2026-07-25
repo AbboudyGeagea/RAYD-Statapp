@@ -250,10 +250,14 @@ CREATE TABLE public.etl_didb_studies (
     last_update timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
     reading_physician_first_name text,
     reading_physician_last_name text,
-    reading_physician_id bigint,
+    -- TEXT, not BIGINT: PACS source ID format varies by site. Most sites emit a
+    -- pure numeric ID, but LAUMC's emits a composite AD-login string, e.g.
+    -- "kamal.tarabine@ad.umcrh.com_841630390" — BIGINT silently nulled every one
+    -- of those out on load. See migration 0056.
+    reading_physician_id text,
     signing_physician_first_name text,
     signing_physician_last_name text,
-    signing_physician_id bigint,
+    signing_physician_id text,
     study_has_report boolean DEFAULT false NOT NULL,
     rep_prelim_timestamp timestamp without time zone,
     rep_prelim_signed_by text,
