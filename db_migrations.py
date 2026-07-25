@@ -90,24 +90,33 @@ def _run_statements(db, statements):
     format()-based DDL runs exactly as it would from psql.
 
     CONCURRENTLY statements (e.g. CREATE INDEX CONCURRENTLY) cannot run inside a
-    transaction. The previous approach tried to flip isolation_level on the SAME
-    connection mid-migration, which fails once that connection has already autobegun a
-    transaction ("isolation_level may not be altered..."). Here each CONCURRENTLY
-    statement gets its own dedicated raw connection with autocommit enabled, opened and
-    closed just for that statement, leaving the main migration connection/transaction
-    untouched.
+    transaction. Each one runs on a BRAND NEW SQLAlchemy connection — never used for
+    any prior statement, so it hasn't autobegun a transaction yet — with
+    execution_options(isolation_level="AUTOCOMMIT"). That is SQLAlchemy's own
+    isolation-level mechanism: it actually reaches the real driver connection through
+    the dialect, and is automatically reset when the connection is returned to the
+    pool (so a later, unrelated request can never inherit an autocommit=True
+    connection left behind).
+
+    An earlier version instead grabbed engine.raw_connection() and assigned
+    `.autocommit = True` directly on the returned object. That is a silent no-op: the
+    pool proxy only implements a handful of explicit passthrough METHODS
+    (cursor/commit/rollback/close), not a generic passthrough for attribute WRITES —
+    so the assignment just created a plain instance attribute on the proxy wrapper and
+    never touched the real psycopg2 connection. The statement still ran inside the
+    connection's default (non-autocommit) transaction, and Postgres rejected it with
+    "CREATE INDEX CONCURRENTLY cannot run inside a transaction block". `.connection`
+    below (on the SQLAlchemy Connection, not the raw one) reaches the real cursor via
+    a genuine passthrough method, keeping the same no-%-substitution guarantee as the
+    main path.
     """
     main_conn = db.engine.raw_connection()
     try:
         cur = main_conn.cursor()
         for statement in statements:
             if "CONCURRENTLY" in statement.upper():
-                conc_conn = db.engine.raw_connection()
-                try:
-                    conc_conn.autocommit = True
-                    conc_conn.cursor().execute(statement)
-                finally:
-                    conc_conn.close()
+                with db.engine.connect().execution_options(isolation_level="AUTOCOMMIT") as ac_conn:
+                    ac_conn.connection.cursor().execute(statement)
             else:
                 cur.execute(statement)
         main_conn.commit()
