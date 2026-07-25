@@ -124,11 +124,33 @@ db = SQLAlchemy()
 
 class OracleConnector:
     @staticmethod
-    def get_connection(sysdba=False):
+    def get_connection(oracle_source=None, sysdba=False):
+        """
+        Open an oracledb connection to the PACS Oracle source stored in db_params.
+
+        oracle_source (optional): the db_params.name to connect as. ETL callers pass a
+            source label (e.g. "PROD_ORACLE"); if a row with that exact name exists it is
+            used, otherwise we fall back to the first row whose name contains 'oracle'.
+            This argument is NOT a privilege flag.
+
+        SYSDBA is decided ONLY by the stored connection's `mode` column (or a SYS
+        username), matching the Admin > DB Manager 'Test Connection' path. Pass
+        sysdba=True explicitly to force it.
+
+        History: get_connection() used to take `sysdba` as its first positional arg,
+        so every ETL call — OracleConnector.get_connection(oracle_source) with a truthy
+        source label — silently forced SYSDBA mode. A normal PACS reader account then
+        fails with ORA-01017, while 'Test Connection' (which honours `mode`) succeeds.
+        """
         from utils.crypto import decrypt
         # Ensure thick mode is active before the first connect (idempotent).
         init_oracle_thick_mode()
-        params = DBParams.query.filter(DBParams.name.ilike('%oracle%')).first()
+
+        params = None
+        if oracle_source:
+            params = DBParams.query.filter(DBParams.name == oracle_source).first()
+        if params is None:
+            params = DBParams.query.filter(DBParams.name.ilike('%oracle%')).first()
         if not params:
             raise RuntimeError("No Oracle configuration found in db_params table.")
 
@@ -138,11 +160,11 @@ class OracleConnector:
             "password": decrypt(params.password),
             "dsn": dsn
         }
-        
+
         if sysdba or (params.mode and params.mode.upper() == 'SYSDBA') \
                 or (params.username and params.username.upper() == 'SYS'):
             connect_kwargs["mode"] = oracledb.SYSDBA
-            
+
         return oracledb.connect(**connect_kwargs)
 
 def init_db(app):
