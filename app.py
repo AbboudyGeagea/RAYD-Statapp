@@ -666,6 +666,16 @@ def create_app():
             logger.warning(f"[Migration] permission_groups: {e}")
 
     # --- STARTUP: AUTO-TRIGGER ETL IF DB IS EMPTY ---
+    # Skipped entirely in manual CLI mode ('python app.py -m') — the explicit MANUAL
+    # TRIGGER block further down already runs execute_sync() deliberately, honouring
+    # RAYD_ETL_PHASES / RAYD_ETL_INTERACTIVE. Without this guard, every `-m` invocation
+    # made while any critical table was still empty (e.g. mid a multi-day phased
+    # backfill, where etl_didb_raw_images stays empty until Phase 3 actually succeeds)
+    # ALSO launched a second, unrequested background execute_sync() thread racing the
+    # explicit one — doubling load on the Oracle PACS source and interleaving confusing
+    # duplicate log lines for every phase command run in the meantime.
+    manual_mode = len(sys.argv) > 1 and sys.argv[1] == '-m'
+
     with app.app_context():
         # Skip ETL entirely when demo mode is active (no Oracle available)
         demo_mode = False
@@ -687,7 +697,9 @@ def create_app():
         except Exception:
             pass
 
-        if demo_mode:
+        if manual_mode:
+            logger.info("⏸  [Startup Check] Manual ETL invocation ('-m') — skipping auto-trigger, the explicit run below already covers this.")
+        elif demo_mode:
             logger.info("⏸  [Startup Check] Demo mode — skipping ETL.")
         elif not has_oracle:
             logger.info("⏸  [Startup Check] No Oracle source configured — skipping ETL.")
@@ -830,7 +842,7 @@ def create_app():
     )
 
     # Only start scheduler and HL7 listener when running as server, not manual ETL
-    manual_mode = len(sys.argv) > 1 and sys.argv[1] == '-m'
+    # (manual_mode computed earlier — see STARTUP: AUTO-TRIGGER ETL IF DB IS EMPTY)
     if not manual_mode:
         scheduler.start()
         start_mllp_listener(app, host='0.0.0.0', port=6661)

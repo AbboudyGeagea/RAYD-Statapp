@@ -50,6 +50,28 @@ def run_series_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, stud
                 'last_update'
             ]
 
+            # institutional_department_name doesn't exist in every site's Oracle schema
+            # (LAUMC's medistore.didb_serieses lacks it — ORA-00904). Detected once on the
+            # first chunk; every chunk after that just uses the working column list
+            # directly, so we don't pay a failed-query round trip 604 times over.
+            _SELECT_WITH_DEPT = """
+                SELECT series_db_uid, study_db_uid, patient_db_uid, study_instance_uid,
+                series_instance_uid, series_number, modality, number_of_series_images,
+                body_part_examined, protocol_name, series_description, series_icon_blob_len,
+                institution_name, station_name, manufacturer, institutional_department_name,
+                CURRENT_TIMESTAMP FROM medistore.didb_serieses
+                WHERE study_db_uid IN ({binds})
+            """
+            _SELECT_NO_DEPT = """
+                SELECT series_db_uid, study_db_uid, patient_db_uid, study_instance_uid,
+                series_instance_uid, series_number, modality, number_of_series_images,
+                body_part_examined, protocol_name, series_description, series_icon_blob_len,
+                institution_name, station_name, manufacturer, NULL AS institutional_department_name,
+                CURRENT_TIMESTAMP FROM medistore.didb_serieses
+                WHERE study_db_uid IN ({binds})
+            """
+            has_dept_col = True
+
             skipped_fk = 0
             total_chunks = (len(study_uid_whitelist) + 999) // 1000
             print(f"[Series ETL] 🚀 Starting — {len(study_uid_whitelist):,} study IDs across {total_chunks} chunks")
@@ -57,16 +79,24 @@ def run_series_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, stud
             for chunk_num, i in enumerate(range(0, len(study_uid_whitelist), 1000), start=1):
                 chunk = study_uid_whitelist[i:i+1000]
                 binds = [f":id{j}" for j in range(len(chunk))]
-                query = f"""
-                    SELECT series_db_uid, study_db_uid, patient_db_uid, study_instance_uid,
-                    series_instance_uid, series_number, modality, number_of_series_images,
-                    body_part_examined, protocol_name, series_description, series_icon_blob_len,
-                    institution_name, station_name, manufacturer, institutional_department_name,
-                    CURRENT_TIMESTAMP FROM medistore.didb_serieses
-                    WHERE study_db_uid IN ({','.join(binds)})
-                """
                 params = dict(zip([b.strip(':') for b in binds], chunk))
-                cursor.execute(query, params)
+                template = _SELECT_WITH_DEPT if has_dept_col else _SELECT_NO_DEPT
+                query = template.format(binds=','.join(binds))
+                try:
+                    cursor.execute(query, params)
+                except Exception as _col_err:
+                    err_str = str(_col_err).upper()
+                    if has_dept_col and 'ORA-00904' in err_str and 'INSTITUTIONAL_DEPARTMENT_NAME' in err_str:
+                        logging.warning(
+                            "Series ETL: institutional_department_name not present in this "
+                            "Oracle schema — continuing without it (will be NULL in PG)"
+                        )
+                        print("[Series ETL] ⚠️  institutional_department_name unavailable in this Oracle schema — continuing without it")
+                        has_dept_col = False
+                        query = _SELECT_NO_DEPT.format(binds=','.join(binds))
+                        cursor.execute(query, params)
+                    else:
+                        raise
 
                 while True:
                     batch = cursor.fetchmany(1000)
