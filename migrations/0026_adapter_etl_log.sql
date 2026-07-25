@@ -1,5 +1,29 @@
 -- Migration 0026: adapter_etl_log table for generic ETL adapter sync tracking
 -- Each confirmed adapter_mapping gets per-table sync log rows here.
+--
+-- adapter_mappings itself is normally created at runtime by
+-- routes/db_manager.py:_ensure_mappings_table() the first time an admin opens the DB
+-- Manager page — but this migration references it via FK and runs at app STARTUP,
+-- before any admin has necessarily visited that page. On a fresh install that made
+-- 0026 fail every single time with "relation adapter_mappings does not exist" (and,
+-- since the runner only records successes, it kept re-failing on every restart).
+-- Create the minimal table here so the FK always has something to point at;
+-- _ensure_mappings_table()'s own IF NOT EXISTS / ADD COLUMN IF NOT EXISTS calls stay
+-- harmless no-ops once this has run.
+CREATE TABLE IF NOT EXISTS adapter_mappings (
+    id              SERIAL PRIMARY KEY,
+    connection_name VARCHAR(100) NOT NULL,
+    schema_owner    VARCHAR(100),
+    dump_file       VARCHAR(255),
+    mapping_json    JSONB,
+    notes           TEXT,
+    status          VARCHAR(20) DEFAULT 'draft',
+    system_type     VARCHAR(20),
+    target_db       VARCHAR(100),
+    target_action   VARCHAR(20) DEFAULT 'provision',
+    created_at      TIMESTAMP DEFAULT NOW(),
+    updated_at      TIMESTAMP DEFAULT NOW()
+);
 
 CREATE TABLE IF NOT EXISTS adapter_etl_log (
     id              SERIAL PRIMARY KEY,

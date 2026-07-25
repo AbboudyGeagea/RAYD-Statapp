@@ -1,0 +1,14 @@
+-- Migration 0055: widen db_params.password from VARCHAR(100) to TEXT.
+--
+-- db_params.password stores a Fernet-encrypted token (utils/crypto.py), which runs
+-- ~180+ characters even for a short plaintext password. VARCHAR(100) silently caused
+-- "value too long for type character varying(100)" on save, and — because the code
+-- swallows that error and keeps going (app.py's password-encryption migration logs a
+-- warning and rolls back) — the stored password could be left truncated/garbled,
+-- producing ORA-01017 (invalid username/password) at ETL time even with correct
+-- credentials entered in the UI. schema.sql now creates this column as TEXT on any
+-- fresh install; this migration widens it on any DB created before that fix.
+--
+-- ALTER COLUMN ... TYPE TEXT is a metadata-only change on Postgres (no table rewrite,
+-- no data loss) and is safe to run even if the column is already TEXT.
+ALTER TABLE db_params ALTER COLUMN password TYPE TEXT;

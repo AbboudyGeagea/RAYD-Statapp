@@ -86,7 +86,11 @@ CREATE TABLE public.db_params (
     conn_string text,
     host character varying(100),
     username character varying(50),
-    password character varying(100),
+    -- TEXT, not VARCHAR(100): this column stores Fernet-encrypted tokens
+    -- (utils/crypto.py), which run ~180+ chars even for a short plaintext password —
+    -- VARCHAR(100) silently truncated them, producing "value too long" on save and an
+    -- unusable/garbled password on decrypt. See migration 0055.
+    password text,
     port integer,
     sid character varying(50),
     mode character varying(50),

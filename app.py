@@ -618,15 +618,48 @@ def create_app():
             db.session.execute(text(
                 "CREATE INDEX IF NOT EXISTS idx_users_group_id ON users (group_id)"
             ))
-            # Seed default groups if missing
-            db.session.execute(text("""
-                INSERT INTO permission_groups (name, description, permissions) VALUES
-                ('Administrators','Full system access','{"can_export":true,"can_configure":true,"can_manage_users":true,"can_view_finance":true,"can_use_ai":true,"can_view_etl":true,"can_view_reports":["*"]}'),
-                ('Radiologists','Reading physicians','{"can_export":true,"can_configure":false,"can_manage_users":false,"can_view_finance":false,"can_use_ai":true,"can_view_etl":false,"can_view_reports":["*"]}'),
-                ('Technicians','Imaging technicians','{"can_export":false,"can_configure":false,"can_manage_users":false,"can_view_finance":false,"can_use_ai":false,"can_view_etl":false,"can_view_reports":["*"]}'),
-                ('Finance','Finance team','{"can_export":true,"can_configure":false,"can_manage_users":false,"can_view_finance":true,"can_use_ai":false,"can_view_etl":false,"can_view_reports":["*"]}')
-                ON CONFLICT (name) DO NOTHING
-            """))
+            # Seed default groups if missing.
+            # NOTE: the permissions JSON used to be embedded as a raw string literal
+            # ('{"can_export":true,...}') inside the text() SQL. SQLAlchemy's text()
+            # bind-param parser scans for ':identifier' anywhere in the string — including
+            # inside JSON values like ":true" / ":false" — and tried to treat them as bind
+            # parameters, failing every startup with "A value is required for bind
+            # parameter 'true'" (the seed never actually ran). Passing the JSON as a real
+            # bound parameter (CAST(:permissions AS jsonb)) avoids embedding a raw colon
+            # anywhere near ':' in the SQL text, so nothing looks like a bind param.
+            import json
+            groups = [
+                ("Administrators", "Full system access", {
+                    "can_export": True, "can_configure": True, "can_manage_users": True,
+                    "can_view_finance": True, "can_use_ai": True, "can_view_etl": True,
+                    "can_view_reports": ["*"],
+                }),
+                ("Radiologists", "Reading physicians", {
+                    "can_export": True, "can_configure": False, "can_manage_users": False,
+                    "can_view_finance": False, "can_use_ai": True, "can_view_etl": False,
+                    "can_view_reports": ["*"],
+                }),
+                ("Technicians", "Imaging technicians", {
+                    "can_export": False, "can_configure": False, "can_manage_users": False,
+                    "can_view_finance": False, "can_use_ai": False, "can_view_etl": False,
+                    "can_view_reports": ["*"],
+                }),
+                ("Finance", "Finance team", {
+                    "can_export": True, "can_configure": False, "can_manage_users": False,
+                    "can_view_finance": True, "can_use_ai": False, "can_view_etl": False,
+                    "can_view_reports": ["*"],
+                }),
+            ]
+            for name, description, permissions in groups:
+                db.session.execute(text("""
+                    INSERT INTO permission_groups (name, description, permissions)
+                    VALUES (:name, :description, CAST(:permissions AS jsonb))
+                    ON CONFLICT (name) DO NOTHING
+                """), {
+                    "name": name,
+                    "description": description,
+                    "permissions": json.dumps(permissions),
+                })
             db.session.commit()
         except Exception as e:
             db.session.rollback()
