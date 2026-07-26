@@ -279,6 +279,22 @@ confirmed SLA window yet.
 **Next step**: operator reviews real rendered output against known-correct numbers for a
 sample period, tells me what's wrong, queries get adjusted. Not done until validated.
 
+**PAUSED, 2026-07-26**: operator flagged this whole approach was too PACS-reliant — the
+correct source is RIS's `std_pps`/`std_dictations` (real exam end time, real dictation time,
+proper FK to `std_resources_ris` instead of fragile string-matching on `physician_id`). Two
+real bugs found and fixed while investigating: `RIS_DICTATION_ETL`'s `_safe_str()` crashed on
+`DICTATION.AUDIO` (a BLOB, not the text path migration 0064 guessed — fixed,
+`ETL_JOBS/etl_ris_pps_lookups.py`), and Phase 14's 6 sub-steps shared one try/except so that
+crash also blocked `std_pps`/`std_site_pps_ext` from ever running (fixed, per-sub-step
+isolation, `ETL_JOBS/etl_runner.py`, same commit `f5a9091f`). Even after both fixes, `std_pps`
+still loaded 0 rows (`RIS_PPS_ETL` succeeded with 0 records) — likely `PPS.CREATED_DATE` is
+NULL/unreliable in Oracle, making the `WHERE CREATED_DATE >= go_live_date` filter
+(`ETL_JOBS/etl_ris_pps.py:171`) silently exclude everything (`NULL >= date` is not TRUE in
+SQL). Diagnostic query prepared (checks `CREATED_DATE` null rate, `START_DATETIME`/
+`END_DATETIME` fill rate) but not yet run — operator paused here to "recheck which tables we
+need for dictation" before continuing. **Do not resume the std_pps-based rewrite without
+operator confirmation.**
+
 ### Operator punch list, 2026-07-26 — explicitly "for later," not started
 1. **All reports — data integrity check against RIS and PACS.** No spec yet: presumably
    spot-check counts/sums in RAYD vs. querying RIS/PACS directly for the same period.
@@ -304,8 +320,11 @@ sample period, tells me what's wrong, queries get adjusted. Not done until valid
 5. **Storage calculation is wrong.** Likely `etl_analytics_refresh.py` (Phase 7 rollup) or
    the `etl_image_locations`/`image_size_kb`-derived totals — not diagnosed yet this
    session. Needs a concrete "expected vs. actual" number from the operator to start.
-6. **Remove Patient CD Log** (`routes/cd_print_log.py`) — deletion request, straightforward
-   once confirmed nothing else depends on it (check for cross-references before removing).
+6. **Remove Patient CD Log** ✅ Done (`f3ee4d4a`) — route/template/blueprint/sidebar link
+   removed, following the same convention as Patient Portal/Scheduling (license flag kept
+   `False` for backward-compat, feature_map entry replaced with a "module REMOVED" comment).
+   `cd_print_log` the TABLE, its ETL (`etl_cd_surf.py`), and report_30/report_widgets (which
+   query the table directly) are untouched — separate, still-wanted capability.
 7. **Reporting backlog — RAYD not detecting reporting details.** ⚠️ Very likely the SAME
    root cause as #2 (`migrations/0070`'s finding): reports checking PACS's own
    `rep_final_timestamp`/`rep_final_signed_by` see almost nothing as "reported," not
