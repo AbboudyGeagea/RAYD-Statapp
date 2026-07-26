@@ -3,6 +3,43 @@ from datetime import datetime
 from sqlalchemy import text
 from db import OracleConnector
 
+# Oracle columns this job wants from medistore.didb_serieses (uppercase — Oracle's data
+# dictionary is case-insensitive-but-stored-uppercase for unquoted identifiers). Site
+# schemas vary: LAUMC is missing both INSTITUTIONAL_DEPARTMENT_NAME and MANUFACTURER,
+# each surfacing as a separate ORA-00904 the first time this ran. Rather than hardcode a
+# fallback per missing column (whack-a-mole — there's no guarantee those were the last
+# two), _discover_available_columns() asks Oracle's own dictionary once which of these
+# actually exist on THIS install, and the query is built from that — any genuinely
+# missing column becomes NULL AS <col> instead of aborting the whole job.
+_EXPECTED_SERIES_COLS = [
+    'SERIES_DB_UID', 'STUDY_DB_UID', 'PATIENT_DB_UID', 'STUDY_INSTANCE_UID',
+    'SERIES_INSTANCE_UID', 'SERIES_NUMBER', 'MODALITY', 'NUMBER_OF_SERIES_IMAGES',
+    'BODY_PART_EXAMINED', 'PROTOCOL_NAME', 'SERIES_DESCRIPTION', 'SERIES_ICON_BLOB_LEN',
+    'INSTITUTION_NAME', 'STATION_NAME', 'MANUFACTURER', 'INSTITUTIONAL_DEPARTMENT_NAME',
+]
+
+
+def _discover_available_columns(cursor, owner, table, expected_cols):
+    """Return the subset of expected_cols that actually exist on owner.table, per
+    Oracle's ALL_TAB_COLUMNS. Never raises: if the dictionary lookup itself fails
+    (e.g. no privilege to read ALL_TAB_COLUMNS) or returns nothing, this assumes every
+    expected column is present — so a genuinely missing one still fails loud with its
+    own ORA-00904 instead of everything silently going NULL."""
+    try:
+        cursor.execute(
+            "SELECT COLUMN_NAME FROM ALL_TAB_COLUMNS WHERE OWNER = :owner AND TABLE_NAME = :tbl",
+            {"owner": owner.upper(), "tbl": table.upper()}
+        )
+        existing = {r[0].upper() for r in cursor.fetchall()}
+    except Exception as e:
+        logging.warning(f"Series ETL: could not read column dictionary for {owner}.{table} ({e}) — assuming all expected columns present")
+        return set(expected_cols)
+    if not existing:
+        logging.warning(f"Series ETL: no column metadata returned for {owner}.{table} — assuming all expected columns present")
+        return set(expected_cols)
+    return existing
+
+
 def run_series_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, study_uid_whitelist):
     job_name = "SERIES_ETL"
     start_time = datetime.now()
@@ -50,27 +87,23 @@ def run_series_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, stud
                 'last_update'
             ]
 
-            # institutional_department_name doesn't exist in every site's Oracle schema
-            # (LAUMC's medistore.didb_serieses lacks it — ORA-00904). Detected once on the
-            # first chunk; every chunk after that just uses the working column list
-            # directly, so we don't pay a failed-query round trip 604 times over.
-            _SELECT_WITH_DEPT = """
-                SELECT series_db_uid, study_db_uid, patient_db_uid, study_instance_uid,
-                series_instance_uid, series_number, modality, number_of_series_images,
-                body_part_examined, protocol_name, series_description, series_icon_blob_len,
-                institution_name, station_name, manufacturer, institutional_department_name,
-                CURRENT_TIMESTAMP FROM medistore.didb_serieses
-                WHERE study_db_uid IN ({binds})
+            # Ask Oracle which of our expected columns actually exist on THIS install,
+            # once, before building the query — see _discover_available_columns() and
+            # _EXPECTED_SERIES_COLS above for why.
+            available = _discover_available_columns(cursor, 'medistore', 'didb_serieses', _EXPECTED_SERIES_COLS)
+            missing = [c for c in _EXPECTED_SERIES_COLS if c not in available]
+            if missing:
+                print(f"[Series ETL] ⚠️  columns not present in this Oracle schema, will be NULL: {', '.join(missing)}")
+                logging.warning(f"Series ETL: columns missing from medistore.didb_serieses: {missing}")
+            select_list = ', '.join(
+                col if col in available else f"NULL AS {col}"
+                for col in _EXPECTED_SERIES_COLS
+            )
+            _SELECT_TEMPLATE = f"""
+                SELECT {select_list}, CURRENT_TIMESTAMP
+                FROM medistore.didb_serieses
+                WHERE study_db_uid IN ({{binds}})
             """
-            _SELECT_NO_DEPT = """
-                SELECT series_db_uid, study_db_uid, patient_db_uid, study_instance_uid,
-                series_instance_uid, series_number, modality, number_of_series_images,
-                body_part_examined, protocol_name, series_description, series_icon_blob_len,
-                institution_name, station_name, manufacturer, NULL AS institutional_department_name,
-                CURRENT_TIMESTAMP FROM medistore.didb_serieses
-                WHERE study_db_uid IN ({binds})
-            """
-            has_dept_col = True
 
             skipped_fk = 0
             total_chunks = (len(study_uid_whitelist) + 999) // 1000
@@ -80,23 +113,8 @@ def run_series_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, stud
                 chunk = study_uid_whitelist[i:i+1000]
                 binds = [f":id{j}" for j in range(len(chunk))]
                 params = dict(zip([b.strip(':') for b in binds], chunk))
-                template = _SELECT_WITH_DEPT if has_dept_col else _SELECT_NO_DEPT
-                query = template.format(binds=','.join(binds))
-                try:
-                    cursor.execute(query, params)
-                except Exception as _col_err:
-                    err_str = str(_col_err).upper()
-                    if has_dept_col and 'ORA-00904' in err_str and 'INSTITUTIONAL_DEPARTMENT_NAME' in err_str:
-                        logging.warning(
-                            "Series ETL: institutional_department_name not present in this "
-                            "Oracle schema — continuing without it (will be NULL in PG)"
-                        )
-                        print("[Series ETL] ⚠️  institutional_department_name unavailable in this Oracle schema — continuing without it")
-                        has_dept_col = False
-                        query = _SELECT_NO_DEPT.format(binds=','.join(binds))
-                        cursor.execute(query, params)
-                    else:
-                        raise
+                query = _SELECT_TEMPLATE.format(binds=','.join(binds))
+                cursor.execute(query, params)
 
                 while True:
                     batch = cursor.fetchmany(1000)
