@@ -764,6 +764,13 @@ def compute_bg_data(form_data):
         # hl7_orders carries no storing_ae/site marker of its own — resolve site via the
         # matching PACS study by accession_number (same correlation key used for the RIS
         # Reports enrichment in ETL_JOBS/etl_ris_reports.py), same LAUMC site rule as above.
+        _tech_site_join = ""
+        if rh_site_id is not None:
+            _tech_site_join = (
+                "JOIN etl_didb_studies s2 ON s2.accession_number = o.accession_number "
+                "JOIN aetitle_modality_map m2 ON UPPER(TRIM(s2.storing_ae)) = UPPER(TRIM(m2.aetitle)) "
+                "AND m2.site_id = :rh_site_id"
+            )
         tech_rows = db.session.execute(text(f"""
             SELECT
                 o.accession_number, o.modality, o.procedure_code, o.done_by,
@@ -773,11 +780,7 @@ def compute_bg_data(form_data):
             FROM hl7_orders o
             LEFT JOIN procedure_duration_map p
                    ON UPPER(TRIM(o.procedure_code)) = UPPER(TRIM(p.procedure_code))
-            {"""
-            JOIN etl_didb_studies s2 ON s2.accession_number = o.accession_number
-            JOIN aetitle_modality_map m2 ON UPPER(TRIM(s2.storing_ae)) = UPPER(TRIM(m2.aetitle))
-                AND m2.site_id = :rh_site_id
-            """ if rh_site_id is not None else ""}
+            {_tech_site_join}
             WHERE o.scheduled_datetime IS NOT NULL
               AND o.scheduled_datetime::date BETWEEN :start AND :end
               AND UPPER(TRIM(COALESCE(o.modality, ''))) != 'SCN'
