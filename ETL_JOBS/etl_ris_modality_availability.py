@@ -24,6 +24,8 @@ from db import OracleConnector
 _MODALITY_EXCEPTION_TABLE = os.getenv("RAYD_RIS_MODALITY_EXCEPTION_TABLE", "MODALITY_AVAIL_EXCEPTION")
 _SCHEDULE_TEMPLATE_ITEM_TABLE = os.getenv("RAYD_RIS_SCHEDULE_TEMPLATE_ITEM_TABLE", "SCHEDULE_TEMPLATE_ITEM")
 _MODALITY_TABLE = os.getenv("RAYD_RIS_MODALITY_TABLE", "MODALITY")
+_SCHEDULE_SCHEME_TABLE = os.getenv("RAYD_RIS_SCHEDULE_SCHEME_TABLE", "SCHEDULE_SCHEME")
+_AVAILABILITY_INDICATOR_TABLE = os.getenv("RAYD_RIS_AVAILABILITY_INDICATOR_TABLE", "AVAILABILITY_INDICATOR")
 _FETCH_BATCH = 2000
 
 _SAFE_DATE_MIN = datetime(1900, 1, 1)
@@ -58,6 +60,12 @@ def _safe_int(val):
         return int(val)
     except (TypeError, ValueError):
         return None
+
+
+def _safe_bool(val):
+    if val is None:
+        return None
+    return str(val).strip().upper() in ('Y', 'YES', 'TRUE', '1')
 
 
 def _log_job(pg_engine, job_name):
@@ -227,6 +235,129 @@ def run_ris_schedule_template_items_etl(pg_engine, oracle_source):
     except Exception as e:
         status, error_msg = "FAILED", str(e)
         logging.error(f"RIS Schedule Template Items ETL error: {error_msg}")
+        raise
+    finally:
+        cursor.close()
+        ora_conn.close()
+        _close_job(pg_engine, log_id, start_time, status, total, error_msg, skipped)
+    return total
+
+
+_UPSERT_SCHEME_SQL = text("""
+    INSERT INTO std_schedule_schemes (
+        schedule_scheme_key, code, description, default_flag, active,
+        source_last_updated, last_update
+    ) VALUES (
+        :schedule_scheme_key, :code, :description, :default_flag, :active,
+        :source_last_updated, :last_update
+    )
+    ON CONFLICT (schedule_scheme_key) DO UPDATE SET
+        code = EXCLUDED.code, description = EXCLUDED.description,
+        default_flag = EXCLUDED.default_flag, active = EXCLUDED.active,
+        source_last_updated = EXCLUDED.source_last_updated, last_update = EXCLUDED.last_update
+""")
+
+
+def run_ris_schedule_schemes_etl(pg_engine, oracle_source):
+    log_id, start_time = _log_job(pg_engine, "RIS_SCHEDULE_SCHEMES_ETL")
+    total, skipped, error_msg, status = 0, 0, None, "SUCCESS"
+
+    query = f"SELECT SCHEDULE_SCHEME_KEY, CODE, DESCRIPTION, DEFAULT_FLAG, ACTIVE, LAST_UPDATED FROM {_SCHEDULE_SCHEME_TABLE}"
+    ora_conn = OracleConnector.get_connection(oracle_source)
+    cursor = ora_conn.cursor()
+    try:
+        print(f"[RIS Schedule Schemes ETL] 🚀 Starting ({_SCHEDULE_SCHEME_TABLE})")
+        cursor.execute(query)
+        while True:
+            batch = cursor.fetchmany(_FETCH_BATCH)
+            if not batch:
+                break
+            params = []
+            for key, code, desc, default_flag, active, last_upd in batch:
+                if key is None:
+                    skipped += 1
+                    continue
+                params.append({
+                    "schedule_scheme_key": key, "code": _safe_str(code), "description": _safe_str(desc),
+                    "default_flag": _safe_bool(default_flag), "active": _safe_bool(active),
+                    "source_last_updated": _safe_date(last_upd), "last_update": datetime.now(),
+                })
+            if params:
+                with pg_engine.begin() as conn:
+                    conn.execute(_UPSERT_SCHEME_SQL, params)
+                total += len(params)
+        print(f"[RIS Schedule Schemes ETL] ✅ Done — {total:,} schemes upserted")
+    except Exception as e:
+        status, error_msg = "FAILED", str(e)
+        logging.error(f"RIS Schedule Schemes ETL error: {error_msg}")
+        raise
+    finally:
+        cursor.close()
+        ora_conn.close()
+        _close_job(pg_engine, log_id, start_time, status, total, error_msg, skipped)
+    return total
+
+
+_UPSERT_AVAIL_INDICATOR_SQL = text("""
+    INSERT INTO std_availability_indicators (
+        availability_indicator_key, code, description, color, alternate_color,
+        allow_days_in_advance, allow_n_next_days, default_search, source_last_updated,
+        last_update
+    ) VALUES (
+        :availability_indicator_key, :code, :description, :color, :alternate_color,
+        :allow_days_in_advance, :allow_n_next_days, :default_search, :source_last_updated,
+        :last_update
+    )
+    ON CONFLICT (availability_indicator_key) DO UPDATE SET
+        code = EXCLUDED.code, description = EXCLUDED.description, color = EXCLUDED.color,
+        alternate_color = EXCLUDED.alternate_color,
+        allow_days_in_advance = EXCLUDED.allow_days_in_advance,
+        allow_n_next_days = EXCLUDED.allow_n_next_days, default_search = EXCLUDED.default_search,
+        source_last_updated = EXCLUDED.source_last_updated, last_update = EXCLUDED.last_update
+""")
+
+
+def run_ris_availability_indicators_etl(pg_engine, oracle_source):
+    log_id, start_time = _log_job(pg_engine, "RIS_AVAILABILITY_INDICATORS_ETL")
+    total, skipped, error_msg, status = 0, 0, None, "SUCCESS"
+
+    query = f"""
+        SELECT AVAILABILITY_INDICATOR_KEY, CODE, DESCRIPTION, COLOR, ALTERNATE_COLOR,
+               ALLOW_DAYS_IN_ADVANCE, ALLOW_N_NEXT_DAYS, DEFAULT_SEARCH, LAST_UPDATED
+        FROM {_AVAILABILITY_INDICATOR_TABLE}
+    """
+    ora_conn = OracleConnector.get_connection(oracle_source)
+    cursor = ora_conn.cursor()
+    try:
+        print(f"[RIS Availability Indicators ETL] 🚀 Starting ({_AVAILABILITY_INDICATOR_TABLE})")
+        cursor.execute(query)
+        while True:
+            batch = cursor.fetchmany(_FETCH_BATCH)
+            if not batch:
+                break
+            params = []
+            for (key, code, desc, color, alt_color, days_advance, n_next_days,
+                 default_search, last_upd) in batch:
+                if key is None:
+                    skipped += 1
+                    continue
+                params.append({
+                    "availability_indicator_key": key, "code": _safe_str(code),
+                    "description": _safe_str(desc), "color": _safe_str(color),
+                    "alternate_color": _safe_str(alt_color),
+                    "allow_days_in_advance": _safe_int(days_advance),
+                    "allow_n_next_days": _safe_int(n_next_days),
+                    "default_search": _safe_bool(default_search),
+                    "source_last_updated": _safe_date(last_upd), "last_update": datetime.now(),
+                })
+            if params:
+                with pg_engine.begin() as conn:
+                    conn.execute(_UPSERT_AVAIL_INDICATOR_SQL, params)
+                total += len(params)
+        print(f"[RIS Availability Indicators ETL] ✅ Done — {total:,} indicators upserted")
+    except Exception as e:
+        status, error_msg = "FAILED", str(e)
+        logging.error(f"RIS Availability Indicators ETL error: {error_msg}")
         raise
     finally:
         cursor.close()

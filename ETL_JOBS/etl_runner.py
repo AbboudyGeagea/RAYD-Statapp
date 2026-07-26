@@ -79,7 +79,10 @@ from etl_ris_resources     import run_ris_resources_etl
 from etl_ris_pps_lookups   import run_ris_status_etl, run_ris_procedure_priority_etl, run_ris_dictation_etl
 from etl_ris_pps           import run_ris_pps_etl, run_pps_study_enrichment
 from etl_ris_site_pps      import run_ris_site_pps_etl
-from etl_ris_modality_availability import run_ris_modality_exceptions_etl, run_ris_schedule_template_items_etl
+from etl_ris_modality_availability import (
+    run_ris_modality_exceptions_etl, run_ris_schedule_template_items_etl,
+    run_ris_schedule_schemes_etl, run_ris_availability_indicators_etl,
+)
 
 logger = logging.getLogger("ETL_WORKER")
 
@@ -125,7 +128,7 @@ _PHASE_LABELS = {
     '12': ('RIS Patients',       'Oracle RIS: PATIENT/PERSON/PATIENT_ID_LIST -> std_patients_ris / std_patient_ids + age_at_study enrichment — moderate (LAUMC)'),
     '13': ('RIS Resources',      'Oracle RIS: RESOURCE_ID + PERSON -> std_resources_ris + reading/signing physician enrichment — moderate (LAUMC)'),
     '14': ('RIS PPS',            'Oracle RIS: PPS + STATUS + PROCEDURE_PRIORITY + DICTATION + SITE_PPS -> std_pps and friends + STUDY_INSTANCE_UID<->PACS join test — moderate/heavy (LAUMC)'),
-    '15': ('RIS Modality Availability', 'Oracle RIS: MODALITY_AVAIL_EXCEPTION + SCHEDULE_TEMPLATE_ITEM -> std_modality_exceptions / std_schedule_template_items (device utilization denominator) — light (LAUMC)'),
+    '15': ('RIS Modality Availability', 'Oracle RIS: SCHEDULE_SCHEME + AVAILABILITY_INDICATOR + MODALITY_AVAIL_EXCEPTION + SCHEDULE_TEMPLATE_ITEM -> std_schedule_schemes / std_availability_indicators / std_modality_exceptions / std_schedule_template_items (device utilization denominator) — light (LAUMC)'),
 }
 
 
@@ -480,6 +483,8 @@ def _perform_migration(engine):
                 )
             else:
                 logger.info("📋 Phase 15: RIS Modality Availability")
+                run_ris_schedule_schemes_etl(engine, ris_src)
+                run_ris_availability_indicators_etl(engine, ris_src)
                 run_ris_modality_exceptions_etl(engine, ris_src)
                 run_ris_schedule_template_items_etl(engine, ris_src)
                 logger.info("✅ Phase 15 done")
