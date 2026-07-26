@@ -36,7 +36,16 @@ def _safe_date(val):
 def _safe_str(val, max_len=None):
     if val is None:
         return None
-    s = str(val).strip()
+    if isinstance(val, (bytes, bytearray)):
+        return None   # binary content (e.g. a BLOB column) — not stored as text
+    try:
+        s = str(val).strip()
+    except TypeError:
+        # DICTATION.AUDIO turned out to be a BLOB, not the text path/reference migration
+        # 0064 guessed at — oracledb's LOB wrapper for a BLOB column's __str__ returns raw
+        # bytes, which is a TypeError (crashed the whole RIS_DICTATION_ETL run, 2026-07-26).
+        # Same defensive fallback for any other column that turns out to be binary.
+        return None
     if not s:
         return None
     return s[:max_len] if max_len else s

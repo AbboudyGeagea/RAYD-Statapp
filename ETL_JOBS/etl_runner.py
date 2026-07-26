@@ -515,17 +515,30 @@ def _perform_migration(engine):
                 )
             else:
                 logger.info("📋 Phase 14: RIS PPS")
-                try:
-                    run_ris_status_etl(engine, ris_src)
-                    run_ris_procedure_priority_etl(engine, ris_src)
-                    run_ris_dictation_etl(engine, ris_src)
-                    run_ris_pps_etl(engine, ris_src, go_live)
-                    run_pps_study_enrichment(engine)
-                    run_ris_site_pps_etl(engine, ris_src)
+                # Each step isolated — a single sub-step failing (e.g. RIS_DICTATION_ETL's
+                # bytes/__str__ bug, 2026-07-26) previously aborted the whole phase via one
+                # shared try/except, silently leaving std_pps/std_site_pps_ext empty even
+                # though nothing was actually wrong with them.
+                _phase14_substeps = [
+                    ("status",      lambda: run_ris_status_etl(engine, ris_src)),
+                    ("priority",    lambda: run_ris_procedure_priority_etl(engine, ris_src)),
+                    ("dictation",   lambda: run_ris_dictation_etl(engine, ris_src)),
+                    ("pps",         lambda: run_ris_pps_etl(engine, ris_src, go_live)),
+                    ("enrichment",  lambda: run_pps_study_enrichment(engine)),
+                    ("site_pps",    lambda: run_ris_site_pps_etl(engine, ris_src)),
+                ]
+                _phase14_failed = []
+                for _name, _fn in _phase14_substeps:
+                    try:
+                        _fn()
+                    except Exception as _e:
+                        _phase14_failed.append(_name)
+                        logger.error(f"🛑 Phase 14 sub-step '{_name}' failed — continuing to next sub-step: {_e}", exc_info=True)
+                if _phase14_failed:
+                    _phase_failures.append(f"14 (RIS PPS: {', '.join(_phase14_failed)})")
+                    logger.warning(f"⚠️  Phase 14 finished with sub-step failures: {', '.join(_phase14_failed)}")
+                else:
                     logger.info("✅ Phase 14 done")
-                except Exception as _e:
-                    _phase_failures.append("14 (RIS PPS)")
-                    logger.error(f"🛑 Phase 14 (RIS PPS) failed — continuing to next phase: {_e}", exc_info=True)
 
         # ── PHASE 15: RIS Modality Availability ─────────────────────────────
         # NOT editable from RAYD (no admin route built for either table).
