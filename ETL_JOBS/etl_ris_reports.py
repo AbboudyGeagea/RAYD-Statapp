@@ -67,7 +67,7 @@ _UPSERT_SQL = text("""
 _ENRICH_SQL = text("""
     UPDATE hl7_oru_reports o
     SET site_id    = COALESCE(o.site_id,    s.site_id),
-        patient_id = COALESCE(o.patient_id, pv.patient_id),
+        patient_id = COALESCE(o.patient_id, pv.id),
         modality   = COALESCE(o.modality,   s.study_modality)
     FROM etl_didb_studies s
     LEFT JOIN etl_patient_view pv ON pv.patient_db_uid = s.patient_db_uid
