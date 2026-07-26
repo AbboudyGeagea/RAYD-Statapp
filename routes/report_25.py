@@ -48,6 +48,185 @@ def _load_shift_config():
         pass
     return defaults
 
+# ── KPI Detailed Reading (hospital TAT-per-modality-per-radiologist spec) ────
+# Format matches "KPI Detailed reading.xlsx" (repo root) exactly: for each
+# modality x patient-class block (e.g. CT-IN / CT-Urg / CT-Out), three TAT
+# stages bucketed into named time ranges, radiologist rows per stage (except
+# "Exam Done to Read", which is a single aggregate row — not attributable to
+# an individual since it's queue/pickup time, not a specific radiologist's
+# turnaround).
+#
+# Stage definitions (assumption, confirm against real data — operator:
+# "let's test it, we can change the queries if the data is illogical"):
+#   Ex. Done to Read      : COALESCE(hl7_orders.done_at, .pacs_done_at) -> rep_prelim_timestamp
+#   Signed 1 to Approved  : rep_prelim_timestamp -> rep_final_timestamp        (per radiologist)
+#   Exam done to Approved : COALESCE(done_at, pacs_done_at) -> COALESCE(rep_final_timestamp,
+#                            hl7_oru_reports.result_datetime)                  (per radiologist)
+#
+# Patient-class block assumption (confirm): "Urgent" = ER, detected the same
+# way the rest of this file already does (accession_number starts with '2XE');
+# Inpatient / Outpatient split on patient_class text — exact value vocabulary
+# unconfirmed (no CHECK constraint in schema), using broad ILIKE matches.
+#
+# Radiologist identity: hl7_oru_reports.physician_id is a raw RIS code, not a
+# name (see migrations/0070's known-limitation note) -- resolved here via
+# std_resources_ris.resource_id, which uses the SAME composite-ID format
+# already confirmed for etl_didb_studies.reading/signing_physician_id
+# (migration 0063). Falls back to the raw code if no match, so a resolution
+# gap is visible (a code on screen) rather than silently dropped.
+#
+# Radiologist list is NOT hardcoded -- whoever actually has signed studies in
+# the selected period shows up, per operator instruction.
+
+_KPI_BUCKETS_STANDARD = [   # CT-IN / CT-Urg style cutoffs
+    ('0:00-0:10', 0, 10), ('0:11-0:30', 11, 30), ('0:31-1h', 31, 60),
+    ('1h-2h', 61, 120), ('2h-4h', 121, 240), ('4h-6h', 241, 360),
+    ('6h-12h', 361, 720), ('12h-18h', 721, 1080), ('18h-24h', 1081, 1440),
+    ('24h-48h', 1441, 2880), ('48h-72h', 2881, 4320), ('72h-96h', 4321, 5760),
+    ('96h-168h', 5761, 10080), ('>7 days', 10081, None),
+]
+_KPI_BUCKETS_OUTPATIENT = [   # CT-Out style cutoffs (coarser 12-24h step, no 18h split)
+    ('0:00-0:10', 0, 10), ('0:11-0:30', 11, 30), ('0:31-1h', 31, 60),
+    ('1h-2h', 61, 120), ('2h-4h', 121, 240), ('4h-6h', 241, 360),
+    ('6h-12h', 361, 720), ('12h-24h', 721, 1440),
+    ('24h-36h', 1441, 2160), ('36h-48h', 2161, 2880),
+    ('48h-72h', 2881, 4320), ('72h-96h', 4321, 5760),
+    ('96h-168h', 5761, 10080), ('>7 days', 10081, None),
+]
+_KPI_PROCEDURE_EXCLUSIONS = ['%TAVI%', '%CORO%']   # confirmed: exclude TAVI + Coro CT
+_KPI_MODALITIES = ['CT']   # only CT has a defined SLA in the source spreadsheet so far
+
+
+def _kpi_bucket_label(minutes, buckets):
+    if pd.isna(minutes):
+        return None
+    for label, lo, hi in buckets:
+        if minutes >= lo and (hi is None or minutes <= hi):
+            return label
+    return None
+
+
+def _kpi_class_bucket(row):
+    acc = str(row.get('accession_number') or '').upper()
+    if acc.startswith('2XE'):
+        return 'Urg'
+    pc = str(row.get('patient_class') or '').upper()
+    if pc.startswith('IN') or pc in ('I', 'IP'):
+        return 'IN'
+    if pc.startswith('OUT') or pc.startswith('AMB') or pc in ('O', 'OP'):
+        return 'Out'
+    return None   # unclassified — excluded from the KPI table, not guessed
+
+
+def get_kpi_detailed_reading(form_data):
+    """
+    Bucketed multi-stage TAT per modality x patient-class x radiologist,
+    matching the hospital's "KPI Detailed reading.xlsx" format. See module
+    comment block above for stage/bucket definitions and open assumptions.
+    """
+    go_live = get_etl_cutoff_date()
+    start = form_data.get("start_date") or (go_live.strftime("%Y-%m-%d") if go_live else "2024-01-01")
+    end = form_data.get("end_date") or date.today().strftime("%Y-%m-%d")
+    params = {"start": start, "end": end}
+
+    rh_site_id = default_site()
+    site_clause = ""
+    if rh_site_id is not None:
+        params["rh_site_id"] = rh_site_id
+        site_clause = "AND m.site_id = :rh_site_id"
+
+    excl_clause = " AND ".join(
+        f"UPPER(COALESCE(s.procedure_code, '')) NOT LIKE '{p}'" for p in _KPI_PROCEDURE_EXCLUSIONS
+    )
+
+    blocks = {}
+    try:
+        for modality in _KPI_MODALITIES:
+            rows = db.session.execute(text(f"""
+                SELECT
+                    s.accession_number,
+                    s.patient_class,
+                    COALESCE(s.rep_final_signed_by, res.common_name, o.physician_id) AS radiologist,
+                    s.rep_prelim_timestamp,
+                    s.rep_final_timestamp,
+                    o.result_datetime AS ris_result_datetime,
+                    ho.done_at,
+                    ho.pacs_done_at
+                FROM etl_didb_studies s
+                JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
+                LEFT JOIN hl7_orders ho ON ho.accession_number = s.accession_number
+                LEFT JOIN hl7_oru_reports o ON o.accession_number = s.accession_number
+                LEFT JOIN std_resources_ris res ON res.resource_id = o.physician_id
+                WHERE s.study_date BETWEEN :start AND :end
+                  AND UPPER(TRIM(m.modality)) = :modality
+                  AND COALESCE(m.modality, s.study_modality, '') != 'SR'
+                  {site_clause}
+                  AND {excl_clause}
+            """), {**params, "modality": modality}).mappings().fetchall()
+
+            if not rows:
+                continue
+            kdf = pd.DataFrame(rows)
+            kdf['exam_done'] = pd.to_datetime(kdf['done_at'], errors='coerce').fillna(
+                pd.to_datetime(kdf['pacs_done_at'], errors='coerce')
+            )
+            kdf['approved'] = pd.to_datetime(kdf['rep_final_timestamp'], errors='coerce').fillna(
+                pd.to_datetime(kdf['ris_result_datetime'], errors='coerce')
+            )
+            kdf['prelim'] = pd.to_datetime(kdf['rep_prelim_timestamp'], errors='coerce')
+
+            kdf['exam_to_read_min']      = (kdf['prelim']   - kdf['exam_done']).dt.total_seconds() / 60
+            kdf['signed_to_approved_min']= (kdf['approved'] - kdf['prelim']).dt.total_seconds() / 60
+            kdf['exam_to_approved_min']  = (kdf['approved'] - kdf['exam_done']).dt.total_seconds() / 60
+
+            kdf['class_bucket'] = kdf.apply(_kpi_class_bucket, axis=1)
+            kdf = kdf[kdf['class_bucket'].notna()]
+
+            for class_bucket, cdf in kdf.groupby('class_bucket'):
+                buckets = _KPI_BUCKETS_OUTPATIENT if class_bucket == 'Out' else _KPI_BUCKETS_STANDARD
+                bucket_labels = [b[0] for b in buckets]
+                key = f"{modality}-{class_bucket}"
+
+                block = {'bucket_labels': bucket_labels, 'stages': {}}
+
+                # Ex. Done to Read — single aggregate row, not per-radiologist
+                exam_read = cdf[cdf['exam_to_read_min'].notna() & (cdf['exam_to_read_min'] >= 0)].copy()
+                exam_read['bucket'] = exam_read['exam_to_read_min'].apply(lambda m: _kpi_bucket_label(m, buckets))
+                counts = exam_read['bucket'].value_counts().to_dict()
+                block['stages']['Ex. Done to Read'] = {
+                    'radiologists': [{
+                        'name': 'Res.',
+                        'counts': {label: int(counts.get(label, 0)) for label in bucket_labels},
+                        'total': int(exam_read['bucket'].notna().sum()),
+                    }]
+                }
+
+                # Signed 1 to Approved / Exam done to Approved — per radiologist
+                for stage_name, col in [
+                    ('Signed 1 to Approved', 'signed_to_approved_min'),
+                    ('Exam done to Approved', 'exam_to_approved_min'),
+                ]:
+                    sdf = cdf[cdf[col].notna() & (cdf[col] >= 0) & cdf['radiologist'].notna()].copy()
+                    sdf['bucket'] = sdf[col].apply(lambda m: _kpi_bucket_label(m, buckets))
+                    rad_rows = []
+                    for rad, rdf in sdf.groupby('radiologist'):
+                        counts = rdf['bucket'].value_counts().to_dict()
+                        rad_rows.append({
+                            'name': rad,
+                            'counts': {label: int(counts.get(label, 0)) for label in bucket_labels},
+                            'total': int(rdf['bucket'].notna().sum()),
+                        })
+                    rad_rows.sort(key=lambda r: r['name'])
+                    block['stages'][stage_name] = {'radiologists': rad_rows}
+
+                blocks[key] = block
+    except Exception:
+        logger.exception("Failed to build KPI Detailed Reading data")
+        db.session.rollback()
+
+    return blocks
+
+
 def get_gold_standard_data(form_data):
     """
     Main data-fetch for Report 25.  Runs the SQL template from the DB,
@@ -1067,6 +1246,7 @@ def report_25():
     data          = None
     journey_json  = None
     template_data = None
+    kpi_data      = None
 
     if run_report:
         from utils.audit import log_event
@@ -1074,6 +1254,7 @@ def report_25():
                   detail={'from': request.values.get('start_date'), 'to': request.values.get('end_date'),
                           'tab': active_tab})
         data, display_start, display_end = get_gold_standard_data(request.values)
+        kpi_data = get_kpi_detailed_reading(request.values)
 
         pid = request.values.get("fallback_id")
         if pid:
@@ -1087,7 +1268,7 @@ def report_25():
 
         template_data = {k: v for k, v in data.items() if k != 'raw_df'} if data else None
 
-    return render_template("report_25.html", data=template_data, display_start=display_start, display_end=display_end, classes=classes, locations=locations, modalities=modalities, aetitles=aetitles, tree_json=tree_json, journey_json=journey_json, run_report=run_report, active_tab=active_tab, shift_config=shift_config)
+    return render_template("report_25.html", data=template_data, kpi_data=kpi_data, display_start=display_start, display_end=display_end, classes=classes, locations=locations, modalities=modalities, aetitles=aetitles, tree_json=tree_json, journey_json=journey_json, run_report=run_report, active_tab=active_tab, shift_config=shift_config)
 
 @report_25_bp.route("/report/25/export", methods=["POST"])
 @login_required
