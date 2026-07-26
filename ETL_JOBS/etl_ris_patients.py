@@ -136,6 +136,13 @@ _UPSERT_ID_SQL = text("""
 # etl_orders.patient_dbid is TEXT (holds the RIS patient_person_key as a string); the
 # CASE guards the ::BIGINT cast so one malformed value can't abort the whole UPDATE —
 # a non-numeric patient_dbid just fails to join (excluded), not a hard error.
+#
+# age_at_study is NUMERIC(5,2) (migration 0061) — max magnitude 999.99. A placeholder/
+# sentinel birth_date (the same "quick-registration DOB" data-quality issue this module
+# was built to work around in the first place — see docstring above) produces a
+# negative or absurd age that overflows the column and aborted the WHOLE ETL run
+# (NumericValueOutOfRange, live LAUMC 2026-07-26). Bound the computed age to a plausible
+# human range so one bad birth_date is skipped, not a hard failure.
 _AGE_AT_STUDY_SQL = text("""
     UPDATE etl_didb_studies s
     SET age_at_study = FLOOR((s.study_date - pr.birth_date) / 365.25)
@@ -146,6 +153,7 @@ _AGE_AT_STUDY_SQL = text("""
     WHERE eo.study_db_uid = s.study_db_uid
       AND pr.birth_date IS NOT NULL
       AND s.study_date IS NOT NULL
+      AND FLOOR((s.study_date - pr.birth_date) / 365.25) BETWEEN 0 AND 130
 """)
 
 
