@@ -102,6 +102,10 @@
                 <span style="font-size:8px;font-weight:900;padding:1px 5px;border-radius:4px;background:rgba(239,68,68,0.15);color:#f87171;text-transform:uppercase;letter-spacing:0.08em;">!</span>
                 {% endif %}
             </a>
+            <a href="{{ url_for('floor_plan_admin.floor_plan_page') }}"
+               class="sidebar-item {% if ep.startswith('floor_plan_admin.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
+                <i class="bi bi-map-fill flex-shrink-0" style="color:#22c55e;"></i> Floor Plan
+            </a>
             {% endif %}
             {% if current_user.role == 'admin' or current_user|user_has_page('mapping') %}
             <a href="{{ url_for('mapping.mapping_page') }}"

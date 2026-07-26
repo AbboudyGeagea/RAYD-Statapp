@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | Floor Plan</title>
+    <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
+    <style>
+        body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; }
+        .glass-card { background: #232b28; border-radius: 1.25rem; border: 1px solid #28332e; }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+    {% include '_header.html' %}
+    <div class="flex flex-1 overflow-hidden">
+        {% include '_sidebar.html' %}
+
+        <main class="flex-1 overflow-y-auto p-6">
+            <div class="max-w-7xl mx-auto">
+                <div class="flex items-center justify-between mb-4">
+                    <div>
+                        <h1 class="text-lg font-black text-white uppercase tracking-widest">Floor Plan — Device Positions</h1>
+                        <p class="text-xs text-zinc-500 mt-1">Upload a floor-plan image per site, then place each device where it physically sits. Live AE Status renders device tiles at these positions.</p>
+                    </div>
+                    <select id="site-select" class="bg-zinc-900 border border-white/10 rounded-lg text-xs font-bold text-white px-3 py-2">
+                        {% for s in sites %}
+                        <option value="{{ s.id }}">{{ s.code }} — {{ s.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="grid grid-cols-4 gap-4">
+                    <!-- Canvas -->
+                    <div class="col-span-3 glass-card p-4">
+                        <div class="flex items-center justify-between mb-3">
+                            <p class="text-[10px] font-black text-zinc-500 uppercase tracking-widest">
+                                Floor plan <span id="place-hint" class="text-blue-400 normal-case font-normal ml-2"></span>
+                            </p>
+                            <label class="text-[10px] font-black text-blue-400 uppercase cursor-pointer hover:text-blue-300">
+                                <i class="bi bi-upload"></i> Upload image
+                                <input type="file" id="upload-input" accept="image/png,image/jpeg,image/webp" class="hidden">
+                            </label>
+                        </div>
+                        <div id="canvas-wrap" class="relative w-full bg-zinc-900 border border-white/10 rounded-xl overflow-hidden" style="aspect-ratio: 16/9; cursor: default;">
+                            <img id="canvas-img" class="absolute inset-0 w-full h-full object-contain hidden" />
+                            <div id="canvas-empty" class="absolute inset-0 flex items-center justify-center text-zinc-600 text-xs italic">
+                                No floor plan uploaded for this site yet.
+                            </div>
+                            <div id="markers-layer" class="absolute inset-0"></div>
+                        </div>
+                    </div>
+
+                    <!-- Device list -->
+                    <div class="glass-card p-4 overflow-y-auto" style="max-height: 640px;">
+                        <p class="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-3">Devices</p>
+                        <div id="device-list" class="space-y-1"></div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+    (function(){
+        const siteSelect   = document.getElementById('site-select');
+        const canvasWrap   = document.getElementById('canvas-wrap');
+        const canvasImg    = document.getElementById('canvas-img');
+        const canvasEmpty  = document.getElementById('canvas-empty');
+        const markersLayer = document.getElementById('markers-layer');
+        const deviceList   = document.getElementById('device-list');
+        const uploadInput  = document.getElementById('upload-input');
+        const placeHint    = document.getElementById('place-hint');
+
+        let devices = [];
+        let selectedAetitle = null;
+
+        async function loadState() {
+            const siteId = siteSelect.value;
+            const res = await fetch(`/admin/floor-plan/api/state?site_id=${siteId}`);
+            const data = await res.json();
+            if (data.error) { alert(data.error); return; }
+
+            if (data.plan && data.plan.image_path) {
+                canvasImg.src = '/static/' + data.plan.image_path;
+                canvasImg.classList.remove('hidden');
+                canvasEmpty.classList.add('hidden');
+            } else {
+                canvasImg.classList.add('hidden');
+                canvasEmpty.classList.remove('hidden');
+            }
+            devices = data.devices;
+            selectedAetitle = null;
+            renderDeviceList();
+            renderMarkers();
+        }
+
+        function renderDeviceList() {
+            deviceList.innerHTML = devices.map(d => {
+                const placed = d.floor_x !== null && d.floor_y !== null;
+                const active = d.aetitle === selectedAetitle;
+                return `
+                    <div class="flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg text-xs cursor-pointer
+                        ${active ? 'bg-blue-500/20 border border-blue-500/40' : 'hover:bg-white/5 border border-transparent'}"
+                        data-aetitle="${d.aetitle}">
+                        <span class="flex items-center gap-2 truncate">
+                            <i class="bi ${placed ? 'bi-geo-alt-fill text-emerald-400' : 'bi-geo-alt text-zinc-600'}"></i>
+                            <span class="font-bold text-zinc-300 truncate">${d.label}</span>
+                            <span class="text-zinc-600">${d.modality || ''}</span>
+                        </span>
+                        ${placed ? `<button class="unplace-btn text-zinc-600 hover:text-rose-400" data-aetitle="${d.aetitle}" title="Remove placement"><i class="bi bi-x-lg"></i></button>` : ''}
+                    </div>
+                `;
+            }).join('');
+
+            deviceList.querySelectorAll('[data-aetitle]').forEach(el => {
+                el.addEventListener('click', (e) => {
+                    if (e.target.closest('.unplace-btn')) return;
+                    selectedAetitle = el.dataset.aetitle;
+                    renderDeviceList();
+                    placeHint.textContent = `Click the floor plan to place "${selectedAetitle}"`;
+                    canvasWrap.style.cursor = 'crosshair';
+                });
+            });
+            deviceList.querySelectorAll('.unplace-btn').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    await fetch('/admin/floor-plan/api/unplace', {
+                        method: 'POST', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({aetitle: btn.dataset.aetitle}),
+                    });
+                    loadState();
+                });
+            });
+        }
+
+        function renderMarkers() {
+            markersLayer.innerHTML = devices
+                .filter(d => d.floor_x !== null && d.floor_y !== null)
+                .map(d => `
+                    <div class="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center pointer-events-none"
+                         style="left:${d.floor_x}%; top:${d.floor_y}%;">
+                        <div class="w-3 h-3 rounded-full bg-emerald-400 border-2 border-emerald-200 shadow-lg"></div>
+                        <span class="text-[9px] font-black text-white bg-black/70 px-1.5 py-0.5 rounded mt-1 whitespace-nowrap">${d.label}</span>
+                    </div>
+                `).join('');
+        }
+
+        canvasWrap.addEventListener('click', async (e) => {
+            if (!selectedAetitle) return;
+            const rect = canvasWrap.getBoundingClientRect();
+            const x = ((e.clientX - rect.left) / rect.width) * 100;
+            const y = ((e.clientY - rect.top) / rect.height) * 100;
+            await fetch('/admin/floor-plan/api/position', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({aetitle: selectedAetitle, x, y}),
+            });
+            selectedAetitle = null;
+            placeHint.textContent = '';
+            canvasWrap.style.cursor = 'default';
+            loadState();
+        });
+
+        uploadInput.addEventListener('change', () => {
+            const file = uploadInput.files[0];
+            if (!file) return;
+            const img = new Image();
+            img.onload = async () => {
+                const fd = new FormData();
+                fd.append('site_id', siteSelect.value);
+                fd.append('image', file);
+                fd.append('width', img.width);
+                fd.append('height', img.height);
+                const res = await fetch('/admin/floor-plan/api/upload', {
+                    method: 'POST', body: fd,
+                });
+                const data = await res.json();
+                if (data.error) { alert(data.error); return; }
+                loadState();
+            };
+            img.src = URL.createObjectURL(file);
+        });
+
+        siteSelect.addEventListener('change', loadState);
+        loadState();
+    })();
+    </script>
+</body>
+</html>
