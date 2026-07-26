@@ -26,6 +26,7 @@ from sqlalchemy import text
 from db import db, get_etl_cutoff_date
 from routes.report_cache import cache_get, cache_put
 from routes.insights_engine import run_tech_insights, run_rad_insights
+from utils.site_resolver import default_site
 
 logger = logging.getLogger("report_25")
 
@@ -68,7 +69,7 @@ def get_gold_standard_data(form_data):
     
     params = {"start": start, "end": end}
     where_clauses = ["study_date BETWEEN :start AND :end", "COALESCE(modality, '') NOT IN ('SR', 'OT')"]
-    
+
     if form_data.get("class_enabled") == "on" and form_data.getlist("patient_class"):
         where_clauses.append("patient_class IN :classes")
         params["classes"] = tuple(form_data.getlist("patient_class"))
@@ -85,7 +86,25 @@ def get_gold_standard_data(form_data):
         where_clauses.append("patient_location IN :locations")
         params["locations"] = tuple(form_data.getlist("patient_location"))
 
+    # LAUMC site rule (operator instruction, 2026-07-26): reports show RH (main site) only,
+    # SJH (satellite) excluded, for now. etl_didb_studies.site_id is never actually populated
+    # (the enrichment pass was designed — migration 0051 — but never built), and raw PACS
+    # SITE_ID has a known mislabeling bug (SJH mammo shows as RH — see 0051's comment), so this
+    # resolves site via the device instead: storing_ae -> aetitle_modality_map.site_id, which
+    # IS populated (RIS-authoritative, via ORG_STRUCTURE_KEY -> site_org_map, Phase 10).
+    # default_site() = the sites row flagged is_default, which is RH. Resolves to None (filter
+    # skipped, not applied) on a non-LAUMC/single-site install rather than zeroing every report.
+    rh_site_id = default_site()
+    if rh_site_id is not None:
+        params["rh_site_id"] = rh_site_id
+        where_clauses.append(
+            "aetitle IN (SELECT UPPER(TRIM(aetitle)) FROM aetitle_modality_map WHERE site_id = :rh_site_id)"
+        )
+
     # Build secondary filter fragments for raw SQL queries against etl_didb_studies (prefix "s.")
+    # aetitle_modality_map is joined whenever a modality filter OR the site rule needs it —
+    # every _sec_filters consumer below must therefore use the join unconditionally once either
+    # is active (mirrors _sec_needs_mod_join's existing per-query conditional-join pattern).
     _sec_filters = ""
     if "classes" in params:
         _sec_filters += " AND s.patient_class IN :classes"
@@ -95,14 +114,16 @@ def get_gold_standard_data(form_data):
         _sec_filters += " AND s.storing_ae IN :aetitles"
     if "locations" in params:
         _sec_filters += " AND s.patient_location IN :locations"
+    if rh_site_id is not None:
+        _sec_filters += " AND m.site_id = :rh_site_id"
     # Whether secondary queries need the modality JOIN
-    _sec_needs_mod_join = "modalities" in params
+    _sec_needs_mod_join = "modalities" in params or rh_site_id is not None
 
     # 2. Fetch SQL Template
     template_res = db.session.execute(text("SELECT report_sql_query FROM report_template WHERE report_id = 25")).fetchone()
-    if not template_res: 
+    if not template_res:
         return None, start, end
-    
+
     # 3. Execute Query
     sql_exec = f"SELECT * FROM ({template_res[0]}) as sub WHERE {' AND '.join(where_clauses)}"
     df = pd.DataFrame(db.session.execute(text(sql_exec), params).mappings().all())
@@ -630,12 +651,19 @@ def compute_bg_data(form_data):
     if form_data.get("loc_enabled") == "on" and form_data.getlist("patient_location"):
         params["locations"] = tuple(form_data.getlist("patient_location"))
 
+    # LAUMC site rule — see get_gold_standard_data's matching block for the full rationale.
+    # RH (main site) only, resolved via aetitle_modality_map.site_id (RIS-authoritative).
+    rh_site_id = default_site()
+    if rh_site_id is not None:
+        params["rh_site_id"] = rh_site_id
+
     _sec_filters = ""
     if "classes"    in params: _sec_filters += " AND s.patient_class IN :classes"
     if "modalities" in params: _sec_filters += " AND UPPER(TRIM(m.modality)) IN :modalities"
     if "aetitles"   in params: _sec_filters += " AND s.storing_ae IN :aetitles"
     if "locations"  in params: _sec_filters += " AND s.patient_location IN :locations"
-    _sec_needs_mod_join = "modalities" in params
+    if rh_site_id is not None: _sec_filters += " AND m.site_id = :rh_site_id"
+    _sec_needs_mod_join = "modalities" in params or rh_site_id is not None
 
     # ── Shift patterns + signing timestamps ──────────────────────────────
     shift_patterns = {}
@@ -733,6 +761,9 @@ def compute_bg_data(form_data):
         from datetime import datetime as _dt
         _now = _dt.utcnow()
 
+        # hl7_orders carries no storing_ae/site marker of its own — resolve site via the
+        # matching PACS study by accession_number (same correlation key used for the RIS
+        # Reports enrichment in ETL_JOBS/etl_ris_reports.py), same LAUMC site rule as above.
         tech_rows = db.session.execute(text(f"""
             SELECT
                 o.accession_number, o.modality, o.procedure_code, o.done_by,
@@ -742,6 +773,11 @@ def compute_bg_data(form_data):
             FROM hl7_orders o
             LEFT JOIN procedure_duration_map p
                    ON UPPER(TRIM(o.procedure_code)) = UPPER(TRIM(p.procedure_code))
+            {"""
+            JOIN etl_didb_studies s2 ON s2.accession_number = o.accession_number
+            JOIN aetitle_modality_map m2 ON UPPER(TRIM(s2.storing_ae)) = UPPER(TRIM(m2.aetitle))
+                AND m2.site_id = :rh_site_id
+            """ if rh_site_id is not None else ""}
             WHERE o.scheduled_datetime IS NOT NULL
               AND o.scheduled_datetime::date BETWEEN :start AND :end
               AND UPPER(TRIM(COALESCE(o.modality, ''))) != 'SCN'
