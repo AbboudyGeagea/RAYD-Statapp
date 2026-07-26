@@ -145,7 +145,37 @@ def get_gold_standard_data(form_data):
                 ON UPPER(TRIM(ws.aetitle)) = UPPER(TRIM(m.aetitle))
         """)).mappings().all()
         schedule_lookup = {(s['ae'], int(s['day_of_week'])): s['std_opening_minutes'] for s in sched_q}
-        
+
+        # Actual (measured) per-device minutes from std_pps (RIS Performed Procedure
+        # Step — start_datetime/end_datetime), where available. Falls back to the
+        # procedure_duration_map ESTIMATE per-cell when a given AE/weekday has no PPS
+        # actuals in range (e.g. non-RIS sites, or dates before the PPS feed started).
+        actual_lookup = {}
+        try:
+            pps_rows = db.session.execute(text(f"""
+                SELECT
+                    UPPER(TRIM(pps.performing_ae_title)) AS ae,
+                    pps.start_datetime,
+                    EXTRACT(EPOCH FROM (pps.end_datetime - pps.start_datetime)) / 60 AS mins
+                FROM std_pps pps
+                JOIN etl_didb_studies s ON s.study_db_uid = pps.study_db_uid
+                {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
+                WHERE pps.start_datetime BETWEEN :start AND :end
+                  AND pps.end_datetime IS NOT NULL
+                  AND pps.end_datetime > pps.start_datetime
+                  AND pps.performing_ae_title IS NOT NULL
+                  AND COALESCE({"m.modality, " if _sec_needs_mod_join else ""}s.study_modality, '') != 'SR'
+                  {_sec_filters}
+            """), params).mappings().all()
+            if pps_rows:
+                pps_df = pd.DataFrame(pps_rows)
+                pps_df['mins'] = pd.to_numeric(pps_df['mins'], errors='coerce').fillna(0)
+                pps_df['weekday'] = pd.to_datetime(pps_df['start_datetime']).dt.weekday
+                actual_lookup = pps_df.groupby(['ae', 'weekday'])['mins'].sum().to_dict()
+        except Exception:
+            logger.exception("Failed to load std_pps actuals for utilization matrix")
+            db.session.rollback()
+
         for ae in sorted(df['aetitle'].unique()):
             ae_upper = str(ae).upper().strip()
             ae_df = df[df['aetitle'] == ae]
@@ -154,7 +184,11 @@ def get_gold_standard_data(form_data):
             days_util = []
 
             for i in range(7):
-                day_load = ae_df[ae_df['study_date_dt'].dt.weekday == i]['proc_duration'].sum()
+                pps_mins = actual_lookup.get((ae_upper, i))
+                if pps_mins is not None:
+                    day_load = pps_mins
+                else:
+                    day_load = ae_df[ae_df['study_date_dt'].dt.weekday == i]['proc_duration'].sum()
                 opening_mins = schedule_lookup.get((ae_upper, i), 0)
                 occ = weekday_counts.get(i, 0)
                 total_cap = opening_mins * occ
