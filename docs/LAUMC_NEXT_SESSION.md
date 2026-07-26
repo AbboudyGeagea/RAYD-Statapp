@@ -50,7 +50,7 @@ Last major update: 2026-07-27 — full RIS pipeline build (Phases 6, 9–15) + i
 | **12** RIS Patients | `PATIENT⋈PERSON`→**`std_patients_ris`**, `PATIENT_ID_LIST`→**`std_patient_ids`** (both new) | **NO PATIENT NAMES** (operator instruction, PHI) — `PATIENT_ALIAS` dropped from scope entirely as a result (100% name data). `gender_key` resolved to `F/M/U/I/0/NSP/O/A` via hardcoded lookup. `language_key` still raw. Also runs **`age_at_study`** enrichment on `etl_didb_studies` (new column, `migrations/0061`) — computed from `std_patients_ris.birth_date` via the `etl_orders` bridge, kept separate from PACS's unreliable `age_at_exam`. |
 | **13** RIS Resources | `RESOURCE_ID⋈PERSON`→**`std_resources_ris`** (new) | **Names + contact INCLUDED** (staff, not patient PHI — KPI needs radiologist names, CRN needs referring-physician email/phone). Vendor-confirmed: `REPORT`/`ORDERS`/`SITE_WORKLIST`'s `*_RESOURCE_ID_KEY` columns reference `RESOURCE_ID.RESOURCE_ID_KEY`, not `PERSON_KEY`. Also resolves `reading_physician_resource_key`/`signing_physician_resource_key` on `etl_didb_studies` by matching the composite `email@domain_numericid` string already sitting in `reading_physician_id`/`signing_physician_id` — fixes data already loaded, not just future rows. `resource_role_key` still raw (no role lookup yet). `site_id` resolved via `site_org_map` (RESOURCE_ID carries a real org key, unlike VISIT). |
 | **14** RIS PPS | `PPS ⋈ SPS_CODE ⋈ MODALITY` → **`std_pps`** (new), plus **`std_status_ris`**, **`std_procedure_priorities`**, **`std_dictations`** (lookups), **`std_site_pps_ext`** (new) | The "treasure table". `std_status_ris` = full-fidelity RIS STATUS master (TYPE-aware: ORDER/SPS/PPS share one table; `CORE_STATUS` is the real alias→canonical pointer — more authoritative than `worklist_status_map`'s hand-curated seed, which is left untouched). **`TECHNURSE_NOTES`/`DEMONSTRATION_NOTES` never fetched** (free-text clinical notes, operator: "we're not going there yet"). Includes the empirical **`STUDY_INSTANCE_UID`↔PACS join test** (`study_db_uid` enrichment on `std_pps` — a real DICOM UID match, not inferred; run it and check the match rate). `std_site_pps_ext` = `SITE_PPS`'s structured fields (film reject/shielding/CD-burn/critical-result/consent/complications) — despite the name, NOT a site/org lookup (1:1 QA extension); 6 of 43 columns excluded (`HOLDER_NAME` + 5 free-text comment fields). |
-| **15** RIS Modality Availability | `MODALITY_AVAIL_EXCEPTION`→**`std_modality_exceptions`** (new), `SCHEDULE_TEMPLATE_ITEM`→**`std_schedule_template_items`** (new) | RIS-authoritative counterparts to the existing manually-editable `device_exceptions`/`device_weekly_schedule` — **not editable from RAYD** (operator instruction; no admin route built for either). `std_modality_exceptions` resolved to `aetitle` via a live `MODALITY` join, ready to use. `std_schedule_template_items` captured raw but **not yet attributable to a device** — `SCHEDULE_SCHEME_KEY` is the only link and the `SCHEDULE_SCHEME` table hasn't been provided. Together with Phase 14's `std_pps` (`START_DATETIME`/`END_DATETIME`/`MODALITY_KEY` = actual usage) this is the utilization numerator+denominator pair. |
+| **15** RIS Modality Availability | `MODALITY_AVAIL_EXCEPTION`→**`std_modality_exceptions`**, `SCHEDULE_TEMPLATE_ITEM`→**`std_schedule_template_items`**, `SCHEDULE_SCHEME`→**`std_schedule_schemes`**, `AVAILABILITY_INDICATOR`→**`std_availability_indicators`** (all new) | RIS-authoritative counterparts to the existing manually-editable `device_exceptions`/`device_weekly_schedule` — **not editable from RAYD** (operator instruction; no admin route built for any of the four). `std_modality_exceptions` resolved to `aetitle` via a live `MODALITY` join, ready to use. `std_availability_indicators` fully resolves what each indicator means (03=Available, 04=Unavailable, 07=Holiday, 11=Maintenance, 2100=Closed = "unavailable" for utilization; rest are booking-rule nuances). `std_schedule_template_items` still **not attributable to a device** — `std_schedule_schemes` resolved the scheme NAME but schemes turned out to be a generic category, not device-specific; the actual device↔scheme link is still unidentified (see blocked #5). Together with Phase 14's `std_pps` (actual usage) this is the utilization pair, one link short of complete. |
 
 All Phase 6/9/10/11/12/13/14/15 skip cleanly (clear log message, no PACS fallback) if no
 `ris` db_params source is configured. `ETL_GEAR`/`RAYD_RIS_*_TABLE` env vars let table
@@ -71,9 +71,11 @@ PERSON.PERSON_KEY`) — same person, two different "role" tables pointing into o
    `LATERALITY` / `CODING_SCHEME`, `INTERPRETATION_TYPE`, `VERSION_STATUS`,
    `JUSTIFICATION_STATUS` + `STATUS_REASON`, `MOBILITY_STATUS`, `RESOURCE_ROLE`
    (Radiologist/Technician/Referring/etc. labels for `std_resources_ris.resource_role_key`),
-   `LANGUAGE` (`std_patients_ris.language_key`), **`AVAILABILITY_INDICATOR`** (new —
-   what an indicator value means on `std_modality_exceptions`/`std_schedule_template_items`),
-   **`PEER_REVIEW`** (new — `std_pps.considered_for_review` workflow, table schema not sent).
+   `LANGUAGE` (`std_patients_ris.language_key`), ~~`AVAILABILITY_INDICATOR`~~ **✅ DONE**
+   (Phase 15, `std_availability_indicators` — full semantic resolution: 03=Available,
+   04=Unavailable, 07=Holiday, 11=Maintenance, 2100=Closed are "device unavailable" for
+   utilization; the rest are booking-rule nuances on an open device), **`PEER_REVIEW`**
+   (new — `std_pps.considered_for_review` workflow, table schema not sent).
 4. **THE RIS↔PACS study join** — was accession/linked_id best-effort; Phase 14 added a
    real candidate. `std_pps.study_db_uid` is resolved by matching `STUDY_INSTANCE_UID`
    (a real DICOM UID) against `etl_didb_studies.study_instance_uid` — run Phase 14 and
@@ -81,11 +83,16 @@ PERSON.PERSON_KEY`) — same person, two different "role" tables pointing into o
    this supersedes the accession/linked_id approach in `etl_orders.py`. PACS-side
    grouping column also confirmed to exist (`medistore.didb_studies.WORKITEM_DB_UID`,
    paired with `IS_LINKED_STUDY='Y'`) but not yet pulled into `etl_didb_studies`.
-5. **`SCHEDULE_SCHEME` table** (new — blocks device utilization) — the only link from
-   `SCHEDULE_TEMPLATE_ITEM.SCHEDULE_SCHEME_KEY` back to a specific device. Does it carry
-   `MODALITY_KEY` directly, or is it department/room-level? Also need: which
-   `SCHEDULE_TEMPLATE_VERSION_KEY` is currently effective (effective-date or active-flag
-   on a version table?).
+5. **Device↔scheme assignment — the LAST blocker for device utilization.**
+   `SCHEDULE_SCHEME` schema received 2026-07-27 and built (`std_schedule_schemes`,
+   Phase 15) — but it turned out to be a generic template CATEGORY ("Normal"/"Emerg"/
+   "OutPatient"/"InPatient"/"Scheme 1"/"Scheme 2"/"All Green", 7 rows), not
+   device-specific at all — no `MODALITY_KEY` or any device reference on it. So we now
+   know WHAT a scheme is, but not WHICH DEVICES use which scheme. Candidate: an
+   undocumented column on `MODALITY` itself (vendor's own note says it has ~19 columns,
+   only a subset confirmed so far) — worth checking there first before assuming another
+   table exists. Also still need: which `SCHEDULE_TEMPLATE_VERSION_KEY` is currently
+   effective (effective-date or active-flag on a version table?).
 6. **PPS site resolution** — no org/issuer column on `PPS` itself; how it inherits site
    from `SITE_WORKLIST`/`ORDERS` is unconfirmed (same open question as `std_visits`).
 7. **Qog1** — VASC (org 5120) counts as RH? (assumed YES; seeded that way in `0052`)
@@ -122,7 +129,9 @@ PERSON.PERSON_KEY`) — same person, two different "role" tables pointing into o
    Housekeeping) can't be referenced for its exact original logic anymore; rebuild from
    first principles using `std_pps`.
 4. **Device utilization report** — `std_pps` (actual usage per device) is ready now;
-   blocked on `SCHEDULE_SCHEME` (item #5 above) for the availability denominator.
+   `std_availability_indicators`/`std_schedule_schemes`/`std_modality_exceptions`/
+   `std_schedule_template_items` all built (Phase 15); blocked on ONE remaining link —
+   which devices use which `SCHEDULE_SCHEME` (item #5 in blocked-on-vendor).
 5. **KPI Detailed Reading report** — unblocked since Phase 13 (PERSON/RESOURCE exists) —
    TAT distribution matrix by radiologist. Not yet built.
 6. **Site-enrichment pass, the rest of it** — partially done this session (studies↔orders
