@@ -235,16 +235,21 @@ def _perform_migration(engine):
             logger.info(f"⏸  Phase filter active: RAYD_ETL_PHASES={os.getenv('RAYD_ETL_PHASES')}")
 
         active_ids = []
+        _phase_failures = []  # phase labels that raised — reflected in 4TB_SYNC's final status
 
         # ── PHASE 1: Studies ──────────────────────────────────────────────
         if _confirm_phase(1):
             logger.info("📋 Phase 1: Studies")
-            s_count, active_ids = run_studies_etl(
-                engine, src, 'etl_didb_studies', database_module.chunked_upsert, go_live
-            )
-            logger.info(f"✅ Phase 1 done — {s_count:,} studies, {len(active_ids):,} active IDs")
-            if not active_ids:
-                logger.warning("No active study IDs returned by Phase 1.")
+            try:
+                s_count, active_ids = run_studies_etl(
+                    engine, src, 'etl_didb_studies', database_module.chunked_upsert, go_live
+                )
+                logger.info(f"✅ Phase 1 done — {s_count:,} studies, {len(active_ids):,} active IDs")
+                if not active_ids:
+                    logger.warning("No active study IDs returned by Phase 1.")
+            except Exception as _e:
+                _phase_failures.append("1 (Studies)")
+                logger.error(f"🛑 Phase 1 (Studies) failed — continuing to next phase: {_e}", exc_info=True)
 
         # ── PHASE 2: Series ───────────────────────────────────────────────
         if _confirm_phase(2):
@@ -253,8 +258,12 @@ def _perform_migration(engine):
                 logger.warning("Phase 2 skipped — no studies loaded yet (run Phase 1 first).")
             else:
                 logger.info("📋 Phase 2: Series")
-                run_series_etl(engine, src, 'etl_didb_serieses', database_module.chunked_upsert, active_ids)
-                logger.info("✅ Phase 2 done")
+                try:
+                    run_series_etl(engine, src, 'etl_didb_serieses', database_module.chunked_upsert, active_ids)
+                    logger.info("✅ Phase 2 done")
+                except Exception as _e:
+                    _phase_failures.append("2 (Series)")
+                    logger.error(f"🛑 Phase 2 (Series) failed — continuing to next phase: {_e}", exc_info=True)
 
         # ── PHASE 2b: Backfill study_modality from series ──────────────────
         # study_modality is not in the DIDB_STUDIES Oracle query, but Phase 7
@@ -280,6 +289,7 @@ def _perform_migration(engine):
                     """))
                 logger.info(f"✅ Phase 2b done — {_r.rowcount:,} studies updated with study_modality")
             except Exception as _e:
+                _phase_failures.append("2b (Modality backfill)")
                 logger.warning(f"Phase 2b (study_modality backfill) skipped: {_e}")
 
         # ── PHASE 3: Raw Images ───────────────────────────────────────────
@@ -289,8 +299,12 @@ def _perform_migration(engine):
                 logger.warning("Phase 3 skipped — no studies loaded yet (run Phase 1 first).")
             else:
                 logger.info("📋 Phase 3: Raw Images")
-                run_raw_images_etl(engine, src, 'etl_didb_raw_images', database_module.chunked_upsert, active_ids)
-                logger.info("✅ Phase 3 done")
+                try:
+                    run_raw_images_etl(engine, src, 'etl_didb_raw_images', database_module.chunked_upsert, active_ids)
+                    logger.info("✅ Phase 3 done")
+                except Exception as _e:
+                    _phase_failures.append("3 (Raw Images)")
+                    logger.error(f"🛑 Phase 3 (Raw Images) failed — continuing to next phase: {_e}", exc_info=True)
 
         # ── PHASE 4: Image Locations (FK depends on raw images) ────────────
         if _confirm_phase(4):
@@ -299,16 +313,24 @@ def _perform_migration(engine):
                 logger.warning("Phase 4 skipped — no studies loaded yet (run Phase 1 first).")
             else:
                 logger.info("📋 Phase 4: Image Locations")
-                run_images_etl(engine, src, 'etl_image_locations', database_module.chunked_upsert, active_ids)
-                logger.info("✅ Phase 4 done")
+                try:
+                    run_images_etl(engine, src, 'etl_image_locations', database_module.chunked_upsert, active_ids)
+                    logger.info("✅ Phase 4 done")
+                except Exception as _e:
+                    _phase_failures.append("4 (Image Locations)")
+                    logger.error(f"🛑 Phase 4 (Image Locations) failed — continuing to next phase: {_e}", exc_info=True)
 
         # ── PHASE 5: Patients ─────────────────────────────────────────────
         if _confirm_phase(5):
             logger.info("📋 Phase 5: Patients")
-            ora_conn = database_module.OracleConnector.get_connection(sysdba=False)
-            run_patients_etl(ora_conn, engine, logger)
-            ora_conn.close()
-            logger.info("✅ Phase 5 done")
+            try:
+                ora_conn = database_module.OracleConnector.get_connection(sysdba=False)
+                run_patients_etl(ora_conn, engine, logger)
+                ora_conn.close()
+                logger.info("✅ Phase 5 done")
+            except Exception as _e:
+                _phase_failures.append("5 (Patients)")
+                logger.error(f"🛑 Phase 5 (Patients) failed — continuing to next phase: {_e}", exc_info=True)
 
         # ── PHASE 6: Orders (RIS SITE_WORKLIST ⋈ ORDERS ⋈ SPS_CODE — LAUMC) ─
         # Sourced from the RIS, not PACS MDB_ORDERS — see ETL_JOBS/etl_orders.py.
@@ -326,21 +348,33 @@ def _perform_migration(engine):
                 )
             else:
                 logger.info("📋 Phase 6: Orders (RIS)")
-                run_orders_etl(engine, ris_src, 'etl_orders', database_module.chunked_upsert, go_live)
-                logger.info("✅ Phase 6 done")
+                try:
+                    run_orders_etl(engine, ris_src, 'etl_orders', database_module.chunked_upsert, go_live)
+                    logger.info("✅ Phase 6 done")
+                except Exception as _e:
+                    _phase_failures.append("6 (Orders)")
+                    logger.error(f"🛑 Phase 6 (Orders) failed — continuing to next phase: {_e}", exc_info=True)
 
         # ── PHASE 7: Storage Summary (all tables must be populated first) ─
         if _confirm_phase(7):
             logger.info("📋 Phase 7: Storage Summary Rollup")
-            refresh_storage_summary()
-            logger.info("✅ Phase 7 done")
+            try:
+                refresh_storage_summary()
+                logger.info("✅ Phase 7 done")
+            except Exception as _e:
+                _phase_failures.append("7 (Storage Summary)")
+                logger.error(f"🛑 Phase 7 (Storage Summary) failed — continuing to next phase: {_e}", exc_info=True)
 
         # ── PHASE 8: Auto-sync lookup tables (PACS-derived) ──────────────
         if _confirm_phase(8):
             if _lookup_from_pacs():
                 logger.info("📋 Phase 8: Syncing AE mappings & procedure codes")
-                _sync_lookup_tables(engine)
-                logger.info("✅ Phase 8 done")
+                try:
+                    _sync_lookup_tables(engine)
+                    logger.info("✅ Phase 8 done")
+                except Exception as _e:
+                    _phase_failures.append("8 (Lookup tables)")
+                    logger.error(f"🛑 Phase 8 (Lookup tables) failed — continuing to next phase: {_e}", exc_info=True)
             else:
                 logger.info(
                     "⏭  Phase 8 skipped — RAYD_ETL_LOOKUP_FROM_PACS is off. "
@@ -366,10 +400,14 @@ def _perform_migration(engine):
                 )
             else:
                 logger.info("📋 Phase 9: RIS Reports → hl7_oru_reports")
-                run_ris_reports_etl(
-                    engine, ris_src, 'hl7_oru_reports', database_module.chunked_upsert, go_live
-                )
-                logger.info("✅ Phase 9 done")
+                try:
+                    run_ris_reports_etl(
+                        engine, ris_src, 'hl7_oru_reports', database_module.chunked_upsert, go_live
+                    )
+                    logger.info("✅ Phase 9 done")
+                except Exception as _e:
+                    _phase_failures.append("9 (RIS Reports)")
+                    logger.error(f"🛑 Phase 9 (RIS Reports) failed — continuing to next phase: {_e}", exc_info=True)
 
         # ── PHASE 10: RIS Catalog (Modality + Procedure codes) ─────────────
         # RIS MODALITY -> aetitle_modality_map, RIS SPS_CODE -> procedure_duration_map.
@@ -386,10 +424,14 @@ def _perform_migration(engine):
                 )
             else:
                 logger.info("📋 Phase 10: RIS Catalog (Modality + Procedure codes + Ordering Orgs)")
-                run_ris_modality_etl(engine, ris_src)
-                run_ris_procedures_etl(engine, ris_src)
-                run_ris_ordering_org_etl(engine, ris_src)
-                logger.info("✅ Phase 10 done")
+                try:
+                    run_ris_modality_etl(engine, ris_src)
+                    run_ris_procedures_etl(engine, ris_src)
+                    run_ris_ordering_org_etl(engine, ris_src)
+                    logger.info("✅ Phase 10 done")
+                except Exception as _e:
+                    _phase_failures.append("10 (RIS Catalog)")
+                    logger.error(f"🛑 Phase 10 (RIS Catalog) failed — continuing to next phase: {_e}", exc_info=True)
 
         # ── PHASE 11: RIS Visits → std_visits ──────────────────────────────
         if _confirm_phase(11):
@@ -404,8 +446,12 @@ def _perform_migration(engine):
                 )
             else:
                 logger.info("📋 Phase 11: RIS Visits → std_visits")
-                run_ris_visits_etl(engine, ris_src, go_live)
-                logger.info("✅ Phase 11 done")
+                try:
+                    run_ris_visits_etl(engine, ris_src, go_live)
+                    logger.info("✅ Phase 11 done")
+                except Exception as _e:
+                    _phase_failures.append("11 (RIS Visits)")
+                    logger.error(f"🛑 Phase 11 (RIS Visits) failed — continuing to next phase: {_e}", exc_info=True)
 
         # ── PHASE 12: RIS Patients → std_patients_ris / std_patient_ids ─────
         # No patient names (operator instruction). Also runs the age_at_study
@@ -423,8 +469,12 @@ def _perform_migration(engine):
                 )
             else:
                 logger.info("📋 Phase 12: RIS Patients → std_patients_ris / std_patient_ids")
-                run_ris_patients_etl(engine, ris_src)
-                logger.info("✅ Phase 12 done")
+                try:
+                    run_ris_patients_etl(engine, ris_src)
+                    logger.info("✅ Phase 12 done")
+                except Exception as _e:
+                    _phase_failures.append("12 (RIS Patients)")
+                    logger.error(f"🛑 Phase 12 (RIS Patients) failed — continuing to next phase: {_e}", exc_info=True)
 
         # ── PHASE 13: RIS Resources → std_resources_ris ─────────────────────
         # Staff/physician identity WITH names (unlike Patients — see module docstring).
@@ -442,8 +492,12 @@ def _perform_migration(engine):
                 )
             else:
                 logger.info("📋 Phase 13: RIS Resources → std_resources_ris")
-                run_ris_resources_etl(engine, ris_src)
-                logger.info("✅ Phase 13 done")
+                try:
+                    run_ris_resources_etl(engine, ris_src)
+                    logger.info("✅ Phase 13 done")
+                except Exception as _e:
+                    _phase_failures.append("13 (RIS Resources)")
+                    logger.error(f"🛑 Phase 13 (RIS Resources) failed — continuing to next phase: {_e}", exc_info=True)
 
         # ── PHASE 14: RIS PPS — the "treasure table" ────────────────────────
         # Lookups first (status/priority/dictation), then std_pps (needs SPS_CODE/
@@ -461,13 +515,17 @@ def _perform_migration(engine):
                 )
             else:
                 logger.info("📋 Phase 14: RIS PPS")
-                run_ris_status_etl(engine, ris_src)
-                run_ris_procedure_priority_etl(engine, ris_src)
-                run_ris_dictation_etl(engine, ris_src)
-                run_ris_pps_etl(engine, ris_src, go_live)
-                run_pps_study_enrichment(engine)
-                run_ris_site_pps_etl(engine, ris_src)
-                logger.info("✅ Phase 14 done")
+                try:
+                    run_ris_status_etl(engine, ris_src)
+                    run_ris_procedure_priority_etl(engine, ris_src)
+                    run_ris_dictation_etl(engine, ris_src)
+                    run_ris_pps_etl(engine, ris_src, go_live)
+                    run_pps_study_enrichment(engine)
+                    run_ris_site_pps_etl(engine, ris_src)
+                    logger.info("✅ Phase 14 done")
+                except Exception as _e:
+                    _phase_failures.append("14 (RIS PPS)")
+                    logger.error(f"🛑 Phase 14 (RIS PPS) failed — continuing to next phase: {_e}", exc_info=True)
 
         # ── PHASE 15: RIS Modality Availability ─────────────────────────────
         # NOT editable from RAYD (no admin route built for either table).
@@ -483,19 +541,35 @@ def _perform_migration(engine):
                 )
             else:
                 logger.info("📋 Phase 15: RIS Modality Availability")
-                run_ris_schedule_schemes_etl(engine, ris_src)
-                run_ris_availability_indicators_etl(engine, ris_src)
-                run_ris_modality_exceptions_etl(engine, ris_src)
-                run_ris_schedule_template_items_etl(engine, ris_src)
-                logger.info("✅ Phase 15 done")
+                try:
+                    run_ris_schedule_schemes_etl(engine, ris_src)
+                    run_ris_availability_indicators_etl(engine, ris_src)
+                    run_ris_modality_exceptions_etl(engine, ris_src)
+                    run_ris_schedule_template_items_etl(engine, ris_src)
+                    logger.info("✅ Phase 15 done")
+                except Exception as _e:
+                    _phase_failures.append("15 (RIS Modality Availability)")
+                    logger.error(f"🛑 Phase 15 (RIS Modality Availability) failed — continuing to next phase: {_e}", exc_info=True)
 
-        # ── Mark overall sync SUCCESS ─────────────────────────────────────
-        with engine.begin() as conn:
-            conn.execute(text(
-                "UPDATE etl_job_log SET status='SUCCESS', end_time=now() "
-                "WHERE status='RUNNING' AND job_name='4TB_SYNC'"
-            ))
-        logger.info("✅ 4TB Sync Complete.")
+        # ── Mark overall sync SUCCESS (or PARTIAL if any phase failed but the
+        # run still made it to the end — each phase is now isolated by its own
+        # try/except above, so one bad phase no longer aborts the rest, but that
+        # must not get silently reported as a clean SUCCESS) ──────────────
+        if _phase_failures:
+            logger.warning(f"⚠️  4TB Sync finished with phase failures: {', '.join(_phase_failures)}")
+            with engine.begin() as conn:
+                conn.execute(
+                    text("UPDATE etl_job_log SET status='PARTIAL', end_time=now(), "
+                         "error_message=:msg WHERE status='RUNNING' AND job_name='4TB_SYNC'"),
+                    {"msg": f"Phases failed: {', '.join(_phase_failures)}"}
+                )
+        else:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    "UPDATE etl_job_log SET status='SUCCESS', end_time=now() "
+                    "WHERE status='RUNNING' AND job_name='4TB_SYNC'"
+                ))
+            logger.info("✅ 4TB Sync Complete.")
 
     except KeyboardInterrupt:
         # Operator answered 'q' (or pressed Ctrl-C) while pacing phases. This is a
