@@ -6,7 +6,7 @@ from etl_settings import ETL_GEAR
 
 logger = logging.getLogger("ETL_WORKER")
 
-COMMIT_EVERY = 100_000  # flush to Postgres every N rows
+COMMIT_EVERY = ETL_GEAR['commit_every']  # flush to Postgres every N rows
 
 
 def run_images_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, study_uid_whitelist):

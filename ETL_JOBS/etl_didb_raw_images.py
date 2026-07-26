@@ -2,8 +2,9 @@ import logging
 from datetime import datetime
 from sqlalchemy import text
 from db import OracleConnector
+from etl_settings import ETL_GEAR
 
-COMMIT_EVERY = 100_000  # flush to Postgres every N rows
+COMMIT_EVERY = ETL_GEAR['commit_every']  # flush to Postgres every N rows
 
 def run_raw_images_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, study_uid_whitelist):
     job_name   = "RAW_IMAGES_ETL"
@@ -46,6 +47,10 @@ def run_raw_images_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, 
 
     ora_conn = OracleConnector.get_connection(oracle_source)
     cursor   = ora_conn.cursor()
+    # Was unset (python-oracledb default ~100 rows/round-trip) despite fetchmany() asking
+    # for far more per call — every fetch was silently paying for ~20 network round trips
+    # to Oracle to fill one buffer. See etl_settings.py for why this was raised.
+    cursor.arraysize = ETL_GEAR['oracle_prefetch']
 
     try:
         skipped_fk  = 0
@@ -64,7 +69,7 @@ def run_raw_images_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, 
             print(f"[Raw Images ETL] → Chunk {chunk_num}/{total_chunks}")
 
             while True:
-                batch = cursor.fetchmany(2000)
+                batch = cursor.fetchmany(ETL_GEAR['batch_size'])
                 if not batch:
                     break
                 # series_db_uid is index 3 — skip rows whose series doesn't exist in PG
