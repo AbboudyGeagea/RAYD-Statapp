@@ -27,6 +27,22 @@ Execution phases (in order):
              staff/physician identity WITH names, plus a reading/signing-physician
              enrichment pass on etl_didb_studies; skipped unless a RIS db_params source
              is configured)
+  Phase 14 — RIS PPS (LAUMC: Performed Procedure Step — the "treasure table". PPS ->
+             std_pps [TECHNURSE_NOTES/DEMONSTRATION_NOTES excluded], STATUS ->
+             std_status_ris, PROCEDURE_PRIORITY -> std_procedure_priorities, DICTATION
+             -> std_dictations, SITE_PPS -> std_site_pps_ext [6 name/free-text columns
+             excluded]. Also runs the STUDY_INSTANCE_UID<->PACS join enrichment — the
+             empirical test of whether PPS gives the clean RIS<->PACS join; skipped
+             unless a RIS db_params source is configured)
+  Phase 15 — RIS Modality Availability (LAUMC: MODALITY_AVAIL_EXCEPTION ->
+             std_modality_exceptions [resolved to aetitle, ready to use], SCHEDULE_
+             TEMPLATE_ITEM -> std_schedule_template_items [captured raw — not yet
+             attributable to a device, SCHEDULE_SCHEME table not provided]. RIS-
+             authoritative counterparts to device_exceptions/device_weekly_schedule;
+             NOT editable from RAYD by design — no admin route exists for either.
+             Together with Phase 14's std_pps this is the device-utilization
+             denominator/numerator pair; skipped unless a RIS db_params source is
+             configured)
 
 Triggered by APScheduler in app.py or manually via `python app.py -m`.
 """
@@ -60,6 +76,10 @@ from etl_ris_ordering_org  import run_ris_ordering_org_etl
 from etl_ris_visits        import run_ris_visits_etl
 from etl_ris_patients      import run_ris_patients_etl
 from etl_ris_resources     import run_ris_resources_etl
+from etl_ris_pps_lookups   import run_ris_status_etl, run_ris_procedure_priority_etl, run_ris_dictation_etl
+from etl_ris_pps           import run_ris_pps_etl, run_pps_study_enrichment
+from etl_ris_site_pps      import run_ris_site_pps_etl
+from etl_ris_modality_availability import run_ris_modality_exceptions_etl, run_ris_schedule_template_items_etl
 
 logger = logging.getLogger("ETL_WORKER")
 
@@ -104,6 +124,8 @@ _PHASE_LABELS = {
     '11': ('RIS Visits',         'Oracle RIS: VISIT -> std_visits — moderate (LAUMC)'),
     '12': ('RIS Patients',       'Oracle RIS: PATIENT/PERSON/PATIENT_ID_LIST -> std_patients_ris / std_patient_ids + age_at_study enrichment — moderate (LAUMC)'),
     '13': ('RIS Resources',      'Oracle RIS: RESOURCE_ID + PERSON -> std_resources_ris + reading/signing physician enrichment — moderate (LAUMC)'),
+    '14': ('RIS PPS',            'Oracle RIS: PPS + STATUS + PROCEDURE_PRIORITY + DICTATION + SITE_PPS -> std_pps and friends + STUDY_INSTANCE_UID<->PACS join test — moderate/heavy (LAUMC)'),
+    '15': ('RIS Modality Availability', 'Oracle RIS: MODALITY_AVAIL_EXCEPTION + SCHEDULE_TEMPLATE_ITEM -> std_modality_exceptions / std_schedule_template_items (device utilization denominator) — light (LAUMC)'),
 }
 
 
@@ -419,6 +441,48 @@ def _perform_migration(engine):
                 logger.info("📋 Phase 13: RIS Resources → std_resources_ris")
                 run_ris_resources_etl(engine, ris_src)
                 logger.info("✅ Phase 13 done")
+
+        # ── PHASE 14: RIS PPS — the "treasure table" ────────────────────────
+        # Lookups first (status/priority/dictation), then std_pps (needs SPS_CODE/
+        # MODALITY joins), then the STUDY_INSTANCE_UID<->PACS enrichment test, then
+        # std_site_pps_ext last (FK-guarded against std_pps just loaded).
+        if _confirm_phase(14):
+            with engine.connect() as _c:
+                _ris_ok = _c.execute(
+                    text("SELECT 1 FROM db_params WHERE name = :n"), {"n": ris_src}
+                ).fetchone()
+            if not _ris_ok:
+                logger.info(
+                    f"⏭  Phase 14 skipped — no RIS source configured. Add a db_params entry "
+                    f"named '{ris_src}' (or set RAYD_RIS_SOURCE) pointing at the RIS Oracle."
+                )
+            else:
+                logger.info("📋 Phase 14: RIS PPS")
+                run_ris_status_etl(engine, ris_src)
+                run_ris_procedure_priority_etl(engine, ris_src)
+                run_ris_dictation_etl(engine, ris_src)
+                run_ris_pps_etl(engine, ris_src, go_live)
+                run_pps_study_enrichment(engine)
+                run_ris_site_pps_etl(engine, ris_src)
+                logger.info("✅ Phase 14 done")
+
+        # ── PHASE 15: RIS Modality Availability ─────────────────────────────
+        # NOT editable from RAYD (no admin route built for either table).
+        if _confirm_phase(15):
+            with engine.connect() as _c:
+                _ris_ok = _c.execute(
+                    text("SELECT 1 FROM db_params WHERE name = :n"), {"n": ris_src}
+                ).fetchone()
+            if not _ris_ok:
+                logger.info(
+                    f"⏭  Phase 15 skipped — no RIS source configured. Add a db_params entry "
+                    f"named '{ris_src}' (or set RAYD_RIS_SOURCE) pointing at the RIS Oracle."
+                )
+            else:
+                logger.info("📋 Phase 15: RIS Modality Availability")
+                run_ris_modality_exceptions_etl(engine, ris_src)
+                run_ris_schedule_template_items_etl(engine, ris_src)
+                logger.info("✅ Phase 15 done")
 
         # ── Mark overall sync SUCCESS ─────────────────────────────────────
         with engine.begin() as conn:
