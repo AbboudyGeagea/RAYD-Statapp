@@ -22,6 +22,7 @@ Registered in registry.py:
     app.register_blueprint(live_feed_bp)
 """
 #live_feed.py
+import os
 import logging
 import select
 import psycopg2
@@ -30,7 +31,7 @@ from flask import (Blueprint, Response, jsonify, render_template,
                    request, stream_with_context, abort, current_app)
 from flask_login import login_required, current_user
 from sqlalchemy import text
-from db import db, user_has_page
+from db import db, user_has_page, OracleConnector
 from utils.hl7_forward import forward_message as _hl7_forward
 
 logger       = logging.getLogger("LIVE_FEED")
@@ -46,10 +47,20 @@ def live_page():
     return render_template("live_feed.html")
 
 
-# ── API — full modality status snapshot ───────────────────────────────────────
+# ── API — full device status snapshot (live RIS SPS query) ────────────────────
 @live_feed_bp.route("/viewer/live/status")
 @login_required
 def live_status():
+    """
+    Per-DEVICE (not per-modality) live status, sourced from a live query against
+    RIS's SPS (Scheduled Procedure Step) table — not hl7_orders. hl7_orders only
+    ever carried modality TYPE (see the old comment this replaced: "AE assignment
+    requires didb_studies — 1-day lag"); SPS.MODALITY_KEY is the actual device
+    assignment, known at scheduling time, which is what makes per-device tiles
+    possible at all. Never persisted to Postgres — run fresh on every request,
+    same as hl7_orders was read fresh before. Refresh mechanics (SSE push,
+    countdown-to-next-event, 60s/2min fallback) are unchanged.
+    """
     if not user_has_page(current_user, 'live_feed'):
         abort(403)
     try:
@@ -57,36 +68,9 @@ def live_status():
         today = now.date()
         dow   = today.weekday()
 
-        # Distinct modalities from device map
-        mod_rows = db.session.execute(text("""
-            SELECT DISTINCT modality
-            FROM aetitle_modality_map
-            ORDER BY modality
-        """)).mappings().fetchall()
-        modalities = [r["modality"] for r in mod_rows]
-
-        # Opening hours per modality — any AE open means modality is open
-        schedules = db.session.execute(text("""
-            SELECT m.modality, SUM(s.std_opening_minutes) AS total_mins
-            FROM device_weekly_schedule s
-            JOIN aetitle_modality_map m ON m.aetitle = s.aetitle
-            WHERE s.day_of_week = :dow
-            GROUP BY m.modality
-        """), {"dow": dow}).mappings().fetchall()
-        opening_map = {r["modality"]: (r["total_mins"] or 0) for r in schedules}
-
-        # Override with today's exceptions
-        exceptions = db.session.execute(text("""
-            SELECT m.modality, SUM(e.actual_opening_minutes) AS total_mins
-            FROM device_exceptions e
-            JOIN aetitle_modality_map m ON m.aetitle = e.aetitle
-            WHERE e.exception_date = :today
-            GROUP BY m.modality
-        """), {"today": today}).mappings().fetchall()
-        for exc in exceptions:
-            opening_map[exc["modality"]] = exc["total_mins"] or 0
-
-        # Ensure all workflow + link columns exist before querying them
+        # Ensure workflow + link columns exist before any route in this blueprint
+        # queries/updates them — this was the only place that ran this guard;
+        # arrive_order/start_order/dismiss_order have no guard of their own.
         try:
             db.session.execute(text("""
                 ALTER TABLE hl7_orders
@@ -105,86 +89,123 @@ def live_status():
         except Exception:
             db.session.rollback()
 
-        # Today's orders — use scheduled_datetime when available, fall back to received_at.
-        orders = db.session.execute(text("""
-            SELECT
-                o.id,
-                o.message_id,
-                o.patient_id,
-                o.patient_name,
-                o.date_of_birth,
-                o.ordering_physician,
-                o.accession_number,
-                COALESCE(o.scheduled_datetime, o.received_at) AS scheduled_datetime,
-                o.procedure_text,
-                o.procedure_code,
-                o.modality,
-                COALESCE(NULLIF(o.order_status, ''), 'SC') AS order_status,
-                COALESCE(pm.duration_minutes, 15) AS duration,
-                (pm.procedure_code IS NULL)        AS unknown_code,
-                o.linked_accession_number,
-                o.linked_study_db_uid
-            FROM hl7_orders o
-            LEFT JOIN procedure_duration_map pm
-                   ON pm.procedure_code = o.procedure_code
-            WHERE (
-                (o.scheduled_datetime >= CURRENT_DATE AND o.scheduled_datetime < CURRENT_DATE + INTERVAL '1 day')
-                OR
-                (o.scheduled_datetime IS NULL AND o.received_at >= CURRENT_DATE AND o.received_at < CURRENT_DATE + INTERVAL '1 day')
-            )
-              AND COALESCE(o.order_status, '') NOT IN ('CA', 'CM')
-              AND o.pacs_done_at IS NULL
-            ORDER BY COALESCE(o.scheduled_datetime, o.received_at)
+        # All known devices (not just ones with active orders — need the full
+        # set to show free/closed tiles too), with floor-plan position if placed.
+        device_rows = db.session.execute(text("""
+            SELECT aetitle, modality, COALESCE(display_aetitle, aetitle) AS label,
+                   floor_x, floor_y
+            FROM aetitle_modality_map
+            ORDER BY modality, aetitle
         """)).mappings().fetchall()
+        devices = [dict(r) for r in device_rows]
 
-        # Group by modality
-        mod_orders = {}
+        # Opening hours per DEVICE (was: summed across every AE of a modality —
+        # each device now gets its own tile, so it needs its own opening minutes).
+        schedules = db.session.execute(text("""
+            SELECT aetitle, std_opening_minutes FROM device_weekly_schedule WHERE day_of_week = :dow
+        """), {"dow": dow}).mappings().fetchall()
+        opening_map = {r["aetitle"]: (r["std_opening_minutes"] or 0) for r in schedules}
+
+        exceptions = db.session.execute(text("""
+            SELECT aetitle, actual_opening_minutes FROM device_exceptions WHERE exception_date = :today
+        """), {"today": today}).mappings().fetchall()
+        for exc in exceptions:
+            opening_map[exc["aetitle"]] = exc["actual_opening_minutes"] or 0
+
+        # RIS status_key -> short hl7-style code (NW/SC/CM/CA/DC/IP), same
+        # convention ETL_JOBS/etl_orders.py already translates to via
+        # worklist_status_map — lets us reuse the identical CA/CM exclusion
+        # against live RIS data instead of hl7_orders.order_status.
+        status_map = dict(db.session.execute(text(
+            "SELECT status_key, hl7_code FROM std_status_ris WHERE type = 'SPS'"
+        )).fetchall())
+
+        # ── Live query against RIS — today's scheduled procedure steps, with the
+        # actual device (SPS.MODALITY_KEY -> MODALITY.AE_TITLE), not just modality
+        # type. Patient name/DOB shown live (never written to Postgres) to match
+        # what this admin-only operational board already showed via hl7_orders —
+        # not a new PHI exposure, same fields, different (more accurate) source.
+        orders = []
+        try:
+            ris_src  = os.getenv('RAYD_RIS_SOURCE', 'ris')
+            ora_conn = OracleConnector.get_connection(ris_src)
+            cursor   = ora_conn.cursor()
+            cursor.execute("""
+                SELECT
+                    sps.SPS_ID, m.AE_TITLE, sps.START_DATETIME, sps.DURATION,
+                    sps.STATUS_KEY, sps.PATIENT_ARRIVED_DATE,
+                    sc.CODE, sc.DESCRIPTION,
+                    per.FIRST_NAME, per.LAST_NAME, pat.BIRTH_DATE,
+                    w.PATIENT_PERSON_KEY
+                FROM SPS sps
+                JOIN SITE_WORKLIST w  ON w.SPS_ID = sps.SPS_ID
+                JOIN ORDERS o         ON o.ORDER_KEY = w.ORDER_KEY
+                LEFT JOIN MODALITY m  ON m.MODALITY_KEY = sps.MODALITY_KEY
+                LEFT JOIN SPS_CODE sc ON sc.SPS_CODE_KEY = sps.SPS_CODE_KEY
+                LEFT JOIN PATIENT pat ON pat.PATIENT_PERSON_KEY = w.PATIENT_PERSON_KEY
+                LEFT JOIN PERSON per  ON per.PERSON_KEY = w.PATIENT_PERSON_KEY
+                WHERE o.ISSUER_OF_PLACER_ORDER_NUMBER IN ('SAP_PROD','SAP_SJH')
+                  AND sps.START_DATETIME >= TRUNC(SYSDATE)
+                  AND sps.START_DATETIME <  TRUNC(SYSDATE) + 1
+            """)
+            cols = [d[0].lower() for d in cursor.description]
+            orders = [dict(zip(cols, row)) for row in cursor.fetchall()]
+            cursor.close()
+            ora_conn.close()
+        except Exception:
+            logger.exception("Live RIS SPS query failed — showing devices with no schedule data this refresh")
+
+        # Group by device (AE title) — was: modality
+        dev_orders = {}
         for o in orders:
-            mod = (o["modality"] or "").upper() or "UNKNOWN"
-            mod_orders.setdefault(mod, []).append(dict(o))
+            ae = (o.get("ae_title") or "").upper() or "UNKNOWN"
+            dev_orders.setdefault(ae, []).append(o)
 
         result         = []
         next_event_min = None
 
-        for mod in modalities:
-            opening = opening_map.get(mod, 0)
+        for dev in devices:
+            aetitle = dev["aetitle"]
+            opening = opening_map.get(aetitle, 0)
 
             if opening == 0:
-                result.append(_make_tile(mod, "closed", [], None))
+                result.append(_make_tile(dev, "closed", [], None))
                 continue
 
-            day_orders    = mod_orders.get(mod, [])
+            day_orders    = dev_orders.get((aetitle or "").upper(), [])
             active_orders = []
             next_order    = None
 
             for o in day_orders:
-                sched = o["scheduled_datetime"]
+                hl7_code = status_map.get(o.get("status_key"))
+                if hl7_code in ("CA", "CM"):
+                    continue  # cancelled / already completed — not "active"
+
+                sched = o.get("start_datetime")
                 if not isinstance(sched, datetime):
                     try:    sched = datetime.fromisoformat(str(sched))
                     except: continue
 
-                duration       = int(o["duration"])
+                duration       = int(o.get("duration") or 15)
                 end_time       = sched + timedelta(minutes=duration)
                 mins_remaining = int((end_time - now).total_seconds() / 60)
                 overrun        = mins_remaining < 0
-
-                o_status   = o["order_status"]
-                is_present = o_status in ("AR", "IP")  # physically at facility
+                is_present     = o.get("patient_arrived_date") is not None
 
                 if sched <= now or is_present:
-                    dob = o["date_of_birth"]
+                    dob  = o.get("birth_date")
+                    name = " ".join(p for p in [o.get("first_name"), o.get("last_name")] if p) or "—"
                     active_orders.append({
-                        "order_id":            o["id"],
-                        "message_id":          o["message_id"],
-                        "order_status":        o_status,
-                        "patient_id":          o["patient_id"] or "—",
-                        "patient_name":        o["patient_name"] or "—",
+                        "order_id":            o.get("sps_id"),
+                        "order_status":        hl7_code or "—",
+                        "patient_id":          str(o.get("patient_person_key") or "—"),
+                        "patient_name":        name,
                         "date_of_birth":       dob.strftime("%d-%m-%Y") if dob else "—",
-                        "referring_physician": o["ordering_physician"] or "—",
-                        "accession_number":    o["accession_number"] or "—",
-                        "procedure_text":      o["procedure_text"] or o["procedure_code"] or "—",
-                        "procedure_code":      o["procedure_code"] or "",
-                        "unknown_code":        bool(o["unknown_code"]),
+                        "referring_physician": "—",  # not on SPS/SITE_WORKLIST — needs ORDERS' requesting resource, follow-up
+                        "accession_number":    "—",  # not assigned until PACS study creation, by design
+                        "procedure_text":      o.get("description") or "—",
+                        "procedure_code":      o.get("code") or "",
+                        "unknown_code":        False,
                         "end_time":            end_time.strftime("%H:%M"),
                         "mins_remaining":      mins_remaining,
                         "overrun":             overrun,
@@ -196,7 +217,7 @@ def live_status():
                 elif next_order is None:
                     mins_until = int((sched - now).total_seconds() / 60)
                     next_order = {
-                        "proc_name": o["procedure_text"] or o["procedure_code"] or "—",
+                        "proc_name": o.get("description") or o.get("code") or "—",
                         "at":        sched.strftime("%H:%M"),
                     }
                     if next_event_min is None or mins_until < next_event_min:
@@ -207,7 +228,7 @@ def live_status():
             else:
                 status = "free"
 
-            result.append(_make_tile(mod, status, active_orders, next_order))
+            result.append(_make_tile(dev, status, active_orders, next_order))
 
         # Sort: delayed → busy → free → closed
         ORDER = {"delayed": 0, "busy": 1, "free": 2, "closed": 3}
@@ -217,6 +238,9 @@ def live_status():
         has_overrun = any(a["overrun"] for t in result for a in t.get("active_orders", []))
         fallback    = 2 if has_overrun else 60
 
+        # Orphan-order detection stays hl7_orders-based — a distinct concern
+        # (is the HL7 feed itself keeping up / syncing to PACS), unrelated to
+        # which device a study is scheduled on.
         orphan_orders = db.session.execute(text("""
             SELECT COUNT(*)
             FROM hl7_orders o
@@ -707,9 +731,17 @@ def add_procedure():
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-def _make_tile(modality, status, active_orders, next_order):
+def _make_tile(dev, status, active_orders, next_order):
+    """dev: a row from aetitle_modality_map (aetitle, modality, label, floor_x, floor_y).
+    One tile per DEVICE now (was: one tile per modality, pooling every AE of that
+    type together) — "modality" is kept as the type for the existing filter
+    dropdown/color-coding; "label"/"aetitle" identify the specific device."""
     return {
-        "modality":      modality,
+        "aetitle":       dev["aetitle"],
+        "label":         dev.get("label") or dev["aetitle"],
+        "modality":      dev.get("modality"),
+        "floor_x":       float(dev["floor_x"]) if dev.get("floor_x") is not None else None,
+        "floor_y":       float(dev["floor_y"]) if dev.get("floor_y") is not None else None,
         "status":        status,
         "active_orders": active_orders,
         "next_order":    next_order,

@@ -498,7 +498,8 @@ function buildTile(t) {
         <div class="flex items-center justify-between gap-2">
             <div class="flex items-center gap-2.5">
                 <span class="status-dot ${dotCls}"></span>
-                <span class="ae-label" style="color:${modColor};">${escHtml(t.modality)}</span>
+                <span class="ae-label" style="color:${modColor};">${escHtml(t.label || t.modality)}</span>
+                <span style="font-size:9px;font-weight:700;color:#64748b;">${escHtml(t.modality || '')}</span>
             </div>
             <span style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.08em;color:${modColor};">${statusLabel}</span>
         </div>
