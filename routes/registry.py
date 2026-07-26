@@ -33,7 +33,6 @@ from routes.financial_config    import financial_config_bp
 from routes.financial_dashboard import financial_dashboard_bp
 from routes.groups_route        import groups_bp
 from routes.custom_reports      import custom_reports_bp
-from routes.cd_print_log        import cd_print_bp
 from routes.health_bp           import health_bp
 from routes.resource_monitor    import resource_monitor_bp
 
@@ -51,7 +50,7 @@ DEFAULT_LICENSE = {
     "hl7_orders":      True,
     "oru_analytics":   True,   # Report Intelligence
     "custom_reports":  True,
-    "cd_print":        True,   # Patient CD Log
+    "cd_print":        False,  # LAUMC: module removed
     "er_dashboard":    True,
     "capacity_ladder": True,
     "saved_reports":   True,
@@ -111,7 +110,7 @@ TIER_PRESETS = {
         "hl7_orders":      True,
         "oru_analytics":   True,
         "custom_reports":  True,
-        "cd_print":        True,
+        "cd_print":        False,  # LAUMC: module removed
         "er_dashboard":    True,
         "capacity_ladder": True,
         "saved_reports":   True,
@@ -283,7 +282,6 @@ def register_blueprints(app):
         'hl7_orders':      (hl7_orders_bp,       {}, [('/hl7/orders',                  'HL7 Orders')]),
         'oru_analytics':   (oru_bp,              {}, [('/oru',                         'Report Intelligence')]),
         'custom_reports':  (custom_reports_bp,   {}, [('/reports/custom',              'Custom Reports')]),
-        'cd_print':        (cd_print_bp,         {}, [('/cd-print-log',               'Patient CD Log')]),
         'er_dashboard':    (er_bp,               {}, [('/er',                          'ER Dashboard')]),
         'capacity_ladder': (capacity_ladder_bp,  {}, [('/viewer/capacity-ladder',      'Capacity Ladder')]),
         'saved_reports':   (saved_reports_bp,    {'url_prefix': '/saved'}, []),
@@ -306,6 +304,7 @@ def register_blueprints(app):
                 _register_not_licensed_route(app, url, display_name, tier)
 
     # ── Patient Portal: module REMOVED at LAUMC (routes physically absent) ──
+    # ── Patient CD Log: module REMOVED at LAUMC (routes physically absent, 2026-07-26) ──
 
     # ── Live AE Feed (Enterprise — license + config flag) ────────
     if lic.get('live_feed', False) and app.config.get("LIVE_FEED_ENABLED", True):

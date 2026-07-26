@@ -34,7 +34,7 @@
 {% set ep = request.endpoint or '' %}
 {% set overview_on   = ep.startswith('viewer.') %}
 {% set admin_on      = ep in ['admin.admin_dashboard','admin.user_management','admin.audit_log','admin.hl7_forward_config'] or ep.startswith('db_manager.') or ep.startswith('mapping.') %}
-{% set ops_on        = ep.startswith('live_feed.') or ep.startswith('hl7_orders.') or ep.startswith('cd_print.') %}
+{% set ops_on        = ep.startswith('live_feed.') or ep.startswith('hl7_orders.') %}
 {% set analytics_on  = ep.startswith('oru.') or ep.startswith('referring_intel.') or ep.startswith('custom_reports.') %}
 {% set ai_on         = ep.startswith('report_ai.') %}
 {% set finance_on    = ep.startswith('financial_dashboard.') %}
@@ -120,8 +120,7 @@
 
         <!-- ── OPERATIONS ──────────────────────────────────────────── -->
         {% set has_ops = (license.get('live_feed') and (current_user.role == 'admin' or current_user|user_has_page('live_feed')))
-                      or (current_user.role == 'admin' or current_user|user_has_page('hl7_orders'))
-                      or (license.get('cd_print') and (current_user.role == 'admin' or current_user|user_has_page('cd_print'))) %}
+                      or (current_user.role == 'admin' or current_user|user_has_page('hl7_orders')) %}
         {% if has_ops %}
         <button class="sg-btn" onclick="sgToggle('ops')">
             <span class="flex items-center gap-2"><i class="bi bi-lightning-fill" style="color:#22c55e;"></i> Operations</span>
@@ -145,12 +144,7 @@
                 </span>
             </a>
             {% endif %}
-            {% if license.get('cd_print') and (current_user.role == 'admin' or current_user|user_has_page('cd_print')) %}
-            <a href="{{ url_for('cd_print.cd_print_log') }}"
-               class="sidebar-item {% if ep.startswith('cd_print.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
-                <i class="bi bi-disc-fill flex-shrink-0" style="color:#38bdf8;"></i> Patient CD Log
-            </a>
-            {% endif %}
+            <!-- Patient CD Log: removed per operator instruction (2026-07-26) -->
         </div>
         {% endif %}
 
