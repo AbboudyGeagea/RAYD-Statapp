@@ -231,8 +231,54 @@ PERSON.PERSON_KEY`) — same person, two different "role" tables pointing into o
 
 Running log — capture each one here as it comes up, don't lose it in chat scroll.
 
-*(PPS and Modality Availability moved to BUILT — see table above. Nothing currently
-parked/unbuilt beyond what's listed in BLOCKED ON VENDOR and READY TO BUILD NEXT.)*
+### Operator punch list, 2026-07-26 — explicitly "for later," not started
+1. **All reports — data integrity check against RIS and PACS.** No spec yet: presumably
+   spot-check counts/sums in RAYD vs. querying RIS/PACS directly for the same period.
+   Needs scoping (which reports, which fields, tolerance) before starting.
+2. **Report 25 revamp — "not showing any data."** ⚠️ Already addressed once this session
+   (missing `report_template` seed row, `migrations/0069`) — that fix was pushed
+   (`3c544e35`/`bc206b1a`/`43c6b8ce`) but not yet confirmed deployed+retested on live. If
+   still empty after `git pull && docker compose up -d --build rayd-app`, this is a
+   **different/deeper** cause than the one already fixed — don't assume 0069 didn't work
+   without checking `SELECT report_sql_query FROM report_template WHERE report_id=25` and
+   the app logs first.
+3. **Live AE status — revamp to a 2D real-time department status board.** Driven by live
+   HL7 traffic (the MLLP listener already ingests ORM/ORU in real time) + one real-time
+   query to RIS for scheduled patients. No existing route identified yet for "live AE
+   status" — needs locating (or confirming it doesn't exist yet) before scoping the
+   rebuild. Relates to `aetitle_modality_map`/device model already in place.
+4. **ORU analytics page (`routes/oru_analytics.py`) — very slow load.** Operator's own
+   suggestion: split the chart load across multiple ECharts partitioned by modality /
+   radiologist / time window instead of one heavy render. Needs profiling first to confirm
+   where the actual time goes (query vs. NLP word-cloud computation vs. render) before
+   assuming chart-splitting alone fixes it.
+5. **Storage calculation is wrong.** Likely `etl_analytics_refresh.py` (Phase 7 rollup) or
+   the `etl_image_locations`/`image_size_kb`-derived totals — not diagnosed yet this
+   session. Needs a concrete "expected vs. actual" number from the operator to start.
+6. **Remove Patient CD Log** (`routes/cd_print_log.py`) — deletion request, straightforward
+   once confirmed nothing else depends on it (check for cross-references before removing).
+7. **Reporting backlog — RAYD not detecting reporting details.** Likely a report-status/
+   `rep_final_timestamp`/`report_status` detection gap somewhere (which route/report shows
+   "backlog" wasn't specified) — needs the operator to point at the specific view.
+8. **Modality opening hours all show 720 (Postgres column default), never actually mapped
+   by ETL.** This is the SAME gap already tracked as blocked-on-vendor **#5** ("device↔scheme
+   assignment") and READY TO BUILD NEXT **#4** — `std_schedule_template_items` exists
+   (Phase 15) but isn't attributable to a specific device yet, so `device_weekly_schedule`
+   never gets populated from real RIS data and stays at Postgres's `720` default for every
+   AE. Not a new bug — confirms the existing blocker's real-world symptom. Unblocks once
+   the `MODALITY`↔`SCHEDULE_SCHEME` link is found (see blocked #5).
+9. **Procedure → modality mapping** — operator says they need to walk through this with me
+   directly next session (not a spec I can start from written notes alone). Relates to
+   `procedure_duration_map`/Phase 10's `SPS_CODE` import — wait for the guided session.
+10. **Build CRN from ORU** — read referring/signing physician email + phone (now available
+    via `std_resources_ris`, Phase 13) from ORU-resolved reports, stand up SMTP, build a
+    token+URL scheme (secure link delivery, presumably for report/critical-result
+    notification), and flag the NAT/networking requirement for IT so external delivery
+    actually reaches physicians. First mentioned as "CRN routing" in READY TO BUILD NEXT
+    #2 (`std_ordering_organizations` contact data) — this fleshes out the actual build:
+    email/SMTP delivery mechanism, not just having the contact data available. Needs: SMTP
+    relay details, token/URL security design (expiry? one-time use?), and the specific NAT
+    ask to hand to IT before any code starts.
 
 ---
 
