@@ -19,6 +19,9 @@ Execution phases (in order):
              procedure_duration_map; skipped unless a RIS db_params source is configured)
   Phase 11 — RIS Visits (LAUMC: RIS VISIT -> std_visits; skipped unless a RIS db_params
              source is configured)
+  Phase 12 — RIS Patients (LAUMC: RIS PATIENT/PERSON/PATIENT_ID_LIST -> std_patients_ris
+             / std_patient_ids, no patient names, plus an age_at_study enrichment pass
+             on etl_didb_studies; skipped unless a RIS db_params source is configured)
 
 Triggered by APScheduler in app.py or manually via `python app.py -m`.
 """
@@ -49,6 +52,7 @@ from etl_ris_reports       import run_ris_reports_etl
 from etl_ris_modality      import run_ris_modality_etl
 from etl_ris_procedures    import run_ris_procedures_etl
 from etl_ris_visits        import run_ris_visits_etl
+from etl_ris_patients      import run_ris_patients_etl
 
 logger = logging.getLogger("ETL_WORKER")
 
@@ -91,6 +95,7 @@ _PHASE_LABELS = {
     '9':  ('RIS Reports',        'Oracle RIS: REPORT -> hl7_oru_reports — moderate (LAUMC)'),
     '10': ('RIS Catalog',        'Oracle RIS: MODALITY + SPS_CODE -> aetitle_modality_map / procedure_duration_map — light (LAUMC)'),
     '11': ('RIS Visits',         'Oracle RIS: VISIT -> std_visits — moderate (LAUMC)'),
+    '12': ('RIS Patients',       'Oracle RIS: PATIENT/PERSON/PATIENT_ID_LIST -> std_patients_ris / std_patient_ids + age_at_study enrichment — moderate (LAUMC)'),
 }
 
 
@@ -367,6 +372,25 @@ def _perform_migration(engine):
                 logger.info("📋 Phase 11: RIS Visits → std_visits")
                 run_ris_visits_etl(engine, ris_src, go_live)
                 logger.info("✅ Phase 11 done")
+
+        # ── PHASE 12: RIS Patients → std_patients_ris / std_patient_ids ─────
+        # No patient names (operator instruction). Also runs the age_at_study
+        # enrichment against etl_didb_studies as its final step — safe/idempotent
+        # regardless of whether Phase 6 (Orders) has run yet this pass.
+        if _confirm_phase(12):
+            with engine.connect() as _c:
+                _ris_ok = _c.execute(
+                    text("SELECT 1 FROM db_params WHERE name = :n"), {"n": ris_src}
+                ).fetchone()
+            if not _ris_ok:
+                logger.info(
+                    f"⏭  Phase 12 skipped — no RIS source configured. Add a db_params entry "
+                    f"named '{ris_src}' (or set RAYD_RIS_SOURCE) pointing at the RIS Oracle."
+                )
+            else:
+                logger.info("📋 Phase 12: RIS Patients → std_patients_ris / std_patient_ids")
+                run_ris_patients_etl(engine, ris_src)
+                logger.info("✅ Phase 12 done")
 
         # ── Mark overall sync SUCCESS ─────────────────────────────────────
         with engine.begin() as conn:
