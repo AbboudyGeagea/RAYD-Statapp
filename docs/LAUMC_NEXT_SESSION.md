@@ -269,6 +269,13 @@ data is illogical"**:
   the raw XML extraction didn't parse `<mergeCells>` ranges, so the exact intended header
   hierarchy is a best guess.
 
+**Update, same day**: operator feedback — the CT-only scope took the spreadsheet too
+literally. Reworked to query all modalities in one pass (grouped by (modality, class_bucket)
+in pandas, not a hardcoded list) and render a dynamic modality `<select>` + patient-class tab
+selector (client-side switching, embedded JSON) instead of statically dumping every block.
+Non-CT modalities still reuse CT's bucket widths as a default — no other modality has a
+confirmed SLA window yet.
+
 **Next step**: operator reviews real rendered output against known-correct numbers for a
 sample period, tells me what's wrong, queries get adjusted. Not done until validated.
 
