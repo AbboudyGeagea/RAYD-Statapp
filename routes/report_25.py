@@ -296,22 +296,15 @@ def get_gold_standard_data(form_data):
 
     # Technician TAT by AE Station — group df by aetitle, exclude SR/OT
     tech_tat_cards   = []
-    tech_tat_outliers = []
     if 'aetitle' in df.columns and 'total_tat_min' in df.columns and 'modality' in df.columns:
         try:
             _excl_mask_ae = df['modality'].str.upper().isin(['SR', 'OT'])
             tat_df = df[~_excl_mask_ae & (df['total_tat_min'] > 0)].copy()
-            # Split normal vs outliers (> 24h = 1440 min)
+            # Split normal vs outliers (> 24h = 1440 min) — outliers just excluded from
+            # the per-AE averages below, no longer surfaced as a row-per-study list (was
+            # unbounded — 141k+ rows on LAUMC's post-migration-0070 data, rendered as one
+            # HTML table row each).
             normal_df  = tat_df[tat_df['total_tat_min'] <= 1440]
-            outlier_df = tat_df[tat_df['total_tat_min'] >  1440]
-
-            # Build tech_tat_outliers list
-            out_cols = [c for c in ['aetitle', 'modality', 'accession_number', 'study_date', 'total_tat_min'] if c in outlier_df.columns]
-            for _, row in outlier_df[out_cols].iterrows():
-                tech_tat_outliers.append({
-                    k: (round(float(v), 1) if k == 'total_tat_min' else str(v))
-                    for k, v in row.items()
-                })
 
             for ae_title, ae_grp in normal_df.groupby('aetitle'):
                 tat_series = ae_grp['total_tat_min']
@@ -585,7 +578,6 @@ def get_gold_standard_data(form_data):
         "class_tat": df[df['total_tat_min'] > 0].groupby('patient_class')['total_tat_min'].mean().round(1).to_dict() if 'patient_class' in df.columns else {},
         "rad_cards": rad_cards,
         "tech_tat_cards": tech_tat_cards,
-        "tech_tat_outliers": tech_tat_outliers,
         "modality_split": [{"name": k, "value": int(v)} for k, v in df['modality'].value_counts().items()] if 'modality' in df.columns else [], 
         "hourly_patterns": (lambda: {
             str(r[0]): int(r[1])
