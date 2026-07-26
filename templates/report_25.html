@@ -194,7 +194,14 @@
         </header>
 
         <div class="flex-1 overflow-y-auto p-10">
-            {% if run_report %}
+            {% if run_report and not data %}
+            <div class="glass-card text-center py-16 text-zinc-500">
+                <i class="bi bi-inboxes text-4xl mb-3 block opacity-40"></i>
+                <p class="font-black text-sm">No data for the selected date range and filters.</p>
+                <p class="text-[11px] mt-2 text-zinc-600">Try widening the date range or clearing active filters.</p>
+            </div>
+            {% endif %}
+            {% if run_report and data %}
 
             <!-- ── DEPARTMENT PULSE ───────────────────────────────────────── -->
             {% set _reported = data.rad_cards | map(attribute='count') | sum %}
