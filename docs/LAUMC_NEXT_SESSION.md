@@ -67,6 +67,9 @@ cascade of previously-latent bugs while re-running ETL/reports against the fresh
 | `age_at_study` enrichment (`ETL_JOBS/etl_ris_patients.py`) — a placeholder/sentinel `birth_date` (same "quick-registration DOB" issue the module already flags) produced a negative/absurd age that overflowed `NUMERIC(5,2)`, crashing the whole run | bounded to `0–130` years in the `WHERE` clause |
 | **Systemic**: `_perform_migration` (`ETL_JOBS/etl_runner.py`) had ONE try/except around all 15 phases — any single phase's uncaught exception killed every phase after it (hit twice in one incident: Phase 9 then Phase 12) | each phase now has its own try/except + continues; `4TB_SYNC`'s final `etl_job_log` status is now `PARTIAL` (with the failed-phase list) instead of a misleading blanket `SUCCESS` when something failed |
 | `report_template` had **no seeding migration** for `report_id=25` at all (only `report_id=30` does, migration `0031`) — the row only existed because someone inserted it manually at some point; a genuine full wipe leaves it missing entirely, so `get_gold_standard_data` returns nothing → "report 25 shows no data" | seeded in `migrations/0069_seed_report_25_template.sql`, `ON CONFLICT DO NOTHING` (never clobbers a live-tuned query) — **worth checking whether other reports have the same gap** (their `report_template` rows may also be manual-insert-only, unmigrated) |
+| My own site-filter edit to `routes/report_25.py` (`3c544e35`) nested a triple-quoted string literal inside another triple-quoted f-string's `{}` expression — invalid on Python <3.12 (the container runs 3.11), `SyntaxError` at import time. `routes/registry.py` imports `report_25` unconditionally, so this took down **the entire app**, not just one report. My own local syntax check passed because it ran under this machine's Python 3.12/3.14, which silently tolerates the pattern — never actually validated against the real target version | fixed (`696b51a6`) by building the join fragment as a plain string variable instead of a nested literal; re-verified against a real `python:3.11-slim` container this time, not the local interpreter — **do this for every future report_25.py syntax check, local `python`/`python3` here is NOT 3.11** |
+| `templates/report_25.html`'s main content block only checked `{% if run_report %}`, never whether `data` was actually non-None — `get_gold_standard_data()` already correctly returns `None` on an empty query result, but the template dereferenced `data.summary.total` unconditionally, so any legitimately-empty result 500'd (`jinja2.exceptions.UndefinedError`) instead of showing an empty state | fixed (`255fdc51`): narrowed to `{% if run_report and data %}` + added a proper "no data for this range" message. The other 5 bare `{% if run_report %}` blocks in the file don't dereference `data`, confirmed safe, left as-is |
+| **The real "report 25 shows no data" root cause, found after 0069/`696b51a6`/`255fdc51` all landed and it was STILL empty**: report_25's query required `etl_didb_studies.rep_final_timestamp`/`rep_final_signed_by` IS NOT NULL to count a study as reported — but PACS's own `DIDB_STUDIES` isn't reliably synced with report completion for recent studies at LAUMC (radiologists sign in the RIS). Spot-checked directly against Oracle: a study scanned 2026-07-16 04:35 had a complete, signed report in `hl7_oru_reports` (RIS-sourced, Phase 9) dated the same day 08:56 — completely normal turnaround — yet PACS's `REP_FINAL_TIMESTAMP` was still NULL over a week later. Not a backlog, not an ETL pull bug, just checking a PACS field that never gets updated | `migrations/0070_report_25_ris_report_fallback.sql`: `LEFT JOIN hl7_oru_reports` by `accession_number`, `COALESCE` PACS's field with the RIS-sourced one for both the filter and TAT calc, preferring PACS where it does exist (172 older rows had it). **Known follow-up, not fixed**: `hl7_oru_reports.physician_id` is very likely a raw HL7 provider code, not a display name — radiologist attribution on RIS-only rows may show a code instead of a name until resolved through `std_resources_ris` (same composite-ID pattern Phase 13 already uses). **This almost certainly affects every other report computing TAT or "is reported" off `etl_didb_studies.rep_final_timestamp`/`rep_final_signed_by` directly — not audited yet, operator explicitly scoped this fix to report_25 only.** Also very likely the actual cause of punch-list #7 ("reporting backlog — RAYD not detecting reporting details") — same root cause, not a separate bug |
 
 ### New rule: reports show RH (main site) only, SJH excluded — "for now" (2026-07-26)
 Operator instruction: all reports should only include site `0` from PACS / `1000` from RIS
@@ -235,13 +238,14 @@ Running log — capture each one here as it comes up, don't lose it in chat scro
 1. **All reports — data integrity check against RIS and PACS.** No spec yet: presumably
    spot-check counts/sums in RAYD vs. querying RIS/PACS directly for the same period.
    Needs scoping (which reports, which fields, tolerance) before starting.
-2. **Report 25 revamp — "not showing any data."** ⚠️ Already addressed once this session
-   (missing `report_template` seed row, `migrations/0069`) — that fix was pushed
-   (`3c544e35`/`bc206b1a`/`43c6b8ce`) but not yet confirmed deployed+retested on live. If
-   still empty after `git pull && docker compose up -d --build rayd-app`, this is a
-   **different/deeper** cause than the one already fixed — don't assume 0069 didn't work
-   without checking `SELECT report_sql_query FROM report_template WHERE report_id=25` and
-   the app logs first.
+2. **Report 25 revamp — "not showing any data."** ✅ Root cause actually found and fixed
+   this session, after three earlier attempted fixes (missing `report_template` row `0069`,
+   a syntax-error-crashing-the-whole-app fix `696b51a6`, a template None-guard fix
+   `255fdc51`) all landed but it was still empty. Real cause: the query required PACS's own
+   `rep_final_timestamp`/`rep_final_signed_by`, which isn't reliably synced for recent
+   LAUMC studies (radiologists sign in the RIS) — see the incident table above and
+   `migrations/0070`. Verify on next deploy that report_25 actually shows data for a
+   mid-July range; if still empty, it's a genuinely new/different cause at this point.
 3. **Live AE status — revamp to a 2D real-time department status board.** Driven by live
    HL7 traffic (the MLLP listener already ingests ORM/ORU in real time) + one real-time
    query to RIS for scheduled patients. No existing route identified yet for "live AE
@@ -257,9 +261,13 @@ Running log — capture each one here as it comes up, don't lose it in chat scro
    session. Needs a concrete "expected vs. actual" number from the operator to start.
 6. **Remove Patient CD Log** (`routes/cd_print_log.py`) — deletion request, straightforward
    once confirmed nothing else depends on it (check for cross-references before removing).
-7. **Reporting backlog — RAYD not detecting reporting details.** Likely a report-status/
-   `rep_final_timestamp`/`report_status` detection gap somewhere (which route/report shows
-   "backlog" wasn't specified) — needs the operator to point at the specific view.
+7. **Reporting backlog — RAYD not detecting reporting details.** ⚠️ Very likely the SAME
+   root cause as #2 (`migrations/0070`'s finding): reports checking PACS's own
+   `rep_final_timestamp`/`rep_final_signed_by` see almost nothing as "reported," not
+   because there's a real backlog, but because PACS's `DIDB_STUDIES` isn't kept current
+   with RIS-signed reports. Report_25 is fixed; whichever OTHER route surfaces "backlog"
+   (not yet identified — operator to point at the specific view) likely needs the same
+   `hl7_oru_reports` fallback applied.
 8. **Modality opening hours all show 720 (Postgres column default), never actually mapped
    by ETL.** This is the SAME gap already tracked as blocked-on-vendor **#5** ("device↔scheme
    assignment") and READY TO BUILD NEXT **#4** — `std_schedule_template_items` exists
