@@ -144,7 +144,45 @@ PERSON.PERSON_KEY`) — same person, two different "role" tables pointing into o
 Running log — capture each one here as it comes up, don't lose it in chat scroll.
 Nothing below is scoped or built yet unless marked done.
 
-*(empty — populate as ideas come in)*
+### PPS (Performed Procedure Step) — major find, not yet built
+Operator found this table via the ER diagram tool; connects to `peer_review`, `orders`,
+`patient`, `status`, `sps_code`, `site_pps`, `procedure_priority`, `dictation`, `modality`.
+
+**Columns (PPS itself):** PPS_KEY, PATIENT_PERSON_KEY, PERFORMED_PROCEDURE_STEP_ID,
+PPS_INSTANCE_UID, STUDY_INSTANCE_UID, PPS_CODE_KEY, DESCRIPTION, START_DATETIME,
+END_DATETIME, DISCONTINUED_REASON, MODALITY_KEY, TECHNURSE_NOTES, PATIENT_FOLDER_KEY,
+REPORT_KEY, DICTATION_KEY, STATUS_KEY, PRIORITY_KEY, STATUS_REASON_KEY,
+CREATED_BY_PERSON_KEY, CREATED_DATE, WORKLIST_FLAGSET, LINKED_ID, BIRADS_KEY,
+CREATED_BY_MPPS, DEMONSTRATION_NOTES, CONSIDERED_FOR_REVIEW, FOLLOWUP_OVERRIDE,
+RADIATION_DOSE, RADIATION_DOSE_UNITS, INV_AUTO_POPULATE_FLAG,
+EXTERNAL_REPORTING_ACTION, CR_MESSAGE_KEY, PRIMARY_TECH_PERSON_KEY, PROTOCOL_KEY,
+PROTOCOL_STATUS_KEY.
+
+**Why it matters — four big ones:**
+- `STUDY_INSTANCE_UID` — a real DICOM UID, potentially THE clean RIS↔PACS join
+  (sharpens/replaces blocked item #4's accession+linked_id best-effort approach).
+  Cross-check against `etl_didb_studies.study_instance_uid` once built.
+- `PRIMARY_TECH_PERSON_KEY` — the actual performing technologist. Directly answers the
+  "Technologist Productivity" Crystal Report brought in the same session
+  (`Technologist_Productivity_Report.rpt`, title/structure read from the file, original
+  content not fully decodable — proprietary binary, needs Crystal Reports itself to open).
+- `START_DATETIME`/`END_DATETIME` — real measured procedure duration, calibrates
+  `procedure_duration_map` with actuals instead of the 15-min guessed default.
+- `RADIATION_DOSE`/`RADIATION_DOSE_UNITS` — structured dose data, if populated this is a
+  much better foundation than the regex-from-dictation-text approach assumed in
+  `LAUMC_DATA_REQUEST.md`'s RDMS analysis.
+
+Also: `CONSIDERED_FOR_REVIEW` (+ `peer_review` table) — peer review workflow.
+`BIRADS_KEY` — the parked BI-RADS feature has real data to attach to. `LINKED_ID`
+appears again at PPS level — cross-check against `SITE_WORKLIST.LINKED_ID` once built.
+
+**Blocking the build:**
+1. Connected table columns not yet provided: `status`, `procedure_priority`,
+   `peer_review`, `dictation`, `site_pps` (this last one may be where PPS resolves
+   site/org — PPS itself has no org_structure_key-style column).
+2. `TECHNURSE_NOTES` / `DEMONSTRATION_NOTES` are free-text clinical notes — same PHI
+   question as patient names (free text is a common unstructured-PHI leak vector).
+   Operator decision needed: pull in or exclude, before building.
 
 ---
 
