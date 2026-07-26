@@ -176,13 +176,39 @@ Also: `CONSIDERED_FOR_REVIEW` (+ `peer_review` table) — peer review workflow.
 `BIRADS_KEY` — the parked BI-RADS feature has real data to attach to. `LINKED_ID`
 appears again at PPS level — cross-check against `SITE_WORKLIST.LINKED_ID` once built.
 
-**Blocking the build:**
-1. Connected table columns not yet provided: `status`, `procedure_priority`,
-   `peer_review`, `dictation`, `site_pps` (this last one may be where PPS resolves
-   site/org — PPS itself has no org_structure_key-style column).
-2. `TECHNURSE_NOTES` / `DEMONSTRATION_NOTES` are free-text clinical notes — same PHI
-   question as patient names (free text is a common unstructured-PHI leak vector).
-   Operator decision needed: pull in or exclude, before building.
+**Connected table columns — received so far:**
+
+`PROCEDURE_PRIORITY` (resolves `PPS.PRIORITY_KEY`) — received 2026-07-27:
+```
+PRIORITY_KEY, CODE, DESCRIPTION, ACTIVE, LAST_UPDATED
+```
+Sample values: 2=ROU/Routine, 4=003/Emergency, 5=004/Very Urgent, 6=005/Port. Emergency,
+7=EAR/EARLY, 1=001/Port Routine, 2220=PRE/PRE-OP, 2221=EME/EMERGENCY(STAT),
+2260=TOD/TODAY, 2261=URG/URGENT. All ACTIVE='Y' in the sample.
+
+`DICTATION` (resolves `PPS.DICTATION_KEY`) — received 2026-07-27:
+```
+DICTATION_KEY, DICTATION_DATE, LAST_MODIFIED_DATE, AUDIO, REVISION_COUNT,
+DICTATED_BY_RESOURCE_ID_KEY
+```
+Note: `DICTATED_BY_RESOURCE_ID_KEY` resolves via `std_resources_ris` (Phase 13) — direct
+reuse, no new lookup needed for that column.
+
+**Still blocking the build:**
+1. `SITE_PPS` and `STATUS` schemas — both requests came back as accidental duplicates of
+   the `PPS` column list itself, not their own columns. Re-request pending. `SITE_PPS` is
+   the likely site/org resolution path (PPS itself has no org_structure_key-style
+   column); `STATUS` resolves `PPS.STATUS_KEY` (and possibly `STATUS_REASON_KEY`) — open
+   question whether it's the same master table `worklist_status_map` (migration 0047)
+   was seeded from.
+2. `PEER_REVIEW` schema — not yet sent (lower priority than the two above).
+3. `TECHNURSE_NOTES` / `DEMONSTRATION_NOTES` are free-text clinical notes — same PHI
+   question as patient names. Operator decision needed: pull in or exclude, before
+   building.
+
+Not building yet — holding for `SITE_PPS`/`STATUS` (site + core status resolution) and
+the notes-fields decision, to avoid shipping `std_pps` with its two most load-bearing
+columns unresolved and having to circle back.
 
 ---
 
