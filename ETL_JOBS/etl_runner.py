@@ -9,7 +9,8 @@ Execution phases (in order):
   Phase 3 — Raw images     (etl_didb_raw_images)
   Phase 4 — Image locations(etl_image_locations)
   Phase 5 — Patients       (etl_patients_view)
-  Phase 6 — Orders         (etl_orders)
+  Phase 6 — Orders (etl_orders) — LAUMC: sourced from RIS SITE_WORKLIST/ORDERS/SPS_CODE,
+            not PACS; skipped unless a RIS db_params source is configured
   Phase 7 — Storage summary(etl_analytics_refresh)
   Phase 8 — Procedure duration mapping (strategies A–E, see _perform_migration)
   Phase 9 — RIS Reports (LAUMC dual-source: RIS REPORT.DOCUMENT_PLAIN_TEXT ->
@@ -178,7 +179,8 @@ def _perform_migration(engine):
             go_live = res[0] if res else '2000-01-01'
 
         logger.info(f"🚀 Starting 4TB Sync | Cutoff: {go_live}")
-        src = "PROD_ORACLE"
+        src     = "PROD_ORACLE"
+        ris_src = os.getenv('RAYD_RIS_SOURCE', 'ris')
 
         if _interactive_enabled():
             logger.info("⏸  Interactive pacing ON — you will be asked before each phase.")
@@ -261,11 +263,24 @@ def _perform_migration(engine):
             ora_conn.close()
             logger.info("✅ Phase 5 done")
 
-        # ── PHASE 6: Orders ───────────────────────────────────────────────
+        # ── PHASE 6: Orders (RIS SITE_WORKLIST ⋈ ORDERS ⋈ SPS_CODE — LAUMC) ─
+        # Sourced from the RIS, not PACS MDB_ORDERS — see ETL_JOBS/etl_orders.py.
+        # Skipped cleanly (same guard as Phase 9) if no RIS source is configured, so it
+        # never silently falls back to querying the PACS connection instead.
         if _confirm_phase(6):
-            logger.info("📋 Phase 6: Orders")
-            run_orders_etl(engine, src, 'etl_orders', database_module.chunked_upsert, go_live)
-            logger.info("✅ Phase 6 done")
+            with engine.connect() as _c:
+                _ris_ok = _c.execute(
+                    text("SELECT 1 FROM db_params WHERE name = :n"), {"n": ris_src}
+                ).fetchone()
+            if not _ris_ok:
+                logger.info(
+                    f"⏭  Phase 6 skipped — no RIS source configured. Add a db_params entry "
+                    f"named '{ris_src}' (or set RAYD_RIS_SOURCE) pointing at the RIS Oracle."
+                )
+            else:
+                logger.info("📋 Phase 6: Orders (RIS)")
+                run_orders_etl(engine, ris_src, 'etl_orders', database_module.chunked_upsert, go_live)
+                logger.info("✅ Phase 6 done")
 
         # ── PHASE 7: Storage Summary (all tables must be populated first) ─
         if _confirm_phase(7):
@@ -293,7 +308,6 @@ def _perform_migration(engine):
         # when a distinct RIS Oracle source is configured in db_params, otherwise
         # get_connection() would fall back to the PACS source and query the wrong DB.
         if _confirm_phase(9):
-            ris_src = os.getenv('RAYD_RIS_SOURCE', 'ris')
             with engine.connect() as _c:
                 _ris_ok = _c.execute(
                     text("SELECT 1 FROM db_params WHERE name = :n"), {"n": ris_src}

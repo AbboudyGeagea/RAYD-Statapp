@@ -406,7 +406,11 @@ CREATE TABLE public.etl_orders (
     modality text,
     has_study boolean DEFAULT false,
     last_update timestamp without time zone DEFAULT now(),
-    order_control text
+    order_control text,
+    -- RIS<->PACS join keys (LAUMC: sourced from SITE_WORKLIST, not PACS MDB_ORDERS).
+    -- See migration 0057.
+    accession_number text,
+    linked_id bigint
 );
 
 
