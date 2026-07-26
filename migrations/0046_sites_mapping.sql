@@ -1,7 +1,7 @@
 -- Migration 0046: sites mapping table (multi-site foundation for LAUMC)
 --
 -- LAUMC is the first multi-site RAYD deployment: one organization, two hospitals
--- (Rafic Hariri "RH" = main, Saint John "SJH" = satellite). Each source system
+-- (Rizk Hospital "RH" = main, Saint John "SJH" = satellite). Each source system
 -- labels the site with a DIFFERENT value, so this table is the single translator:
 --
 --   canonical site  |  PACS DB (didb_studies.site_id) | RIS DB (issuer) | HL7 (PV1 building)
@@ -44,6 +44,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_sites_one_default ON sites (is_default) WH
 -- ---------------------------------------------------------------------------
 INSERT INTO sites (code, name, is_default, pacs_site_id, ris_issuer, hl7_building, ris_org_struct)
 VALUES
-    ('RH',  'LAUMC - Rafic Hariri (Main)',      TRUE,  '0', 'SAP_PROD', '1000', '3926'),
+    ('RH',  'LAUMC - Rizk Hospital (Main)',     TRUE,  '0', 'SAP_PROD', '1000', '3926'),
     ('SJH', 'LAUMC - Saint John (Satellite)',   FALSE, '1', 'SAP_SJH',  '2000', '5320')
 ON CONFLICT (code) DO NOTHING;

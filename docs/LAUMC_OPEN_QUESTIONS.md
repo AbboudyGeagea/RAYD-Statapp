@@ -43,7 +43,7 @@ The table schema you're sending will probably answer this on its own — just fl
 don't forget to check.
 > Answer:
 
-**A4. When does the order get stamped with its site (Rafic Hariri vs SJH)?**
+**A4. When does the order get stamped with its site (Rizk Hospital vs SJH)?**
 The site marker (`SAP_PROD` / `SAP_SJH`) — does it get written the moment the order is
 **created**, or only later when it gets **scheduled**? This matters for one specific case: an
 order that's created and then cancelled before it's ever scheduled. If the site is stamped at
@@ -178,7 +178,7 @@ If yes, the turnaround-time reports work unchanged.
 > Answer:
 
 **C4. The SJH mammography site-labeling bug — is it being fixed, or do we work around it?**
-You flagged that SJH mammograms currently show up as Rafic Hariri in the PACS. My plan is to
+You flagged that SJH mammograms currently show up as Rizk Hospital in the PACS. My plan is to
 trust the RIS for the correct site and flag the mismatches in a monitoring report. Is the PACS
 bug going to be fixed at some point, or should RAYD's workaround be considered the permanent
 solution?
@@ -207,7 +207,7 @@ These are things to export and send when you can (SQL for each is in `LAUMC_DATA
 ## E. Deployment setup decisions
 
 **E1. Do the two hospitals run the same working hours?**
-Do Rafic Hariri and SJH share the same shift times (morning/afternoon/night), or does each site
+Do Rizk Hospital and SJH share the same shift times (morning/afternoon/night), or does each site
 need its own hours configured? Affects the shift and utilization reports.
 > Answer:
 
