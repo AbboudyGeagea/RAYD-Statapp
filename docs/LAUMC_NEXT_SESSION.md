@@ -4,6 +4,8 @@ Pick up here. Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md`
 `LAUMC_OPEN_QUESTIONS.md` (vendor Qs), `LAUMC_DATA_REQUEST.md` (discovery record).
 
 Last major update: 2026-07-27 — full RIS pipeline build (Phases 6, 9–15) + infra hardening.
+Also 2026-07-26: live incident (accidental `docker compose down -v`, full data wipe) —
+recovery + 4 new bugs found/fixed + new site-filter rule started. See tables below.
 
 ---
 
@@ -51,6 +53,54 @@ Last major update: 2026-07-27 — full RIS pipeline build (Phases 6, 9–15) + i
 | **13** RIS Resources | `RESOURCE_ID⋈PERSON`→**`std_resources_ris`** (new) | **Names + contact INCLUDED** (staff, not patient PHI — KPI needs radiologist names, CRN needs referring-physician email/phone). Vendor-confirmed: `REPORT`/`ORDERS`/`SITE_WORKLIST`'s `*_RESOURCE_ID_KEY` columns reference `RESOURCE_ID.RESOURCE_ID_KEY`, not `PERSON_KEY`. Also resolves `reading_physician_resource_key`/`signing_physician_resource_key` on `etl_didb_studies` by matching the composite `email@domain_numericid` string already sitting in `reading_physician_id`/`signing_physician_id` — fixes data already loaded, not just future rows. `resource_role_key` still raw (no role lookup yet). `site_id` resolved via `site_org_map` (RESOURCE_ID carries a real org key, unlike VISIT). |
 | **14** RIS PPS | `PPS ⋈ SPS_CODE ⋈ MODALITY` → **`std_pps`** (new), plus **`std_status_ris`**, **`std_procedure_priorities`**, **`std_dictations`** (lookups), **`std_site_pps_ext`** (new) | The "treasure table". `std_status_ris` = full-fidelity RIS STATUS master (TYPE-aware: ORDER/SPS/PPS share one table; `CORE_STATUS` is the real alias→canonical pointer — more authoritative than `worklist_status_map`'s hand-curated seed, which is left untouched). **`TECHNURSE_NOTES`/`DEMONSTRATION_NOTES` never fetched** (free-text clinical notes, operator: "we're not going there yet"). Includes the empirical **`STUDY_INSTANCE_UID`↔PACS join test** (`study_db_uid` enrichment on `std_pps` — a real DICOM UID match, not inferred; run it and check the match rate). `std_site_pps_ext` = `SITE_PPS`'s structured fields (film reject/shielding/CD-burn/critical-result/consent/complications) — despite the name, NOT a site/org lookup (1:1 QA extension); 6 of 43 columns excluded (`HOLDER_NAME` + 5 free-text comment fields). |
 | **15** RIS Modality Availability | `MODALITY_AVAIL_EXCEPTION`→**`std_modality_exceptions`**, `SCHEDULE_TEMPLATE_ITEM`→**`std_schedule_template_items`**, `SCHEDULE_SCHEME`→**`std_schedule_schemes`**, `AVAILABILITY_INDICATOR`→**`std_availability_indicators`** (all new) | RIS-authoritative counterparts to the existing manually-editable `device_exceptions`/`device_weekly_schedule` — **not editable from RAYD** (operator instruction; no admin route built for any of the four). `std_modality_exceptions` resolved to `aetitle` via a live `MODALITY` join, ready to use. `std_availability_indicators` fully resolves what each indicator means (03=Available, 04=Unavailable, 07=Holiday, 11=Maintenance, 2100=Closed = "unavailable" for utilization; rest are booking-rule nuances). `std_schedule_template_items` still **not attributable to a device** — `std_schedule_schemes` resolved the scheme NAME but schemes turned out to be a generic category, not device-specific; the actual device↔scheme link is still unidentified (see blocked #5). Together with Phase 14's `std_pps` (actual usage) this is the utilization pair, one link short of complete. |
+
+### Live-incident recovery + new bugs found/fixed (2026-07-26)
+Operator ran `docker compose down -v` (accidental full volume wipe) + rebuild, then hit a
+cascade of previously-latent bugs while re-running ETL/reports against the fresh DB:
+
+| Item | Fix |
+|---|---|
+| Stuck idle-in-transaction session on `db_params` (~3h old) blocking `ALTER TABLE db_params ADD COLUMN owner`, which then blocked every downstream `db_params` lookup — cause of the "app hanging / internal server error" report | `pg_terminate_backend()` on the leaked session (one-off; root leak cause not fully diagnosed) |
+| `etl_didb_studies`'s incremental-vs-fresh-load switch keys off `MAX(study_db_uid)`, not `go_live_config` — moving the go-live date forward had no effect once the table had any rows | documented in `ETL_JOBS/etl_didb_studies.py:41`; a genuine re-cutoff needs `TRUNCATE` (resets `max_uid` to 0), not just a new `go_live_config` row |
+| RIS Reports enrichment (`ETL_JOBS/etl_ris_reports.py`) referenced `pv.patient_id` — `etl_patient_view`'s real column is just `id` (see `init-db/schema.sql:425`) — crashed **the entire ETL run**, not just Phase 9 | column reference fixed |
+| Image Locations ETL (`ETL_JOBS/etl_image_locations.py`) 1000-study chunks fed a `ROW_NUMBER() OVER (PARTITION BY...)` dedupe query too much data to sort at once on the full-history reload (~1,200 images/study avg) → `ORA-01652` (Oracle TEMP tablespace exhausted) on the PACS side | chunk size cut 1000→100; still open: ask whoever manages PACS Oracle to check `dba_temp_files`/`v$tempseg_usage` — this will bite other heavy queries too if TEMP is genuinely undersized |
+| `age_at_study` enrichment (`ETL_JOBS/etl_ris_patients.py`) — a placeholder/sentinel `birth_date` (same "quick-registration DOB" issue the module already flags) produced a negative/absurd age that overflowed `NUMERIC(5,2)`, crashing the whole run | bounded to `0–130` years in the `WHERE` clause |
+| **Systemic**: `_perform_migration` (`ETL_JOBS/etl_runner.py`) had ONE try/except around all 15 phases — any single phase's uncaught exception killed every phase after it (hit twice in one incident: Phase 9 then Phase 12) | each phase now has its own try/except + continues; `4TB_SYNC`'s final `etl_job_log` status is now `PARTIAL` (with the failed-phase list) instead of a misleading blanket `SUCCESS` when something failed |
+| `report_template` had **no seeding migration** for `report_id=25` at all (only `report_id=30` does, migration `0031`) — the row only existed because someone inserted it manually at some point; a genuine full wipe leaves it missing entirely, so `get_gold_standard_data` returns nothing → "report 25 shows no data" | seeded in `migrations/0069_seed_report_25_template.sql`, `ON CONFLICT DO NOTHING` (never clobbers a live-tuned query) — **worth checking whether other reports have the same gap** (their `report_template` rows may also be manual-insert-only, unmigrated) |
+
+### New rule: reports show RH (main site) only, SJH excluded — "for now" (2026-07-26)
+Operator instruction: all reports should only include site `0` from PACS / `1000` from RIS
+in all data — per `migrations/0046_sites_mapping.sql` both values mean **RH**, the main site
+(`is_default=TRUE`); SJH is the satellite.
+
+- `etl_didb_studies.site_id`/`hl7_oru_reports.site_id` are **never actually populated** — the
+  enrichment pass was designed (`migrations/0051`, `ETL_JOBS/etl_site_enrichment.py`
+  referenced in its comment) but that file was **never built**. `utils/site_resolver.py`
+  exists (full resolver for all 4 source vocabularies) but nothing calls it from any ETL job
+  or the HL7 listener. Don't trust `site_id` on any row until this is actually wired up.
+- Working alternative used instead: `aetitle_modality_map.site_id` — populated today by the
+  already-running Phase 10 (RIS-authoritative via `ORG_STRUCTURE_KEY → site_org_map`). Since
+  every study's `storing_ae` maps to a physical device at one physical site, this gives a
+  reliable per-study site *right now*, and — unlike raw PACS `SITE_ID` — isn't affected by
+  the known SJH-mammo-mislabeled-as-RH bug (`migrations/0051`'s own comment).
+- Pattern applied in `routes/report_25.py`: `default_site()` (from `utils/site_resolver.py`,
+  resolves to RH's canonical id) folded into the file's existing `_sec_filters`/
+  `_sec_needs_mod_join` mechanism so every secondary query picks it up automatically; the
+  main `report_template`-driven query filters via `aetitle IN (SELECT ... WHERE site_id=...)`;
+  `hl7_orders`-based queries (no site marker of their own) join back to `etl_didb_studies` by
+  `accession_number` first. Skips cleanly (no filter applied) if `default_site()` returns
+  `None` — never zeroes out a non-LAUMC/single-site install.
+- **Report 25 is the only file done.** 20 more route files touch
+  `etl_didb_studies`/`hl7_orders`/`hl7_oru_reports` and need the same treatment for the rule
+  to actually hold everywhere: `report_22`, `report_27`, `super_report`, `er_dashboard`,
+  `oru_analytics`, `hl7_orders`, `capacity_ladder`, `cd_print_log`, `financial_dashboard`,
+  `referring_intel`, `live_feed`, `report_ai`, `report_widgets`, `viewer_controller`,
+  `admin_controller`, `ai_alerts`, `registry`, `auth_controller` (each needs individual
+  inspection — query structures differ from report_25's). Operator explicitly deferred this
+  rollout rather than doing all 20 in one pass — pick up here.
+- Once `utils/site_scope.py`/RLS is actually wired app-side (READY TO BUILD NEXT #1), this
+  whole per-report workaround may become unnecessary — RLS would enforce site scope at the
+  DB level for every query automatically. That's the real fix; this is the interim patch.
 
 All Phase 6/9/10/11/12/13/14/15 skip cleanly (clear log message, no PACS fallback) if no
 `ris` db_params source is configured. `ETL_GEAR`/`RAYD_RIS_*_TABLE` env vars let table
