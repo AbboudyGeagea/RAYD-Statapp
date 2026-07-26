@@ -50,7 +50,12 @@ def run_images_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, stud
             cursor.arraysize = ETL_GEAR["oracle_prefetch"]
 
             batch_size = ETL_GEAR.get("batch_size", 5000)
-            chunk_size = 1000
+            # Deliberately smaller than the 1000 IN-list ceiling used elsewhere: the dedupe
+            # query below does a ROW_NUMBER() OVER (PARTITION BY ...) sort, and on LAUMC's
+            # full-history reload (~1,200 images/study avg) a 1000-study chunk pushed that
+            # sort past the PACS Oracle instance's TEMP tablespace (ORA-01652). Smaller
+            # chunks trade more round trips for a bounded per-query sort footprint.
+            chunk_size = 100
 
             # Pre-load valid raw_image_db_uid values from PG to prevent FK violations.
             with pg_engine.connect() as _c:
