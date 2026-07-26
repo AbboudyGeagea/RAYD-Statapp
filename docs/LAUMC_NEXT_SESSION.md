@@ -234,6 +234,44 @@ PERSON.PERSON_KEY`) — same person, two different "role" tables pointing into o
 
 Running log — capture each one here as it comes up, don't lose it in chat scroll.
 
+### KPI Detailed Reading — built, first pass, needs validation (2026-07-26)
+The "revamp TAT per modality per radiologist" ask (a continuation of punch-list #2, Report 25)
+turned out to have a concrete spec: `KPI Detailed reading.xlsx` in the repo root. Extracted its
+structure (no
+Excel needed — it's a zip of XML, parsed directly): per modality × patient-class block
+(CT-IN / CT-Urg / CT-Out), three TAT stages bucketed into named time ranges (different
+bucket widths for outpatient vs. in/urgent), radiologist rows per stage except the first
+(aggregate, unattributed). `routes/report_25.py`'s `get_kpi_detailed_reading()` implements
+this, replacing the old TAT heatmap + peer-ranking table in the Radiologists tab (both were
+driven by `rad_cards`, which now shows raw `hl7_oru_reports.physician_id` codes as
+"radiologist" for RIS-sourced reports — ballooned to hundreds of spurious entries, reported
+as "an infinite list").
+
+**Confirmed with operator**: patient-class blocks = modality × (Inpatient/Urgent-ER/Outpatient);
+radiologist list must be fully dynamic from the DB, not hardcoded; `physician_id` needs
+resolving to a real name via PERSON — done via `std_resources_ris.resource_id` (same
+composite-ID format already used for `etl_didb_studies.reading/signing_physician_id`,
+migration 0063); TAVI/Coro CT excluded by procedure_code pattern match — confirmed.
+
+**Not yet confirmed, first-pass assumption, "let's test it, we can change the queries if the
+data is illogical"**:
+- Stage → timestamp mapping: `Ex. Done to Read` = `COALESCE(hl7_orders.done_at, .pacs_done_at)`
+  → `rep_prelim_timestamp`; `Signed 1 to Approved` = `rep_prelim_timestamp` → `rep_final_timestamp`;
+  `Exam done to Approved` = exam-done → `COALESCE(rep_final_timestamp, hl7_oru_reports.result_datetime)`
+  (same fallback as migration 0070). Not verified against real data yet.
+- `patient_class` has no CHECK constraint in schema — Inpatient/Outpatient split uses broad
+  `ILIKE` pattern guesses (`IN%`/`OUT%`/`AMB%`), "Urgent" reuses the existing `2XE` accession
+  prefix convention. Needs verification once real bucket counts are visible.
+- Only CT is built (only modality with a defined SLA in the source spreadsheet) — extending
+  to other modalities is mechanical once the CT numbers are validated as correct.
+- The single aggregate `Ex. Done to Read` row is labeled `"Res."` (literal spreadsheet cell
+  content) — unclear if that's meant as a real label or an artifact of merged Excel cells;
+  the raw XML extraction didn't parse `<mergeCells>` ranges, so the exact intended header
+  hierarchy is a best guess.
+
+**Next step**: operator reviews real rendered output against known-correct numbers for a
+sample period, tells me what's wrong, queries get adjusted. Not done until validated.
+
 ### Operator punch list, 2026-07-26 — explicitly "for later," not started
 1. **All reports — data integrity check against RIS and PACS.** No spec yet: presumably
    spot-check counts/sums in RAYD vs. querying RIS/PACS directly for the same period.
