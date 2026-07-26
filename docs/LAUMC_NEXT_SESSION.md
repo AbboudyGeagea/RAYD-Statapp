@@ -3,7 +3,7 @@
 Pick up here. Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
 `LAUMC_OPEN_QUESTIONS.md` (vendor Qs), `LAUMC_DATA_REQUEST.md` (discovery record).
 
-Last major update: 2026-07-27 — full RIS pipeline build (Phases 6, 9–13) + infra hardening.
+Last major update: 2026-07-27 — full RIS pipeline build (Phases 6, 9–15) + infra hardening.
 
 ---
 
@@ -40,7 +40,7 @@ Last major update: 2026-07-27 — full RIS pipeline build (Phases 6, 9–13) + i
 | `app.py` startup auto-trigger doubled every manual `-m` ETL run while any table was empty | gated off in manual CLI mode |
 | Raw Images ETL never set `cursor.arraysize` (Oracle default ~100 rows/round-trip despite `fetchmany(2000)`) | set from `ETL_GEAR`, ~2x throughput bump given confirmed server headroom |
 
-### RIS pipeline — Phases 6, 9–13 (2026-07-27, all new/changed this session)
+### RIS pipeline — Phases 6, 9–15 (2026-07-27, all new/changed this session)
 | Phase | Source → Target | Notes |
 |---|---|---|
 | **6** Orders | `SITE_WORKLIST ⋈ ORDERS ⋈ SPS_CODE` → `etl_orders` | Switched from PACS `MDB_ORDERS` (messier data) per operator decision. `order_status` translated via `worklist_status_map` to short codes (`CA`/`CM`/raw stage) existing reports hardcode. `study_db_uid` resolved by 2-stage enrichment: primary `accession_number = sps_id` match, `linked_id`-group fallback for multi-SPS orders. `patient_dbid` = RIS `patient_person_key` (PACS identity NOT reconciled here, by design). |
@@ -49,10 +49,12 @@ Last major update: 2026-07-27 — full RIS pipeline build (Phases 6, 9–13) + i
 | **11** RIS Visits | `VISIT` → **`std_visits`** (new) | Feeds case-mix/payer/LOS/hospital-service. `site_id` **not resolved** — VISIT carries no org/issuer column of its own. `patient_class_key`/`financial_class_key`/`hospital_service_key`/`mobility_status_key` pulled raw (lookups pending). `deleted='Y'` rows imported, not dropped. |
 | **12** RIS Patients | `PATIENT⋈PERSON`→**`std_patients_ris`**, `PATIENT_ID_LIST`→**`std_patient_ids`** (both new) | **NO PATIENT NAMES** (operator instruction, PHI) — `PATIENT_ALIAS` dropped from scope entirely as a result (100% name data). `gender_key` resolved to `F/M/U/I/0/NSP/O/A` via hardcoded lookup. `language_key` still raw. Also runs **`age_at_study`** enrichment on `etl_didb_studies` (new column, `migrations/0061`) — computed from `std_patients_ris.birth_date` via the `etl_orders` bridge, kept separate from PACS's unreliable `age_at_exam`. |
 | **13** RIS Resources | `RESOURCE_ID⋈PERSON`→**`std_resources_ris`** (new) | **Names + contact INCLUDED** (staff, not patient PHI — KPI needs radiologist names, CRN needs referring-physician email/phone). Vendor-confirmed: `REPORT`/`ORDERS`/`SITE_WORKLIST`'s `*_RESOURCE_ID_KEY` columns reference `RESOURCE_ID.RESOURCE_ID_KEY`, not `PERSON_KEY`. Also resolves `reading_physician_resource_key`/`signing_physician_resource_key` on `etl_didb_studies` by matching the composite `email@domain_numericid` string already sitting in `reading_physician_id`/`signing_physician_id` — fixes data already loaded, not just future rows. `resource_role_key` still raw (no role lookup yet). `site_id` resolved via `site_org_map` (RESOURCE_ID carries a real org key, unlike VISIT). |
+| **14** RIS PPS | `PPS ⋈ SPS_CODE ⋈ MODALITY` → **`std_pps`** (new), plus **`std_status_ris`**, **`std_procedure_priorities`**, **`std_dictations`** (lookups), **`std_site_pps_ext`** (new) | The "treasure table". `std_status_ris` = full-fidelity RIS STATUS master (TYPE-aware: ORDER/SPS/PPS share one table; `CORE_STATUS` is the real alias→canonical pointer — more authoritative than `worklist_status_map`'s hand-curated seed, which is left untouched). **`TECHNURSE_NOTES`/`DEMONSTRATION_NOTES` never fetched** (free-text clinical notes, operator: "we're not going there yet"). Includes the empirical **`STUDY_INSTANCE_UID`↔PACS join test** (`study_db_uid` enrichment on `std_pps` — a real DICOM UID match, not inferred; run it and check the match rate). `std_site_pps_ext` = `SITE_PPS`'s structured fields (film reject/shielding/CD-burn/critical-result/consent/complications) — despite the name, NOT a site/org lookup (1:1 QA extension); 6 of 43 columns excluded (`HOLDER_NAME` + 5 free-text comment fields). |
+| **15** RIS Modality Availability | `MODALITY_AVAIL_EXCEPTION`→**`std_modality_exceptions`** (new), `SCHEDULE_TEMPLATE_ITEM`→**`std_schedule_template_items`** (new) | RIS-authoritative counterparts to the existing manually-editable `device_exceptions`/`device_weekly_schedule` — **not editable from RAYD** (operator instruction; no admin route built for either). `std_modality_exceptions` resolved to `aetitle` via a live `MODALITY` join, ready to use. `std_schedule_template_items` captured raw but **not yet attributable to a device** — `SCHEDULE_SCHEME_KEY` is the only link and the `SCHEDULE_SCHEME` table hasn't been provided. Together with Phase 14's `std_pps` (`START_DATETIME`/`END_DATETIME`/`MODALITY_KEY` = actual usage) this is the utilization numerator+denominator pair. |
 
-All Phase 6/9/10/11/12/13 skip cleanly (clear log message, no PACS fallback) if no `ris`
-db_params source is configured. `ETL_GEAR`/`RAYD_RIS_*_TABLE` env vars let table names
-be overridden per-column-family without code changes.
+All Phase 6/9/10/11/12/13/14/15 skip cleanly (clear log message, no PACS fallback) if no
+`ris` db_params source is configured. `ETL_GEAR`/`RAYD_RIS_*_TABLE` env vars let table
+names be overridden per-column-family without code changes.
 
 **Site model refresher**: `PERSON` is a single shared demographic table for BOTH patients
 (`PATIENT.PATIENT_PERSON_KEY = PERSON.PERSON_KEY`) and staff (`RESOURCE_ID.PERSON_KEY =
@@ -67,22 +69,29 @@ PERSON.PERSON_KEY`) — same person, two different "role" tables pointing into o
 3. **Lookups still needed** (small, resolve key → label): `PATIENT_CLASS` (IP/OP/ER),
    `FINANCIAL_CLASS` (payer/TPA), `HOSPITAL_SERVICE`, `PRIORITY`, `BODY_PART` /
    `LATERALITY` / `CODING_SCHEME`, `INTERPRETATION_TYPE`, `VERSION_STATUS`,
-   `JUSTIFICATION_STATUS` + `STATUS_REASON`, `MOBILITY_STATUS`,
-   **`RESOURCE_ROLE`** (new — Radiologist/Technician/Referring/etc. labels for
-   `std_resources_ris.resource_role_key`), **`LANGUAGE`** (new —
-   `std_patients_ris.language_key`).
-4. **THE RIS↔PACS study join** — partially resolved 2026-07-27: RIS-side linking
-   confirmed as `LINKED_ID`; PACS-side grouping column confirmed to exist
-   (`medistore.didb_studies.WORKITEM_DB_UID`, paired with `IS_LINKED_STUDY='Y'`), but the
-   *exact* resolution rule (which linked SPS's accession the merged PACS study actually
-   carries) is still not nailed down. Current `etl_orders.py` enrichment uses a
-   best-effort `linked_id`-group fallback (inherit a sibling SPS's resolved study) — works
-   for the common case, unverified for edge cases. `WORKITEM_DB_UID` itself is not yet
-   pulled into `etl_didb_studies` at all — would sharpen this if added.
-5. **Qog1** — VASC (org 5120) counts as RH? (assumed YES; seeded that way in `0052`)
-6. **Used-status list** — vendor to send which statuses are actually in use, to trim the
+   `JUSTIFICATION_STATUS` + `STATUS_REASON`, `MOBILITY_STATUS`, `RESOURCE_ROLE`
+   (Radiologist/Technician/Referring/etc. labels for `std_resources_ris.resource_role_key`),
+   `LANGUAGE` (`std_patients_ris.language_key`), **`AVAILABILITY_INDICATOR`** (new —
+   what an indicator value means on `std_modality_exceptions`/`std_schedule_template_items`),
+   **`PEER_REVIEW`** (new — `std_pps.considered_for_review` workflow, table schema not sent).
+4. **THE RIS↔PACS study join** — was accession/linked_id best-effort; Phase 14 added a
+   real candidate. `std_pps.study_db_uid` is resolved by matching `STUDY_INSTANCE_UID`
+   (a real DICOM UID) against `etl_didb_studies.study_instance_uid` — run Phase 14 and
+   check the match-rate it prints; that's the actual answer, not a guess. If it's high,
+   this supersedes the accession/linked_id approach in `etl_orders.py`. PACS-side
+   grouping column also confirmed to exist (`medistore.didb_studies.WORKITEM_DB_UID`,
+   paired with `IS_LINKED_STUDY='Y'`) but not yet pulled into `etl_didb_studies`.
+5. **`SCHEDULE_SCHEME` table** (new — blocks device utilization) — the only link from
+   `SCHEDULE_TEMPLATE_ITEM.SCHEDULE_SCHEME_KEY` back to a specific device. Does it carry
+   `MODALITY_KEY` directly, or is it department/room-level? Also need: which
+   `SCHEDULE_TEMPLATE_VERSION_KEY` is currently effective (effective-date or active-flag
+   on a version table?).
+6. **PPS site resolution** — no org/issuer column on `PPS` itself; how it inherits site
+   from `SITE_WORKLIST`/`ORDERS` is unconfirmed (same open question as `std_visits`).
+7. **Qog1** — VASC (org 5120) counts as RH? (assumed YES; seeded that way in `0052`)
+8. **Used-status list** — vendor to send which statuses are actually in use, to trim the
    `0047` seed. Cosmetic only, not blocking.
-7. ~~DB access (read-only) + network path~~ **✅ DONE** — both RIS and PACS connections
+9. ~~DB access (read-only) + network path~~ **✅ DONE** — both RIS and PACS connections
    live and in daily use.
 
 ---
@@ -100,115 +109,71 @@ PERSON.PERSON_KEY`) — same person, two different "role" tables pointing into o
    isn't joined into any report yet:
    - radiologist/technician names (`std_resources_ris`) — resolve
      `reading_physician_resource_key`/`signing_physician_resource_key` on
-     `etl_didb_studies` to a display name
+     `etl_didb_studies` to a display name; also `std_pps.primary_tech_person_key` (joins
+     `std_resources_ris.person_key`, not `resource_id_key`) for the Technologist
+     Productivity report
    - referring-org contact (`std_ordering_organizations`) — for CRN routing once that's
      scoped
    - patient MRN (`std_patient_ids`) where needed for display/reconciliation
-3. **KPI Detailed Reading report** — now unblocked (PERSON/RESOURCE exists as of Phase
-   13) — TAT distribution matrix by radiologist. Not yet built.
-4. **Site-enrichment pass, the rest of it** — partially done this session (studies↔orders
-   via `etl_orders` enrichment, `age_at_study`, physician resolution), but still open:
-   - `std_visits.site_id` (needs a join through `etl_orders.visit_dbid` — deferred, see
-     Phase 11 notes)
+3. **Technologist Productivity report** — now buildable. `std_pps` has
+   `primary_tech_person_key` + `start_datetime`/`end_datetime` + `procedure_code` +
+   `performing_ae_title` directly. The legacy `Technologist_Productivity_Report.rpt`
+   (Crystal Reports, brought in this session then **accidentally deleted** — see
+   Housekeeping) can't be referenced for its exact original logic anymore; rebuild from
+   first principles using `std_pps`.
+4. **Device utilization report** — `std_pps` (actual usage per device) is ready now;
+   blocked on `SCHEDULE_SCHEME` (item #5 above) for the availability denominator.
+5. **KPI Detailed Reading report** — unblocked since Phase 13 (PERSON/RESOURCE exists) —
+   TAT distribution matrix by radiologist. Not yet built.
+6. **Site-enrichment pass, the rest of it** — partially done this session (studies↔orders
+   via `etl_orders` enrichment, `age_at_study`, physician resolution, PPS study-UID
+   test), but still open:
+   - `std_visits.site_id` / `std_pps` site resolution (both deferred, see blocked #6)
    - `hl7_orders` / `hl7_oru_reports.site_id` via accession
    - **mismatch monitor** → `site_mismatch_log` (quantifies the SJH-mammo bug) — table
      exists (`0051`) but nothing populates it yet
    - Use `UPDATE…FROM` joins (NOT python row loops — 600k+ rows), matching this
      session's enrichment pattern
-5. **`std_devices` / procedure-catalog refinements**:
-   - `procedure_duration_map.body_part` still NULL — needs the `BODY_PART` lookup (#3
-     above)
+7. **`std_devices` / procedure-catalog refinements**:
+   - `procedure_duration_map.body_part` still NULL — needs the `BODY_PART` lookup
+   - `procedure_duration_map.duration_minutes` could be calibrated with `std_pps`
+     actuals (`start_datetime`/`end_datetime`) instead of the 15-min guessed default —
+     not done yet
    - demo/external device rows (USDemoPhilips, RH-PACS External Upload, SJH-CARM 2) are
      imported with their real `ACTIVE` flag rather than name-excluded — confirm this is
      sufficient once real data is visible in the mapping tab, or revisit
-6. **Status-history population**: RIS-outbound ORM (`ORC-1=SC`) → read `STATUS_KEY` →
-   map via `worklist_status_map` → append to `worklist_status_history`.
-   Note: ORM only carries coarse codes (`A` = Scheduled AND Arrived) → DB read decides.
-   Arrived/started have **no** DB timestamp column → message arrival time IS the transition.
-7. **Unified exam view** (after the join answer sharpens, #4 above) — `std_worklist` ↔
-   `didb_studies`. Note: no dedicated `std_worklist` table was built this session —
-   `etl_orders.py` extracts the operationally-relevant subset of `SITE_WORKLIST` directly
-   into the existing `etl_orders` shape. A full 57-column `std_worklist` capture (all of
-   `SITE_WORKLIST`, not just what `etl_orders` needs) would be a separate, larger build if
-   ever wanted — not started.
-8. **`analytics_snapshots` per-site PK** restructure (deferred in `0049`): widen
-   `(snapshot_date)` → `(snapshot_date, site_id)` when the analytics refresh is reworked.
-9. **4 CD-burning/Weasis features** (explicitly requested earlier, not started):
-   auto-display incoming study on "Recently arrived - ready to burn"; add RF modality in
-   Q/R; allow multiple CD burn; Weasis auto-copy to local drive + auto-point to DICOM folder.
+8. **Radiation dose feature** — `std_pps.radiation_dose`/`.radiation_dose_units` are
+   loaded; check real fill-rate once Phase 14 has run, then decide if this replaces the
+   regex-from-dictation-text approach `LAUMC_DATA_REQUEST.md`'s RDMS analysis assumed.
+9. **Peer review workflow** — `std_pps.considered_for_review` flag is loaded; the full
+   `PEER_REVIEW` table isn't (schema not sent, deferred per operator).
+10. **Status-history population**: RIS-outbound ORM (`ORC-1=SC`) → read `STATUS_KEY` →
+    map via `worklist_status_map` (or `std_status_ris`'s richer `CORE_STATUS` chain) →
+    append to `worklist_status_history`. ORM only carries coarse codes (`A` = Scheduled
+    AND Arrived) → DB read decides. Arrived/started have **no** DB timestamp column →
+    message arrival time IS the transition.
+11. **Unified exam view** (after the join answer sharpens, blocked #4) — `std_worklist` ↔
+    `didb_studies`. Note: no dedicated `std_worklist` table was built this session —
+    `etl_orders.py` extracts the operationally-relevant subset of `SITE_WORKLIST` directly
+    into the existing `etl_orders` shape. A full 57-column `std_worklist` capture would
+    be a separate, larger build if ever wanted — not started.
+12. **`analytics_snapshots` per-site PK** restructure (deferred in `0049`): widen
+    `(snapshot_date)` → `(snapshot_date, site_id)` when the analytics refresh is reworked.
+13. **4 CD-burning/Weasis features** (explicitly requested earlier, not started) — note
+    `std_site_pps_ext` now carries real CD-burn tracking data (`cd_burned`,
+    `cd_burned_date`, `cd_burned_requested_by`, `image_sent_to`/`_2`/`_3`) that could
+    directly inform this: auto-display incoming study on "Recently arrived - ready to
+    burn"; add RF modality in Q/R; allow multiple CD burn; Weasis auto-copy to local
+    drive + auto-point to DICOM folder.
 
 ---
 
 ## 💡 IDEAS / ASKS PARKED THIS SESSION (2026-07-27 →)
 
 Running log — capture each one here as it comes up, don't lose it in chat scroll.
-Nothing below is scoped or built yet unless marked done.
 
-### PPS (Performed Procedure Step) — major find, not yet built
-Operator found this table via the ER diagram tool; connects to `peer_review`, `orders`,
-`patient`, `status`, `sps_code`, `site_pps`, `procedure_priority`, `dictation`, `modality`.
-
-**Columns (PPS itself):** PPS_KEY, PATIENT_PERSON_KEY, PERFORMED_PROCEDURE_STEP_ID,
-PPS_INSTANCE_UID, STUDY_INSTANCE_UID, PPS_CODE_KEY, DESCRIPTION, START_DATETIME,
-END_DATETIME, DISCONTINUED_REASON, MODALITY_KEY, TECHNURSE_NOTES, PATIENT_FOLDER_KEY,
-REPORT_KEY, DICTATION_KEY, STATUS_KEY, PRIORITY_KEY, STATUS_REASON_KEY,
-CREATED_BY_PERSON_KEY, CREATED_DATE, WORKLIST_FLAGSET, LINKED_ID, BIRADS_KEY,
-CREATED_BY_MPPS, DEMONSTRATION_NOTES, CONSIDERED_FOR_REVIEW, FOLLOWUP_OVERRIDE,
-RADIATION_DOSE, RADIATION_DOSE_UNITS, INV_AUTO_POPULATE_FLAG,
-EXTERNAL_REPORTING_ACTION, CR_MESSAGE_KEY, PRIMARY_TECH_PERSON_KEY, PROTOCOL_KEY,
-PROTOCOL_STATUS_KEY.
-
-**Why it matters — four big ones:**
-- `STUDY_INSTANCE_UID` — a real DICOM UID, potentially THE clean RIS↔PACS join
-  (sharpens/replaces blocked item #4's accession+linked_id best-effort approach).
-  Cross-check against `etl_didb_studies.study_instance_uid` once built.
-- `PRIMARY_TECH_PERSON_KEY` — the actual performing technologist. Directly answers the
-  "Technologist Productivity" Crystal Report brought in the same session
-  (`Technologist_Productivity_Report.rpt`, title/structure read from the file, original
-  content not fully decodable — proprietary binary, needs Crystal Reports itself to open).
-- `START_DATETIME`/`END_DATETIME` — real measured procedure duration, calibrates
-  `procedure_duration_map` with actuals instead of the 15-min guessed default.
-- `RADIATION_DOSE`/`RADIATION_DOSE_UNITS` — structured dose data, if populated this is a
-  much better foundation than the regex-from-dictation-text approach assumed in
-  `LAUMC_DATA_REQUEST.md`'s RDMS analysis.
-
-Also: `CONSIDERED_FOR_REVIEW` (+ `peer_review` table) — peer review workflow.
-`BIRADS_KEY` — the parked BI-RADS feature has real data to attach to. `LINKED_ID`
-appears again at PPS level — cross-check against `SITE_WORKLIST.LINKED_ID` once built.
-
-**Connected table columns — received so far:**
-
-`PROCEDURE_PRIORITY` (resolves `PPS.PRIORITY_KEY`) — received 2026-07-27:
-```
-PRIORITY_KEY, CODE, DESCRIPTION, ACTIVE, LAST_UPDATED
-```
-Sample values: 2=ROU/Routine, 4=003/Emergency, 5=004/Very Urgent, 6=005/Port. Emergency,
-7=EAR/EARLY, 1=001/Port Routine, 2220=PRE/PRE-OP, 2221=EME/EMERGENCY(STAT),
-2260=TOD/TODAY, 2261=URG/URGENT. All ACTIVE='Y' in the sample.
-
-`DICTATION` (resolves `PPS.DICTATION_KEY`) — received 2026-07-27:
-```
-DICTATION_KEY, DICTATION_DATE, LAST_MODIFIED_DATE, AUDIO, REVISION_COUNT,
-DICTATED_BY_RESOURCE_ID_KEY
-```
-Note: `DICTATED_BY_RESOURCE_ID_KEY` resolves via `std_resources_ris` (Phase 13) — direct
-reuse, no new lookup needed for that column.
-
-**Still blocking the build:**
-1. `SITE_PPS` and `STATUS` schemas — both requests came back as accidental duplicates of
-   the `PPS` column list itself, not their own columns. Re-request pending. `SITE_PPS` is
-   the likely site/org resolution path (PPS itself has no org_structure_key-style
-   column); `STATUS` resolves `PPS.STATUS_KEY` (and possibly `STATUS_REASON_KEY`) — open
-   question whether it's the same master table `worklist_status_map` (migration 0047)
-   was seeded from.
-2. `PEER_REVIEW` schema — not yet sent (lower priority than the two above).
-3. `TECHNURSE_NOTES` / `DEMONSTRATION_NOTES` are free-text clinical notes — same PHI
-   question as patient names. Operator decision needed: pull in or exclude, before
-   building.
-
-Not building yet — holding for `SITE_PPS`/`STATUS` (site + core status resolution) and
-the notes-fields decision, to avoid shipping `std_pps` with its two most load-bearing
-columns unresolved and having to circle back.
+*(PPS and Modality Availability moved to BUILT — see table above. Nothing currently
+parked/unbuilt beyond what's listed in BLOCKED ON VENDOR and READY TO BUILD NEXT.)*
 
 ---
 
@@ -220,8 +185,13 @@ columns unresolved and having to circle back.
 - **Extract filter (global, RIS)**: `ISSUER_OF_PLACER_ORDER_NUMBER IN ('SAP_PROD','SAP_SJH')`
   — the RIS holds other sites; this is both site scope and junk filter. Applied in
   `etl_orders.py`'s `ORDERS` join.
-- **Never hardcode status 60/70/100** — always map via `worklist_status_map`
-  (Porter/Oral STR/General → Arrived; Contrast/Pre Exam → Started).
+- **Never hardcode status 60/70/100** — always map via `worklist_status_map` (or the
+  richer `std_status_ris.core_status_key` chain now available) — (Porter/Oral STR/
+  General → Arrived; Contrast/Pre Exam → Started).
+- **Table names can be misleading** — `SITE_WORKLIST` and `SITE_PPS` both have "SITE" in
+  the name but neither is a hospital-site/org lookup (`SITE_WORKLIST` is just the RIS
+  vendor's naming convention; `SITE_PPS` is a per-step QA/compliance extension of `PPS`).
+  Don't assume a table resolves site/org from its name alone — verify.
 - **NULL site = unassigned**, invisible under RLS by design. Org root `1` is deliberately
   unmapped in `site_org_map` (pre-scheduling orders). `resolve_ris_org` does NOT fall back
   to the default site.
@@ -244,17 +214,43 @@ columns unresolved and having to circle back.
   rows change, never code.
 - **NO PATIENT NAMES in Postgres, ever** (operator instruction, 2026-07-27). Staff/resource
   names ARE pulled (`std_resources_ris`) — different rule, don't conflate the two.
+  Free-text clinical notes fields follow the same exclusion logic even when not literally
+  a "name" column — see `std_pps` (`TECHNURSE_NOTES`/`DEMONSTRATION_NOTES`, never
+  fetched) and `std_site_pps_ext` (6 columns excluded: `HOLDER_NAME` + 5 comment fields).
+  Default toward excluding free text/names; ask if genuinely needed.
 - **`RESOURCE_ID.RESOURCE_ID_KEY`**, not `PERSON_KEY`, is what `*_RESOURCE_ID_KEY` columns
-  elsewhere (REPORT/ORDERS/SITE_WORKLIST) actually reference.
-- Reference/catalog tables (Modality, Procedures, Ordering Orgs) = full pull, no date
-  filter. Transactional tables (Orders, Visits, Patients, Resources) = also currently full
-  pull for Patients/Resources (no clean watermark available); Orders/Visits use
-  `created_on_date >= go_live`.
+  elsewhere (REPORT/ORDERS/SITE_WORKLIST) actually reference. But `std_pps.primary_tech_
+  person_key` and `.created_by_person_key` genuinely ARE `*_PERSON_KEY` (not
+  `*_RESOURCE_ID_KEY`) — join `std_resources_ris.person_key`, not `.resource_id_key`, for
+  those two specifically. Check the exact column suffix before assuming which join applies.
+- **Two RIS-authoritative device-availability tables are explicitly NOT editable from
+  RAYD** (`std_modality_exceptions`, `std_schedule_template_items`, migration 0067) —
+  don't build an admin edit route for either; that's how the "not editable" instruction
+  is enforced (no DB-level lock, just no UI).
+- Reference/catalog tables (Modality, Procedures, Ordering Orgs, Status, Priorities,
+  Dictations, Modality Exceptions, Schedule Template Items) = full pull, no date filter.
+  Transactional tables (Orders, Visits, Patients, Resources, PPS) = also currently full
+  pull for Patients/Resources (no clean watermark available); Orders/Visits/PPS use
+  `created_on_date`/`created_date >= go_live`.
 
 ---
 
 ## 🧹 HOUSEKEEPING
 
+- **⚠️ `Technologist_Productivity_Report.rpt` was accidentally deleted this session
+  (2026-07-27).** Operator added it to the project root for reference; while cleaning up
+  a stray extraction-artifact folder from investigating the file (`rm -rf
+  "Technologist_Productivity_Report/"`), the original `.rpt` file was also lost — cause
+  not fully understood (a directory-scoped delete shouldn't have touched a
+  differently-named file). Recovery attempted and failed: not in Windows Recycle Bin
+  (Git Bash `rm` bypasses it), folder wasn't OneDrive-synced (no version history), no
+  Volume Shadow Copy available. The file was never committed to git (untracked at time
+  of loss), so git history can't recover it either. Only the decomposed internal OLE
+  streams survive, in a scratchpad temp dir — not a usable `.rpt`. If the operator has
+  another copy (original email/source, Crystal Reports Designer's recent-files list,
+  network share), that's the only real recovery path. The report's *purpose* is not
+  lost, though — `std_pps` (Phase 14) has everything needed to rebuild an equivalent
+  Technologist Productivity report from scratch (see READY TO BUILD NEXT #3).
 - **Two `.xlsx` working files were committed by an over-broad `git add -A`** in `0a843c67`:
   `KPI Detailed reading.xlsx`, `PACS_permissions_map.xlsx`. Status unconfirmed this
   session — user previously said "i am fine with the passwords, no access is given and
@@ -264,7 +260,9 @@ columns unresolved and having to circle back.
 - `update.sh` is the correct tool for pushing fixes to the live LAUMC install (pulls +
   rebuilds + applies pending migrations via `psql`). `install.sh` is fresh-install /
   data-reset only — do not use it on the live site.
-- ETL phase count is now 13. Full list: `docker compose exec rayd-app python app.py -m`
+- ETL phase count is now 15. Full list: `docker compose exec rayd-app python app.py -m`
   with no `RAYD_ETL_PHASES` set runs all of them in order; use
-  `RAYD_ETL_PHASES=6,9,10,11,12,13` to run just the RIS pipeline, or `RAYD_ETL_INTERACTIVE=1`
-  to be prompted per-phase.
+  `RAYD_ETL_PHASES=6,9,10,11,12,13,14,15` to run just the RIS pipeline, or
+  `RAYD_ETL_INTERACTIVE=1` to be prompted per-phase. Phase 14 (PPS) has internal
+  ordering that matters (lookups → std_pps → enrichment → std_site_pps_ext); don't split
+  it across separate `RAYD_ETL_PHASES` runs.
