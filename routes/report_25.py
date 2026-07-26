@@ -94,7 +94,9 @@ _KPI_BUCKETS_OUTPATIENT = [   # CT-Out style cutoffs (coarser 12-24h step, no 18
     ('96h-168h', 5761, 10080), ('>7 days', 10081, None),
 ]
 _KPI_PROCEDURE_EXCLUSIONS = ['%TAVI%', '%CORO%']   # confirmed: exclude TAVI + Coro CT
-_KPI_MODALITIES = ['CT']   # only CT has a defined SLA in the source spreadsheet so far
+# Modalities are NOT hardcoded — every modality present in the queried period's data gets
+# its own block, using the same bucket scheme as CT (the only one with a defined SLA in the
+# source spreadsheet) as a default until other modalities get their own confirmed windows.
 
 
 def _kpi_bucket_label(minutes, buckets):
@@ -123,6 +125,11 @@ def get_kpi_detailed_reading(form_data):
     Bucketed multi-stage TAT per modality x patient-class x radiologist,
     matching the hospital's "KPI Detailed reading.xlsx" format. See module
     comment block above for stage/bucket definitions and open assumptions.
+
+    Returns a flat list of blocks — one per (modality, patient_class) pair
+    actually present in the queried period, discovered from the data itself
+    (not a hardcoded modality list). The template renders this as a dynamic
+    modality/class selector rather than dumping every block statically.
     """
     go_live = get_etl_cutoff_date()
     start = form_data.get("start_date") or (go_live.strftime("%Y-%m-%d") if go_live else "2024-01-01")
@@ -139,33 +146,33 @@ def get_kpi_detailed_reading(form_data):
         f"UPPER(COALESCE(s.procedure_code, '')) NOT LIKE '{p}'" for p in _KPI_PROCEDURE_EXCLUSIONS
     )
 
-    blocks = {}
+    blocks = []
     try:
-        for modality in _KPI_MODALITIES:
-            rows = db.session.execute(text(f"""
-                SELECT
-                    s.accession_number,
-                    s.patient_class,
-                    COALESCE(s.rep_final_signed_by, res.common_name, o.physician_id) AS radiologist,
-                    s.rep_prelim_timestamp,
-                    s.rep_final_timestamp,
-                    o.result_datetime AS ris_result_datetime,
-                    ho.done_at,
-                    ho.pacs_done_at
-                FROM etl_didb_studies s
-                JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
-                LEFT JOIN hl7_orders ho ON ho.accession_number = s.accession_number
-                LEFT JOIN hl7_oru_reports o ON o.accession_number = s.accession_number
-                LEFT JOIN std_resources_ris res ON res.resource_id = o.physician_id
-                WHERE s.study_date BETWEEN :start AND :end
-                  AND UPPER(TRIM(m.modality)) = :modality
-                  AND COALESCE(m.modality, s.study_modality, '') != 'SR'
-                  {site_clause}
-                  AND {excl_clause}
-            """), {**params, "modality": modality}).mappings().fetchall()
+        # One query across every modality — grouping happens in pandas below,
+        # so new modalities need no code change, just data.
+        rows = db.session.execute(text(f"""
+            SELECT
+                s.accession_number,
+                s.patient_class,
+                COALESCE(UPPER(m.modality), UPPER(s.study_modality), 'N/A') AS modality,
+                COALESCE(s.rep_final_signed_by, res.common_name, o.physician_id) AS radiologist,
+                s.rep_prelim_timestamp,
+                s.rep_final_timestamp,
+                o.result_datetime AS ris_result_datetime,
+                ho.done_at,
+                ho.pacs_done_at
+            FROM etl_didb_studies s
+            JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
+            LEFT JOIN hl7_orders ho ON ho.accession_number = s.accession_number
+            LEFT JOIN hl7_oru_reports o ON o.accession_number = s.accession_number
+            LEFT JOIN std_resources_ris res ON res.resource_id = o.physician_id
+            WHERE s.study_date BETWEEN :start AND :end
+              AND COALESCE(m.modality, s.study_modality, '') != 'SR'
+              {site_clause}
+              AND {excl_clause}
+        """), params).mappings().fetchall()
 
-            if not rows:
-                continue
+        if rows:
             kdf = pd.DataFrame(rows)
             kdf['exam_done'] = pd.to_datetime(kdf['done_at'], errors='coerce').fillna(
                 pd.to_datetime(kdf['pacs_done_at'], errors='coerce')
@@ -175,19 +182,24 @@ def get_kpi_detailed_reading(form_data):
             )
             kdf['prelim'] = pd.to_datetime(kdf['rep_prelim_timestamp'], errors='coerce')
 
-            kdf['exam_to_read_min']      = (kdf['prelim']   - kdf['exam_done']).dt.total_seconds() / 60
-            kdf['signed_to_approved_min']= (kdf['approved'] - kdf['prelim']).dt.total_seconds() / 60
-            kdf['exam_to_approved_min']  = (kdf['approved'] - kdf['exam_done']).dt.total_seconds() / 60
+            kdf['exam_to_read_min']       = (kdf['prelim']   - kdf['exam_done']).dt.total_seconds() / 60
+            kdf['signed_to_approved_min'] = (kdf['approved'] - kdf['prelim']).dt.total_seconds() / 60
+            kdf['exam_to_approved_min']   = (kdf['approved'] - kdf['exam_done']).dt.total_seconds() / 60
 
             kdf['class_bucket'] = kdf.apply(_kpi_class_bucket, axis=1)
             kdf = kdf[kdf['class_bucket'].notna()]
 
-            for class_bucket, cdf in kdf.groupby('class_bucket'):
+            for (modality, class_bucket), cdf in kdf.groupby(['modality', 'class_bucket']):
                 buckets = _KPI_BUCKETS_OUTPATIENT if class_bucket == 'Out' else _KPI_BUCKETS_STANDARD
                 bucket_labels = [b[0] for b in buckets]
-                key = f"{modality}-{class_bucket}"
 
-                block = {'bucket_labels': bucket_labels, 'stages': {}}
+                block = {
+                    'modality': modality,
+                    'class_bucket': class_bucket,
+                    'label': f"{modality}-{class_bucket}",
+                    'bucket_labels': bucket_labels,
+                    'stages': {},
+                }
 
                 # Ex. Done to Read — single aggregate row, not per-radiologist
                 exam_read = cdf[cdf['exam_to_read_min'].notna() & (cdf['exam_to_read_min'] >= 0)].copy()
@@ -219,7 +231,8 @@ def get_kpi_detailed_reading(form_data):
                     rad_rows.sort(key=lambda r: r['name'])
                     block['stages'][stage_name] = {'radiologists': rad_rows}
 
-                blocks[key] = block
+                blocks.append(block)
+        blocks.sort(key=lambda b: (b['modality'], b['class_bucket']))
     except Exception:
         logger.exception("Failed to build KPI Detailed Reading data")
         db.session.rollback()

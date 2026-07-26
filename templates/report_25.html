@@ -499,47 +499,102 @@
                 <p class="section-desc">
                     KPI Detailed Reading — TAT distribution per modality × patient class × radiologist, matching the
                     hospital's own KPI spreadsheet format. Counts, not averages: each cell is how many studies fell
-                    in that turnaround-time bucket. Blank = zero.
+                    in that turnaround-time bucket. Blank = zero. Every modality present in this date range is
+                    available below, not just CT.
                 </p>
 
                 {% if kpi_data %}
-                    {% for block_key, block in kpi_data.items() %}
-                    <div class="glass-card overflow-x-auto">
-                        <p class="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-3">{{ block_key }}</p>
-                        <table class="w-full text-[10px] border-collapse whitespace-nowrap">
-                            <thead>
-                                <tr class="text-zinc-500 uppercase text-[9px]">
-                                    <th class="text-left py-1 pr-3 font-black">Stage</th>
-                                    <th class="text-left py-1 pr-3 font-black">Radiologist</th>
-                                    {% for label in block.bucket_labels %}
-                                    <th class="text-right py-1 px-2 font-black">{{ label }}</th>
-                                    {% endfor %}
-                                    <th class="text-right py-1 pl-3 font-black text-white">Total</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                            {% for stage_name, stage in block.stages.items() %}
-                                {% for rad in stage.radiologists %}
-                                <tr class="border-t border-white/5">
-                                    {% if loop.first %}
-                                    <td class="py-1 pr-3 font-bold text-blue-300 align-top" rowspan="{{ stage.radiologists|length }}">{{ stage_name }}</td>
-                                    {% endif %}
-                                    <td class="py-1 pr-3 text-zinc-300">{{ rad.name }}</td>
-                                    {% for label in block.bucket_labels %}
-                                    <td class="py-1 px-2 text-right font-mono text-zinc-400">{{ rad.counts[label] if rad.counts[label] else '' }}</td>
-                                    {% endfor %}
-                                    <td class="py-1 pl-3 text-right font-black text-white">{{ rad.total }}</td>
-                                </tr>
-                                {% endfor %}
-                            {% endfor %}
-                            </tbody>
-                        </table>
+                <div class="glass-card">
+                    <div class="flex items-center gap-3 mb-4 flex-wrap">
+                        <label class="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Modality</label>
+                        <select id="kpi-modality-select" class="bg-zinc-900 border border-white/10 rounded-lg text-xs font-bold text-white px-3 py-1.5"></select>
+                        <label class="text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-2">Patient Class</label>
+                        <div id="kpi-class-tabs" class="flex gap-1"></div>
                     </div>
-                    {% endfor %}
+                    <div id="kpi-table-container" class="overflow-x-auto"></div>
+                </div>
+                <script>
+                (function(){
+                    const KPI_DATA = {{ kpi_data | tojson }};
+                    const CLASS_LABELS = {IN: 'Inpatient', Urg: 'Urgent / ER', Out: 'Outpatient'};
+
+                    const modalities = [...new Set(KPI_DATA.map(b => b.modality))].sort();
+                    const modSelect = document.getElementById('kpi-modality-select');
+                    modSelect.innerHTML = modalities.map(m => `<option value="${m}">${m}</option>`).join('');
+
+                    let currentModality = modalities[0];
+                    let currentClass = null;
+
+                    function blocksFor(modality) {
+                        return KPI_DATA.filter(b => b.modality === modality);
+                    }
+
+                    function renderClassTabs() {
+                        const blocks = blocksFor(currentModality);
+                        const classes = blocks.map(b => b.class_bucket);
+                        if (!classes.includes(currentClass)) currentClass = classes[0];
+                        const tabs = document.getElementById('kpi-class-tabs');
+                        tabs.innerHTML = classes.map(c => `
+                            <button class="kpi-class-btn px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wide transition-colors
+                                ${c === currentClass ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40' : 'bg-zinc-800/60 text-zinc-500 border border-white/5 hover:text-zinc-300'}"
+                                data-class="${c}">${CLASS_LABELS[c] || c}</button>
+                        `).join('');
+                        tabs.querySelectorAll('.kpi-class-btn').forEach(btn => {
+                            btn.addEventListener('click', () => {
+                                currentClass = btn.dataset.class;
+                                renderClassTabs();
+                                renderTable();
+                            });
+                        });
+                    }
+
+                    function renderTable() {
+                        const block = blocksFor(currentModality).find(b => b.class_bucket === currentClass);
+                        const container = document.getElementById('kpi-table-container');
+                        if (!block) {
+                            container.innerHTML = '<p class="text-xs text-zinc-600 italic py-8 text-center">No data for this modality / patient class in the selected range.</p>';
+                            return;
+                        }
+                        const stageRows = Object.entries(block.stages).map(([stageName, stage]) => {
+                            return stage.radiologists.map((rad, i) => `
+                                <tr class="border-t border-white/5">
+                                    ${i === 0 ? `<td class="py-1 pr-3 font-bold text-blue-300 align-top" rowspan="${stage.radiologists.length}">${stageName}</td>` : ''}
+                                    <td class="py-1 pr-3 text-zinc-300">${rad.name}</td>
+                                    ${block.bucket_labels.map(label => `<td class="py-1 px-2 text-right font-mono text-zinc-400">${rad.counts[label] || ''}</td>`).join('')}
+                                    <td class="py-1 pl-3 text-right font-black text-white">${rad.total}</td>
+                                </tr>
+                            `).join('');
+                        }).join('');
+                        container.innerHTML = `
+                            <table class="w-full text-[10px] border-collapse whitespace-nowrap">
+                                <thead>
+                                    <tr class="text-zinc-500 uppercase text-[9px]">
+                                        <th class="text-left py-1 pr-3 font-black">Stage</th>
+                                        <th class="text-left py-1 pr-3 font-black">Radiologist</th>
+                                        ${block.bucket_labels.map(label => `<th class="text-right py-1 px-2 font-black">${label}</th>`).join('')}
+                                        <th class="text-right py-1 pl-3 font-black text-white">Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody>${stageRows}</tbody>
+                            </table>
+                        `;
+                    }
+
+                    modSelect.addEventListener('change', () => {
+                        currentModality = modSelect.value;
+                        currentClass = null;
+                        renderClassTabs();
+                        renderTable();
+                    });
+
+                    renderClassTabs();
+                    renderTable();
+                })();
+                </script>
                 {% elif run_report %}
                 <div class="glass-card text-center py-12 text-zinc-600">
                     <i class="bi bi-clock-history text-4xl mb-3 block opacity-40"></i>
-                    <p class="italic">No KPI Detailed Reading data for this range (CT only, RH only, TAVI/Coro CT excluded).</p>
+                    <p class="italic">No KPI Detailed Reading data for this range (RH only, TAVI/Coro CT excluded).</p>
                 </div>
                 {% endif %}
 
