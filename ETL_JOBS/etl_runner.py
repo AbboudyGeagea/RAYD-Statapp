@@ -23,6 +23,10 @@ Execution phases (in order):
   Phase 12 — RIS Patients (LAUMC: RIS PATIENT/PERSON/PATIENT_ID_LIST -> std_patients_ris
              / std_patient_ids, no patient names, plus an age_at_study enrichment pass
              on etl_didb_studies; skipped unless a RIS db_params source is configured)
+  Phase 13 — RIS Resources (LAUMC: RIS RESOURCE_ID + PERSON -> std_resources_ris —
+             staff/physician identity WITH names, plus a reading/signing-physician
+             enrichment pass on etl_didb_studies; skipped unless a RIS db_params source
+             is configured)
 
 Triggered by APScheduler in app.py or manually via `python app.py -m`.
 """
@@ -55,6 +59,7 @@ from etl_ris_procedures    import run_ris_procedures_etl
 from etl_ris_ordering_org  import run_ris_ordering_org_etl
 from etl_ris_visits        import run_ris_visits_etl
 from etl_ris_patients      import run_ris_patients_etl
+from etl_ris_resources     import run_ris_resources_etl
 
 logger = logging.getLogger("ETL_WORKER")
 
@@ -98,6 +103,7 @@ _PHASE_LABELS = {
     '10': ('RIS Catalog',        'Oracle RIS: MODALITY + SPS_CODE + ORDERING_ORGANIZATION -> aetitle_modality_map / procedure_duration_map / std_ordering_organizations — light (LAUMC)'),
     '11': ('RIS Visits',         'Oracle RIS: VISIT -> std_visits — moderate (LAUMC)'),
     '12': ('RIS Patients',       'Oracle RIS: PATIENT/PERSON/PATIENT_ID_LIST -> std_patients_ris / std_patient_ids + age_at_study enrichment — moderate (LAUMC)'),
+    '13': ('RIS Resources',      'Oracle RIS: RESOURCE_ID + PERSON -> std_resources_ris + reading/signing physician enrichment — moderate (LAUMC)'),
 }
 
 
@@ -394,6 +400,25 @@ def _perform_migration(engine):
                 logger.info("📋 Phase 12: RIS Patients → std_patients_ris / std_patient_ids")
                 run_ris_patients_etl(engine, ris_src)
                 logger.info("✅ Phase 12 done")
+
+        # ── PHASE 13: RIS Resources → std_resources_ris ─────────────────────
+        # Staff/physician identity WITH names (unlike Patients — see module docstring).
+        # Also resolves reading/signing_physician_id on etl_didb_studies to a real
+        # resource_id_key as its final step — idempotent, order-independent.
+        if _confirm_phase(13):
+            with engine.connect() as _c:
+                _ris_ok = _c.execute(
+                    text("SELECT 1 FROM db_params WHERE name = :n"), {"n": ris_src}
+                ).fetchone()
+            if not _ris_ok:
+                logger.info(
+                    f"⏭  Phase 13 skipped — no RIS source configured. Add a db_params entry "
+                    f"named '{ris_src}' (or set RAYD_RIS_SOURCE) pointing at the RIS Oracle."
+                )
+            else:
+                logger.info("📋 Phase 13: RIS Resources → std_resources_ris")
+                run_ris_resources_etl(engine, ris_src)
+                logger.info("✅ Phase 13 done")
 
         # ── Mark overall sync SUCCESS ─────────────────────────────────────
         with engine.begin() as conn:
