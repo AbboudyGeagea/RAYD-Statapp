@@ -136,6 +136,30 @@ if that's actually what's wanted — flag it back if so.
   completed cleanly end-to-end this time (see the incident history in this doc's "Live-incident
   recovery" table below for why the first attempt needed a full `rayd_db` restart).
 
+### ORU physician + patient_id fixes (2026-07-27) — from a real ORU sample
+
+Operator pasted a real ORU^R01 sample and asked to confirm reading physician and
+referring physician map correctly for CRN. Traced everything programmatically
+(field positions counted by a script, not by eye).
+
+| Item | Finding | Fix |
+|---|---|---|
+| **Reading physician** | `hl7_listener.py`'s `parse_oru_r01()` read OBR-32 ("Principal Result Interpreter", the standard HL7 2.3 field) — empty (`&&^^`) on this Carestream integration, producing garbage (`&&`) as `physician_id` on every report. Carestream extends OBR well past the ~47 base-spec fields with vendor-specific trailing fields carrying an `email&First&Last^^timestamp` stamp per person involved (e.g. a resident who signs prelim, then the attending who signs final — operator confirmed both are legitimate, not "one real one stale"). | `_extract_signing_physician()` (new) scans all of OBR for that stamp shape and picks whichever one's timestamp matches the report's own sign time (OBR-22) — the actual signer of *this* report. Content-based, not a fixed index, since the trailing-field count isn't confirmed stable across every message. Verified against the real sample: correctly picks the attending (timestamp match), rejects the resident (different timestamp). |
+| **Referring physician for CRN** | Unaffected — confirmed by this sample. CRN resolves referring physician from `hl7_orders.referring_physician_code` (the ORM's PV1-8), never from ORU. Good thing: this ORU's own referring field (OBR-16) was `^^REFERRING^GENERIC` — a placeholder. Operator: real referring-physician data will populate over time as staff start recording external referring physicians properly — not a RAYD bug. | No change needed. |
+| **`patient_id` showing `PIX_xxxxx`** | NOT the live HL7 listener (operator confirmed PID-3 parsing is fine there). It's `ETL_JOBS/etl_ris_reports.py`'s RIS-report enrichment, which filled `patient_id` from `etl_patient_view.id` — a PACS-internal column — for every `report_source='ris'` row (~475k of them). | Correct source is `std_patient_ids` (migration 0060) — operator pulled real data showing `is_primary` reliably marks exactly one authoritative row per patient regardless of the ID's shape. `_ENRICH_SQL` fixed to join through `etl_orders.patient_dbid` (RIS `patient_person_key`) → `std_patient_ids` filtered on `is_primary='Y'`. `migrations/0081`: batched backfill (5,000 rows/commit, walked by **id range** — an UPDATE can't use 0073's "repeat while rows affected" pattern since `report_source='ris'` stays true whether or not the row got fixed) for the ~475k already-loaded rows. Verified against 7 cases on a real Postgres container (fix, fill, no-matching-order, no-primary-ID, non-numeric garbage, never-touch-non-RIS, already-correct no-op) plus a full re-run confirming the real file's multi-batch loop terminates correctly. |
+| **`procedure_code`** | Came back as the full free-text description (`"CT SCAN, ABDOMEN, WITH INJECTION"`), not a real code — OBR-4 has no `^`-separated components in this message. | Operator: fine as-is for now, revisit only if it becomes a real problem — they have the data to map it correctly if/when needed. |
+
+**Deploy note**: `migrations/0081` touches ~475k rows. Even batched, this is real DB
+load — operator explicitly asked not to run multiple heavy tasks at once (an ETL
+run was in progress when this was built). Deploy when the ETL is clear, not
+concurrently with it.
+
+**Still open, no code change**: the "critical findings always expanded" UI report —
+operator hasn't been able to test it yet (ETL in progress); the toggle code itself
+(`buildCritical()` in `templates/oru_analytics.html`) looks correct on inspection
+(detail rows already `display:none` by default) — needs a live look or screenshot
+once there's room to test.
+
 ### Two open asks — need real numbers from the operator, not started yet
 
 - **Storage calculation (#5)**: `ETL_JOBS/etl_analytics_refresh.py:73` divides
