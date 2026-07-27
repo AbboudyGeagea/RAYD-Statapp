@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | Referring Contacts</title>
+    <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
+    <style>
+        body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; }
+        .glass-card { background: #232b28; border-radius: 1.25rem; border: 1px solid #28332e; }
+        input[type=text], input[type=email], input[type=tel], select, textarea {
+            background: #181f1c; border: 1px solid rgba(255,255,255,0.1); border-radius: 0.5rem;
+            color: #e2e8f0; font-size: 12px; padding: 6px 10px; width: 100%;
+        }
+        input:focus, select:focus, textarea:focus { outline: none; border-color: #60a5fa; }
+        .chan-badge { font-size: 9px; font-weight: 900; padding: 2px 8px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.06em; }
+        .chan-email { background: rgba(96,165,250,0.15); color: #60a5fa; }
+        .chan-sms { background: rgba(251,191,36,0.15); color: #fbbf24; }
+        .chan-whatsapp { background: rgba(74,222,128,0.15); color: #4ade80; }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+    {% include '_header.html' %}
+    <div class="flex flex-1 overflow-hidden">
+        {% include '_sidebar.html' %}
+
+        <main class="flex-1 overflow-y-auto p-6">
+            <div class="max-w-6xl mx-auto">
+                <div class="flex items-center justify-between mb-4">
+                    <div>
+                        <h1 class="text-lg font-black text-white uppercase tracking-widest">Referring Contacts</h1>
+                        <p class="text-xs text-zinc-500 mt-1">Contact info + preferred notification channel per referring physician. Feeds Critical Result Notification (CRN) — each physician is reached only on the channel they chose.</p>
+                    </div>
+                    <button id="add-btn" class="bg-blue-500 hover:bg-blue-400 text-white text-xs font-black uppercase px-4 py-2 rounded-lg">
+                        <i class="bi bi-plus-lg"></i> Add contact
+                    </button>
+                </div>
+
+                <div class="glass-card p-4 mb-4">
+                    <table class="w-full text-xs">
+                        <thead>
+                            <tr class="text-left text-[10px] font-black text-zinc-500 uppercase tracking-widest border-b border-white/10">
+                                <th class="pb-2">Physician</th>
+                                <th class="pb-2">Preferred channel</th>
+                                <th class="pb-2">Email</th>
+                                <th class="pb-2">Phone</th>
+                                <th class="pb-2">WhatsApp</th>
+                                <th class="pb-2">Status</th>
+                                <th class="pb-2">Updated</th>
+                                <th class="pb-2"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="rows-body"></tbody>
+                    </table>
+                    <p id="empty-msg" class="text-zinc-600 italic text-center py-6 hidden">No referring contacts yet — add one to get started.</p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Add/edit modal -->
+    <div id="modal" class="fixed inset-0 bg-black/60 hidden items-center justify-center z-50">
+        <div class="glass-card p-5 w-full max-w-md">
+            <h2 id="modal-title" class="text-sm font-black text-white uppercase tracking-widest mb-4">Add referring contact</h2>
+            <input type="hidden" id="f-id">
+            <div class="space-y-3">
+                <div>
+                    <label class="text-[10px] font-black text-zinc-500 uppercase block mb-1">Physician name</label>
+                    <input type="text" id="f-name" list="known-names">
+                    <datalist id="known-names"></datalist>
+                </div>
+                <div>
+                    <label class="text-[10px] font-black text-zinc-500 uppercase block mb-1">Preferred channel</label>
+                    <select id="f-channel">
+                        <option value="email">Email</option>
+                        <option value="sms">SMS</option>
+                        <option value="whatsapp">WhatsApp</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-[10px] font-black text-zinc-500 uppercase block mb-1">Email</label>
+                    <input type="email" id="f-email">
+                </div>
+                <div>
+                    <label class="text-[10px] font-black text-zinc-500 uppercase block mb-1">Phone</label>
+                    <input type="tel" id="f-phone" placeholder="+961...">
+                </div>
+                <div>
+                    <label class="text-[10px] font-black text-zinc-500 uppercase block mb-1">WhatsApp number</label>
+                    <input type="tel" id="f-whatsapp" placeholder="+961...">
+                </div>
+                <div>
+                    <label class="text-[10px] font-black text-zinc-500 uppercase block mb-1">Notes</label>
+                    <textarea id="f-notes" rows="2"></textarea>
+                </div>
+                <p id="form-error" class="text-red-400 text-[11px] hidden"></p>
+            </div>
+            <div class="flex justify-end gap-2 mt-5">
+                <button id="cancel-btn" class="text-xs font-bold text-zinc-400 px-4 py-2">Cancel</button>
+                <button id="save-btn" class="bg-blue-500 hover:bg-blue-400 text-white text-xs font-black uppercase px-4 py-2 rounded-lg">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    (function(){
+        const rowsBody   = document.getElementById('rows-body');
+        const emptyMsg   = document.getElementById('empty-msg');
+        const modal      = document.getElementById('modal');
+        const modalTitle = document.getElementById('modal-title');
+        const formError  = document.getElementById('form-error');
+        const knownNames = document.getElementById('known-names');
+
+        const fId = document.getElementById('f-id');
+        const fName = document.getElementById('f-name');
+        const fChannel = document.getElementById('f-channel');
+        const fEmail = document.getElementById('f-email');
+        const fPhone = document.getElementById('f-phone');
+        const fWhatsapp = document.getElementById('f-whatsapp');
+        const fNotes = document.getElementById('f-notes');
+
+        const CHAN_LABEL = { email: 'Email', sms: 'SMS', whatsapp: 'WhatsApp' };
+
+        function openModal(row) {
+            formError.classList.add('hidden');
+            if (row) {
+                modalTitle.textContent = 'Edit referring contact';
+                fId.value = row.id;
+                fName.value = row.physician_name;
+                fName.disabled = true;
+                fChannel.value = row.preferred_channel;
+                fEmail.value = row.email || '';
+                fPhone.value = row.phone || '';
+                fWhatsapp.value = row.whatsapp_number || '';
+                fNotes.value = row.notes || '';
+            } else {
+                modalTitle.textContent = 'Add referring contact';
+                fId.value = '';
+                fName.value = '';
+                fName.disabled = false;
+                fChannel.value = 'email';
+                fEmail.value = '';
+                fPhone.value = '';
+                fWhatsapp.value = '';
+                fNotes.value = '';
+            }
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closeModal() {
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        document.getElementById('add-btn').addEventListener('click', () => openModal(null));
+        document.getElementById('cancel-btn').addEventListener('click', closeModal);
+
+        document.getElementById('save-btn').addEventListener('click', async () => {
+            const payload = {
+                id: fId.value || null,
+                physician_name: fName.value.trim(),
+                preferred_channel: fChannel.value,
+                email: fEmail.value.trim(),
+                phone: fPhone.value.trim(),
+                whatsapp_number: fWhatsapp.value.trim(),
+                notes: fNotes.value.trim(),
+            };
+            const res = await fetch('/admin/referring-contacts/api/save', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                formError.textContent = data.error || 'Save failed.';
+                formError.classList.remove('hidden');
+                return;
+            }
+            closeModal();
+            loadRows();
+        });
+
+        async function toggleActive(id) {
+            await fetch('/admin/referring-contacts/api/toggle-active', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({id}),
+            });
+            loadRows();
+        }
+
+        async function deleteRow(id, name) {
+            if (!confirm(`Remove contact for ${name}?`)) return;
+            await fetch('/admin/referring-contacts/api/delete', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({id}),
+            });
+            loadRows();
+        }
+
+        function esc(s) {
+            const d = document.createElement('div');
+            d.textContent = s == null ? '' : s;
+            return d.innerHTML;
+        }
+
+        async function loadRows() {
+            const res = await fetch('/admin/referring-contacts/api/list');
+            const rows = await res.json();
+            rowsBody.innerHTML = '';
+            emptyMsg.classList.toggle('hidden', rows.length > 0);
+            rows.forEach(r => {
+                const tr = document.createElement('tr');
+                tr.className = 'border-b border-white/5';
+                tr.innerHTML = `
+                    <td class="py-2 font-bold text-white">${esc(r.physician_name)}</td>
+                    <td class="py-2"><span class="chan-badge chan-${r.preferred_channel}">${CHAN_LABEL[r.preferred_channel]}</span></td>
+                    <td class="py-2 text-zinc-400">${esc(r.email) || '—'}</td>
+                    <td class="py-2 text-zinc-400">${esc(r.phone) || '—'}</td>
+                    <td class="py-2 text-zinc-400">${esc(r.whatsapp_number) || '—'}</td>
+                    <td class="py-2">
+                        <button data-toggle="${r.id}" class="chan-badge ${r.active ? 'chan-whatsapp' : ''}" style="${r.active ? '' : 'background:rgba(148,163,184,0.15);color:#94a3b8;'}">${r.active ? 'Active' : 'Inactive'}</button>
+                    </td>
+                    <td class="py-2 text-zinc-500">${esc(r.updated_at)}</td>
+                    <td class="py-2 text-right whitespace-nowrap">
+                        <button data-edit="${r.id}" class="text-blue-400 hover:text-blue-300 mr-2"><i class="bi bi-pencil-fill"></i></button>
+                        <button data-delete="${r.id}" data-name="${esc(r.physician_name)}" class="text-red-400 hover:text-red-300"><i class="bi bi-trash-fill"></i></button>
+                    </td>
+                `;
+                rowsBody.appendChild(tr);
+                tr.querySelector('[data-toggle]').addEventListener('click', () => toggleActive(r.id));
+                tr.querySelector('[data-edit]').addEventListener('click', () => openModal(r));
+                const delBtn = tr.querySelector('[data-delete]');
+                delBtn.addEventListener('click', () => deleteRow(r.id, r.physician_name));
+            });
+        }
+
+        async function loadKnownNames() {
+            const res = await fetch('/admin/referring-contacts/api/known-names');
+            const names = await res.json();
+            knownNames.innerHTML = names.map(n => `<option value="${esc(n)}"></option>`).join('');
+        }
+
+        loadRows();
+        loadKnownNames();
+    })();
+    </script>
+</body>
+</html>

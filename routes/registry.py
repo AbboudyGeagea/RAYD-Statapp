@@ -29,6 +29,7 @@ from routes.er_dashboard     import er_bp
 from routes.oru_analytics    import oru_bp
 from routes.db_manager       import db_manager_bp
 from routes.floor_plan_admin import floor_plan_bp
+from routes.referring_contacts_admin import referring_contacts_bp
 from routes.referring_intel  import referring_intel_bp
 from routes.financial_config    import financial_config_bp
 from routes.financial_dashboard import financial_dashboard_bp
@@ -48,6 +49,7 @@ DEFAULT_LICENSE = {
     "export":          True,
     "adapter_mapper":  True,   # DB Manager (admin config)
     "floor_plan":      True,   # Floor Plan device positions (admin config)
+    "referring_contacts": True,  # CRN contact + preferred-channel config (admin config)
     # ── Tier 2: Professional ─────────────────────────────────
     "hl7_orders":      True,
     "oru_analytics":   True,   # Report Intelligence
@@ -86,6 +88,7 @@ TIER_PRESETS = {
         "export":          True,
         "adapter_mapper":  True,
         "floor_plan":      True,
+        "referring_contacts": True,
         "hl7_orders":      False,
         "oru_analytics":   False,
         "custom_reports":  False,
@@ -111,6 +114,7 @@ TIER_PRESETS = {
         "export":          True,
         "adapter_mapper":  True,
         "floor_plan":      True,
+        "referring_contacts": True,
         "hl7_orders":      True,
         "oru_analytics":   True,
         "custom_reports":  True,
@@ -283,6 +287,7 @@ def register_blueprints(app):
         # ── Tier 1: Essential ────────────────────────────────
         'adapter_mapper':  (db_manager_bp,        {}, [('/admin/db-manager',            'DB Manager')]),
         'floor_plan':      (floor_plan_bp,         {}, [('/admin/floor-plan/',           'Floor Plan')]),
+        'referring_contacts': (referring_contacts_bp, {}, [('/admin/referring-contacts/', 'Referring Contacts')]),
         # ── Tier 2: Professional ─────────────────────────────
         'hl7_orders':      (hl7_orders_bp,       {}, [('/hl7/orders',                  'HL7 Orders')]),
         'oru_analytics':   (oru_bp,              {}, [('/oru',                         'Report Intelligence')]),

@@ -106,6 +106,10 @@
                class="sidebar-item {% if ep.startswith('floor_plan_admin.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
                 <i class="bi bi-map-fill flex-shrink-0" style="color:#22c55e;"></i> Floor Plan
             </a>
+            <a href="{{ url_for('referring_contacts_admin.referring_contacts_page') }}"
+               class="sidebar-item {% if ep.startswith('referring_contacts_admin.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
+                <i class="bi bi-person-lines-fill flex-shrink-0" style="color:#f472b6;"></i> Referring Contacts
+            </a>
             {% endif %}
             {% if current_user.role == 'admin' or current_user|user_has_page('mapping') %}
             <a href="{{ url_for('mapping.mapping_page') }}"
