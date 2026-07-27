@@ -62,7 +62,13 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
             'rep_final_signed_by', 'rep_final_timestamp',
             'rep_addendum_by', 'rep_addendum_timestamp', 'rep_has_addendum',
             'is_linked_study', 'patient_location',
-            'pacs_site_id_raw'   # raw PACS SITE_ID ('0'=RH, '1'=SJH) — resolved to sites.id by enrichment
+            'pacs_site_id_raw',  # raw PACS SITE_ID ('0'=RH, '1'=SJH) — resolved to sites.id by enrichment
+            # This PACS version is older / sparser than sites worked with earlier — rep_final_timestamp/
+            # rep_final_signed_by are unreliably populated here. REP_STUDY_LAST_COMPOSED_BY/_TS are the
+            # fields that actually carry data on this install (operator, 2026-07-27). Raw value for now
+            # (e.g. "abdallah.noufaily@ad") — resolving to a real name/role (radiologist vs resident) is
+            # deferred, operator: "i will find a way, for now let's proceed with this change."
+            'rep_study_last_composed_by', 'rep_study_last_composed_ts'
         ]
 
         ora_conn = OracleConnector.get_connection(oracle_source)
@@ -100,7 +106,8 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
                     CASE WHEN s.REP_HAS_ADDENDUM = 'Y' THEN 'true' ELSE 'false' END,
                     CASE WHEN s.IS_LINKED_STUDY = 'Y' THEN 'true' ELSE 'false' END,
                     SUBSTR(s.PATIENT_LOCATION, 1, 3),
-                    TO_CHAR(s.SITE_ID)
+                    TO_CHAR(s.SITE_ID),
+                    s.REP_STUDY_LAST_COMPOSED_BY, s.REP_STUDY_LAST_COMPOSED_TS
                 FROM medistore.didb_studies s
                 LEFT JOIN medistore.didb_patients_view p ON p.PATIENT_DB_UID = s.PATIENT_DB_UID
         """
@@ -128,7 +135,8 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
                     CASE WHEN s.REP_HAS_ADDENDUM = 'Y' THEN 'true' ELSE 'false' END,
                     CASE WHEN s.IS_LINKED_STUDY = 'Y' THEN 'true' ELSE 'false' END,
                     SUBSTR(s.PATIENT_LOCATION, 1, 3),
-                    TO_CHAR(s.SITE_ID)
+                    TO_CHAR(s.SITE_ID),
+                    s.REP_STUDY_LAST_COMPOSED_BY, s.REP_STUDY_LAST_COMPOSED_TS
                 FROM medistore.didb_studies s
         """
 
