@@ -64,13 +64,39 @@ _UPSERT_SQL = text("""
 # Enrich site_id / patient_id / modality from the matching PACS study by accession.
 # Fill-only (COALESCE) so a value already resolved by ORU enrichment is kept. SR studies
 # are excluded per the project-wide SR rule. Safe no-op when studies aren't loaded yet.
+#
+# patient_id source fixed 2026-07-27: previously etl_patient_view.id — a PACS-internal
+# column, confirmed by the operator to surface placeholder values (e.g. "PIX_xxxxx"),
+# not the real hospital MRN. The correct source is RIS's own std_patient_ids (migration
+# 0060, PATIENT_ID_LIST) — confirmed against real data that is_primary reliably marks
+# exactly one authoritative row per patient regardless of what that ID's value looks
+# like. Reached via etl_orders.patient_dbid (= RIS patient_person_key, by existing
+# design — see ETL_JOBS/etl_orders.py), matched on accession_number directly (etl_orders
+# already carries its own accession_number column, no need to go through
+# etl_didb_studies for this specific join). Existing wrong values already loaded are
+# corrected separately by migrations/0081 — this only changes the source for reports
+# enriched from here on.
 _ENRICH_SQL = text("""
     UPDATE hl7_oru_reports o
     SET site_id    = COALESCE(o.site_id,    s.site_id),
-        patient_id = COALESCE(o.patient_id, pv.id),
+        patient_id = COALESCE(o.patient_id, pid.patient_id),
         modality   = COALESCE(o.modality,   s.study_modality)
     FROM etl_didb_studies s
-    LEFT JOIN etl_patient_view pv ON pv.patient_db_uid = s.patient_db_uid
+    LEFT JOIN LATERAL (
+        SELECT eo.patient_dbid
+        FROM etl_orders eo
+        WHERE eo.accession_number = s.accession_number
+          AND eo.patient_dbid ~ '^[0-9]+$'
+        ORDER BY eo.last_update DESC NULLS LAST
+        LIMIT 1
+    ) eo ON true
+    LEFT JOIN LATERAL (
+        SELECT patient_id
+        FROM std_patient_ids
+        WHERE patient_person_key = eo.patient_dbid::bigint
+          AND UPPER(is_primary) = 'Y'
+        LIMIT 1
+    ) pid ON true
     WHERE o.accession_number = s.accession_number
       AND COALESCE(s.study_modality, '') != 'SR'
       AND o.report_source = 'ris'
