@@ -131,6 +131,12 @@ def _affirmed_phrases_batch(texts):
 # so stale rows in hl7_oru_analysis can be detected and re-processed.
 _NLP_MODEL_VERSION = 'medspacy-v1'
 
+# Bump whenever DIAGNOSES/CRITICAL/NEGATION_PREFIXES change, so stale
+# hl7_oru_rule_cache rows get recomputed instead of silently reused. Separate
+# from _NLP_MODEL_VERSION: this versions the RULE-BASED fallback below, not
+# the real medspaCy model the nlp-worker container runs.
+_RULE_VERSION = 'rule-v1'
+
 
 
 
@@ -417,7 +423,7 @@ def oru_data():
 
     # LEFT JOIN pre-computed analysis — analyzed rows skip NLP entirely
     rows = db.session.execute(text(f"""
-        SELECT r.procedure_code, r.procedure_name,
+        SELECT r.id AS report_id, r.procedure_code, r.procedure_name,
                COALESCE(NULLIF(TRIM(r.modality), ''), NULLIF(TRIM(ho.modality), ''), 'UNK') AS modality,
                r.physician_id, r.patient_id, r.accession_number,
                r.report_text, r.impression_text, r.result_datetime, r.received_at,
@@ -438,21 +444,67 @@ def oru_data():
     normal_count = sum(1 for r in rows if _is_normal(r.impression_text or r.report_text))
     abnormal_count = total - normal_count
 
-    # ── Build affirmed-label sets — stored for analyzed rows, live NLP for pending ──
+    # ── Build affirmed-label sets — stored analysis first, then a per-report cache
+    # of the rule-based fallback (hl7_oru_rule_cache), only falling all the way back
+    # to live computation for reports neither has yet.
+    #
+    # Why the extra cache layer: hl7_oru_analysis is written ONLY by nlp_worker.py
+    # (CLAUDE.md rule) — this route can never persist a fallback result there. Without
+    # a separate cache, every report the nlp-worker hasn't gotten to yet re-runs the
+    # full negation-aware phrase scan (~130 phrases x up to 8000 chars) on EVERY page
+    # load, for as long as the nlp-worker backlog persists. hl7_oru_rule_cache is a
+    # route-owned table, not hl7_oru_analysis, so it doesn't touch that rule — and the
+    # moment a report's real analysis lands, the first branch above already prefers
+    # it, so the cache can never go stale in a way that matters.
     analyzed_affirmed = {
         i: set(r.affirmed_labels)
         for i, r in enumerate(rows)
         if r.affirmed_labels is not None
     }
     pending_indices = [i for i, r in enumerate(rows) if r.affirmed_labels is None]
+
     if pending_indices:
         try:
-            pending_texts    = [_best_text(rows[i]) for i in pending_indices]
-            pending_affirmed = _affirmed_phrases_batch(pending_texts)
-            for i, affirmed in zip(pending_indices, pending_affirmed):
-                analyzed_affirmed[i] = affirmed
+            cached_rows = db.session.execute(text("""
+                SELECT report_id, affirmed_labels FROM hl7_oru_rule_cache
+                WHERE report_id = ANY(:ids) AND rule_version = :ver
+            """), {
+                "ids": [rows[i].report_id for i in pending_indices],
+                "ver": _RULE_VERSION,
+            }).fetchall()
+            cached_by_id = {r.report_id: set(r.affirmed_labels) for r in cached_rows}
         except Exception:
-            pass  # fall back to stored labels only; pending rows get empty affirmed set
+            cached_by_id = {}
+
+        for i in pending_indices:
+            if rows[i].report_id in cached_by_id:
+                analyzed_affirmed[i] = cached_by_id[rows[i].report_id]
+
+        to_compute = [i for i in pending_indices if rows[i].report_id not in cached_by_id]
+        computed = None
+        if to_compute:
+            try:
+                texts    = [_best_text(rows[i]) for i in to_compute]
+                computed = _affirmed_phrases_batch(texts)
+                for i, affirmed in zip(to_compute, computed):
+                    analyzed_affirmed[i] = affirmed
+            except Exception:
+                computed = None  # fall back to stored/cached labels only; rest get empty affirmed set
+
+        if computed:
+            try:
+                for i, affirmed in zip(to_compute, computed):
+                    db.session.execute(text("""
+                        INSERT INTO hl7_oru_rule_cache (report_id, affirmed_labels, rule_version, computed_at)
+                        VALUES (:rid, :labels, :ver, NOW())
+                        ON CONFLICT (report_id) DO UPDATE SET
+                            affirmed_labels = EXCLUDED.affirmed_labels,
+                            rule_version    = EXCLUDED.rule_version,
+                            computed_at     = NOW()
+                    """), {"rid": rows[i].report_id, "labels": list(affirmed), "ver": _RULE_VERSION})
+                db.session.commit()
+            except Exception:
+                db.session.rollback()  # best-effort cache write — this request's response is unaffected
 
     all_affirmed = [analyzed_affirmed.get(i, set()) for i in range(len(rows))]
 
