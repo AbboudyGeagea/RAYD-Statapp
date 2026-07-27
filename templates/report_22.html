@@ -24,7 +24,7 @@
         .card:hover { border-color: #60a5fa; }
         .card-header { padding: 14px 20px; border-bottom: 1px solid #28332e; font-size: 10px; font-weight: 900; color: #60a5fa; text-transform: uppercase; letter-spacing: 1px; }
         .card-desc { padding: 8px 20px; font-size: 10px; color: #475569; font-style: italic; border-bottom: 1px solid #181f1c; background: #1a2420; }
-        .tree-container { height: 600px; width: 100%; }
+        .tree-container { min-height: 600px; width: 100%; }
         .chart-container { height: 380px; width: 100%; padding: 20px; }
         .risk-badge { font-size: 9px; font-weight: 900; padding: 2px 8px; border-radius: 4px; text-transform: uppercase; }
         .sidebar-label { font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; display: block; }
@@ -573,12 +573,25 @@
         if (d) {
             const style = { color: '#64748b', fontSize: 10, fontWeight: 'bold' };
             
-            // 1. Tree Flow
-            echarts.init(document.getElementById('tree_chart')).setOption({
+            // 1. Tree Flow — height grows with the actual number of AE devices
+            // (was a fixed 600px, illegible once a site has a lot of devices —
+            // this many-siblings-per-modality tree needs vertical room to spread
+            // them out, not a fixed box). "layout: 'vertical'" was never a real
+            // ECharts tree property (valid values are 'orthogonal'/'radial') — it
+            // silently no-op'd and the tree has always rendered on ECharts'
+            // default orient ('LR'); made explicit here rather than left as a
+            // meaningless leftover.
+            const treeContainer = document.getElementById('tree_chart');
+            const deviceCount = (d.tree_data[0]?.children || [])
+                .reduce((sum, mod) => sum + (mod.children ? mod.children.length : 0), 0);
+            treeContainer.style.height = Math.max(deviceCount * 42 + 200, 600) + 'px';
+
+            echarts.init(treeContainer).setOption({
                 tooltip: { trigger: 'item' },
                 series: [{
                     type: 'tree', data: d.tree_data,
-                    top: '5%', bottom: '15%', layout: 'vertical',
+                    layout: 'orthogonal', orient: 'LR',
+                    top: '2%', bottom: '2%', left: '8%', right: '18%',
                     symbol: 'emptyCircle', symbolSize: 8, initialTreeDepth: 2,
                     label: { position: 'top', rotate: 0, align: 'center', fontSize: 12, color: '#60a5fa', fontWeight: 'bold' },
                     leaves: { label: { position: 'bottom', rotate: 0, align: 'center', fontSize: 10, color: '#e2e8f0' } },
