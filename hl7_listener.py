@@ -238,6 +238,53 @@ def _component(field_val, index, default=None):
     except IndexError:
         return default
 
+# Matches Carestream's vendor-specific "email&First&Last^^timestamp" physician-stamp
+# shape seen in OBR's trailing fields (e.g.
+# "DANY.ABOUCHEDID@SJH.LAUMCSJH.COM&Dany&Abou Chedid^^20260727140246") — see
+# _extract_signing_physician() below for why this is matched by content, not a fixed
+# OBR field index.
+_PHYSICIAN_STAMP_RE = re.compile(r'^([^&^]+@[^&^]+)&([^&^]*)&([^^]*)\^+(\d{8,14})')
+
+
+def _extract_signing_physician(obr_fields, result_dt_raw):
+    """
+    Scan every OBR field for a Carestream physician-stamp value and return the one
+    whose embedded timestamp matches the report's own result date/time (OBR-22) —
+    the person who signed THIS report, not whoever else touched the order earlier.
+
+    Why content-based instead of a fixed OBR index: tested against a real ORU sample
+    (2026-07-27) where OBR-32 (Principal Result Interpreter, the standard HL7 2.3
+    field for this) was empty ("&&^^") — Carestream extends OBR well past the base
+    spec's ~47 fields with its own trailing fields, and this integration puts several
+    named people in there (e.g. a technologist logged earlier in the day, then the
+    signing radiologist) at positions that aren't documented anywhere. The one
+    correctly reading as the signer here was OBR-57, but trusting that exact index
+    on the next message risks silently picking the wrong person if the field count
+    ever shifts — matching by "whose timestamp equals the sign time" is robust to
+    that in a way an index number isn't.
+
+    Falls back to the first stamp found if none match the timestamp exactly (still
+    better than the previous behavior, which read one specific empty field and
+    produced garbage like "&&").
+
+    Returns (email, display_name) or (None, None).
+    """
+    fallback = None
+    for field_val in obr_fields:
+        if not field_val:
+            continue
+        m = _PHYSICIAN_STAMP_RE.match(field_val)
+        if not m:
+            continue
+        email, first, last, ts = m.groups()
+        name = ' '.join(filter(None, [first.strip(), last.strip()])) or None
+        if result_dt_raw and ts[:14] == result_dt_raw[:14]:
+            return email, name
+        if fallback is None:
+            fallback = (email, name)
+    return fallback if fallback else (None, None)
+
+
 ORU_INSERT_SQL = """
     INSERT INTO hl7_oru_reports
         (procedure_code, procedure_name, modality, physician_id,
@@ -308,9 +355,11 @@ def parse_oru_r01(raw_message):
     acc_raw          = _field(obr, 3, '')
     accession_number = _component(acc_raw, 0) or None
 
-    # Physician: OBR-32 (principal result interpreter) — ID component only
-    phys_raw     = _field(obr, 32, '')
-    physician_id = _component(phys_raw, 0) or _component(phys_raw, 2)
+    # Physician: reading/signing radiologist — see _extract_signing_physician() for why
+    # this is a content-based scan rather than reading OBR-32 (the standard "Principal
+    # Result Interpreter" field), which a real sample showed is empty on this vendor.
+    result_dt_raw = _field(obr, 22, '') or _field(obr, 7, '')
+    physician_id, _physician_name = _extract_signing_physician(obr, result_dt_raw)
 
     # ── OBX: collect report text ──────────────────────────────────────────────
     report_parts     = []
