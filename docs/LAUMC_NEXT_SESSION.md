@@ -91,12 +91,37 @@ before any of this touched the live server.
   actual API/SMTP call added per branch, then `settings.crn_enabled` flipped to `'true'` —
   test on a non-critical dummy contact first before trusting it with a real physician.
 
-**Referring-physician matching is exactly as fragile as the rest of the app's referring-physician
-features today** — `referring_contacts.physician_name` and the detection query's match both key
-on `TRIM(CONCAT(referring_physician_first_name, ' ', referring_physician_last_name))`, free-text
-from PACS, same convention `routes/referring_intel.py` already uses. Operator is separately
-researching a real order↔referring-physician join (RIS-side) — when that lands, only the match
-logic in `crn_scan.scan_for_new_critical_results()` needs to change, not the schema.
+**Update, same day — the referring-physician join operator was researching, found.** Operator
+provided a real HL7 ORM sample: PV1-8 (Referring Doctor, XCN `ID^Last^First`) carries a numeric
+code (e.g. `20000191`) that resolves directly against `std_resources_ris.resource_id_key` →
+`primary_email_address`/`mobile_phone_number` — data Phase 13 already pulls, just never
+connected to anything. Wired end to end:
+
+| Item | Where |
+|---|---|
+| `hl7_listener.py`'s `parse_orm_o01()` now extracts PV1-8's code + name into two new `hl7_orders` columns | `migrations/0079`, `hl7_listener.py` |
+| `referring_contacts.resource_id_key` — new authoritative match key, nullable, alongside the existing free-text `physician_name` | `migrations/0079` |
+| `utils/referring_contacts_sync.py` (new) — auto-fills `referring_contacts` from `std_resources_ris`, but only for codes actually seen on a real order (not a bulk import — `std_resources_ris` holds every RIS resource, role isn't resolved yet, so there's no clean filter to "referring physicians only") | `utils/referring_contacts_sync.py`, wired into the CRN scheduler job in `app.py` |
+| `utils/crn_scan.py` detection — tries the resource-key match first, falls back to the old free-text name match | `utils/crn_scan.py` |
+| Ack landing page now shows patient name / exam name / detected critical keywords — fetched live at render time, **not** in the raw email/SMS/WhatsApp text (kept minimal per `LAUMC_SCOPE.md`'s "PHI out of message bodies" spec) | `routes/crn_ack.py`, `templates/crn_ack.html` |
+
+**Caught while verifying against the operator's real sample**: `_format_name()` (the existing
+XPN/name helper) folds the ID into the name for XCN's `ID^Last^First` shape — it was built for
+PID-5 (`Last^First^Mid`, no ID) and ORC-12 (`ID^^FullName`), neither of which matches PV1-8's
+layout. Built PV1-8's name directly from components 1/2 instead of reusing that helper.
+
+**Verified**: the resource-key path also *widens* coverage, not just reliability — tested a
+report with no `etl_didb_studies` row at all (RIS ahead of PACS, the same gap `migrations/0070`
+fixed for report_25) and it still resolved correctly, which the old name-match path can't reach
+since it depends on a PACS-side column. Full flow (parse → sync → detect → resolve → notify →
+ack → detail display) verified against a real `postgres:15` container before touching the live
+server.
+
+**Design choice flagged for operator confirmation**: patient name/exam/finding show on the
+acknowledgment landing page (behind the one-time token), not in the message body itself — my
+call, not yet confirmed by the operator, based on `LAUMC_SCOPE.md`'s existing spec and the fact
+SMS/personal email aren't secure clinical channels. Easy to move into the message body instead
+if that's actually what's wanted — flag it back if so.
 
 ### Report 22 tree-chart fix + migration 0073 incident (2026-07-27)
 
@@ -418,12 +443,13 @@ operator confirmation.**
    directly next session (not a spec I can start from written notes alone). Relates to
    `procedure_duration_map`/Phase 10's `SPS_CODE` import — wait for the guided session.
 10. **Build CRN from ORU** — 🚧 **In progress, 2026-07-27.** Detection/escalation/tokenized-ack
-    scaffold built and verified end-to-end against a real Postgres test container, but running
-    dry-run only (`settings.crn_enabled = 'false'`) — no live send yet. See "CRN scaffold +
-    referring_contacts" above for the full breakdown. Still needed before a real message can
-    go out: provider selection for all 3 channels (`docs/LAUMC_CRN_FIREWALL_REQUEST.md`),
-    message content sign-off, and the actual provider API/SMTP calls wired into
-    `utils/crn_dispatcher._send_on_channel()`.
+    scaffold built, plus a real referring-physician resolution path (HL7 PV1-8 code →
+    `std_resources_ris` → real email/phone, see the two "CRN..." sections above) — all
+    verified end-to-end against real Postgres/HL7 samples, but running dry-run only
+    (`settings.crn_enabled = 'false'`) — no live send yet. Still needed before a real message
+    can go out: provider selection for all 3 channels (`docs/LAUMC_CRN_FIREWALL_REQUEST.md`),
+    confirmation on the patient/exam/finding-on-landing-page-not-in-message design choice,
+    and the actual provider API/SMTP calls wired into `utils/crn_dispatcher._send_on_channel()`.
 
 ---
 
