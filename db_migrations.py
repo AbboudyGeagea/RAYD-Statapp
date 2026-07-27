@@ -19,59 +19,93 @@ logger = logging.getLogger("migrations")
 
 MIGRATIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "migrations")
 
+# Arbitrary, fixed lock ID for pg_advisory_lock — must never change once an install
+# has used it (a changed value just means old/new processes stop coordinating with
+# each other, not a correctness bug, but there's no reason to ever change it).
+_MIGRATION_LOCK_ID = 872951064
+
 
 def run_migrations(app):
     from db import db
 
     with app.app_context():
-        # Ensure tracking table exists
-        db.session.execute(text("""
-            CREATE TABLE IF NOT EXISTS schema_migrations (
-                name        VARCHAR(255) PRIMARY KEY,
-                applied_at  TIMESTAMP DEFAULT NOW()
-            )
-        """))
-        db.session.commit()
-
-        # Get already-applied migrations
-        applied = {
-            row[0]
-            for row in db.session.execute(text("SELECT name FROM schema_migrations")).fetchall()
-        }
-
-        # Find and sort pending migration files
+        # Serialize migration runs across concurrent invocations — without this, two
+        # processes (e.g. a startup auto-trigger racing a manual `-m` run, or two
+        # manual runs overlapping) can both see the same migration as "pending" and
+        # both start applying it at once. Confirmed live on LAUMC, 2026-07-27: two
+        # concurrent DELETE attempts and two concurrent ALTER TABLE attempts at the
+        # same two migrations, piling up behind each other and each other's locks for
+        # 25+ minutes, taking the whole app down with them.
+        #
+        # Session-scoped (tied to this one connection, held open for the duration of
+        # this function) rather than a row-level "lock flag" in a table — if this
+        # process dies mid-migration, Postgres releases the lock automatically when
+        # the connection drops, instead of leaving a stuck flag that needs manual
+        # cleanup before anything can run migrations again.
+        #
+        # Blocking, not pg_try_advisory_lock: a second concurrent caller should WAIT
+        # for the first to finish, not skip — once it acquires the lock, it re-checks
+        # schema_migrations and finds nothing pending (the first caller already did
+        # it), so it's a fast no-op rather than a race.
+        lock_conn = db.engine.connect()
+        lock_conn.execute(text("SELECT pg_advisory_lock(:id)"), {"id": _MIGRATION_LOCK_ID})
+        logger.info("[migrations] Acquired migration lock.")
         try:
-            files = sorted(f for f in os.listdir(MIGRATIONS_DIR) if f.endswith(".sql"))
-        except FileNotFoundError:
-            logger.warning(f"[migrations] Directory not found: {MIGRATIONS_DIR}")
-            return
+            _run_pending_migrations(db)
+        finally:
+            lock_conn.execute(text("SELECT pg_advisory_unlock(:id)"), {"id": _MIGRATION_LOCK_ID})
+            lock_conn.close()
 
-        pending = [f for f in files if f not in applied]
 
-        if not pending:
-            logger.info("[migrations] All migrations already applied.")
-            return
+def _run_pending_migrations(db):
+    # Ensure tracking table exists
+    db.session.execute(text("""
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+            name        VARCHAR(255) PRIMARY KEY,
+            applied_at  TIMESTAMP DEFAULT NOW()
+        )
+    """))
+    db.session.commit()
 
-        for filename in pending:
-            path = os.path.join(MIGRATIONS_DIR, filename)
-            try:
-                with open(path) as f:
-                    raw = f.read()
+    # Get already-applied migrations
+    applied = {
+        row[0]
+        for row in db.session.execute(text("SELECT name FROM schema_migrations")).fetchall()
+    }
 
-                statements = _split_sql(raw)
-                _run_statements(db, statements)
+    # Find and sort pending migration files
+    try:
+        files = sorted(f for f in os.listdir(MIGRATIONS_DIR) if f.endswith(".sql"))
+    except FileNotFoundError:
+        logger.warning(f"[migrations] Directory not found: {MIGRATIONS_DIR}")
+        return
 
-                with db.engine.connect() as conn:
-                    conn.execute(
-                        text("INSERT INTO schema_migrations (name) VALUES (:name)"),
-                        {"name": filename}
-                    )
-                    conn.commit()
+    pending = [f for f in files if f not in applied]
 
-                logger.info(f"[migrations] Applied: {filename}")
+    if not pending:
+        logger.info("[migrations] All migrations already applied.")
+        return
 
-            except Exception as e:
-                logger.error(f"[migrations] FAILED: {filename} — {e}")
+    for filename in pending:
+        path = os.path.join(MIGRATIONS_DIR, filename)
+        try:
+            with open(path) as f:
+                raw = f.read()
+
+            statements = _split_sql(raw)
+            _run_statements(db, statements)
+
+            with db.engine.connect() as conn:
+                conn.execute(
+                    text("INSERT INTO schema_migrations (name) VALUES (:name)"),
+                    {"name": filename}
+                )
+                conn.commit()
+
+            logger.info(f"[migrations] Applied: {filename}")
+
+        except Exception as e:
+            logger.error(f"[migrations] FAILED: {filename} — {e}")
 
 
 def _run_statements(db, statements):
