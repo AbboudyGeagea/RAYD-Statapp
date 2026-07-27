@@ -161,7 +161,33 @@ NOT applied to "Reporting Physician Activity (ID only)" or `/oru/section-gaps`' 
 physician breakdown — both read as intentionally anonymized (explicit "(ID only)"
 label / "anonymised" code comment), not an oversight; revisit only if operator asks.
 
-**Still open, no code change**: the "critical findings always expanded" UI report —
+**Follow-up, 2026-07-27**: date filter fixed. Root cause: `etl_ris_reports.py`'s RIS
+upsert sets `received_at = datetime.now()` (the ETL RUN's time) and unconditionally
+reassigns it on every re-sync's `ON CONFLICT`, so for `report_source='ris'` rows
+`received_at` means "last touched by ETL", not "when the report happened" — a report
+from months ago that the nightly sync re-touches silently vanishes from any date range
+that isn't "today". All 4 endpoints driven by the page's date picker (`/oru/data`,
+`/oru/section-gaps`, `/oru/sections`, `/oru/nlp/results`) now filter on
+`COALESCE(result_datetime, received_at)` instead — `result_datetime` is the real report
+date and is never touched by re-syncs. Verified against a real Postgres container
+(before/after: old query misses a real May report, fixed query finds it).
+`/oru/nlp/process` (separate admin action, own `days` param) has the same underlying
+issue but wasn't touched — out of scope for what was reported.
+
+**Open, needs operator input before implementing**: operator flagged that ORU results
+are being stored regardless of report status — only APPROVED/FINAL should count, not
+PRELIMINARY. Traced the status field in the real ORU sample: `FAP` sits at **both**
+OBR-25 and OBX-11 — the standard HL7 2.3 positions for "Result Status" — so the field
+itself is confidently identified, but `FAP` isn't a standard single-character status
+code (F/P/C/etc.), and there's no second sample showing what a preliminary message's
+status value looks like to diff against. Need either: what `FAP` (and any other status
+values this vendor uses) actually means, or a raw sample of a message that IS
+preliminary, to find the discriminating value empirically the same way PV1-8 and the
+physician stamp were resolved. Not implementing a filter until confirmed — guessing
+wrong here risks either silently dropping real approved reports or continuing to let
+prelim ones through, and it's not obvious from this one sample which.
+
+**Follow-up, 2026-07-27**: the "critical findings always expanded" UI report —
 operator hasn't been able to test it yet (ETL in progress); the toggle code itself
 (`buildCritical()` in `templates/oru_analytics.html`) looks correct on inspection
 (detail rows already `display:none` by default) — needs a live look or screenshot
