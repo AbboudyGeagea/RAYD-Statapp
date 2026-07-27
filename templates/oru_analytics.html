@@ -908,7 +908,7 @@ function buildCritical(log) {
     const mainRow = `
     <tr style="cursor:${hasText ? 'pointer' : 'default'};" onclick="${hasText ? `toggleCritDetail('${detailId}')` : ''}">
       <td style="white-space:nowrap;font-size:11px;color:#64748b;">${esc(r.date || r.received_at)}</td>
-      <td style="color:#a78bfa;font-size:11px;font-weight:700;">${esc(r.physician_id || '—')}</td>
+      <td style="color:#a78bfa;font-size:11px;font-weight:700;">${esc(r.physician_name || r.physician_id || '—')}</td>
       <td style="font-family:monospace;font-size:11px;color:#60a5fa;">${esc(r.patient_id || '—')}</td>
       <td><span class="proc-tag">${esc(r.procedure || r.procedure_code || '—')}</span></td>
       <td>${(r.keywords||[]).map(k => `<span class="keyword-badge">${esc(k)}</span>`).join('') || '<em style="color:#475569">—</em>'}</td>

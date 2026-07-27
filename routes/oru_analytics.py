@@ -425,11 +425,24 @@ def oru_data():
     rows = db.session.execute(text(f"""
         SELECT r.id AS report_id, r.procedure_code, r.procedure_name,
                COALESCE(NULLIF(TRIM(r.modality), ''), NULLIF(TRIM(ho.modality), ''), 'UNK') AS modality,
-               r.physician_id, r.patient_id, r.accession_number,
+               r.physician_id, COALESCE(phys.name, r.physician_id) AS physician_name,
+               r.patient_id, r.accession_number,
                r.report_text, r.impression_text, r.result_datetime, r.received_at,
                a.affirmed_labels
         FROM   hl7_oru_reports r
         LEFT JOIN hl7_oru_analysis a ON a.report_id = r.id
+        -- physician_id is an email (hl7_listener.py's _extract_signing_physician / RIS's
+        -- APPROVED_BY_RESOURCE_ID_KEY) -- resolve it to a display name via std_resources_ris
+        -- (Phase 13, same RESOURCE_ID/PERSON data CRN already uses for referring contacts).
+        -- Falls back to the raw ID for anyone not found there (e.g. an external physician).
+        LEFT JOIN LATERAL (
+            SELECT COALESCE(NULLIF(TRIM(rr.common_name), ''), TRIM(CONCAT(rr.first_name, ' ', rr.last_name))) AS name
+            FROM std_resources_ris rr
+            WHERE r.physician_id IS NOT NULL
+              AND (LOWER(rr.primary_email_address) = LOWER(r.physician_id)
+                   OR LOWER(rr.secondary_email_address) = LOWER(r.physician_id))
+            LIMIT 1
+        ) phys ON true
         LEFT JOIN LATERAL (
             SELECT modality FROM hl7_orders
             WHERE accession_number = r.accession_number
@@ -555,6 +568,7 @@ def oru_data():
                 'date':             r.result_datetime.strftime('%Y-%m-%d') if r.result_datetime else (
                                     r.received_at.strftime('%Y-%m-%d') if r.received_at else '—'),
                 'physician_id':     r.physician_id or '—',
+                'physician_name':   r.physician_name or '—',
                 'received_at':      r.received_at.strftime('%Y-%m-%d %H:%M') if r.received_at else '—',
                 'report_text':      (r.impression_text or r.report_text or '').strip(),
             })
