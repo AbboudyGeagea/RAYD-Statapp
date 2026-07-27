@@ -842,9 +842,18 @@ def create_app():
     )
 
     def crn_scan_and_escalate():
-        # Dormant unless settings.crn_enabled = 'true' (utils/crn_dispatcher._crn_live) —
-        # both calls internally no-op fast when it's off, so this is cheap to always run.
+        # Contact sync always runs (safe — reads RIS-sourced std_resources_ris, writes only
+        # to referring_contacts, no external communication). scan/escalate are dormant unless
+        # settings.crn_enabled = 'true' (utils/crn_dispatcher._crn_live) — both internally
+        # no-op fast when it's off, so this whole job is cheap to always run.
         with app.app_context():
+            try:
+                from utils.referring_contacts_sync import sync_referring_contacts_from_ris
+                synced = sync_referring_contacts_from_ris()
+                if synced:
+                    logger.info(f"[CRN] referring_contacts sync: {synced} contact(s) created/updated from RIS")
+            except Exception as e:
+                logger.error(f"🛑 [CRN] referring_contacts sync failed: {e}", exc_info=True)
             try:
                 from utils.crn_scan import scan_for_new_critical_results, escalate
                 created = scan_for_new_critical_results()

@@ -102,6 +102,7 @@ INSERT_SQL = """
         modality, scheduled_datetime,
         ordering_physician, order_status,
         patient_class, patient_location,
+        referring_physician_code, referring_physician_name,
         raw_message, received_at
     ) VALUES (
         :message_id, :message_datetime, :message_type,
@@ -111,6 +112,7 @@ INSERT_SQL = """
         :modality, :scheduled_datetime,
         :ordering_physician, :order_status,
         :patient_class, :patient_location,
+        :referring_physician_code, :referring_physician_name,
         :raw_message, :received_at
     )
     ON CONFLICT (message_id) DO UPDATE SET
@@ -129,6 +131,8 @@ INSERT_SQL = """
         order_status       = EXCLUDED.order_status,
         patient_class      = EXCLUDED.patient_class,
         patient_location   = EXCLUDED.patient_location,
+        referring_physician_code = EXCLUDED.referring_physician_code,
+        referring_physician_name = EXCLUDED.referring_physician_name,
         raw_message        = EXCLUDED.raw_message,
         received_at        = EXCLUDED.received_at
 """
@@ -415,12 +419,24 @@ def parse_orm_o01(raw_message):
     if not ordering_physician:
         ordering_physician = _format_name(_field(obr, 16, ''))
 
-    # ── PV1 — Patient class and location ────────────────────────────────────
+    # ── PV1 — Patient class, location, and referring doctor ─────────────────
     # PV1-2: patient class (I=Inpatient, O=Outpatient, E=Emergency, etc.)
     # PV1-3: assigned patient location — component 1 is the nurse unit (e.g. ER, ICU)
     # Fall back to PID-18 for patient_class if PV1 is absent (some HIS omit PV1)
     patient_class    = _field(pv1, 2) or _field(pid, 18) or None
     patient_location = (_component(_field(pv1, 3, ''), 0) or None)
+
+    # PV1-8: Referring Doctor (XCN: ID^Last^First^Mid...) — e.g. "20000191^WAKIM^GERARD VICTOR".
+    # The ID component resolves against std_resources_ris.resource_id_key (RIS RESOURCE_ID/
+    # PERSON, Phase 13) for a real email/phone — see migrations/0079 and utils/crn_scan.py.
+    # NOT run through _format_name(): that helper's Last^First heuristic assumes parts[0] is
+    # already the surname (true for PID-5's XPN), but XCN's parts[0] is the ID number here —
+    # tested against a real PV1-8 sample, _format_name() folded "20000191" into the name.
+    _pv1_8 = _field(pv1, 8, '')
+    referring_physician_code = _component(_pv1_8, 0)
+    referring_physician_name = ' '.join(filter(None, [
+        _component(_pv1_8, 2, ''), _component(_pv1_8, 1, ''),  # First (comp 2), Last (comp 1)
+    ])) or None
 
     return {
         "message_id":         message_id,
@@ -440,6 +456,8 @@ def parse_orm_o01(raw_message):
         "scheduled_datetime": scheduled_datetime,
         "ordering_physician": ordering_physician,
         "order_status":       order_status,
+        "referring_physician_code": referring_physician_code,
+        "referring_physician_name": referring_physician_name,
         "raw_message":        raw_message,
         "received_at":        datetime.now(),
     }

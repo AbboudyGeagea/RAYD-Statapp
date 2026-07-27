@@ -25,13 +25,36 @@
             </div>
             <h1 class="text-lg font-black text-white mb-2">Already Acknowledged</h1>
             <p class="text-slate-400 text-sm leading-relaxed">This result was already acknowledged. No further action is needed.</p>
-        {% elif result == 'expired' %}
+        {% endif %}
+
+        {% if detail and (result == 'ok' or result == 'already_acknowledged') %}
+            <div class="text-left mt-6 pt-5 border-t border-white/10 space-y-2">
+                {% if detail.patient_name %}
+                <p class="text-xs"><span class="text-slate-500 uppercase font-black tracking-widest">Patient</span><br>
+                    <span class="text-slate-200">{{ detail.patient_name }}</span></p>
+                {% endif %}
+                {% if detail.exam_name %}
+                <p class="text-xs"><span class="text-slate-500 uppercase font-black tracking-widest">Exam</span><br>
+                    <span class="text-slate-200">{{ detail.exam_name }}</span></p>
+                {% endif %}
+                {% if detail.accession_number %}
+                <p class="text-xs"><span class="text-slate-500 uppercase font-black tracking-widest">Accession</span><br>
+                    <span class="text-slate-200">{{ detail.accession_number }}</span></p>
+                {% endif %}
+                {% if detail.critical_keywords %}
+                <p class="text-xs"><span class="text-slate-500 uppercase font-black tracking-widest">Finding</span><br>
+                    <span class="text-red-400 font-bold">{{ detail.critical_keywords | join(', ') }}</span></p>
+                {% endif %}
+            </div>
+        {% endif %}
+
+        {% if result == 'expired' %}
             <div class="w-16 h-16 rounded-full bg-amber-900/30 border border-amber-500/30 flex items-center justify-center mx-auto mb-5">
                 <i class="bi bi-clock-history text-3xl text-amber-400"></i>
             </div>
             <h1 class="text-lg font-black text-white mb-2">Link Expired</h1>
             <p class="text-slate-400 text-sm leading-relaxed">This acknowledgment link has expired. Please contact the department directly.</p>
-        {% else %}
+        {% elif result != 'ok' and result != 'already_acknowledged' %}
             <div class="w-16 h-16 rounded-full bg-red-900/30 border border-red-500/30 flex items-center justify-center mx-auto mb-5">
                 <i class="bi bi-x-lg text-3xl text-red-400"></i>
             </div>
