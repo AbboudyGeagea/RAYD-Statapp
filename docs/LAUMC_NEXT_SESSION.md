@@ -3,7 +3,9 @@
 Pick up here. Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
 `LAUMC_OPEN_QUESTIONS.md` (vendor Qs), `LAUMC_DATA_REQUEST.md` (discovery record).
 
-Last major update: 2026-07-27 — full RIS pipeline build (Phases 6, 9–15) + infra hardening.
+Last major update: 2026-07-27 — CRN scaffold (detection/escalation/ack, dry-run only) +
+referring_contacts admin tool + report_22 tree chart fix + migration 0073 (batched
+LAUMC/SVSM delete) incident + full RIS pipeline build (Phases 6, 9–15) + infra hardening.
 Also 2026-07-26: live incident (accidental `docker compose down -v`, full data wipe) —
 recovery + 4 new bugs found/fixed + new site-filter rule started. See tables below.
 
@@ -53,6 +55,78 @@ recovery + 4 new bugs found/fixed + new site-filter rule started. See tables bel
 | **13** RIS Resources | `RESOURCE_ID⋈PERSON`→**`std_resources_ris`** (new) | **Names + contact INCLUDED** (staff, not patient PHI — KPI needs radiologist names, CRN needs referring-physician email/phone). Vendor-confirmed: `REPORT`/`ORDERS`/`SITE_WORKLIST`'s `*_RESOURCE_ID_KEY` columns reference `RESOURCE_ID.RESOURCE_ID_KEY`, not `PERSON_KEY`. Also resolves `reading_physician_resource_key`/`signing_physician_resource_key` on `etl_didb_studies` by matching the composite `email@domain_numericid` string already sitting in `reading_physician_id`/`signing_physician_id` — fixes data already loaded, not just future rows. `resource_role_key` still raw (no role lookup yet). `site_id` resolved via `site_org_map` (RESOURCE_ID carries a real org key, unlike VISIT). |
 | **14** RIS PPS | `PPS ⋈ SPS_CODE ⋈ MODALITY` → **`std_pps`** (new), plus **`std_status_ris`**, **`std_procedure_priorities`**, **`std_dictations`** (lookups), **`std_site_pps_ext`** (new) | The "treasure table". `std_status_ris` = full-fidelity RIS STATUS master (TYPE-aware: ORDER/SPS/PPS share one table; `CORE_STATUS` is the real alias→canonical pointer — more authoritative than `worklist_status_map`'s hand-curated seed, which is left untouched). **`TECHNURSE_NOTES`/`DEMONSTRATION_NOTES` never fetched** (free-text clinical notes, operator: "we're not going there yet"). Includes the empirical **`STUDY_INSTANCE_UID`↔PACS join test** (`study_db_uid` enrichment on `std_pps` — a real DICOM UID match, not inferred; run it and check the match rate). `std_site_pps_ext` = `SITE_PPS`'s structured fields (film reject/shielding/CD-burn/critical-result/consent/complications) — despite the name, NOT a site/org lookup (1:1 QA extension); 6 of 43 columns excluded (`HOLDER_NAME` + 5 free-text comment fields). |
 | **15** RIS Modality Availability | `MODALITY_AVAIL_EXCEPTION`→**`std_modality_exceptions`**, `SCHEDULE_TEMPLATE_ITEM`→**`std_schedule_template_items`**, `SCHEDULE_SCHEME`→**`std_schedule_schemes`**, `AVAILABILITY_INDICATOR`→**`std_availability_indicators`** (all new) | RIS-authoritative counterparts to the existing manually-editable `device_exceptions`/`device_weekly_schedule` — **not editable from RAYD** (operator instruction; no admin route built for any of the four). `std_modality_exceptions` resolved to `aetitle` via a live `MODALITY` join, ready to use. `std_availability_indicators` fully resolves what each indicator means (03=Available, 04=Unavailable, 07=Holiday, 11=Maintenance, 2100=Closed = "unavailable" for utilization; rest are booking-rule nuances). `std_schedule_template_items` still **not attributable to a device** — `std_schedule_schemes` resolved the scheme NAME but schemes turned out to be a generic category, not device-specific; the actual device↔scheme link is still unidentified (see blocked #5). Together with Phase 14's `std_pps` (actual usage) this is the utilization pair, one link short of complete. |
+
+### CRN scaffold + referring_contacts (2026-07-27) — dry-run only, not live
+
+Operator asked to move on punch-list #10 (CRN) plus #4/#5/#1/#9 together. #1 (data integrity
+RIS vs PACS) was explicitly deferred by the operator ("skip this point, it needs a lot of
+work") — not started, no scope decided. #4 (ORU slow load) and #5 (storage wrong) both need
+real numbers from the operator before a fix can be written or verified — see the two open asks
+below. #9 (procedure→modality mapping) needs a guided walkthrough with the operator, not
+started. CRN is the one that actually moved:
+
+| Item | Where |
+|---|---|
+| **`referring_contacts`** — per-physician email/phone/WhatsApp + preferred channel, admin tool at Administration → Referring Contacts | `migrations/0077`, `routes/referring_contacts_admin.py`, `templates/referring_contacts_admin.html` |
+| **CRN scaffold** — detection (`hl7_oru_analysis.is_critical` → match `referring_contacts` by name), escalation (30 min, tries the physician's OTHER channels, no fixed backstop — operator instruction), tokenized ack (one-time, 48h expiry — operator instruction), all wired into a 5-min scheduler job | `migrations/0078`, `utils/crn_dispatcher.py`, `utils/crn_scan.py`, `routes/crn_ack.py` + `templates/crn_ack.html`, `app.py`'s `crn_scan_and_escalate` job |
+| **Firewall/procurement request draft** for SMTP relay + SMS gateway + WhatsApp Business API, ready to send once providers are chosen | `docs/LAUMC_CRN_FIREWALL_REQUEST.md` |
+
+**Everything above is dormant on the live server right now** — `settings.crn_enabled = 'false'`
+by default (set in `migrations/0078`), and even if flipped on, `crn_dispatcher._send_on_channel()`
+has no real provider call wired in yet, so every attempt is a DRY RUN logged to
+`crn_notification_attempts` (`dry_run=true`, `success=NULL`, a text note), never an actual
+email/SMS/WhatsApp. Full scan → create → escalate → exhaust → acknowledge flow (including the
+`ON CONFLICT` dedup on repeat scan ticks, and all three acknowledge outcomes: fresh /
+already-acknowledged / invalid) verified end-to-end against a real `postgres:15` test container
+before any of this touched the live server.
+
+**Not yet decided, blocking a real send:**
+- Message content — operator hasn't signed off on real wording; `crn_scan._build_message()` is
+  a placeholder ("A radiology report requires your acknowledgment... {ack_url}").
+- Provider selection — SMTP relay (hospital Exchange/O365 vs external service), SMS gateway
+  (no contract confirmed yet), WhatsApp (Meta Cloud API direct vs a BSP) — see
+  `docs/LAUMC_CRN_FIREWALL_REQUEST.md` §1. WhatsApp is the long pole (Meta Business
+  verification + template approval, weeks not days) — worth kicking off in parallel now.
+- Once a provider is chosen for each channel, `crn_dispatcher._send_on_channel()` needs the
+  actual API/SMTP call added per branch, then `settings.crn_enabled` flipped to `'true'` —
+  test on a non-critical dummy contact first before trusting it with a real physician.
+
+**Referring-physician matching is exactly as fragile as the rest of the app's referring-physician
+features today** — `referring_contacts.physician_name` and the detection query's match both key
+on `TRIM(CONCAT(referring_physician_first_name, ' ', referring_physician_last_name))`, free-text
+from PACS, same convention `routes/referring_intel.py` already uses. Operator is separately
+researching a real order↔referring-physician join (RIS-side) — when that lands, only the match
+logic in `crn_scan.scan_for_new_critical_results()` needs to change, not the schema.
+
+### Report 22 tree-chart fix + migration 0073 incident (2026-07-27)
+
+- **Report 22's Modality → AE Source → Top 5 Procedures tree** was illegible on sites with many
+  devices (fixed 600px container). Height now grows with device count
+  (`deviceCount * 42 + 200px`, min 600px); also replaced `layout: 'vertical'` — never a real
+  ECharts tree property (valid values are only `'orthogonal'`/`'radial'`; it had been silently
+  no-op'ing to the default orient this whole time) — with explicit `layout: 'orthogonal',
+  orient: 'LR'`. `templates/report_22.html`, commit `7f1cda5d`.
+- **Migration 0073 (LAUMC/SVSM duplicate-study delete)** ran again on the live server after
+  last session's batched rewrite. Watch the per-batch `RAISE NOTICE` log lines to confirm it
+  completed cleanly end-to-end this time (see the incident history in this doc's "Live-incident
+  recovery" table below for why the first attempt needed a full `rayd_db` restart).
+
+### Two open asks — need real numbers from the operator, not started yet
+
+- **Storage calculation (#5)**: `ETL_JOBS/etl_analytics_refresh.py:73` divides
+  `SUM(image_size_kb)` by `1_073_741_824` (1024³, the bytes→GiB divisor) to get `total_gb` —
+  but the column is genuinely in **kilobytes** (confirmed: PACS's raw `IMAGE_SIZE`, no unit
+  conversion anywhere in the ETL). KB→GB should divide by `1_048_576` (1024²). If confirmed,
+  every storage number in every report using `summary_storage_daily` is ~1024x too small.
+  **Waiting on**: one real number (`df -h` on wherever images live, or a known figure from
+  whoever manages that storage) to confirm before touching a live report.
+- **ORU analytics slow load (#4)**: `/oru/data` has no row cap, and any report the nlp-worker
+  hasn't processed yet triggers a synchronous pure-Python rule-based scan (~130 phrases ×
+  up to 8000 chars) that — per `CLAUDE.md`'s rule that `hl7_oru_analysis` is nlp-worker-only —
+  can never be cached back, so it reruns in full on every page load if there's a backlog.
+  **Waiting on**: nlp-worker backlog size, default-view row count, and confirmation that
+  `hl7_oru_reports`/`hl7_orders`/`hl7_oru_analysis` have the indexes the query needs — three
+  `psql` queries were handed to the operator, not yet run.
 
 ### Live-incident recovery + new bugs found/fixed (2026-07-26)
 Operator ran `docker compose down -v` (accidental full volume wipe) + rebuild, then hit a
@@ -296,9 +370,9 @@ need for dictation" before continuing. **Do not resume the std_pps-based rewrite
 operator confirmation.**
 
 ### Operator punch list, 2026-07-26 — explicitly "for later," not started
-1. **All reports — data integrity check against RIS and PACS.** No spec yet: presumably
-   spot-check counts/sums in RAYD vs. querying RIS/PACS directly for the same period.
-   Needs scoping (which reports, which fields, tolerance) before starting.
+1. **All reports — data integrity check against RIS and PACS.** ⏸ **Explicitly deferred by
+   operator, 2026-07-27** ("skip this point, it needs a lot of work") when asked to scope which
+   reports/fields/tolerance. No spec, not started. Revisit only if operator brings it back up.
 2. **Report 25 revamp — "not showing any data."** ✅ Root cause actually found and fixed
    this session, after three earlier attempted fixes (missing `report_template` row `0069`,
    a syntax-error-crashing-the-whole-app fix `696b51a6`, a template None-guard fix
@@ -312,14 +386,15 @@ operator confirmation.**
    query to RIS for scheduled patients. No existing route identified yet for "live AE
    status" — needs locating (or confirming it doesn't exist yet) before scoping the
    rebuild. Relates to `aetitle_modality_map`/device model already in place.
-4. **ORU analytics page (`routes/oru_analytics.py`) — very slow load.** Operator's own
-   suggestion: split the chart load across multiple ECharts partitioned by modality /
-   radiologist / time window instead of one heavy render. Needs profiling first to confirm
-   where the actual time goes (query vs. NLP word-cloud computation vs. render) before
-   assuming chart-splitting alone fixes it.
-5. **Storage calculation is wrong.** Likely `etl_analytics_refresh.py` (Phase 7 rollup) or
-   the `etl_image_locations`/`image_size_kb`-derived totals — not diagnosed yet this
-   session. Needs a concrete "expected vs. actual" number from the operator to start.
+4. **ORU analytics page (`routes/oru_analytics.py`) — very slow load.** 🔍 Code-level profiling
+   done 2026-07-27 (see "Two open asks" above) — two concrete hypotheses (unbounded query, no
+   cross-request caching possible for the rule-based NLP fallback per `CLAUDE.md`'s
+   nlp-worker-only rule on `hl7_oru_analysis`). Waiting on 3 `psql` queries handed to the
+   operator (backlog size, row count, index check) before writing a fix.
+5. **Storage calculation is wrong.** 🔍 Likely root cause found 2026-07-27: `etl_analytics_
+   refresh.py:73` divides KB by the bytes→GiB constant instead of the KB→GB one — a 1024x
+   error. See "Two open asks" above. Waiting on one real number from the operator to confirm
+   before touching a live report.
 6. **Remove Patient CD Log** ✅ Done (`f3ee4d4a`) — route/template/blueprint/sidebar link
    removed, following the same convention as Patient Portal/Scheduling (license flag kept
    `False` for backward-compat, feature_map entry replaced with a "module REMOVED" comment).
@@ -342,15 +417,13 @@ operator confirmation.**
 9. **Procedure → modality mapping** — operator says they need to walk through this with me
    directly next session (not a spec I can start from written notes alone). Relates to
    `procedure_duration_map`/Phase 10's `SPS_CODE` import — wait for the guided session.
-10. **Build CRN from ORU** — read referring/signing physician email + phone (now available
-    via `std_resources_ris`, Phase 13) from ORU-resolved reports, stand up SMTP, build a
-    token+URL scheme (secure link delivery, presumably for report/critical-result
-    notification), and flag the NAT/networking requirement for IT so external delivery
-    actually reaches physicians. First mentioned as "CRN routing" in READY TO BUILD NEXT
-    #2 (`std_ordering_organizations` contact data) — this fleshes out the actual build:
-    email/SMTP delivery mechanism, not just having the contact data available. Needs: SMTP
-    relay details, token/URL security design (expiry? one-time use?), and the specific NAT
-    ask to hand to IT before any code starts.
+10. **Build CRN from ORU** — 🚧 **In progress, 2026-07-27.** Detection/escalation/tokenized-ack
+    scaffold built and verified end-to-end against a real Postgres test container, but running
+    dry-run only (`settings.crn_enabled = 'false'`) — no live send yet. See "CRN scaffold +
+    referring_contacts" above for the full breakdown. Still needed before a real message can
+    go out: provider selection for all 3 channels (`docs/LAUMC_CRN_FIREWALL_REQUEST.md`),
+    message content sign-off, and the actual provider API/SMTP calls wired into
+    `utils/crn_dispatcher._send_on_channel()`.
 
 ---
 
