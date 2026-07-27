@@ -132,18 +132,28 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
                 FROM medistore.didb_studies s
         """
 
+        # Operator instruction (2026-07-27): 'LAUMC' and 'SVSM' are not real imaging
+        # devices — studies land there as duplicates of a real device's AE and should
+        # never be loaded. Existing duplicate rows cleaned up separately, migration 0073.
+        _EXCLUDED_AE_SQL = "AND UPPER(TRIM(s.STORING_AE)) NOT IN ('LAUMC', 'SVSM')"
+
         def _execute_query(use_join):
             select = _SELECT_WITH_JOIN if use_join else _SELECT_NO_JOIN
             if is_fresh_load:
-                q = select + " WHERE s.STUDY_DATE >= TO_DATE(:gd, 'YYYY-MM-DD') ORDER BY s.STUDY_DB_UID"
+                q = select + f"""
+                    WHERE s.STUDY_DATE >= TO_DATE(:gd, 'YYYY-MM-DD')
+                    {_EXCLUDED_AE_SQL}
+                    ORDER BY s.STUDY_DB_UID
+                """
                 cursor.execute(q, {'gd': gd_str})
             else:
-                q = select + """
+                q = select + f"""
                     WHERE s.STUDY_DATE >= TO_DATE(:gd, 'YYYY-MM-DD')
                     AND (
                         s.STUDY_DB_UID > :max_id
                         OR s.STUDY_DATE >= TO_DATE(:lb, 'YYYY-MM-DD')
                     )
+                    {_EXCLUDED_AE_SQL}
                     ORDER BY s.STUDY_DB_UID
                 """
                 cursor.execute(q, {'gd': gd_str, 'max_id': max_uid, 'lb': lookback_date})
