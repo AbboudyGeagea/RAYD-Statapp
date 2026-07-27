@@ -403,13 +403,21 @@ def oru_data():
 
     date_from = request.args.get('date_from', '').strip()
     date_to   = request.args.get('date_to', '').strip()
+    # Filter by the report's actual date (result_datetime), not received_at: for
+    # RIS-sourced reports (report_source='ris'), received_at is overwritten to the
+    # ETL run's own timestamp on every sync (ETL_JOBS/etl_ris_reports.py sets
+    # received_at = datetime.now() and the upsert's ON CONFLICT unconditionally
+    # reassigns it), so it reflects "last time the ETL touched this row", not the
+    # report's real date. result_datetime (COALESCE(APPROVED_DATE, LAST_MODIFIED_DATE,
+    # REPORT_TIME) for RIS reports, OBR-22/7 for live HL7 ones) is the real date;
+    # received_at is only the fallback for the rare row missing it entirely.
     if date_from and date_to:
-        where  = ["received_at BETWEEN :date_from AND (CAST(:date_to AS DATE) + INTERVAL '1 day')"]
+        where  = ["COALESCE(result_datetime, received_at) BETWEEN :date_from AND (CAST(:date_to AS DATE) + INTERVAL '1 day')"]
         params = {'date_from': date_from, 'date_to': date_to}
         days   = None
     else:
         days   = min(int(request.args.get('days', 30)), 365)
-        where  = ["received_at >= NOW() - INTERVAL :interval"]
+        where  = ["COALESCE(result_datetime, received_at) >= NOW() - INTERVAL :interval"]
         params = {'interval': f'{days} days'}
 
     from utils.audit import log_event
@@ -614,13 +622,16 @@ def oru_section_gaps():
 
     date_from = request.args.get('date_from', '').strip()
     date_to   = request.args.get('date_to', '').strip()
+    # See oru_data()'s comment: filter by result_datetime (the report's real date),
+    # not received_at, which for RIS-sourced reports is overwritten to the ETL run's
+    # own timestamp on every sync.
     if date_from and date_to:
-        where  = ["received_at BETWEEN :date_from AND (CAST(:date_to AS DATE) + INTERVAL '1 day')"]
+        where  = ["COALESCE(result_datetime, received_at) BETWEEN :date_from AND (CAST(:date_to AS DATE) + INTERVAL '1 day')"]
         params = {'date_from': date_from, 'date_to': date_to}
         days   = None
     else:
         days   = min(int(request.args.get('days', 30)), 365)
-        where  = ["received_at >= NOW() - INTERVAL :interval"]
+        where  = ["COALESCE(result_datetime, received_at) >= NOW() - INTERVAL :interval"]
         params = {'interval': f'{days} days'}
     if proc:
         where.append("UPPER(TRIM(procedure_code)) = UPPER(:proc)")
@@ -631,7 +642,7 @@ def oru_section_gaps():
                    report_text, impression_text,
                    to_char(received_at, 'YYYY-MM-DD HH24:MI') AS received_at
             FROM hl7_oru_reports WHERE {' AND '.join(where)}
-            ORDER BY received_at DESC"""
+            ORDER BY COALESCE(result_datetime, received_at) DESC"""
     ), params).fetchall()
 
     total = len(rows)
@@ -686,12 +697,13 @@ def oru_sections():
 
     date_from = request.args.get('date_from', '').strip()
     date_to   = request.args.get('date_to', '').strip()
+    # See oru_data()'s comment: filter by result_datetime, not received_at.
     if date_from and date_to:
-        where  = ["received_at BETWEEN :date_from AND (CAST(:date_to AS DATE) + INTERVAL '1 day')"]
+        where  = ["COALESCE(result_datetime, received_at) BETWEEN :date_from AND (CAST(:date_to AS DATE) + INTERVAL '1 day')"]
         params = {'date_from': date_from, 'date_to': date_to}
     else:
         days   = min(int(request.args.get('days', 30)), 365)
-        where  = ["received_at >= NOW() - INTERVAL :interval"]
+        where  = ["COALESCE(result_datetime, received_at) >= NOW() - INTERVAL :interval"]
         params = {'interval': f'{days} days'}
     if proc:
         where.append("UPPER(TRIM(procedure_code)) = UPPER(:proc)")
@@ -842,12 +854,13 @@ def nlp_results():
 
     date_from = request.args.get('date_from', '').strip()
     date_to   = request.args.get('date_to', '').strip()
+    # See oru_data()'s comment: filter by result_datetime, not received_at.
     if date_from and date_to:
-        date_clause = "o.received_at BETWEEN :date_from AND (CAST(:date_to AS DATE) + INTERVAL '1 day')"
+        date_clause = "COALESCE(o.result_datetime, o.received_at) BETWEEN :date_from AND (CAST(:date_to AS DATE) + INTERVAL '1 day')"
         date_params = {'date_from': date_from, 'date_to': date_to}
     else:
         days = min(int(request.args.get('days', 90)), 365)
-        date_clause = "o.received_at >= NOW() - INTERVAL :interval"
+        date_clause = "COALESCE(o.result_datetime, o.received_at) >= NOW() - INTERVAL :interval"
         date_params = {'interval': f'{days} days'}
 
     where_extra = ''
