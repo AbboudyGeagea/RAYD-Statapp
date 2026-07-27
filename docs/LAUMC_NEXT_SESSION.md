@@ -154,6 +154,13 @@ load — operator explicitly asked not to run multiple heavy tasks at once (an E
 run was in progress when this was built). Deploy when the ETL is clear, not
 concurrently with it.
 
+**Follow-up, 2026-07-27**: Critical Findings Log's "Reporter" column now resolves the
+email `physician_id` to a display name via `std_resources_ris` (same table CRN uses
+for referring contacts), falling back to the raw email if unmatched. Deliberately
+NOT applied to "Reporting Physician Activity (ID only)" or `/oru/section-gaps`' per-
+physician breakdown — both read as intentionally anonymized (explicit "(ID only)"
+label / "anonymised" code comment), not an oversight; revisit only if operator asks.
+
 **Still open, no code change**: the "critical findings always expanded" UI report —
 operator hasn't been able to test it yet (ETL in progress); the toggle code itself
 (`buildCritical()` in `templates/oru_analytics.html`) looks correct on inspection
