@@ -411,11 +411,17 @@ operator confirmation.**
    query to RIS for scheduled patients. No existing route identified yet for "live AE
    status" — needs locating (or confirming it doesn't exist yet) before scoping the
    rebuild. Relates to `aetitle_modality_map`/device model already in place.
-4. **ORU analytics page (`routes/oru_analytics.py`) — very slow load.** 🔍 Code-level profiling
-   done 2026-07-27 (see "Two open asks" above) — two concrete hypotheses (unbounded query, no
-   cross-request caching possible for the rule-based NLP fallback per `CLAUDE.md`'s
-   nlp-worker-only rule on `hl7_oru_analysis`). Waiting on 3 `psql` queries handed to the
-   operator (backlog size, row count, index check) before writing a fix.
+4. **ORU analytics page (`routes/oru_analytics.py`) — very slow load.** ✅ **Fixed, 2026-07-27**
+   — indexes were already fine (`received_at`/`report_id`/`accession_number` all covered); the
+   real cost was the rule-based NLP fallback recomputing from scratch on every page load for
+   any report the nlp-worker hasn't analyzed yet (can't cache in `hl7_oru_analysis` itself,
+   nlp-worker-only per `CLAUDE.md`). Added `hl7_oru_rule_cache` (`migrations/0080`), a
+   route-owned cache table — `oru_data()` now checks it before recomputing, writes results
+   back for next time. No staleness risk: real `hl7_oru_analysis` rows are already preferred
+   over the cache the moment the nlp-worker catches up. Verified against a real Postgres
+   container (cache-miss → compute → cache-hit, version-bump forcing recompute, cascade
+   delete cleanup). Not yet confirmed faster on the live page — worth a before/after timing
+   check once deployed.
 5. **Storage calculation is wrong.** 🔍 Likely root cause found 2026-07-27: `etl_analytics_
    refresh.py:73` divides KB by the bytes→GiB constant instead of the KB→GB one — a 1024x
    error. See "Two open asks" above. Waiting on one real number from the operator to confirm
