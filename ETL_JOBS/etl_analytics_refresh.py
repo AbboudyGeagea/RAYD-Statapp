@@ -70,7 +70,7 @@ def refresh_storage_summary():
                         func.coalesce(
                             func.sum(etl_image_locations.image_size_kb), 0
                         ), db.Numeric
-                    ) / 1_073_741_824,
+                    ) / 1_048_576,
                     4,
                 ).label("total_gb"),
                 func.count(
