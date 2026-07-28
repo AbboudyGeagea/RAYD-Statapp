@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | Device Utilization</title>
+    <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/dark.min.css">
+    <style>
+        body { background: #181f1c; color: #e2e8f0; font-family: 'Inter', sans-serif; }
+        body { transition: background 0.2s, color 0.2s; }
+        body.light { background: #f0f4f8 !important; color: #1a202c !important; }
+        body.light aside, body.light header { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        body.light .sidebar-item { color: #4a5568 !important; }
+        body.light .sidebar-item:hover, body.light .sidebar-item.active { background: #e2e8f0 !important; color: #2b6cb0 !important; }
+        body.light .input-dark { background: #ffffff !important; border-color: #e2e8f0 !important; color: #1a202c !important; }
+        body.light .card, body.light .data-card, body.light .glass-card, body.light .chart-card { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        .input-dark { background: #181f1c; border: 1px solid #28332e; color: #e2e8f0; border-radius: 8px; padding: 8px 10px; font-size: 12px; width: 100%; outline: none; transition: border 0.15s; }
+        .input-dark:focus { border-color: #60a5fa; }
+        .input-dark:disabled { opacity: 0.3; cursor: not-allowed; }
+        .card { background: #232b28; border: 1px solid #28332e; border-radius: 12px; margin-bottom: 24px; transition: all 0.3s ease; overflow: hidden; }
+        .card:hover { border-color: #60a5fa; }
+        .card-header { padding: 14px 20px; border-bottom: 1px solid #28332e; font-size: 10px; font-weight: 900; color: #60a5fa; text-transform: uppercase; letter-spacing: 1px; }
+        .card-desc { padding: 8px 20px; font-size: 10px; color: #475569; font-style: italic; border-bottom: 1px solid #181f1c; background: #1a2420; }
+        .chart-container { height: 380px; width: 100%; padding: 20px; }
+        .glass-card { background: #232b28; border: 1px solid #28332e; border-radius: 1.5rem; padding: 24px; }
+        .chart-card { background: #232b28; border: 1px solid #28332e; border-radius: 1.5rem; overflow: hidden; display: flex; flex-direction: column; }
+        .chart-card-header { padding: 18px 24px 0 24px; display: flex; align-items: center; justify-content: space-between; }
+        .chart-card-title { font-size: 12px; font-weight: 800; color: #52525b; text-transform: uppercase; letter-spacing: 0.08em; }
+        .chart-card-desc { padding: 8px 24px 12px 24px; font-size: 13px; color: #52525b; font-style: italic; line-height: 1.5; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .chart-card-body { padding: 16px; flex: 1; }
+        .section-desc { font-size: 13px; color: #64748b; font-style: italic; line-height: 1.6; margin-bottom: 20px; padding: 12px 16px; background: rgba(96,165,250,0.06); border-left: 3px solid #60a5fa; border-radius: 0 8px 8px 0; }
+        .util-badge { font-family: 'Monaco', monospace; transition: all 0.2s; }
+        .util-badge:hover { transform: scale(1.1); filter: brightness(1.2); }
+        .outlier-badge { display:inline-flex; align-items:center; gap:4px; background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.4); color:#f59e0b; border-radius:999px; padding:2px 10px; font-size:10px; font-weight:700; cursor:pointer; position:relative; }
+        .outlier-badge .tooltip { display:none; position:absolute; top:calc(100% + 6px); right:0; background:#1c1917; border:1px solid rgba(245,158,11,0.4); color:#fde68a; font-size:10px; padding:6px 10px; border-radius:8px; white-space:nowrap; z-index:100; }
+        .outlier-badge:hover .tooltip { display:block; }
+        .sidebar-label { font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; display: block; }
+        label { font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase; margin-bottom: 4px; display: block; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-thumb { background: #28332e; border-radius: 10px; }
+        @media print {
+            aside, header button, form button[type=submit], .card-desc, nav { display: none !important; }
+            body { overflow: visible !important; background: #fff !important; color: #000 !important; }
+            main { overflow: visible !important; padding: 0 !important; }
+            .card, .glass-card, .chart-card { border: 1px solid #ddd !important; break-inside: avoid; }
+            .chart-container, #chart-ae-tat, #chart-mod-tat, #chart-eff-bar, #chart-stress-scatter, #chart-tat-hist, #chart-rvu-tat { height: 320px !important; }
+        }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+    {% include '_header.html' %}
+    <div class="flex flex-1 overflow-hidden">
+    <aside class="w-64 bg-[#1a2420] border-r border-[#28332e] flex flex-col p-5 overflow-y-auto flex-shrink-0">
+        <h1 class="font-black text-[#60a5fa] text-xl tracking-tighter uppercase italic">Device Utilization</h1>
+        <form method="GET" class="space-y-5">
+            <div>
+                <label>Timeframe</label>
+                <input type="date" name="start_date" class="input-dark mb-2" value="{{ display_start }}">
+                <input type="date" name="end_date" class="input-dark" value="{{ display_end }}">
+            </div>
+
+            <hr class="border-slate-800">
+
+            <div class="space-y-4">
+                <div class="flex flex-col gap-1">
+                    <div class="flex justify-between items-center"><label class="mb-0">Modality</label>
+                        <input type="checkbox" name="mod_enabled" onchange="document.getElementById('f_mod').disabled = !this.checked" {% if filters.mod_enabled %}checked{% endif %}>
+                    </div>
+                    <select name="modality" id="f_mod" class="input-dark" {% if not filters.mod_enabled %}disabled{% endif %}
+                            data-filter-key="modalities"
+                            data-selected="{{ filters.mod or '' }}">
+                        <option value="">— select —</option>
+                    </select>
+                </div>
+
+                <div class="flex flex-col gap-1">
+                    <div class="flex justify-between items-center"><label class="mb-0">AE Title</label>
+                        <input type="checkbox" name="ae_enabled" onchange="document.getElementById('f_ae').disabled = !this.checked" {% if filters.ae_enabled %}checked{% endif %}>
+                    </div>
+                    <select name="aetitle" id="f_ae" class="input-dark" {% if not filters.ae_enabled %}disabled{% endif %}
+                            data-filter-key="aetitles"
+                            data-selected="{{ filters.ae or '' }}">
+                        <option value="">— select —</option>
+                    </select>
+                </div>
+
+                <div class="flex flex-col gap-1">
+                    <div class="flex justify-between items-center"><label class="mb-0">Patient Class</label>
+                        <input type="checkbox" name="class_enabled" onchange="document.getElementById('f_class').disabled = !this.checked" {% if filters.class_enabled %}checked{% endif %}>
+                    </div>
+                    <select name="patient_class" id="f_class" class="input-dark" {% if not filters.class_enabled %}disabled{% endif %}
+                            data-filter-key="classes"
+                            data-selected="{{ filters.p_class or '' }}">
+                        <option value="">— select —</option>
+                    </select>
+                </div>
+
+                <div class="flex flex-col gap-1">
+                    <div class="flex justify-between items-center"><label class="mb-0">Patient Location</label>
+                        <input type="checkbox" name="loc_enabled" onchange="document.getElementById('f_loc').disabled = !this.checked" {% if filters.loc_enabled %}checked{% endif %}>
+                    </div>
+                    <select name="patient_location" id="f_loc" class="input-dark" {% if not filters.loc_enabled %}disabled{% endif %}
+                            data-filter-key="locations"
+                            data-selected="{{ filters.loc or '' }}">
+                        <option value="">— select —</option>
+                    </select>
+                </div>
+            </div>
+
+            <button type="submit" style="background:#60a5fa; color:#0a1628; font-weight:900; font-size:10px; text-transform:uppercase; letter-spacing:0.08em; border-radius:10px; padding:12px; width:100%; border:none; cursor:pointer; transition:filter 0.15s;" onmouseover="this.style.filter='brightness(1.1)'" onmouseout="this.style.filter=''">Update Dashboard</button>
+
+            {% if run_report and data %}
+            <hr class="border-slate-800 mt-2">
+            <button type="button" onclick="doExport()"
+                    style="background:#1e293b; color:#94a3b8; font-weight:900; font-size:10px; text-transform:uppercase; letter-spacing:0.08em; border-radius:10px; padding:10px; width:100%; border:1px solid #334155; cursor:pointer; transition:all 0.15s; display:flex; align-items:center; justify-content:center; gap:6px;"
+                    onmouseover="this.style.borderColor='#60a5fa';this.style.color='#60a5fa';"
+                    onmouseout="this.style.borderColor='#334155';this.style.color='#94a3b8';">
+                <i class="bi bi-download"></i> Export Raw Data (XLSX)
+            </button>
+            {% endif %}
+        </form>
+    </aside>
+
+    <main class="flex-1 p-10 overflow-y-auto bg-[#181f1c] space-y-8">
+        {% if run_report and data %}
+
+        <!-- KPI Row -->
+        <div class="grid grid-cols-4 gap-4">
+            <div class="glass-card text-center">
+                <p class="text-[9px] font-black text-blue-500 uppercase tracking-widest mb-1">Top Efficient AE</p>
+                <p class="text-2xl font-black text-white" id="kpi-top-ae">—</p>
+                <p class="text-[10px] text-zinc-500 mt-1">Highest RVU/Util ratio</p>
+            </div>
+            <div class="glass-card text-center">
+                <p class="text-[9px] font-black text-amber-500 uppercase tracking-widest mb-1">TAT Outliers</p>
+                <p class="text-2xl font-black text-amber-400" id="kpi-outlier-count">—</p>
+                <p class="text-[10px] text-zinc-500 mt-1">Procedures beyond IQR threshold</p>
+            </div>
+            <div class="glass-card text-center">
+                <p class="text-[9px] font-black text-rose-500 uppercase tracking-widest mb-1">High Stress AEs</p>
+                <p class="text-2xl font-black text-rose-400">{{ data.summary.high_stress_count }}</p>
+                <p class="text-[10px] text-zinc-500 mt-1">Utilization &gt;85%</p>
+            </div>
+            <div class="glass-card text-center">
+                <p class="text-[9px] font-black text-emerald-500 uppercase tracking-widest mb-1">Under-Utilized AEs</p>
+                <p class="text-2xl font-black text-emerald-400">{{ data.summary.low_util_count }}</p>
+                <p class="text-[10px] text-zinc-500 mt-1">Utilization &lt;30%</p>
+            </div>
+        </div>
+
+        <p class="section-desc">
+            Weekly device utilization matrix for every AE title (imaging device) in the fleet. Each cell shows the percentage of scheduled capacity consumed on that weekday, using measured RIS performed-procedure-step (PPS) time where available and falling back to the estimated procedure duration map otherwise. <span class="text-rose-400 not-italic font-bold">Red (&gt;85%)</span> = overloaded, <span class="text-emerald-400 not-italic font-bold">Green (30–85%)</span> = healthy, <span class="text-amber-400 not-italic font-bold">Amber (&lt;30%)</span> = under-utilized. The final column shows total RVU generated per device.
+        </p>
+
+        <!-- Device Utilization & Revenue Matrix -->
+        <div class="glass-card !p-0 overflow-hidden">
+            <p class="p-6 text-xs font-black text-zinc-500 uppercase">Device Utilization &amp; Revenue Matrix</p>
+            <div style="overflow-x:auto;">
+            <table class="w-full text-sm text-left border-t border-white/5">
+                <thead class="bg-white/5 text-zinc-500 uppercase font-black text-[11px]">
+                    <tr>
+                        <th class="p-4">Infrastructure (AE)</th>
+                        {% for d in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}<th class="p-4 text-center">{{d}}</th>{% endfor %}
+                        <th class="p-4 text-center">Avg Util</th>
+                        <th class="p-4 text-center text-amber-500">Device RVU</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in data.matrix %}
+                    <tr class="border-b border-white/5 hover:bg-white/[0.02]">
+                        <td class="p-4 font-bold text-white text-sm">{{ row.ae }}</td>
+                        {% for day in row.days %}
+                        <td class="p-2 text-center">
+                            <span class="util-badge px-3 py-1 rounded-lg font-black text-[12px]
+                                {% if day.pct > 85 %}bg-rose-500/20 text-rose-400 border border-rose-500/30
+                                {% elif day.pct > 30 %}bg-emerald-500/20 text-emerald-400 border border-emerald-500/30
+                                {% elif day.pct > 0 %}bg-amber-500/10 text-amber-500/60
+                                {% else %}bg-zinc-900 text-zinc-700{% endif %}">
+                                {{ day.pct }}%
+                            </span>
+                        </td>
+                        {% endfor %}
+                        <td class="p-4 text-center font-black text-sm bg-white/5
+                            {% if row.avg > 85 %}text-rose-400{% elif row.avg > 30 %}text-blue-400{% else %}text-zinc-500{% endif %}">
+                            {{ row.avg }}%
+                        </td>
+                        <td class="p-4 text-center font-mono text-amber-500 bg-white/[0.02] border-l border-white/5 text-sm">
+                            {{ row.total_rvu }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    {% if not data.matrix %}
+                    <tr><td colspan="10" class="p-8 text-center text-zinc-600 italic text-xs">No devices found for this selection.</td></tr>
+                    {% endif %}
+                </tbody>
+            </table>
+            </div>
+        </div>
+
+        <!-- Best vs Worst AE by Average TAT -->
+        <div class="glass-card">
+            <div class="flex items-center justify-between mb-4">
+                <p class="text-xs font-black text-blue-500 uppercase">Best vs Worst AE by Average TAT</p>
+                <p class="text-[9px] text-zinc-500 uppercase">Min 5 studies · sorted fastest → slowest</p>
+            </div>
+            <div id="chart-ae-tat" class="w-full" style="height:320px;"></div>
+        </div>
+
+        <!-- Modality TAT -->
+        {% if data.modality_tat %}
+        <div class="chart-card">
+            <div class="chart-card-header">
+                <span class="chart-card-title">Avg TAT by Modality</span>
+            </div>
+            <div class="chart-card-desc">Average and median turnaround time per modality. Sorted fastest to slowest.</div>
+            <div class="chart-card-body">
+                <div id="chart-mod-tat" style="height:280px;"></div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Row: Efficiency Score Bar + Stress vs Output Scatter -->
+        <div class="grid grid-cols-2 gap-6">
+            <div class="glass-card">
+                <div class="flex items-center justify-between mb-4">
+                    <p class="text-xs font-black text-blue-500 uppercase">Modality Efficiency Score</p>
+                    <p class="text-[9px] text-zinc-500 uppercase">RVU per 1% Utilization</p>
+                </div>
+                <div id="chart-eff-bar" class="w-full" style="height:300px;"></div>
+            </div>
+            <div class="glass-card">
+                <div class="flex items-center justify-between mb-4">
+                    <p class="text-xs font-black text-blue-500 uppercase">Stress vs Output</p>
+                    <p class="text-[9px] text-zinc-500 uppercase">Util % vs RVU per AE</p>
+                </div>
+                <div id="chart-stress-scatter" class="w-full" style="height:300px;"></div>
+            </div>
+        </div>
+
+        <!-- Row: TAT Histogram + RVU vs TAT scatter -->
+        <div class="grid grid-cols-2 gap-6">
+            <div class="glass-card">
+                <div class="flex items-center justify-between mb-4">
+                    <p class="text-xs font-black text-blue-500 uppercase">TAT Distribution</p>
+                    <p class="text-[9px] text-zinc-500 uppercase">Studies per TAT bucket</p>
+                </div>
+                <div id="chart-tat-hist" class="w-full" style="height:280px;"></div>
+            </div>
+            <div class="glass-card">
+                <div class="flex items-center justify-between mb-4">
+                    <div class="flex items-center gap-2">
+                        <p class="text-xs font-black text-blue-500 uppercase">RVU vs TAT</p>
+                        {% if data.rvu_outliers_removed %}
+                        <span class="outlier-badge">⚠ {{ data.rvu_outliers_removed }} outliers removed<span class="tooltip">IQR filter applied — extreme RVU/TAT values excluded.</span></span>
+                        {% endif %}
+                    </div>
+                    <p class="text-[9px] text-zinc-500 uppercase">Clinical RVU vs turnaround time</p>
+                </div>
+                <div id="chart-rvu-tat" class="w-full" style="height:280px;"></div>
+            </div>
+        </div>
+
+        <!-- TAT Outlier Cards -->
+        <div class="glass-card">
+            <div class="flex items-center justify-between mb-4">
+                <p class="text-xs font-black text-amber-500 uppercase tracking-widest">TAT Outlier Detection</p>
+                <span class="text-[10px] text-zinc-600 italic">IQR-based threshold · sorted by severity</span>
+            </div>
+            <div id="outlier-list" class="space-y-2">
+                <div class="text-center py-8 text-zinc-600 italic text-xs">Loading…</div>
+            </div>
+        </div>
+
+        {% elif run_report %}
+        <div class="h-full flex items-center justify-center text-slate-500 font-black text-2xl uppercase tracking-tighter text-center">
+            No data found for this range/filter combination.
+        </div>
+        {% else %}
+        <div class="h-full flex items-center justify-center text-slate-900 font-black text-7xl uppercase tracking-tighter opacity-20">Enter Filter Criteria</div>
+        {% endif %}
+    </main>
+    </div>
+
+<script>
+    const d = {{ data | tojson | safe if data else 'null' }};
+    if (d) {
+        const axisStyle = {
+            axisLabel: { color: '#52525b', fontWeight: 600, fontSize: 12 },
+            splitLine:  { lineStyle: { color: '#1f1f23' } }
+        };
+
+        // ── Best vs Worst AE by TAT ─────────────────────────────────────
+        if (d.ae_tat && d.ae_tat.length && document.getElementById('chart-ae-tat')) {
+            const midpoint = Math.floor(d.ae_tat.length / 2);
+            echarts.init(document.getElementById('chart-ae-tat')).setOption({
+                tooltip: { trigger: 'axis', formatter: p => `${p[0].name}<br>Avg TAT: <b>${p[0].value}m</b>` },
+                grid: { left: 80, right: 60, top: 10, bottom: 30 },
+                xAxis: { type: 'value', name: 'Avg TAT (min)', nameTextStyle: { color: '#52525b', fontSize: 11 }, ...axisStyle },
+                yAxis: { type: 'category', data: d.ae_tat.map(r => r.ae), ...axisStyle },
+                series: [{
+                    type: 'bar', data: d.ae_tat.map(r => r.avg_tat),
+                    itemStyle: { borderRadius: [0,5,5,0], color: (p) => p.dataIndex < midpoint ? '#22c55e' : p.dataIndex > d.ae_tat.length - midpoint - 1 ? '#ef4444' : '#60a5fa' },
+                    label: { show: true, position: 'right', color: '#71717a', fontSize: 10, formatter: p => p.value + 'm' }
+                }]
+            });
+        } else if (document.getElementById('chart-ae-tat')) {
+            document.getElementById('chart-ae-tat').innerHTML = '<div class="text-center py-16 text-zinc-600 italic text-xs">Not enough data (min 5 studies per AE).</div>';
+        }
+
+        // ── Modality TAT ─────────────────────────────────────────────────
+        if (d.modality_tat && d.modality_tat.length && document.getElementById('chart-mod-tat')) {
+            echarts.init(document.getElementById('chart-mod-tat')).setOption({
+                tooltip: { trigger: 'axis', formatter: p => {
+                    let s = `<b>${p[0].name}</b>`;
+                    p.forEach(i => { s += `<br>${i.seriesName}: ${i.value}m`; });
+                    return s;
+                }},
+                legend: { data: ['Avg TAT', 'Median TAT'], textStyle: { color: '#71717a', fontSize: 11 }, bottom: 0 },
+                grid: { left: 60, right: 60, top: 10, bottom: 40 },
+                xAxis: { type: 'value', name: 'Minutes', nameTextStyle: { color: '#52525b', fontSize: 11 }, ...axisStyle },
+                yAxis: { type: 'category', data: d.modality_tat.map(r => r.mod), ...axisStyle },
+                series: [
+                    {
+                        name: 'Avg TAT', type: 'bar',
+                        data: d.modality_tat.map(r => r.avg),
+                        itemStyle: { borderRadius: [0,5,5,0], color: '#60a5fa' },
+                        label: { show: true, position: 'right', color: '#71717a', fontSize: 10, formatter: p => p.value + 'm' }
+                    },
+                    {
+                        name: 'Median TAT', type: 'scatter',
+                        data: d.modality_tat.map(r => r.median),
+                        symbolSize: 8,
+                        itemStyle: { color: '#f59e0b' }
+                    }
+                ]
+            });
+        }
+
+        // ── Modality/Device Efficiency Score (RVU / util%) ─────────────────
+        const effData = (d.matrix || [])
+            .filter(r => r.avg > 0)
+            .map(r => ({ ae: r.ae, score: r.avg > 0 ? +(r.total_rvu / r.avg).toFixed(2) : 0 }))
+            .sort((a, b) => b.score - a.score);
+
+        if (effData.length > 0) {
+            document.getElementById('kpi-top-ae').textContent = effData[0].ae;
+        }
+
+        if (document.getElementById('chart-eff-bar')) {
+            echarts.init(document.getElementById('chart-eff-bar')).setOption({
+                tooltip: { trigger: 'axis', formatter: p => `${p[0].name}<br>Score: ${p[0].value}` },
+                grid: { left: 80, right: 20, top: 10, bottom: 30 },
+                xAxis: { type: 'value', ...axisStyle },
+                yAxis: { type: 'category', data: effData.map(r => r.ae).reverse(), ...axisStyle },
+                series: [{
+                    type: 'bar', data: effData.map(r => r.score).reverse(),
+                    itemStyle: {
+                        borderRadius: [0,5,5,0],
+                        color: p => {
+                            const v = p.value;
+                            const max = effData[0] ? effData[0].score : 1;
+                            const ratio = max > 0 ? v / max : 0;
+                            if (ratio > 0.75) return '#22c55e';
+                            if (ratio > 0.4)  return '#60a5fa';
+                            return '#f59e0b';
+                        }
+                    },
+                    label: { show: true, position: 'right', color: '#71717a', fontSize: 11, formatter: p => p.value }
+                }]
+            });
+        }
+
+        // ── Stress vs Output Scatter ────────────────────────────────────
+        if (document.getElementById('chart-stress-scatter')) {
+            const scatterData = (d.matrix || []).map(r => ({
+                value: [r.avg, r.total_rvu, r.ae],
+                symbolSize: Math.max(8, Math.min(r.avg / 5, 30))
+            }));
+
+            echarts.init(document.getElementById('chart-stress-scatter')).setOption({
+                tooltip: { trigger: 'item', formatter: p => `<b>${p.value[2]}</b><br>Util: ${p.value[0]}%<br>RVU: ${p.value[1]}` },
+                grid: { left: 60, right: 20, top: 20, bottom: 40 },
+                xAxis: {
+                    type: 'value', name: 'Utilization %',
+                    nameTextStyle: { color: '#52525b', fontSize: 11 },
+                    splitArea: { show: true, areaStyle: { color: ['rgba(239,68,68,0.03)', 'transparent'] } },
+                    ...axisStyle
+                },
+                yAxis: { type: 'value', name: 'Total RVU', nameTextStyle: { color: '#52525b', fontSize: 11 }, ...axisStyle },
+                series: [
+                    {
+                        type: 'scatter', data: scatterData,
+                        itemStyle: {
+                            color: p => {
+                                const util = p.value[0];
+                                if (util > 85) return '#ef4444';
+                                if (util < 30) return '#f59e0b';
+                                return '#60a5fa';
+                            },
+                            opacity: 0.8
+                        }
+                    },
+                    {
+                        type: 'line',
+                        markLine: {
+                            silent: true,
+                            lineStyle: { color: '#ef4444', type: 'dashed', width: 1 },
+                            data: [{ xAxis: 85, label: { formatter: 'Stress', color: '#ef4444', fontSize: 10 } }]
+                        },
+                        data: []
+                    }
+                ]
+            });
+        }
+
+        // ── TAT Histogram ───────────────────────────────────────────────
+        if (document.getElementById('chart-tat-hist') && d.tat_hist) {
+            echarts.init(document.getElementById('chart-tat-hist')).setOption({
+                tooltip: { trigger: 'axis' },
+                xAxis: { type: 'category', data: d.tat_hist.map(r => r.label), ...axisStyle },
+                yAxis: { type: 'value', name: 'Studies', nameTextStyle: { color: '#52525b', fontSize: 11 }, ...axisStyle },
+                series: [{
+                    type: 'bar', data: d.tat_hist.map(r => r.count),
+                    itemStyle: { borderRadius: [5,5,0,0], color: p => {
+                        const colors = ['#22c55e','#22c55e','#60a5fa','#60a5fa','#f59e0b','#f59e0b','#ef4444','#ef4444'];
+                        return colors[p.dataIndex] || '#60a5fa';
+                    }},
+                    label: { show: true, position: 'top', color: '#71717a', fontSize: 10 }
+                }]
+            });
+        }
+
+        // ── RVU vs TAT scatter ──────────────────────────────────────────
+        if (document.getElementById('chart-rvu-tat') && d.rvu_tat) {
+            echarts.init(document.getElementById('chart-rvu-tat')).setOption({
+                tooltip: { trigger: 'item', formatter: p => `RVU: ${p.value[0]}<br>TAT: ${p.value[1]}m` },
+                xAxis: { name: 'RVU', nameTextStyle: { color: '#52525b', fontSize: 11 }, ...axisStyle },
+                yAxis: { name: 'TAT (min)', nameTextStyle: { color: '#52525b', fontSize: 11 }, ...axisStyle },
+                series: [{ type: 'scatter', data: d.rvu_tat, itemStyle: { color: '#f59e0b', opacity: 0.5 }, symbolSize: 5 }]
+            });
+        }
+
+        // ── TAT Outlier cards ───────────────────────────────────────────
+        const list = document.getElementById('outlier-list');
+        if (list) {
+            if (!d.outlier_studies || d.outlier_studies.length === 0) {
+                list.innerHTML = `<div class="text-center py-8 text-zinc-600 italic text-xs">No outliers found — all procedures within normal range.</div>`;
+                document.getElementById('kpi-outlier-count').textContent = 0;
+            } else {
+                const maxTat = Math.max(...d.outlier_studies.map(r => r.total_tat_min));
+                const ini = name => (name && name !== '—')
+                    ? name.trim().split(/\s+/).map(n => n[0]).join('').slice(0,2).toUpperCase()
+                    : '?';
+                list.innerHTML = d.outlier_studies.map(r => {
+                    const ratio = r.total_tat_min / (d.global_mean_tat || 1);
+                    const critical = ratio >= 3;
+                    const accent = critical ? '#ef4444' : '#f59e0b';
+                    const barW = Math.min(Math.round(r.total_tat_min / maxTat * 100), 100);
+                    return `
+                    <div class="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/[0.02] border border-white/5 hover:border-white/10 transition-all">
+                        <div class="w-1 self-stretch rounded-full flex-shrink-0" style="background:${accent}"></div>
+                        <div class="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-[11px] font-black" style="background:${accent}22;color:${accent}">${ini(r.reading_radiologist)}</div>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center gap-2 mb-1.5 flex-wrap">
+                                <span class="text-xs font-bold text-zinc-200 truncate">${r.reading_radiologist || '—'}</span>
+                                <span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-zinc-800 text-zinc-300">${r.modality || '—'}</span>
+                                ${r.patient_class ? `<span class="text-[10px] text-zinc-500">${r.patient_class}</span>` : ''}
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <div class="flex-1 h-1 bg-white/5 rounded-full overflow-hidden">
+                                    <div class="h-full rounded-full" style="width:${barW}%;background:${accent}99"></div>
+                                </div>
+                                <span class="text-[10px] text-zinc-600 flex-shrink-0">${d.global_mean_tat}m avg</span>
+                            </div>
+                        </div>
+                        <div class="text-right flex-shrink-0 space-y-0.5">
+                            <div class="text-sm font-black" style="color:${accent}">${r.total_tat_min}m</div>
+                            <div class="text-[10px] font-black px-1.5 py-0.5 rounded-full inline-block" style="background:${accent}22;color:${accent}">${ratio.toFixed(1)}×</div>
+                        </div>
+                        <div class="text-[10px] text-zinc-600 flex-shrink-0 w-20 text-right hidden sm:block">${r.study_date || '—'}</div>
+                    </div>`;
+                }).join('');
+                document.getElementById('kpi-outlier-count').textContent = d.outlier_studies.length;
+            }
+        }
+
+        // ── PDF export overlay on every chart ───────────────────────────
+        _addPdfOverlay('chart-ae-tat',        'Best vs Worst AE by Average TAT', 'ae_tat',        '#232b28');
+        _addPdfOverlay('chart-mod-tat',       'Avg TAT by Modality',             'modality_tat',  '#232b28');
+        _addPdfOverlay('chart-eff-bar',       'Modality Efficiency Score',       'efficiency',    '#232b28');
+        _addPdfOverlay('chart-stress-scatter','Stress vs Output',                'stress_output', '#232b28');
+        _addPdfOverlay('chart-tat-hist',      'TAT Distribution',                'tat_hist',      '#232b28');
+        _addPdfOverlay('chart-rvu-tat',       'RVU vs TAT',                      'rvu_tat',       '#232b28');
+    }
+
+    function _addPdfOverlay(chartId, title, filename, bg) {
+        const el = document.getElementById(chartId);
+        if (!el || el.dataset.pdfBtn) return;
+        el.dataset.pdfBtn = '1';
+        const btn = document.createElement('button');
+        btn.innerHTML = '<i class="bi bi-file-earmark-pdf"></i> PDF';
+        btn.style.cssText = 'position:absolute;top:6px;right:6px;z-index:20;display:inline-flex;align-items:center;gap:3px;padding:3px 8px;background:rgba(0,0,0,0.65);border:1px solid #52525b;border-radius:5px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;backdrop-filter:blur(4px);transition:all 0.15s;font-family:inherit;line-height:1;';
+        btn.onmouseover = () => { btn.style.borderColor='#f87171'; btn.style.color='#f87171'; };
+        btn.onmouseout  = () => { btn.style.borderColor='#52525b'; btn.style.color='#71717a'; };
+        btn.onclick = () => {
+            const inst = echarts.getInstanceByDom(el);
+            if (!inst) return;
+            const url = inst.getDataURL({ type:'png', pixelRatio:2, backgroundColor:bg });
+            const img = new Image();
+            img.onload = () => {
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF({ orientation:'landscape', unit:'mm', format:'a4' });
+                const pw = doc.internal.pageSize.getWidth(), ph = doc.internal.pageSize.getHeight(), mg = 12;
+                const imgW = pw - mg*2, imgH = Math.min(imgW*(img.naturalHeight/img.naturalWidth), ph - mg*2 - 14);
+                const rgb = bg.replace('#','');
+                doc.setFillColor(parseInt(rgb.slice(0,2),16), parseInt(rgb.slice(2,4),16), parseInt(rgb.slice(4,6),16));
+                doc.rect(0,0,pw,ph,'F');
+                doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.setTextColor(226,232,240);
+                doc.text(title, mg, mg+5);
+                doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(100,116,139);
+                doc.text(new Date().toLocaleDateString('en-GB'), mg, mg+10);
+                doc.addImage(url,'PNG', mg, mg+14, imgW, imgH);
+                doc.save(`${filename}_${new Date().toISOString().slice(0,10)}.pdf`);
+            };
+            img.src = url;
+        };
+        el.style.position = 'relative';
+        el.appendChild(btn);
+    }
+
+    function applyTheme(theme) {
+        document.body.classList.toggle('light', theme === 'light');
+        const icon = document.getElementById('theme-icon');
+        if (icon) icon.className = theme === 'light' ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
+    }
+    applyTheme("{{ ui_theme }}");
+    function toggleTheme() {
+        const next = document.body.classList.contains('light') ? 'dark' : 'light';
+        applyTheme(next);
+        fetch('/user/theme', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({theme: next}) });
+    }
+
+    // Export raw data, carrying the current sidebar filters
+    function doExport() {
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = '/report/34/export';
+        const sidebarForm = document.querySelector('aside form');
+        if (sidebarForm) {
+            new FormData(sidebarForm).forEach((v, k) => {
+                const i = document.createElement('input'); i.type='hidden'; i.name=k; i.value=v; form.appendChild(i);
+            });
+        }
+        document.body.appendChild(form);
+        form.submit();
+        document.body.removeChild(form);
+    }
+</script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    flatpickr('input[type="date"]', {
+        dateFormat: 'Y-m-d',
+        altInput:   true,
+        altFormat:  'd/m/Y',
+        allowInput: true,
+        disableMobile: true
+    });
+});
+</script>
+</body>
+</html>

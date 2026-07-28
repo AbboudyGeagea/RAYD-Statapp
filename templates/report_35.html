@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | Technician TAT</title>
+    <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/dark.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <style>
+        body { background: #181f1c; color: #e2e8f0; font-family: 'Inter', sans-serif; overflow: hidden; font-size: 14px; }
+        body { transition: background 0.2s, color 0.2s; }
+        body.light { background: #f0f4f8 !important; color: #1a202c !important; }
+        body.light aside, body.light header { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        body.light .glass-card { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        body.light .input-dark { background: #ffffff !important; border-color: #e2e8f0 !important; color: #1a202c !important; }
+        .glass-card { background: #232b28; border: 1px solid #28332e; border-radius: 1.5rem; padding: 24px; }
+        .sidebar-label { font-size:10px; font-weight:800; color:#64748b; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:6px; display:block; }
+        .input-dark { background:#181f1c; border:1px solid #28332e; color:#e2e8f0; border-radius:8px; padding:8px 10px; font-size:12px; width:100%; outline:none; transition:border 0.15s; }
+        .input-dark:focus { border-color:#60a5fa; }
+        .select2-container--default .select2-selection--multiple { background: #181f1c !important; border: 1px solid #28332e !important; min-height: 45px !important; border-radius: 12px !important; }
+        .section-desc { font-size: 13px; color: #64748b; font-style: italic; line-height: 1.6; margin-bottom: 20px; padding: 12px 16px; background: rgba(96,165,250,0.06); border-left: 3px solid #60a5fa; border-radius: 0 8px 8px 0; }
+        .outlier-badge { display:inline-flex; align-items:center; gap:4px; background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.4); color:#f59e0b; border-radius:999px; padding:2px 10px; font-size:10px; font-weight:700; cursor:pointer; position:relative; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-thumb { background: #28332e; border-radius: 10px; }
+        @media print {
+            aside, header button, form button[type=submit], .section-desc, nav { display: none !important; }
+            body { overflow: visible !important; background: #fff !important; color: #000 !important; }
+            main { overflow: visible !important; padding: 0 !important; }
+            .glass-card { border: 1px solid #ddd !important; break-inside: avoid; }
+        }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+    {% include '_header.html' %}
+    <div class="flex flex-1 overflow-hidden">
+
+    <aside class="w-64 bg-[#1a2420] border-r border-[#28332e] p-5 flex flex-col overflow-y-auto flex-shrink-0">
+        <form id="mainForm" method="GET" class="space-y-6 flex-1 overflow-y-auto pr-2">
+
+            <div>
+                <label class="sidebar-label">Date Range</label>
+                <input type="date" name="start_date" value="{{ display_start }}" class="input-dark mb-2">
+                <input type="date" name="end_date" value="{{ display_end }}" class="input-dark">
+            </div>
+
+            <div>
+                <label class="sidebar-label">Modality</label>
+                <select name="modality" multiple class="select2-js w-full"
+                        data-filter-key="modalities"
+                        data-selected="{{ filters.modality | join('||') }}">
+                </select>
+                <label class="inline-flex items-center mt-2 cursor-pointer">
+                    <input type="checkbox" name="mod_enabled" {% if filters.mod_enabled %}checked{% endif %} class="w-4 h-4 bg-black border-zinc-800 rounded text-blue-600">
+                    <span class="ml-2 text-[10px] font-black text-zinc-500 uppercase">Apply Filter</span>
+                </label>
+            </div>
+
+            <div class="flex flex-col gap-3 pt-4">
+                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-2xl font-black text-xs uppercase shadow-xl transition-all text-white">
+                    Run Report
+                </button>
+                {% if run_report %}
+                <button type="submit" formaction="{{ url_for('report_35.export_report_35') }}" formmethod="POST"
+                        class="w-full bg-zinc-900 border border-white/10 py-3 rounded-2xl font-black text-xs uppercase text-zinc-400 hover:text-white transition-all flex items-center justify-center gap-2">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                    </svg>
+                    Download CSV
+                </button>
+                <p class="text-[11px] text-zinc-700 italic leading-relaxed">
+                    CSV export contains the summary, by-technician, by-modality, flagged-exam and never-done sections for the selected date range and filters.
+                </p>
+                {% endif %}
+            </div>
+        </form>
+    </aside>
+
+    <main class="flex-1 overflow-y-auto p-10">
+
+        <div class="mb-6">
+            <h1 class="text-xl font-black text-white uppercase tracking-tight">Technician TAT</h1>
+            <p class="section-desc mt-3">
+                Technician compliance monitoring — tracks exam completion against schedule using HL7 orders and
+                procedure durations. Flags exams marked done before their scheduled time, unusually fast
+                (&lt;50% of expected duration), overlapping with another exam on the same station, or unusually
+                slow (&gt;2× expected duration).
+            </p>
+        </div>
+
+        {% if not run_report %}
+        <div class="glass-card text-center py-16 text-zinc-500">
+            <i class="bi bi-clock-history text-4xl mb-3 block opacity-40"></i>
+            <p class="font-black text-sm">Run a report to see technician data.</p>
+        </div>
+        {% else %}
+
+        <div id="tech-tab-body" class="space-y-8">
+            {% set tech_data = data.tech_data %}
+            {% set tech_insights = data.tech_insights %}
+            {% include '_tech_tab.html' %}
+        </div>
+
+        <!-- ── FLAG ACK MODAL ─────────────────────────────────────────── -->
+        <div id="ack-modal" style="display:none; position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,0.7); backdrop-filter:blur(4px);" class="flex items-center justify-center">
+            <div class="glass-card w-full max-w-md" style="border:1px solid rgba(255,255,255,0.12);">
+                <div class="flex items-center justify-between mb-4">
+                    <p class="text-sm font-black text-emerald-400 uppercase tracking-wide">Acknowledge Flag</p>
+                    <button onclick="closeAckModal()" class="text-zinc-500 hover:text-white text-xl font-black leading-none">&times;</button>
+                </div>
+                <p class="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Accession</p>
+                <p id="ack-modal-accession" class="text-xs font-mono text-zinc-300 mb-3"></p>
+                <p class="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Flags</p>
+                <div id="ack-modal-flags" class="flex flex-wrap gap-1 mb-4"></div>
+                <p class="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Note <span class="normal-case text-zinc-600">(optional)</span></p>
+                <textarea id="ack-modal-note" rows="3"
+                    class="w-full bg-[#111413] border border-[#28332e] text-zinc-300 text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-emerald-500/50 resize-none mb-4"
+                    placeholder="Add context or resolution note..."></textarea>
+                <div class="flex gap-3">
+                    <button onclick="submitAck()"
+                        class="flex-1 py-2 rounded-lg bg-emerald-600/20 border border-emerald-500/40 text-emerald-400 text-xs font-bold hover:bg-emerald-600/30 transition-colors">
+                        Confirm Acknowledgement
+                    </button>
+                    <button onclick="closeAckModal()"
+                        class="px-4 py-2 rounded-lg border border-[#28332e] text-zinc-500 text-xs font-bold hover:text-zinc-300 transition-colors">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        {% endif %}
+    </main>
+    </div>
+
+    <script>
+        // ── Theme toggle ───────────────────────────────────────────────────
+        function applyTheme(theme) {
+            document.body.classList.toggle('light', theme === 'light');
+            const icon = document.getElementById('theme-icon');
+            if (icon) icon.className = theme === 'light' ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
+        }
+        applyTheme("{{ ui_theme }}");
+        function toggleTheme() {
+            const next = document.body.classList.contains('light') ? 'dark' : 'light';
+            applyTheme(next);
+            fetch('/user/theme', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({theme: next}) });
+        }
+
+        $(document).ready(function() {
+            $('.select2-js').select2();
+            flatpickr('input[type="date"]', { dateFormat: 'Y-m-d', altInput: true, altFormat: 'd/m/Y', allowInput: true, disableMobile: true });
+        });
+
+        // ── Tech tab interactions (ported from report_25.html) ───────────────
+        function toggleEvidence(id) {
+            const el   = document.getElementById(id);
+            const icon = document.getElementById(id + '-icon');
+            if (!el) return;
+            const hidden = el.classList.toggle('hidden');
+            if (icon) icon.style.transform = hidden ? '' : 'rotate(180deg)';
+        }
+
+        function toggleTechMod(id) {
+            const sub  = document.getElementById(id);
+            const icon = document.getElementById(id + '-icon');
+            if (!sub) return;
+            const open = sub.style.display !== 'none';
+            sub.style.display = open ? 'none' : 'table-row';
+            if (icon && icon.textContent.trim()) icon.textContent = open ? '▶' : '▼';
+        }
+
+        function toggleFlagER(id) {
+            const sub  = document.getElementById(id);
+            const icon = document.getElementById(id + '-icon');
+            if (!sub) return;
+            const open = sub.style.display !== 'none';
+            sub.style.display = open ? 'none' : 'table-row';
+            if (icon) icon.textContent = open ? '▶' : '▼';
+        }
+
+        function filterFlaggedByDate(date) {
+            const input = document.getElementById('flag-date-filter');
+            if (input && date === '') input.value = '';
+            const tbody = document.getElementById('flag-tbody');
+            if (!tbody) return;
+            tbody.querySelectorAll('tr').forEach(tr => {
+                if (tr.dataset.child) { tr.style.display = 'none'; return; }
+                tr.style.display = (!date || tr.dataset.date === date) ? '' : 'none';
+            });
+        }
+
+        // ── Flag acknowledgement ───────────────────────────────────────────
+        const _ACK_USER = "{{ current_user.username }}";
+        const _FLAG_BADGE = {
+            before_scheduled: '<span style="font-size:9px;font-weight:900;padding:2px 6px;border-radius:4px;background:rgba(244,63,94,0.2);color:#f87171;border:1px solid rgba(244,63,94,0.4)">BEFORE TIME</span>',
+            too_early:        '<span style="font-size:9px;font-weight:900;padding:2px 6px;border-radius:4px;background:rgba(245,158,11,0.2);color:#fbbf24;border:1px solid rgba(245,158,11,0.4)">TOO EARLY</span>',
+            overlap:          '<span style="font-size:9px;font-weight:900;padding:2px 6px;border-radius:4px;background:rgba(249,115,22,0.2);color:#fb923c;border:1px solid rgba(249,115,22,0.4)">OVERLAP</span>',
+            too_late:         '<span style="font-size:9px;font-weight:900;padding:2px 6px;border-radius:4px;background:rgba(167,139,250,0.2);color:#a78bfa;border:1px solid rgba(167,139,250,0.4)">TOO LATE</span>',
+        };
+        let _ackPending = {};
+
+        function showAckModal(btn) {
+            const idx      = btn.dataset.idx;
+            const accession = btn.dataset.accession;
+            const date     = btn.dataset.date;
+            const flags    = JSON.parse(btn.dataset.flags || '[]');
+            _ackPending = { idx, accession, date, flags };
+            document.getElementById('ack-modal-accession').textContent = accession;
+            document.getElementById('ack-modal-flags').innerHTML = flags.map(f => _FLAG_BADGE[f] || f).join(' ');
+            document.getElementById('ack-modal-note').value = '';
+            document.getElementById('ack-modal').style.display = 'flex';
+        }
+
+        function closeAckModal() {
+            document.getElementById('ack-modal').style.display = 'none';
+            _ackPending = {};
+        }
+
+        async function submitAck() {
+            const note = document.getElementById('ack-modal-note').value.trim();
+            try {
+                const r = await fetch('/report/35/flag/acknowledge', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        accession: _ackPending.accession,
+                        flag_date: _ackPending.date,
+                        flags:     _ackPending.flags,
+                        note,
+                    }),
+                });
+                if (!r.ok) throw new Error();
+                closeAckModal();
+                _updateAckRow(_ackPending.idx, _ackPending.accession, _ackPending.date, _ackPending.flags, true, note);
+            } catch {
+                alert('Failed to acknowledge. Please try again.');
+            }
+        }
+
+        async function unAckFlag(btn) {
+            const idx      = btn.dataset.idx;
+            const accession = btn.dataset.accession;
+            const date     = btn.dataset.date;
+            try {
+                const r = await fetch('/report/35/flag/unacknowledge', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ accession, flag_date: date }),
+                });
+                if (!r.ok) throw new Error();
+                _updateAckRow(idx, accession, date, [], false, '');
+            } catch {
+                alert('Failed to remove acknowledgement. Please try again.');
+            }
+        }
+
+        function _updateAckRow(idx, accession, date, flags, acked, note) {
+            const now    = new Date().toISOString().slice(0, 16).replace('T', ' ');
+            const stateEl = document.getElementById('ack-state-' + idx);
+            if (stateEl) {
+                if (acked) {
+                    stateEl.innerHTML = `<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-top:2px;">
+                        <span style="font-size:9px;font-weight:900;padding:2px 6px;border-radius:4px;background:rgba(16,185,129,0.15);color:#34d399;border:1px solid rgba(16,185,129,0.35);"
+                            title="Note: ${note || 'None'}">✓ ACK'd · ${_ACK_USER}</span>
+                        <button data-idx="${idx}" data-accession="${accession}" data-date="${date}"
+                            onclick="unAckFlag(this)"
+                            style="font-size:9px;font-weight:700;color:#52525b;text-decoration:underline;background:none;border:none;cursor:pointer;padding:0;"
+                            onmouseenter="this.style.color='#f87171'" onmouseleave="this.style.color='#52525b'">un-ack</button>
+                    </div>`;
+                } else {
+                    stateEl.innerHTML = `<button data-idx="${idx}" data-accession="${accession}" data-date="${date}"
+                        data-flags='${JSON.stringify(flags)}'
+                        onclick="showAckModal(this)"
+                        style="margin-top:2px;padding:2px 8px;font-size:9px;font-weight:700;border-radius:4px;border:1px solid rgba(245,158,11,0.3);color:#fbbf24;background:none;cursor:pointer;"
+                        onmouseenter="this.style.background='rgba(245,158,11,0.1)'"
+                        onmouseleave="this.style.background='none'">Ack</button>`;
+                }
+            }
+            const logRow = document.getElementById('ack-log-row-' + idx);
+            if (logRow) {
+                if (acked) {
+                    logRow.style.display = '';
+                    const nc = logRow.querySelector('.ack-note');
+                    const bc = logRow.querySelector('.ack-by');
+                    const ac = logRow.querySelector('.ack-at');
+                    if (nc) nc.textContent = note || '';
+                    if (bc) bc.textContent = _ACK_USER;
+                    if (ac) ac.textContent = now;
+                } else {
+                    logRow.style.display = 'none';
+                }
+            }
+            const tbody = document.getElementById('ack-log-tbody');
+            const emptyEl = document.getElementById('ack-log-empty');
+            const countEl = document.getElementById('ack-log-count');
+            if (tbody) {
+                const visible = tbody.querySelectorAll('tr:not([style*="display:none"])').length;
+                if (emptyEl) emptyEl.style.display = visible === 0 ? '' : 'none';
+                if (countEl) countEl.textContent = visible + " ack'd";
+            }
+        }
+
+        // ── Chart PNG export ─────────────────────────────────────────────
+        window._techCharts = {};
+        function downloadChartPNG(elId, name) {
+            const c = window._techCharts[elId];
+            if (!c) return;
+            const url = c.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#232b28' });
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `RAYD_${name}_${new Date().toISOString().slice(0,10)}.png`;
+            a.click();
+        }
+
+        {% if run_report and data %}
+        // ── Daily TAT trend chart ─────────────────────────────────────────
+        (function() {
+            const trendEl = document.getElementById('chart-tech-trend');
+            if (!trendEl) return;
+            const trend = {{ (data.tech_data.daily_trend or []) | tojson }};
+            if (trend.length < 2) return;
+            const axisStyle = {
+                axisLabel: { color: '#52525b', fontWeight: 600, fontSize: 12 },
+                splitLine:  { lineStyle: { color: '#1f1f23' } }
+            };
+            const tc = echarts.init(trendEl);
+            window._techCharts['chart-tech-trend'] = tc;
+            const markPoints = trend
+                .map((r, i) => r.flags > 0 ? { coord: [i, r.avg_tat], value: r.flags + ' flag' + (r.flags > 1 ? 's' : ''), itemStyle: { color: '#f43f5e' } } : null)
+                .filter(Boolean);
+            tc.setOption({
+                tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+                legend: { data: ['Avg TAT (min)', 'Exams'], textStyle: { color: '#71717a', fontSize: 11 } },
+                grid: { left: 50, right: 50, top: 30, bottom: 30 },
+                xAxis: { type: 'category', data: trend.map(r => r.date), ...axisStyle },
+                yAxis: [
+                    { type: 'value', name: 'TAT (min)', nameTextStyle: { color: '#52525b', fontSize: 10 }, ...axisStyle },
+                    { type: 'value', name: 'Exams', nameTextStyle: { color: '#52525b', fontSize: 10 }, splitLine: { show: false }, axisLabel: { color: '#52525b' } }
+                ],
+                series: [
+                    { name: 'Avg TAT (min)', type: 'line', smooth: true, yAxisIndex: 0, data: trend.map(r => r.avg_tat), lineStyle: { color: '#60a5fa', width: 2 }, itemStyle: { color: '#60a5fa' }, areaStyle: { color: 'rgba(96,165,250,0.08)' }, markPoint: { data: markPoints, symbol: 'pin', symbolSize: 36, label: { fontSize: 9, color: '#fff' } } },
+                    { name: 'Exams', type: 'bar', yAxisIndex: 1, data: trend.map(r => r.count), itemStyle: { color: 'rgba(16,185,129,0.25)', borderRadius: [3,3,0,0] }, barMaxWidth: 24 }
+                ]
+            });
+            window.addEventListener('resize', () => tc.resize());
+        })();
+        {% endif %}
+    </script>
+</body>
+</html>

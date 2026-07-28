@@ -1,0 +1,1001 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | Radiologists Performance</title>
+    <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/dark.min.css">
+    <style>
+        body { background: #0b0f0e; color: #e2e8f0; font-family: 'Inter', sans-serif; height: 100vh; overflow: hidden; }
+        body { transition: background 0.2s, color 0.2s; }
+        body.light { background: #f0f4f8 !important; color: #1a202c !important; }
+        body.light aside, body.light header { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        body.light .sidebar-item { color: #4a5568 !important; }
+        body.light .sidebar-item:hover, body.light .sidebar-item.active { background: #e2e8f0 !important; color: #2b6cb0 !important; }
+        body.light .input-dark { background: #ffffff !important; border-color: #e2e8f0 !important; color: #1a202c !important; }
+        body.light .data-card { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        body.light .card-header { border-bottom-color: #e2e8f0 !important; }
+        body.light .card-desc { background: #f8fafc !important; border-bottom-color: #e2e8f0 !important; color: #64748b !important; }
+        body.light .export-img-btn { background: #f8fafc !important; border-color: #e2e8f0 !important; color: #64748b !important; }
+        body.light .btn-csv { background: #f0fdf4 !important; border-color: #bbf7d0 !important; color: #16a34a !important; }
+        body.light .rad-card { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        body.light .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1 !important; }
+        .input-dark { background: #141a18; border: 1px solid #2d3733; color: #e2e8f0; border-radius: 8px; padding: 10px; font-size: 12px; width: 100%; outline: none; }
+        .data-card { background: #141a18; border: 1px solid #2d3733; border-radius: 12px; height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+        .card-header { padding: 14px 18px; border-bottom: 1px solid #2d3733; font-size: 11px; font-weight: 900; color: #818cf8; text-transform: uppercase; letter-spacing: 0.1em; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; }
+        .card-desc { padding: 10px 18px; font-size: 12px; color: #64748b; font-style: italic; background: #0d1210; border-bottom: 1px solid #1a211f; line-height: 1.5; }
+        .chart-container { flex: 1; min-height: 300px; padding: 15px; }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #2d3733; border-radius: 10px; }
+        label { font-size: 11px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; }
+        .export-img-btn, .export-pdf-btn {
+            display: inline-flex; align-items: center; gap: 4px;
+            font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.08em;
+            color: #475569; border: 1px solid #2d3733; border-radius: 5px;
+            padding: 3px 8px; background: #0b0f0e; cursor: pointer; transition: all 0.15s;
+        }
+        .export-img-btn:hover { color: #818cf8; border-color: #818cf8; }
+        .export-pdf-btn:hover { color: #f87171; border-color: #f87171; }
+        .btn-csv {
+            width: 100%; padding: 10px; border-radius: 8px;
+            background: #1a2820; border: 1px solid #2d3733;
+            color: #34d399; font-size: 11px; font-weight: 900;
+            text-transform: uppercase; letter-spacing: 0.08em;
+            cursor: pointer; transition: all 0.15s; display: flex;
+            align-items: center; justify-content: center; gap: 6px;
+        }
+        .btn-csv:hover { background: #1e3028; border-color: #34d399; }
+
+        /* Radiologist performance cards */
+        .rad-card { background: #141a18; border: 1px solid #2d3733; border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+        .rad-pctile { display:inline-flex; align-items:center; justify-content:center; padding:3px 10px; border-radius:999px; font-size:10px; font-weight:900; letter-spacing:0.04em; }
+        .rad-stat-label { font-size: 9px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.06em; }
+        .rad-stat-value { font-size: 15px; font-weight: 900; color: #e2e8f0; font-family: 'Monaco', monospace; }
+        .rad-drill-btn { font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; display: flex; align-items: center; gap: 5px; transition: color 0.15s; }
+        .rad-drill-btn:hover { color: #818cf8; }
+        .sort-btn { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; padding: 5px 12px; border-radius: 6px; border: 1px solid #2d3733; color: #64748b; cursor: pointer; background: #0b0f0e; transition: all 0.15s; }
+        .sort-btn:hover { color: #94a3b8; border-color: #475569; }
+        .sort-btn.active { color: #818cf8; border-color: #818cf8; background: rgba(129,140,248,0.08); }
+
+        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+        .ai-cursor { display:inline-block; animation:blink 1s step-start infinite; color:#34d399; }
+        @media print {
+            aside, header button, form button[type=submit], .card-desc, nav { display: none !important; }
+            body { overflow: visible !important; background: #fff !important; color: #000 !important; }
+            main { overflow: visible !important; padding: 0 !important; }
+            .data-card, .rad-card { border: 1px solid #ddd !important; break-inside: avoid; }
+            .chart-container { height: 320px !important; }
+        }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+    {% include '_header.html' %}
+
+    <div class="flex flex-1 overflow-hidden">
+        <aside class="w-64 bg-[#141a18] border-r border-[#2d3733] flex flex-col p-6 overflow-y-auto shrink-0 gap-5">
+
+            <form method="GET" class="space-y-4">
+                <div>
+                    <label class="block mb-3">Date Selection</label>
+                    <input type="date" name="start_date" class="input-dark mb-2" value="{{ display_start }}">
+                    <input type="date" name="end_date" class="input-dark" value="{{ display_end }}">
+                </div>
+
+                <hr class="border-[#2d3733]">
+
+                <div class="space-y-3">
+                    <div class="flex flex-col gap-1">
+                        <div class="flex justify-between items-center">
+                            <label class="mb-0 text-[10px]">Modality</label>
+                            <input type="checkbox" name="f_mod_active" onchange="document.getElementById('f_mod_32').disabled=!this.checked" {% if filters and filters.f_mod_active %}checked{% endif %}>
+                        </div>
+                        <select name="f_mod" id="f_mod_32" class="input-dark" {% if not (filters and filters.f_mod_active) %}disabled{% endif %}
+                                data-filter-key="modalities"
+                                data-selected="{{ filters.f_mod if filters and filters.f_mod else '' }}">
+                        </select>
+                    </div>
+
+                    <div class="flex flex-col gap-1">
+                        <div class="flex justify-between items-center">
+                            <label class="mb-0 text-[10px]">Patient Class</label>
+                            <input type="checkbox" name="f_class_active" onchange="document.getElementById('f_class_32').disabled=!this.checked" {% if filters and filters.f_class_active %}checked{% endif %}>
+                        </div>
+                        <select name="f_class" id="f_class_32" class="input-dark" {% if not (filters and filters.f_class_active) %}disabled{% endif %}
+                                data-filter-key="classes"
+                                data-selected="{{ filters.f_class if filters and filters.f_class else '' }}">
+                        </select>
+                    </div>
+                </div>
+
+                <button type="submit" class="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs uppercase rounded-lg transition-all">
+                    Analyze Performance
+                </button>
+            </form>
+
+            {% if run_report %}
+            <div class="border-t border-[#2d3733] pt-5 space-y-3">
+                <label class="block">Export Data</label>
+                <form method="POST" action="{{ url_for('report_32.export_report_32') }}">
+                    <input type="hidden" name="start_date" value="{{ display_start }}">
+                    <input type="hidden" name="end_date" value="{{ display_end }}">
+                    {% if filters %}
+                    {% if filters.f_mod_active %}<input type="hidden" name="f_mod_active" value="on"><input type="hidden" name="f_mod" value="{{ filters.f_mod }}">{% endif %}
+                    {% if filters.f_class_active %}<input type="hidden" name="f_class_active" value="on"><input type="hidden" name="f_class" value="{{ filters.f_class }}">{% endif %}
+                    {% endif %}
+                    <button type="submit" class="btn-csv">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
+                                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                        </svg>
+                        Download CSV
+                    </button>
+                </form>
+                <p class="text-[11px] text-slate-600 italic leading-relaxed">
+                    Downloads one row per radiologist: study count, TAT, RVU and addendum rate for the current date range.
+                </p>
+            </div>
+            {% endif %}
+        </aside>
+
+        <main class="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar bg-[#0b0f0e]">
+
+            {% if run_report and not data %}
+            <div class="data-card !h-auto text-center py-16 text-slate-500">
+                <i class="bi bi-inboxes text-4xl mb-3 block opacity-40"></i>
+                <p class="font-black text-sm">No data for the selected date range and filters.</p>
+                <p class="text-[11px] mt-2 text-slate-600">Try widening the date range or clearing active filters.</p>
+            </div>
+            {% endif %}
+
+            {% if run_report and data %}
+
+            <p class="text-[13px] text-slate-500 italic leading-relaxed">
+                Per-radiologist turnaround time (TAT) and RVU performance, peer percentile ranking, reporting
+                volume broken down by modality / AE title / procedure / month, and addendum rate. Only studies
+                with a signed final report are counted. RH (main site) only; SR/OT excluded.
+            </p>
+
+            <!-- KPI Row -->
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-6">
+                <div class="data-card p-6 border-l-4 border-l-indigo-500 !h-auto">
+                    <p class="text-xs font-bold text-slate-500 uppercase mb-1">Signed Studies</p>
+                    <p class="text-3xl font-black text-white">{{ "{:,}".format(data.summary.total_studies) }}</p>
+                    <p class="text-[11px] text-slate-600 italic mt-2">Studies with a final report in this period.</p>
+                </div>
+                <div class="data-card p-6 border-l-4 border-l-blue-500 !h-auto">
+                    <p class="text-xs font-bold text-slate-500 uppercase mb-1">Active Radiologists</p>
+                    <p class="text-3xl font-black text-white">{{ data.summary.total_radiologists }}</p>
+                    <p class="text-[11px] text-slate-600 italic mt-2">Distinct signing radiologists.</p>
+                </div>
+                <div class="data-card p-6 border-l-4 border-l-amber-500 !h-auto">
+                    <p class="text-xs font-bold text-slate-500 uppercase mb-1">Dept. Median TAT</p>
+                    <p class="text-3xl font-black text-white">{{ data.summary.dept_median_tat }}<span class="text-base text-slate-500">m</span></p>
+                    <p class="text-[11px] text-slate-600 italic mt-2">Avg: {{ data.summary.dept_avg_tat }}m</p>
+                </div>
+                <div class="data-card p-6 border-l-4 border-l-emerald-500 !h-auto">
+                    <p class="text-xs font-bold text-slate-500 uppercase mb-1">Total RVU</p>
+                    <p class="text-3xl font-black text-white">{{ "{:,.1f}".format(data.summary.total_clinical_rvu + data.summary.total_technical_rvu) }}</p>
+                    <p class="text-[11px] text-slate-600 italic mt-2">Clinical {{ data.summary.total_clinical_rvu }} + Technical {{ data.summary.total_technical_rvu }}</p>
+                </div>
+            </div>
+
+            <!-- ── Radiologist Performance Cards ─────────────────────────────── -->
+            <div class="data-card !h-auto">
+                <div class="card-header">
+                    <span><i class="bi bi-person-badge"></i> Radiologist Performance</span>
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <input id="rad-search" type="text" placeholder="Search radiologist…"
+                               class="input-dark" style="width:160px;padding:5px 10px;font-size:11px;">
+                        <button class="sort-btn active" data-sort="count" onclick="radSetSort('count')">Volume</button>
+                        <button class="sort-btn" data-sort="tat" onclick="radSetSort('tat')">Fastest TAT</button>
+                        <button class="sort-btn" data-sort="rvu" onclick="radSetSort('rvu')">RVU / hr</button>
+                        <button class="sort-btn" data-sort="pctile" onclick="radSetSort('pctile')">Percentile</button>
+                    </div>
+                </div>
+                <div class="card-desc">
+                    One card per signing radiologist. Percentile ranks peer TAT — lower percentile means faster
+                    (better) turnaround relative to colleagues in this same period. Expand "Drilldown" for a
+                    per-location × modality breakdown.
+                </div>
+                <div id="rad-cards-grid" class="p-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"></div>
+                <p id="rad-cards-empty" class="hidden text-center text-sm text-slate-600 italic py-10">No radiologists match this search.</p>
+            </div>
+
+            <!-- ── Reports per Radiologist × Modality / AE / Procedure / Month ── -->
+            <div class="data-card !h-auto" id="r32-rad-matrix-card">
+                <div class="card-header">
+                    <span><i class="bi bi-grid-3x3-gap"></i> Reports per Radiologist</span>
+                    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                        <div style="display:inline-flex;border:1px solid #2d3733;border-radius:6px;overflow:hidden;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;">
+                            <button id="r32-rad-toggle-mod" onclick="r32RadToggle('mod')"
+                                style="padding:4px 12px;background:rgba(129,140,248,0.15);color:#818cf8;border:none;cursor:pointer;">By Modality</button>
+                            <button id="r32-rad-toggle-ae" onclick="r32RadToggle('ae')"
+                                style="padding:4px 12px;background:transparent;color:#64748b;border:none;cursor:pointer;">By AE Title</button>
+                            <button id="r32-rad-toggle-month" onclick="r32RadToggle('month')"
+                                style="padding:4px 12px;background:transparent;color:#64748b;border:none;cursor:pointer;">By Month</button>
+                        </div>
+                        <button onclick="r32ExportCsv()" title="Export table as CSV" class="export-img-btn">
+                            <i class="bi bi-download"></i> CSV
+                        </button>
+                        <button class="export-pdf-btn" onclick="exportElemPdf32(document.getElementById('r32-rad-xtab'),'Reports per Radiologist','rad_matrix')">
+                            <i class="bi bi-file-earmark-pdf"></i> PDF
+                        </button>
+                    </div>
+                </div>
+                <div class="card-desc">Study counts per radiologist, cross-tabulated by modality, AE title, or month. Toggle the dimension above.</div>
+                <div class="p-5">
+                    <div id="r32-rad-xtab"></div>
+
+                    <!-- Procedure cross-tab -->
+                    <div style="margin-top:20px;">
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+                            <span style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;color:#64748b;">Procedure Breakdown</span>
+                            <input id="r32-proc-search" type="text" placeholder="Search procedure…" oninput="r32ProcFilter()"
+                                class="input-dark" style="flex:1;min-width:120px;max-width:220px;padding:4px 8px;font-size:11px;">
+                            <span style="font-size:9px;color:#64748b;font-weight:700;">Show top</span>
+                            <select id="r32-proc-topn" onchange="r32ProcFilter()"
+                                style="background:#0b0f0e;border:1px solid #2d3733;color:#e2e8f0;border-radius:5px;padding:3px 6px;font-size:10px;outline:none;">
+                                <option value="20">20</option>
+                                <option value="50">50</option>
+                                <option value="9999">All</option>
+                            </select>
+                            <button onclick="r32ExportProcCsv()" title="Export procedure table as CSV" class="export-img-btn">
+                                <i class="bi bi-download"></i> CSV
+                            </button>
+                            <button class="export-pdf-btn" onclick="exportElemPdf32(document.getElementById('r32-proc-table')?.closest('div'),'Procedure Breakdown','rad_procedures')">
+                                <i class="bi bi-file-earmark-pdf"></i> PDF
+                            </button>
+                        </div>
+                        <div style="overflow-x:auto;max-height:340px;overflow-y:auto;border:1px solid #1a211f;border-radius:8px;">
+                            <table id="r32-proc-table" style="width:100%;border-collapse:collapse;font-size:10px;min-width:400px;">
+                                <thead id="r32-proc-thead" style="position:sticky;top:0;z-index:2;background:#141a18;"></thead>
+                                <tbody id="r32-proc-tbody"></tbody>
+                            </table>
+                        </div>
+                        <p id="r32-proc-empty" style="font-size:10px;color:#64748b;padding:8px 0;display:none;">No procedure data available for this period.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── Addendum Rate per Radiologist ──────────────────────────────── -->
+            <div class="data-card !h-auto">
+                <div class="card-header">
+                    <span><i class="bi bi-pencil-square"></i> Addendum Rate by Radiologist</span>
+                    <button class="export-pdf-btn" onclick="exportChartPdf32('chart-addendum','Addendum % per Radiologist','addendum_rate')"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
+                </div>
+                <div class="card-desc">
+                    Share of a radiologist's signed reports that later received an addendum. Radiologists with
+                    &lt; 5 signed reports in the period are excluded. Higher % may indicate quality-review
+                    opportunities, not necessarily error — some services addend routinely (e.g. critical-result callbacks).
+                </div>
+                {% if data.addendum_data and data.addendum_data.by_rad %}
+                <div class="p-5">
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-2">
+                        <div class="bg-[#0b0f0e] border border-[#2d3733] rounded-xl p-4 text-center flex flex-col justify-center">
+                            <p class="text-[9px] font-black text-slate-500 uppercase mb-1">Overall Addendum Rate</p>
+                            <p class="text-4xl font-black text-white">{{ data.addendum_data.overall_pct }}%</p>
+                            <p class="text-[11px] text-slate-600 italic mt-1">{{ data.addendum_data.total_addenda }} total addenda</p>
+                        </div>
+                        <div class="lg:col-span-2 bg-[#0b0f0e] border border-[#2d3733] rounded-xl">
+                            <div id="chart-addendum" style="height:280px;"></div>
+                        </div>
+                    </div>
+                    <div class="overflow-x-auto mt-4" style="max-height:320px;overflow-y:auto;border:1px solid #1a211f;border-radius:8px;">
+                        <table class="w-full text-left text-xs" style="border-collapse:collapse;">
+                            <thead style="position:sticky;top:0;background:#141a18;">
+                                <tr class="text-[9px] font-black text-slate-500 uppercase tracking-wider">
+                                    <th class="py-2 px-3">Radiologist</th>
+                                    <th class="py-2 px-3 text-right">Signed Reports</th>
+                                    <th class="py-2 px-3 text-right">Addenda</th>
+                                    <th class="py-2 px-3 text-right">Rate</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in data.addendum_data.by_rad %}
+                                <tr class="border-t border-[#1a211f]">
+                                    <td class="py-2 px-3 font-bold text-slate-200">{{ row.rad }}</td>
+                                    <td class="py-2 px-3 text-right text-slate-400 font-mono">{{ row.total }}</td>
+                                    <td class="py-2 px-3 text-right text-slate-400 font-mono">{{ row.addendum_count }}</td>
+                                    <td class="py-2 px-3 text-right font-mono font-black
+                                        {% if row.pct > 15 %}text-red-400{% elif row.pct > 7 %}text-amber-400{% else %}text-emerald-400{% endif %}">{{ row.pct }}%</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                {% else %}
+                <div class="text-center py-10 text-slate-600 italic text-sm">
+                    No addendum data available for this period (requires ≥5 signed reports per radiologist, and
+                    the <code class="text-indigo-400">rep_has_addendum</code> / <code class="text-indigo-400">rep_final_signed_by</code> fields populated).
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- ── Reporting Cadence Analysis (radiologist shift patterns) ────── -->
+            <div class="data-card !h-auto" id="r32-cadence-card">
+                <div class="card-header">
+                    <span><i class="bi bi-clock-history"></i> Reporting Cadence Analysis</span>
+                    <button id="r32-cadence-mode-btn" onclick="r32ToggleCadenceMode()" class="export-img-btn" title="Toggle enhanced view">
+                        <i class="bi bi-circle-fill" style="font-size:6px;"></i> Enhanced View
+                    </button>
+                </div>
+                <div class="card-desc">
+                    Per-radiologist signing-time heatmap by hour and day of week, derived from
+                    <code class="text-indigo-400">rep_final_timestamp</code>. Inactive intervals ≥ 20 min between
+                    consecutive signatures are logged as breaks in the daily log below each heatmap.
+                </div>
+                <div class="p-5">
+                    <div class="space-y-6" id="r32-cadence-container"></div>
+                    <p id="r32-cadence-empty" class="hidden text-center text-sm text-slate-600 italic py-10">No signed reports found for this period.</p>
+                </div>
+            </div>
+
+            {% else %}
+            <div class="h-full flex flex-col items-center justify-center text-slate-800">
+                <span class="text-7xl font-black italic uppercase tracking-tighter opacity-50">Intel Pending</span>
+                <span class="text-xs font-bold uppercase tracking-widest mt-2">Select timeframe and click analyze</span>
+            </div>
+            {% endif %}
+        </main>
+    </div>
+
+    <script>
+        // ── Chart instance registry + export helpers (report_23/25 pattern) ──
+        const chartInstances32 = {};
+        function initChart32(id, option) {
+            const el = document.getElementById(id);
+            if (!el) return null;
+            const instance = echarts.init(el);
+            instance.setOption(option);
+            chartInstances32[id] = instance;
+            return instance;
+        }
+        function exportChart32(id, filename) {
+            const instance = chartInstances32[id];
+            if (!instance) return;
+            const url = instance.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#141a18' });
+            const a = document.createElement('a');
+            a.href = url; a.download = `${filename}_{{ display_start }}_to_{{ display_end }}.png`;
+            a.click();
+        }
+        function exportChartPdf32(id, title, filename) {
+            const instance = chartInstances32[id];
+            if (!instance) return;
+            const url = instance.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#141a18' });
+            _pdfFromDataUrl32(url, title, filename);
+        }
+        function _pdfFromDataUrl32(dataUrl, title, filename) {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+            const pw = doc.internal.pageSize.getWidth(), ph = doc.internal.pageSize.getHeight(), mg = 12;
+            const img = new Image();
+            img.onload = () => {
+                const imgW = pw - mg * 2;
+                const imgH = Math.min(imgW * (img.naturalHeight / img.naturalWidth), ph - mg * 2 - 14);
+                doc.setFillColor(11, 15, 14); doc.rect(0, 0, pw, ph, 'F');
+                doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(226, 232, 240);
+                doc.text(title, mg, mg + 5);
+                doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(100, 116, 139);
+                doc.text('{{ display_start }} – {{ display_end }}', mg, mg + 10);
+                doc.addImage(dataUrl, 'PNG', mg, mg + 14, imgW, imgH);
+                doc.save(`${filename}_{{ display_start }}_to_{{ display_end }}.pdf`);
+            };
+            img.src = dataUrl;
+        }
+        function exportElemPdf32(el, title, filename) {
+            if (!el) return;
+            html2canvas(el, { backgroundColor: '#0b0f0e', scale: 2, useCORS: true }).then(canvas => {
+                _pdfFromDataUrl32(canvas.toDataURL('image/png'), title, filename);
+            });
+        }
+
+        // ── Theme toggle (matches report_22/23/25 pattern) ───────────────────
+        function applyTheme(theme) {
+            document.body.classList.toggle('light', theme === 'light');
+            const icon = document.getElementById('theme-icon');
+            if (icon) icon.className = theme === 'light' ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
+        }
+        applyTheme("{{ ui_theme }}");
+        function toggleTheme() {
+            const next = document.body.classList.contains('light') ? 'dark' : 'light';
+            applyTheme(next);
+            fetch('/user/theme', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ theme: next }) });
+        }
+
+        {% if run_report and data %}
+        // ══════════════════════════════════════════════════════════════════
+        // Radiologist Performance Cards
+        // ══════════════════════════════════════════════════════════════════
+        (function () {
+            const RAD_CARDS = {{ data.rad_cards | tojson }};
+            const grid  = document.getElementById('rad-cards-grid');
+            const empty = document.getElementById('rad-cards-empty');
+            let sortMode = 'count';
+            let searchTerm = '';
+
+            function pctileColor(p) {
+                if (p === null || p === undefined) return { fg: '#64748b', bg: 'rgba(100,116,139,0.12)', label: '—' };
+                if (p <= 33) return { fg: '#34d399', bg: 'rgba(52,211,153,0.15)', label: `P${p} · Fast` };
+                if (p <= 66) return { fg: '#fbbf24', bg: 'rgba(251,191,36,0.15)', label: `P${p} · Mid` };
+                return { fg: '#f87171', bg: 'rgba(248,113,113,0.15)', label: `P${p} · Slow` };
+            }
+
+            function initials(name) {
+                return (name || '?').trim().split(/\s+/).map(n => n[0]).join('').slice(0, 2).toUpperCase();
+            }
+
+            function escH(s) { const d = document.createElement('div'); d.textContent = String(s || ''); return d.innerHTML; }
+
+            function renderDrilldown(rad, idx) {
+                if (!rad.drilldown || !rad.drilldown.length) {
+                    return '<p class="text-[11px] text-slate-600 italic py-2">No location/modality breakdown available.</p>';
+                }
+                return rad.drilldown
+                    .slice()
+                    .sort((a, b) => b.loc_rvu - a.loc_rvu)
+                    .map(loc => `
+                        <div class="mb-2">
+                            <p class="text-[10px] font-black text-slate-400 uppercase tracking-wide mb-1">${escH(loc.loc || '—')} <span class="text-slate-600">(RVU ${loc.loc_rvu})</span></p>
+                            <table class="w-full text-[10px]">
+                                <thead>
+                                    <tr class="text-slate-600 uppercase text-[9px]">
+                                        <th class="text-left py-1 pr-2">Modality</th>
+                                        <th class="text-right py-1 pr-2">Avg TAT</th>
+                                        <th class="text-right py-1 pr-2">Count</th>
+                                        <th class="text-right py-1">RVU</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${loc.mods.map(m => `
+                                        <tr class="border-t border-[#1a211f]">
+                                            <td class="py-1 pr-2 text-slate-300">${escH(m.m)}</td>
+                                            <td class="py-1 pr-2 text-right font-mono text-slate-400">${m.avg}m</td>
+                                            <td class="py-1 pr-2 text-right font-mono text-slate-400">${m.count}</td>
+                                            <td class="py-1 text-right font-mono text-slate-400">${m.rvu}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    `).join('');
+            }
+
+            function cardHtml(rad, idx) {
+                const pc = pctileColor(rad.tat_percentile);
+                return `
+                    <div class="rad-card">
+                        <div class="flex items-start justify-between gap-2">
+                            <div class="flex items-center gap-3 min-w-0">
+                                <div class="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-black"
+                                     style="background:${pc.bg};color:${pc.fg}">${initials(rad.name)}</div>
+                                <p class="text-sm font-black text-white truncate" title="${escH(rad.name)}">${escH(rad.name)}</p>
+                            </div>
+                            <span class="rad-pctile flex-shrink-0" style="background:${pc.bg};color:${pc.fg}">${pc.label}</span>
+                        </div>
+                        <div class="grid grid-cols-3 gap-3">
+                            <div><p class="rad-stat-label">Studies</p><p class="rad-stat-value">${rad.count}</p></div>
+                            <div><p class="rad-stat-label">Avg TAT</p><p class="rad-stat-value">${rad.overall || '—'}<span class="text-[10px] text-slate-500">m</span></p></div>
+                            <div><p class="rad-stat-label">Median TAT</p><p class="rad-stat-value">${rad.tat_median || '—'}<span class="text-[10px] text-slate-500">m</span></p></div>
+                            <div><p class="rad-stat-label">Clinical RVU</p><p class="rad-stat-value">${rad.total_rvu}</p></div>
+                            <div><p class="rad-stat-label">Technical RVU</p><p class="rad-stat-value">${rad.total_technical_rvu}</p></div>
+                            <div><p class="rad-stat-label">RVU / hr</p><p class="rad-stat-value">${rad.rvu_per_hour}</p></div>
+                        </div>
+                        <div>
+                            <div class="rad-drill-btn" onclick="radToggleDrill(${idx})">
+                                <span id="rad-drill-arrow-${idx}">▶</span> Drilldown by Location
+                            </div>
+                            <div id="rad-drill-${idx}" class="hidden mt-2 max-h-64 overflow-y-auto pr-1">
+                                ${renderDrilldown(rad, idx)}
+                            </div>
+                        </div>
+                    </div>`;
+            }
+
+            function sortRads(list) {
+                const l = list.slice();
+                if (sortMode === 'count')  l.sort((a, b) => b.count - a.count);
+                if (sortMode === 'tat')    l.sort((a, b) => (a.overall || Infinity) - (b.overall || Infinity));
+                if (sortMode === 'rvu')    l.sort((a, b) => b.rvu_per_hour - a.rvu_per_hour);
+                if (sortMode === 'pctile') l.sort((a, b) => (a.tat_percentile ?? 999) - (b.tat_percentile ?? 999));
+                return l;
+            }
+
+            function render() {
+                let list = RAD_CARDS;
+                if (searchTerm) {
+                    const s = searchTerm.toLowerCase();
+                    list = list.filter(r => (r.name || '').toLowerCase().includes(s));
+                }
+                list = sortRads(list);
+                if (!list.length) {
+                    grid.innerHTML = '';
+                    empty.classList.remove('hidden');
+                    return;
+                }
+                empty.classList.add('hidden');
+                grid.innerHTML = list.map((r, i) => cardHtml(r, i)).join('');
+            }
+
+            window.radToggleDrill = function (idx) {
+                const el = document.getElementById(`rad-drill-${idx}`);
+                const arrow = document.getElementById(`rad-drill-arrow-${idx}`);
+                if (!el) return;
+                el.classList.toggle('hidden');
+                arrow.textContent = el.classList.contains('hidden') ? '▶' : '▼';
+            };
+
+            window.radSetSort = function (mode) {
+                sortMode = mode;
+                document.querySelectorAll('.sort-btn').forEach(b => b.classList.toggle('active', b.dataset.sort === mode));
+                render();
+            };
+
+            document.getElementById('rad-search').addEventListener('input', (e) => {
+                searchTerm = e.target.value;
+                render();
+            });
+
+            render();
+        })();
+
+        // ══════════════════════════════════════════════════════════════════
+        // Reports per Radiologist × Modality / AE / Procedure / Month
+        // (adapted from report_25.html's tab-clinical cross-tab widget)
+        // ══════════════════════════════════════════════════════════════════
+        (function () {
+            const RAD_VOL = {{ data.rad_volume_matrix | tojson }};
+            let _mode = 'mod';
+            let _procAllProcs = [], _procAllRads = [], _procTotals = {}, _procLookup = {}, _procRadMax = {};
+
+            function escH(s) { const d = document.createElement('div'); d.textContent = String(s || ''); return d.innerHTML; }
+
+            function fmtMonth(ym) {
+                const [y, m] = ym.split('-');
+                return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(m, 10) - 1] + ' ' + y;
+            }
+
+            function drawCrossTab(rows, isMonth) {
+                const el = document.getElementById('r32-rad-xtab');
+                if (!rows.length) {
+                    el.innerHTML = '<p style="font-size:10px;color:#64748b;padding:8px 0;">No data for this period.</p>';
+                    return;
+                }
+                const allRads = [...new Set(rows.map(r => r.radiologist))].sort();
+                const allDims = [...new Set(rows.map(r => r.dim))];
+                const dimTotals = {}, lookup = {};
+                rows.forEach(r => {
+                    dimTotals[r.dim] = (dimTotals[r.dim] || 0) + r.cnt;
+                    lookup[r.dim + '|' + r.radiologist] = r.cnt;
+                });
+                if (isMonth) { allDims.sort(); } else { allDims.sort((a, b) => (dimTotals[b] || 0) - (dimTotals[a] || 0)); }
+                const radMax = {};
+                allRads.forEach(rad => { radMax[rad] = Math.max(...allDims.map(d => lookup[d + '|' + rad] || 0)); });
+                const headerCells = allRads.map(r =>
+                    `<th style="padding:6px 8px;text-align:right;white-space:nowrap;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;color:#64748b;">${escH(r)}</th>`
+                ).join('');
+                const bodyRows = allDims.map(dim => {
+                    const total = dimTotals[dim] || 0;
+                    const label = isMonth ? fmtMonth(dim) : dim;
+                    const cells = allRads.map(rad => {
+                        const cnt = lookup[dim + '|' + rad] || 0;
+                        const intensity = radMax[rad] > 0 ? cnt / radMax[rad] : 0;
+                        const bg = cnt > 0 ? `rgba(129,140,248,${0.08 + intensity * 0.45})` : 'transparent';
+                        const fg = intensity > 0.6 ? '#e2e8f0' : (cnt > 0 ? '#a5b4fc' : '#475569');
+                        return `<td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:700;background:${bg};color:${fg};">${cnt || ''}</td>`;
+                    }).join('');
+                    return `<tr style="border-top:1px solid #1a211f;">
+                        <td style="padding:5px 8px;font-size:10px;color:#94a3b8;position:sticky;left:0;background:#141a18;font-weight:600;min-width:100px;">${escH(label)}</td>
+                        ${cells}
+                        <td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:900;color:#818cf8;">${total}</td>
+                    </tr>`;
+                }).join('');
+                const footCells = allRads.map(rad => {
+                    const t = allDims.reduce((s, d) => s + (lookup[d + '|' + rad] || 0), 0);
+                    return `<td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:900;color:#fbbf24;border-top:2px solid #2d3733;">${t}</td>`;
+                }).join('');
+                const grandTotal = allDims.reduce((s, d) => s + (dimTotals[d] || 0), 0);
+                el.innerHTML = `<div style="overflow-x:auto;max-height:280px;overflow-y:auto;border:1px solid #1a211f;border-radius:8px;">
+                    <table style="width:100%;border-collapse:collapse;font-size:10px;min-width:300px;">
+                        <thead style="position:sticky;top:0;z-index:2;background:#141a18;">
+                            <tr>
+                                <th style="padding:6px 8px;text-align:left;position:sticky;left:0;background:#141a18;min-width:100px;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;color:#64748b;"></th>
+                                ${headerCells}
+                                <th style="padding:6px 8px;text-align:right;color:#94a3b8;font-size:9px;font-weight:900;text-transform:uppercase;">Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${bodyRows}
+                            <tr style="background:rgba(129,140,248,0.04);">
+                                <td style="padding:5px 8px;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;color:#64748b;position:sticky;left:0;background:#141a18;border-top:2px solid #2d3733;">TOTAL</td>
+                                ${footCells}
+                                <td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:900;color:#818cf8;border-top:2px solid #2d3733;">${grandTotal}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>`;
+            }
+
+            window.r32RadToggle = function (mode) {
+                _mode = mode;
+                const btnMod = document.getElementById('r32-rad-toggle-mod');
+                const btnAe = document.getElementById('r32-rad-toggle-ae');
+                const btnMonth = document.getElementById('r32-rad-toggle-month');
+                const act = 'background:rgba(129,140,248,0.15);color:#818cf8;padding:4px 12px;border:none;cursor:pointer;';
+                const inact = 'background:transparent;color:#64748b;padding:4px 12px;border:none;cursor:pointer;';
+                btnMod.style.cssText = (mode === 'mod' ? act : inact);
+                btnAe.style.cssText = (mode === 'ae' ? act : inact);
+                if (btnMonth) btnMonth.style.cssText = (mode === 'month' ? act : inact);
+                const rows = mode === 'mod' ? (RAD_VOL.by_modality || [])
+                    : mode === 'ae' ? (RAD_VOL.by_aetitle || [])
+                    : (RAD_VOL.by_month || []);
+                drawCrossTab(rows, mode === 'month');
+            };
+
+            function buildProcTable() {
+                const procRows = RAD_VOL.by_procedure || [];
+                const empty = document.getElementById('r32-proc-empty');
+                const tbl = document.getElementById('r32-proc-table');
+                if (!procRows.length) { empty.style.display = ''; tbl.style.display = 'none'; return; }
+                empty.style.display = 'none'; tbl.style.display = '';
+
+                const allRads = [...new Set(procRows.map(r => r.radiologist))].sort();
+                const allProcs = [...new Set(procRows.map(r => r.proc))];
+                const procTotals = {}, lookup = {};
+                procRows.forEach(r => {
+                    procTotals[r.proc] = (procTotals[r.proc] || 0) + r.cnt;
+                    lookup[r.proc + '|' + r.radiologist] = r.cnt;
+                });
+                allProcs.sort((a, b) => (procTotals[b] || 0) - (procTotals[a] || 0));
+
+                const radMax = {};
+                allRads.forEach(rad => { radMax[rad] = Math.max(...allProcs.map(p => lookup[p + '|' + rad] || 0)); });
+
+                _procAllProcs = allProcs; _procAllRads = allRads;
+                _procTotals = procTotals; _procLookup = lookup; _procRadMax = radMax;
+
+                document.getElementById('r32-proc-thead').innerHTML =
+                    `<tr style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;color:#64748b;">
+                        <th style="padding:6px 8px;text-align:left;position:sticky;left:0;background:#141a18;min-width:160px;">Procedure</th>
+                        ${allRads.map(r => `<th style="padding:6px 8px;text-align:right;white-space:nowrap;">${escH(r)}</th>`).join('')}
+                        <th style="padding:6px 8px;text-align:right;color:#94a3b8;">Total</th>
+                    </tr>`;
+                r32ProcFilter();
+            }
+
+            window.r32ProcFilter = function () {
+                const search = (document.getElementById('r32-proc-search')?.value || '').toLowerCase();
+                const topN = parseInt(document.getElementById('r32-proc-topn')?.value || '20');
+                const filtered = _procAllProcs.filter(p => !search || p.toLowerCase().includes(search)).slice(0, topN);
+                const tbody = document.getElementById('r32-proc-tbody');
+                if (!tbody) return;
+                tbody.innerHTML = filtered.map(proc => {
+                    const total = _procTotals[proc] || 0;
+                    const cells = _procAllRads.map(rad => {
+                        const cnt = _procLookup[proc + '|' + rad] || 0;
+                        const intensity = _procRadMax[rad] > 0 ? cnt / _procRadMax[rad] : 0;
+                        const bg = cnt > 0 ? `rgba(129,140,248,${0.08 + intensity * 0.45})` : 'transparent';
+                        const fg = intensity > 0.6 ? '#e2e8f0' : (cnt > 0 ? '#a5b4fc' : '#475569');
+                        return `<td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:700;background:${bg};color:${fg};">${cnt || ''}</td>`;
+                    }).join('');
+                    return `<tr style="border-top:1px solid #1a211f;">
+                        <td style="padding:5px 8px;font-size:10px;color:#94a3b8;position:sticky;left:0;background:#141a18;font-weight:600;">${escH(proc)}</td>
+                        ${cells}
+                        <td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:900;color:#818cf8;">${total}</td>
+                    </tr>`;
+                }).join('');
+                const footCells = _procAllRads.map(rad => {
+                    const t = _procAllProcs.reduce((s, p) => s + (_procLookup[p + '|' + rad] || 0), 0);
+                    return `<td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:900;color:#fbbf24;border-top:2px solid #2d3733;">${t}</td>`;
+                }).join('');
+                const grand = Object.values(_procTotals).reduce((s, v) => s + v, 0);
+                tbody.innerHTML += `<tr style="background:rgba(129,140,248,0.04);">
+                    <td style="padding:5px 8px;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;color:#64748b;position:sticky;left:0;background:#141a18;border-top:2px solid #2d3733;">TOTAL</td>
+                    ${footCells}
+                    <td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:900;color:#818cf8;border-top:2px solid #2d3733;">${grand}</td>
+                </tr>`;
+            };
+
+            function downloadCsv(csv, filename) {
+                const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url; a.download = filename;
+                document.body.appendChild(a); a.click();
+                document.body.removeChild(a); URL.revokeObjectURL(url);
+            }
+
+            function csvSection(rows, colHeader, isMonth) {
+                if (!rows.length) return [];
+                const q = v => '"' + String(v || '').replace(/"/g, '""') + '"';
+                const allRads = [...new Set(rows.map(r => r.radiologist))].sort();
+                const allDims = [...new Set(rows.map(r => r.dim))];
+                const dimTotals = {}, lookup = {};
+                rows.forEach(r => {
+                    dimTotals[r.dim] = (dimTotals[r.dim] || 0) + r.cnt;
+                    lookup[r.dim + '|' + r.radiologist] = r.cnt;
+                });
+                if (isMonth) { allDims.sort(); } else { allDims.sort((a, b) => (dimTotals[b] || 0) - (dimTotals[a] || 0)); }
+                return [
+                    [colHeader, ...allRads, 'Total'].map(q).join(','),
+                    ...allDims.map(dim => {
+                        const label = isMonth ? fmtMonth(dim) : dim;
+                        return [label, ...allRads.map(rad => lookup[dim + '|' + rad] || 0), dimTotals[dim] || 0].map(q).join(',');
+                    }),
+                    ['TOTAL', ...allRads.map(rad => allDims.reduce((s, d) => s + (lookup[d + '|' + rad] || 0), 0)),
+                        allDims.reduce((s, d) => s + (dimTotals[d] || 0), 0)].map(q).join(','),
+                ];
+            }
+
+            window.r32ExportCsv = function () {
+                const sections = [
+                    ['=== By Modality ===', ...csvSection(RAD_VOL.by_modality || [], 'Modality', false)],
+                    [],
+                    ['=== By AE Title ===', ...csvSection(RAD_VOL.by_aetitle || [], 'AE Title', false)],
+                    [],
+                    ['=== By Month ===', ...csvSection(RAD_VOL.by_month || [], 'Month', true)],
+                ];
+                const lines = sections.map(s => Array.isArray(s) ? s.join('\n') : s);
+                downloadCsv(lines.join('\n'), `rad_matrix_${new Date().toISOString().slice(0, 10)}.csv`);
+            };
+
+            window.r32ExportProcCsv = function () {
+                if (!_procAllProcs.length) return;
+                const topN = parseInt(document.getElementById('r32-proc-topn')?.value || '20');
+                const search = (document.getElementById('r32-proc-search')?.value || '').toLowerCase();
+                const procs = _procAllProcs.filter(p => !search || p.toLowerCase().includes(search)).slice(0, topN);
+                const q = v => '"' + String(v || '').replace(/"/g, '""') + '"';
+                const lines = [
+                    ['Procedure', ..._procAllRads, 'Total'].map(q).join(','),
+                    ...procs.map(proc =>
+                        [proc, ..._procAllRads.map(rad => _procLookup[proc + '|' + rad] || 0), _procTotals[proc] || 0].map(q).join(',')
+                    ),
+                    ['TOTAL', ..._procAllRads.map(rad => _procAllProcs.reduce((s, p) => s + (_procLookup[p + '|' + rad] || 0), 0)),
+                        Object.values(_procTotals).reduce((s, v) => s + v, 0)].map(q).join(','),
+                ];
+                downloadCsv(lines.join('\n'), `rad_by_procedure_${new Date().toISOString().slice(0, 10)}.csv`);
+            };
+
+            r32RadToggle('mod');
+            buildProcTable();
+        })();
+
+        // ══════════════════════════════════════════════════════════════════
+        // Addendum Rate chart
+        // ══════════════════════════════════════════════════════════════════
+        (function () {
+            const addRads = {{ (data.addendum_data.by_rad if data.addendum_data else []) | tojson }};
+            if (!addRads.length || !document.getElementById('chart-addendum')) return;
+            const axisStyle = {
+                axisLabel: { color: '#64748b', fontSize: 11 },
+                splitLine: { lineStyle: { color: '#2d3733' } },
+            };
+            const maxPct = Math.max(...addRads.map(r => r.pct), 1);
+            initChart32('chart-addendum', {
+                tooltip: { trigger: 'axis', formatter: p => `${p[0].name}<br>Addendum: <b>${p[0].value}%</b>` },
+                grid: { left: 140, right: 60, top: 10, bottom: 20 },
+                xAxis: { type: 'value', name: 'Addendum %', max: Math.ceil(maxPct) + 1, nameTextStyle: { color: '#52525b', fontSize: 11 }, ...axisStyle },
+                yAxis: { type: 'category', data: addRads.map(r => r.rad), ...axisStyle },
+                series: [{
+                    type: 'bar',
+                    data: addRads.map(r => r.pct),
+                    itemStyle: {
+                        borderRadius: [0, 5, 5, 0],
+                        color: p => {
+                            const ratio = p.value / maxPct;
+                            if (ratio > 0.66) return '#f87171';
+                            if (ratio > 0.33) return '#fbbf24';
+                            return '#34d399';
+                        },
+                    },
+                    label: { show: true, position: 'right', color: '#64748b', fontSize: 10, formatter: p => p.value + '%' },
+                }],
+            });
+        })();
+
+        // ══════════════════════════════════════════════════════════════════
+        // Reporting Cadence Analysis (radiologist shift patterns)
+        // Moved here from Report 35 (routes/report_35.py / report_35.html),
+        // which had inherited it from report_25 — this is radiologist signing
+        // behaviour, not technician activity, so it lives in this report now.
+        // Self-contained: uses this page's own chartInstances32/initChart32
+        // registry (see top of this script block), no dependency on
+        // Report 35's charts or DOM.
+        // ══════════════════════════════════════════════════════════════════
+        (function () {
+            const SP_DATA = {{ (data.shift_patterns or {}) | tojson }};
+            const container = document.getElementById('r32-cadence-container');
+            const emptyEl = document.getElementById('r32-cadence-empty');
+            if (!container) return;
+
+            const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+            const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0') + 'h');
+            const L = {
+                gap_label: ['Inactive Intervals / Day', 'Breaks / Day'],
+                gap_dur:   ['Avg Interval Duration',    'Avg Break Duration'],
+                arrival:   ['First Signature',          'Arrival'],
+                departure: ['Last Signature',           'Departure'],
+                col_gap:   ['Intervals',                'Breaks'],
+            };
+            let evilMode = false;
+            const cards = [];
+
+            function escH(s) { const d = document.createElement('div'); d.textContent = String(s || ''); return d.innerHTML; }
+
+            function renderAll(spData) {
+                Object.entries(spData).forEach(([rad, info], idx) => {
+                    const card = document.createElement('div');
+                    card.style.cssText = 'background:#0b0f0e;border:1px solid #2d3733;border-top:4px solid #818cf8;border-radius:12px;padding:16px;';
+                    card.dataset.idx = idx;
+                    container.appendChild(card);
+
+                    const chartId = `r32-cadence-hm-${idx}`;
+
+                    function render(evil) {
+                        const breakStatColor = evil
+                            ? (info.avg_breaks_day >= 3 ? '#f87171' : info.avg_breaks_day >= 1.5 ? '#fbbf24' : '#34d399')
+                            : '#94a3b8';
+                        card.style.borderTopColor = evil ? '#f87171' : '#818cf8';
+
+                        card.innerHTML = `
+                            <div class="flex items-start justify-between gap-4 mb-4 flex-wrap">
+                                <div>
+                                    <h3 class="text-sm font-black text-white uppercase tracking-wide">${escH(rad)}</h3>
+                                    <div class="flex flex-wrap gap-x-5 gap-y-1 text-[11px] mt-1">
+                                        <span><span class="text-slate-500">${L.arrival[evil ? 1 : 0]}</span> <span class="font-black text-emerald-400">${info.avg_arrival}</span></span>
+                                        <span><span class="text-slate-500">${L.departure[evil ? 1 : 0]}</span> <span class="font-black" style="color:#818cf8">${info.avg_departure}</span></span>
+                                        <span><span class="text-slate-500">${L.gap_label[evil ? 1 : 0]}</span> <span class="font-black" style="color:${breakStatColor}">${info.avg_breaks_day}</span></span>
+                                        <span><span class="text-slate-500">${L.gap_dur[evil ? 1 : 0]}</span> <span class="font-black text-amber-400">${info.avg_break_dur ? info.avg_break_dur + 'm' : '—'}</span></span>
+                                        <span class="text-slate-600">${info.working_days} days</span>
+                                    </div>
+                                </div>
+                                <button onclick="r32ExportCadencePng(${idx}, '${String(rad).replace(/'/g, "\\'")}')" class="export-img-btn shrink-0">
+                                    <i class="bi bi-image"></i> PNG
+                                </button>
+                            </div>
+                            <div id="${chartId}" style="height:280px;width:100%;"></div>
+                            <div class="mt-4">
+                                <button onclick="r32ToggleCadenceLog(${idx})"
+                                    class="text-[10px] font-black text-slate-500 hover:text-indigo-400 uppercase tracking-widest transition-colors flex items-center gap-1"
+                                    style="background:none;border:none;cursor:pointer;padding:0;">
+                                    <span id="r32-cadence-log-arrow-${idx}">▶</span> Daily Log
+                                </button>
+                                <div id="r32-cadence-log-${idx}" class="hidden mt-3 overflow-y-auto" style="max-height:260px;">
+                                    <table class="w-full text-[11px]">
+                                        <thead class="sticky top-0" style="background:#0b0f0e;">
+                                            <tr style="border-bottom:1px solid #1a211f;color:#64748b;text-transform:uppercase;font-size:9px;">
+                                                <th class="text-left py-2 pr-4">Date</th>
+                                                <th class="text-left py-2 pr-4">Day</th>
+                                                <th class="text-left py-2 pr-4">${L.arrival[evil ? 1 : 0]}</th>
+                                                <th class="text-left py-2 pr-4">${L.departure[evil ? 1 : 0]}</th>
+                                                <th class="text-right py-2 pr-4">Studies</th>
+                                                <th class="text-right py-2 pr-4">Span</th>
+                                                <th class="text-left py-2">${L.col_gap[evil ? 1 : 0]}</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="r32-cadence-log-body-${idx}" style="color:#cbd5e1;"></tbody>
+                                    </table>
+                                </div>
+                            </div>`;
+
+                        if (chartInstances32[chartId]) { try { chartInstances32[chartId].dispose(); } catch (e) {} }
+                        const axisStyle = { axisLabel: { fontSize: 9, color: '#64748b' }, axisTick: { show: false }, axisLine: { lineStyle: { color: '#2d3733' } } };
+                        initChart32(chartId, {
+                            animation: false,
+                            grid: { top: 10, bottom: 30, left: 50, right: 20 },
+                            xAxis: { type: 'category', data: HOURS, ...axisStyle },
+                            yAxis: { type: 'category', data: DOW, ...axisStyle },
+                            visualMap: { show: false, min: 0, max: info.hm_max, inRange: { color: evil ? ['#0b0f0e', '#4f46e5', '#f87171'] : ['#0b0f0e', '#4f46e5', '#818cf8'] } },
+                            tooltip: {
+                                formatter: p => `${DOW[p.data[1]]} ${HOURS[p.data[0]]}: <b>${p.data[2]}</b> signature${p.data[2] !== 1 ? 's' : ''}`,
+                                backgroundColor: '#141a18', borderColor: '#2d3733', textStyle: { color: '#e2e8f0', fontSize: 11 },
+                            },
+                            series: [{ type: 'heatmap', data: info.heatmap, itemStyle: { borderRadius: 2, borderWidth: 1, borderColor: '#0b0f0e' } }],
+                        });
+
+                        const tbody = document.getElementById(`r32-cadence-log-body-${idx}`);
+                        tbody.innerHTML = '';
+                        [...info.daily_log].reverse().forEach(day => {
+                            let breakStr;
+                            if (!day.breaks.length) {
+                                breakStr = '<span style="color:#475569;">—</span>';
+                            } else if (evil) {
+                                breakStr = day.breaks.map(b =>
+                                    `<span title="${b.kind} – ${b.duration}m (${b.start}–${b.end})" style="cursor:default;font-size:1rem">${b.icon}</span>`
+                                ).join(' ');
+                            } else {
+                                breakStr = `<span style="color:#94a3b8;">${day.breaks.length} interval${day.breaks.length !== 1 ? 's' : ''}</span>`;
+                            }
+                            const arrStyle = evil && parseInt(day.arrival) >= 10 ? 'color:#fbbf24' : 'color:#34d399';
+                            const tr = document.createElement('tr');
+                            tr.style.borderTop = '1px solid #1a211f';
+                            tr.innerHTML = `
+                                <td class="py-2 pr-4" style="font-family:monospace;color:#94a3b8;">${day.date}</td>
+                                <td class="py-2 pr-4" style="color:#64748b;">${day.dow}</td>
+                                <td class="py-2 pr-4" style="font-family:monospace;font-weight:700;${arrStyle}">${day.arrival}</td>
+                                <td class="py-2 pr-4" style="font-family:monospace;color:#818cf8;">${day.departure}</td>
+                                <td class="py-2 pr-4 text-right" style="color:#e2e8f0;font-weight:700;">${day.studies}</td>
+                                <td class="py-2 pr-4 text-right" style="color:#64748b;">${day.span_h}h</td>
+                                <td class="py-2">${breakStr}</td>`;
+                            tbody.appendChild(tr);
+                        });
+                    }
+
+                    cards.push({ render });
+                    render(false);
+                });
+            }
+
+            window.r32ToggleCadenceLog = function (idx) {
+                const el = document.getElementById(`r32-cadence-log-${idx}`);
+                const arrow = document.getElementById(`r32-cadence-log-arrow-${idx}`);
+                if (!el) return;
+                el.classList.toggle('hidden');
+                if (arrow) arrow.textContent = el.classList.contains('hidden') ? '▶' : '▼';
+            };
+
+            window.r32ExportCadencePng = function (idx, radName) {
+                const card = container.children[idx];
+                if (!card) return;
+                const log = document.getElementById(`r32-cadence-log-${idx}`);
+                const arrow = document.getElementById(`r32-cadence-log-arrow-${idx}`);
+                const wasHidden = log && log.classList.contains('hidden');
+                if (wasHidden) {
+                    log.classList.remove('hidden');
+                    if (arrow) arrow.textContent = '▼';
+                    log.style.maxHeight = 'none';
+                }
+                const label = document.createElement('p');
+                label.style.cssText = 'font-size:10px;color:#64748b;margin-bottom:10px;font-family:monospace;';
+                label.textContent = `RAYD · Reporting Cadence · ${radName} · Exported ${new Date().toLocaleDateString('en-GB')}`;
+                card.insertBefore(label, card.firstChild);
+
+                html2canvas(card, { backgroundColor: '#0b0f0e', scale: 2, useCORS: true, logging: false }).then(function (canvas) {
+                    card.removeChild(label);
+                    if (wasHidden) { log.classList.add('hidden'); log.style.maxHeight = ''; if (arrow) arrow.textContent = '▶'; }
+                    const a = document.createElement('a');
+                    a.download = `rayd_cadence_${radName.replace(/\s+/g, '_')}.png`;
+                    a.href = canvas.toDataURL('image/png');
+                    a.click();
+                }).catch(function () {
+                    card.removeChild(label);
+                    if (wasHidden) { log.classList.add('hidden'); log.style.maxHeight = ''; if (arrow) arrow.textContent = '▶'; }
+                });
+            };
+
+            window.r32ToggleCadenceMode = function () {
+                evilMode = !evilMode;
+                const btn = document.getElementById('r32-cadence-mode-btn');
+                if (btn) {
+                    btn.style.color = evilMode ? '#f87171' : '';
+                    btn.style.borderColor = evilMode ? '#f87171' : '';
+                }
+                cards.forEach(c => c.render(evilMode));
+            };
+
+            if (SP_DATA && Object.keys(SP_DATA).length) {
+                renderAll(SP_DATA);
+            } else if (emptyEl) {
+                emptyEl.classList.remove('hidden');
+            }
+        })();
+        {% endif %}
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function () {
+        flatpickr('input[type="date"]', {
+            dateFormat: 'Y-m-d',
+            altInput: true,
+            altFormat: 'd/m/Y',
+            allowInput: true,
+            disableMobile: true
+        });
+    });
+    </script>
+</body>
+</html>

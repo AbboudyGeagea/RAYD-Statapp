@@ -34,7 +34,7 @@
 {% set ep = request.endpoint or '' %}
 {% set overview_on   = ep.startswith('viewer.') %}
 {% set admin_on      = ep in ['admin.admin_dashboard','admin.user_management','admin.audit_log','admin.hl7_forward_config'] or ep.startswith('db_manager.') or ep.startswith('mapping.') %}
-{% set ops_on        = ep.startswith('live_feed.') or ep.startswith('hl7_orders.') %}
+{% set ops_on        = ep.startswith('live_feed.') or ep.startswith('hl7_orders.') or ep.startswith('report_31.') %}
 {% set analytics_on  = ep.startswith('oru.') or ep.startswith('referring_intel.') or ep.startswith('custom_reports.') %}
 {% set ai_on         = ep.startswith('report_ai.') %}
 {% set finance_on    = ep.startswith('financial_dashboard.') %}
@@ -128,7 +128,8 @@
 
         <!-- ── OPERATIONS ──────────────────────────────────────────── -->
         {% set has_ops = (license.get('live_feed') and (current_user.role == 'admin' or current_user|user_has_page('live_feed')))
-                      or (current_user.role == 'admin' or current_user|user_has_page('hl7_orders')) %}
+                      or (current_user.role == 'admin' or current_user|user_has_page('hl7_orders'))
+                      or (31 in license.get('reports', []) and (current_user.role == 'admin' or current_user|user_has_page('report_31'))) %}
         {% if has_ops %}
         <button class="sg-btn" onclick="sgToggle('ops')">
             <span class="flex items-center gap-2"><i class="bi bi-lightning-fill" style="color:#22c55e;"></i> Operations</span>
@@ -150,6 +151,12 @@
                   <span id="hl7-sidebar-badge" style="display:none;font-size:9px;font-weight:900;padding:1px 6px;border-radius:10px;background:rgba(244,63,94,0.18);color:#f43f5e;border:1px solid rgba(244,63,94,0.3);"></span>
                   <span id="hl7-sidebar-cancel-badge" style="display:none;font-size:9px;font-weight:900;padding:1px 5px;border-radius:10px;background:rgba(224,92,92,0.15);color:#f87171;border:1px solid rgba(224,92,92,0.3);" title="Cancelled orders"></span>
                 </span>
+            </a>
+            {% endif %}
+            {% if 31 in license.get('reports', []) and (current_user.role == 'admin' or current_user|user_has_page('report_31')) %}
+            <a href="{{ url_for('report_31.report_31') }}"
+               class="sidebar-item {% if ep.startswith('report_31.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
+                <i class="bi bi-speedometer2 flex-shrink-0" style="color:#818cf8;"></i> Operations Overview
             </a>
             {% endif %}
             <!-- Patient CD Log: removed per operator instruction (2026-07-26) -->
