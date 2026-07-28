@@ -40,7 +40,11 @@ routes/
   report_cache.py               — shared cache/dropdown helpers
 ETL_JOBS/
   etl_job.py                    — Oracle → PostgreSQL ETL pipeline
-  etl_analytics_refresh.py      — analytics snapshot rollup (runs nightly at 05:30)
+  etl_analytics_refresh.py      — storage summary rollup (Phase 7 of the main ETL sync,
+                                   `daily_etl_sync`, runs nightly at 05:00 — NOT the
+                                   separate 05:30 `daily_analytics_snapshot` job, which
+                                   runs ETL_JOBS/daily_analytics.py instead, populating
+                                   analytics_snapshots for the daily briefing)
 nlp_worker/worker.py            — standalone medspaCy batch loop (polls every 60s)
 migrations/NNNN_*.sql           — schema migrations (canonical source of truth)
 init-db/schema.sql              — initial schema applied by docker-entrypoint
