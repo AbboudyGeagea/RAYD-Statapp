@@ -15,10 +15,57 @@ def get_report_config(form):
     base_sql = db.session.execute(base_sql_query).scalar()
 
     if base_sql:
+        # patient_db_uid type-cast fix (bigint vs text mismatch between etl_didb_studies
+        # and etl_patient_view) — pre-existing fix, still needed.
         base_sql = base_sql.replace(
             "s.patient_db_uid = p.patient_db_uid", "s.patient_db_uid::text = p.patient_db_uid::text"
-        ).replace(
-            "o.patient_dbid = p.patient_db_uid", "o.patient_dbid::text = p.patient_db_uid::text"
+        )
+
+        # --- Fixes below patch bugs found in the stored report_template row (report_id=23)
+        # during an operator-reported "trash data" audit. The query text lives in the DB
+        # (report_template.report_sql_query), not in this file, so it's patched here the
+        # same way the pre-existing cast fix above already does — no DB write involved.
+
+        # BUG (row fan-out): etl_orders was joined at the PATIENT level
+        # (o.patient_dbid = p.patient_db_uid) instead of the STUDY level, so every order a
+        # patient ever had was cross-joined against every study they ever had. Verified with
+        # an isolated temp-table test against the live schema: 1 patient x 2 real studies x
+        # 3 lifetime orders produced 6 result rows instead of 2, with each study carrying an
+        # unrelated/random proc_id from another encounter. etl_orders.study_db_uid exists
+        # specifically to link an order to the study it produced — use that instead.
+        base_sql = base_sql.replace(
+            "LEFT JOIN etl_orders o ON o.patient_dbid = p.patient_db_uid",
+            "LEFT JOIN etl_orders o ON o.study_db_uid = s.study_db_uid"
+        )
+
+        # BUG (silently dropped modality): bare equality join against aetitle_modality_map
+        # is case/whitespace sensitive. Verified with the same isolated test: storing_ae =
+        # 'ctscan1' failed to match aetitle = 'CTSCAN1', leaving modality NULL for that row
+        # (which then vanishes from every modality-based chart and from the Modality filter).
+        # Every report in this codebase that joins this table correctly (report_25,
+        # report_33, viewer_controller, ...) uses UPPER(TRIM(...)) on both sides.
+        base_sql = base_sql.replace(
+            "LEFT JOIN aetitle_modality_map m ON s.storing_ae = m.aetitle",
+            "LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))"
+        )
+
+        # BUG (missing fallback): the SELECT list used bare m.modality with no fallback to
+        # s.study_modality when a device has no aetitle_modality_map row at all (as opposed
+        # to a casing mismatch, fixed above). CLAUDE.md convention #3 requires preferring
+        # aetitle_modality_map.modality but falling back to study_modality when unmapped —
+        # report_22 already does this correctly (COALESCE(m.modality, s.study_modality)).
+        base_sql = base_sql.replace(
+            "m.modality,",
+            "COALESCE(m.modality, s.study_modality) AS modality,"
+        )
+
+        # BUG (no SR/OT exclusion): every other query touching etl_didb_studies filters out
+        # SR (auto-generated Structured Report) and OT (Other) rows — neither is a real
+        # diagnostic study. report_23's base query had no such filter, inflating every count
+        # and every chart in this report.
+        base_sql = base_sql.replace(
+            "WHERE 1=1",
+            "WHERE 1=1 AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')"
         )
 
     gl_query = text("SELECT go_live_date FROM go_live_config LIMIT 1")
@@ -220,9 +267,14 @@ def report_23():
                     age_mod = {}
                     if 'modality' in df_agg.columns:
                         _age_order = ['[0-1 month]', '[1 month - 1 year]', '[1-12 years]', '[13-18]', '[19-35]', '[36-64]', '[65+]']
+                        # Bin edges must match the SQL CASE cutoffs used above for age_bucket
+                        # (<=12, <=18, <=35, <=64) — this previously used 12.999/64.999, which
+                        # silently disagreed with the SQL version for ages in (12, 12.999] and
+                        # (64, 64.999], making this chart's buckets inconsistent with the
+                        # Age Group & Procedure chart and the CSV export for those patients.
                         df_agg['_am_bucket'] = pd.cut(
                             df_agg['age_at_exam'],
-                            bins=[-0.001, 0.083, 1, 12.999, 18, 35, 64.999, 999],
+                            bins=[-0.001, 0.083, 1, 12, 18, 35, 64, 999],
                             labels=_age_order
                         )
                         am_piv = df_agg.dropna(subset=['modality']).groupby(['modality', '_am_bucket']).size().unstack(fill_value=0)
