@@ -19,7 +19,7 @@ _BASE_JOIN = """
     FROM etl_didb_studies s
     LEFT JOIN LATERAL (
         SELECT modality FROM aetitle_modality_map
-        WHERE aetitle = s.storing_ae LIMIT 1
+        WHERE UPPER(TRIM(aetitle)) = UPPER(TRIM(s.storing_ae)) LIMIT 1
     ) m ON TRUE
 """
 
@@ -142,15 +142,6 @@ WIDGET_CATALOGUE = [
         "icon":        "bi-person-check-fill",
         "color":       "#60a5fa",
         "description": "Reports per radiologist — toggle between modality and AE title breakdown",
-        "financial":   False,
-        "config_keys": [],
-    },
-    {
-        "key":         "cd_burn_summary",
-        "label":       "CD Burn Summary",
-        "icon":        "bi-disc-fill",
-        "color":       "#38bdf8",
-        "description": "Total patient CDs burned — count by media type (CDR / DVDR)",
         "financial":   False,
         "config_keys": [],
     },
@@ -375,7 +366,7 @@ def widget_shift_breakdown(db, filters, config):
         JOIN etl_didb_studies s ON s.study_db_uid = o.study_db_uid
         LEFT JOIN LATERAL (
             SELECT modality FROM aetitle_modality_map
-            WHERE aetitle = s.storing_ae LIMIT 1
+            WHERE UPPER(TRIM(aetitle)) = UPPER(TRIM(s.storing_ae)) LIMIT 1
         ) m ON TRUE
         WHERE s.study_date BETWEEN :date_from AND :date_to
           AND o.scheduled_datetime IS NOT NULL
@@ -444,7 +435,7 @@ _FIN_JOIN = """
     FROM etl_didb_studies s
     LEFT JOIN LATERAL (
         SELECT modality FROM aetitle_modality_map
-        WHERE aetitle = s.storing_ae LIMIT 1
+        WHERE UPPER(TRIM(aetitle)) = UPPER(TRIM(s.storing_ae)) LIMIT 1
     ) m ON TRUE
     LEFT JOIN etl_orders o              ON o.study_db_uid = s.study_db_uid
     LEFT JOIN procedure_duration_map pdm
@@ -545,55 +536,6 @@ def widget_revenue_by_physician(db, filters, config):
     return {"top_n": top_n, "rows": result}
 
 
-def widget_cd_burn_summary(db, filters, config):
-    params = {
-        "date_from": filters.get("date_from"),
-        "date_to":   filters.get("date_to"),
-        "modality":  filters.get("modality") or None,
-    }
-
-    mod_filter = "AND (CAST(:modality AS TEXT) IS NULL OR study_modality = :modality)"
-    sr_filter  = "AND COALESCE(study_modality, '') != 'SR'"
-
-    summary = db.session.execute(text(f"""
-        SELECT
-            COUNT(*)                                   AS burn_events,
-            COUNT(DISTINCT study_instance_uid)         AS unique_studies,
-            COALESCE(SUM(number_of_copies), COUNT(*))  AS total_copies
-        FROM cd_print_log
-        WHERE burned_at::date BETWEEN :date_from AND :date_to
-          {sr_filter}
-          {mod_filter}
-    """), params).fetchone()
-
-    breakdown_rows = db.session.execute(text(f"""
-        SELECT
-            COALESCE(UPPER(media_type), 'UNKNOWN')     AS media_type,
-            COUNT(*)                                   AS burn_events,
-            COALESCE(SUM(number_of_copies), COUNT(*))  AS total_copies
-        FROM cd_print_log
-        WHERE burned_at::date BETWEEN :date_from AND :date_to
-          {sr_filter}
-          {mod_filter}
-        GROUP BY UPPER(media_type)
-        ORDER BY burn_events DESC
-    """), params).fetchall()
-
-    return {
-        "burn_events":    int(summary[0] or 0),
-        "unique_studies": int(summary[1] or 0),
-        "total_copies":   int(summary[2] or 0),
-        "breakdown": [
-            {
-                "media_type":  r[0],
-                "burn_events": int(r[1]),
-                "total_copies": int(r[2]),
-            }
-            for r in breakdown_rows
-        ],
-    }
-
-
 def widget_rad_modality_matrix(db, filters, config):
     p = _p(filters)
     _RAD_BASE_RW = ("COALESCE(NULLIF(TRIM(CONCAT(s.signing_physician_first_name,' ',"
@@ -645,7 +587,6 @@ _DISPATCH = {
     "rvu_summary":          widget_rvu_summary,
     "revenue_by_modality":  widget_revenue_by_modality,
     "revenue_by_physician": widget_revenue_by_physician,
-    "cd_burn_summary":        widget_cd_burn_summary,
     "rad_modality_matrix":    widget_rad_modality_matrix,
 }
 

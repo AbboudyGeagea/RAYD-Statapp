@@ -20,6 +20,16 @@ logger = logging.getLogger("CUSTOM_REPORTS")
 
 PRIMARY_CONN = "oracle_PACS"
 
+# Visibility values recognised by the read side (report_list's WHERE clause and
+# _visible_report_or_404 below). The composer dropdown (templates/custom_reports_
+# composer.html #gf-visibility) only ever submits 'private' or 'shared' — 'restricted'
+# is an internal-only value used as the financial safety floor and is never itself
+# offered as a UI choice, but is accepted here since existing rows / other callers
+# may already carry it and the read-side treats it identically to 'private'.
+ALLOWED_VISIBILITY = {"private", "shared", "restricted"}
+DEFAULT_VISIBILITY = "shared"   # matches custom_reports.visibility column default
+FINANCIAL_VISIBILITY_FLOOR = "restricted"
+
 
 # ── Guards ────────────────────────────────────────────────────────────────────
 
@@ -103,7 +113,12 @@ def _visible_report_or_404(report_id):
     # Finance-restricted reports require can_view_finance
     if row.get("has_financial") and not _can_finance():
         abort(403)
-    # Private reports (future): only owner or admin
+    # Non-shared reports (private / restricted) are only visible to their
+    # owner or an admin — mirrors the WHERE clause used in report_list().
+    if (row.get("visibility") != "shared"
+            and current_user.role != "admin"
+            and row.get("created_by") != current_user.id):
+        abort(403)
     return row
 
 
@@ -240,7 +255,23 @@ def save_report():
     if has_financial and not _can_finance():
         return jsonify({"error": "You do not have permission to use financial widgets"}), 403
 
-    visibility = "restricted" if has_financial else "shared"
+    # Honor the user's actual submitted visibility choice from the composer's
+    # Private/Shared dropdown, instead of silently discarding it.
+    submitted_visibility = data.get("visibility")
+    if submitted_visibility not in ALLOWED_VISIBILITY:
+        submitted_visibility = DEFAULT_VISIBILITY
+
+    if has_financial:
+        # Safety floor: a report containing financial widgets must never end up
+        # fully "shared" to every user, no matter what the form submitted — this
+        # was the real guarantee behind the old hardcoded assignment. A more
+        # restrictive explicit choice (e.g. "private") is still honored as-is.
+        visibility = FINANCIAL_VISIBILITY_FLOOR if submitted_visibility == "shared" else submitted_visibility
+    else:
+        # Non-financial reports: the user's real choice is authoritative — this
+        # is the bug fix. Previously this branch always hardcoded "shared",
+        # discarding a "Private (only me)" selection.
+        visibility = submitted_visibility
 
     if report_id:
         # Update
