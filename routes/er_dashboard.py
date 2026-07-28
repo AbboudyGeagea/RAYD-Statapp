@@ -74,12 +74,20 @@ def er_data():
                 )), '') AS physician,
                 s.rep_final_timestamp,
                 s.study_has_report,
+                -- RIS-fallback completion timestamp: PACS's own rep_final_timestamp is not
+                -- reliably synced back for recent studies at this hospital (radiologists sign
+                -- in the RIS, not PACS) -- same root cause fixed for report_25 in migrations
+                -- 0070/0075. Priority: rep_study_last_composed_ts (most reliable on this
+                -- install) -> rep_final_timestamp (PACS-native, kept as fallback for older
+                -- rows that do have it) -> hl7_oru_reports.result_datetime (RIS-sourced).
+                COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp, o.result_datetime) AS completed_ts,
                 EXTRACT(HOUR FROM {_STUDY_DT}) AS study_hour,
-                CASE WHEN s.rep_final_timestamp IS NOT NULL
-                     THEN EXTRACT(EPOCH FROM (s.rep_final_timestamp - {_STUDY_DT})) / 60.0
+                CASE WHEN COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp, o.result_datetime) IS NOT NULL
+                     THEN EXTRACT(EPOCH FROM (COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp, o.result_datetime) - {_STUDY_DT})) / 60.0
                 END AS final_tat_min
             FROM etl_didb_studies s
-            LEFT JOIN aetitle_modality_map m ON m.aetitle = s.storing_ae
+            LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
+            LEFT JOIN hl7_oru_reports o ON o.accession_number = s.accession_number
             WHERE s.study_date BETWEEN :start AND :end
               AND {_ER_WHERE}
               AND COALESCE(m.modality, s.study_modality, 'Unknown') NOT IN ('SR', 'OT')
@@ -114,9 +122,11 @@ def er_data():
                 COALESCE(m.modality, s.study_modality, '?') AS modality,
                 ROUND(EXTRACT(EPOCH FROM (NOW() - {_STUDY_DT})) / 60.0) AS waiting_min
             FROM etl_didb_studies s
-            LEFT JOIN aetitle_modality_map m ON m.aetitle = s.storing_ae
+            LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
+            LEFT JOIN hl7_oru_reports o ON o.accession_number = s.accession_number
             WHERE s.study_date = CURRENT_DATE
-              AND (s.rep_final_timestamp IS NULL AND COALESCE(s.study_has_report, false) = false)
+              AND COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp, o.result_datetime) IS NULL
+              AND COALESCE(s.study_has_report, false) = false
               AND {_ER_WHERE}
               AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
             ORDER BY waiting_min DESC
