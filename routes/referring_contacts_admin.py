@@ -42,7 +42,7 @@ def api_list():
         abort(403)
     rows = db.session.execute(text("""
         SELECT id, physician_name, email, phone, whatsapp_number,
-               preferred_channel, active, notes,
+               preferred_channel, active, notes, auto_filled,
                to_char(updated_at, 'YYYY-MM-DD HH24:MI') AS updated_at
         FROM referring_contacts
         ORDER BY physician_name
@@ -112,7 +112,7 @@ def api_save():
                 UPDATE referring_contacts
                 SET email = :email, phone = :phone, whatsapp_number = :whatsapp_number,
                     preferred_channel = :preferred_channel, notes = :notes,
-                    updated_by = :uid, updated_at = NOW()
+                    auto_filled = FALSE, updated_by = :uid, updated_at = NOW()
                 WHERE id = :id
             """), {**payload, 'id': contact_id, 'uid': current_user.id})
         else:
@@ -125,7 +125,8 @@ def api_save():
                     email = EXCLUDED.email, phone = EXCLUDED.phone,
                     whatsapp_number = EXCLUDED.whatsapp_number,
                     preferred_channel = EXCLUDED.preferred_channel,
-                    notes = EXCLUDED.notes, updated_by = EXCLUDED.updated_by, updated_at = NOW()
+                    notes = EXCLUDED.notes, auto_filled = FALSE,
+                    updated_by = EXCLUDED.updated_by, updated_at = NOW()
             """), {**payload, 'uid': current_user.id})
         db.session.commit()
         return jsonify({"ok": True})

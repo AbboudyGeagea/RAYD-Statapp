@@ -17,6 +17,7 @@
         .chan-email { background: rgba(96,165,250,0.15); color: #60a5fa; }
         .chan-sms { background: rgba(251,191,36,0.15); color: #fbbf24; }
         .chan-whatsapp { background: rgba(74,222,128,0.15); color: #4ade80; }
+        .auto-badge { font-size: 8px; font-weight: 900; padding: 1px 6px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.05em; background: rgba(148,163,184,0.15); color: #94a3b8; margin-left: 6px; }
     </style>
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
@@ -212,7 +213,7 @@
                 const tr = document.createElement('tr');
                 tr.className = 'border-b border-white/5';
                 tr.innerHTML = `
-                    <td class="py-2 font-bold text-white">${esc(r.physician_name)}</td>
+                    <td class="py-2 font-bold text-white">${esc(r.physician_name)}${r.auto_filled ? '<span class="auto-badge" title="Resolved automatically from RIS — confirm the preferred channel">Auto</span>' : ''}</td>
                     <td class="py-2"><span class="chan-badge chan-${r.preferred_channel}">${CHAN_LABEL[r.preferred_channel]}</span></td>
                     <td class="py-2 text-zinc-400">${esc(r.email) || '—'}</td>
                     <td class="py-2 text-zinc-400">${esc(r.phone) || '—'}</td>
