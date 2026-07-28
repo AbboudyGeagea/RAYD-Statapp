@@ -193,23 +193,6 @@ operator hasn't been able to test it yet (ETL in progress); the toggle code itse
 (detail rows already `display:none` by default) — needs a live look or screenshot
 once there's room to test.
 
-### Two open asks — need real numbers from the operator, not started yet
-
-- **Storage calculation (#5)**: `ETL_JOBS/etl_analytics_refresh.py:73` divides
-  `SUM(image_size_kb)` by `1_073_741_824` (1024³, the bytes→GiB divisor) to get `total_gb` —
-  but the column is genuinely in **kilobytes** (confirmed: PACS's raw `IMAGE_SIZE`, no unit
-  conversion anywhere in the ETL). KB→GB should divide by `1_048_576` (1024²). If confirmed,
-  every storage number in every report using `summary_storage_daily` is ~1024x too small.
-  **Waiting on**: one real number (`df -h` on wherever images live, or a known figure from
-  whoever manages that storage) to confirm before touching a live report.
-- **ORU analytics slow load (#4)**: `/oru/data` has no row cap, and any report the nlp-worker
-  hasn't processed yet triggers a synchronous pure-Python rule-based scan (~130 phrases ×
-  up to 8000 chars) that — per `CLAUDE.md`'s rule that `hl7_oru_analysis` is nlp-worker-only —
-  can never be cached back, so it reruns in full on every page load if there's a backlog.
-  **Waiting on**: nlp-worker backlog size, default-view row count, and confirmation that
-  `hl7_oru_reports`/`hl7_orders`/`hl7_oru_analysis` have the indexes the query needs — three
-  `psql` queries were handed to the operator, not yet run.
-
 ### Live-incident recovery + new bugs found/fixed (2026-07-26)
 Operator ran `docker compose down -v` (accidental full volume wipe) + rebuild, then hit a
 cascade of previously-latent bugs while re-running ETL/reports against the fresh DB:
@@ -271,248 +254,55 @@ PERSON.PERSON_KEY`) — same person, two different "role" tables pointing into o
 
 ---
 
-## ⛔ BLOCKED ON VENDOR (cannot build without these)
+## ⛔ BLOCKED ON VENDOR / 🔨 READY TO BUILD NEXT
 
-1. ~~PERSON / RESOURCE table~~ **✅ DONE** (Phase 13, `std_resources_ris`)
-2. ~~PATIENT / PERSON table~~ **✅ DONE** (Phase 12, `std_patients_ris` — names excluded by design)
-3. **Lookups still needed** (small, resolve key → label): `PATIENT_CLASS` (IP/OP/ER),
-   `FINANCIAL_CLASS` (payer/TPA), `HOSPITAL_SERVICE`, `PRIORITY`, `BODY_PART` /
-   `LATERALITY` / `CODING_SCHEME`, `INTERPRETATION_TYPE`, `VERSION_STATUS`,
-   `JUSTIFICATION_STATUS` + `STATUS_REASON`, `MOBILITY_STATUS`, `RESOURCE_ROLE`
-   (Radiologist/Technician/Referring/etc. labels for `std_resources_ris.resource_role_key`),
-   `LANGUAGE` (`std_patients_ris.language_key`), ~~`AVAILABILITY_INDICATOR`~~ **✅ DONE**
-   (Phase 15, `std_availability_indicators` — full semantic resolution: 03=Available,
-   04=Unavailable, 07=Holiday, 11=Maintenance, 2100=Closed are "device unavailable" for
-   utilization; the rest are booking-rule nuances on an open device), **`PEER_REVIEW`**
-   (new — `std_pps.considered_for_review` workflow, table schema not sent).
-4. **THE RIS↔PACS study join** — was accession/linked_id best-effort; Phase 14 added a
-   real candidate. `std_pps.study_db_uid` is resolved by matching `STUDY_INSTANCE_UID`
-   (a real DICOM UID) against `etl_didb_studies.study_instance_uid` — run Phase 14 and
-   check the match-rate it prints; that's the actual answer, not a guess. If it's high,
-   this supersedes the accession/linked_id approach in `etl_orders.py`. PACS-side
-   grouping column also confirmed to exist (`medistore.didb_studies.WORKITEM_DB_UID`,
-   paired with `IS_LINKED_STUDY='Y'`) but not yet pulled into `etl_didb_studies`.
-5. **Device↔scheme assignment — the LAST blocker for device utilization.**
-   `SCHEDULE_SCHEME` schema received 2026-07-27 and built (`std_schedule_schemes`,
-   Phase 15) — but it turned out to be a generic template CATEGORY ("Normal"/"Emerg"/
-   "OutPatient"/"InPatient"/"Scheme 1"/"Scheme 2"/"All Green", 7 rows), not
-   device-specific at all — no `MODALITY_KEY` or any device reference on it. So we now
-   know WHAT a scheme is, but not WHICH DEVICES use which scheme. Candidate: an
-   undocumented column on `MODALITY` itself (vendor's own note says it has ~19 columns,
-   only a subset confirmed so far) — worth checking there first before assuming another
-   table exists. Also still need: which `SCHEDULE_TEMPLATE_VERSION_KEY` is currently
-   effective (effective-date or active-flag on a version table?).
-6. **PPS site resolution** — no org/issuer column on `PPS` itself; how it inherits site
-   from `SITE_WORKLIST`/`ORDERS` is unconfirmed (same open question as `std_visits`).
-7. **Qog1** — VASC (org 5120) counts as RH? (assumed YES; seeded that way in `0052`)
-8. **Used-status list** — vendor to send which statuses are actually in use, to trim the
-   `0047` seed. Cosmetic only, not blocking.
-9. ~~DB access (read-only) + network path~~ **✅ DONE** — both RIS and PACS connections
-   live and in daily use.
+*(Cleared — add new blockers and build items here as testing turns them up.)*
 
 ---
 
-## 🔨 READY TO BUILD NEXT (unblocked, in order)
+## 💡 Operator punch list, 2026-07-27 — bugs found during testing, not started
 
-1. **Wire RLS app-side** (`utils/site_scope.py` → `install(app)`) — still not done:
-   - add a second SQLAlchemy engine bound to `rayd_app`; route web requests to it,
-     keep ETL/NLP/listener on `etl_user` (owner, bypasses RLS)
-   - call `install(app)` in `create_app()` after login manager
-   - **leak-test matrix**: RH-only user / SJH-only user / both-sites admin
-   - ⚠️ **cache keys must include the effective scope** (`report_cache`, widgets) or a
-     cached page leaks across sites *without touching the DB* — RLS cannot save you there
-2. **Wire the new identity data into report UI** — the data exists in Postgres now but
-   isn't joined into any report yet:
-   - radiologist/technician names (`std_resources_ris`) — resolve
-     `reading_physician_resource_key`/`signing_physician_resource_key` on
-     `etl_didb_studies` to a display name; also `std_pps.primary_tech_person_key` (joins
-     `std_resources_ris.person_key`, not `resource_id_key`) for the Technologist
-     Productivity report
-   - referring-org contact (`std_ordering_organizations`) — for CRN routing once that's
-     scoped
-   - patient MRN (`std_patient_ids`) where needed for display/reconciliation
-3. **Technologist Productivity report** — now buildable. `std_pps` has
-   `primary_tech_person_key` + `start_datetime`/`end_datetime` + `procedure_code` +
-   `performing_ae_title` directly. The legacy `Technologist_Productivity_Report.rpt`
-   (Crystal Reports, brought in this session then **accidentally deleted** — see
-   Housekeeping) can't be referenced for its exact original logic anymore; rebuild from
-   first principles using `std_pps`.
-4. **Device utilization report** — `std_pps` (actual usage per device) is ready now;
-   `std_availability_indicators`/`std_schedule_schemes`/`std_modality_exceptions`/
-   `std_schedule_template_items` all built (Phase 15); blocked on ONE remaining link —
-   which devices use which `SCHEDULE_SCHEME` (item #5 in blocked-on-vendor).
-5. **KPI Detailed Reading report** — unblocked since Phase 13 (PERSON/RESOURCE exists) —
-   TAT distribution matrix by radiologist. Not yet built.
-6. **Site-enrichment pass, the rest of it** — partially done this session (studies↔orders
-   via `etl_orders` enrichment, `age_at_study`, physician resolution, PPS study-UID
-   test), but still open:
-   - `std_visits.site_id` / `std_pps` site resolution (both deferred, see blocked #6)
-   - `hl7_orders` / `hl7_oru_reports.site_id` via accession
-   - **mismatch monitor** → `site_mismatch_log` (quantifies the SJH-mammo bug) — table
-     exists (`0051`) but nothing populates it yet
-   - Use `UPDATE…FROM` joins (NOT python row loops — 600k+ rows), matching this
-     session's enrichment pattern
-7. **`std_devices` / procedure-catalog refinements**:
-   - `procedure_duration_map.body_part` still NULL — needs the `BODY_PART` lookup
-   - `procedure_duration_map.duration_minutes` could be calibrated with `std_pps`
-     actuals (`start_datetime`/`end_datetime`) instead of the 15-min guessed default —
-     not done yet
-   - demo/external device rows (USDemoPhilips, RH-PACS External Upload, SJH-CARM 2) are
-     imported with their real `ACTIVE` flag rather than name-excluded — confirm this is
-     sufficient once real data is visible in the mapping tab, or revisit
-8. **Radiation dose feature** — `std_pps.radiation_dose`/`.radiation_dose_units` are
-   loaded; check real fill-rate once Phase 14 has run, then decide if this replaces the
-   regex-from-dictation-text approach `LAUMC_DATA_REQUEST.md`'s RDMS analysis assumed.
-9. **Peer review workflow** — `std_pps.considered_for_review` flag is loaded; the full
-   `PEER_REVIEW` table isn't (schema not sent, deferred per operator).
-10. **Status-history population**: RIS-outbound ORM (`ORC-1=SC`) → read `STATUS_KEY` →
-    map via `worklist_status_map` (or `std_status_ris`'s richer `CORE_STATUS` chain) →
-    append to `worklist_status_history`. ORM only carries coarse codes (`A` = Scheduled
-    AND Arrived) → DB read decides. Arrived/started have **no** DB timestamp column →
-    message arrival time IS the transition.
-11. **Unified exam view** (after the join answer sharpens, blocked #4) — `std_worklist` ↔
-    `didb_studies`. Note: no dedicated `std_worklist` table was built this session —
-    `etl_orders.py` extracts the operationally-relevant subset of `SITE_WORKLIST` directly
-    into the existing `etl_orders` shape. A full 57-column `std_worklist` capture would
-    be a separate, larger build if ever wanted — not started.
-12. **`analytics_snapshots` per-site PK** restructure (deferred in `0049`): widen
-    `(snapshot_date)` → `(snapshot_date, site_id)` when the analytics refresh is reworked.
-13. **4 CD-burning/Weasis features** (explicitly requested earlier, not started) — note
-    `std_site_pps_ext` now carries real CD-burn tracking data (`cd_burned`,
-    `cd_burned_date`, `cd_burned_requested_by`, `image_sent_to`/`_2`/`_3`) that could
-    directly inform this: auto-display incoming study on "Recently arrived - ready to
-    burn"; add RF modality in Q/R; allow multiple CD burn; Weasis auto-copy to local
-    drive + auto-point to DICOM folder.
-
----
-
-## 💡 IDEAS / ASKS PARKED THIS SESSION (2026-07-27 →)
-
-Running log — capture each one here as it comes up, don't lose it in chat scroll.
-
-### KPI Detailed Reading — built, first pass, needs validation (2026-07-26)
-The "revamp TAT per modality per radiologist" ask (a continuation of punch-list #2, Report 25)
-turned out to have a concrete spec: `KPI Detailed reading.xlsx` in the repo root. Extracted its
-structure (no
-Excel needed — it's a zip of XML, parsed directly): per modality × patient-class block
-(CT-IN / CT-Urg / CT-Out), three TAT stages bucketed into named time ranges (different
-bucket widths for outpatient vs. in/urgent), radiologist rows per stage except the first
-(aggregate, unattributed). `routes/report_25.py`'s `get_kpi_detailed_reading()` implements
-this, replacing the old TAT heatmap + peer-ranking table in the Radiologists tab (both were
-driven by `rad_cards`, which now shows raw `hl7_oru_reports.physician_id` codes as
-"radiologist" for RIS-sourced reports — ballooned to hundreds of spurious entries, reported
-as "an infinite list").
-
-**Confirmed with operator**: patient-class blocks = modality × (Inpatient/Urgent-ER/Outpatient);
-radiologist list must be fully dynamic from the DB, not hardcoded; `physician_id` needs
-resolving to a real name via PERSON — done via `std_resources_ris.resource_id` (same
-composite-ID format already used for `etl_didb_studies.reading/signing_physician_id`,
-migration 0063); TAVI/Coro CT excluded by procedure_code pattern match — confirmed.
-
-**Not yet confirmed, first-pass assumption, "let's test it, we can change the queries if the
-data is illogical"**:
-- Stage → timestamp mapping: `Ex. Done to Read` = `COALESCE(hl7_orders.done_at, .pacs_done_at)`
-  → `rep_prelim_timestamp`; `Signed 1 to Approved` = `rep_prelim_timestamp` → `rep_final_timestamp`;
-  `Exam done to Approved` = exam-done → `COALESCE(rep_final_timestamp, hl7_oru_reports.result_datetime)`
-  (same fallback as migration 0070). Not verified against real data yet.
-- `patient_class` has no CHECK constraint in schema — Inpatient/Outpatient split uses broad
-  `ILIKE` pattern guesses (`IN%`/`OUT%`/`AMB%`), "Urgent" reuses the existing `2XE` accession
-  prefix convention. Needs verification once real bucket counts are visible.
-- Only CT is built (only modality with a defined SLA in the source spreadsheet) — extending
-  to other modalities is mechanical once the CT numbers are validated as correct.
-- The single aggregate `Ex. Done to Read` row is labeled `"Res."` (literal spreadsheet cell
-  content) — unclear if that's meant as a real label or an artifact of merged Excel cells;
-  the raw XML extraction didn't parse `<mergeCells>` ranges, so the exact intended header
-  hierarchy is a best guess.
-
-**Update, same day**: operator feedback — the CT-only scope took the spreadsheet too
-literally. Reworked to query all modalities in one pass (grouped by (modality, class_bucket)
-in pandas, not a hardcoded list) and render a dynamic modality `<select>` + patient-class tab
-selector (client-side switching, embedded JSON) instead of statically dumping every block.
-Non-CT modalities still reuse CT's bucket widths as a default — no other modality has a
-confirmed SLA window yet.
-
-**Next step**: operator reviews real rendered output against known-correct numbers for a
-sample period, tells me what's wrong, queries get adjusted. Not done until validated.
-
-**PAUSED, 2026-07-26**: operator flagged this whole approach was too PACS-reliant — the
-correct source is RIS's `std_pps`/`std_dictations` (real exam end time, real dictation time,
-proper FK to `std_resources_ris` instead of fragile string-matching on `physician_id`). Two
-real bugs found and fixed while investigating: `RIS_DICTATION_ETL`'s `_safe_str()` crashed on
-`DICTATION.AUDIO` (a BLOB, not the text path migration 0064 guessed — fixed,
-`ETL_JOBS/etl_ris_pps_lookups.py`), and Phase 14's 6 sub-steps shared one try/except so that
-crash also blocked `std_pps`/`std_site_pps_ext` from ever running (fixed, per-sub-step
-isolation, `ETL_JOBS/etl_runner.py`, same commit `f5a9091f`). Even after both fixes, `std_pps`
-still loaded 0 rows (`RIS_PPS_ETL` succeeded with 0 records) — likely `PPS.CREATED_DATE` is
-NULL/unreliable in Oracle, making the `WHERE CREATED_DATE >= go_live_date` filter
-(`ETL_JOBS/etl_ris_pps.py:171`) silently exclude everything (`NULL >= date` is not TRUE in
-SQL). Diagnostic query prepared (checks `CREATED_DATE` null rate, `START_DATETIME`/
-`END_DATETIME` fill rate) but not yet run — operator paused here to "recheck which tables we
-need for dictation" before continuing. **Do not resume the std_pps-based rewrite without
-operator confirmation.**
-
-### Operator punch list, 2026-07-26 — explicitly "for later," not started
-1. **All reports — data integrity check against RIS and PACS.** ⏸ **Explicitly deferred by
-   operator, 2026-07-27** ("skip this point, it needs a lot of work") when asked to scope which
-   reports/fields/tolerance. No spec, not started. Revisit only if operator brings it back up.
-2. **Report 25 revamp — "not showing any data."** ✅ Root cause actually found and fixed
-   this session, after three earlier attempted fixes (missing `report_template` row `0069`,
-   a syntax-error-crashing-the-whole-app fix `696b51a6`, a template None-guard fix
-   `255fdc51`) all landed but it was still empty. Real cause: the query required PACS's own
-   `rep_final_timestamp`/`rep_final_signed_by`, which isn't reliably synced for recent
-   LAUMC studies (radiologists sign in the RIS) — see the incident table above and
-   `migrations/0070`. Verify on next deploy that report_25 actually shows data for a
-   mid-July range; if still empty, it's a genuinely new/different cause at this point.
-3. **Live AE status — revamp to a 2D real-time department status board.** Driven by live
-   HL7 traffic (the MLLP listener already ingests ORM/ORU in real time) + one real-time
-   query to RIS for scheduled patients. No existing route identified yet for "live AE
-   status" — needs locating (or confirming it doesn't exist yet) before scoping the
-   rebuild. Relates to `aetitle_modality_map`/device model already in place.
-4. **ORU analytics page (`routes/oru_analytics.py`) — very slow load.** ✅ **Fixed, 2026-07-27**
-   — indexes were already fine (`received_at`/`report_id`/`accession_number` all covered); the
-   real cost was the rule-based NLP fallback recomputing from scratch on every page load for
-   any report the nlp-worker hasn't analyzed yet (can't cache in `hl7_oru_analysis` itself,
-   nlp-worker-only per `CLAUDE.md`). Added `hl7_oru_rule_cache` (`migrations/0080`), a
-   route-owned cache table — `oru_data()` now checks it before recomputing, writes results
-   back for next time. No staleness risk: real `hl7_oru_analysis` rows are already preferred
-   over the cache the moment the nlp-worker catches up. Verified against a real Postgres
-   container (cache-miss → compute → cache-hit, version-bump forcing recompute, cascade
-   delete cleanup). Not yet confirmed faster on the live page — worth a before/after timing
-   check once deployed.
-5. **Storage calculation is wrong.** 🔍 Likely root cause found 2026-07-27: `etl_analytics_
-   refresh.py:73` divides KB by the bytes→GiB constant instead of the KB→GB one — a 1024x
-   error. See "Two open asks" above. Waiting on one real number from the operator to confirm
-   before touching a live report.
-6. **Remove Patient CD Log** ✅ Done (`f3ee4d4a`) — route/template/blueprint/sidebar link
-   removed, following the same convention as Patient Portal/Scheduling (license flag kept
-   `False` for backward-compat, feature_map entry replaced with a "module REMOVED" comment).
-   `cd_print_log` the TABLE, its ETL (`etl_cd_surf.py`), and report_30/report_widgets (which
-   query the table directly) are untouched — separate, still-wanted capability.
-7. **Reporting backlog — RAYD not detecting reporting details.** ⚠️ Very likely the SAME
-   root cause as #2 (`migrations/0070`'s finding): reports checking PACS's own
-   `rep_final_timestamp`/`rep_final_signed_by` see almost nothing as "reported," not
-   because there's a real backlog, but because PACS's `DIDB_STUDIES` isn't kept current
-   with RIS-signed reports. Report_25 is fixed; whichever OTHER route surfaces "backlog"
-   (not yet identified — operator to point at the specific view) likely needs the same
-   `hl7_oru_reports` fallback applied.
-8. **Modality opening hours all show 720 (Postgres column default), never actually mapped
-   by ETL.** This is the SAME gap already tracked as blocked-on-vendor **#5** ("device↔scheme
-   assignment") and READY TO BUILD NEXT **#4** — `std_schedule_template_items` exists
-   (Phase 15) but isn't attributable to a specific device yet, so `device_weekly_schedule`
-   never gets populated from real RIS data and stays at Postgres's `720` default for every
-   AE. Not a new bug — confirms the existing blocker's real-world symptom. Unblocks once
-   the `MODALITY`↔`SCHEDULE_SCHEME` link is found (see blocked #5).
-9. **Procedure → modality mapping** — operator says they need to walk through this with me
-   directly next session (not a spec I can start from written notes alone). Relates to
-   `procedure_duration_map`/Phase 10's `SPS_CODE` import — wait for the guided session.
-10. **Build CRN from ORU** — 🚧 **In progress, 2026-07-27.** Detection/escalation/tokenized-ack
-    scaffold built, plus a real referring-physician resolution path (HL7 PV1-8 code →
-    `std_resources_ris` → real email/phone, see the two "CRN..." sections above) — all
-    verified end-to-end against real Postgres/HL7 samples, but running dry-run only
-    (`settings.crn_enabled = 'false'`) — no live send yet. Still needed before a real message
-    can go out: provider selection for all 3 channels (`docs/LAUMC_CRN_FIREWALL_REQUEST.md`),
-    confirmation on the patient/exam/finding-on-landing-page-not-in-message design choice,
-    and the actual provider API/SMTP calls wired into `utils/crn_dispatcher._send_on_channel()`.
+1. **Report 22**
+   - `study_status` / `study_modality` filters return no results.
+   - Modality → AE Source → Top 5 Procedures tree shows modalities as "unmapped" even
+     though they're mapped in the modality mapping tab.
+2. **Report 27**
+   - Demographics (Age & Gender) tab returns no data.
+3. **Report 23**
+   - Audit every filter on the right-hand panel: confirm where each one actually sources
+     its data from, and why the data returned is garbage.
+4. **ER Dashboard**
+   - All TAT reports are empty — root cause unknown, needs investigation.
+5. **Report 25**
+   - Revamp: convert each tab into a base report, same pattern as report 22/23 (operator
+     wrote "22,23,25" — self-referential, likely a typo; confirm which report(s) the
+     target pattern actually means before starting). Operator wants a written study/plan
+     first; bug fixes proceed after operator feedback on that study.
+6. **Report 29**
+   - Still shows 3,140 studies and only 0.33 TB while the real system holds 66 TB.
+   - CD distribution section is still present — already agreed to remove it.
+7. **Report AI**
+   - Utilization metric is still null.
+8. **Referring contacts**
+   - Should be filled in automatically (not done yet — see `referring_contacts_sync.py`
+     from the CRN work, which only fills contacts seen on a real order, not a bulk
+     autofill).
+9. **Modality mapping**
+   - Mapping isn't reflected across all reports.
+   - Procedure mappings aren't mapped to modalities.
+   - Physician tab should be removed.
+10. **Live AE Status**
+    - Rename to "Live Department View."
+    - UI needs simplification — currently too complicated.
+    - Recheck its data sources.
+11. **HL7 Orders**
+    - Check why R2I isn't sending data.
+12. **Report Intelligence**
+    - Data load is still slow on large data loads.
+13. **Custom Reports**
+    - CD distribution section still present, needs removal.
+    - Check the data source for every report type in here.
+    - Needs to be made more flexible — customer expectations are high on this feature.
 
 ---
 
