@@ -357,7 +357,7 @@ def suggestions():
                 COALESCE(pm.technical_rvu, 1.0)        AS rvu,
                 COUNT(*)                               AS freq
             FROM etl_didb_studies s
-            LEFT JOIN aetitle_modality_map m   ON m.aetitle = s.storing_ae
+            LEFT JOIN aetitle_modality_map m   ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
             LEFT JOIN procedure_duration_map pm ON pm.procedure_code = s.procedure_code
             WHERE s.procedure_code IS NOT NULL
               AND COALESCE(pm.duration_minutes, 15) > 0

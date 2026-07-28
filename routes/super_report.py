@@ -173,7 +173,7 @@ def super_report_filters():
             return sorted([r[0] for r in rows if r[0] is not None and str(r[0]).strip() != ''])
 
         return jsonify({
-            "modality":            distinct("SELECT DISTINCT COALESCE(m.modality, s.study_modality) FROM etl_didb_studies s LEFT JOIN aetitle_modality_map m ON s.storing_ae = m.aetitle WHERE COALESCE(m.modality, s.study_modality) IS NOT NULL"),
+            "modality":            distinct("SELECT DISTINCT COALESCE(m.modality, s.study_modality) FROM etl_didb_studies s LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle)) WHERE COALESCE(m.modality, s.study_modality) IS NOT NULL"),
             "storing_ae":          distinct("SELECT DISTINCT storing_ae FROM etl_didb_studies WHERE storing_ae IS NOT NULL"),
             "study_status":        distinct("SELECT DISTINCT study_status FROM etl_didb_studies WHERE study_status IS NOT NULL"),
             "report_status":       distinct("SELECT DISTINCT report_status FROM etl_didb_studies WHERE report_status IS NOT NULL"),
@@ -314,7 +314,7 @@ def _build_where(start, end, filters):
 
 def _collect_data(start, end, filters):
     where, params = _build_where(start, end, filters)
-    mj = "LEFT JOIN aetitle_modality_map m ON s.storing_ae = m.aetitle"
+    mj = "LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))"
     pj = "LEFT JOIN etl_patient_view p ON p.patient_db_uid = s.patient_db_uid"
 
     kpis = db.session.execute(text(f"""
@@ -439,7 +439,7 @@ def _collect_data(start, end, filters):
             FROM etl_didb_studies
             WHERE study_date BETWEEN :start AND :end
             GROUP BY storing_ae
-        ) sub ON sub.storing_ae = am.aetitle
+        ) sub ON UPPER(TRIM(sub.storing_ae)) = UPPER(TRIM(am.aetitle))
         ORDER BY cnt ASC LIMIT 1
     """), {"start": start, "end": end}).mappings().fetchone()
 

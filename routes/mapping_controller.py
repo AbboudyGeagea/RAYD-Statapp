@@ -175,8 +175,8 @@ def procedures_tab():
                        MODE() WITHIN GROUP (ORDER BY p.modality)                                AS group_modality
                 FROM procedure_canonical_groups g
                 JOIN procedure_canonical_members m ON m.group_id = g.id
-                LEFT JOIN procedure_duration_map p ON p.procedure_code = m.procedure_code
-                LEFT JOIN proc_descs d ON d.procedure_code = m.procedure_code
+                LEFT JOIN procedure_duration_map p ON UPPER(p.procedure_code) = UPPER(m.procedure_code)
+                LEFT JOIN proc_descs d ON d.procedure_code = UPPER(TRIM(m.procedure_code))
                 WHERE g.source = 'ai_suggested' AND g.approved = FALSE
                 GROUP BY g.id, g.canonical_name, g.cluster_confidence
             )
@@ -192,8 +192,8 @@ def procedures_tab():
                                 COALESCE(d.proc_text, p.procedure_code) AS description,
                                 p.modality
                          FROM procedure_duration_map p
-                         LEFT JOIN proc_descs d ON d.procedure_code = p.procedure_code
-                         WHERE p.procedure_code NOT IN (SELECT procedure_code FROM procedure_canonical_members)
+                         LEFT JOIN proc_descs d ON d.procedure_code = UPPER(TRIM(p.procedure_code))
+                         WHERE UPPER(p.procedure_code) NOT IN (SELECT UPPER(procedure_code) FROM procedure_canonical_members)
                          ORDER BY p.procedure_code
                          LIMIT 300
                      ) sub),
@@ -397,10 +397,15 @@ def save_grid_changes():
 @login_required
 def update_single_procedure():
     if current_user.role != 'admin': return abort(403)
+    from sqlalchemy import func as _f
     data = request.get_json(force=True)
     try:
         p_code = str(data['code']).strip().upper()
-        mapping = ProcedureDurationMap.query.filter_by(procedure_code=p_code).first()
+        # Case-insensitive lookup: procedure_code isn't guaranteed to be stored
+        # uppercase (e.g. ETL Phase 8 Step 3 / live_feed.add_procedure insert the
+        # raw-case code), so an exact match against the upper-cased incoming code
+        # silently misses those rows and the edit appears to not persist.
+        mapping = ProcedureDurationMap.query.filter(_f.upper(ProcedureDurationMap.procedure_code) == p_code).first()
         if mapping:
             dur = int(data.get('duration', 0))
             if dur > 0:
@@ -426,16 +431,19 @@ def update_single_procedure():
 def delete_procedure():
     """Delete a procedure from the catalog (admin only)."""
     if current_user.role != 'admin': return abort(403)
-    from sqlalchemy import text as _t
+    from sqlalchemy import text as _t, func as _f
     data = request.get_json(force=True)
     try:
         p_code = str(data['code']).strip().upper()
-        mapping = ProcedureDurationMap.query.filter_by(procedure_code=p_code).first()
+        # Case-insensitive lookup — see update_single_procedure for why procedure_code
+        # can't be assumed to already be stored uppercase.
+        mapping = ProcedureDurationMap.query.filter(_f.upper(ProcedureDurationMap.procedure_code) == p_code).first()
         if not mapping:
             return jsonify({"status": "error", "message": "Procedure not found"}), 404
-        # Remove from canonical members first to avoid FK violation
+        # Remove from canonical members first to avoid FK violation (case-insensitive —
+        # members may have been added with different casing than procedure_duration_map)
         db.session.execute(_t(
-            "DELETE FROM procedure_canonical_members WHERE procedure_code = :code"
+            "DELETE FROM procedure_canonical_members WHERE UPPER(procedure_code) = :code"
         ), {"code": p_code})
         db.session.delete(mapping)
         db.session.commit()
@@ -506,14 +514,17 @@ def set_canonical_modality():
             _t("SELECT procedure_code FROM procedure_canonical_members WHERE group_id = :gid"),
             {"gid": group_id}
         ).fetchall()
-        codes = [r[0] for r in members]
+        codes = [r[0].strip().upper() for r in members if r[0]]
         if not codes:
             return jsonify({"status": "error", "message": "Group has no members"}), 404
 
+        # Case-insensitive match — procedure_duration_map.procedure_code isn't
+        # guaranteed to already be uppercase (see update_single_procedure), so an
+        # exact ANY() match against member codes can silently update zero rows.
         db.session.execute(_t("""
             UPDATE procedure_duration_map
             SET modality = :mod
-            WHERE procedure_code = ANY(:codes)
+            WHERE UPPER(procedure_code) = ANY(:codes)
         """), {"mod": modality, "codes": codes})
         db.session.commit()
         return jsonify({"status": "success"})
@@ -563,12 +574,13 @@ def confirm_pair():
                         added_at = NOW()
             """), {"code": code, "gid": group_id, "score": float(pair.desc_similarity)})
 
-        # Apply modality to both procedure codes if provided
+        # Apply modality to both procedure codes if provided (case-insensitive —
+        # see update_single_procedure for why procedure_code casing can't be assumed)
         if modality:
             db.session.execute(_t("""
                 UPDATE procedure_duration_map
                 SET modality = :mod
-                WHERE procedure_code IN (:a, :b)
+                WHERE UPPER(procedure_code) IN (UPPER(:a), UPPER(:b))
             """), {"mod": modality, "a": pair.code_a, "b": pair.code_b})
 
         # Mark the pair as confirmed
@@ -754,139 +766,6 @@ def rename_cluster():
         db.session.execute(_t(
             "UPDATE procedure_canonical_groups SET canonical_name = :name WHERE id = :id"
         ), {"name": name, "id": group_id})
-        db.session.commit()
-        return jsonify({"status": "success"})
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-
-# ─── Physician Name Alias Mapping ───────────────────────────────────────────
-
-@mapping_bp.route('/physician-tab')
-@login_required
-def physician_tab():
-    """Lazy-loaded HTML fragment for the Physician Names tab."""
-    if current_user.role not in ('admin',): return abort(403)
-    from utils.physician_aliases import detect_suggestions
-    from sqlalchemy import text as _t
-
-    try:
-        suggestions = detect_suggestions()
-    except Exception as e:
-        suggestions = []
-
-    approved = db.session.execute(_t(
-        "SELECT alias, canonical_name FROM physician_alias_map WHERE dismissed = false ORDER BY canonical_name, alias"
-    )).fetchall()
-
-    return render_template('_mapping_physician_partial.html',
-                           suggestions=suggestions,
-                           approved=approved)
-
-
-@mapping_bp.route('/physician/approve', methods=['POST'])
-@login_required
-def physician_approve():
-    """Approve a single alias -> canonical mapping."""
-    if current_user.role != 'admin': return abort(403)
-    from sqlalchemy import text as _t
-    data = request.get_json(force=True)
-    alias     = str(data.get('alias', '')).strip()
-    canonical = str(data.get('canonical_name', '')).strip()
-    if not alias or not canonical:
-        return jsonify({"status": "error", "message": "alias and canonical_name required"}), 400
-    try:
-        db.session.execute(_t("""
-            INSERT INTO physician_alias_map (alias, canonical_name, dismissed)
-            VALUES (:alias, :canonical, false)
-            ON CONFLICT (alias) DO UPDATE
-                SET canonical_name = EXCLUDED.canonical_name,
-                    dismissed = false
-        """), {"alias": alias, "canonical": canonical})
-        db.session.commit()
-        return jsonify({"status": "success"})
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-
-@mapping_bp.route('/physician/approve-all', methods=['POST'])
-@login_required
-def physician_approve_all():
-    """Bulk-approve all suggestions using their suggested canonical."""
-    if current_user.role != 'admin': return abort(403)
-    from utils.physician_aliases import detect_suggestions
-    from sqlalchemy import text as _t
-    data = request.get_json(force=True)
-    # Accepts optional list of {alias, canonical_name} overrides; falls back to auto suggestions
-    pairs = data.get('pairs')
-    if not pairs:
-        try:
-            suggestions = detect_suggestions()
-        except Exception:
-            suggestions = []
-        pairs = []
-        for s in suggestions:
-            canonical = s['suggested_canonical']
-            for v in s['variants']:
-                if v != canonical:
-                    pairs.append({'alias': v, 'canonical_name': canonical})
-    try:
-        for p in pairs:
-            alias     = str(p['alias']).strip()
-            canonical = str(p['canonical_name']).strip()
-            if not alias or not canonical:
-                continue
-            db.session.execute(_t("""
-                INSERT INTO physician_alias_map (alias, canonical_name, dismissed)
-                VALUES (:alias, :canonical, false)
-                ON CONFLICT (alias) DO UPDATE
-                    SET canonical_name = EXCLUDED.canonical_name, dismissed = false
-            """), {"alias": alias, "canonical": canonical})
-        db.session.commit()
-        return jsonify({"status": "success", "count": len(pairs)})
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-
-@mapping_bp.route('/physician/dismiss', methods=['POST'])
-@login_required
-def physician_dismiss():
-    """Mark a suggestion as dismissed (not the same person)."""
-    if current_user.role != 'admin': return abort(403)
-    from sqlalchemy import text as _t
-    data = request.get_json(force=True)
-    # Dismiss all variants in a suggestion group by inserting them as self-mappings that are dismissed
-    aliases = data.get('aliases', [])
-    try:
-        for alias in aliases:
-            alias = str(alias).strip()
-            if not alias:
-                continue
-            db.session.execute(_t("""
-                INSERT INTO physician_alias_map (alias, canonical_name, dismissed)
-                VALUES (:alias, :alias, true)
-                ON CONFLICT (alias) DO UPDATE SET dismissed = true
-            """), {"alias": alias})
-        db.session.commit()
-        return jsonify({"status": "success"})
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-
-@mapping_bp.route('/physician/delete', methods=['POST'])
-@login_required
-def physician_delete():
-    """Remove an approved mapping (reverts to raw name)."""
-    if current_user.role != 'admin': return abort(403)
-    from sqlalchemy import text as _t
-    data = request.get_json(force=True)
-    alias = str(data.get('alias', '')).strip()
-    try:
-        db.session.execute(_t("DELETE FROM physician_alias_map WHERE alias = :alias"), {"alias": alias})
         db.session.commit()
         return jsonify({"status": "success"})
     except Exception as e:

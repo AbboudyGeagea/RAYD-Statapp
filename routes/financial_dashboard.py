@@ -11,7 +11,7 @@ financial_dashboard_bp = Blueprint('financial_dashboard', __name__)
 # ── Shared SQL fragments ───────────────────────────────────────────────────────
 _STUDY_BASE = """
     FROM etl_didb_studies s
-    LEFT JOIN aetitle_modality_map m ON m.aetitle = s.storing_ae
+    LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
     LEFT JOIN etl_orders o           ON o.study_db_uid = s.study_db_uid
     LEFT JOIN procedure_duration_map pdm
            ON UPPER(TRIM(o.proc_id)) = UPPER(TRIM(pdm.procedure_code))
@@ -67,7 +67,7 @@ def _collect(start: str, end: str) -> dict:
             {_MOD_EXPR}                                                        AS modality,
             COALESCE(SUM(pdm.clinical_rvu + pdm.technical_rvu), 0)             AS total_rvu
         FROM etl_didb_studies s
-        LEFT JOIN aetitle_modality_map m ON m.aetitle = s.storing_ae
+        LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
         LEFT JOIN etl_orders o           ON o.study_db_uid = s.study_db_uid
         LEFT JOIN procedure_duration_map pdm
                ON UPPER(TRIM(o.proc_id)) = UPPER(TRIM(pdm.procedure_code))
