@@ -226,7 +226,7 @@ def _get_volume_intelligence(start, end):
             COUNT(*) as cnt
         FROM etl_didb_studies s
         LEFT JOIN procedure_duration_map pm ON pm.procedure_code = s.procedure_code
-        LEFT JOIN aetitle_modality_map m ON m.aetitle = s.storing_ae
+        LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
         WHERE s.study_date BETWEEN :s AND :e
           AND COALESCE(m.modality, s.study_modality, '') != 'SR'
         GROUP BY 1 ORDER BY 2 DESC LIMIT 8
@@ -256,15 +256,28 @@ def _get_utilization_intelligence(start, end):
     if cached is not None:
         return cached
 
-    # Pull utilization per AE per day using proc_duration
+    # Pull estimated load per AE per day from procedure_duration_map.
+    # COALESCE(pm.duration_minutes, 15) mirrors the sitewide default applied
+    # everywhere else a duration has to be estimated for a procedure code with
+    # no procedure_duration_map row (report_25.get_gold_standard_data,
+    # capacity_ladder.py, viewer_controller.py, ETL_JOBS/etl_ris_procedures.py's
+    # _DEFAULT_DURATION). Previously this summed pm.duration_minutes directly, so
+    # any unmapped procedure code contributed 0 minutes instead of the 15-min
+    # estimate — with a sparsely-populated procedure_duration_map that silently
+    # collapsed load_mins to ~0 for most AEs, which is why utilization always
+    # came back null/empty. Also applies the SR exclusion + storing_ae guard
+    # every other etl_didb_studies query in this file already uses.
     rows = db.session.execute(text("""
         SELECT
             s.storing_ae,
             s.study_date,
-            COALESCE(SUM(pm.duration_minutes), 0) as load_mins
+            COALESCE(SUM(COALESCE(pm.duration_minutes, 15)), 0) as load_mins
         FROM etl_didb_studies s
         LEFT JOIN procedure_duration_map pm ON pm.procedure_code = s.procedure_code
+        LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
         WHERE s.study_date BETWEEN :s AND :e
+          AND s.storing_ae IS NOT NULL
+          AND COALESCE(m.modality, s.study_modality, '') != 'SR'
         GROUP BY 1, 2
         ORDER BY 1, 2
     """), {"s": start, "e": end}).fetchall()
@@ -278,7 +291,7 @@ def _get_utilization_intelligence(start, end):
             COUNT(*) AS cnt
         FROM etl_didb_studies s
         LEFT JOIN procedure_duration_map pm ON pm.procedure_code = s.procedure_code
-        LEFT JOIN aetitle_modality_map am ON am.aetitle = s.storing_ae
+        LEFT JOIN aetitle_modality_map am ON UPPER(TRIM(am.aetitle)) = UPPER(TRIM(s.storing_ae))
         WHERE s.study_date BETWEEN :s AND :e
           AND s.storing_ae IS NOT NULL
           AND COALESCE(am.modality, s.study_modality, '') != 'SR'
@@ -292,6 +305,11 @@ def _get_utilization_intelligence(start, end):
         return None
 
     df = pd.DataFrame(rows, columns=['ae', 'study_date', 'load_mins'])
+    df['load_mins']  = pd.to_numeric(df['load_mins'], errors='coerce').fillna(0)
+    df['study_date'] = pd.to_datetime(df['study_date'])
+    df['dow']        = df['study_date'].dt.dayofweek
+    df['ae_upper']   = df['ae'].astype(str).str.upper().str.strip()
+    df['date_str']   = df['study_date'].dt.strftime('%Y-%m-%d')
 
     sched = db.session.execute(text("""
         SELECT
@@ -304,25 +322,75 @@ def _get_utilization_intelligence(start, end):
     """)).mappings().all()
     schedule_lookup = {(s['ae'], int(s['day_of_week'])): s['std_opening_minutes'] for s in sched}
 
+    # Actual (measured) per-device-per-day minutes from std_pps (RIS Performed
+    # Procedure Step — start/end timestamps), where available. Mirrors the
+    # "actuals over estimate" precedence report_25.get_gold_standard_data() uses
+    # for its own utilization matrix (~lines 362-389): std_pps is the real
+    # measured source, procedure_duration_map above is only the estimate used
+    # when a given AE/day has no PPS coverage (non-RIS sites, or dates before
+    # the PPS feed started). Wrapped defensively since std_pps only exists on
+    # RIS-integrated sites (migration 0065) — this file previously had no PPS
+    # integration at all and relied solely on the static estimate.
+    actual_lookup = {}
+    try:
+        pps_rows = db.session.execute(text("""
+            SELECT
+                UPPER(TRIM(pps.performing_ae_title)) AS ae,
+                pps.start_datetime::date AS pps_date,
+                SUM(EXTRACT(EPOCH FROM (pps.end_datetime - pps.start_datetime)) / 60) AS mins
+            FROM std_pps pps
+            JOIN etl_didb_studies s ON s.study_db_uid = pps.study_db_uid
+            LEFT JOIN aetitle_modality_map am ON UPPER(TRIM(am.aetitle)) = UPPER(TRIM(s.storing_ae))
+            WHERE pps.start_datetime::date BETWEEN :s AND :e
+              AND pps.end_datetime IS NOT NULL
+              AND pps.end_datetime > pps.start_datetime
+              AND pps.performing_ae_title IS NOT NULL
+              AND COALESCE(am.modality, s.study_modality, '') != 'SR'
+            GROUP BY 1, 2
+        """), {"s": start, "e": end}).fetchall()
+        actual_lookup = {(r[0], str(r[1])): float(r[2]) for r in pps_rows}
+    except Exception:
+        logger.exception("[report_ai] std_pps actuals unavailable for utilization — using estimate only")
+        db.session.rollback()
+
+    # Vectorized cap/utilization computation. This used to be a per-row
+    # iterrows() loop (re-run once per AE, plus a re-filter of the whole
+    # DataFrame per AE via df[df['ae']==ae]) — doesn't scale on wide date
+    # ranges: a year of data across dozens of AEs means tens of thousands of
+    # row-by-row Python iterations. Merge + groupby scales to large row counts.
+    sched_df = pd.DataFrame(
+        [{"ae_upper": k[0], "dow": k[1], "day_cap": v} for k, v in schedule_lookup.items()]
+    )
+    if not sched_df.empty:
+        df = df.merge(sched_df, on=["ae_upper", "dow"], how="left")
+    else:
+        df["day_cap"] = 0
+    df["day_cap"] = df["day_cap"].fillna(0)
+
+    actual_df = pd.DataFrame(
+        [{"ae_upper": k[0], "date_str": k[1], "actual_mins": v} for k, v in actual_lookup.items()]
+    )
+    if not actual_df.empty:
+        df = df.merge(actual_df, on=["ae_upper", "date_str"], how="left")
+    else:
+        df["actual_mins"] = np.nan
+
+    df["effective_mins"] = df["actual_mins"].where(df["actual_mins"].notna(), df["load_mins"])
+    df["util_pct"] = np.where(
+        df["day_cap"] > 0,
+        (df["effective_mins"] / df["day_cap"] * 100).round(1),
+        0.0
+    )
+    df = df.sort_values(["ae", "study_date"])
+
     ae_results   = []
     all_anomalies = 0
     high_stress  = []
     low_util     = []
 
-    for ae in df['ae'].unique():
-        ae_df    = df[df['ae'] == ae].copy()
-        ae_upper = str(ae).upper().strip()
-        ae_df['study_date'] = pd.to_datetime(ae_df['study_date'])
-        ae_df['dow'] = ae_df['study_date'].dt.dayofweek
-
-        daily_utils = []
-        daily_dates = []
-        for _, row in ae_df.iterrows():
-            dow      = int(row['dow'])
-            day_cap  = schedule_lookup.get((ae_upper, dow), 0)
-            util_pct = round((row['load_mins'] / day_cap * 100), 1) if day_cap > 0 else 0
-            daily_utils.append(util_pct)
-            daily_dates.append(str(row['study_date'].date()))
+    for ae, ae_df in df.groupby('ae', sort=False):
+        daily_utils = ae_df['util_pct'].tolist()
+        daily_dates = ae_df['date_str'].tolist()
 
         avg_util   = round(np.mean(daily_utils), 1) if daily_utils else 0
         anomalies  = _detect_anomalies(daily_utils, dates=daily_dates)
@@ -400,7 +468,7 @@ def _get_physician_intelligence(start, end):
             COUNT(*) as cnt
         FROM etl_didb_studies s
         LEFT JOIN procedure_duration_map pm ON pm.procedure_code = s.procedure_code
-        LEFT JOIN aetitle_modality_map am ON am.aetitle = s.storing_ae
+        LEFT JOIN aetitle_modality_map am ON UPPER(TRIM(am.aetitle)) = UPPER(TRIM(s.storing_ae))
         WHERE s.study_date BETWEEN :s AND :e
           AND s.referring_physician_first_name IS NOT NULL
           AND COALESCE(am.modality, s.study_modality, '') != 'SR'
