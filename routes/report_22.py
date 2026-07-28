@@ -14,26 +14,31 @@ def get_where_params(form):
     where = "WHERE study_date BETWEEN :start AND :end"
     params = {"start": start_date, "end": end_date}
     
+    # NOTE: comparisons use UPPER(TRIM(...)) on both sides. The dropdown options
+    # (routes/report_cache.py:get_filter_options) are sourced from the same raw
+    # columns and are TRIM'd the same way, so values round-trip correctly even
+    # when the underlying ETL data carries incidental case/whitespace variance
+    # (e.g. Oracle CHAR-padding on study_status, or mixed-case storing_ae).
     if form.get("f_class_active") == "on" and form.get("f_class"):
-        where += " AND UPPER(patient_class) = UPPER(:p_class)"
+        where += " AND UPPER(TRIM(patient_class)) = UPPER(TRIM(:p_class))"
         params["p_class"] = form.get("f_class")
 
     if form.get("f_sex_active") == "on" and form.get("f_sex"):
-        where += " AND UPPER(sex) = UPPER(:sex)"
+        where += " AND UPPER(TRIM(sex)) = UPPER(TRIM(:sex))"
         params["sex"] = form.get("f_sex")
 
     if form.get("f_status_active") == "on" and form.get("f_status"):
-        where += " AND UPPER(study_status) = UPPER(:status)"
+        where += " AND UPPER(TRIM(study_status)) = UPPER(TRIM(:status))"
         params["status"] = form.get("f_status")
-        
+
     if form.get("f_mod_active") == "on" and form.get("f_mod"):
-        where += " AND UPPER(modality) = UPPER(:mod)"
+        where += " AND UPPER(TRIM(modality)) = UPPER(TRIM(:mod))"
         params["mod"] = form.get("f_mod")
 
     if form.get("f_ae_active") == "on" and form.get("f_ae"):
-        where += " AND UPPER(storing_ae) = UPPER(:ae)"
+        where += " AND UPPER(TRIM(storing_ae)) = UPPER(TRIM(:ae))"
         params["ae"] = form.get("f_ae")
-        
+
     return where, params
 
 @report_22_bp.route("/report/22", methods=["GET", "POST"])
@@ -91,7 +96,7 @@ def report_22():
                 COALESCE(NULLIF(TRIM(CONCAT_WS(' ', s.referring_physician_first_name, s.referring_physician_last_name)), ''), 'Unknown') as physician,
                 s.patient_location, p.fallback_id as patient_id
             FROM etl_didb_studies s
-            LEFT JOIN aetitle_modality_map m ON s.storing_ae = m.aetitle
+            LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
             LEFT JOIN etl_patient_view p ON p.patient_db_uid::TEXT = s.patient_db_uid::TEXT
             WHERE COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
         """
@@ -450,7 +455,7 @@ def status_drilldown_22():
                     s.referring_physician_first_name,
                     s.referring_physician_last_name)), ''), 'Unknown') AS physician
             FROM etl_didb_studies s
-            LEFT JOIN aetitle_modality_map m ON s.storing_ae = m.aetitle
+            LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
             LEFT JOIN etl_patient_view p ON p.patient_db_uid::TEXT = s.patient_db_uid::TEXT
             WHERE COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
         )
@@ -506,7 +511,7 @@ def export_report_22():
                    TRIM(CONCAT_WS(' ', s.referring_physician_first_name, s.referring_physician_last_name)) as physician,
                    p.fallback_id as patient_id
             FROM etl_didb_studies s
-            LEFT JOIN aetitle_modality_map m ON s.storing_ae = m.aetitle
+            LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
             LEFT JOIN etl_patient_view p ON p.patient_db_uid::TEXT = s.patient_db_uid::TEXT
             WHERE COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
         )

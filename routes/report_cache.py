@@ -145,13 +145,21 @@ def get_filter_options(db) -> dict:
 
     data = {"classes": [], "locations": [], "statuses": [], "aetitles": [], "modalities": [], "sex_values": []}
 
+    # NOTE: values are TRIM'd (and deduped post-TRIM) so what's offered in the
+    # dropdown exactly matches what report filters search for. Report filter
+    # WHERE clauses (e.g. routes/report_22.py:get_where_params) compare with
+    # UPPER(TRIM(column)) = UPPER(TRIM(:param)) specifically because ETL-sourced
+    # text columns (Oracle CHAR-padding, free-typed AE titles, etc.) carry
+    # incidental leading/trailing whitespace. Without TRIM here, the dropdown
+    # could offer a whitespace-variant value that matches zero (or the wrong
+    # subset of) rows even though the filter itself is case-insensitive.
     _QUERIES = {
-        "classes":    "SELECT ARRAY_AGG(DISTINCT patient_class   ORDER BY patient_class)   FROM etl_didb_studies WHERE patient_class   IS NOT NULL",
-        "locations":  "SELECT ARRAY_AGG(DISTINCT patient_location ORDER BY patient_location) FROM etl_didb_studies WHERE patient_location IS NOT NULL",
-        "statuses":   "SELECT ARRAY_AGG(DISTINCT study_status    ORDER BY study_status)    FROM etl_didb_studies WHERE study_status    IS NOT NULL",
-        "aetitles":   "SELECT ARRAY_AGG(DISTINCT storing_ae      ORDER BY storing_ae)      FROM etl_didb_studies WHERE storing_ae      IS NOT NULL",
-        "modalities": "SELECT ARRAY_AGG(DISTINCT modality        ORDER BY modality)        FROM aetitle_modality_map WHERE modality IS NOT NULL AND modality != 'SR'",
-        "sex_values": "SELECT ARRAY_AGG(DISTINCT sex             ORDER BY sex)             FROM etl_patient_view WHERE sex IS NOT NULL",
+        "classes":    "SELECT ARRAY_AGG(DISTINCT TRIM(patient_class)   ORDER BY TRIM(patient_class))   FROM etl_didb_studies WHERE patient_class   IS NOT NULL AND TRIM(patient_class)   != ''",
+        "locations":  "SELECT ARRAY_AGG(DISTINCT TRIM(patient_location) ORDER BY TRIM(patient_location)) FROM etl_didb_studies WHERE patient_location IS NOT NULL AND TRIM(patient_location) != ''",
+        "statuses":   "SELECT ARRAY_AGG(DISTINCT TRIM(study_status)    ORDER BY TRIM(study_status))    FROM etl_didb_studies WHERE study_status    IS NOT NULL AND TRIM(study_status)    != ''",
+        "aetitles":   "SELECT ARRAY_AGG(DISTINCT TRIM(storing_ae)      ORDER BY TRIM(storing_ae))      FROM etl_didb_studies WHERE storing_ae      IS NOT NULL AND TRIM(storing_ae)      != ''",
+        "modalities": "SELECT ARRAY_AGG(DISTINCT TRIM(modality)        ORDER BY TRIM(modality))        FROM aetitle_modality_map WHERE modality IS NOT NULL AND modality != 'SR'",
+        "sex_values": "SELECT ARRAY_AGG(DISTINCT TRIM(sex)             ORDER BY TRIM(sex))             FROM etl_patient_view WHERE sex IS NOT NULL AND TRIM(sex) != ''",
     }
 
     for key, sql in _QUERIES.items():
