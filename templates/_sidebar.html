@@ -139,7 +139,7 @@
             {% if license.get('live_feed') and (current_user.role == 'admin' or current_user|user_has_page('live_feed')) %}
             <a href="{{ url_for('live_feed.live_page') }}" target="_blank"
                class="sidebar-item {% if ep.startswith('live_feed.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
-                <i class="bi bi-activity flex-shrink-0" style="color:#22c55e;"></i> Live AE Status
+                <i class="bi bi-activity flex-shrink-0" style="color:#22c55e;"></i> Live Department View
                 <span style="font-size:8px;font-weight:900;padding:1px 5px;border-radius:4px;background:rgba(34,197,94,0.15);color:#22c55e;text-transform:uppercase;letter-spacing:0.08em;">LIVE</span>
             </a>
             {% endif %}

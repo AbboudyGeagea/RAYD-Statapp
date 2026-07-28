@@ -1,21 +1,52 @@
 """
 routes/live_feed.py
 ────────────────────────────────────────────────────────────────
-RAYD Live Modality Status Feed  (admin only)
+RAYD Live Department View  (admin only)
 
-Data source : hl7_orders  (real-time, not etl_orders which arrives next-day)
-Grouped by  : modality    (AE assignment requires didb_studies — 1-day lag)
+NOTE (2026-07-27): this docstring previously said the status feed read
+hl7_orders (grouped by modality) — that was true of an earlier version of
+this file but is NO LONGER ACCURATE for the main /viewer/live/status route.
+Corrected below; see live_status()'s own docstring for the full detail.
 
-Status per modality:
+Data source : live query against RIS's SPS (Scheduled Procedure Step) table
+              via OracleConnector — NOT hl7_orders, NOT etl_orders. Nothing
+              from this query is persisted to Postgres; it runs fresh on
+              every request. hl7_orders is still used, but only for three
+              unrelated, narrower concerns: orphan-order detection (this
+              file's /orphans + the orphan count on /status), the TAT
+              endpoint (/tat), and the SSE-fallback version poll (/version).
+Grouped by  : DEVICE (aetitle), one tile per row of aetitle_modality_map —
+              not pooled by modality type. SPS.MODALITY_KEY → MODALITY.AE_TITLE
+              gives the real per-device assignment at scheduling time, so the
+              old "AE-level grouping needs didb_studies, which lags a day"
+              constraint no longer applies. "modality" is kept per-tile only
+              as the type label used for the filter chips/color-coding.
+
+Status per device:
   delayed  → any active order has passed its expected finish time
   busy     → has active orders, none overrun
   free     → no active orders right now
-  closed   → all AEs of this modality have 0 opening minutes today
+  closed   → this device has 0 opening minutes today (device_weekly_schedule /
+             device_exceptions)
 
-Refresh triggers:
-  1. New HL7 insert  → pg_notify 'hl7_new_order' → SSE push → immediate reload
+Refresh triggers (unchanged by the RIS-SPS migration above, still real):
+  1. New HL7 order insert (hl7_listener.py) → pg_notify 'hl7_new_order' →
+     this file's /events SSE endpoint LISTENs and pushes "new_order" →
+     browser reloads immediately. Verified wired end-to-end. Caveat: since
+     the tile data source is now RIS SPS rather than hl7_orders, a new HL7
+     order is a proxy signal for "the board may have changed," not a direct
+     one — a pure RIS-side reschedule with no corresponding HL7 message
+     would not trigger this push (covered instead by triggers 2/3 below).
   2. Countdown       → earliest active-order finish time  → next_refresh_in
   3. All overrun     → 2-minute fallback instead of 60-minute default
+
+Known dead weight (not fixed here — presentation-only pass, no backend
+rewrite): the arrive/start/dismiss/revert/link workflow endpoints below key
+off hl7_orders.message_id, but tile active_orders (sourced from SPS) never
+carry a message_id — only order_id (=SPS_ID). They're also unreachable from
+templates/live_feed.html today (no button ever called them). Left in place;
+would need an SPS→hl7_orders join (there's no shared key pre-PACS-creation)
+to make functional again.
 
 Registered in registry.py:
     from routes.live_feed import live_feed_bp

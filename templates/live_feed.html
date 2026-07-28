@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>RAYD | Live Modality Status</title>
+    <title>RAYD | Live Department View</title>
     <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
     <style>
@@ -22,8 +22,8 @@
 
         /* ── Tile ── */
         .ae-tile {
-            border-radius:16px; padding:20px; border:1px solid;
-            display:flex; flex-direction:column; gap:10px;
+            border-radius:16px; padding:18px; border:1px solid;
+            display:flex; flex-direction:column; gap:9px;
             transition:all 0.4s ease; position:relative; overflow:hidden;
         }
         .ae-tile::before {
@@ -56,21 +56,38 @@
         .info-row { font-size:11px; color:#94a3b8; display:flex; align-items:center; gap:6px; }
         .info-row i { font-size:11px; width:14px; text-align:center; flex-shrink:0; }
 
+        /* ── Order row — two lines only: who/status, then what/when ── */
         .order-row {
-            display:flex; align-items:center; gap:8px;
             padding:7px 10px; border-radius:10px;
             background:rgba(255,255,255,0.03); border:1px solid #1a2420;
-            font-size:11px;
         }
         .order-row.overrun { background:rgba(251,191,36,0.05); border-color:rgba(251,191,36,0.2); }
 
-        .badge { display:inline-flex; align-items:center; gap:3px; padding:2px 7px;
+        .order-row-top {
+            display:flex; align-items:center; gap:8px;
+        }
+        .order-patient {
+            font-size:12px; font-weight:800; color:#e2e8f0;
+            flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+        }
+        .order-dob { font-size:10px; color:#64748b; flex-shrink:0; }
+
+        .order-row-bottom {
+            display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:3px;
+        }
+        .order-proc {
+            font-size:11px; color:#94a3b8;
+            flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+        }
+
+        .badge { display:inline-flex; align-items:center; gap:3px; padding:2px 7px; flex-shrink:0;
             border-radius:4px; font-size:9px; font-weight:900; text-transform:uppercase; white-space:nowrap; }
         .badge-overrun { background:rgba(251,191,36,0.12); color:#fbbf24; border:1px solid rgba(251,191,36,0.25); }
         .badge-mins    { background:rgba(74,222,128,0.08);  color:#4ade80; border:1px solid rgba(74,222,128,0.18); }
-        .badge-unknown { background:rgba(250,204,21,0.08);  color:#facc15; border:1px solid rgba(250,204,21,0.2);
-                         cursor:pointer; transition:background 0.15s; }
-        .badge-unknown:hover { background:rgba(250,204,21,0.18); }
+
+        .pill { font-size:9px; font-weight:900; padding:2px 7px; border-radius:5px; flex-shrink:0; text-transform:uppercase; }
+        .pill-arrived { background:rgba(167,139,250,0.12); color:#a78bfa; border:1px solid rgba(167,139,250,0.2); }
+        .pill-started { background:rgba(96,165,250,0.12);  color:#60a5fa; border:1px solid rgba(96,165,250,0.2); }
 
         .live-header { background:var(--surface); border-bottom:1px solid var(--border);
             padding:14px 32px; display:flex; align-items:center; justify-content:space-between; }
@@ -84,74 +101,14 @@
         .sse-polling { background:#f59e0b; }
         .sse-off     { background:#475569; }
 
-        /* ── Modal ── */
+        /* ── Modal (orphan orders) ── */
         .modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,0.65);
             display:flex; align-items:center; justify-content:center; z-index:100; }
         .modal-box { background:#111714; border:1px solid #1a2420; border-radius:20px;
             padding:32px; width:380px; display:flex; flex-direction:column; gap:18px; }
-        .modal-input { width:100%; background:#0a0f0d; border:1px solid #1a2420; border-radius:12px;
-            padding:10px 14px; font-size:13px; color:#e2e8f0; font-family:'JetBrains Mono',monospace;
-            outline:none; transition:border-color 0.2s; }
-        .modal-input:focus { border-color:#60a5fa; }
     </style>
 </head>
 <body class="flex flex-col min-h-screen">
-
-    <!-- ── Add Procedure Modal ──────────────────────────────────────────────── -->
-    <div id="add-proc-modal" class="modal-backdrop hidden">
-        <div class="modal-box">
-            <div>
-                <h2 class="text-white font-black text-base uppercase tracking-tight leading-none">Add Procedure Duration</h2>
-                <p class="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">This code will be saved to the duration map</p>
-            </div>
-            <div>
-                <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1.5">Procedure Code</label>
-                <input id="modal-proc-code" type="text" readonly class="modal-input" style="color:#94a3b8;">
-            </div>
-            <div>
-                <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1.5">Duration (minutes)</label>
-                <input id="modal-duration" type="number" min="1" max="480" value="15" class="modal-input">
-            </div>
-            <div class="flex gap-3">
-                <button onclick="saveProcedure()"
-                    class="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-black text-xs uppercase tracking-widest py-3 rounded-xl transition-colors">
-                    Save
-                </button>
-                <button onclick="closeModal()"
-                    class="flex-1 border border-[#1a2420] text-slate-500 hover:text-white font-black text-xs uppercase tracking-widest py-3 rounded-xl transition-colors">
-                    Cancel
-                </button>
-            </div>
-        </div>
-    </div>
-
-    <!-- ── Link Order Modal ─────────────────────────────────────────────────── -->
-    <div id="link-order-modal" class="modal-backdrop hidden">
-        <div class="modal-box">
-            <div>
-                <h2 class="text-white font-black text-base uppercase tracking-tight leading-none">Link HL7 Order</h2>
-                <p class="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Link to an existing accession without marking it done</p>
-            </div>
-            <div>
-                <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1.5">HL7 Message ID</label>
-                <input id="modal-link-message-id" type="text" readonly class="modal-input" style="color:#94a3b8;">
-            </div>
-            <div>
-                <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1.5">Accession Number</label>
-                <input id="modal-link-accession" type="text" class="modal-input" placeholder="Enter accession to link">
-            </div>
-            <div class="flex gap-3">
-                <button onclick="saveLink()"
-                    class="flex-1 bg-sky-600 hover:bg-sky-500 text-white font-black text-xs uppercase tracking-widest py-3 rounded-xl transition-colors">
-                    Link
-                </button>
-                <button onclick="closeLinkModal()"
-                    class="flex-1 border border-[#1a2420] text-slate-500 hover:text-white font-black text-xs uppercase tracking-widest py-3 rounded-xl transition-colors">
-                    Cancel
-                </button>
-            </div>
-        </div>
-    </div>
 
     <!-- ── Orphan Orders Modal ───────────────────────────────────────────────── -->
     <div id="orphan-modal" class="modal-backdrop hidden">
@@ -177,7 +134,7 @@
         <div class="flex items-center gap-4">
             <img src="{{ url_for('static', filename='RAYD.png') }}" class="h-10 w-auto opacity-85">
             <div>
-                <h1 class="text-white font-black text-lg uppercase tracking-tight leading-none">Live Modality Status</h1>
+                <h1 class="text-white font-black text-lg uppercase tracking-tight leading-none">Live Department View</h1>
                 <p class="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-0.5">Real-time radiology floor map</p>
             </div>
         </div>
@@ -245,9 +202,6 @@ let _eventSource    = null;
 let _pollTimer      = null;  // fallback polling when SSE is unavailable
 
 const CIRC = 81.7;
-
-const USER_ROLE    = {{ current_user.role | tojson }};
-const REVERT_ROLES = ['admin', 'viewer', 'tec'];
 
 const MOD_COLOR = {
     CT:'#60a5fa', MR:'#a78bfa', US:'#34d399', XA:'#f87171',
@@ -344,9 +298,6 @@ async function checkVersionFallback() {
     } catch(e) {}
 }
 
-// ── Fallback version endpoint (still needed) ──────────────────────────
-// (kept in backend for the polling fallback above)
-
 // ── Modality filter ───────────────────────────────────────────────────
 let _modFilter  = null;
 let _lastTiles  = [];
@@ -393,6 +344,36 @@ function renderTiles(tiles) {
     document.getElementById('tile-grid').innerHTML = visible.map(buildTile).join('');
 }
 
+// One compact, two-line row per active order: who (+ arrived/started status)
+// on top, what + time remaining/overdue underneath. Accession number and
+// referring physician are intentionally omitted — for a live-scheduled (not
+// yet PACS-created) order neither field is ever populated, so showing them
+// was always just a row of dashes.
+function buildRow(o, hidden) {
+    const rowCls    = 'order-row' + (o.overrun ? ' overrun' : '');
+    const timeBadge = o.overrun
+        ? `<span class="badge badge-overrun"><i class="bi bi-clock-history"></i> ${Math.abs(o.mins_remaining)}m overdue</span>`
+        : `<span class="badge badge-mins">${o.mins_remaining}m left · ends ${escHtml(o.end_time)}</span>`;
+    const o_status = o.order_status || 'SC';
+    const statusPill = o_status === 'AR'
+        ? `<span class="pill pill-arrived">Arrived</span>`
+        : o_status === 'IP'
+        ? `<span class="pill pill-started">Started</span>`
+        : '';
+
+    return `<div class="${rowCls}"${hidden ? ' style="display:none;"' : ''}>
+        <div class="order-row-top">
+            <span class="order-patient" title="${escHtml(o.patient_name)} (${escHtml(o.patient_id)})">${escHtml(o.patient_name)}</span>
+            <span class="order-dob">${escHtml(o.date_of_birth)}</span>
+            ${statusPill}
+        </div>
+        <div class="order-row-bottom">
+            <span class="order-proc" title="${escHtml(o.procedure_text)}">${escHtml(o.procedure_text)}</span>
+            ${timeBadge}
+        </div>
+    </div>`;
+}
+
 function buildTile(t) {
     const cls = {
         busy:'tile-busy', delayed:'tile-delayed', free:'tile-free', closed:'tile-closed'
@@ -412,56 +393,12 @@ function buildTile(t) {
         const ontime    = t.active_orders.filter(o => !o.overrun);
         const COLLAPSE  = 2; // show only first N overruns inline; rest in toggle
 
-        const buildRow  = (o, hidden = false) => {
-            const rowCls    = o.overrun ? 'order-row overrun' : 'order-row';
-            const timeBadge = o.overrun
-                ? `<span class="badge badge-overrun"><i class="bi bi-clock-history"></i> ${Math.abs(o.mins_remaining)}m overdue</span>`
-                : `<span class="badge badge-mins">${o.mins_remaining}m · ends ${escHtml(o.end_time)}</span>`;
-            const unknownBadge = o.unknown_code
-                ? `<span class="badge badge-unknown" onclick="openAddProc('${escHtml(o.procedure_code)}')" title="Unknown code — click to set duration"><i class="bi bi-info-circle"></i></span>`
-                : '';
-            const linkedBadge = o.linked_accession_number
-                ? `<span class="badge badge-mins" title="Linked accession ${escHtml(o.linked_accession_number)}"><i class="bi bi-link-45deg"></i> Linked</span>`
-                : '';
-            const o_status = o.order_status || 'SC';
-
-            const statusBadge = o_status === 'AR'
-                ? `<span style="font-size:9px;font-weight:900;padding:2px 7px;border-radius:5px;background:rgba(167,139,250,0.12);color:#a78bfa;text-transform:uppercase;border:1px solid rgba(167,139,250,0.2);">Arrived</span>`
-                : o_status === 'IP'
-                ? `<span style="font-size:9px;font-weight:900;padding:2px 7px;border-radius:5px;background:rgba(96,165,250,0.12);color:#60a5fa;text-transform:uppercase;border:1px solid rgba(96,165,250,0.2);">Started</span>`
-                : '';
-
-            return `<div class="${rowCls}" style="flex-direction:column;align-items:stretch;gap:5px;"${hidden ? ' style="display:none;"' : ''}>
-                <div style="display:flex;align-items:center;gap:6px;min-width:0;">
-                    <i class="bi bi-person" style="color:#64748b;flex-shrink:0;"></i>
-                    <span class="font-mono font-bold text-slate-300" style="flex-shrink:0;">${escHtml(o.patient_id)}</span>
-                    <span class="font-mono text-slate-500" style="flex-shrink:0;font-size:10px;">${escHtml(o.accession_number)}</span>
-                    <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#94a3b8;font-size:11px;flex:1;" title="${escHtml(o.procedure_text)}">${escHtml(o.procedure_text)}</span>
-                    ${unknownBadge}
-                </div>
-                <div style="display:flex;align-items:center;gap:10px;font-size:10px;color:#475569;padding-left:2px;flex-wrap:wrap;">
-                    <span title="Patient name"><i class="bi bi-person-badge" style="margin-right:3px;"></i>${escHtml(o.patient_name)}</span>
-                    <span style="color:#1e293b;">·</span>
-                    <span title="Date of birth"><i class="bi bi-calendar3" style="margin-right:3px;"></i>${escHtml(o.date_of_birth)}</span>
-                    <span style="color:#1e293b;">·</span>
-                    <span title="Referring physician"><i class="bi bi-hospital" style="margin-right:3px;"></i>${escHtml(o.referring_physician)}</span>
-                </div>
-                <div style="display:flex;align-items:center;gap:6px;justify-content:space-between;">
-                    ${timeBadge}
-                    <div style="display:flex;gap:6px;align-items:center;">
-                        ${linkedBadge}
-                        ${statusBadge}
-                    </div>
-                </div>
-            </div>`;
-        };
-
-        let rows = ontime.map(o => buildRow(o)).join('');
+        let rows = ontime.map(o => buildRow(o, false)).join('');
 
         if (overruns.length > 0) {
             const visible = overruns.slice(0, COLLAPSE);
             const hidden  = overruns.slice(COLLAPSE);
-            rows += visible.map(o => buildRow(o)).join('');
+            rows += visible.map(o => buildRow(o, false)).join('');
             if (hidden.length > 0) {
                 const uid = 'ov_' + Math.random().toString(36).slice(2, 7);
                 rows += hidden.map(o => buildRow(o, true).replace('style="display:none;"', `id="${uid}" style="display:none;"`)).join('');
@@ -519,148 +456,11 @@ function renderSummary(tiles, orphanCount) {
     document.getElementById('cnt-orphan').textContent  = orphanCount != null ? orphanCount : 0;
 }
 
-// ── Add procedure modal ───────────────────────────────────────────────
-function openAddProc(code) {
-    document.getElementById('modal-proc-code').value = code;
-    document.getElementById('modal-duration').value  = 15;
-    document.getElementById('add-proc-modal').classList.remove('hidden');
-    document.getElementById('modal-duration').focus();
-}
-
-function closeModal() {
-    document.getElementById('add-proc-modal').classList.add('hidden');
-}
-
-// Close on backdrop click
-document.getElementById('add-proc-modal').addEventListener('click', function(e) {
-    if (e.target === this) closeModal();
-});
-
-// Save on Enter key
-document.getElementById('modal-duration').addEventListener('keydown', function(e) {
-    if (e.key === 'Enter') saveProcedure();
-    if (e.key === 'Escape') closeModal();
-});
-
-async function saveProcedure() {
-    const code     = document.getElementById('modal-proc-code').value.trim();
-    const duration = parseInt(document.getElementById('modal-duration').value);
-    if (!code || isNaN(duration) || duration < 1) return;
-
-    try {
-        const res  = await fetch('/viewer/live/add_procedure', {
-            method:  'POST',
-            headers: {'Content-Type': 'application/json'},
-            body:    JSON.stringify({ procedure_code: code, duration_minutes: duration }),
-        });
-        const data = await res.json();
-        if (data.ok) {
-            closeModal();
-            loadStatus();
-        } else {
-            alert('Error: ' + (data.error || 'Unknown error'));
-        }
-    } catch(e) {
-        alert('Save failed: ' + e);
-    }
-}
-
-async function linkOrder(messageId, accession) {
-    try {
-        const res  = await fetch('/viewer/live/link', {
-            method:  'POST',
-            headers: {'Content-Type': 'application/json'},
-            body:    JSON.stringify({ message_id: messageId, linked_accession_number: accession }),
-        });
-        const data = await res.json();
-        if (data.ok) {
-            closeLinkModal();
-            loadStatus();
-        } else {
-            alert('Link error: ' + (data.error || 'Unknown error'));
-        }
-    } catch(e) {
-        alert('Link failed: ' + e);
-    }
-}
-
-function openLinkModal(messageId) {
-    document.getElementById('modal-link-message-id').value = messageId;
-    document.getElementById('modal-link-accession').value = '';
-    document.getElementById('link-order-modal').classList.remove('hidden');
-    document.getElementById('modal-link-accession').focus();
-}
-
-function closeLinkModal() {
-    document.getElementById('link-order-modal').classList.add('hidden');
-}
-
-function saveLink() {
-    const messageId = document.getElementById('modal-link-message-id').value;
-    const accession = document.getElementById('modal-link-accession').value.trim();
-    if (!messageId || !accession) {
-        alert('Both message ID and accession are required.');
-        return;
-    }
-    linkOrder(messageId, accession);
-}
-
-// ── Order workflow buttons ─────────────────────────────────────────────
-async function arriveOrder(messageId) {
-    try {
-        const res  = await fetch('/viewer/live/arrive', {
-            method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ message_id: messageId }),
-        });
-        const data = await res.json();
-        if (data.ok) { loadStatus(); }
-        else alert('Cannot arrive: ' + (data.error || 'Unknown error'));
-    } catch(e) { console.error('Arrive failed:', e); }
-}
-
-async function startOrder(messageId) {
-    try {
-        const res  = await fetch('/viewer/live/start', {
-            method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ message_id: messageId }),
-        });
-        const data = await res.json();
-        if (data.ok) { loadStatus(); }
-        else alert('Cannot start: ' + (data.error || 'Unknown error'));
-    } catch(e) { console.error('Start failed:', e); }
-}
-
-async function dismissOrder(messageId) {
-    try {
-        const res  = await fetch('/viewer/live/dismiss', {
-            method:  'POST',
-            headers: {'Content-Type': 'application/json'},
-            body:    JSON.stringify({ message_id: messageId }),
-        });
-        const data = await res.json();
-        if (data.ok) { loadStatus(); }
-        else alert('Cannot mark done: ' + (data.error || 'Unknown error'));
-    } catch(e) { console.error('Dismiss failed:', e); }
-}
-
-async function revertOrder(messageId) {
-    if (!confirm('Revert this order to its previous status?')) return;
-    try {
-        const res  = await fetch('/viewer/live/revert', {
-            method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ message_id: messageId }),
-        });
-        const data = await res.json();
-        if (data.ok) { loadStatus(); }
-        else alert('Cannot revert: ' + (data.error || 'Unknown error'));
-    } catch(e) { console.error('Revert failed:', e); }
-}
-
 // ── Toggle collapsed overruns ─────────────────────────────────────────
 function toggleOverruns(uid, btn) {
     const rows = document.querySelectorAll(`#${uid}`);
     const open = btn.dataset.open === '1';
-    rows.forEach(r => r.style.display = open ? 'none' : 'flex');
+    rows.forEach(r => r.style.display = open ? 'none' : 'block');
     btn.dataset.open = open ? '0' : '1';
     btn.innerHTML = open
         ? `<i class="bi bi-chevron-down"></i> ${rows.length} more overdue`
@@ -672,7 +472,6 @@ function escHtml(s) {
     return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-// ── Patient Waiting Time TAT ──────────────────────────────────────────
 // ── Orphan Orders Modal ───────────────────────────────────────────────
 async function openOrphanModal() {
     const count = parseInt(document.getElementById('cnt-orphan').textContent) || 0;

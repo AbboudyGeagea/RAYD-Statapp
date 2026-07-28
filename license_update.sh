@@ -61,7 +61,7 @@ FEATURES = [
     ("referring_intel", "Referring Intelligence"),
     ("financial",       "Revenue Intelligence"),
     ("scheduling",      "Scheduling"),
-    ("live_feed",       "Live AE Status"),
+    ("live_feed",       "Live Department View"),
     ("patient_portal",  "Patient Portal"),
     ("ai_report",       "AI Report Analysis"),
 ]
@@ -113,7 +113,7 @@ FEATURES = [
     ("referring_intel", "Referring Intelligence"),
     ("financial",       "Revenue Intelligence"),
     ("scheduling",      "Scheduling"),
-    ("live_feed",       "Live AE Status"),
+    ("live_feed",       "Live Department View"),
     ("patient_portal",  "Patient Portal"),
     ("ai_report",       "AI Report Analysis"),
 ]

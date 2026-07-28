@@ -120,7 +120,7 @@ def admin_dashboard():
 
 def _get_user_page_columns():
     return [
-        ('live_feed',       'Live AE Status'),
+        ('live_feed',       'Live Department View'),
         ('hl7_orders',      'HL7 Orders'),
         # scheduling / patient_portal: modules removed at LAUMC
         ('cd_print',        'Patient CD Log'),
