@@ -181,8 +181,12 @@
                         <p class="text-md font-black text-white">{{ data.summary.global_util }}</p>
                     </div>
                     <div class="px-4 py-2 bg-amber-500/10 border border-amber-500/20 rounded-xl">
-                        <p class="text-[9px] font-black text-amber-500 uppercase">Total RVU</p>
-                        <p class="text-md font-black text-white">{{ data.summary.total_rvu }}</p>
+                        <p class="text-[9px] font-black text-amber-500 uppercase">Clinical RVU</p>
+                        <p class="text-md font-black text-white">{{ data.summary.clinical_rvu }}</p>
+                    </div>
+                    <div class="px-4 py-2 bg-amber-500/10 border border-amber-500/20 rounded-xl">
+                        <p class="text-[9px] font-black text-amber-500 uppercase">Technical RVU</p>
+                        <p class="text-md font-black text-white">{{ data.summary.technical_rvu }}</p>
                     </div>
                 </div>
                 <div class="px-6 py-2 bg-blue-500/10 border border-blue-500/20 rounded-xl text-center">
@@ -281,7 +285,7 @@
                 </p>
 
                 <!-- KPI Row -->
-                <div class="grid grid-cols-4 gap-6">
+                <div class="grid grid-cols-5 gap-6">
                     <div class="glass-card flex flex-col items-center">
                         <p class="text-[11px] font-black text-zinc-500 uppercase mb-1">Total Studies</p>
                         <p class="text-3xl font-black text-white">{{ data.summary.total }}</p>
@@ -297,10 +301,18 @@
                         <p class="text-3xl font-black text-rose-500">{{ data.summary.high_stress_count }}</p>
                         <p class="text-[12px] text-zinc-600 italic mt-2 text-center">Devices running above 85% utilization — at risk of burnout or patient delays.</p>
                     </div>
+                    <!-- Revenue Capture is reported as two separate totals (clinical vs.
+                         technical RVU) rather than one summed figure — they represent
+                         distinct revenue streams and summing them double-counts. -->
                     <div class="glass-card flex flex-col items-center border border-amber-500/20">
-                        <p class="text-[11px] font-black text-amber-500 uppercase mb-1">Revenue Capture (RVU)</p>
-                        <p class="text-3xl font-black text-white">{{ data.summary.total_rvu }}</p>
-                        <p class="text-[12px] text-zinc-600 italic mt-2 text-center">Total Relative Value Units generated — a proxy for billing revenue across all studies.</p>
+                        <p class="text-[11px] font-black text-amber-500 uppercase mb-1">Clinical RVU</p>
+                        <p class="text-3xl font-black text-white">{{ data.summary.clinical_rvu }}</p>
+                        <p class="text-[12px] text-zinc-600 italic mt-2 text-center">Radiologist / physician-component Relative Value Units for the period.</p>
+                    </div>
+                    <div class="glass-card flex flex-col items-center border border-amber-500/20">
+                        <p class="text-[11px] font-black text-amber-500 uppercase mb-1">Technical RVU</p>
+                        <p class="text-3xl font-black text-white">{{ data.summary.technical_rvu }}</p>
+                        <p class="text-[12px] text-zinc-600 italic mt-2 text-center">Device / facility-component Relative Value Units for the period.</p>
                     </div>
                 </div>
 

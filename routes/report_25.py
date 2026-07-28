@@ -325,16 +325,29 @@ def get_gold_standard_data(form_data):
         return None, start, end
 
     # 4. Defensive Data Cleaning
+    # backward compat: old template still emits a single 'rvu' column (verified
+    # against report_template.report_id=25 directly — as of this fix the live
+    # query still returns COALESCE(pm.rvu_value, 1.0) AS rvu, no clinical_rvu/
+    # technical_rvu split; procedure_duration_map has no such columns either —
+    # migrations/0045_split_rvu.sql has not been applied on this DB). This MUST
+    # run before the generic column-default loop below: that loop's "column
+    # missing from query result" branch used to run first and permanently stomp
+    # clinical_rvu/technical_rvu with a flat 1.0 for every row (since the query
+    # never emits those names), which made this shim's own guard
+    # ('clinical_rvu' not in df.columns) always false — i.e. the shim could
+    # never fire and every RVU-derived figure (matrix_rows/rad_cards/summary)
+    # silently degraded into a row count instead of real RVU. Do the split
+    # first so real per-study RVU values propagate everywhere downstream.
+    if 'rvu' in df.columns and 'clinical_rvu' not in df.columns:
+        df['clinical_rvu']  = pd.to_numeric(df['rvu'], errors='coerce').fillna(1.0)
+        df['technical_rvu'] = df['clinical_rvu']
+
     for col in ['total_tat_min', 'proc_duration', 'clinical_rvu', 'technical_rvu']:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(1.0 if col.endswith('_rvu') else 0)
         else:
             logger.warning("Report 25: expected column '%s' missing from query result — defaulting", col)
             df[col] = 1.0 if col.endswith('_rvu') else 0.0
-    # backward compat: old template still emits a single 'rvu' column
-    if 'rvu' in df.columns and 'clinical_rvu' not in df.columns:
-        df['clinical_rvu']  = pd.to_numeric(df['rvu'], errors='coerce').fillna(1.0)
-        df['technical_rvu'] = df['clinical_rvu']
     
     df['study_date_dt'] = pd.to_datetime(df['study_date'], errors='coerce') if 'study_date' in df.columns else pd.to_datetime(date.today())
 
@@ -557,12 +570,20 @@ def get_gold_standard_data(form_data):
         mask = _iqr_filter(raw['proc_duration']) & _iqr_filter(raw['total_tat_min'])
         scatter_outliers_removed = int((~mask).sum())
 
+    # RVU-vs-TAT scatter: read 'clinical_rvu' (populated above for both the
+    # legacy single-'rvu'-column query and any future real clinical/technical
+    # split — see the defensive-cleaning comment above), not the raw 'rvu'
+    # column directly. Reading 'rvu' here was a latent trap: it happened to
+    # work today only because the live query still emits that legacy alias,
+    # but the moment migrations/0045_split_rvu.sql is actually applied and the
+    # template starts emitting clinical_rvu/technical_rvu instead, 'rvu' stops
+    # existing and this chart (and its outlier badge) would silently go dead.
     rvu_outliers_removed = 0
-    if 'rvu' in df.columns and 'total_tat_min' in df.columns:
-        tmp_raw = df[(df['rvu'] > 0) & (df['total_tat_min'] > 0)]
-        mask_rvu = _iqr_filter(tmp_raw['rvu']) & _iqr_filter(tmp_raw['total_tat_min'])
+    if 'clinical_rvu' in df.columns and 'total_tat_min' in df.columns:
+        tmp_raw = df[(df['clinical_rvu'] > 0) & (df['total_tat_min'] > 0)]
+        mask_rvu = _iqr_filter(tmp_raw['clinical_rvu']) & _iqr_filter(tmp_raw['total_tat_min'])
         rvu_outliers_removed = int((~mask_rvu).sum())
-        tmp = tmp_raw[mask_rvu][['rvu', 'total_tat_min']]
+        tmp = tmp_raw[mask_rvu][['clinical_rvu', 'total_tat_min']]
         rvu_tat = [[round(float(r[0]), 2), round(float(r[1]), 1)] for r in tmp.values.tolist()]
 
     # TAT by modality (from existing df)
@@ -761,7 +782,20 @@ def get_gold_standard_data(form_data):
             "er_wait": f"{df[df['accession_number'].str.upper().str.startswith('2XE').fillna(False) & (df['total_tat_min'] > 0)]['total_tat_min'].mean():.1f}m" if 'accession_number' in df.columns and (df['accession_number'].str.upper().str.startswith('2XE').fillna(False) & (df['total_tat_min'] > 0)).any() else "0m",
             "high_stress_count": high_stress, "low_util_count": under_utilized,
             "work_hours": round(total_active_mins / 60, 1),
-            "total_rvu": round(df['clinical_rvu'].sum() + df['technical_rvu'].sum(), 1),
+            # Revenue Capture (RVU) — clinical (physician) and technical
+            # (device/facility) RVU are two distinct revenue streams and are
+            # reported as two separate totals; they must NEVER be summed into
+            # one "total_rvu" figure — that would double-count the same money
+            # as if it were two different revenues. (Ground truth, verified
+            # against report_template.report_id=25 directly: the live query
+            # still emits a single legacy 'rvu' column — no real clinical/
+            # technical split exists yet in procedure_duration_map, see
+            # migrations/0045_split_rvu.sql, which has not been applied on
+            # this DB — so both totals below currently derive from the same
+            # source number. That's an honest reflection of the data as it
+            # exists today, not a fabricated split; if/when a real split is
+            # added to procedure_duration_map these two totals will diverge
+            # automatically with no further code changes needed here.)
             "clinical_rvu": round(df['clinical_rvu'].sum(), 1),
             "technical_rvu": round(df['technical_rvu'].sum(), 1),
             "tat_median": tat_median, "tat_p25": tat_p25, "tat_p75": tat_p75,
