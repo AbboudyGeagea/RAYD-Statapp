@@ -27,14 +27,15 @@ def get_report_data(start, end):
             s.storing_ae,
             s.procedure_code,
             p.birth_date,
-            p.sex,
+            p.gender_code AS sex,
             m.duration_minutes
         FROM etl_orders o
-        LEFT JOIN etl_didb_studies s 
+        LEFT JOIN etl_didb_studies s
             ON s.study_db_uid::TEXT = o.study_db_uid::TEXT
-        LEFT JOIN etl_patient_view p 
-            ON p.patient_db_uid::TEXT = o.patient_dbid::TEXT
-        LEFT JOIN procedure_duration_map m 
+        LEFT JOIN std_patients_ris p
+            ON p.patient_person_key = CASE WHEN o.patient_dbid ~ '^[0-9]+$'
+                                            THEN o.patient_dbid::BIGINT END
+        LEFT JOIN procedure_duration_map m
             ON m.procedure_code::TEXT = s.procedure_code::TEXT 
             OR m.procedure_code::TEXT = o.proc_id::TEXT
         WHERE o.scheduled_datetime BETWEEN :start AND :end
@@ -58,7 +59,12 @@ def get_report_data(start, end):
         # Use observed=False in groupby later, and fillna for categories
         df['age_group'] = pd.cut(df['age'], bins=bins, labels=labels)
         df['age_group'] = df['age_group'].cat.add_categories('Unknown').fillna('Unknown')
-        
+
+        # 3. Normalize sex/gender so unresolved patients (no RIS match, unmapped
+        # gender code) still land in the demo breakdown instead of being silently
+        # dropped — pandas groupby excludes NaN keys entirely by default.
+        df['sex'] = df['sex'].fillna('Unknown')
+
     return df
 
 @report_27_bp.route("/report/27", methods=["GET", "POST"])
