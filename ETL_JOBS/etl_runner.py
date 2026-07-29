@@ -816,7 +816,7 @@ def _sync_lookup_tables(engine):
                     TRIM(s.procedure_code) AS procedure_code,
                     MODE() WITHIN GROUP (ORDER BY am.modality) AS modality
                 FROM etl_didb_studies s
-                JOIN aetitle_modality_map am ON am.aetitle = s.storing_ae
+                JOIN aetitle_modality_map am ON UPPER(TRIM(am.aetitle)) = UPPER(TRIM(s.storing_ae))
                 WHERE s.procedure_code IS NOT NULL
                   AND TRIM(s.procedure_code) != ''
                   AND am.modality IS NOT NULL

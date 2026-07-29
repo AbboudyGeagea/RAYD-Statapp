@@ -108,7 +108,14 @@ def run_ris_modality_etl(pg_engine, oracle_source):
         for (modality_key, ae_title, code, description, station_name,
              org_key, active_flag, modality_type_code) in rows:
 
-            ae_title = str(ae_title).strip() if ae_title is not None else None
+            # Normalize to upper-case, matching every other writer of this column
+            # (mapping_controller.py's CSV upload / inline edit both do .strip().upper());
+            # aetitle_modality_map.aetitle has a case-SENSITIVE UNIQUE constraint, so an
+            # un-normalized mixed-case insert here would silently create a second row for
+            # a device that already exists under a different casing, and admin-UI edits/
+            # deletes (which look the row up by an upper-cased key) would silently 404 on
+            # the mixed-case row instead of updating it.
+            ae_title = str(ae_title).strip().upper() if ae_title is not None else None
             if not ae_title:
                 skipped += 1
                 continue
