@@ -3,21 +3,21 @@ routes/report_34.py
 --------------------
 Report 34 — Device Utilization.
 
-Standalone split of Report 25's "Infrastructure" + "Efficiency Intel" tabs into
-a single-topic base report (report_25's module docstring covers the original
-combined dashboard; docs/LAUMC_NEXT_SESSION.md punch-list #5 is the revamp this
-split is part of). Report 25 itself is untouched by this file — it stays live
-until the split reports are validated.
+Standalone split of Report 25's "Infrastructure" tab into a single-topic base
+report (report_25's module docstring covers the original combined dashboard;
+docs/LAUMC_NEXT_SESSION.md punch-list #5 is the revamp this split is part of).
+Report 25 itself is untouched by this file — it stays live until the split
+reports are validated.
 
 Covers: weekly device (AE title) utilization/revenue matrix, best/worst AE by
-average TAT, TAT by modality, modality efficiency score (RVU per 1% utilization),
-stress-vs-output (utilization % vs RVU) scatter, TAT distribution histogram,
-RVU-vs-TAT scatter, and IQR-based TAT outlier detection.
+average TAT, and TAT by modality.
 
-Efficiency Intel is folded into this report rather than split out on its own
-because it has no independent data source — it's re-derived analysis of the
-SAME utilization/RVU numbers the matrix already computes (efficiency score =
-RVU per 1% utilization; stress-vs-output = utilization × RVU by AE).
+Formerly also carried an "Efficiency Intel" section (modality efficiency score,
+stress-vs-output scatter, TAT histogram, RVU-vs-TAT scatter, IQR-based TAT
+outlier detection) re-derived from the same utilization/RVU numbers the matrix
+computes. Removed entirely per operator instruction — it added no independent
+data, just a second analysis pass over the matrix figures. Only the Device
+Utilization matrix itself remains.
 
 Data source: the SAME report_sql_query template report_25 uses (report_template
 WHERE report_id = 25), wrapped in a CTE selecting only the columns this report
@@ -42,21 +42,14 @@ logger = logging.getLogger("report_34")
 report_34_bp = Blueprint("report_34", __name__)
 
 
-def _iqr_filter(series):
-    """IQR-based outlier mask (robust to skew, unlike mean*2). Same helper as report_25."""
-    q1, q3 = series.quantile(0.25), series.quantile(0.75)
-    iqr = q3 - q1
-    return (series >= q1 - 1.5 * iqr) & (series <= q3 + 1.5 * iqr)
-
-
 def get_device_utilization_data(form_data):
     """
     Main data-fetch for Report 34. Ports report_25.get_gold_standard_data()'s
-    matrix-building block (~lines 342-427) and "New analytics" block (~lines
-    517-566) verbatim, trimmed to only what the Infrastructure + Efficiency
-    Intel tabs actually consumed — everything else (rad_cards, tech tab, shift
-    patterns, KPI Detailed Reading, etc.) belongs to the other report_25 splits,
-    not this one.
+    matrix-building block (~lines 342-427) verbatim, trimmed to only what the
+    Infrastructure tab actually consumed — everything else (rad_cards, tech
+    tab, shift patterns, KPI Detailed Reading, the old "Efficiency Intel"
+    re-derived analytics, etc.) belongs either to the other report_25 splits
+    or was removed outright, not to this one.
 
     Returns a 3-tuple: (data_dict | None, start_date_str, end_date_str).
     Returns (None, start, end) when the query produces no rows, so the template
@@ -261,48 +254,6 @@ def get_device_utilization_data(form_data):
     except Exception:
         logger.warning("Failed to build modality TAT breakdown", exc_info=True)
 
-    # ── Efficiency Intel: TAT histogram, RVU-vs-TAT scatter, TAT outliers ──
-    tat_hist, rvu_tat, outlier_studies, global_mean_tat = [], [], [], 0.0
-    rvu_outliers_removed = 0
-
-    if 'total_tat_min' in df.columns:
-        tat_vals = df[df['total_tat_min'] > 0]['total_tat_min']
-        global_mean_tat = round(float(tat_vals.mean()), 1) if len(tat_vals) > 0 else 0.0
-        bins   = [0, 30, 60, 90, 120, 180, 240, 360]
-        labels = ['0-30m', '31-60m', '61-90m', '91-120m', '121-180m', '181-240m', '241-360m', '360m+']
-        for i, label in enumerate(labels):
-            lo = bins[i]
-            hi = bins[i + 1] if i < len(bins) - 1 else float('inf')
-            tat_hist.append({'label': label, 'count': int(((tat_vals > lo) & (tat_vals <= hi)).sum())})
-
-        # IQR-based outlier threshold (robust to skew, unlike mean*2)
-        q1_tat, q3_tat = tat_vals.quantile(0.25), tat_vals.quantile(0.75)
-        iqr_tat = q3_tat - q1_tat
-        threshold = q3_tat + 1.5 * iqr_tat
-        out_cols = [c for c in ['aetitle', 'modality', 'reading_radiologist', 'patient_class', 'procedure_code', 'study_date', 'total_tat_min'] if c in df.columns]
-        out_df = df[df['total_tat_min'] > threshold][out_cols].sort_values('total_tat_min', ascending=False).head(50)
-        for row in out_df.to_dict('records'):
-            if 'study_date' in row and hasattr(row['study_date'], 'strftime'):
-                row['study_date'] = str(row['study_date'])[:10]
-            if 'total_tat_min' in row:
-                row['total_tat_min'] = round(float(row['total_tat_min']), 1)
-            outlier_studies.append(row)
-
-        # RVU vs TAT scatter — uses clinical_rvu directly. report_25's equivalent block
-        # reads a legacy top-level 'rvu' column that only exists via a backward-compat
-        # shim for an OLD report_template shape; the CURRENT template (migration 0075)
-        # emits clinical_rvu/technical_rvu only, so that shim never fires and report_25's
-        # RVU-vs-TAT chart / rvu_outliers_removed badge are silently empty in production
-        # right now. Not reproduced here — using clinical_rvu directly instead, which is
-        # real and populated. Flagged to the operator; not fixed in report_25 itself
-        # since that file is explicitly off-limits for this task.
-        tmp_raw = df[(df['clinical_rvu'] > 0) & (df['total_tat_min'] > 0)]
-        if len(tmp_raw) > 0:
-            mask_rvu = _iqr_filter(tmp_raw['clinical_rvu']) & _iqr_filter(tmp_raw['total_tat_min'])
-            rvu_outliers_removed = int((~mask_rvu).sum())
-            tmp = tmp_raw[mask_rvu][['clinical_rvu', 'total_tat_min']]
-            rvu_tat = [[round(float(r[0]), 2), round(float(r[1]), 1)] for r in tmp.values.tolist()]
-
     result = ({
         "summary": {
             "total": len(df),
@@ -312,11 +263,6 @@ def get_device_utilization_data(form_data):
         "matrix": matrix_rows,
         "ae_tat": ae_tat,
         "modality_tat": modality_tat,
-        "tat_hist": tat_hist,
-        "rvu_tat": rvu_tat,
-        "rvu_outliers_removed": rvu_outliers_removed,
-        "outlier_studies": outlier_studies,
-        "global_mean_tat": global_mean_tat,
         "raw_df": df,
     }, start, end)
     cache_put(34, form_data, result)
