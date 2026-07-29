@@ -125,7 +125,7 @@
         {% if run_report and data %}
 
         <!-- KPI Row -->
-        <div class="grid grid-cols-2 gap-4">
+        <div class="grid grid-cols-3 gap-4">
             <div class="glass-card text-center">
                 <p class="text-[9px] font-black text-rose-500 uppercase tracking-widest mb-1">High Stress AEs</p>
                 <p class="text-2xl font-black text-rose-400">{{ data.summary.high_stress_count }}</p>
@@ -136,11 +136,25 @@
                 <p class="text-2xl font-black text-emerald-400">{{ data.summary.low_util_count }}</p>
                 <p class="text-[10px] text-zinc-500 mt-1">Utilization &lt;30%</p>
             </div>
+            <div class="glass-card text-center">
+                <p class="text-[9px] font-black text-zinc-400 uppercase tracking-widest mb-1">No Schedule Configured</p>
+                <p class="text-2xl font-black {% if data.summary.no_schedule_count %}text-amber-400{% else %}text-zinc-500{% endif %}">{{ data.summary.no_schedule_count }}</p>
+                <p class="text-[10px] text-zinc-500 mt-1">Utilization not computable</p>
+            </div>
         </div>
 
         <p class="section-desc">
-            Weekly device utilization matrix for every AE title (imaging device) in the fleet. Each cell shows the percentage of scheduled capacity consumed on that weekday, using measured RIS performed-procedure-step (PPS) time where available and falling back to the estimated procedure duration map otherwise. <span class="text-rose-400 not-italic font-bold">Red (&gt;85%)</span> = overloaded, <span class="text-emerald-400 not-italic font-bold">Green (30–85%)</span> = healthy, <span class="text-amber-400 not-italic font-bold">Amber (&lt;30%)</span> = under-utilized. The final column shows total RVU generated per device.
+            Weekly device utilization matrix for every AE title (imaging device) in the fleet. Each cell shows the percentage of scheduled capacity consumed on that weekday, using measured RIS performed-procedure-step (PPS) time where available and falling back to the estimated procedure duration map otherwise. <span class="text-rose-400 not-italic font-bold">Red (&gt;85%)</span> = overloaded, <span class="text-emerald-400 not-italic font-bold">Green (30–85%)</span> = healthy, <span class="text-amber-400 not-italic font-bold">Amber (&lt;30%)</span> = under-utilized, <span class="text-zinc-400 not-italic font-bold">Grey dash</span> = no capacity schedule configured (not a measured 0%). The final column shows total RVU generated per device.
         </p>
+
+        {% if data.summary.no_schedule_count %}
+        <p class="section-desc" style="background: rgba(244,63,94,0.08); border-left-color:#f43f5e; color:#fda4af;">
+            <i class="bi bi-exclamation-triangle-fill"></i>
+            {{ data.summary.no_schedule_count }} of {{ data.matrix|length }} device(s) below have <strong>no capacity schedule configured</strong>
+            (no <code>device_weekly_schedule</code> row) — their utilization cannot be computed and is shown as a dash, not a
+            measured 0%. Configure daily capacity for these AE titles on the Mapping admin page to enable utilization tracking.
+        </p>
+        {% endif %}
 
         <!-- Device Utilization & Revenue Matrix -->
         <div class="glass-card !p-0 overflow-hidden">
@@ -158,9 +172,16 @@
                 <tbody>
                     {% for row in data.matrix %}
                     <tr class="border-b border-white/5 hover:bg-white/[0.02]">
-                        <td class="p-4 font-bold text-white text-sm">{{ row.ae }}</td>
+                        <td class="p-4 font-bold text-white text-sm">{{ row.ae }}
+                            {% if row.no_schedule %}<i class="bi bi-exclamation-triangle-fill text-rose-500" title="No capacity schedule configured for this AE title"></i>{% endif %}
+                        </td>
                         {% for day in row.days %}
                         <td class="p-2 text-center">
+                            {% if day.no_schedule %}
+                            <span class="util-badge px-3 py-1 rounded-lg font-black text-[12px] bg-zinc-900 text-zinc-600 border border-dashed border-zinc-700" title="No schedule configured for this weekday">
+                                &mdash;
+                            </span>
+                            {% else %}
                             <span class="util-badge px-3 py-1 rounded-lg font-black text-[12px]
                                 {% if day.pct > 85 %}bg-rose-500/20 text-rose-400 border border-rose-500/30
                                 {% elif day.pct > 30 %}bg-emerald-500/20 text-emerald-400 border border-emerald-500/30
@@ -168,11 +189,12 @@
                                 {% else %}bg-zinc-900 text-zinc-700{% endif %}">
                                 {{ day.pct }}%
                             </span>
+                            {% endif %}
                         </td>
                         {% endfor %}
                         <td class="p-4 text-center font-black text-sm bg-white/5
-                            {% if row.avg > 85 %}text-rose-400{% elif row.avg > 30 %}text-blue-400{% else %}text-zinc-500{% endif %}">
-                            {{ row.avg }}%
+                            {% if row.no_schedule %}text-zinc-600{% elif row.avg > 85 %}text-rose-400{% elif row.avg > 30 %}text-blue-400{% else %}text-zinc-500{% endif %}">
+                            {% if row.no_schedule %}&mdash;{% else %}{{ row.avg }}%{% endif %}
                         </td>
                         <td class="p-4 text-center font-mono text-amber-500 bg-white/[0.02] border-l border-white/5 text-sm">
                             {{ row.total_rvu }}

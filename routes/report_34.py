@@ -149,6 +149,7 @@ def get_device_utilization_data(form_data):
     matrix_rows = []
     high_stress = 0
     under_utilized = 0
+    no_schedule_count = 0
 
     if 'aetitle' in df.columns:
         date_range = pd.date_range(start, end)
@@ -201,6 +202,7 @@ def get_device_utilization_data(form_data):
             ae_df = df[df['aetitle'] == ae]
             ae_total_load = 0
             ae_total_cap = 0
+            ae_days_scheduled = 0  # count of weekdays that actually have a device_weekly_schedule row
             days_util = []
 
             for i in range(7):
@@ -209,27 +211,44 @@ def get_device_utilization_data(form_data):
                     day_load = pps_mins
                 else:
                     day_load = ae_df[ae_df['study_date_dt'].dt.weekday == i]['proc_duration'].sum()
-                opening_mins = schedule_lookup.get((ae_upper, i), 0)
+                # IMPORTANT: distinguish "no device_weekly_schedule row for this (ae, weekday)"
+                # from "a row exists and explicitly says 0 opening minutes" (e.g. a device
+                # closed on Sundays). dict.get(..., 0) collapses both to the same number,
+                # which made a device with NO schedule configured indistinguishable from one
+                # legitimately measured at 0% utilization — every cell silently rendered "0%"
+                # instead of surfacing the real "no capacity data" condition.
+                sched_mins = schedule_lookup.get((ae_upper, i))
+                has_sched = sched_mins is not None
+                if has_sched:
+                    ae_days_scheduled += 1
+                opening_mins = sched_mins if has_sched else 0
                 occ = weekday_counts.get(i, 0)
                 total_cap = opening_mins * occ
 
                 util = round((day_load / total_cap) * 100, 1) if total_cap > 0 else 0
-                days_util.append({"pct": util, "mins": int(day_load)})
+                days_util.append({"pct": util, "mins": int(day_load), "no_schedule": not has_sched})
                 ae_total_load += day_load
                 ae_total_cap += total_cap
 
+            ae_no_schedule = ae_days_scheduled == 0  # AE has zero device_weekly_schedule rows at all
             ae_avg = round((ae_total_load / ae_total_cap * 100), 1) if ae_total_cap > 0 else 0
-            # >85% utilisation → device is overloaded (standard capacity-management threshold)
-            # <30% utilisation → device is underutilised (less than a third of booked capacity used)
-            if ae_avg > 85:
-                high_stress += 1
-            elif 0 < ae_avg < 30:
-                under_utilized += 1
+            if ae_no_schedule:
+                no_schedule_count += 1
+            else:
+                # >85% utilisation → device is overloaded (standard capacity-management threshold)
+                # <30% utilisation → device is underutilised (less than a third of booked capacity used)
+                # Only meaningful once we actually have capacity data for this AE — an AE with no
+                # schedule at all shouldn't be silently counted as "healthy" or "under-utilized".
+                if ae_avg > 85:
+                    high_stress += 1
+                elif 0 < ae_avg < 30:
+                    under_utilized += 1
 
             matrix_rows.append({
                 "ae": ae, "days": days_util, "avg": ae_avg,
                 "total_rvu": round(ae_df['technical_rvu'].sum(), 1),
                 "total_cap": ae_total_cap,
+                "no_schedule": ae_no_schedule,
             })
 
     # ── Best vs Worst AE by TAT + Modality TAT (Infrastructure tab charts) ──
@@ -259,6 +278,10 @@ def get_device_utilization_data(form_data):
             "total": len(df),
             "high_stress_count": high_stress,
             "low_util_count": under_utilized,
+            # AEs with zero device_weekly_schedule rows in range — utilization could not be
+            # computed for these (denominator missing, not measured-and-zero). See report_34.py
+            # matrix loop comment for why this is tracked separately from high/low util counts.
+            "no_schedule_count": no_schedule_count,
         },
         "matrix": matrix_rows,
         "ae_tat": ae_tat,
