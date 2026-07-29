@@ -7,6 +7,7 @@ from flask import Blueprint, render_template, request, Response
 from flask_login import login_required
 from sqlalchemy import text
 from db import db
+from utils.site_resolver import default_site
 
 report_23_bp = Blueprint('report_23', __name__)
 
@@ -68,6 +69,54 @@ def get_report_config(form):
             "WHERE 1=1 AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')"
         )
 
+        # LAUMC site rule (operator instruction): reports show RH (main site) only,
+        # SJH (satellite) excluded — for Report 23 specifically: "exclude everything that
+        # contains SJH, modalities, aetitles, radiologists." Primary mechanism is the SAME
+        # one report_25.py/report_31.py already use — aetitle_modality_map.site_id via
+        # default_site() — NOT a hardcoded 'SJH' string match, so the whole block below
+        # skips cleanly (no filter applied at all) on a non-LAUMC/single-site install where
+        # default_site() returns None. `m` is already joined above (the modality-fallback
+        # fix, UPPER(TRIM(storing_ae)) = UPPER(TRIM(aetitle))), so no new join is introduced
+        # here — just extra ANDs on the existing WHERE clause.
+        #
+        # Residual risk / why there's also a literal check below: m.site_id is populated by
+        # the RIS Phase 10 sync, not guaranteed on every row — a device with no
+        # aetitle_modality_map row at all, or one whose site_id hasn't been resolved yet,
+        # will NOT match `m.site_id = :rh_site_id` (LEFT JOIN -> NULL -> filtered out), the
+        # same accepted behavior report_25/31 already have. That's fail-closed against SJH
+        # ever leaking IN (an unmapped device is excluded, never mistakenly shown as RH),
+        # but it also means such rows silently drop out of this report entirely regardless
+        # of their real site — including via the modality-fallback COALESCE added above,
+        # which becomes effectively unreachable once the site filter is active (any row
+        # lacking an `m` match now fails the site filter before the fallback would ever
+        # matter). A live check of this DB tonight found aetitle_modality_map.site_id NULL
+        # on every current row (0/4), so on this specific dataset the literal check below is
+        # currently doing all the actual exclusion work, not the site_id filter — confirm
+        # against production whether site_id is really populated there before treating the
+        # site_id filter as the reliable long-term mechanism. The operator explicitly named
+        # "aetitles" as one of three dimensions to scrub by content, so — independent of
+        # site_id — also strip any row whose raw AE title or device metadata literally
+        # names SJH (defense-in-depth, not a replacement for the site_id filter above).
+        # "modalities" isn't given its own literal check: modality values (CT/MR/US/...) are
+        # generic and never site-tagged, so an 'SJH' substring there isn't a plausible real
+        # scenario. "radiologists" doesn't apply either — Report 23's base query has no
+        # radiologist/physician column at all (verified against the live report_template
+        # row and this file); nothing to filter for that dimension.
+        rh_site_id = default_site()
+        if rh_site_id is not None:
+            base_sql = base_sql.replace(
+                "WHERE 1=1 AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')",
+                "WHERE 1=1 AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')"
+                " AND m.site_id = :rh_site_id"
+                " AND UPPER(COALESCE(s.storing_ae, '')) NOT LIKE '%SJH%'"
+                " AND UPPER(COALESCE(m.description, '')) NOT LIKE '%SJH%'"
+                " AND UPPER(COALESCE(m.station_name, '')) NOT LIKE '%SJH%'"
+                " AND UPPER(COALESCE(m.room_name, '')) NOT LIKE '%SJH%'"
+                " AND UPPER(COALESCE(m.display_aetitle, '')) NOT LIKE '%SJH%'"
+            )
+    else:
+        rh_site_id = default_site()
+
     gl_query = text("SELECT go_live_date FROM go_live_config LIMIT 1")
     db_gl = db.session.execute(gl_query).scalar()
 
@@ -80,6 +129,11 @@ def get_report_config(form):
     # Build extra WHERE clauses
     extra = []
     params = {"s": start, "e": end}
+
+    # Bind for the :rh_site_id placeholder used inside base_sql's WHERE clause above
+    # (only present in the query text at all when rh_site_id is not None).
+    if rh_site_id is not None:
+        params["rh_site_id"] = rh_site_id
 
     if form.get("f_mod_active") == "on" and form.get("f_mod"):
         extra.append("UPPER(modality) = UPPER(:mod)")
