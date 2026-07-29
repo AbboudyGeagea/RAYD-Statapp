@@ -12,6 +12,7 @@ Financial widgets are flagged with FINANCIAL = True on the function.
 """
 
 from sqlalchemy import text
+from utils.site_resolver import default_site
 
 # ── Common SQL fragments ──────────────────────────────────────────────────────
 
@@ -529,7 +530,19 @@ def _device_weekday_utilization(db, p, aes):
 
     # Estimated minutes (procedure_duration_map.duration_minutes, default 15
     # min/study -- same default migration 0070 uses) for AE/weekday cells with
-    # no PPS actuals.
+    # no PPS actuals. Joins procedure_duration_map straight off
+    # s.procedure_code (etl_didb_studies already carries it) -- NOT via
+    # etl_orders. etl_orders.study_db_uid has no unique constraint (CLAUDE.md's
+    # "Expensive CTEs" rule flags etl_orders scans needing MODE() WITHIN GROUP
+    # dedup for exactly this reason: multiple order rows commonly reference the
+    # same study_db_uid, e.g. amendment/order_control history rows), so the
+    # previous `LEFT JOIN etl_orders o ON o.study_db_uid = s.study_db_uid` fanned
+    # a single study out into N duplicate rows before the SUM(), inflating load
+    # by however many order rows matched -- the root cause of the >100% (up to
+    # ~580%) utilisation values the operator saw. report_25.get_gold_standard_data()
+    # / report_34's port of it (the reference implementation) never join
+    # etl_orders for this calculation at all; they read s.procedure_code
+    # directly. Matched here.
     est_rows = db.session.execute(text("""
         SELECT UPPER(TRIM(s.storing_ae)) AS ae,
                (EXTRACT(ISODOW FROM s.study_date) - 1)::int AS dow,
@@ -539,8 +552,7 @@ def _device_weekday_utilization(db, p, aes):
             SELECT modality FROM aetitle_modality_map
             WHERE UPPER(TRIM(aetitle)) = UPPER(TRIM(s.storing_ae)) LIMIT 1
         ) m ON TRUE
-        LEFT JOIN etl_orders o ON o.study_db_uid = s.study_db_uid
-        LEFT JOIN procedure_duration_map pdm ON UPPER(TRIM(o.proc_id)) = UPPER(TRIM(pdm.procedure_code))
+        LEFT JOIN procedure_duration_map pdm ON UPPER(TRIM(s.procedure_code)) = UPPER(TRIM(pdm.procedure_code))
         WHERE s.study_date BETWEEN :date_from AND :date_to
           AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
           AND UPPER(TRIM(s.storing_ae)) = ANY(:aes)
@@ -573,13 +585,34 @@ def _device_weekday_utilization(db, p, aes):
 def widget_device_util(db, filters, config):
     p = _p(filters)
     top_n = int(config.get("top_n") or 10)
+
+    # LAUMC site rule (operator instruction, 2026-07-26 -- full rationale in
+    # report_25.get_gold_standard_data()): reports show RH (main site) only,
+    # SJH (satellite) excluded, resolved via the device (storing_ae ->
+    # aetitle_modality_map.site_id) since etl_didb_studies.site_id is never
+    # populated. default_site() resolves to None (filter skipped, not applied)
+    # on a non-LAUMC/single-site install. This widget had no site-scope filter
+    # at all -- added here to match report_25/31-35/34's established pattern
+    # (previously SJH devices like SJHCSAPWFMFIR leaked into the table and,
+    # via _device_weekday_utilization, into the weekday matrix too).
+    rh_site_id = default_site()
+    site_filter = ""
+    site_params = {}
+    if rh_site_id is not None:
+        site_params["rh_site_id"] = rh_site_id
+        site_filter = (
+            " AND UPPER(TRIM(s.storing_ae)) IN "
+            "(SELECT UPPER(TRIM(aetitle)) FROM aetitle_modality_map WHERE site_id = :rh_site_id)"
+        )
+
     rows = db.session.execute(text(f"""
         SELECT s.storing_ae AS ae_title, {_MOD_EXPR} AS modality, COUNT(*) AS count
         {_BASE_JOIN} {_WHERE}
           AND s.storing_ae IS NOT NULL
+          {site_filter}
         GROUP BY 1, 2 ORDER BY 3 DESC
         LIMIT :top_n
-    """), {**p, "top_n": top_n}).fetchall()
+    """), {**p, "top_n": top_n, **site_params}).fetchall()
 
     # Per-weekday utilisation matrix (operator ask: match report_34's style),
     # limited to the same top-N AEs already shown in the table above.
