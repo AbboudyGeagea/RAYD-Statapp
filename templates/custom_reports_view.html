@@ -581,7 +581,9 @@
     function rwDeviceUtil(d, el) {
         const rows = d.rows || [];
         const maxC = Math.max(...rows.map(r => r.count), 1);
-        el.innerHTML = tableHtml(
+        const escH = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+        let html = tableHtml(
             ['AE Title', 'Modality', 'Studies'],
             rows,
             r => td(`<span class="font-mono text-xs text-slate-300">${r.ae_title}</span>`) +
@@ -591,6 +593,51 @@
                          ${inlineBar(r.count / maxC * 100, '#22d3ee')}
                      </div>`)
         );
+
+        // Per-weekday utilisation matrix (capacity vs actual/estimated load
+        // per AE, same style as report_34's device utilization matrix).
+        const matrix = d.weekday_matrix || [];
+        if (matrix.length) {
+            const headerCells = matrix[0].days.map(day =>
+                `<th style="padding:5px 7px;text-align:right;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;color:#64748b;">${day.weekday.slice(0,3)}</th>`
+            ).join('');
+            const cellStyle = pct => {
+                if (pct > 85) return { bg: `rgba(248,113,113,${0.12 + Math.min(pct,150)/150*0.4})`, fg: '#f87171' };
+                if (pct < 30) return { bg: `rgba(251,191,36,${0.10 + pct/30*0.25})`,               fg: '#fbbf24' };
+                return { bg: `rgba(34,211,238,${0.10 + pct/100*0.4})`, fg: '#67e8f9' };
+            };
+            const bodyRows = matrix.map(m => {
+                const cells = m.days.map(day => {
+                    const { bg, fg } = cellStyle(day.pct);
+                    return `<td style="padding:4px 7px;text-align:right;font-family:monospace;font-weight:700;background:${bg};color:${fg};" title="${fmt(day.minutes)} min">${day.pct}%</td>`;
+                }).join('');
+                return `<tr style="border-top:1px solid #1e293b;">
+                    <td style="padding:4px 7px;font-size:10px;color:#94a3b8;font-weight:600;white-space:nowrap;">${escH(m.ae_title)}</td>
+                    ${cells}
+                    <td style="padding:4px 7px;text-align:right;font-family:monospace;font-weight:900;color:#22d3ee;">${m.avg_pct}%</td>
+                </tr>`;
+            }).join('');
+            html += `
+                <div style="margin-top:20px;">
+                    <div style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;color:#64748b;margin-bottom:8px;">
+                        <i class="bi bi-calendar-week mr-1" style="color:#22d3ee;"></i> Utilisation by Weekday
+                    </div>
+                    <div style="overflow-x:auto;border:1px solid #1e293b;border-radius:8px;">
+                        <table style="width:100%;border-collapse:collapse;font-size:10px;min-width:420px;">
+                            <thead style="background:#0f172a;">
+                                <tr>
+                                    <th style="padding:5px 7px;text-align:left;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;color:#64748b;">AE Title</th>
+                                    ${headerCells}
+                                    <th style="padding:5px 7px;text-align:right;color:#94a3b8;font-size:9px;font-weight:900;text-transform:uppercase;">Avg</th>
+                                </tr>
+                            </thead>
+                            <tbody>${bodyRows}</tbody>
+                        </table>
+                    </div>
+                </div>`;
+        }
+
+        el.innerHTML = html;
     }
 
     // ── referring_phys ─────────────────────────────────────────

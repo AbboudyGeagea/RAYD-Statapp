@@ -33,6 +33,33 @@ _WHERE = """
 
 _MOD_EXPR = "COALESCE(m.modality, s.study_modality, 'Unknown')"
 
+# ── Known demo/placeholder pollution ─────────────────────────────────────────
+# docs/LAUMC_NEXT_SESSION.md's GOTCHAS section documents this as already loaded,
+# faithfully, into etl_didb_studies: "Placeholders != NULL: 'Referring, Generic'
+# (accession 4101031379966/...68 -- seen again in the RESOURCE_ID sample,
+# type-6/3 rows with value 'SCH'), test patients, CSH service account ->
+# exclusion list, separate from NULL handling. Not yet actually filtered out of
+# any loaded table -- exclusion is a report-time filter TODO." No report in this
+# codebase implements that filter yet (checked report_22/25/27/super_report/
+# oru_analytics/etc.) -- applied here for the two widgets the operator actually
+# observed contaminated with it (physician_perf, rad_modality_matrix). A widget
+# using these must LEFT JOIN etl_patient_view aliased `pv` (ON pv.patient_db_uid
+# = s.patient_db_uid) and pass its own resolved-physician-name SQL expression to
+# _no_demo_name_sql().
+_DEMO_ACCESSIONS_SQL = "COALESCE(TRIM(s.accession_number), '') NOT IN ('4101031379966', '4101031379968')"
+_DEMO_PATIENT_SQL    = "COALESCE(pv.id, '') NOT ILIKE '%test%'"
+
+
+def _no_demo_name_sql(name_expr):
+    """WHERE fragment excluding placeholder/service-account physician names
+    (the "Referring, Generic" placeholder and the CSH/SCH service-account
+    codes from the gotcha above) from a resolved-name SQL expression."""
+    return (
+        f" AND UPPER({name_expr}) NOT IN ('CSH', 'SCH')"
+        f" AND {name_expr} NOT ILIKE '%generic%'"
+        f" AND {name_expr} NOT ILIKE '%referring%'"
+    )
+
 
 def _p(filters):
     """Build the standard SQL parameter dict from the global filters."""
@@ -243,24 +270,52 @@ def widget_modality_split(db, filters, config):
 def widget_physician_perf(db, filters, config):
     p = _p(filters)
     top_n = int(config.get("top_n") or 10)
+
+    # Why a small/recent date range came back completely empty: at LAUMC
+    # radiologists sign in the RIS, and PACS's own etl_didb_studies.
+    # reading_physician_* fields are not reliably synced back for recent
+    # studies -- the exact same root cause report_25 hit and fixed in
+    # migration 0070 (confirmed live against Oracle, 2026-07-26), not yet
+    # rolled out to every report per docs/LAUMC_NEXT_SESSION.md. Every row was
+    # failing the old "reading_physician_last_name IS NOT NULL" gate. Falls
+    # back to the RIS-sourced hl7_oru_reports row (1:1 per accession_number,
+    # enforced by the ux_hl7_oru_reports_accession unique index -- safe to
+    # LEFT JOIN without fear of fan-out) and resolves its physician_id (a raw
+    # RIS code) to a real name via std_resources_ris.resource_id, the same
+    # join report_25.get_kpi_detailed_reading() already uses for this exact
+    # problem.
+    _name = (
+        "COALESCE("
+        "NULLIF(TRIM(CONCAT(s.reading_physician_first_name, ' ', s.reading_physician_last_name)), ''), "
+        "res.common_name, o.physician_id)"
+    )
     rows = db.session.execute(text(f"""
-        SELECT s.reading_physician_first_name AS first_name,
-               s.reading_physician_last_name  AS last_name,
-               COUNT(*)                        AS studies,
-               ROUND(AVG(
-                   EXTRACT(EPOCH FROM (s.rep_final_timestamp - s.study_date::timestamp)) / 3600.0
-               )::numeric, 1)                  AS avg_tat_h
-        {_BASE_JOIN} {_WHERE}
-          AND s.reading_physician_last_name IS NOT NULL
-        GROUP BY 1, 2
-        ORDER BY 3 DESC
+        SELECT
+            {_name} AS name,
+            COUNT(*) AS studies,
+            ROUND(AVG(
+                EXTRACT(EPOCH FROM (
+                    COALESCE(s.rep_final_timestamp, o.result_datetime) - s.study_date::timestamp
+                )) / 3600.0
+            )::numeric, 1) AS avg_tat_h
+        {_BASE_JOIN}
+        LEFT JOIN hl7_oru_reports o ON o.accession_number = s.accession_number
+        LEFT JOIN std_resources_ris res ON res.resource_id = o.physician_id
+        LEFT JOIN etl_patient_view pv ON pv.patient_db_uid = s.patient_db_uid
+        {_WHERE}
+          AND {_name} IS NOT NULL
+          AND {_DEMO_ACCESSIONS_SQL}
+          AND {_DEMO_PATIENT_SQL}
+          {_no_demo_name_sql(_name)}
+        GROUP BY 1
+        ORDER BY 2 DESC
         LIMIT :top_n
     """), {**p, "top_n": top_n}).fetchall()
     return {
         "top_n": top_n,
         "rows": [
             {
-                "name":      f"{r.first_name or ''} {r.last_name or ''}".strip(),
+                "name":      r.name,
                 "studies":   r.studies,
                 "avg_tat_h": float(r.avg_tat_h) if r.avg_tat_h is not None else None,
             }
@@ -309,8 +364,26 @@ def widget_tat_summary(db, filters, config):
 
 def widget_patient_class(db, filters, config):
     p = _p(filters)
+    # Raw s.patient_class text has many near-duplicate variants for the same
+    # real category (e.g. "Inpatient", "INPT", "IN", "I" all mean the same
+    # thing) -- grouping on the raw column was producing far more distinct rows
+    # than there are real buckets, contradicting this widget's own catalogue
+    # description ("ER / IP / OP / Other breakdown"). Bucketed using the same
+    # broad prefix rules report_25's _kpi_class_bucket() already established
+    # for this exact data (accession prefix 2XE = ER; patient_class IN/I/IP =
+    # Inpatient; OUT/AMB/O/OP = Outpatient; everything else = Other).
     rows = db.session.execute(text(f"""
-        SELECT COALESCE(s.patient_class, 'Unknown') AS patient_class, COUNT(*) AS count
+        SELECT
+            CASE
+                WHEN UPPER(COALESCE(s.accession_number, '')) LIKE '2XE%' THEN 'ER'
+                WHEN UPPER(COALESCE(s.patient_class, '')) LIKE 'IN%'
+                  OR UPPER(s.patient_class) IN ('I', 'IP') THEN 'IP'
+                WHEN UPPER(COALESCE(s.patient_class, '')) LIKE 'OUT%'
+                  OR UPPER(COALESCE(s.patient_class, '')) LIKE 'AMB%'
+                  OR UPPER(s.patient_class) IN ('O', 'OP') THEN 'OP'
+                ELSE 'Other'
+            END AS patient_class,
+            COUNT(*) AS count
         {_BASE_JOIN} {_WHERE}
         GROUP BY 1 ORDER BY 2 DESC
     """), p).fetchall()
@@ -387,6 +460,116 @@ def widget_shift_breakdown(db, filters, config):
     }
 
 
+_WEEKDAY_LABELS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+
+
+def _device_weekday_utilization(db, p, aes):
+    """
+    Per-AE, per-weekday utilisation % for widget_device_util -- the same
+    capacity-vs-load approach report_34's device utilization matrix uses
+    (docs/LAUMC_NEXT_SESSION.md punch-list #13 asked for this breakdown here
+    too, e.g. "80% Monday, 65% Tuesday..."): weekly opening-minutes capacity
+    (device_weekly_schedule, falling back to aetitle_modality_map.
+    daily_capacity_minutes, then a flat 480) vs actual minutes used (std_pps
+    measured start/end where available, falling back per-cell to the
+    procedure_duration_map estimate -- report_34's exact fallback chain).
+    `aes` must already be upper-cased.
+    """
+    # How many Mondays/Tuesdays/etc. actually fall inside the selected range --
+    # capacity for the period = opening_minutes x occurrences of that weekday.
+    # ISODOW is 1=Mon..7=Sun; -1 converts to device_weekly_schedule's own
+    # 0=Mon..6=Sun convention (CLAUDE.md).
+    occ_rows = db.session.execute(text("""
+        SELECT (EXTRACT(ISODOW FROM d) - 1)::int AS dow, COUNT(*) AS occ
+        FROM generate_series(CAST(:date_from AS DATE), CAST(:date_to AS DATE), interval '1 day') d
+        GROUP BY 1
+    """), {"date_from": p["date_from"], "date_to": p["date_to"]}).fetchall()
+    occurrences = {r.dow: r.occ for r in occ_rows}
+
+    sched_rows = db.session.execute(text("""
+        SELECT UPPER(TRIM(ws.aetitle)) AS ae, ws.day_of_week AS dow,
+               COALESCE(ws.std_opening_minutes, m.daily_capacity_minutes, 480) AS opening_min
+        FROM device_weekly_schedule ws
+        LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(ws.aetitle)) = UPPER(TRIM(m.aetitle))
+        WHERE UPPER(TRIM(ws.aetitle)) = ANY(:aes)
+    """), {"aes": aes}).fetchall()
+    schedule = {(r.ae, r.dow): float(r.opening_min) for r in sched_rows}
+
+    flat_cap_rows = db.session.execute(text("""
+        SELECT UPPER(TRIM(aetitle)) AS ae, COALESCE(daily_capacity_minutes, 480) AS cap
+        FROM aetitle_modality_map WHERE UPPER(TRIM(aetitle)) = ANY(:aes)
+    """), {"aes": aes}).fetchall()
+    flat_capacity = {r.ae: float(r.cap) for r in flat_cap_rows}
+
+    # Actual measured minutes (std_pps), respecting the same modality/
+    # patient_class filters as the rest of the widget. std_pps may not exist
+    # / be empty on non-RIS sites -- the estimate fallback below covers that.
+    actual = {}
+    try:
+        pps_rows = db.session.execute(text("""
+            SELECT UPPER(TRIM(pps.performing_ae_title)) AS ae,
+                   (EXTRACT(ISODOW FROM pps.start_datetime) - 1)::int AS dow,
+                   SUM(EXTRACT(EPOCH FROM (pps.end_datetime - pps.start_datetime)) / 60) AS mins
+            FROM std_pps pps
+            JOIN etl_didb_studies s ON s.study_db_uid = pps.study_db_uid
+            LEFT JOIN LATERAL (
+                SELECT modality FROM aetitle_modality_map
+                WHERE UPPER(TRIM(aetitle)) = UPPER(TRIM(s.storing_ae)) LIMIT 1
+            ) m ON TRUE
+            WHERE pps.start_datetime BETWEEN :date_from AND :date_to
+              AND pps.end_datetime IS NOT NULL AND pps.end_datetime > pps.start_datetime
+              AND UPPER(TRIM(pps.performing_ae_title)) = ANY(:aes)
+              AND (CAST(:modality AS TEXT) IS NULL OR COALESCE(m.modality, s.study_modality) = :modality)
+              AND (CAST(:patient_class AS TEXT) IS NULL OR UPPER(s.patient_class) = UPPER(:patient_class))
+            GROUP BY 1, 2
+        """), {**p, "aes": aes}).fetchall()
+        actual = {(r.ae, r.dow): float(r.mins or 0) for r in pps_rows}
+    except Exception:
+        db.session.rollback()
+
+    # Estimated minutes (procedure_duration_map.duration_minutes, default 15
+    # min/study -- same default migration 0070 uses) for AE/weekday cells with
+    # no PPS actuals.
+    est_rows = db.session.execute(text("""
+        SELECT UPPER(TRIM(s.storing_ae)) AS ae,
+               (EXTRACT(ISODOW FROM s.study_date) - 1)::int AS dow,
+               SUM(COALESCE(pdm.duration_minutes, 15)) AS mins
+        FROM etl_didb_studies s
+        LEFT JOIN LATERAL (
+            SELECT modality FROM aetitle_modality_map
+            WHERE UPPER(TRIM(aetitle)) = UPPER(TRIM(s.storing_ae)) LIMIT 1
+        ) m ON TRUE
+        LEFT JOIN etl_orders o ON o.study_db_uid = s.study_db_uid
+        LEFT JOIN procedure_duration_map pdm ON UPPER(TRIM(o.proc_id)) = UPPER(TRIM(pdm.procedure_code))
+        WHERE s.study_date BETWEEN :date_from AND :date_to
+          AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+          AND UPPER(TRIM(s.storing_ae)) = ANY(:aes)
+          AND (CAST(:modality AS TEXT) IS NULL OR COALESCE(m.modality, s.study_modality) = :modality)
+          AND (CAST(:patient_class AS TEXT) IS NULL OR UPPER(s.patient_class) = UPPER(:patient_class))
+        GROUP BY 1, 2
+    """), {**p, "aes": aes}).fetchall()
+    estimate = {(r.ae, r.dow): float(r.mins or 0) for r in est_rows}
+
+    matrix = []
+    for ae in aes:
+        days, total_load, total_cap = [], 0.0, 0.0
+        for dow in range(7):
+            load = actual.get((ae, dow))
+            if load is None:
+                load = estimate.get((ae, dow), 0.0)
+            opening = schedule.get((ae, dow), flat_capacity.get(ae, 480.0))
+            cap = opening * occurrences.get(dow, 0)
+            pct = round(load / cap * 100, 1) if cap > 0 else 0.0
+            days.append({"weekday": _WEEKDAY_LABELS[dow], "pct": pct, "minutes": round(load, 1)})
+            total_load += load
+            total_cap += cap
+        avg_pct = round(total_load / total_cap * 100, 1) if total_cap > 0 else 0.0
+        matrix.append({"ae_title": ae, "avg_pct": avg_pct, "days": days})
+
+    matrix.sort(key=lambda m: m["avg_pct"], reverse=True)
+    return matrix
+
+
 def widget_device_util(db, filters, config):
     p = _p(filters)
     top_n = int(config.get("top_n") or 10)
@@ -397,13 +580,33 @@ def widget_device_util(db, filters, config):
         GROUP BY 1, 2 ORDER BY 3 DESC
         LIMIT :top_n
     """), {**p, "top_n": top_n}).fetchall()
-    return {"top_n": top_n, "rows": [{"ae_title": r.ae_title, "modality": r.modality, "count": r.count} for r in rows]}
+
+    # Per-weekday utilisation matrix (operator ask: match report_34's style),
+    # limited to the same top-N AEs already shown in the table above.
+    top_aes = sorted({r.ae_title.upper().strip() for r in rows if r.ae_title})
+    weekday_matrix = _device_weekday_utilization(db, p, top_aes) if top_aes else []
+
+    return {
+        "top_n": top_n,
+        "rows": [{"ae_title": r.ae_title, "modality": r.modality, "count": r.count} for r in rows],
+        "weekday_matrix": weekday_matrix,
+    }
 
 
 def widget_report_status(db, filters, config):
     p = _p(filters)
+    # Was reading s.report_status, a separate PACS column from s.study_status --
+    # report_status isn't reliably populated at LAUMC (unrelated to the
+    # RIS-vs-PACS TAT gap fixed elsewhere; this field itself is just mostly
+    # NULL/blank at this site), which is why almost every row fell to
+    # 'Unknown'. Every other place in this codebase that reports read/report
+    # workflow status (report_22's status breakdown, report_25 and
+    # viewer_controller's "unread" detection: `study_status ILIKE '%unread%'`,
+    # report_cache's dropdown) reads s.study_status instead, and
+    # ETL_JOBS/schema_discovery.py documents it as carrying real
+    # UNREAD/READ/REPORTED values. Switched to match.
     rows = db.session.execute(text(f"""
-        SELECT COALESCE(s.report_status, 'Unknown') AS status, COUNT(*) AS count
+        SELECT COALESCE(NULLIF(TRIM(s.study_status), ''), 'Unknown') AS status, COUNT(*) AS count
         {_BASE_JOIN} {_WHERE}
         GROUP BY 1 ORDER BY 2 DESC
     """), p).fetchall()
@@ -538,31 +741,55 @@ def widget_revenue_by_physician(db, filters, config):
 
 def widget_rad_modality_matrix(db, filters, config):
     p = _p(filters)
+    # Same demo/test-data contamination as widget_physician_perf, fixed the
+    # same way (see _DEMO_ACCESSIONS_SQL / _no_demo_name_sql above). Also
+    # extends the RIS-report fallback (o.physician_id -> std_resources_ris)
+    # into the radiologist-name COALESCE chain and into the "has a report"
+    # gate (COALESCE(s.rep_final_timestamp, o.result_datetime)) -- this widget
+    # had the identical `s.rep_final_timestamp IS NOT NULL` gate that was the
+    # real root cause of physician_perf coming back empty, so it carries the
+    # same latent bug even though the operator only reported the contamination
+    # symptom for this one.
     _RAD_BASE_RW = ("COALESCE(NULLIF(TRIM(CONCAT(s.signing_physician_first_name,' ',"
-                    "s.signing_physician_last_name)),''),s.rep_final_signed_by,'Unknown')")
+                    "s.signing_physician_last_name)),''), s.rep_final_signed_by, "
+                    "res.common_name, o.physician_id, 'Unknown')")
     _PAM_RW = ("LEFT JOIN physician_alias_map pam "
                "ON pam.dismissed = false "
                "AND pam.alias = COALESCE(NULLIF(TRIM(CONCAT(s.signing_physician_first_name,' ',"
-               "s.signing_physician_last_name)),''),s.rep_final_signed_by)")
+               "s.signing_physician_last_name)),''), s.rep_final_signed_by, res.common_name, o.physician_id)")
     _RAD = f"COALESCE(pam.canonical_name, {_RAD_BASE_RW})"
+    _RIS_JOINS_RW = (
+        "LEFT JOIN hl7_oru_reports o ON o.accession_number = s.accession_number "
+        "LEFT JOIN std_resources_ris res ON res.resource_id = o.physician_id "
+        "LEFT JOIN etl_patient_view pv ON pv.patient_db_uid = s.patient_db_uid"
+    )
+    _demo_excl = _no_demo_name_sql(_RAD)
 
     by_modality = db.session.execute(text(f"""
         SELECT {_RAD} AS radiologist, {_MOD_EXPR} AS dim, COUNT(DISTINCT s.study_db_uid) AS cnt
         {_BASE_JOIN}
+        {_RIS_JOINS_RW}
         {_PAM_RW}
         {_WHERE}
           AND {_RAD} NOT IN ('','Unknown')
-          AND s.rep_final_timestamp IS NOT NULL
+          AND COALESCE(s.rep_final_timestamp, o.result_datetime) IS NOT NULL
+          AND {_DEMO_ACCESSIONS_SQL}
+          AND {_DEMO_PATIENT_SQL}
+          {_demo_excl}
         GROUP BY 1, 2 ORDER BY 1, 3 DESC
     """), p).fetchall()
 
     by_aetitle = db.session.execute(text(f"""
         SELECT {_RAD} AS radiologist, COALESCE(s.storing_ae,'Unknown') AS dim, COUNT(DISTINCT s.study_db_uid) AS cnt
         {_BASE_JOIN}
+        {_RIS_JOINS_RW}
         {_PAM_RW}
         {_WHERE}
           AND {_RAD} NOT IN ('','Unknown')
-          AND s.rep_final_timestamp IS NOT NULL
+          AND COALESCE(s.rep_final_timestamp, o.result_datetime) IS NOT NULL
+          AND {_DEMO_ACCESSIONS_SQL}
+          AND {_DEMO_PATIENT_SQL}
+          {_demo_excl}
         GROUP BY 1, 2 ORDER BY 1, 3 DESC
     """), p).fetchall()
 
