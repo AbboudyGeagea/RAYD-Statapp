@@ -124,12 +124,14 @@ for f in $(ls "$SCRIPT_DIR/migrations"/[0-9]*.sql 2>/dev/null | sort); do
 
     info "  Applying: $name"
     docker cp "$f" rayd_db:/tmp/rayd_migration.sql
-    if docker exec rayd_db psql -U "$PG_USER" -d "$PG_DB" -f /tmp/rayd_migration.sql -q 2>/dev/null; then
+    MIGRATION_ERR=$(docker exec rayd_db psql -v ON_ERROR_STOP=1 -U "$PG_USER" -d "$PG_DB" -f /tmp/rayd_migration.sql -q 2>&1 1>/dev/null) && MIGRATION_STATUS=0 || MIGRATION_STATUS=$?
+    if [ "$MIGRATION_STATUS" -eq 0 ]; then
         pg_exec "INSERT INTO schema_migrations (name) VALUES ('${name}');" 2>/dev/null || true
         ok "  Applied : $name"
         APPLIED=$((APPLIED+1))
     else
         warn "  FAILED  : $name — check manually"
+        echo "$MIGRATION_ERR" | sed 's/^/           /'
         FAILED=$((FAILED+1))
     fi
 done
