@@ -200,9 +200,27 @@ def procedures_tab():
                     '[]'::json
                 ) AS unclustered_procs
         """)).fetchone()
-        ai_groups       = _json.loads(row[0]) if row and row[0] else []
-        unclustered_procs = _json.loads(row[1]) if row and row[1] else []
+
+        def _as_json_list(value):
+            # psycopg2 (via SQLAlchemy) auto-decodes json/jsonb result columns
+            # into native Python objects, so `row[0]`/`row[1]` here are already
+            # a list, NOT a JSON string. Calling json.loads() on that raises
+            # TypeError: the JSON object must be str, bytes or bytearray, not
+            # list — invisible in dev with empty tables (COALESCE('[]'::json)
+            # decodes to [] which is falsy, so the buggy loads() call is
+            # skipped), but guaranteed to fire on every request once ai_groups
+            # or unclustered_procs actually has rows. Handle both shapes so
+            # this is correct regardless of driver-level auto-decoding.
+            if not value:
+                return []
+            if isinstance(value, (list, dict)):
+                return value
+            return _json.loads(value)
+
+        ai_groups          = _as_json_list(row[0]) if row else []
+        unclustered_procs  = _as_json_list(row[1]) if row else []
     except Exception:
+        logging.getLogger("mapping").exception("procedures_tab: ai_groups/unclustered_procs query failed")
         ai_groups = []
         unclustered_procs = []
 
@@ -250,8 +268,14 @@ def upload_modality_map():
             if display_ae == '':
                 display_ae = None
 
-            # 1. Sync Parent (AETitleModalityMap) — keep both tables in sync
-            parent = AETitleModalityMap.query.filter_by(aetitle=ae).first()
+            # 1. Sync Parent (AETitleModalityMap) — keep both tables in sync.
+            # Case-insensitive lookup: aetitle_modality_map.aetitle has a case-SENSITIVE
+            # UNIQUE constraint, but not every writer normalizes to uppercase (e.g. the
+            # LAUMC RIS Modality ETL used to insert AE_TITLE verbatim) — an exact-case
+            # filter_by() would silently miss an existing mixed-case row and insert a
+            # duplicate instead of updating it.
+            from sqlalchemy import func as _f
+            parent = AETitleModalityMap.query.filter(_f.upper(AETitleModalityMap.aetitle) == ae).first()
             if not parent:
                 parent = AETitleModalityMap(aetitle=ae, modality=mod, room_name=room, daily_capacity_minutes=cap, description=desc, display_aetitle=display_ae)
                 db.session.add(parent)
@@ -713,7 +737,10 @@ def delete_ae_entry():
     if not ae:
         return jsonify({"status": "error", "message": "aetitle required"}), 400
     try:
-        entry = AETitleModalityMap.query.filter_by(aetitle=ae).first()
+        # Case-insensitive lookup — see upload_modality_map() for why an exact-case
+        # filter_by() can silently miss a pre-existing mixed-case row.
+        from sqlalchemy import func as _f
+        entry = AETitleModalityMap.query.filter(_f.upper(AETitleModalityMap.aetitle) == ae).first()
         if not entry:
             return jsonify({"status": "error", "message": "AE title not found"}), 404
         db.session.delete(entry)
@@ -735,7 +762,10 @@ def update_ae_entry():
     data = request.get_json(force=True)
     try:
         ae = str(data['aetitle']).strip().upper()
-        entry = AETitleModalityMap.query.filter_by(aetitle=ae).first()
+        # Case-insensitive lookup — see upload_modality_map() for why an exact-case
+        # filter_by() can silently miss a pre-existing mixed-case row.
+        from sqlalchemy import func as _f
+        entry = AETitleModalityMap.query.filter(_f.upper(AETitleModalityMap.aetitle) == ae).first()
         if not entry:
             return jsonify({"status": "error", "message": "AE title not found"}), 404
         if 'modality' in data:
