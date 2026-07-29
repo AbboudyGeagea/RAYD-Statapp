@@ -1303,15 +1303,22 @@ def report_25():
         data, display_start, display_end = get_gold_standard_data(request.values)
         kpi_data = get_kpi_detailed_reading(request.values)
 
-        pid = request.values.get("fallback_id")
-        if pid:
-            res = db.session.execute(text("SELECT procedure_code, scheduled_datetime, insert_time, report_time, proc_duration FROM etl_didb_studies s JOIN etl_patient_view p ON s.fallback_id = p.fallback_id WHERE p.fallback_id = :pid ORDER BY s.insert_time ASC"), {"pid": pid}).mappings().all()
-            if res:
-                nodes = []
-                for r in res:
-                    t_ent = (r['insert_time'] - pd.Timedelta(minutes=r['proc_duration'])) if r['insert_time'] and r['proc_duration'] else None
-                    nodes.append({"name": r['procedure_code'], "children": [{"name": f"Sched: {r['scheduled_datetime'].strftime('%H:%M') if r['scheduled_datetime'] else 'N/A'}"}, {"name": f"True Entry: {t_ent.strftime('%H:%M') if t_ent else 'N/A'}"}]})
-                journey_json = json.dumps({"name": f"ID: {pid}", "children": nodes})
+        # NOTE: Patient Journey used to be built inline here from a `fallback_id`
+        # request param, joining etl_didb_studies to etl_patient_view on
+        # fallback_id and estimating a "true entry" time as
+        # insert_time - proc_duration (proc_duration falling back to a generic
+        # 15-minute default from procedure_duration_map). That query referenced
+        # etl_didb_studies.fallback_id/scheduled_datetime/report_time/proc_duration
+        # -- none of which exist on etl_didb_studies (confirmed against the live
+        # schema: it threw psycopg2.errors.UndefinedColumn on every call) -- and
+        # it was never wired to any UI element (no template referenced
+        # journey_json). The real, UI-connected Patient Journey feature is the
+        # `/report/25/patient-journey` endpoint below (patient_journey_api),
+        # which has been rebuilt to resolve patients via std_patient_ids/
+        # std_pps/hl7_orders/etl_patient_view instead of fallback_id, and to use
+        # real std_pps.start_datetime/end_datetime PPS timestamps instead of an
+        # estimated proc_duration offset. This dead/broken block has been
+        # removed rather than patched.
 
         template_data = {k: v for k, v in data.items() if k != 'raw_df'} if data else None
 
@@ -1405,7 +1412,8 @@ def patient_journey_api():
         return _json({'studies': [], 'error': 'Provide patient ID or accession number'})
 
     try:
-        accessions = set()
+        accessions  = set()
+        pid_fuzzy   = False   # true once we had to fall back to substring matching
 
         # ── Find accessions by accession number ───────────────────────────────
         if accession:
@@ -1415,24 +1423,93 @@ def patient_journey_api():
             ), {'acc': f'%{accession}%'}).fetchall()
             accessions.update(r[0] for r in rows if r[0])
 
-        # ── Find accessions by patient ID (hl7_orders, then etl_didb_studies) ─
+        # ── Find accessions by patient ID ──────────────────────────────────────
+        # Tiered, most-to-least reliable identifier source (mirrors the pattern
+        # already established for report timestamps in migrations 0070/0074/0075:
+        # try the reliable source first, only fall back when it comes up empty).
+        #
+        # Exact-match tiers first -- NOT substring ILIKE -- because a raw
+        # substring match on a bare identifier is exactly the kind of thing that
+        # silently blends unrelated patients into one "journey" (the same class
+        # of problem std_patient_ids/migration 0060 was built to get away from
+        # for fallback_id). Only if every exact tier misses do we fall back to
+        # substring search, and we flag that in the response so the UI can warn
+        # the operator the results are approximate.
+        #
+        # NOTE: etl_didb_studies has NO patient_id column (confirmed against the
+        # live schema) -- the previous version of this query referenced it and
+        # threw psycopg2.errors.UndefinedColumn on every call; that branch's
+        # try/except silently swallowed the error via db.session.rollback(),
+        # so pid search was silently running on hl7_orders alone. The real PACS
+        # patient identifier lives on etl_patient_view.id, joined via
+        # patient_db_uid -- fixed below.
         if pid:
+            # Tier 1: std_patient_ids -> std_pps -> etl_didb_studies (RIS identity,
+            # most reliable -- a dedicated identifier table keyed to a stable
+            # patient_person_key, not a raw/overloaded PACS or HL7 field).
+            try:
+                rows = db.session.execute(text("""
+                    SELECT DISTINCT s.accession_number
+                    FROM std_patient_ids i
+                    JOIN std_pps pp ON pp.patient_person_key = i.patient_person_key
+                    JOIN etl_didb_studies s ON s.study_db_uid = pp.study_db_uid
+                    WHERE i.patient_id = :pid
+                    LIMIT 20
+                """), {'pid': pid}).fetchall()
+                accessions.update(r[0] for r in rows if r[0])
+            except Exception:
+                db.session.rollback()
+
+            # Tier 2: hl7_orders exact match (RIS/HL7-sourced, already trusted
+            # elsewhere in this file).
             try:
                 rows = db.session.execute(text(
                     "SELECT DISTINCT accession_number FROM hl7_orders "
-                    "WHERE patient_id ILIKE :pid AND accession_number IS NOT NULL LIMIT 20"
-                ), {'pid': f'%{pid}%'}).fetchall()
+                    "WHERE patient_id = :pid AND accession_number IS NOT NULL LIMIT 20"
+                ), {'pid': pid}).fetchall()
                 accessions.update(r[0] for r in rows if r[0])
             except Exception:
                 db.session.rollback()
+
+            # Tier 3: PACS-sourced exact match, via the correct table/column
+            # (etl_patient_view.id -- NOT etl_didb_studies.patient_id, which
+            # doesn't exist).
             try:
-                rows = db.session.execute(text(
-                    "SELECT DISTINCT accession_number FROM etl_didb_studies "
-                    "WHERE patient_id ILIKE :pid LIMIT 20"
-                ), {'pid': f'%{pid}%'}).fetchall()
+                rows = db.session.execute(text("""
+                    SELECT DISTINCT s.accession_number
+                    FROM etl_didb_studies s
+                    JOIN etl_patient_view p ON p.patient_db_uid = s.patient_db_uid
+                    WHERE p.id = :pid
+                    LIMIT 20
+                """), {'pid': pid}).fetchall()
                 accessions.update(r[0] for r in rows if r[0])
             except Exception:
                 db.session.rollback()
+
+            # Tier 4 (fallback only): no exact match anywhere -- fall back to the
+            # old substring behavior so a partially-typed ID still returns
+            # something, but flag it as fuzzy.
+            if not accessions:
+                pid_fuzzy = True
+                try:
+                    rows = db.session.execute(text(
+                        "SELECT DISTINCT accession_number FROM hl7_orders "
+                        "WHERE patient_id ILIKE :pid AND accession_number IS NOT NULL LIMIT 20"
+                    ), {'pid': f'%{pid}%'}).fetchall()
+                    accessions.update(r[0] for r in rows if r[0])
+                except Exception:
+                    db.session.rollback()
+                try:
+                    rows = db.session.execute(text("""
+                        SELECT DISTINCT s.accession_number
+                        FROM etl_didb_studies s
+                        JOIN etl_patient_view p ON p.patient_db_uid = s.patient_db_uid
+                        WHERE p.id ILIKE :pid
+                        LIMIT 20
+                    """), {'pid': f'%{pid}%'}).fetchall()
+                    accessions.update(r[0] for r in rows if r[0])
+                except Exception:
+                    db.session.rollback()
 
         if not accessions:
             return _json({'studies': [], 'error': None, 'message': 'No matching studies found'})
@@ -1440,9 +1517,19 @@ def patient_journey_api():
         accn_list = list(accessions)[:15]
 
         # ── Batch fetch studies (1 query for all accessions) ─────────────────
+        # Final-report timestamp/attribution uses the same reliability-ordered
+        # COALESCE chain the main report_25 query uses (migrations 0074/0075):
+        # rep_study_last_composed_ts/_by (confirmed populated on this install)
+        # -> rep_final_timestamp/rep_final_signed_by (PACS-native, unreliable
+        # here) -> hl7_oru_reports.result_datetime/physician_id (RIS-sourced,
+        # migration 0070). The previous version of this endpoint used bare
+        # s.rep_final_timestamp, which is mostly NULL for recent studies on
+        # this PACS install -- so "Final Report Signed" was silently missing
+        # from most journeys even for studies that really were reported.
         study_rows = db.session.execute(text("""
             SELECT DISTINCT ON (s.accession_number)
                 s.accession_number,
+                s.study_db_uid,
                 s.study_date::text                                                AS study_date,
                 s.study_time,
                 COALESCE(s.study_description, '')                                 AS study_description,
@@ -1452,18 +1539,46 @@ def patient_journey_api():
                 s.insert_time,
                 s.rep_prelim_timestamp,
                 s.rep_transcribed_timestamp,
-                s.rep_final_timestamp,
+                COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp, o.result_datetime) AS final_ts,
+                COALESCE(s.rep_study_last_composed_by, s.rep_final_signed_by, o.physician_id)     AS final_by,
                 NULLIF(TRIM(CONCAT(
                     COALESCE(s.signing_physician_first_name,''), ' ',
                     COALESCE(s.signing_physician_last_name,'')
-                )), '')                                                            AS radiologist,
-                s.rep_final_signed_by
+                )), '')                                                            AS radiologist
             FROM etl_didb_studies s
             LEFT JOIN aetitle_modality_map m
                 ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
+            LEFT JOIN hl7_oru_reports o
+                ON o.accession_number = s.accession_number
             WHERE s.accession_number = ANY(:accns)
         """), {'accns': accn_list}).mappings().fetchall()
         studies_map = {r['accession_number']: dict(r) for r in study_rows}
+
+        # ── Batch fetch std_pps (real RIS Performed-Procedure-Step timestamps) ─
+        # This replaces the "true entry = insert_time - proc_duration" estimate
+        # that used to live in this report's dead inline journey_json block:
+        # proc_duration there came from procedure_duration_map with a bare
+        # `COALESCE(pm.duration_minutes, 15)` default (see migrations
+        # 0069/0070/0075) -- for any procedure without a mapped duration it
+        # produced a generic 15-minute guess, not a real "true entry" time.
+        # std_pps.start_datetime/end_datetime are actual RIS PPS timestamps for
+        # the study, when the PPS enrichment job has matched it -- use those
+        # instead of estimating.
+        pps_map = {}
+        study_ids = [r['study_db_uid'] for r in study_rows if r['study_db_uid']]
+        if study_ids:
+            try:
+                pps_rows = db.session.execute(text("""
+                    SELECT study_db_uid,
+                           MIN(start_datetime) AS pps_start,
+                           MAX(end_datetime)   AS pps_end
+                    FROM std_pps
+                    WHERE study_db_uid = ANY(:sids)
+                    GROUP BY study_db_uid
+                """), {'sids': study_ids}).mappings().fetchall()
+                pps_map = {r['study_db_uid']: dict(r) for r in pps_rows}
+            except Exception:
+                db.session.rollback()
 
         # ── Batch fetch hl7_orders (1 query for all accessions) ──────────────
         orders_map = {}  # accn -> list of order dicts
@@ -1506,6 +1621,7 @@ def patient_journey_api():
             if not study:
                 continue
             orders = orders_map.get(accn, [])
+            pps    = pps_map.get(study.get('study_db_uid'), {})
 
             events  = []
             pid_val = None
@@ -1519,12 +1635,19 @@ def patient_journey_api():
                     f"Modality: {o.get('order_modality') or ''}",
                     o.get('done_by'))
 
+            # Real RIS PPS timestamps (when the PPS enrichment job has matched
+            # this study) -- the reliable replacement for the old estimated
+            # "true entry" time.
+            _ev(events, pps.get('pps_start'), 'pps_start', 'Exam Started (RIS PPS)',
+                f"Modality: {study.get('modality','')}")
+            _ev(events, pps.get('pps_end'),   'pps_end',   'Exam Completed (RIS PPS)', '')
+
             _ev(events, study.get('insert_time'),               'pacs_in',     'Arrived in PACS',
                 f"Modality: {study.get('modality','')}")
             _ev(events, study.get('rep_prelim_timestamp'),      'prelim',      'Preliminary Report', '')
             _ev(events, study.get('rep_transcribed_timestamp'), 'transcribed', 'Transcribed', '')
-            _ev(events, study.get('rep_final_timestamp'),       'final',       'Final Report Signed',
-                '', study.get('radiologist') or study.get('rep_final_signed_by'))
+            _ev(events, study.get('final_ts'),                  'final',       'Final Report Signed',
+                '', study.get('radiologist') or study.get('final_by'))
 
             events.sort(key=lambda x: x['ts'])
             for i in range(1, len(events)):
@@ -1547,7 +1670,15 @@ def patient_journey_api():
             })
 
         results.sort(key=lambda x: x['study_date'], reverse=True)
-        return _json({'studies': results, 'error': None})
+        resp = {'studies': results, 'error': None}
+        if pid_fuzzy and results:
+            resp['message'] = (
+                'No exact patient-ID match was found, so this list falls back to a '
+                'partial/substring match -- it may include studies from other '
+                'patients whose ID happens to contain the same characters. '
+                'Verify identity before relying on it.'
+            )
+        return _json(resp)
 
     except Exception as e:
         db.session.rollback()

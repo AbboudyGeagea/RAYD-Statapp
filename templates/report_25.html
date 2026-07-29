@@ -2520,7 +2520,13 @@
                         results.innerHTML = '<div class="glass-card text-center py-10 text-zinc-600"><i class="bi bi-search text-3xl mb-2 block opacity-30"></i><p class="italic text-sm">No matching studies found.</p></div>';
                         return;
                     }
-                    results.innerHTML = data.studies.map(renderStudyJourney).join('');
+                    const warnHtml = data.message
+                        ? `<div style="padding:8px 12px;margin-bottom:10px;border-radius:8px;font-size:11px;
+                               background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);color:#fbbf24">
+                               <i class="bi bi-exclamation-triangle-fill" style="margin-right:6px;"></i>${escHtml(data.message)}
+                           </div>`
+                        : '';
+                    results.innerHTML = warnHtml + data.studies.map(renderStudyJourney).join('');
                 })
                 .catch(e => {
                     spinner.classList.add('hidden');
@@ -2532,6 +2538,8 @@
             order_received: { icon: 'bi-file-earmark-text',  color: 'text-zinc-400',   bg: 'bg-zinc-500/15',   label: 'Order Received'         },
             scheduled:      { icon: 'bi-calendar-check',     color: 'text-sky-400',    bg: 'bg-sky-500/15',    label: 'Exam Scheduled'         },
             tech_done:      { icon: 'bi-person-badge',       color: 'text-violet-400', bg: 'bg-violet-500/15', label: 'Exam Completed (Tech)'  },
+            pps_start:      { icon: 'bi-play-circle',        color: 'text-fuchsia-400',bg: 'bg-fuchsia-500/15',label: 'Exam Started (RIS PPS)' },
+            pps_end:        { icon: 'bi-stop-circle',        color: 'text-pink-400',   bg: 'bg-pink-500/15',   label: 'Exam Completed (RIS PPS)' },
             pacs_in:        { icon: 'bi-hdd-rack',           color: 'text-blue-400',   bg: 'bg-blue-500/15',   label: 'Arrived in PACS'        },
             prelim:         { icon: 'bi-pencil-square',      color: 'text-amber-400',  bg: 'bg-amber-500/15',  label: 'Preliminary Report'     },
             transcribed:    { icon: 'bi-keyboard',           color: 'text-orange-400', bg: 'bg-orange-500/15', label: 'Transcribed'            },
@@ -2620,6 +2628,7 @@
                     const t0 = new Date(s.events[0].ts), t1 = new Date(s.events[s.events.length-1].ts);
                     const span = t1 - t0;
                     const dotClrs = { order_received:'#6366f1', scheduled:'#0ea5e9', tech_done:'#8b5cf6',
+                                      pps_start:'#d946ef', pps_end:'#ec4899',
                                       pacs_in:'#60a5fa', prelim:'#f59e0b', transcribed:'#f97316', final:'#22c55e' };
                     const dots = s.events.map(ev => {
                         if (!ev.ts) return '';
