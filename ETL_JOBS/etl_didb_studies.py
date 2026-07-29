@@ -145,12 +145,20 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
         # never be loaded. Existing duplicate rows cleaned up separately, migration 0073.
         _EXCLUDED_AE_SQL = "AND UPPER(TRIM(s.STORING_AE)) NOT IN ('LAUMC', 'SVSM')"
 
+        # Operator instruction (2026-07-29): REP_FINAL_SIGNED_BY values ending in
+        # '@dn' (akehdi@dn, eva.d@dn, mi70@dn, ...) are not real LAUMC data — confirmed
+        # not a different PACS_SITE_ID (they share site 0 with legitimate RH studies),
+        # just not legitimate regardless. Existing rows cleaned up separately,
+        # migration 0084.
+        _EXCLUDED_SIGNER_SQL = "AND UPPER(s.REP_FINAL_SIGNED_BY) NOT LIKE '%@DN'"
+
         def _execute_query(use_join):
             select = _SELECT_WITH_JOIN if use_join else _SELECT_NO_JOIN
             if is_fresh_load:
                 q = select + f"""
                     WHERE s.STUDY_DATE >= TO_DATE(:gd, 'YYYY-MM-DD')
                     {_EXCLUDED_AE_SQL}
+                    {_EXCLUDED_SIGNER_SQL}
                     ORDER BY s.STUDY_DB_UID
                 """
                 cursor.execute(q, {'gd': gd_str})
@@ -162,6 +170,7 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
                         OR s.STUDY_DATE >= TO_DATE(:lb, 'YYYY-MM-DD')
                     )
                     {_EXCLUDED_AE_SQL}
+                    {_EXCLUDED_SIGNER_SQL}
                     ORDER BY s.STUDY_DB_UID
                 """
                 cursor.execute(q, {'gd': gd_str, 'max_id': max_uid, 'lb': lookback_date})
