@@ -20,7 +20,7 @@ import os
 import sys
 import logging
 from datetime import datetime
-from sqlalchemy import func, distinct
+from sqlalchemy import func, distinct, table, column
 from sqlalchemy.dialects.postgresql import insert
 
 # Ensure parent dir (where db.py lives) is on the path when imported from ETL_JOBS/
@@ -37,8 +37,16 @@ from db import (
     ETLJobLog,
     get_etl_cutoff_date,
 )
+from utils.site_resolver import default_site
 
 logger = logging.getLogger("ETL_WORKER")
+
+# Lightweight Core reference to aetitle_modality_map.site_id — deliberately NOT added
+# to the db.py ORM model (that class is shared everywhere and already has documented
+# ORM/DB drift incidents; this file only needs one extra column for a filter). Mirrors
+# routes/report_25.py's `m.site_id = :rh_site_id` site-scope pattern. aetitle is UNIQUE
+# on the real table (db.py's aetitle_modality_map.aetitle), so this join can't fan out.
+_ae_site_map = table("aetitle_modality_map", column("aetitle"), column("site_id"))
 
 
 def refresh_storage_summary():
@@ -59,6 +67,15 @@ def refresh_storage_summary():
     logger.info(f"📦 [Storage Summary] Rolling up storage from {go_live} ...")
 
     try:
+        # LAUMC site rule (operator instruction, 2026-07-26): reports show RH (main
+        # site) only, SJH excluded — same rule routes/report_25.py applies via
+        # aetitle_modality_map.site_id (etl_didb_studies.site_id is never actually
+        # populated, see utils/site_resolver.py's module docstring). This rollup had
+        # never had the rule applied at all. default_site() resolves to None on a
+        # non-LAUMC/single-site install (empty `sites` table), so the join/filter
+        # below is skipped entirely there — never zeroes out a single-site deployment.
+        rh_site_id = default_site()
+
         agg_query = (
             db.session.query(
                 etl_didb_studies.study_date,
@@ -85,6 +102,17 @@ def refresh_storage_summary():
                 etl_image_locations,
                 etl_didb_raw_images.raw_image_db_uid == etl_image_locations.raw_image_db_uid,
             )
+        )
+
+        if rh_site_id is not None:
+            agg_query = agg_query.join(
+                _ae_site_map,
+                func.upper(func.trim(etl_didb_studies.storing_ae))
+                == func.upper(func.trim(_ae_site_map.c.aetitle)),
+            ).filter(_ae_site_map.c.site_id == rh_site_id)
+
+        agg_query = (
+            agg_query
             .filter(etl_didb_studies.study_date >= go_live)
             .filter(etl_didb_studies.study_modality != 'SR')
             .group_by(
