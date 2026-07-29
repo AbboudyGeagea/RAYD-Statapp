@@ -595,7 +595,17 @@
                     symbol: 'emptyCircle', symbolSize: 8, initialTreeDepth: 2,
                     label: { position: 'top', rotate: 0, align: 'center', fontSize: 12, color: '#60a5fa', fontWeight: 'bold' },
                     leaves: { label: { position: 'bottom', rotate: 0, align: 'center', fontSize: 10, color: '#e2e8f0' } },
-                    lineStyle: { color: '#28332e', width: 1.5, curveness: 0.5 },
+                    // Line color was '#28332e' — the same hex as .card's OWN border color
+                    // (see the .card rule above), which is only ~5-8/255 per channel lighter
+                    // than .card's #232b28 background. That pairing was fine under the
+                    // theme's previous navy palette (#0f172a bg / #1e293b border/lines had a
+                    // real ~15-18/255 gap), but the "UI Polish" recolor (commit f2518d8c)
+                    // carried the tree's lineStyle color over in lockstep with the border-color
+                    // swap without re-checking contrast against the new, closer-together
+                    // green palette — so the connecting lines render nearly indistinguishable
+                    // from the card behind them. Using the same translucent blue as the node/
+                    // label accent color keeps the tree edges visible without a jarring color.
+                    lineStyle: { color: 'rgba(96, 165, 250, 0.35)', width: 1.5, curveness: 0.5 },
                     itemStyle: { color: '#60a5fa' }
                 }]
             });
