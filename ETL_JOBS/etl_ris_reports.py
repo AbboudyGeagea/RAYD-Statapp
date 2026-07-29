@@ -20,7 +20,15 @@ Source columns (RIS REPORT — see docs/LAUMC_RIS_TABLES.md):
     APPROVED_DATE (final sign)   -> result_datetime   (COALESCE w/ LAST_MODIFIED_DATE)
     APPROVED_BY_RESOURCE_ID_KEY  -> physician_id       (RIS resource key, as text)
     IS_MAX_VERSION = current     -> filter (current version only; amendments overwrite)
-    LAST_MODIFIED_DATE           -> incremental watermark (future optimisation)
+    LAST_MODIFIED_DATE           -> incremental watermark
+
+Incremental load: an amended report gets a brand-new REPORT_KEY/version rather than an
+in-place update (docs/LAUMC_RIS_TABLES.md, Qr2), so a plain "max already-loaded key"
+watermark isn't reliable here -- REPORT_KEY isn't exposed by this query at all, and even
+if it were, an amendment's new row can sort anywhere relative to prior keys. Instead this
+tracks MAX(result_datetime) already loaded from RIS and, like etl_didb_studies.py, adds a
+lookback window so a report that gets amended/re-approved after this job last saw it is
+still picked up even though its underlying study is older than the watermark.
 
 site_id / patient_id / modality are NOT in REPORT; they are enriched after upsert by
 matching accession_number to the already-loaded PACS study (etl_didb_studies +
@@ -33,7 +41,7 @@ override with RAYD_RIS_SOURCE) — see etl_runner Phase 9.
 """
 import os
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from sqlalchemy import text
 from db import OracleConnector
 
@@ -144,8 +152,23 @@ def run_ris_reports_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func,
     except Exception as e:
         logging.error(f"RIS Reports ETL log error: {e}")
 
+    # Incremental watermark: newest result_datetime already loaded from RIS. None on a
+    # fresh install (table empty / no report_source='ris' rows yet) -> full pull since
+    # go_live_date, same as before.
+    watermark = None
+    try:
+        with pg_engine.connect() as conn:
+            watermark = conn.execute(text(
+                "SELECT MAX(result_datetime) FROM hl7_oru_reports WHERE report_source = 'ris'"
+            )).fetchone()[0]
+    except Exception as e:
+        logging.warning(f"RIS Reports ETL: could not read watermark, falling back to full pull: {e}")
+
+    is_fresh_load = watermark is None
+    lookback_date = (datetime.now() - timedelta(days=10)).strftime('%Y-%m-%d')
+
     # IS_MAX_VERSION type varies (NUMBER 1/0 or CHAR 'Y'/'N'); TO_CHAR handles both.
-    query = f"""
+    base_query = f"""
         SELECT
             REPORTED_ACC_NUMBER,
             DOCUMENT_PLAIN_TEXT,
@@ -167,8 +190,23 @@ def run_ris_reports_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func,
     cursor = ora_conn.cursor()
 
     try:
-        logger.info(f"[RIS Reports] 🚀 Pulling current-version reports since {gd_str} from {_RIS_REPORT_TABLE}")
-        cursor.execute(query, {"cutoff": gd_str})
+        if is_fresh_load:
+            logger.info(f"[RIS Reports] 🆕 Fresh load — pulling ALL reports since {gd_str} from {_RIS_REPORT_TABLE}")
+            cursor.execute(base_query, {"cutoff": gd_str})
+        else:
+            logger.info(
+                f"[RIS Reports] 🔄 Incremental load — watermark={watermark}, "
+                f"lookback={lookback_date}, table={_RIS_REPORT_TABLE}"
+            )
+            cursor.execute(
+                base_query + """
+                  AND (
+                      COALESCE(APPROVED_DATE, LAST_MODIFIED_DATE, REPORT_TIME) > :watermark
+                      OR COALESCE(APPROVED_DATE, LAST_MODIFIED_DATE, REPORT_TIME) >= TO_DATE(:lb, 'YYYY-MM-DD')
+                  )
+                """,
+                {"cutoff": gd_str, "watermark": watermark, "lb": lookback_date}
+            )
 
         now = datetime.now()
         while True:
