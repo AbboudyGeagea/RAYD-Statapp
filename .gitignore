@@ -24,3 +24,6 @@ RAYD-Statapp/
 # stray scratch/backup files
 Untitled Document*
 .env.bak.*
+
+# personal testing notes, not part of the repo's tracked docs
+docs/LAUMC_BUGFIX_TESTING_CHECKLIST_2026-07-28.md

@@ -260,49 +260,91 @@ PERSON.PERSON_KEY`) — same person, two different "role" tables pointing into o
 
 ---
 
-## 💡 Operator punch list, 2026-07-27 — bugs found during testing, not started
+## 💡 Operator punch list — round 2, 2026-07-28 (post-fix retest)
 
-1. **Report 22**
-   - `study_status` / `study_modality` filters return no results.
-   - Modality → AE Source → Top 5 Procedures tree shows modalities as "unmapped" even
-     though they're mapped in the modality mapping tab.
-2. **Report 27**
-   - Demographics (Age & Gender) tab returns no data.
-3. **Report 23**
-   - Audit every filter on the right-hand panel: confirm where each one actually sources
-     its data from, and why the data returned is garbage.
-4. **ER Dashboard**
-   - All TAT reports are empty — root cause unknown, needs investigation.
-5. **Report 25**
-   - Revamp: convert each tab into a base report, same pattern as report 22/23 (operator
-     wrote "22,23,25" — self-referential, likely a typo; confirm which report(s) the
-     target pattern actually means before starting). Operator wants a written study/plan
-     first; bug fixes proceed after operator feedback on that study.
-6. **Report 29**
-   - Still shows 3,140 studies and only 0.33 TB while the real system holds 66 TB.
-   - CD distribution section is still present — already agreed to remove it.
-7. **Report AI**
-   - Utilization metric is still null.
-8. **Referring contacts**
-   - Should be filled in automatically (not done yet — see `referring_contacts_sync.py`
-     from the CRN work, which only fills contacts seen on a real order, not a bulk
-     autofill).
-9. **Modality mapping**
-   - Mapping isn't reflected across all reports.
-   - Procedure mappings aren't mapped to modalities.
-   - Physician tab should be removed.
-10. **Live AE Status**
-    - Rename to "Live Department View."
-    - UI needs simplification — currently too complicated.
-    - Recheck its data sources.
-11. **HL7 Orders**
-    - Check why R2I isn't sending data.
-12. **Report Intelligence**
-    - Data load is still slow on large data loads.
-13. **Custom Reports**
-    - CD distribution section still present, needs removal.
-    - Check the data source for every report type in here.
-    - Needs to be made more flexible — customer expectations are high on this feature.
+Full first-round fixes are in `LAUMC` commits `0f752227..ead559fb` (see
+`docs/LAUMC_BUGFIX_TESTING_CHECKLIST_2026-07-28.md`, gitignored, not for other
+sessions). This is what retesting against real data actually found.
+
+1. **Report 22** — ⚠️ still broken. Modalities still show unmapped for a lot of
+   devices that ARE mapped, and the tree chart's connecting lines are gone. The
+   `UPPER(TRIM())` join fix didn't fully resolve it — needs a fresh look at what's
+   actually happening now, not a repeat of the same fix.
+2. **Report 27** — ✅ fixed, confirmed.
+3. **Report 23** — needs a bigger rework, not a bug fix: PACS data feeding this
+   report isn't clean; operator wants it rebuilt to read from RIS instead. Operator
+   asked for a field-by-field RIS-table mapping proposal first, before any code
+   changes — do not build until that's reviewed and approved.
+4. **ER Dashboard** — TAT numbers are now appearing. Operator still needs to
+   independently validate the actual figures against known-correct numbers — not
+   confirmed correct yet, just no longer empty.
+5. **Report 25 split (31-35)**:
+   - **31 Operations** — showing data, needs operator validation (not yet confirmed
+     correct).
+   - **34 Device Utilization (Infrastructure)** — ⚠️ shows nothing at all. Needs a
+     fix.
+   - **32 Radiologists Performance** — needs a real revamp, not a patch. A lot of
+     TAT figures are missing and the UI needs work. Operator specified the exact
+     TAT breakdowns this hospital needs (**do this later, not now** — operator
+     explicitly said to hold this for a future session):
+     1. Exam-done → Signed-1 (preliminary), broken down per resident, per
+        modality, per patient class (including ER), bucketed into adjustable
+        threshold windows (e.g. 0-3h, 3-5h, etc. — thresholds must be
+        configurable, not hardcoded).
+     2. Same breakdown (per resident/modality/patient-class incl. ER, same
+        adjustable thresholds) but for the Final/Approved status stage instead
+        of preliminary.
+     3. Report count per radiologist, per day, per modality.
+   - **Efficiency Intel** — to be removed completely (it was merged into Report 34;
+     remove the section entirely, not just hide it).
+   - **35 Technician TAT** — shows no data at all. Operator will personally guide
+     which tables to use and what to calculate — **do not build ahead of that
+     guidance**.
+   - **Patient Journey** (still inline in report_25.py) — trash data, needs a
+     revamp.
+6. **Report 29** — improved slightly (0.37 TB / 3,290 studies) but still nowhere
+   near the real ~66 TB / expected study count. The divisor fix alone wasn't the
+   whole story — needs deeper investigation into what else is undercounting
+   (go-live cutoff excluding history? ETL only covering part of the image store?).
+7 & 12. **Report AI / Report Intelligence** — charts are still empty on every
+   section despite the utilization fix. Needs re-investigation — either the fix
+   didn't address the real cause, or it hasn't actually been exercised yet.
+8. **Referring contacts** — still empty, the "Auto" badge isn't showing either.
+   Needs re-investigation.
+9. **Modality mapping**:
+   - Device-opening-hours are still not linked (this is the long-standing,
+     already-known blocker: no confirmed `MODALITY`↔`SCHEDULE_SCHEME` link on the
+     RIS side — not a regression, still waiting on that vendor answer).
+   - Procedure→modality mapping still isn't saving, despite the case-sensitivity
+     fix — needs re-investigation, the fix wasn't sufficient.
+   - Physician tab removal confirmed gone. ✅
+10. **Live AE Status → Live Department View** — rename confirmed done. Remaining
+    UI/UX work is the operator's own to finish. Real blocker found: HL7 messages
+    still aren't reaching RAYD from the RIS side at all — this is the same
+    live-data gap as #11, not a RAYD bug.
+11. **HL7 Orders / R2I** — confirmed: R2I is the RIS's own integration engine.
+    Operator is working the connectivity issue directly with the vendor/IT side —
+    no RAYD code fix applies here.
+13. **Custom Reports** — per-widget retest results:
+    - Study volume — ✅ shows data.
+    - Modality breakdown — ✅ shows data.
+    - Physician performance — empty on a small date range, and still shows
+      contaminating demo/test data on a wide range. Needs both investigated.
+    - TAT summary — shows data, needs operator validation.
+    - Patient class split — shows far more distinct values than expected; needs
+      investigation into where all these values are actually coming from
+      (unnormalized `patient_class` text, most likely).
+    - Shift breakdown — ✅ makes sense.
+    - Device utilization — shows study count + expected-used-time/opening-time
+      ratio, but operator wants a per-weekday breakdown added (e.g. "80% Monday,
+      65% Tuesday..."), matching report_34's utilization matrix style.
+    - Report status — shows "Unknown" for most/all rows — needs its data source
+      checked.
+    - Referring physicians — ✅ makes sense.
+    - Radiologist workload — still contains demo/test data contamination, same
+      class of issue as physician performance above.
+    - RVU — explicitly deprioritized for now, ignore until operator decides
+      whether it's actually going to be used.
 
 ---
 
