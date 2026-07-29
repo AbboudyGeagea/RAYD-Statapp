@@ -152,6 +152,17 @@ def run_ris_pps_etl(pg_engine, oracle_source, go_live_date):
     gd_str = go_live_date.strftime('%Y-%m-%d') if hasattr(go_live_date, 'strftime') else str(go_live_date)
 
     # NOTE: TECHNURSE_NOTES / DEMONSTRATION_NOTES are deliberately NOT in this SELECT.
+    #
+    # Cutoff column fixed 2026-07-29: originally filtered on CREATED_DATE, which is
+    # NULL on every real PPS row checked (operator sample query, ORDER BY CREATED_DATE
+    # DESC returned only NULLs — Oracle sorts NULLs first in DESC by default, so an
+    # all-NULL top-10 means most/all rows are NULL there). `p.CREATED_DATE >= :cutoff`
+    # against a NULL column matches nothing, ever -- this job had run to completion
+    # every night since it was written and loaded exactly 0 rows every single time,
+    # each run finishing in under 100ms (too fast to be scanning real data). START_
+    # DATETIME is fully populated on every sample row and is also the more correct
+    # column for a go-live cutoff anyway (when the procedure happened, not when the
+    # row was written).
     query = f"""
         SELECT
             p.PPS_KEY, p.PATIENT_PERSON_KEY, p.PERFORMED_PROCEDURE_STEP_ID,
@@ -168,7 +179,7 @@ def run_ris_pps_etl(pg_engine, oracle_source, go_live_date):
         FROM {_PPS_TABLE} p
         LEFT JOIN {_SPS_CODE_TABLE} sc ON sc.SPS_CODE_KEY = p.PPS_CODE_KEY
         LEFT JOIN {_MODALITY_TABLE} m ON m.MODALITY_KEY = p.MODALITY_KEY
-        WHERE p.CREATED_DATE >= TO_DATE(:cutoff, 'YYYY-MM-DD')
+        WHERE p.START_DATETIME >= TO_DATE(:cutoff, 'YYYY-MM-DD')
     """
 
     ora_conn = OracleConnector.get_connection(oracle_source)
