@@ -14,8 +14,8 @@ performing_ae_title resolved via a live MODALITY join — PPS.MODALITY_KEY is th
 key (MODALITY.MODALITY_KEY), not a modality-type key, so this is more precise than the
 modality-type-level resolution used elsewhere; matches aetitle_modality_map.aetitle.
 
-Watermark: created_date >= go_live cutoff, same convention as etl_orders.py — PPS could
-be a large table and go-live bounding keeps the initial load reasonable.
+Watermark: MAX(pps_key) already loaded (fixed 2026-07-30 — see run_ris_pps_etl), plus
+the go-live cutoff for the initial fresh load only.
 
 The enrichment pass (run_pps_study_enrichment) is the actual empirical test of whether
 PPS.STUDY_INSTANCE_UID is the clean RIS<->PACS join docs/LAUMC_NEXT_SESSION.md's blocked
@@ -151,6 +151,23 @@ def run_ris_pps_etl(pg_engine, oracle_source, go_live_date):
 
     gd_str = go_live_date.strftime('%Y-%m-%d') if hasattr(go_live_date, 'strftime') else str(go_live_date)
 
+    # Incremental watermark (added 2026-07-30, operator instruction): MAX(pps_key)
+    # already loaded. Without this, every run re-pulls the FULL history since
+    # go-live every single time forever -- fine for a one-time backfill, not fine
+    # as a permanent nightly cost once PPS actually has years of real data in it
+    # (confirmed real data back to 2018-12-11). PPS_KEY is monotonic with load
+    # order here (unlike REPORT_KEY on the RIS reports table, which gets a new
+    # sequence on amendment — see etl_ris_reports.py), so a plain MAX() comparison
+    # is reliable, no lookback window needed.
+    try:
+        with pg_engine.connect() as conn:
+            watermark = conn.execute(text("SELECT MAX(pps_key) FROM std_pps")).fetchone()[0]
+    except Exception as e:
+        logging.warning(f"RIS PPS ETL: could not read watermark, falling back to full pull: {e}")
+        watermark = None
+
+    is_fresh_load = not watermark
+
     # NOTE: TECHNURSE_NOTES / DEMONSTRATION_NOTES are deliberately NOT in this SELECT.
     #
     # Cutoff column fixed 2026-07-29: originally filtered on CREATED_DATE, which is
@@ -180,17 +197,22 @@ def run_ris_pps_etl(pg_engine, oracle_source, go_live_date):
         LEFT JOIN {_SPS_CODE_TABLE} sc ON sc.SPS_CODE_KEY = p.PPS_CODE_KEY
         LEFT JOIN {_MODALITY_TABLE} m ON m.MODALITY_KEY = p.MODALITY_KEY
         WHERE p.START_DATETIME >= TO_DATE(:cutoff, 'YYYY-MM-DD')
+        {"" if is_fresh_load else "AND p.PPS_KEY > :watermark"}
     """
 
     ora_conn = OracleConnector.get_connection(oracle_source)
     cursor   = ora_conn.cursor()
 
     try:
-        logging.info(f"RIS PPS ETL starting — cutoff: {gd_str}")
+        mode_str = f"fresh load, cutoff: {gd_str}" if is_fresh_load else f"incremental, watermark pps_key>{watermark}"
+        logging.info(f"RIS PPS ETL starting — {mode_str}")
         print(f"[RIS PPS ETL] 🚀 Starting ({_PPS_TABLE} ⋈ {_SPS_CODE_TABLE} ⋈ {_MODALITY_TABLE}) — "
-              f"cutoff: {gd_str} — TECHNURSE_NOTES/DEMONSTRATION_NOTES excluded")
+              f"{mode_str} — TECHNURSE_NOTES/DEMONSTRATION_NOTES excluded")
 
-        cursor.execute(query, {"cutoff": gd_str})
+        params = {"cutoff": gd_str}
+        if not is_fresh_load:
+            params["watermark"] = watermark
+        cursor.execute(query, params)
 
         batch_num = 0
         while True:

@@ -13,8 +13,12 @@ connection, sequential extracts) since std_patient_ids FK-references std_patient
     1. PATIENT ⋈ PERSON  (1 row/patient)   -> std_patients_ris
     2. PATIENT_ID_LIST    (N rows/patient)   -> std_patient_ids
 
-No date/whitelist filter on either — master/reference data, not transactional, and
-PERSON carries no obviously correct watermark column to bound it by.
+Incremental scope (fixed 2026-07-30, operator instruction): PERSON has no reliable
+watermark column of its own, so instead of a full unconditional pull every run, this
+scopes to patient_person_key values etl_orders already references but that aren't in
+std_patients_ris yet -- i.e. genuinely new patients. Existing patients' PERSON /
+PATIENT_ID_LIST rows are NOT re-checked for in-place updates by this pass (there's
+still no watermark to detect that kind of change with).
 
 GENDER_KEY is resolved to its short code at load time via a hardcoded lookup (small,
 vendor-provided, 2026-07-27 — not expected to change often; revisit if LAUMC's RIS ever
@@ -179,112 +183,165 @@ def run_ris_patients_etl(pg_engine, oracle_source):
     except Exception as e:
         logging.error(f"RIS Patients ETL log error: {e}")
 
+    # Whitelist: patient_person_key values etl_orders references that aren't in
+    # std_patients_ris yet. Computed against Postgres, before opening Oracle at all,
+    # so a "nothing new" run doesn't even pay for a connection.
+    try:
+        with pg_engine.connect() as conn:
+            rows = conn.execute(text("""
+                SELECT DISTINCT eo.patient_dbid::BIGINT
+                FROM etl_orders eo
+                WHERE eo.patient_dbid ~ '^[0-9]+$'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM std_patients_ris pr
+                      WHERE pr.patient_person_key = eo.patient_dbid::BIGINT
+                  )
+            """)).fetchall()
+        new_patient_keys = [r[0] for r in rows]
+    except Exception as e:
+        logging.error(f"RIS Patients ETL: could not compute new-patient whitelist: {e}")
+        new_patient_keys = []
+
+    if not new_patient_keys:
+        status = "SUCCESS"
+        logging.info("RIS Patients ETL: no new patients referenced by etl_orders — skipping.")
+        print("[RIS Patients ETL] ⏭️  No new patients to load.")
+        if log_id:
+            try:
+                with pg_engine.connect() as conn:
+                    conn.execute(
+                        text("UPDATE etl_job_log SET status=:s, end_time=now(), records_processed=0 "
+                             "WHERE id=:id"),
+                        {"s": status, "id": log_id}
+                    )
+                    conn.commit()
+            except Exception as le:
+                logging.error(f"Failed to close RIS Patients log: {le}")
+        return 0
+
     ora_conn = OracleConnector.get_connection(oracle_source)
     cursor   = ora_conn.cursor()
 
     try:
-        # ── 1. PATIENT ⋈ PERSON (no name columns selected) ──────────────────
-        logging.info("RIS Patients ETL starting")
-        print(f"[RIS Patients ETL] 🚀 Starting ({_PATIENT_TABLE} ⋈ {_PERSON_TABLE}) — names excluded by design")
-
-        patient_query = f"""
-            SELECT
-                p.PATIENT_PERSON_KEY,
-                per.BIRTH_DATE, per.BIRTH_TIME, per.GENDER_KEY, per.MOBILE_PHONE_NUMBER,
-                per.PAGER_NUMBER, per.PRIMARY_EMAIL_ADDRESS, per.SECONDARY_EMAIL_ADDRESS,
-                per.LANGUAGE_KEY, per.MULTIINDEXREF, per.EDI_LOCATION_NUMBER,
-                per.EDI_SEND, per.PREFERRED_DELIVERY_METHOD_KEY,
-                p.DEATH_DATE, p.DEATH_TIME, p.DEATH_INDICATOR, p.WORKLIST_FLAGSET,
-                p.PERMISSION_LEVEL, p.RCOPIA_PATIENT_LAST_UPDATED,
-                p.RCOPIA_ALLERGIES_LAST_UPDATED, p.RCOPIA_MEDICATION_LAST_UPDATED,
-                per.DELETED, per.DELETED_DATE, per.LAST_UPDATED
-            FROM {_PATIENT_TABLE} p
-            JOIN {_PERSON_TABLE} per ON per.PERSON_KEY = p.PATIENT_PERSON_KEY
-        """
-        cursor.execute(patient_query)
+        # ── 1. PATIENT ⋈ PERSON (no name columns selected), chunked over the
+        #      new-patient whitelist — Oracle IN-lists cap at 1000 (same limit
+        #      raw_images/series already chunk around). ─────────────────────
+        logging.info(f"RIS Patients ETL starting — {len(new_patient_keys):,} new patient(s)")
+        print(f"[RIS Patients ETL] 🚀 Starting ({_PATIENT_TABLE} ⋈ {_PERSON_TABLE}) — "
+              f"{len(new_patient_keys):,} new patient(s), names excluded by design")
 
         valid_patient_keys = set()
-        while True:
-            batch = cursor.fetchmany(_FETCH_BATCH)
-            if not batch:
-                break
-            params = []
-            for row in batch:
-                (ppk, birth_date, birth_time, gender_key, mobile, pager,
-                 email1, email2, language_key, multiindexref, edi_loc, edi_send,
-                 pref_delivery_key, death_date, death_time, death_indicator,
-                 worklist_flagset, permission_level, rcopia_pt, rcopia_allerg,
-                 rcopia_med, deleted, deleted_date, last_updated) = row
+        for i in range(0, len(new_patient_keys), 1000):
+            chunk = new_patient_keys[i:i + 1000]
+            binds = [f":id{j}" for j in range(len(chunk))]
+            bind_params = {f"id{j}": v for j, v in enumerate(chunk)}
 
-                if ppk is None:
-                    skipped += 1
-                    continue
-                valid_patient_keys.add(ppk)
+            patient_query = f"""
+                SELECT
+                    p.PATIENT_PERSON_KEY,
+                    per.BIRTH_DATE, per.BIRTH_TIME, per.GENDER_KEY, per.MOBILE_PHONE_NUMBER,
+                    per.PAGER_NUMBER, per.PRIMARY_EMAIL_ADDRESS, per.SECONDARY_EMAIL_ADDRESS,
+                    per.LANGUAGE_KEY, per.MULTIINDEXREF, per.EDI_LOCATION_NUMBER,
+                    per.EDI_SEND, per.PREFERRED_DELIVERY_METHOD_KEY,
+                    p.DEATH_DATE, p.DEATH_TIME, p.DEATH_INDICATOR, p.WORKLIST_FLAGSET,
+                    p.PERMISSION_LEVEL, p.RCOPIA_PATIENT_LAST_UPDATED,
+                    p.RCOPIA_ALLERGIES_LAST_UPDATED, p.RCOPIA_MEDICATION_LAST_UPDATED,
+                    per.DELETED, per.DELETED_DATE, per.LAST_UPDATED
+                FROM {_PATIENT_TABLE} p
+                JOIN {_PERSON_TABLE} per ON per.PERSON_KEY = p.PATIENT_PERSON_KEY
+                WHERE p.PATIENT_PERSON_KEY IN ({','.join(binds)})
+            """
+            cursor.execute(patient_query, bind_params)
 
-                gender_code = None
-                if gender_key is not None:
-                    gender_code = _GENDER_CODE_MAP.get(int(gender_key))
-                    if gender_code is None:
-                        logging.warning(f"RIS Patients ETL: unmapped GENDER_KEY={gender_key}")
+            while True:
+                batch = cursor.fetchmany(_FETCH_BATCH)
+                if not batch:
+                    break
+                params = []
+                for row in batch:
+                    (ppk, birth_date, birth_time, gender_key, mobile, pager,
+                     email1, email2, language_key, multiindexref, edi_loc, edi_send,
+                     pref_delivery_key, death_date, death_time, death_indicator,
+                     worklist_flagset, permission_level, rcopia_pt, rcopia_allerg,
+                     rcopia_med, deleted, deleted_date, last_updated) = row
 
-                params.append({
-                    "patient_person_key": ppk,
-                    "birth_date": _safe_date(birth_date), "birth_time": _safe_str(birth_time),
-                    "gender_key": gender_key, "gender_code": gender_code,
-                    "mobile_phone_number": _safe_str(mobile), "pager_number": _safe_str(pager),
-                    "primary_email_address": _safe_str(email1),
-                    "secondary_email_address": _safe_str(email2), "language_key": language_key,
-                    "multiindexref": _safe_str(multiindexref), "edi_location_number": _safe_str(edi_loc),
-                    "edi_send": _safe_str(edi_send), "preferred_delivery_method_key": pref_delivery_key,
-                    "death_date": _safe_date(death_date), "death_time": _safe_str(death_time),
-                    "death_indicator": _safe_str(death_indicator),
-                    "worklist_flagset": _safe_str(worklist_flagset),
-                    "permission_level": _safe_str(permission_level),
-                    "rcopia_patient_last_updated": _safe_date(rcopia_pt),
-                    "rcopia_allergies_last_updated": _safe_date(rcopia_allerg),
-                    "rcopia_medication_last_updated": _safe_date(rcopia_med),
-                    "deleted": _safe_str(deleted), "deleted_date": _safe_date(deleted_date),
-                    "person_last_updated": _safe_date(last_updated),
-                    "last_update": datetime.now(),
-                })
-            if params:
-                with pg_engine.begin() as conn:
-                    conn.execute(_UPSERT_PATIENT_SQL, params)
-                total_patients += len(params)
+                    if ppk is None:
+                        skipped += 1
+                        continue
+                    valid_patient_keys.add(ppk)
+
+                    gender_code = None
+                    if gender_key is not None:
+                        gender_code = _GENDER_CODE_MAP.get(int(gender_key))
+                        if gender_code is None:
+                            logging.warning(f"RIS Patients ETL: unmapped GENDER_KEY={gender_key}")
+
+                    params.append({
+                        "patient_person_key": ppk,
+                        "birth_date": _safe_date(birth_date), "birth_time": _safe_str(birth_time),
+                        "gender_key": gender_key, "gender_code": gender_code,
+                        "mobile_phone_number": _safe_str(mobile), "pager_number": _safe_str(pager),
+                        "primary_email_address": _safe_str(email1),
+                        "secondary_email_address": _safe_str(email2), "language_key": language_key,
+                        "multiindexref": _safe_str(multiindexref), "edi_location_number": _safe_str(edi_loc),
+                        "edi_send": _safe_str(edi_send), "preferred_delivery_method_key": pref_delivery_key,
+                        "death_date": _safe_date(death_date), "death_time": _safe_str(death_time),
+                        "death_indicator": _safe_str(death_indicator),
+                        "worklist_flagset": _safe_str(worklist_flagset),
+                        "permission_level": _safe_str(permission_level),
+                        "rcopia_patient_last_updated": _safe_date(rcopia_pt),
+                        "rcopia_allergies_last_updated": _safe_date(rcopia_allerg),
+                        "rcopia_medication_last_updated": _safe_date(rcopia_med),
+                        "deleted": _safe_str(deleted), "deleted_date": _safe_date(deleted_date),
+                        "person_last_updated": _safe_date(last_updated),
+                        "last_update": datetime.now(),
+                    })
+                if params:
+                    with pg_engine.begin() as conn:
+                        conn.execute(_UPSERT_PATIENT_SQL, params)
+                    total_patients += len(params)
 
         print(f"[RIS Patients ETL] ✅ Patients: {total_patients:,} upserted, {skipped} skipped (no key)")
 
-        # ── 2. PATIENT_ID_LIST (MRNs etc. — no names here either) ───────────
-        id_query = f"""
-            SELECT PATIENT_ID_LIST_KEY, PATIENT_PERSON_KEY, DESCRIPTION, PATIENT_ID,
-                   "PRIMARY", SEQUENCE_ID, ISSUER_OF_PID_KEY, DISPLAY_SORT_ORDER
-            FROM {_PATIENT_ID_TABLE}
-        """
-        cursor.execute(id_query)
-
+        # ── 2. PATIENT_ID_LIST (MRNs etc. — no names here either), same
+        #      new-patient chunking. Existing patients' new/changed ID-list rows
+        #      are not caught by this pass — same limitation as PERSON above. ──
         id_skipped = 0
-        while True:
-            batch = cursor.fetchmany(_FETCH_BATCH)
-            if not batch:
-                break
-            params = []
-            for row in batch:
-                (id_key, ppk, description, patient_id, is_primary, seq_id,
-                 issuer_pid, sort_order) = row
-                if id_key is None or ppk not in valid_patient_keys:
-                    id_skipped += 1
-                    continue
-                params.append({
-                    "patient_id_list_key": id_key, "patient_person_key": ppk,
-                    "patient_id": _safe_str(patient_id), "description": _safe_str(description),
-                    "is_primary": _safe_str(is_primary), "sequence_id": seq_id,
-                    "issuer_of_pid_key": _safe_str(issuer_pid), "display_sort_order": sort_order,
-                    "last_update": datetime.now(),
-                })
-            if params:
-                with pg_engine.begin() as conn:
-                    conn.execute(_UPSERT_ID_SQL, params)
-                total_ids += len(params)
+        for i in range(0, len(new_patient_keys), 1000):
+            chunk = new_patient_keys[i:i + 1000]
+            binds = [f":id{j}" for j in range(len(chunk))]
+            bind_params = {f"id{j}": v for j, v in enumerate(chunk)}
+
+            id_query = f"""
+                SELECT PATIENT_ID_LIST_KEY, PATIENT_PERSON_KEY, DESCRIPTION, PATIENT_ID,
+                       "PRIMARY", SEQUENCE_ID, ISSUER_OF_PID_KEY, DISPLAY_SORT_ORDER
+                FROM {_PATIENT_ID_TABLE}
+                WHERE PATIENT_PERSON_KEY IN ({','.join(binds)})
+            """
+            cursor.execute(id_query, bind_params)
+
+            while True:
+                batch = cursor.fetchmany(_FETCH_BATCH)
+                if not batch:
+                    break
+                params = []
+                for row in batch:
+                    (id_key, ppk, description, patient_id, is_primary, seq_id,
+                     issuer_pid, sort_order) = row
+                    if id_key is None or ppk not in valid_patient_keys:
+                        id_skipped += 1
+                        continue
+                    params.append({
+                        "patient_id_list_key": id_key, "patient_person_key": ppk,
+                        "patient_id": _safe_str(patient_id), "description": _safe_str(description),
+                        "is_primary": _safe_str(is_primary), "sequence_id": seq_id,
+                        "issuer_of_pid_key": _safe_str(issuer_pid), "display_sort_order": sort_order,
+                        "last_update": datetime.now(),
+                    })
+                if params:
+                    with pg_engine.begin() as conn:
+                        conn.execute(_UPSERT_ID_SQL, params)
+                    total_ids += len(params)
 
         print(f"[RIS Patients ETL] ✅ Patient IDs: {total_ids:,} upserted, {id_skipped} skipped (orphan/no key)")
         skipped += id_skipped

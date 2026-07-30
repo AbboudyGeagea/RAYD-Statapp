@@ -16,7 +16,11 @@ column names), per docs/LAUMC_RIS_TABLES.md's VISIT section:
         would need a join through etl_orders.visit_dbid, left for a later enrichment
         pass rather than guessed at now.
 
-Watermark: created_on_date >= go_live cutoff, same convention as etl_orders.py.
+Watermark: MAX(visit_number) already loaded (fixed 2026-07-30, operator instruction),
+plus the go-live cutoff for the initial fresh load only. NOTE: visit_number is stored
+as TEXT (it's the raw HL7 PV1.19 value) -- if it's ever a non-zero-padded numeric
+string of varying length, a textual MAX() could pick the wrong "highest" value. Not
+verified against real data; flagging here rather than silently assuming it's safe.
 """
 import os
 import logging
@@ -121,6 +125,15 @@ def run_ris_visits_etl(pg_engine, oracle_source, go_live_date):
 
     gd_str = go_live_date.strftime('%Y-%m-%d') if hasattr(go_live_date, 'strftime') else str(go_live_date)
 
+    try:
+        with pg_engine.connect() as conn:
+            watermark = conn.execute(text("SELECT MAX(visit_number) FROM std_visits")).fetchone()[0]
+    except Exception as e:
+        logging.warning(f"RIS Visits ETL: could not read watermark, falling back to full pull: {e}")
+        watermark = None
+
+    is_fresh_load = not watermark
+
     query = f"""
         SELECT
             VISIT_KEY, PATIENT_PERSON_KEY, PATIENT_CLASS_KEY, PREADMIT_NUMBER, VISIT_NUMBER,
@@ -132,16 +145,21 @@ def run_ris_visits_etl(pg_engine, oracle_source, go_live_date):
             PATIENT_ACCOUNT_NUMBER, IS_MASTER, DELETED, DELETED_DATE
         FROM {_VISIT_TABLE}
         WHERE CREATED_ON_DATE >= TO_DATE(:cutoff, 'YYYY-MM-DD')
+        {"" if is_fresh_load else "AND VISIT_NUMBER > :watermark"}
     """
 
     ora_conn = OracleConnector.get_connection(oracle_source)
     cursor   = ora_conn.cursor()
 
     try:
-        logging.info(f"RIS Visits ETL starting — cutoff: {gd_str}")
-        print(f"[RIS Visits ETL] 🚀 Starting ({_VISIT_TABLE}) — cutoff: {gd_str}")
+        mode_str = f"fresh load, cutoff: {gd_str}" if is_fresh_load else f"incremental, watermark visit_number>{watermark}"
+        logging.info(f"RIS Visits ETL starting — {mode_str}")
+        print(f"[RIS Visits ETL] 🚀 Starting ({_VISIT_TABLE}) — {mode_str}")
 
-        cursor.execute(query, {"cutoff": gd_str})
+        params = {"cutoff": gd_str}
+        if not is_fresh_load:
+            params["watermark"] = watermark
+        cursor.execute(query, params)
 
         while True:
             batch = cursor.fetchmany(_FETCH_BATCH)
