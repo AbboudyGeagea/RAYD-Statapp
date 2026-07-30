@@ -150,7 +150,20 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
         # not a different PACS_SITE_ID (they share site 0 with legitimate RH studies),
         # just not legitimate regardless. Existing rows cleaned up separately,
         # migration 0084.
-        _EXCLUDED_SIGNER_SQL = "AND UPPER(s.REP_FINAL_SIGNED_BY) NOT LIKE '%@DN'"
+        #
+        # BUG FIXED 2026-07-30: the original "NOT LIKE" with no NULL guard silently
+        # dropped every row where REP_FINAL_SIGNED_BY IS NULL, since NULL NOT LIKE x
+        # evaluates to NULL (excluded), not TRUE. That's virtually every brand-new
+        # study (final signature is set well after the study lands), so incremental
+        # runs — which target exactly those new studies — came back with an empty or
+        # near-empty active-study-id list most nights. That empty list tripped
+        # etl_runner.py's _ensure_active_ids() fallback ("reload every study ID ever
+        # loaded from Postgres") for every downstream phase — series, raw_images,
+        # image_locations all trust that list blindly — turning every incremental
+        # sync into 4 full reloads. Confirmed live on LAUMC, 2026-07-30.
+        _EXCLUDED_SIGNER_SQL = (
+            "AND (s.REP_FINAL_SIGNED_BY IS NULL OR UPPER(s.REP_FINAL_SIGNED_BY) NOT LIKE '%@DN')"
+        )
 
         def _execute_query(use_join):
             select = _SELECT_WITH_JOIN if use_join else _SELECT_NO_JOIN
