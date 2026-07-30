@@ -211,7 +211,33 @@ def _ensure_active_ids(engine, active_ids):
     return ids
 
 
+_ETL_SYNC_LOCK_ID = 872951065  # distinct from db_migrations.py's 872951064
+
+
 def _perform_migration(engine):
+    # Prevent concurrent syncs — mirrors db_migrations.py's pg_advisory_lock, added
+    # there after a near-identical incident (2026-07-27: concurrent DELETE/ALTER
+    # attempts on the same two migrations piled up behind each other's locks for
+    # 25+ minutes and took the app down). Confirmed here too, 2026-07-30:
+    # app.py's is_db_empty()-triggered auto-sync has no such guard, so restarting
+    # the app container while any critical table is still empty (e.g. mid a fresh
+    # full load after a truncate) launches ANOTHER full sync thread every time,
+    # racing whatever's already running — 3 concurrent 4TB_SYNC runs observed live,
+    # each independently hammering the same Oracle source and Postgres upserts.
+    #
+    # Non-blocking (pg_try_advisory_lock, not pg_advisory_lock): a second caller
+    # should skip entirely, not queue — by the time a queued run could start, the
+    # DB usually won't be empty anymore anyway, so waiting would just mean doing
+    # the same full pull again for no reason.
+    lock_conn = engine.connect()
+    got_lock = lock_conn.execute(
+        text("SELECT pg_try_advisory_lock(:id)"), {"id": _ETL_SYNC_LOCK_ID}
+    ).scalar()
+    if not got_lock:
+        logger.warning("🔒 [ETL Sync] Another sync is already running — skipping this trigger.")
+        lock_conn.close()
+        return
+
     start_time = datetime.now()
 
     try:
@@ -607,6 +633,12 @@ def _perform_migration(engine):
         raise
 
     finally:
+        try:
+            lock_conn.execute(text("SELECT pg_advisory_unlock(:id)"), {"id": _ETL_SYNC_LOCK_ID})
+        except Exception:
+            logger.warning("Could not release ETL sync advisory lock (connection likely already gone).")
+        finally:
+            lock_conn.close()
         gc.collect()
 
 
