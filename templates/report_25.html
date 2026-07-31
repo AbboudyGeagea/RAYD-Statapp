@@ -163,14 +163,14 @@
 
     <main class="flex-1 flex flex-col overflow-hidden">
         <header class="h-20 border-b border-[#28332e] flex items-center justify-between px-10 bg-[#181f1c]/95 backdrop-blur-xl z-10 shrink-0">
-            <nav class="flex space-x-12 h-full">
-                <div onclick="switchTab('ops')"      class="tab-btn" id="btn-ops">Operations</div>
-                <div onclick="switchTab('infra')"    class="tab-btn" id="btn-infra">Infrastructure</div>
-                <div onclick="switchTab('clinical')" class="tab-btn" id="btn-clinical">Radiologists</div>
-                <div onclick="switchTab('efficiency')"  class="tab-btn" id="btn-efficiency">Efficiency Intel</div>
-                <div onclick="switchTab('technicians')"    class="tab-btn" id="btn-technicians">Technicians</div>
-                <div onclick="switchTab('journey')"       class="tab-btn" id="btn-journey">Patient Journey</div>
-                <div onclick="switchTab('tat-anchor')"    class="tab-btn" id="btn-tat-anchor">TAT: PACS vs RIS</div>
+            <nav class="flex space-x-12 h-full overflow-x-auto whitespace-nowrap flex-1 min-w-0" style="scrollbar-width:thin;">
+                <div onclick="switchTab('ops')"      class="tab-btn shrink-0" id="btn-ops">Operations</div>
+                <div onclick="switchTab('infra')"    class="tab-btn shrink-0" id="btn-infra">Infrastructure</div>
+                <div onclick="switchTab('clinical')" class="tab-btn shrink-0" id="btn-clinical">Radiologists</div>
+                <div onclick="switchTab('efficiency')"  class="tab-btn shrink-0" id="btn-efficiency">Efficiency Intel</div>
+                <div onclick="switchTab('technicians')"    class="tab-btn shrink-0" id="btn-technicians">Technicians</div>
+                <div onclick="switchTab('journey')"       class="tab-btn shrink-0" id="btn-journey">Patient Journey</div>
+                <div onclick="switchTab('tat-anchor')"    class="tab-btn shrink-0" id="btn-tat-anchor">TAT: PACS vs RIS</div>
 
             </nav>
 
@@ -706,31 +706,37 @@
                             xCats, yCats,
                             option: {
                                 backgroundColor: 'transparent',
+                                textStyle: { fontSize: 13 },
                                 tooltip: {
                                     position: 'top',
+                                    textStyle: { fontSize: 13 },
                                     formatter: p => `<b>${yCats[p.value[1]]}</b><br/>${xCats[p.value[0]]}<br/><b>Median:</b> ${p.value[2]}h` +
                                         (nLookup[`${p.value[0]}|${p.value[1]}`] ? `<br/>n=${nLookup[`${p.value[0]}|${p.value[1]}`]}` : '')
                                 },
-                                grid: { top: 70, left: 130, right: 30, bottom: 90 },
+                                // x-axis category labels (e.g. "CT (Inpatient)") sit ABOVE the grid,
+                                // not below -- grid.top leaves room for both the visualMap legend and
+                                // the rotated top labels; grid.bottom shrinks since nothing lives there now.
+                                grid: { top: 180, left: 160, right: 30, bottom: 20 },
                                 xAxis: {
                                     type: 'category', data: xCats, splitArea: { show: true },
-                                    axisLabel: { color: '#a1a1aa', rotate: 45, interval: 0, fontSize: 9 },
+                                    position: 'top',
+                                    axisLabel: { color: '#d4d4d8', rotate: 45, interval: 0, fontSize: 12 },
                                     axisLine: { lineStyle: { color: '#3f3f46' } }
                                 },
                                 yAxis: {
                                     type: 'category', data: yCats, splitArea: { show: true },
-                                    axisLabel: { color: '#e5e7eb', fontWeight: 'bold', fontSize: 10 },
+                                    axisLabel: { color: '#e5e7eb', fontWeight: 'bold', fontSize: 13 },
                                     axisLine: { lineStyle: { color: '#3f3f46' } }
                                 },
                                 visualMap: {
                                     min: vmin, max: vmax, calculable: true, orient: 'horizontal',
                                     left: 'center', top: 0,
-                                    text: ['Slow', 'Fast'], textStyle: { color: '#a1a1aa', fontSize: 9 },
+                                    text: ['Slow', 'Fast'], textStyle: { color: '#d4d4d8', fontSize: 12 },
                                     inRange: { color: ['#3182bd', '#6baed6', '#fee08b', '#fdae61', '#f46d43', '#d73027'] }
                                 },
                                 series: [{
                                     type: 'heatmap', data,
-                                    label: { show: true, formatter: p => p.value[2] + 'h', color: '#fff', fontSize: 9 },
+                                    label: { show: true, formatter: p => p.value[2] + 'h', color: '#fff', fontSize: 12, fontWeight: 'bold' },
                                     itemStyle: { borderWidth: 1, borderColor: '#18181b' },
                                     emphasis: { itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0,0,0,0.5)' } }
                                 }]
@@ -758,7 +764,7 @@
                             resWrap.classList.remove('hidden');
                             document.getElementById('res-tat-empty').classList.add('hidden');
                             const { xCats, yCats, option } = _heatmapOption(residents, vmin, vmax);
-                            resWrap.style.height = Math.max(280, 130 + yCats.length * 32) + 'px';
+                            resWrap.style.height = Math.max(400, 220 + yCats.length * 36) + 'px';
                             if (!resChart) resChart = echarts.init(resWrap);
                             resChart.setOption(option, true);
                         }
@@ -770,7 +776,7 @@
                             radWrap.classList.remove('hidden');
                             document.getElementById('rad-tat-empty').classList.add('hidden');
                             const { xCats, yCats, option } = _heatmapOption(radiologists, vmin, vmax);
-                            radWrap.style.height = Math.max(280, 130 + yCats.length * 32) + 'px';
+                            radWrap.style.height = Math.max(400, 220 + yCats.length * 36) + 'px';
                             if (!radChart) radChart = echarts.init(radWrap);
                             radChart.setOption(option, true);
                         }
