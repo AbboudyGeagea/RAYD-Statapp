@@ -628,71 +628,45 @@
                             style="padding:4px 12px;background:transparent;color:#71717a;border:none;cursor:pointer;">PACS End Time Calculation</button>
                     </div>
                 </div>
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <div class="glass-card">
-                        <div class="chart-card-header">
-                            <span class="chart-card-title" style="color:#34d399;">Residents</span>
-                            <button onclick="r25ExportResRadCsv('residents')" title="Export as CSV"
-                                style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #3f3f46;border-radius:6px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;"
-                                onmouseover="this.style.borderColor='#60a5fa';this.style.color='#60a5fa';"
-                                onmouseout="this.style.borderColor='#3f3f46';this.style.color='#71717a';">
-                                <i class="bi bi-download"></i> CSV
-                            </button>
-                            <button class="export-pdf-btn" onclick="exportElemPdf(document.getElementById('res-tat-table-wrap'),'Resident TAT','resident_tat')">
-                                <i class="bi bi-file-earmark-pdf"></i> PDF
-                            </button>
-                        </div>
-                        <div id="res-tat-table-wrap" class="overflow-x-auto">
-                            <table class="w-full text-[10px] border-collapse whitespace-nowrap">
-                                <thead>
-                                    <tr class="text-zinc-500 uppercase text-[9px]">
-                                        <th class="text-left py-1 pr-3 font-black">Resident</th>
-                                        <th class="text-left py-1 pr-3 font-black">Modality</th>
-                                        <th class="text-left py-1 pr-3 font-black">Class</th>
-                                        <th class="text-right py-1 px-2 font-black">N</th>
-                                        <th class="text-right py-1 px-2 font-black">Avg (h)</th>
-                                        <th class="text-right py-1 px-2 font-black">Median (h)</th>
-                                        <th class="text-right py-1 px-2 font-black">0-3h</th>
-                                        <th class="text-right py-1 px-2 font-black">3-5h</th>
-                                        <th class="text-right py-1 pl-2 font-black">5h+</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="res-tat-tbody"></tbody>
-                            </table>
-                        </div>
+                <div class="glass-card">
+                    <div class="chart-card-header">
+                        <span class="chart-card-title" style="color:#34d399;">Residents — Median TAT (h)</span>
+                        <button onclick="r25ExportResRadCsv('residents')" title="Export as CSV"
+                            style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #3f3f46;border-radius:6px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;"
+                            onmouseover="this.style.borderColor='#60a5fa';this.style.color='#60a5fa';"
+                            onmouseout="this.style.borderColor='#3f3f46';this.style.color='#71717a';">
+                            <i class="bi bi-download"></i> CSV
+                        </button>
+                        <button onclick="r25ExportResRadHeatmapPng('residents')"
+                            style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #3f3f46;border-radius:6px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;">
+                            <i class="bi bi-image"></i> PNG
+                        </button>
                     </div>
+                    <div id="chart-res-tat-heatmap" style="min-height:320px;"></div>
+                    <div id="res-tat-empty" class="hidden text-center py-8 text-zinc-600">
+                        <i class="bi bi-clock-history text-3xl block opacity-30 mb-2"></i>
+                        <p class="text-xs italic">No resident TAT data for this anchor/range.</p>
+                    </div>
+                </div>
 
-                    <div class="glass-card">
-                        <div class="chart-card-header">
-                            <span class="chart-card-title" style="color:#60a5fa;">Radiologists</span>
-                            <button onclick="r25ExportResRadCsv('radiologists')" title="Export as CSV"
-                                style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #3f3f46;border-radius:6px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;"
-                                onmouseover="this.style.borderColor='#60a5fa';this.style.color='#60a5fa';"
-                                onmouseout="this.style.borderColor='#3f3f46';this.style.color='#71717a';">
-                                <i class="bi bi-download"></i> CSV
-                            </button>
-                            <button class="export-pdf-btn" onclick="exportElemPdf(document.getElementById('rad-tat-table-wrap'),'Radiologist TAT','radiologist_tat')">
-                                <i class="bi bi-file-earmark-pdf"></i> PDF
-                            </button>
-                        </div>
-                        <div id="rad-tat-table-wrap" class="overflow-x-auto">
-                            <table class="w-full text-[10px] border-collapse whitespace-nowrap">
-                                <thead>
-                                    <tr class="text-zinc-500 uppercase text-[9px]">
-                                        <th class="text-left py-1 pr-3 font-black">Radiologist</th>
-                                        <th class="text-left py-1 pr-3 font-black">Modality</th>
-                                        <th class="text-left py-1 pr-3 font-black">Class</th>
-                                        <th class="text-right py-1 px-2 font-black">N</th>
-                                        <th class="text-right py-1 px-2 font-black">Avg (h)</th>
-                                        <th class="text-right py-1 px-2 font-black">Median (h)</th>
-                                        <th class="text-right py-1 px-2 font-black">0-3h</th>
-                                        <th class="text-right py-1 px-2 font-black">3-5h</th>
-                                        <th class="text-right py-1 pl-2 font-black">5h+</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="rad-tat-tbody"></tbody>
-                            </table>
-                        </div>
+                <div class="glass-card mt-6">
+                    <div class="chart-card-header">
+                        <span class="chart-card-title" style="color:#60a5fa;">Radiologists — Median TAT (h)</span>
+                        <button onclick="r25ExportResRadCsv('radiologists')" title="Export as CSV"
+                            style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #3f3f46;border-radius:6px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;"
+                            onmouseover="this.style.borderColor='#60a5fa';this.style.color='#60a5fa';"
+                            onmouseout="this.style.borderColor='#3f3f46';this.style.color='#71717a';">
+                            <i class="bi bi-download"></i> CSV
+                        </button>
+                        <button onclick="r25ExportResRadHeatmapPng('radiologists')"
+                            style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #3f3f46;border-radius:6px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;">
+                            <i class="bi bi-image"></i> PNG
+                        </button>
+                    </div>
+                    <div id="chart-rad-tat-heatmap" style="min-height:320px;"></div>
+                    <div id="rad-tat-empty" class="hidden text-center py-8 text-zinc-600">
+                        <i class="bi bi-clock-history text-3xl block opacity-30 mb-2"></i>
+                        <p class="text-xs italic">No radiologist TAT data for this anchor/range.</p>
                     </div>
                 </div>
                 <p id="res-rad-unclassified-note" class="text-[9px] text-zinc-600 italic mt-2"></p>
@@ -701,6 +675,7 @@
                 (function(){
                     const RES_RAD_TAT = {{ (res_rad_tat or {}) | tojson }};
                     let resRadAnchor = 'ris';
+                    let resChart = null, radChart = null;
 
                     function _downloadCsv(csv, filename) {
                         const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
@@ -711,25 +686,95 @@
                         document.body.removeChild(a); URL.revokeObjectURL(url);
                     }
 
-                    function _rowsHtml(rows) {
-                        return rows.map(r => `
-                            <tr class="border-t border-white/5">
-                                <td class="py-1 pr-3 text-zinc-300">${r.resident_name ?? ''}</td>
-                                <td class="py-1 pr-3 text-zinc-300">${r.modality ?? ''}</td>
-                                <td class="py-1 pr-3 text-zinc-400">${r.patient_class_bucket ?? ''}</td>
-                                <td class="py-1 px-2 text-right font-mono text-zinc-400">${r.n ?? ''}</td>
-                                <td class="py-1 px-2 text-right font-mono text-zinc-400">${r.avg_tat_h ?? ''}</td>
-                                <td class="py-1 px-2 text-right font-mono text-white font-bold">${r.median_tat_h ?? ''}</td>
-                                <td class="py-1 px-2 text-right font-mono text-zinc-500">${r.bucket_0_3h ?? ''}</td>
-                                <td class="py-1 px-2 text-right font-mono text-zinc-500">${r.bucket_3_5h ?? ''}</td>
-                                <td class="py-1 pl-2 text-right font-mono text-zinc-500">${r.bucket_5h_plus ?? ''}</td>
-                            </tr>`).join('');
+                    // Dynamic heatmap — x = "Modality (Class)" combos actually present in the
+                    // data, y = individual resident_name values actually present, both derived
+                    // from the rows, never hardcoded. visualMap legend sits at the TOP (not the
+                    // bottom, where it would collide with the rotated x-axis labels).
+                    function _heatmapOption(rows, vmin, vmax) {
+                        const xCats = Array.from(new Set(rows.map(r => `${r.modality} (${r.patient_class_bucket})`))).sort();
+                        const yCats = Array.from(new Set(rows.map(r => r.resident_name))).sort();
+                        const nLookup = {};
+                        const data = [];
+                        rows.forEach(r => {
+                            if (r.median_tat_h == null) return;
+                            const xi = xCats.indexOf(`${r.modality} (${r.patient_class_bucket})`);
+                            const yi = yCats.indexOf(r.resident_name);
+                            data.push([xi, yi, r.median_tat_h]);
+                            nLookup[`${xi}|${yi}`] = r.n;
+                        });
+                        return {
+                            xCats, yCats,
+                            option: {
+                                backgroundColor: 'transparent',
+                                tooltip: {
+                                    position: 'top',
+                                    formatter: p => `<b>${yCats[p.value[1]]}</b><br/>${xCats[p.value[0]]}<br/><b>Median:</b> ${p.value[2]}h` +
+                                        (nLookup[`${p.value[0]}|${p.value[1]}`] ? `<br/>n=${nLookup[`${p.value[0]}|${p.value[1]}`]}` : '')
+                                },
+                                grid: { top: 70, left: 130, right: 30, bottom: 90 },
+                                xAxis: {
+                                    type: 'category', data: xCats, splitArea: { show: true },
+                                    axisLabel: { color: '#a1a1aa', rotate: 45, interval: 0, fontSize: 9 },
+                                    axisLine: { lineStyle: { color: '#3f3f46' } }
+                                },
+                                yAxis: {
+                                    type: 'category', data: yCats, splitArea: { show: true },
+                                    axisLabel: { color: '#e5e7eb', fontWeight: 'bold', fontSize: 10 },
+                                    axisLine: { lineStyle: { color: '#3f3f46' } }
+                                },
+                                visualMap: {
+                                    min: vmin, max: vmax, calculable: true, orient: 'horizontal',
+                                    left: 'center', top: 0,
+                                    text: ['Slow', 'Fast'], textStyle: { color: '#a1a1aa', fontSize: 9 },
+                                    inRange: { color: ['#3182bd', '#6baed6', '#fee08b', '#fdae61', '#f46d43', '#d73027'] }
+                                },
+                                series: [{
+                                    type: 'heatmap', data,
+                                    label: { show: true, formatter: p => p.value[2] + 'h', color: '#fff', fontSize: 9 },
+                                    itemStyle: { borderWidth: 1, borderColor: '#18181b' },
+                                    emphasis: { itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0,0,0,0.5)' } }
+                                }]
+                            }
+                        };
                     }
 
                     function render() {
                         const bucket = RES_RAD_TAT[resRadAnchor] || {residents: [], radiologists: [], unclassified_count: 0};
-                        document.getElementById('res-tat-tbody').innerHTML = _rowsHtml(bucket.residents || []);
-                        document.getElementById('rad-tat-tbody').innerHTML = _rowsHtml(bucket.radiologists || []);
+                        const residents = bucket.residents || [];
+                        const radiologists = bucket.radiologists || [];
+
+                        // Shared color scale across both charts so they stay directly comparable.
+                        const allVals = [...residents, ...radiologists].map(r => r.median_tat_h).filter(v => v != null);
+                        const vmin = allVals.length ? 0 : 0;
+                        const vmax = allVals.length ? Math.max(...allVals) : 1;
+
+                        const resWrap = document.getElementById('chart-res-tat-heatmap');
+                        const radWrap = document.getElementById('chart-rad-tat-heatmap');
+
+                        if (!residents.length) {
+                            resWrap.classList.add('hidden');
+                            document.getElementById('res-tat-empty').classList.remove('hidden');
+                        } else {
+                            resWrap.classList.remove('hidden');
+                            document.getElementById('res-tat-empty').classList.add('hidden');
+                            const { xCats, yCats, option } = _heatmapOption(residents, vmin, vmax);
+                            resWrap.style.height = Math.max(280, 130 + yCats.length * 32) + 'px';
+                            if (!resChart) resChart = echarts.init(resWrap);
+                            resChart.setOption(option, true);
+                        }
+
+                        if (!radiologists.length) {
+                            radWrap.classList.add('hidden');
+                            document.getElementById('rad-tat-empty').classList.remove('hidden');
+                        } else {
+                            radWrap.classList.remove('hidden');
+                            document.getElementById('rad-tat-empty').classList.add('hidden');
+                            const { xCats, yCats, option } = _heatmapOption(radiologists, vmin, vmax);
+                            radWrap.style.height = Math.max(280, 130 + yCats.length * 32) + 'px';
+                            if (!radChart) radChart = echarts.init(radWrap);
+                            radChart.setOption(option, true);
+                        }
+
                         const note = document.getElementById('res-rad-unclassified-note');
                         note.textContent = bucket.unclassified_count
                             ? `${bucket.unclassified_count} signed events excluded — signer not resolved to a recognized PACS radiologists/residents group.`
@@ -757,6 +802,20 @@
                         ];
                         _downloadCsv(lines.join('\n'), `${role}_tat_${resRadAnchor}_${new Date().toISOString().slice(0,10)}.csv`);
                     };
+
+                    window.r25ExportResRadHeatmapPng = function(role) {
+                        const chart = role === 'residents' ? resChart : radChart;
+                        if (!chart) return;
+                        const url = chart.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#181f1c' });
+                        const a = document.createElement('a');
+                        a.href = url; a.download = `${role}_tat_heatmap_${resRadAnchor}_${new Date().toISOString().slice(0,10)}.png`;
+                        a.click();
+                    };
+
+                    // Existing switchTab() resize hook (report_25.html's global script block)
+                    // already calls window._radTatHeatmap.resize() when the clinical tab becomes
+                    // visible -- reuse that hook for both charts instead of duplicating it here.
+                    window._radTatHeatmap = { resize() { if (resChart) resChart.resize(); if (radChart) radChart.resize(); } };
 
                     render();
                 })();
