@@ -283,8 +283,8 @@ def widget_physician_perf(db, filters, config):
     # enforced by the ux_hl7_oru_reports_accession unique index -- safe to
     # LEFT JOIN without fear of fan-out) and resolves its physician_id (a raw
     # RIS code) to a real name via std_resources_ris.resource_id, the same
-    # join report_25.get_kpi_detailed_reading() already uses for this exact
-    # problem.
+    # join report_36.get_kpi_detailed_reading() already uses for this exact
+    # problem (moved there from report_25 2026-07-31).
     _name = (
         "COALESCE("
         "NULLIF(TRIM(CONCAT(s.reading_physician_first_name, ' ', s.reading_physician_last_name)), ''), "

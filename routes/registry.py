@@ -20,6 +20,7 @@ import routes.report_32   # noqa: F401
 import routes.report_33   # noqa: F401
 import routes.report_34   # noqa: F401
 import routes.report_35   # noqa: F401
+import routes.report_36   # noqa: F401
 from routes.report_registry import get_all_reports, get_report_ids
 from routes.api_controller   import api_bp
 from routes.hl7_orders       import hl7_orders_bp

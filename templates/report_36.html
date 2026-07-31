@@ -1,0 +1,1382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD PRO | Radiology Reporting Analytics</title>
+    <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/dark.min.css">
+    <style>
+        body { background: #181f1c; color: #e2e8f0; font-family: 'Inter', sans-serif; overflow: hidden; font-size: 14px; }
+        body { transition: background 0.2s, color 0.2s; }
+        body.light { background: #f0f4f8 !important; color: #1a202c !important; }
+        body.light aside, body.light header { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        body.light .sidebar-item { color: #4a5568 !important; }
+        body.light .sidebar-item:hover, body.light .sidebar-item.active { background: #e2e8f0 !important; color: #2b6cb0 !important; }
+        body.light .glass-card { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        body.light .input-dark { background: #ffffff !important; border-color: #e2e8f0 !important; color: #1a202c !important; }
+        .glass-card { background: #232b28; border: 1px solid #28332e; border-radius: 1.5rem; padding: 24px; }
+        .outlier-badge { display:inline-flex; align-items:center; gap:4px; background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.4); color:#f59e0b; border-radius:999px; padding:2px 10px; font-size:10px; font-weight:700; cursor:pointer; position:relative; }
+        .outlier-badge .tooltip { display:none; position:absolute; top:calc(100% + 6px); right:0; background:#1c1917; border:1px solid rgba(245,158,11,0.4); color:#fde68a; font-size:10px; padding:6px 10px; border-radius:8px; white-space:nowrap; z-index:100; }
+        .outlier-badge:hover .tooltip { display:block; }
+        .pulse-label { font-weight:700; color:#71717a; text-transform:uppercase; font-size:9px; letter-spacing:0.08em; }
+        .pulse-value { font-weight:900; font-size:13px; }
+        .pulse-sub { font-size:9px; color:#52525b; font-style:italic; }
+        .sidebar-label { font-size:10px; font-weight:800; color:#64748b; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:6px; display:block; }
+        .input-dark { background:#181f1c; border:1px solid #28332e; color:#e2e8f0; border-radius:8px; padding:8px 10px; font-size:12px; width:100%; outline:none; transition:border 0.15s; }
+        .input-dark:focus { border-color:#60a5fa; }
+        .select2-container--default .select2-selection--multiple { background: #181f1c !important; border: 1px solid #28332e !important; min-height: 45px !important; border-radius: 12px !important; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-thumb { background: #28332e; border-radius: 10px; }
+
+        /* Chart card with description */
+        .chart-card { background: #232b28; border: 1px solid #28332e; border-radius: 1.5rem; overflow: hidden; display: flex; flex-direction: column; }
+        .chart-card-header { padding: 18px 24px 0 24px; display: flex; align-items: center; justify-content: space-between; }
+        .chart-card-title { font-size: 12px; font-weight: 800; color: #52525b; text-transform: uppercase; letter-spacing: 0.08em; }
+        .chart-card-desc { padding: 8px 24px 12px 24px; font-size: 13px; color: #52525b; font-style: italic; line-height: 1.5; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .chart-card-body { padding: 16px; flex: 1; }
+
+        /* Section description strip */
+        .section-desc { font-size: 13px; color: #64748b; font-style: italic; line-height: 1.6; margin-bottom: 20px; padding: 12px 16px; background: rgba(96,165,250,0.06); border-left: 3px solid #60a5fa; border-radius: 0 8px 8px 0; }
+
+        /* PNG/PDF export buttons */
+        .export-png-btn, .export-pdf-btn {
+            display: inline-flex; align-items: center; gap: 4px;
+            font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em;
+            color: #3f3f46; border: 1px solid #28332e; border-radius: 6px;
+            padding: 4px 10px; background: #181f1c; cursor: pointer; transition: all 0.15s;
+            white-space: nowrap;
+        }
+        .export-png-btn:hover { color: #60a5fa; border-color: #60a5fa; }
+        .export-pdf-btn:hover { color: #f87171; border-color: #f87171; }
+        @media print {
+            aside, header button, form button[type=submit], .card-desc, nav { display: none !important; }
+            body { overflow: visible !important; background: #fff !important; color: #000 !important; }
+            main { overflow: visible !important; padding: 0 !important; }
+            .card { border: 1px solid #ddd !important; break-inside: avoid; }
+            .chart-container, .tree-container { height: 320px !important; }
+        }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+    {% include '_header.html' %}
+    <div class="flex flex-1 overflow-hidden">
+
+    <aside class="w-64 bg-[#1a2420] border-r border-[#28332e] p-5 flex flex-col overflow-y-auto flex-shrink-0">
+        <form id="mainForm" method="GET" class="space-y-6 flex-1 overflow-y-auto pr-2">
+
+            <div>
+                <label class="sidebar-label">Date Range</label>
+                <input type="date" name="start_date" value="{{ display_start }}" class="input-dark mb-2">
+                <input type="date" name="end_date" value="{{ display_end }}" class="input-dark">
+            </div>
+
+            <div>
+                <label class="sidebar-label">Patient Class</label>
+                <select name="patient_class" multiple class="select2-js w-full"
+                        data-filter-key="classes"
+                        data-selected="{{ request.args.getlist('patient_class') | join('||') }}">
+                </select>
+                <label class="inline-flex items-center mt-2 cursor-pointer">
+                    <input type="checkbox" name="class_enabled" checked class="w-4 h-4 bg-black border-zinc-800 rounded text-blue-600">
+                    <span class="ml-2 text-[10px] font-black text-zinc-500 uppercase">Apply Filter</span>
+                </label>
+            </div>
+
+            <div>
+                <label class="sidebar-label">Modality</label>
+                <select name="modality" multiple class="select2-js w-full"
+                        data-filter-key="modalities"
+                        data-selected="{{ request.args.getlist('modality') | join('||') }}">
+                </select>
+                <label class="inline-flex items-center mt-2 cursor-pointer">
+                    <input type="checkbox" name="mod_enabled" checked class="w-4 h-4 bg-black border-zinc-800 rounded text-blue-600">
+                    <span class="ml-2 text-[10px] font-black text-zinc-500 uppercase">Apply Filter</span>
+                </label>
+            </div>
+
+            <div>
+                <label class="sidebar-label">AE Title</label>
+                <select name="aetitle" multiple class="select2-js w-full"
+                        data-filter-key="aetitles"
+                        data-selected="{{ request.args.getlist('aetitle') | join('||') }}">
+                </select>
+                <label class="inline-flex items-center mt-2 cursor-pointer">
+                    <input type="checkbox" name="ae_enabled" checked class="w-4 h-4 bg-black border-zinc-800 rounded text-blue-600">
+                    <span class="ml-2 text-[10px] font-black text-zinc-500 uppercase">Apply Filter</span>
+                </label>
+            </div>
+
+            <div>
+                <label class="sidebar-label">Patient Location</label>
+                <select name="patient_location" multiple class="select2-js w-full"
+                        data-filter-key="locations"
+                        data-selected="{{ request.args.getlist('patient_location') | join('||') }}">
+                </select>
+                <label class="inline-flex items-center mt-2 cursor-pointer">
+                    <input type="checkbox" name="loc_enabled" checked class="w-4 h-4 bg-black border-zinc-800 rounded text-blue-600">
+                    <span class="ml-2 text-[10px] font-black text-zinc-500 uppercase">Apply Filter</span>
+                </label>
+            </div>
+
+            <div class="flex flex-col gap-3 pt-4">
+                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-2xl font-black text-xs uppercase shadow-xl transition-all text-white">
+                    Update View
+                </button>
+            </div>
+        </form>
+    </aside>
+
+    <main class="flex-1 flex flex-col overflow-hidden">
+        <header class="h-20 border-b border-[#28332e] flex items-center justify-between px-10 bg-[#181f1c]/95 backdrop-blur-xl z-10 shrink-0">
+            <p class="text-sm font-black text-white uppercase tracking-widest">Radiology Reporting Analytics</p>
+        </header>
+
+        <div class="flex-1 overflow-y-auto p-8">
+            {% if run_report %}
+
+            <!-- Statistical Insights — rendered immediately (no BG fetch — this page has no
+                 other tabs competing for a fast first paint, unlike report_25) -->
+            <div id="rad-insights-wrapper">
+                <div class="space-y-2 mt-0" id="rad-insights-panel"></div>
+            </div>
+
+            <p class="section-desc mt-6">
+                KPI Detailed Reading — TAT distribution per modality × patient class × radiologist, matching the
+                hospital's own KPI spreadsheet format. Counts, not averages: each cell is how many studies fell
+                in that turnaround-time bucket. Blank = zero. Every modality present in this date range is
+                available below, not just CT.
+            </p>
+
+            {% if kpi_data %}
+            <div class="glass-card">
+                <div class="flex items-center gap-3 mb-4 flex-wrap">
+                    <label class="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Modality</label>
+                    <select id="kpi-modality-select" class="bg-zinc-900 border border-white/10 rounded-lg text-xs font-bold text-white px-3 py-1.5"></select>
+                    <label class="text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-2">Patient Class</label>
+                    <div id="kpi-class-tabs" class="flex gap-1"></div>
+                </div>
+                <div id="kpi-table-container" class="overflow-x-auto"></div>
+            </div>
+            <script>
+            (function(){
+                const KPI_DATA = {{ kpi_data | tojson }};
+                const CLASS_LABELS = {IN: 'Inpatient', Urg: 'Urgent / ER', Out: 'Outpatient'};
+
+                const modalities = [...new Set(KPI_DATA.map(b => b.modality))].sort();
+                const modSelect = document.getElementById('kpi-modality-select');
+                modSelect.innerHTML = modalities.map(m => `<option value="${m}">${m}</option>`).join('');
+
+                let currentModality = modalities[0];
+                let currentClass = null;
+
+                function blocksFor(modality) {
+                    return KPI_DATA.filter(b => b.modality === modality);
+                }
+
+                function renderClassTabs() {
+                    const blocks = blocksFor(currentModality);
+                    const classes = blocks.map(b => b.class_bucket);
+                    if (!classes.includes(currentClass)) currentClass = classes[0];
+                    const tabs = document.getElementById('kpi-class-tabs');
+                    tabs.innerHTML = classes.map(c => `
+                        <button class="kpi-class-btn px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wide transition-colors
+                            ${c === currentClass ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40' : 'bg-zinc-800/60 text-zinc-500 border border-white/5 hover:text-zinc-300'}"
+                            data-class="${c}">${CLASS_LABELS[c] || c}</button>
+                    `).join('');
+                    tabs.querySelectorAll('.kpi-class-btn').forEach(btn => {
+                        btn.addEventListener('click', () => {
+                            currentClass = btn.dataset.class;
+                            renderClassTabs();
+                            renderTable();
+                        });
+                    });
+                }
+
+                function renderTable() {
+                    const block = blocksFor(currentModality).find(b => b.class_bucket === currentClass);
+                    const container = document.getElementById('kpi-table-container');
+                    if (!block) {
+                        container.innerHTML = '<p class="text-xs text-zinc-600 italic py-8 text-center">No data for this modality / patient class in the selected range.</p>';
+                        return;
+                    }
+                    const stageRows = Object.entries(block.stages).map(([stageName, stage]) => {
+                        return stage.radiologists.map((rad, i) => `
+                            <tr class="border-t border-white/5">
+                                ${i === 0 ? `<td class="py-1 pr-3 font-bold text-blue-300 align-top" rowspan="${stage.radiologists.length}">${stageName}</td>` : ''}
+                                <td class="py-1 pr-3 text-zinc-300">${rad.name}</td>
+                                ${block.bucket_labels.map(label => `<td class="py-1 px-2 text-right font-mono text-zinc-400">${rad.counts[label] || ''}</td>`).join('')}
+                                <td class="py-1 pl-3 text-right font-black text-white">${rad.total}</td>
+                            </tr>
+                        `).join('');
+                    }).join('');
+                    container.innerHTML = `
+                        <table class="w-full text-[10px] border-collapse whitespace-nowrap">
+                            <thead>
+                                <tr class="text-zinc-500 uppercase text-[9px]">
+                                    <th class="text-left py-1 pr-3 font-black">Stage</th>
+                                    <th class="text-left py-1 pr-3 font-black">Radiologist</th>
+                                    ${block.bucket_labels.map(label => `<th class="text-right py-1 px-2 font-black">${label}</th>`).join('')}
+                                    <th class="text-right py-1 pl-3 font-black text-white">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>${stageRows}</tbody>
+                        </table>
+                    `;
+                }
+
+                modSelect.addEventListener('change', () => {
+                    currentModality = modSelect.value;
+                    currentClass = null;
+                    renderClassTabs();
+                    renderTable();
+                });
+
+                renderClassTabs();
+                renderTable();
+            })();
+            </script>
+            {% else %}
+            <div class="glass-card text-center py-12 text-zinc-600">
+                <i class="bi bi-clock-history text-4xl mb-3 block opacity-40"></i>
+                <p class="italic">No KPI Detailed Reading data for this range (RH only, TAVI/Coro CT excluded).</p>
+            </div>
+            {% endif %}
+
+            <!-- ── Resident vs Radiologist TAT ─────────────────────────── -->
+            <p class="section-desc mt-8">
+                Resident vs. Radiologist TAT (exam-done to signature) per resident, per modality, per patient
+                class. Role comes from real PACS reading-permission group membership, not a stage-based guess —
+                every signed event (prelim and final) is attributed to whoever actually signed it.
+            </p>
+
+            {% if res_rad_tat and (res_rad_tat.ris.residents or res_rad_tat.ris.radiologists or res_rad_tat.pacs.residents or res_rad_tat.pacs.radiologists) %}
+            <div class="flex items-center gap-2 mb-3">
+                <span class="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Exam Done Anchor:</span>
+                <div id="res-rad-anchor-toggle" style="display:inline-flex;border:1px solid #3f3f46;border-radius:6px;overflow:hidden;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;">
+                    <button id="res-rad-anchor-btn-ris" onclick="r25SetResRadAnchor('ris')"
+                        style="padding:4px 12px;background:rgba(52,211,153,0.15);color:#34d399;border:none;cursor:pointer;">RIS Exam Done</button>
+                    <button id="res-rad-anchor-btn-pacs" onclick="r25SetResRadAnchor('pacs')"
+                        style="padding:4px 12px;background:transparent;color:#71717a;border:none;cursor:pointer;">PACS End Time Calculation</button>
+                </div>
+            </div>
+            <div class="glass-card">
+                <div class="chart-card-header">
+                    <span class="chart-card-title" style="color:#34d399;">Residents — Median TAT (h)</span>
+                    <button onclick="r25ExportResRadCsv('residents')" title="Export as CSV"
+                        style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #3f3f46;border-radius:6px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;"
+                        onmouseover="this.style.borderColor='#60a5fa';this.style.color='#60a5fa';"
+                        onmouseout="this.style.borderColor='#3f3f46';this.style.color='#71717a';">
+                        <i class="bi bi-download"></i> CSV
+                    </button>
+                    <button onclick="r25ExportResRadHeatmapPng('residents')"
+                        style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #3f3f46;border-radius:6px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;">
+                        <i class="bi bi-image"></i> PNG
+                    </button>
+                </div>
+                <div id="chart-res-tat-heatmap" style="min-height:320px;"></div>
+                <div id="res-tat-empty" class="hidden text-center py-8 text-zinc-600">
+                    <i class="bi bi-clock-history text-3xl block opacity-30 mb-2"></i>
+                    <p class="text-xs italic">No resident TAT data for this anchor/range.</p>
+                </div>
+            </div>
+
+            <div class="glass-card mt-6">
+                <div class="chart-card-header">
+                    <span class="chart-card-title" style="color:#60a5fa;">Radiologists — Median TAT (h)</span>
+                    <button onclick="r25ExportResRadCsv('radiologists')" title="Export as CSV"
+                        style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #3f3f46;border-radius:6px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;"
+                        onmouseover="this.style.borderColor='#60a5fa';this.style.color='#60a5fa';"
+                        onmouseout="this.style.borderColor='#3f3f46';this.style.color='#71717a';">
+                        <i class="bi bi-download"></i> CSV
+                    </button>
+                    <button onclick="r25ExportResRadHeatmapPng('radiologists')"
+                        style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #3f3f46;border-radius:6px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;">
+                        <i class="bi bi-image"></i> PNG
+                    </button>
+                </div>
+                <div id="chart-rad-tat-heatmap" style="min-height:320px;"></div>
+                <div id="rad-tat-empty" class="hidden text-center py-8 text-zinc-600">
+                    <i class="bi bi-clock-history text-3xl block opacity-30 mb-2"></i>
+                    <p class="text-xs italic">No radiologist TAT data for this anchor/range.</p>
+                </div>
+            </div>
+            <p id="res-rad-unclassified-note" class="text-[9px] text-zinc-600 italic mt-2"></p>
+
+            <script>
+            (function(){
+                const RES_RAD_TAT = {{ (res_rad_tat or {}) | tojson }};
+                let resRadAnchor = 'ris';
+                let resChart = null, radChart = null;
+
+                function _downloadCsv(csv, filename) {
+                    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+                    const url  = URL.createObjectURL(blob);
+                    const a    = document.createElement('a');
+                    a.href = url; a.download = filename;
+                    document.body.appendChild(a); a.click();
+                    document.body.removeChild(a); URL.revokeObjectURL(url);
+                }
+
+                // Dynamic heatmap — x = "Modality (Class)" combos actually present in the
+                // data, y = individual resident_name values actually present, both derived
+                // from the rows, never hardcoded. visualMap legend sits at the TOP (not the
+                // bottom, where it would collide with the rotated x-axis labels).
+                function _heatmapOption(rows, vmin, vmax) {
+                    const xCats = Array.from(new Set(rows.map(r => `${r.modality} (${r.patient_class_bucket})`))).sort();
+                    const yCats = Array.from(new Set(rows.map(r => r.resident_name))).sort();
+                    const nLookup = {};
+                    const data = [];
+                    rows.forEach(r => {
+                        if (r.median_tat_h == null) return;
+                        const xi = xCats.indexOf(`${r.modality} (${r.patient_class_bucket})`);
+                        const yi = yCats.indexOf(r.resident_name);
+                        data.push([xi, yi, r.median_tat_h]);
+                        nLookup[`${xi}|${yi}`] = r.n;
+                    });
+                    return {
+                        xCats, yCats,
+                        option: {
+                            backgroundColor: 'transparent',
+                            textStyle: { fontSize: 13 },
+                            tooltip: {
+                                position: 'top',
+                                textStyle: { fontSize: 13 },
+                                formatter: p => `<b>${yCats[p.value[1]]}</b><br/>${xCats[p.value[0]]}<br/><b>Median:</b> ${p.value[2]}h` +
+                                    (nLookup[`${p.value[0]}|${p.value[1]}`] ? `<br/>n=${nLookup[`${p.value[0]}|${p.value[1]}`]}` : '')
+                            },
+                            grid: { top: 180, left: 160, right: 30, bottom: 20 },
+                            xAxis: {
+                                type: 'category', data: xCats, splitArea: { show: true },
+                                position: 'top',
+                                axisLabel: { color: '#d4d4d8', rotate: 45, interval: 0, fontSize: 12 },
+                                axisLine: { lineStyle: { color: '#3f3f46' } }
+                            },
+                            yAxis: {
+                                type: 'category', data: yCats, splitArea: { show: true },
+                                axisLabel: { color: '#e5e7eb', fontWeight: 'bold', fontSize: 13 },
+                                axisLine: { lineStyle: { color: '#3f3f46' } }
+                            },
+                            visualMap: {
+                                min: vmin, max: vmax, calculable: true, orient: 'horizontal',
+                                left: 'center', top: 0,
+                                text: ['Slow', 'Fast'], textStyle: { color: '#d4d4d8', fontSize: 12 },
+                                inRange: { color: ['#3182bd', '#6baed6', '#fee08b', '#fdae61', '#f46d43', '#d73027'] }
+                            },
+                            series: [{
+                                type: 'heatmap', data,
+                                label: { show: true, formatter: p => p.value[2] + 'h', color: '#fff', fontSize: 12, fontWeight: 'bold' },
+                                itemStyle: { borderWidth: 1, borderColor: '#18181b' },
+                                emphasis: { itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0,0,0,0.5)' } }
+                            }]
+                        }
+                    };
+                }
+
+                function render() {
+                    const bucket = RES_RAD_TAT[resRadAnchor] || {residents: [], radiologists: [], unclassified_count: 0};
+                    const residents = bucket.residents || [];
+                    const radiologists = bucket.radiologists || [];
+
+                    // Shared color scale across both charts so they stay directly comparable.
+                    const allVals = [...residents, ...radiologists].map(r => r.median_tat_h).filter(v => v != null);
+                    const vmin = allVals.length ? 0 : 0;
+                    const vmax = allVals.length ? Math.max(...allVals) : 1;
+
+                    const resWrap = document.getElementById('chart-res-tat-heatmap');
+                    const radWrap = document.getElementById('chart-rad-tat-heatmap');
+
+                    if (!residents.length) {
+                        resWrap.classList.add('hidden');
+                        document.getElementById('res-tat-empty').classList.remove('hidden');
+                    } else {
+                        resWrap.classList.remove('hidden');
+                        document.getElementById('res-tat-empty').classList.add('hidden');
+                        const { xCats, yCats, option } = _heatmapOption(residents, vmin, vmax);
+                        resWrap.style.height = Math.max(400, 220 + yCats.length * 36) + 'px';
+                        if (!resChart) resChart = echarts.init(resWrap);
+                        resChart.setOption(option, true);
+                    }
+
+                    if (!radiologists.length) {
+                        radWrap.classList.add('hidden');
+                        document.getElementById('rad-tat-empty').classList.remove('hidden');
+                    } else {
+                        radWrap.classList.remove('hidden');
+                        document.getElementById('rad-tat-empty').classList.add('hidden');
+                        const { xCats, yCats, option } = _heatmapOption(radiologists, vmin, vmax);
+                        radWrap.style.height = Math.max(400, 220 + yCats.length * 36) + 'px';
+                        if (!radChart) radChart = echarts.init(radWrap);
+                        radChart.setOption(option, true);
+                    }
+
+                    const note = document.getElementById('res-rad-unclassified-note');
+                    note.textContent = bucket.unclassified_count
+                        ? `${bucket.unclassified_count} signed events excluded — signer not resolved to a recognized PACS radiologists/residents group.`
+                        : '';
+                    const risBtn = document.getElementById('res-rad-anchor-btn-ris');
+                    const pacsBtn = document.getElementById('res-rad-anchor-btn-pacs');
+                    risBtn.style.background = resRadAnchor === 'ris' ? 'rgba(52,211,153,0.15)' : 'transparent';
+                    risBtn.style.color = resRadAnchor === 'ris' ? '#34d399' : '#71717a';
+                    pacsBtn.style.background = resRadAnchor === 'pacs' ? 'rgba(96,165,250,0.15)' : 'transparent';
+                    pacsBtn.style.color = resRadAnchor === 'pacs' ? '#60a5fa' : '#71717a';
+                }
+
+                window.r25SetResRadAnchor = function(anchor) {
+                    resRadAnchor = anchor;
+                    render();
+                };
+
+                window.r25ExportResRadCsv = function(role) {
+                    const rows = (RES_RAD_TAT[resRadAnchor] || {})[role] || [];
+                    if (!rows.length) return;
+                    const q = v => '"' + String(v==null?'':v).replace(/"/g,'""') + '"';
+                    const lines = [
+                        ['Resident','Modality','Patient Class','N','Avg TAT (h)','Median TAT (h)','0-3h','3-5h','5h+'].map(q).join(','),
+                        ...rows.map(r => [r.resident_name, r.modality, r.patient_class_bucket, r.n, r.avg_tat_h, r.median_tat_h, r.bucket_0_3h, r.bucket_3_5h, r.bucket_5h_plus].map(q).join(','))
+                    ];
+                    _downloadCsv(lines.join('\n'), `${role}_tat_${resRadAnchor}_${new Date().toISOString().slice(0,10)}.csv`);
+                };
+
+                window.r25ExportResRadHeatmapPng = function(role) {
+                    const chart = role === 'residents' ? resChart : radChart;
+                    if (!chart) return;
+                    const url = chart.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#181f1c' });
+                    const a = document.createElement('a');
+                    a.href = url; a.download = `${role}_tat_heatmap_${resRadAnchor}_${new Date().toISOString().slice(0,10)}.png`;
+                    a.click();
+                };
+
+                render();
+            })();
+            </script>
+            {% else %}
+            <div class="glass-card text-center py-12 text-zinc-600">
+                <i class="bi bi-clock-history text-4xl mb-3 block opacity-40"></i>
+                <p class="italic">No resident/radiologist TAT data for this range.</p>
+            </div>
+            {% endif %}
+
+            <!-- ── Patient Wait Time (Scheduled → Arrived) ─────────────── -->
+            <p class="section-desc mt-8">
+                Patient wait time (scheduled to arrived) per modality per patient class. Both ends are real RIS
+                status-transition timestamps (WORKLIST_STATUS_HISTORY) — no PACS equivalent exists for a
+                scheduling status, so there's no anchor toggle for this chart.
+            </p>
+
+            {% if wait_time_data %}
+            <div class="glass-card" id="wait-time-card">
+                <div class="chart-card-header">
+                    <span class="chart-card-title">Patient Wait Time</span>
+                    <button onclick="r25ExportWaitCsv()" title="Export as CSV"
+                        style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #3f3f46;border-radius:6px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;"
+                        onmouseover="this.style.borderColor='#60a5fa';this.style.color='#60a5fa';"
+                        onmouseout="this.style.borderColor='#3f3f46';this.style.color='#71717a';">
+                        <i class="bi bi-download"></i> CSV
+                    </button>
+                    <button class="export-pdf-btn" onclick="exportElemPdf(document.getElementById('wait-time-table-wrap'),'Patient Wait Time','patient_wait_time')">
+                        <i class="bi bi-file-earmark-pdf"></i> PDF
+                    </button>
+                </div>
+                <div id="wait-time-table-wrap" class="overflow-x-auto">
+                    <table class="w-full text-[10px] border-collapse whitespace-nowrap">
+                        <thead>
+                            <tr class="text-zinc-500 uppercase text-[9px]">
+                                <th class="text-left py-1 pr-3 font-black">Modality</th>
+                                <th class="text-left py-1 pr-3 font-black">Class</th>
+                                <th class="text-right py-1 px-2 font-black">N</th>
+                                <th class="text-right py-1 px-2 font-black">Avg (min)</th>
+                                <th class="text-right py-1 px-2 font-black">Median (min)</th>
+                                <th class="text-right py-1 px-2 font-black">0-30m</th>
+                                <th class="text-right py-1 px-2 font-black">30-60m</th>
+                                <th class="text-right py-1 pl-2 font-black">60m+</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in wait_time_data %}
+                            <tr class="border-t border-white/5">
+                                <td class="py-1 pr-3 text-zinc-300">{{ row.modality }}</td>
+                                <td class="py-1 pr-3 text-zinc-400">{{ row.patient_class_bucket }}</td>
+                                <td class="py-1 px-2 text-right font-mono text-zinc-400">{{ row.n }}</td>
+                                <td class="py-1 px-2 text-right font-mono text-zinc-400">{{ row.avg_wait_min }}</td>
+                                <td class="py-1 px-2 text-right font-mono text-white font-bold">{{ row.median_wait_min }}</td>
+                                <td class="py-1 px-2 text-right font-mono text-zinc-500">{{ row.bucket_0_30 }}</td>
+                                <td class="py-1 px-2 text-right font-mono text-zinc-500">{{ row.bucket_30_60 }}</td>
+                                <td class="py-1 pl-2 text-right font-mono text-zinc-500">{{ row.bucket_60_plus }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <script>
+            (function(){
+                const WAIT_TIME_DATA = {{ (wait_time_data or []) | tojson }};
+                function _downloadCsv(csv, filename) {
+                    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+                    const url  = URL.createObjectURL(blob);
+                    const a    = document.createElement('a');
+                    a.href = url; a.download = filename;
+                    document.body.appendChild(a); a.click();
+                    document.body.removeChild(a); URL.revokeObjectURL(url);
+                }
+                window.r25ExportWaitCsv = function() {
+                    if (!WAIT_TIME_DATA.length) return;
+                    const q = v => '"' + String(v==null?'':v).replace(/"/g,'""') + '"';
+                    const lines = [
+                        ['Modality','Patient Class','N','Avg Wait (min)','Median Wait (min)','0-30m','30-60m','60m+'].map(q).join(','),
+                        ...WAIT_TIME_DATA.map(r => [r.modality, r.patient_class_bucket, r.n, r.avg_wait_min, r.median_wait_min, r.bucket_0_30, r.bucket_30_60, r.bucket_60_plus].map(q).join(','))
+                    ];
+                    _downloadCsv(lines.join('\n'), `patient_wait_time_${new Date().toISOString().slice(0,10)}.csv`);
+                };
+            })();
+            </script>
+            {% else %}
+            <div class="glass-card text-center py-12 text-zinc-600">
+                <i class="bi bi-clock-history text-4xl mb-3 block opacity-40"></i>
+                <p class="italic">No patient wait time data for this range.</p>
+            </div>
+            {% endif %}
+
+            <!-- ── Technician Efficiency (Arrived → Exam Done) ─────────── -->
+            <p class="section-desc mt-8">
+                Technician efficiency (arrived to exam done) per AE title per modality per patient class —
+                actual duration next to the procedure_duration_map expected duration.
+            </p>
+            <p class="text-[9px] text-amber-500/80 italic mb-3">
+                ⚠ Inpatient orders set "Arrived" early to trigger the DICOM Modality Worklist (normal workflow,
+                not a data issue) — Inpatient numbers reflect order-to-completion lag, not literal exam
+                duration the way Outpatient/ER do.
+            </p>
+
+            {% if tech_efficiency_data and (tech_efficiency_data.ris or tech_efficiency_data.pacs) %}
+            <div class="flex items-center gap-2 mb-3">
+                <span class="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Exam Done Anchor:</span>
+                <div style="display:inline-flex;border:1px solid #3f3f46;border-radius:6px;overflow:hidden;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;">
+                    <button id="tech-eff-anchor-btn-ris" onclick="r25SetTechEffAnchor('ris')"
+                        style="padding:4px 12px;background:rgba(52,211,153,0.15);color:#34d399;border:none;cursor:pointer;">RIS Exam Done</button>
+                    <button id="tech-eff-anchor-btn-pacs" onclick="r25SetTechEffAnchor('pacs')"
+                        style="padding:4px 12px;background:transparent;color:#71717a;border:none;cursor:pointer;">PACS End Time Calculation</button>
+                </div>
+            </div>
+            <div class="glass-card" id="tech-eff-card">
+                <div class="chart-card-header">
+                    <span class="chart-card-title">Technician Efficiency</span>
+                    <button onclick="r25ExportTechEffCsv()" title="Export as CSV"
+                        style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #3f3f46;border-radius:6px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;"
+                        onmouseover="this.style.borderColor='#60a5fa';this.style.color='#60a5fa';"
+                        onmouseout="this.style.borderColor='#3f3f46';this.style.color='#71717a';">
+                        <i class="bi bi-download"></i> CSV
+                    </button>
+                    <button class="export-pdf-btn" onclick="exportElemPdf(document.getElementById('tech-eff-table-wrap'),'Technician Efficiency','technician_efficiency')">
+                        <i class="bi bi-file-earmark-pdf"></i> PDF
+                    </button>
+                </div>
+                <div id="tech-eff-table-wrap" class="overflow-x-auto">
+                    <table class="w-full text-[10px] border-collapse whitespace-nowrap">
+                        <thead>
+                            <tr class="text-zinc-500 uppercase text-[9px]">
+                                <th class="text-left py-1 pr-3 font-black">AE Title</th>
+                                <th class="text-left py-1 pr-3 font-black">Modality</th>
+                                <th class="text-left py-1 pr-3 font-black">Class</th>
+                                <th class="text-right py-1 px-2 font-black">N</th>
+                                <th class="text-right py-1 px-2 font-black">Avg Actual (min)</th>
+                                <th class="text-right py-1 px-2 font-black">Median Actual (min)</th>
+                                <th class="text-right py-1 px-2 font-black">Avg Expected (min)</th>
+                                <th class="text-right py-1 px-2 font-black">0-30m</th>
+                                <th class="text-right py-1 px-2 font-black">30-60m</th>
+                                <th class="text-right py-1 pl-2 font-black">60m+</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tech-eff-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <script>
+            (function(){
+                const TECH_EFF_DATA = {{ (tech_efficiency_data or {}) | tojson }};
+                let techEffAnchor = 'ris';
+
+                function _downloadCsv(csv, filename) {
+                    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+                    const url  = URL.createObjectURL(blob);
+                    const a    = document.createElement('a');
+                    a.href = url; a.download = filename;
+                    document.body.appendChild(a); a.click();
+                    document.body.removeChild(a); URL.revokeObjectURL(url);
+                }
+
+                function render() {
+                    const rows = TECH_EFF_DATA[techEffAnchor] || [];
+                    document.getElementById('tech-eff-tbody').innerHTML = rows.map(r => `
+                        <tr class="border-t border-white/5 ${r.patient_class_bucket === 'Inpatient' ? 'opacity-60' : ''}">
+                            <td class="py-1 pr-3 text-zinc-300">${r.aetitle ?? ''}</td>
+                            <td class="py-1 pr-3 text-zinc-300">${r.modality ?? ''}</td>
+                            <td class="py-1 pr-3 text-zinc-400">${r.patient_class_bucket ?? ''}${r.patient_class_bucket === 'Inpatient' ? ' ⚠' : ''}</td>
+                            <td class="py-1 px-2 text-right font-mono text-zinc-400">${r.n ?? ''}</td>
+                            <td class="py-1 px-2 text-right font-mono text-zinc-400">${r.avg_actual_min ?? ''}</td>
+                            <td class="py-1 px-2 text-right font-mono text-white font-bold">${r.median_actual_min ?? ''}</td>
+                            <td class="py-1 px-2 text-right font-mono text-zinc-500">${r.avg_expected_min ?? ''}</td>
+                            <td class="py-1 px-2 text-right font-mono text-zinc-500">${r.bucket_0_30 ?? ''}</td>
+                            <td class="py-1 px-2 text-right font-mono text-zinc-500">${r.bucket_30_60 ?? ''}</td>
+                            <td class="py-1 pl-2 text-right font-mono text-zinc-500">${r.bucket_60_plus ?? ''}</td>
+                        </tr>`).join('');
+                    const risBtn = document.getElementById('tech-eff-anchor-btn-ris');
+                    const pacsBtn = document.getElementById('tech-eff-anchor-btn-pacs');
+                    risBtn.style.background = techEffAnchor === 'ris' ? 'rgba(52,211,153,0.15)' : 'transparent';
+                    risBtn.style.color = techEffAnchor === 'ris' ? '#34d399' : '#71717a';
+                    pacsBtn.style.background = techEffAnchor === 'pacs' ? 'rgba(96,165,250,0.15)' : 'transparent';
+                    pacsBtn.style.color = techEffAnchor === 'pacs' ? '#60a5fa' : '#71717a';
+                }
+
+                window.r25SetTechEffAnchor = function(anchor) {
+                    techEffAnchor = anchor;
+                    render();
+                };
+
+                window.r25ExportTechEffCsv = function() {
+                    const rows = TECH_EFF_DATA[techEffAnchor] || [];
+                    if (!rows.length) return;
+                    const q = v => '"' + String(v==null?'':v).replace(/"/g,'""') + '"';
+                    const lines = [
+                        ['AE Title','Modality','Patient Class','N','Avg Actual (min)','Median Actual (min)','Avg Expected (min)','0-30m','30-60m','60m+'].map(q).join(','),
+                        ...rows.map(r => [r.aetitle, r.modality, r.patient_class_bucket, r.n, r.avg_actual_min, r.median_actual_min, r.avg_expected_min, r.bucket_0_30, r.bucket_30_60, r.bucket_60_plus].map(q).join(','))
+                    ];
+                    _downloadCsv(lines.join('\n'), `technician_efficiency_${techEffAnchor}_${new Date().toISOString().slice(0,10)}.csv`);
+                };
+
+                render();
+            })();
+            </script>
+            {% else %}
+            <div class="glass-card text-center py-12 text-zinc-600">
+                <i class="bi bi-clock-history text-4xl mb-3 block opacity-40"></i>
+                <p class="italic">No technician efficiency data for this range.</p>
+            </div>
+            {% endif %}
+
+            <!-- ── Radiologist Workload Matrix ────────────────────── -->
+            {% if rad_volume_matrix %}
+            <div class="glass-card mt-8" id="r25-rad-matrix-card">
+                <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+                    <p class="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Reports per Radiologist</p>
+                    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                        <div style="display:inline-flex;border:1px solid #3f3f46;border-radius:6px;overflow:hidden;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;">
+                            <button id="r25-rad-toggle-mod" onclick="r25RadToggle('mod')"
+                                style="padding:4px 12px;background:rgba(96,165,250,0.15);color:#60a5fa;border:none;cursor:pointer;">By Modality</button>
+                            <button id="r25-rad-toggle-ae" onclick="r25RadToggle('ae')"
+                                style="padding:4px 12px;background:transparent;color:#71717a;border:none;cursor:pointer;">By AE Title</button>
+                            <button id="r25-rad-toggle-month" onclick="r25RadToggle('month')"
+                                style="padding:4px 12px;background:transparent;color:#71717a;border:none;cursor:pointer;">By Month</button>
+                        </div>
+                        <button onclick="r25ExportCsv()" title="Export modality/AE table as CSV"
+                            style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #3f3f46;border-radius:6px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;"
+                            onmouseover="this.style.borderColor='#60a5fa';this.style.color='#60a5fa';"
+                            onmouseout="this.style.borderColor='#3f3f46';this.style.color='#71717a';">
+                            <i class="bi bi-download"></i> CSV
+                        </button>
+                        <button class="export-pdf-btn" onclick="exportElemPdf(document.getElementById('r25-rad-xtab'),'Reports per Radiologist','rad_matrix')">
+                            <i class="bi bi-file-earmark-pdf"></i> PDF
+                        </button>
+                    </div>
+                </div>
+                <div id="r25-rad-xtab"></div>
+
+                <!-- Procedure cross-tab -->
+                <div style="margin-top:20px;">
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+                        <span style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;color:#71717a;">Procedure Breakdown</span>
+                        <input id="r25-proc-search" type="text" placeholder="Search procedure…" oninput="r25ProcFilter()"
+                            style="flex:1;min-width:120px;max-width:220px;background:#18181b;border:1px solid #3f3f46;color:#e4e4e7;border-radius:5px;padding:3px 8px;font-size:11px;outline:none;">
+                        <span style="font-size:9px;color:#71717a;font-weight:700;">Show top</span>
+                        <select id="r25-proc-topn" onchange="r25ProcFilter()"
+                            style="background:#18181b;border:1px solid #3f3f46;color:#e4e4e7;border-radius:5px;padding:3px 6px;font-size:10px;outline:none;">
+                            <option value="20">20</option>
+                            <option value="50">50</option>
+                            <option value="9999">All</option>
+                        </select>
+                        <button onclick="r25ExportProcCsv()" title="Export procedure table as CSV"
+                            style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;background:transparent;border:1px solid #3f3f46;border-radius:6px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;"
+                            onmouseover="this.style.borderColor='#60a5fa';this.style.color='#60a5fa';"
+                            onmouseout="this.style.borderColor='#3f3f46';this.style.color='#71717a';">
+                            <i class="bi bi-download"></i> CSV
+                        </button>
+                        <button class="export-pdf-btn" onclick="exportElemPdf(document.getElementById('r25-proc-table')?.closest('div'),'Procedure Breakdown','rad_procedures')">
+                            <i class="bi bi-file-earmark-pdf"></i> PDF
+                        </button>
+                    </div>
+                    <div style="overflow-x:auto;max-height:340px;overflow-y:auto;border:1px solid rgba(255,255,255,0.05);border-radius:8px;">
+                        <table id="r25-proc-table" style="width:100%;border-collapse:collapse;font-size:10px;min-width:400px;">
+                            <thead id="r25-proc-thead" style="position:sticky;top:0;z-index:2;background:#232323;"></thead>
+                            <tbody id="r25-proc-tbody"></tbody>
+                        </table>
+                    </div>
+                    <p id="r25-proc-empty" style="font-size:10px;color:#71717a;padding:8px 0;display:none;">No procedure data available for this period.</p>
+                </div>
+            </div>
+            <script>
+            (function(){
+                const RAD_VOL = {{ rad_volume_matrix | tojson }};
+                let _r25Mode = 'mod';
+                let _r25ProcAllProcs = [], _r25ProcAllRads = [], _r25ProcTotals = {}, _r25ProcLookup = {}, _r25ProcRadMax = {};
+
+                function escH(s) { const d = document.createElement('div'); d.textContent = String(s||''); return d.innerHTML; }
+
+                function _fmtMonth(ym) {
+                    const [y, m] = ym.split('-');
+                    return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(m,10)-1] + ' ' + y;
+                }
+
+                function r25DrawCrossTab(rows, isMonth) {
+                    const el = document.getElementById('r25-rad-xtab');
+                    if (!rows.length) {
+                        el.innerHTML = '<p style="font-size:10px;color:#71717a;padding:8px 0;">No data for this period.</p>';
+                        return;
+                    }
+                    const allRads = [...new Set(rows.map(r => r.radiologist))].sort();
+                    const allDims = [...new Set(rows.map(r => r.dim))];
+                    const dimTotals = {}, lookup = {};
+                    rows.forEach(r => {
+                        dimTotals[r.dim] = (dimTotals[r.dim]||0) + r.cnt;
+                        lookup[r.dim+'|'+r.radiologist] = r.cnt;
+                    });
+                    if (isMonth) {
+                        allDims.sort();
+                    } else {
+                        allDims.sort((a,b) => (dimTotals[b]||0) - (dimTotals[a]||0));
+                    }
+                    const radMax = {};
+                    allRads.forEach(rad => { radMax[rad] = Math.max(...allDims.map(d => lookup[d+'|'+rad]||0)); });
+                    const ROLE_BADGE = { residents: ['RES', '#34d399'], radiologists: ['RAD', '#60a5fa'] };
+                    const headerCells = allRads.map(r => {
+                        const role = (RAD_VOL.roles || {})[r];
+                        const badge = ROLE_BADGE[role];
+                        const badgeHtml = badge
+                            ? `<span style="display:inline-block;margin-left:4px;padding:1px 4px;border-radius:3px;font-size:8px;font-weight:900;background:${badge[1]}22;color:${badge[1]};">${badge[0]}</span>`
+                            : '';
+                        return `<th style="padding:6px 8px;text-align:right;white-space:nowrap;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;color:#71717a;">${escH(r)}${badgeHtml}</th>`;
+                    }).join('');
+                    const bodyRows = allDims.map(dim => {
+                        const total = dimTotals[dim]||0;
+                        const label = isMonth ? _fmtMonth(dim) : dim;
+                        const cells = allRads.map(rad => {
+                            const cnt = lookup[dim+'|'+rad]||0;
+                            const intensity = radMax[rad]>0 ? cnt/radMax[rad] : 0;
+                            const bg = cnt>0 ? `rgba(96,165,250,${0.08+intensity*0.45})` : 'transparent';
+                            const fg = intensity>0.6 ? '#e4e4e7' : (cnt>0 ? '#93c5fd' : '#52525b');
+                            return `<td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:700;background:${bg};color:${fg};">${cnt||''}</td>`;
+                        }).join('');
+                        return `<tr style="border-top:1px solid rgba(255,255,255,0.04);">
+                            <td style="padding:5px 8px;font-size:10px;color:#a1a1aa;position:sticky;left:0;background:#18181b;font-weight:600;min-width:100px;">${escH(label)}</td>
+                            ${cells}
+                            <td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:900;color:#60a5fa;">${total}</td>
+                        </tr>`;
+                    }).join('');
+                    const footCells = allRads.map(rad => {
+                        const t = allDims.reduce((s,d)=>s+(lookup[d+'|'+rad]||0),0);
+                        return `<td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:900;color:#f59e0b;border-top:2px solid #3f3f46;">${t}</td>`;
+                    }).join('');
+                    const grandTotal = allDims.reduce((s,d)=>s+(dimTotals[d]||0),0);
+                    el.innerHTML = `<div style="overflow-x:auto;max-height:280px;overflow-y:auto;border:1px solid rgba(255,255,255,0.05);border-radius:8px;">
+                        <table style="width:100%;border-collapse:collapse;font-size:10px;min-width:300px;">
+                            <thead style="position:sticky;top:0;z-index:2;background:#232323;">
+                                <tr>
+                                    <th style="padding:6px 8px;text-align:left;position:sticky;left:0;background:#232323;min-width:100px;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;color:#71717a;"></th>
+                                    ${headerCells}
+                                    <th style="padding:6px 8px;text-align:right;color:#a1a1aa;font-size:9px;font-weight:900;text-transform:uppercase;">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${bodyRows}
+                                <tr style="background:rgba(96,165,250,0.04);">
+                                    <td style="padding:5px 8px;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;color:#71717a;position:sticky;left:0;background:rgba(24,24,27,0.95);border-top:2px solid #3f3f46;">TOTAL</td>
+                                    ${footCells}
+                                    <td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:900;color:#60a5fa;border-top:2px solid #3f3f46;">${grandTotal}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>`;
+                }
+
+                window.r25RadToggle = function(mode) {
+                    _r25Mode = mode;
+                    const btnMod   = document.getElementById('r25-rad-toggle-mod');
+                    const btnAe    = document.getElementById('r25-rad-toggle-ae');
+                    const btnMonth = document.getElementById('r25-rad-toggle-month');
+                    const act   = 'background:rgba(96,165,250,0.15);color:#60a5fa;padding:4px 12px;border:none;cursor:pointer;';
+                    const inact = 'background:transparent;color:#71717a;padding:4px 12px;border:none;cursor:pointer;';
+                    btnMod.style.cssText   = (mode==='mod'   ? act : inact);
+                    btnAe.style.cssText    = (mode==='ae'    ? act : inact);
+                    if (btnMonth) btnMonth.style.cssText = (mode==='month' ? act : inact);
+                    const rows = mode==='mod' ? (RAD_VOL.by_modality||[])
+                               : mode==='ae'  ? (RAD_VOL.by_aetitle||[])
+                               :                (RAD_VOL.by_month||[]);
+                    r25DrawCrossTab(rows, mode==='month');
+                };
+
+                function r25BuildProcTable() {
+                    const procRows = RAD_VOL.by_procedure || [];
+                    const empty = document.getElementById('r25-proc-empty');
+                    const tbl   = document.getElementById('r25-proc-table');
+                    if (!procRows.length) { empty.style.display=''; tbl.style.display='none'; return; }
+                    empty.style.display='none'; tbl.style.display='';
+
+                    const allRads  = [...new Set(procRows.map(r=>r.radiologist))].sort();
+                    const allProcs = [...new Set(procRows.map(r=>r.proc))];
+                    const procTotals = {}, lookup = {};
+                    procRows.forEach(r => {
+                        procTotals[r.proc] = (procTotals[r.proc]||0) + r.cnt;
+                        lookup[r.proc+'|'+r.radiologist] = r.cnt;
+                    });
+                    allProcs.sort((a,b)=>(procTotals[b]||0)-(procTotals[a]||0));
+
+                    const radMax = {};
+                    allRads.forEach(rad => { radMax[rad] = Math.max(...allProcs.map(p=>lookup[p+'|'+rad]||0)); });
+
+                    _r25ProcAllProcs=allProcs; _r25ProcAllRads=allRads;
+                    _r25ProcTotals=procTotals; _r25ProcLookup=lookup; _r25ProcRadMax=radMax;
+
+                    document.getElementById('r25-proc-thead').innerHTML =
+                        `<tr style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;color:#71717a;">
+                            <th style="padding:6px 8px;text-align:left;position:sticky;left:0;background:#232323;min-width:160px;">Procedure</th>
+                            ${allRads.map(r=>`<th style="padding:6px 8px;text-align:right;white-space:nowrap;">${escH(r)}</th>`).join('')}
+                            <th style="padding:6px 8px;text-align:right;color:#a1a1aa;">Total</th>
+                        </tr>`;
+                    r25ProcFilter();
+                }
+
+                window.r25ProcFilter = function() {
+                    const search = (document.getElementById('r25-proc-search')?.value||'').toLowerCase();
+                    const topN   = parseInt(document.getElementById('r25-proc-topn')?.value||'20');
+                    const filtered = _r25ProcAllProcs.filter(p=>!search||p.toLowerCase().includes(search)).slice(0,topN);
+                    const tbody = document.getElementById('r25-proc-tbody');
+                    if (!tbody) return;
+                    tbody.innerHTML = filtered.map(proc => {
+                        const total = _r25ProcTotals[proc]||0;
+                        const cells = _r25ProcAllRads.map(rad => {
+                            const cnt = _r25ProcLookup[proc+'|'+rad]||0;
+                            const intensity = _r25ProcRadMax[rad]>0 ? cnt/_r25ProcRadMax[rad] : 0;
+                            const bg = cnt>0 ? `rgba(96,165,250,${0.08+intensity*0.45})` : 'transparent';
+                            const fg = intensity>0.6 ? '#e4e4e7' : (cnt>0 ? '#93c5fd' : '#52525b');
+                            return `<td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:700;background:${bg};color:${fg};">${cnt||''}</td>`;
+                        }).join('');
+                        return `<tr style="border-top:1px solid rgba(255,255,255,0.04);">
+                            <td style="padding:5px 8px;font-size:10px;color:#a1a1aa;position:sticky;left:0;background:#18181b;font-weight:600;">${escH(proc)}</td>
+                            ${cells}
+                            <td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:900;color:#60a5fa;">${total}</td>
+                        </tr>`;
+                    }).join('');
+                    // Footer
+                    const footCells = _r25ProcAllRads.map(rad => {
+                        const t = _r25ProcAllProcs.reduce((s,p)=>s+(_r25ProcLookup[p+'|'+rad]||0),0);
+                        return `<td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:900;color:#f59e0b;border-top:2px solid #3f3f46;">${t}</td>`;
+                    }).join('');
+                    const grand = Object.values(_r25ProcTotals).reduce((s,v)=>s+v,0);
+                    tbody.innerHTML += `<tr style="background:rgba(96,165,250,0.04);">
+                        <td style="padding:5px 8px;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;color:#71717a;position:sticky;left:0;background:rgba(24,24,27,0.95);border-top:2px solid #3f3f46;">TOTAL</td>
+                        ${footCells}
+                        <td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:900;color:#60a5fa;border-top:2px solid #3f3f46;">${grand}</td>
+                    </tr>`;
+                };
+
+                // CSV export helpers
+                function _r25DownloadCsv(csv, filename) {
+                    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+                    const url  = URL.createObjectURL(blob);
+                    const a    = document.createElement('a');
+                    a.href = url; a.download = filename;
+                    document.body.appendChild(a); a.click();
+                    document.body.removeChild(a); URL.revokeObjectURL(url);
+                }
+
+                function _r25CsvSection(rows, colHeader, isMonth) {
+                    if (!rows.length) return [];
+                    const q = v => '"' + String(v||'').replace(/"/g,'""') + '"';
+                    const allRads = [...new Set(rows.map(r => r.radiologist))].sort();
+                    const allDims = [...new Set(rows.map(r => r.dim))];
+                    const dimTotals = {}, lookup = {};
+                    rows.forEach(r => {
+                        dimTotals[r.dim] = (dimTotals[r.dim]||0) + r.cnt;
+                        lookup[r.dim+'|'+r.radiologist] = r.cnt;
+                    });
+                    if (isMonth) { allDims.sort(); } else { allDims.sort((a,b) => (dimTotals[b]||0)-(dimTotals[a]||0)); }
+                    return [
+                        [colHeader, ...allRads, 'Total'].map(q).join(','),
+                        ...allDims.map(dim => {
+                            const label = isMonth ? _fmtMonth(dim) : dim;
+                            return [label, ...allRads.map(rad => lookup[dim+'|'+rad]||0), dimTotals[dim]||0].map(q).join(',');
+                        }),
+                        ['TOTAL', ...allRads.map(rad => allDims.reduce((s,d)=>s+(lookup[d+'|'+rad]||0),0)),
+                            allDims.reduce((s,d)=>s+(dimTotals[d]||0),0)].map(q).join(','),
+                    ];
+                }
+
+                window.r25ExportCsv = function() {
+                    const sections = [
+                        ['=== By Modality ===', ..._r25CsvSection(RAD_VOL.by_modality||[], 'Modality', false)],
+                        [],
+                        ['=== By AE Title ===', ..._r25CsvSection(RAD_VOL.by_aetitle||[], 'AE Title', false)],
+                        [],
+                        ['=== By Month ===',    ..._r25CsvSection(RAD_VOL.by_month||[],    'Month',    true)],
+                    ];
+                    const lines = sections.map(s => Array.isArray(s) ? s.join('\n') : s);
+                    _r25DownloadCsv(lines.join('\n'), `rad_matrix_${new Date().toISOString().slice(0,10)}.csv`);
+                };
+
+                window.r25ExportProcCsv = function() {
+                    if (!_r25ProcAllProcs.length) return;
+                    const topN   = parseInt(document.getElementById('r25-proc-topn')?.value||'20');
+                    const search = (document.getElementById('r25-proc-search')?.value||'').toLowerCase();
+                    const procs  = _r25ProcAllProcs.filter(p=>!search||p.toLowerCase().includes(search)).slice(0,topN);
+                    const q = v => '"' + String(v||'').replace(/"/g,'""') + '"';
+                    const lines = [
+                        ['Procedure', ..._r25ProcAllRads, 'Total'].map(q).join(','),
+                        ...procs.map(proc =>
+                            [proc, ..._r25ProcAllRads.map(rad => _r25ProcLookup[proc+'|'+rad]||0), _r25ProcTotals[proc]||0].map(q).join(',')
+                        ),
+                        ['TOTAL', ..._r25ProcAllRads.map(rad => _r25ProcAllProcs.reduce((s,p)=>s+(_r25ProcLookup[p+'|'+rad]||0),0)),
+                            Object.values(_r25ProcTotals).reduce((s,v)=>s+v,0)].map(q).join(','),
+                    ];
+                    _r25DownloadCsv(lines.join('\n'), `rad_by_procedure_${new Date().toISOString().slice(0,10)}.csv`);
+                };
+
+                // Init
+                r25RadToggle('mod');
+                r25BuildProcTable();
+            })();
+            </script>
+            {% endif %}
+
+            <!-- ── Reporting Cadence Analysis ─────────────────────────── -->
+            <div class="mt-8" id="shift-patterns-section">
+                <div class="flex items-center justify-between mb-1">
+                    <p class="text-xs font-black text-blue-500 uppercase tracking-widest">Reporting Cadence Analysis</p>
+                    <button id="sp-mode-btn" onclick="toggleSpMode()"
+                        title="Enhanced view"
+                        class="text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full border transition-all"
+                        style="border-color:#28332e;color:#3f3f46;background:transparent;">
+                        &#9673; Enhanced View
+                    </button>
+                </div>
+                <p class="text-[11px] text-zinc-500 mb-5">
+                    Derived from <code class="text-blue-400 bg-blue-500/10 px-1 rounded">rep_final_timestamp</code>.
+                    Shows each physician's signing density by hour and day of week. Inactive intervals ≥ 20 min are noted in the daily log.
+                </p>
+                <div class="space-y-6" id="shift-patterns-container"></div>
+            </div>
+            <script>
+            (function() {
+                const DOW = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+                const HOURS = Array.from({length:24}, (_,i) => String(i).padStart(2,'0')+'h');
+                const container = document.getElementById('shift-patterns-container');
+                let evilMode = false;
+
+                // ── Labels: neutral vs enhanced ──────────────────────────
+                const L = {
+                    gap_label:   ['Inactive Intervals / Day', 'Breaks / Day'],
+                    gap_dur:     ['Avg Interval Duration',    'Avg Break Duration'],
+                    arrival:     ['First Signature',          'Arrival'],
+                    departure:   ['Last Signature',           'Departure'],
+                    col_gap:     ['Intervals',                'Breaks'],
+                };
+
+                const cards = [];  // store references for re-render
+
+                function renderAll(spData) {
+                Object.entries(spData).forEach(([rad, info], idx) => {
+                    const card = document.createElement('div');
+                    card.className = 'glass-card border-t-4 border-blue-600';
+                    card.dataset.idx = idx;
+                    container.appendChild(card);
+
+                    const hm = (() => {
+                        let _chart = null;
+                        function render(evil) {
+                            const breakStatColor = evil
+                                ? (info.avg_breaks_day >= 3 ? '#f43f5e' : info.avg_breaks_day >= 1.5 ? '#f59e0b' : '#34d399')
+                                : '#a1a1aa';
+
+                            card.style.borderTopColor = evil ? '#f43f5e' : '#60a5fa';
+
+                            card.innerHTML = `
+                                <div class="flex items-start justify-between gap-4 mb-4 flex-wrap">
+                                    <div>
+                                        <h3 class="text-sm font-black text-white uppercase tracking-wide">${rad}</h3>
+                                        <div class="flex flex-wrap gap-x-5 gap-y-1 text-[11px] mt-1">
+                                            <span><span class="text-zinc-500">${L.arrival[evil?1:0]}</span> <span class="font-black text-emerald-400">${info.avg_arrival}</span></span>
+                                            <span><span class="text-zinc-500">${L.departure[evil?1:0]}</span> <span class="font-black text-blue-400">${info.avg_departure}</span></span>
+                                            <span><span class="text-zinc-500">${L.gap_label[evil?1:0]}</span> <span class="font-black" style="color:${breakStatColor}">${info.avg_breaks_day}</span></span>
+                                            <span><span class="text-zinc-500">${L.gap_dur[evil?1:0]}</span> <span class="font-black text-amber-400">${info.avg_break_dur ? info.avg_break_dur+'m' : '—'}</span></span>
+                                            <span class="text-zinc-600">${info.working_days} days</span>
+                                        </div>
+                                    </div>
+                                    <button onclick="exportCardPng(${idx}, '${rad.replace(/'/g,"\\'")}')"
+                                        class="shrink-0 flex items-center gap-1 text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg border border-white/10 text-zinc-500 hover:text-blue-400 hover:border-blue-400/40 transition-all"
+                                        title="Export as PNG">
+                                        <i class="bi bi-image"></i> PNG
+                                    </button>
+                                </div>
+                                <div id="hm-${idx}" style="height:280px;width:100%;"></div>
+                                <div class="mt-4">
+                                    <button onclick="toggleLog(${idx})"
+                                        class="text-[10px] font-black text-zinc-500 hover:text-blue-400 uppercase tracking-widest transition-colors flex items-center gap-1">
+                                        <span id="log-arrow-${idx}">▶</span> Daily Log
+                                    </button>
+                                    <div id="log-${idx}" class="hidden mt-3 overflow-y-auto" style="max-height:260px;">
+                                        <table class="w-full text-[11px]">
+                                            <thead class="sticky top-0 bg-[#232b28]">
+                                                <tr class="border-b border-white/5 text-zinc-500 uppercase text-[9px]">
+                                                    <th class="text-left py-2 pr-4">Date</th>
+                                                    <th class="text-left py-2 pr-4">Day</th>
+                                                    <th class="text-left py-2 pr-4">${L.arrival[evil?1:0]}</th>
+                                                    <th class="text-left py-2 pr-4">${L.departure[evil?1:0]}</th>
+                                                    <th class="text-right py-2 pr-4">Studies</th>
+                                                    <th class="text-right py-2 pr-4">Span</th>
+                                                    <th class="text-left py-2">${L.col_gap[evil?1:0]}</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="log-body-${idx}" class="divide-y divide-white/5 text-zinc-300"></tbody>
+                                        </table>
+                                    </div>
+                                </div>`;
+
+                            const hmEl = document.getElementById(`hm-${idx}`);
+                            if (_chart) { try { _chart.dispose(); } catch(e){} }
+                            _chart = echarts.init(hmEl);
+                            _chart.setOption({
+                                animation: false,
+                                grid: { top:10, bottom:30, left:50, right:20 },
+                                xAxis: { type:'category', data: HOURS, axisLabel:{fontSize:9, color:'#52525b'}, axisTick:{show:false}, axisLine:{lineStyle:{color:'#28332e'}} },
+                                yAxis: { type:'category', data: DOW,   axisLabel:{fontSize:9, color:'#52525b'}, axisTick:{show:false}, axisLine:{lineStyle:{color:'#28332e'}} },
+                                visualMap: { show:false, min:0, max:info.hm_max, inRange:{ color: evil ? ['#0f172a','#1d4ed8','#f43f5e'] : ['#0f172a','#1d4ed8','#38bdf8'] } },
+                                tooltip: {
+                                    formatter: p => `${DOW[p.data[1]]} ${HOURS[p.data[0]]}: <b>${p.data[2]}</b> signature${p.data[2]!==1?'s':''}`,
+                                    backgroundColor:'#1c1917', borderColor:'#28332e', textStyle:{color:'#e2e8f0',fontSize:11}
+                                },
+                                series:[{ type:'heatmap', data: info.heatmap, itemStyle:{borderRadius:2, borderWidth:1, borderColor:'#181f1c'} }]
+                            });
+
+                            const tbody = document.getElementById(`log-body-${idx}`);
+                            tbody.innerHTML = '';
+                            [...info.daily_log].reverse().forEach(day => {
+                                let breakStr;
+                                if (!day.breaks.length) {
+                                    breakStr = '<span class="text-zinc-600">—</span>';
+                                } else if (evil) {
+                                    breakStr = day.breaks.map(b =>
+                                        `<span title="${b.kind} – ${b.duration}m (${b.start}–${b.end})" style="cursor:default;font-size:1rem">${b.icon}</span>`
+                                    ).join(' ');
+                                } else {
+                                    breakStr = `<span class="text-zinc-400">${day.breaks.length} interval${day.breaks.length!==1?'s':''}</span>`;
+                                }
+                                const arrStyle = evil && parseInt(day.arrival) >= 10
+                                    ? 'color:#f59e0b'
+                                    : 'color:#34d399';
+                                const tr = document.createElement('tr');
+                                tr.className = 'hover:bg-white/[0.02]';
+                                tr.innerHTML = `
+                                    <td class="py-2 pr-4 font-mono text-zinc-400">${day.date}</td>
+                                    <td class="py-2 pr-4 text-zinc-500">${day.dow}</td>
+                                    <td class="py-2 pr-4 font-mono font-bold" style="${arrStyle}">${day.arrival}</td>
+                                    <td class="py-2 pr-4 font-mono text-blue-400">${day.departure}</td>
+                                    <td class="py-2 pr-4 text-right text-zinc-300 font-bold">${day.studies}</td>
+                                    <td class="py-2 pr-4 text-right text-zinc-500">${day.span_h}h</td>
+                                    <td class="py-2">${breakStr}</td>`;
+                                tbody.appendChild(tr);
+                            });
+                        }
+                        return { render };
+                    })();
+
+                    cards.push(hm);
+                    hm.render(false);
+                });
+                }
+
+                window.toggleLog = function(idx) {
+                    const el = document.getElementById(`log-${idx}`);
+                    const arrow = document.getElementById(`log-arrow-${idx}`);
+                    el.classList.toggle('hidden');
+                    arrow.textContent = el.classList.contains('hidden') ? '▶' : '▼';
+                };
+
+                window.exportCardPng = function(idx, radName) {
+                    const card = container.children[idx];
+                    if (!card) return;
+
+                    const log   = document.getElementById(`log-${idx}`);
+                    const arrow = document.getElementById(`log-arrow-${idx}`);
+                    const wasHidden = log && log.classList.contains('hidden');
+                    if (wasHidden) {
+                        log.classList.remove('hidden');
+                        if (arrow) arrow.textContent = '▼';
+                        log.style.maxHeight = 'none';
+                    }
+
+                    const label = document.createElement('p');
+                    label.style.cssText = 'font-size:10px;color:#52525b;margin-bottom:10px;font-family:monospace;';
+                    label.textContent = `RAYD · Reporting Cadence · ${radName} · Exported ${new Date().toLocaleDateString('en-GB')}`;
+                    card.insertBefore(label, card.firstChild);
+
+                    html2canvas(card, {
+                        backgroundColor: '#232b28',
+                        scale: 2,
+                        useCORS: true,
+                        logging: false,
+                    }).then(function(canvas) {
+                        card.removeChild(label);
+                        if (wasHidden) {
+                            log.classList.add('hidden');
+                            log.style.maxHeight = '';
+                            if (arrow) arrow.textContent = '▶';
+                        }
+                        const a = document.createElement('a');
+                        a.download = `rayd_cadence_${radName.replace(/\s+/g,'_')}.png`;
+                        a.href = canvas.toDataURL('image/png');
+                        a.click();
+                    }).catch(function() {
+                        card.removeChild(label);
+                        if (wasHidden) {
+                            log.classList.add('hidden');
+                            log.style.maxHeight = '';
+                            if (arrow) arrow.textContent = '▶';
+                        }
+                    });
+                };
+
+                window.toggleSpMode = function() {
+                    evilMode = !evilMode;
+                    const btn = document.getElementById('sp-mode-btn');
+                    if (evilMode) {
+                        btn.style.borderColor = '#f43f5e';
+                        btn.style.color = '#f43f5e';
+                        btn.style.background = 'rgba(244,63,94,0.08)';
+                    } else {
+                        btn.style.borderColor = '#28332e';
+                        btn.style.color = '#3f3f46';
+                        btn.style.background = 'transparent';
+                    }
+                    cards.forEach(c => c.render(evilMode));
+                };
+
+                // Rendered synchronously — server already computed shift_patterns (no BG fetch, see report_36.py's docstring)
+                renderAll({{ (shift_patterns or {}) | tojson }});
+            })();
+            </script>
+
+            <!-- ── Technician TAT by AE Station ─────────────────────── -->
+            <div class="glass-card mt-8" id="r25-tech-tat-card">
+                <div class="flex items-center justify-between mb-4">
+                    <p class="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Technician TAT by AE Station</p>
+                </div>
+                <p class="section-desc">Average and median turnaround time per AE station (acquisition device). SR and OT modalities excluded. Only studies with a recorded TAT are included.</p>
+                {% if tech_tat_cards %}
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left" style="border-collapse:separate;border-spacing:0;">
+                        <thead>
+                            <tr class="text-[9px] font-black text-zinc-500 uppercase tracking-wider">
+                                <th class="pb-3 pr-6">#</th>
+                                <th class="pb-3 pr-6">AE Station</th>
+                                <th class="pb-3 pr-6 text-right">Study Count</th>
+                                <th class="pb-3 pr-6 text-right">Avg TAT (min)</th>
+                                <th class="pb-3 text-right">Median TAT (min)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        {% for row in tech_tat_cards %}
+                        <tr class="border-t border-white/5 hover:bg-white/[0.02] transition-colors">
+                            <td class="py-2 pr-6 text-[10px] font-black text-zinc-600">{{ loop.index }}</td>
+                            <td class="py-2 pr-6 text-xs font-bold text-zinc-200">{{ row.aetitle }}</td>
+                            <td class="py-2 pr-6 text-right text-xs text-zinc-400">{{ row.count }}</td>
+                            <td class="py-2 pr-6 text-right text-xs font-black font-mono
+                                {% if row.avg_tat <= 60 %}text-emerald-400
+                                {% elif row.avg_tat <= 120 %}text-amber-400
+                                {% else %}text-red-400{% endif %}">{{ row.avg_tat }}m</td>
+                            <td class="py-2 text-right text-xs font-mono text-zinc-400">{{ row.median_tat }}m</td>
+                        </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <p class="text-[10px] text-zinc-600 mt-2 italic">TAT values &gt; 24h are excluded from averages and shown separately below.</p>
+                {% else %}
+                <p class="text-sm text-zinc-500 italic">No data available.</p>
+                {% endif %}
+            </div>
+
+            <script>
+            // Radiologist insight signals — rendered immediately from server-computed data
+            (function(){
+                const RAD_INSIGHTS = {{ (rad_insights or []) | tojson }};
+                const panel = document.getElementById('rad-insights-panel');
+                if (!panel) return;
+                if (RAD_INSIGHTS.length > 0) {
+                    panel.innerHTML = RAD_INSIGHTS.map((s, i) => {
+                        const color = s.severity === 'critical' ? 'rose' : s.severity === 'warning' ? 'amber' : 'blue';
+                        const icon  = s.severity === 'critical' ? 'bi-exclamation-triangle-fill' : s.severity === 'warning' ? 'bi-exclamation-circle-fill' : 'bi-info-circle-fill';
+                        const evHtml = (s.evidence && s.evidence.length) ? `
+                            <div id="rad-sig-${i}" class="hidden px-3 pb-2">
+                                <table class="w-full text-[10px] border-collapse"><thead><tr class="text-zinc-500 uppercase">
+                                    <th class="text-left py-1 pr-3 font-black">Accession</th><th class="text-left py-1 pr-3 font-black">Radiologist</th><th class="text-left py-1 font-black">Time</th>
+                                </tr></thead><tbody>
+                                ${s.evidence.map(ev => `<tr class="border-t border-white/5 text-zinc-300"><td class="py-1 pr-3 font-mono">${ev.accession||'—'}</td><td class="py-1 pr-3">${ev.user||'—'}</td><td class="py-1">${ev.time||'—'}</td></tr>`).join('')}
+                                </tbody></table></div>` : '';
+                        return `<div class="rounded-lg border bg-${color}-500/10 border-${color}-500/25">
+                            <div class="flex items-start gap-2 px-3 py-2 ${s.evidence&&s.evidence.length?'cursor-pointer':''}" ${s.evidence&&s.evidence.length?`onclick="toggleEvidence('rad-sig-${i}')"`:''}>
+                                <i class="bi ${icon} text-${color}-400 mt-0.5 shrink-0"></i>
+                                <div class="flex-1"><p class="text-[10px] font-black text-${color}-300 uppercase">${s.entity}</p><p class="text-xs text-zinc-300">${s.message}</p></div>
+                                ${s.evidence&&s.evidence.length?`<i id="rad-sig-${i}-icon" class="bi bi-chevron-down text-zinc-500 text-[10px] mt-1 shrink-0 transition-transform"></i>`:''}
+                            </div>${evHtml}</div>`;
+                    }).join('');
+                } else {
+                    panel.innerHTML = `<div class="flex items-center gap-2 text-emerald-500 text-xs font-black"><i class="bi bi-check-circle-fill"></i> No statistical anomalies detected for this period.</div>`;
+                }
+            })();
+            </script>
+
+            {% else %}
+            <div class="h-full flex flex-col items-center justify-center opacity-20">
+                <i class="bi bi-cpu text-6xl mb-4"></i>
+                <h2 class="text-2xl font-black uppercase tracking-tighter">Engine Standby</h2>
+                <p class="text-sm mt-2">Select a date range and click Update View</p>
+            </div>
+            {% endif %}
+        </div>
+    </main>
+    </div>
+
+    <script>
+        // ── Chart instance registry for PNG export ───────────────────────────
+        const chartInstances = {};
+
+        function registerChart(id, instance) {
+            chartInstances[id] = instance;
+        }
+
+        function exportChart(id, filename) {
+            const instance = chartInstances[id];
+            if (!instance) return;
+            const url = instance.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#232b28' });
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${filename}_{{ display_start }}_to_{{ display_end }}.png`;
+            a.click();
+        }
+
+        // ── PDF export helpers ───────────────────────────────────────────────
+        const _PDF_DATE = '{{ display_start }} – {{ display_end }}';
+        const _PDF_BG   = '#18181b';
+
+        function _pdfFromDataUrl(dataUrl, title, filename) {
+            const { jsPDF } = window.jspdf;
+            const doc  = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+            const pw   = doc.internal.pageSize.getWidth();
+            const ph   = doc.internal.pageSize.getHeight();
+            const mg   = 12;
+            const imgW = pw - mg * 2;
+            const maxH = ph - mg * 2 - 14;
+            const img  = new Image();
+            img.onload = () => {
+                const ratio = img.naturalHeight / img.naturalWidth;
+                const imgH  = Math.min(imgW * ratio, maxH);
+                doc.setFillColor(24, 24, 27);
+                doc.rect(0, 0, pw, ph, 'F');
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(11);
+                doc.setTextColor(224, 224, 227);
+                doc.text(title, mg, mg + 5);
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(8);
+                doc.setTextColor(113, 113, 122);
+                doc.text(_PDF_DATE, mg, mg + 10);
+                doc.addImage(dataUrl, 'PNG', mg, mg + 14, imgW, imgH);
+                doc.save(`${filename}_{{ display_start }}_to_{{ display_end }}.pdf`);
+            };
+            img.src = dataUrl;
+        }
+
+        function exportChartPdf(id, title, filename) {
+            const instance = chartInstances[id];
+            if (!instance) return;
+            const url = instance.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: _PDF_BG });
+            _pdfFromDataUrl(url, title, filename);
+        }
+
+        function exportElemPdf(el, title, filename) {
+            if (!el) return;
+            const btn = event?.currentTarget;
+            if (btn) { btn.textContent = '…'; btn.disabled = true; }
+            const clipped = [...el.querySelectorAll('*')].filter(n => n.style && (n.style.maxHeight || n.style.overflowY === 'auto' || n.style.overflowY === 'scroll'));
+            const saved = clipped.map(n => ({ n, mh: n.style.maxHeight, oy: n.style.overflowY, ox: n.style.overflowX }));
+            saved.forEach(s => { s.n.style.maxHeight = 'none'; s.n.style.overflowY = 'visible'; s.n.style.overflowX = 'visible'; });
+            html2canvas(el, { backgroundColor: _PDF_BG, scale: 2, useCORS: true }).then(canvas => {
+                saved.forEach(s => { s.n.style.maxHeight = s.mh; s.n.style.overflowY = s.oy; s.n.style.overflowX = s.ox; });
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+                const pw = doc.internal.pageSize.getWidth(), ph = doc.internal.pageSize.getHeight(), mg = 12;
+                const usableW = pw - mg * 2;
+                const mmPerPx = usableW / canvas.width;
+                const rgb = _PDF_BG.replace('#', '');
+                const fillBg = () => {
+                    doc.setFillColor(parseInt(rgb.slice(0,2),16), parseInt(rgb.slice(2,4),16), parseInt(rgb.slice(4,6),16));
+                    doc.rect(0, 0, pw, ph, 'F');
+                };
+                fillBg();
+                doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.setTextColor(224,224,227);
+                doc.text(title, mg, mg+5);
+                doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(113,113,122);
+                doc.text(_PDF_DATE, mg, mg+10);
+                let srcY = 0, destY = mg + 14;
+                while (srcY < canvas.height) {
+                    const availH = ph - destY - mg;
+                    const slicePx = Math.min(Math.floor(availH / mmPerPx), canvas.height - srcY);
+                    if (slicePx <= 0) break;
+                    const tmp = document.createElement('canvas');
+                    tmp.width = canvas.width; tmp.height = slicePx;
+                    tmp.getContext('2d').drawImage(canvas, 0, srcY, canvas.width, slicePx, 0, 0, canvas.width, slicePx);
+                    doc.addImage(tmp.toDataURL('image/png'), 'PNG', mg, destY, usableW, slicePx * mmPerPx);
+                    srcY += slicePx;
+                    if (srcY < canvas.height) { doc.addPage(); fillBg(); destY = mg; }
+                }
+                doc.save(`${filename}_{{ display_start }}_to_{{ display_end }}.pdf`);
+                if (btn) { btn.innerHTML = '<i class="bi bi-file-earmark-pdf"></i> PDF'; btn.disabled = false; }
+            }).catch(() => {
+                saved.forEach(s => { s.n.style.maxHeight = s.mh; s.n.style.overflowY = s.oy; s.n.style.overflowX = s.ox; });
+                if (btn) { btn.innerHTML = '<i class="bi bi-file-earmark-pdf"></i> PDF'; btn.disabled = false; }
+            });
+        }
+
+        function toggleEvidence(id) {
+            const el   = document.getElementById(id);
+            const icon = document.getElementById(id + '-icon');
+            if (!el) return;
+            const hidden = el.classList.toggle('hidden');
+            if (icon) icon.style.transform = hidden ? '' : 'rotate(180deg)';
+        }
+
+        $(document).ready(function() {
+            $('.select2-js').select2();
+        });
+    </script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    flatpickr('input[type="date"]', {
+        dateFormat: 'Y-m-d',
+        altInput:   true,
+        altFormat:  'd/m/Y',
+        allowInput: true,
+        disableMobile: true
+    });
+});
+</script>
+</body>
+</html>
