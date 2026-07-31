@@ -481,10 +481,16 @@
                 B.cells.forEach(c => { cellByKey[`${c.weekday_idx}|${c.block_idx}`] = c; });
                 const maxTotal = Math.max(1, ...B.cells.map(c => c.total));
 
+                // Muted slate wash, not the same blue as the trend line drawn on top
+                // of it (feedback 2026-07-31: the original rgba(96,165,250, up to 0.76)
+                // scale was too high-contrast -- same hue as the line meant busy cells
+                // turned into a vivid blue block competing with the line instead of
+                // sitting quietly behind it). Low alpha ceiling keeps it a background
+                // cue, not the primary visual.
                 function volumeColor(value) {
                     const t = Math.min(1, value / maxTotal);
-                    const alpha = 0.06 + 0.70 * t;
-                    return `rgba(96,165,250,${alpha.toFixed(3)})`;
+                    const alpha = 0.04 + 0.20 * t;
+                    return `rgba(100,116,139,${alpha.toFixed(3)})`;
                 }
 
                 const yData = blockStarts.map(h => ({
