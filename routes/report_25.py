@@ -48,6 +48,52 @@ def _load_shift_config():
         pass
     return defaults
 
+
+def _sidebar_filters(form_data):
+    """
+    Shared left-sidebar filter set (date range, patient class, modality, AE title,
+    patient location) plus the RH-only site scope -- every chart on this page must
+    respect these filters no matter what (operator instruction, 2026-07-31), not just
+    the date range. Mirrors get_gold_standard_data's own where_clauses/_sec_filters
+    construction (that one stays inline since it filters the report_template result
+    set differently -- unprefixed columns, not s./m.), extracted here so every other
+    per-section query built against etl_didb_studies (aliased s, LEFT JOIN
+    aetitle_modality_map aliased m) can share one implementation instead of five
+    slightly-different copies of the same site_clause-only logic.
+
+    Returns (params, clause, start, end) -- clause is a SQL fragment to append after
+    a WHERE, referencing s.* and m.* (callers must LEFT JOIN aetitle_modality_map m
+    ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))).
+    """
+    go_live = get_etl_cutoff_date()
+    start = form_data.get("start_date") or (go_live.strftime("%Y-%m-%d") if go_live else "2024-01-01")
+    end = form_data.get("end_date") or date.today().strftime("%Y-%m-%d")
+    params = {"start": start, "end": end}
+    clause = ""
+
+    if form_data.get("class_enabled") == "on" and form_data.getlist("patient_class"):
+        params["classes"] = tuple(form_data.getlist("patient_class"))
+        clause += " AND s.patient_class IN :classes"
+
+    if form_data.get("mod_enabled") == "on" and form_data.getlist("modality"):
+        params["modalities"] = tuple(form_data.getlist("modality"))
+        clause += " AND UPPER(TRIM(m.modality)) IN :modalities"
+
+    if form_data.get("ae_enabled") == "on" and form_data.getlist("aetitle"):
+        params["aetitles"] = tuple(form_data.getlist("aetitle"))
+        clause += " AND s.storing_ae IN :aetitles"
+
+    if form_data.get("loc_enabled") == "on" and form_data.getlist("patient_location"):
+        params["locations"] = tuple(form_data.getlist("patient_location"))
+        clause += " AND s.patient_location IN :locations"
+
+    rh_site_id = default_site()
+    if rh_site_id is not None:
+        params["rh_site_id"] = rh_site_id
+        clause += " AND m.site_id = :rh_site_id"
+
+    return params, clause, start, end
+
 # ── KPI Detailed Reading (hospital TAT-per-modality-per-radiologist spec) ────
 # Format matches "KPI Detailed reading.xlsx" (repo root) exactly: for each
 # modality x patient-class block (e.g. CT-IN / CT-Urg / CT-Out), three TAT
@@ -240,10 +286,117 @@ def get_kpi_detailed_reading(form_data):
     return blocks
 
 
+_RES_RAD_TAT_SQL_TEMPLATE = """
+    WITH {anchor_cte}
+    role_lookup AS (
+        SELECT DISTINCT UPPER(login_id) AS login_id, group_name AS role
+        FROM std_pacs_user_groups
+        WHERE group_name IN ('radiologists', 'residents')
+    ),
+    signed_events AS (
+        SELECT s.study_db_uid, s.study_instance_uid, s.storing_ae, s.patient_class,
+               s.patient_location, s.insert_time,
+               COALESCE(m.modality, s.study_modality, 'Unknown') AS modality,
+               UPPER(TRIM(s.rep_prelim_signed_by)) AS signer, s.rep_prelim_timestamp AS sign_time
+        FROM etl_didb_studies s
+        LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
+        WHERE s.rep_prelim_signed_by IS NOT NULL AND s.rep_prelim_timestamp IS NOT NULL
+          AND s.study_date BETWEEN :start AND :end
+          AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'PACS')
+          {filter_clause}
+        UNION ALL
+        SELECT s.study_db_uid, s.study_instance_uid, s.storing_ae, s.patient_class,
+               s.patient_location, s.insert_time,
+               COALESCE(m.modality, s.study_modality, 'Unknown') AS modality,
+               UPPER(TRIM(s.rep_study_last_composed_by)) AS signer, s.rep_study_last_composed_ts AS sign_time
+        FROM etl_didb_studies s
+        LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
+        WHERE s.rep_study_last_composed_by IS NOT NULL AND s.rep_study_last_composed_ts IS NOT NULL
+          AND s.study_date BETWEEN :start AND :end
+          AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'PACS')
+          {filter_clause}
+    ),
+    classified AS (
+        SELECT
+            se.*,
+            rl.role,
+            CASE
+                WHEN se.patient_location = 'ER' THEN 'ER'
+                WHEN se.patient_class = 'I' THEN 'Inpatient'
+                WHEN se.patient_class = 'O' THEN 'Outpatient'
+                ELSE 'Other'
+            END AS patient_class_bucket,
+            EXTRACT(EPOCH FROM (se.sign_time - {exam_done_col})) / 3600.0 AS tat_hours
+        FROM signed_events se
+        {anchor_join}
+        LEFT JOIN role_lookup rl ON rl.login_id = SPLIT_PART(se.signer, '@', 1)
+        WHERE se.sign_time > {exam_done_col}
+    )
+    SELECT
+        COALESCE(role, '__unclassified__') AS role,
+        SPLIT_PART(signer, '@', 1) AS resident_name,
+        modality, patient_class_bucket,
+        COUNT(*) AS n,
+        ROUND(AVG(tat_hours)::numeric, 2) AS avg_tat_h,
+        ROUND((PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY tat_hours))::numeric, 2) AS median_tat_h,
+        COUNT(*) FILTER (WHERE tat_hours <= 3)                   AS bucket_0_3h,
+        COUNT(*) FILTER (WHERE tat_hours > 3 AND tat_hours <= 5) AS bucket_3_5h,
+        COUNT(*) FILTER (WHERE tat_hours > 5)                    AS bucket_5h_plus
+    FROM classified
+    GROUP BY role, resident_name, modality, patient_class_bucket
+    ORDER BY role, resident_name, modality, patient_class_bucket
+"""
+
+_RES_RAD_TAT_RIS_ANCHOR_CTE = """
+    exam_done_anchor AS (
+        SELECT p.study_instance_uid, MAX(w.exam_done_at) AS exam_done_time
+        FROM std_worklist_exam_done w
+        JOIN std_pps p ON p.pps_key = w.pps_key
+        WHERE p.study_instance_uid IS NOT NULL
+        GROUP BY p.study_instance_uid
+    ),
+"""
+
+
+def _resident_radiologist_tat_variant(params, filter_clause, anchor):
+    """anchor: 'ris' (WORKLIST_STATUS_HISTORY status_key=100, via std_pps.pps_key) or
+    'pacs' (etl_didb_studies.insert_time -- "PACS end time calculation")."""
+    result = {"residents": [], "radiologists": [], "unclassified_count": 0}
+    if anchor == "ris":
+        sql = _RES_RAD_TAT_SQL_TEMPLATE.format(
+            anchor_cte=_RES_RAD_TAT_RIS_ANCHOR_CTE,
+            anchor_join="JOIN exam_done_anchor ed ON ed.study_instance_uid = se.study_instance_uid",
+            exam_done_col="ed.exam_done_time",
+            filter_clause=filter_clause,
+        )
+    else:
+        sql = _RES_RAD_TAT_SQL_TEMPLATE.format(
+            anchor_cte="",
+            anchor_join="",
+            exam_done_col="se.insert_time",
+            filter_clause=(filter_clause + " AND s.insert_time IS NOT NULL"),
+        )
+    try:
+        rows = db.session.execute(text(sql), params).mappings().fetchall()
+        for r in rows:
+            row = dict(r)
+            role = row.pop("role")
+            if role == "radiologists":
+                result["radiologists"].append(row)
+            elif role == "residents":
+                result["residents"].append(row)
+            else:
+                result["unclassified_count"] += row["n"]
+    except Exception:
+        logger.exception(f"Failed to compute resident/radiologist TAT ({anchor} anchor)")
+        db.session.rollback()
+    return result
+
+
 def get_resident_radiologist_tat(form_data):
     """
     Resident vs. Radiologist TAT (exam-done -> signature) per modality per patient
-    class (Inpatient/Outpatient/ER), split by REAL role.
+    class (Inpatient/Outpatient/ER) per individual signer, split by REAL role.
 
     Role source: std_pacs_user_groups (PACS MEDILINK reading-permission groups --
     "radiologists" / "residents"), matched to the signer via login name. NOT RIS's
@@ -255,139 +408,177 @@ def get_resident_radiologist_tat(form_data):
 
     Counts every signed event (prelim AND final) attributed to whoever actually
     signed it, not the stage it happened at -- a resident's final signature (rare)
-    still counts as resident work, and vice versa. "exam done" is PPS end_datetime
-    (std_pps), not insert_time -- insert_time was found to badly overstate TAT for
-    gateway-routed/SJH studies earlier this session.
+    still counts as resident work, and vice versa. resident_name is the raw
+    login-style signer value (e.g. "abdallah.noufaily") -- resolving it to a real
+    display name is explicitly deferred by the operator (see migration 0075's note).
+
+    Two anchor variants computed and returned side by side -- "ris" (WORKLIST_STATUS_HISTORY
+    status_key=100 "Exam Done", the RIS's own status transition, via std_worklist_exam_done ->
+    std_pps.pps_key) is the default/primary; "pacs" (etl_didb_studies.insert_time, labeled
+    "PACS end time calculation" in the UI) is the toggle alternative -- operator instruction
+    2026-07-31. Every chart on this page must also honor the full left-sidebar filter set
+    (date range, patient class, modality, AE title, patient location), not just dates --
+    see _sidebar_filters.
+
+    Returns {"ris": {...}, "pacs": {...}}, each shaped {"residents": [...], "radiologists":
+    [...], "unclassified_count": N}.
     """
-    go_live = get_etl_cutoff_date()
-    start = form_data.get("start_date") or (go_live.strftime("%Y-%m-%d") if go_live else "2024-01-01")
-    end = form_data.get("end_date") or date.today().strftime("%Y-%m-%d")
-    params = {"start": start, "end": end}
+    params, filter_clause, _start, _end = _sidebar_filters(form_data)
+    return {
+        "ris": _resident_radiologist_tat_variant(params, filter_clause, "ris"),
+        "pacs": _resident_radiologist_tat_variant(params, filter_clause, "pacs"),
+    }
 
-    rh_site_id = default_site()
-    site_clause = ""
-    if rh_site_id is not None:
-        params["rh_site_id"] = rh_site_id
-        site_clause = "AND m.site_id = :rh_site_id"
 
-    result = {"residents": [], "radiologists": [], "unclassified_count": 0}
+_TECH_EFFICIENCY_SQL_TEMPLATE = """
+    WITH {anchor_cte}
+    arrival AS (
+        SELECT p.study_instance_uid, MIN(wa.arrived_at) AS arrived_at
+        FROM std_worklist_arrivals wa
+        JOIN std_pps p ON p.pps_key = wa.pps_key
+        WHERE p.study_instance_uid IS NOT NULL
+        GROUP BY p.study_instance_uid
+    ),
+    eff AS (
+        SELECT
+            s.study_db_uid,
+            UPPER(TRIM(s.storing_ae)) AS aetitle,
+            COALESCE(m.modality, s.study_modality, 'Unknown') AS modality,
+            CASE
+                WHEN s.patient_location = 'ER' THEN 'ER'
+                WHEN s.patient_class = 'I' THEN 'Inpatient'
+                WHEN s.patient_class = 'O' THEN 'Outpatient'
+                ELSE 'Other'
+            END AS patient_class_bucket,
+            COALESCE(pm.duration_minutes, 15) AS expected_min,
+            EXTRACT(EPOCH FROM ({exam_done_col} - ar.arrived_at)) / 60.0 AS actual_min
+        FROM etl_didb_studies s
+        JOIN arrival ar ON ar.study_instance_uid = s.study_instance_uid
+        {anchor_join}
+        LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
+        LEFT JOIN procedure_duration_map pm ON UPPER(TRIM(s.procedure_code)) = UPPER(TRIM(pm.procedure_code))
+        WHERE {exam_done_col} > ar.arrived_at
+          AND s.study_date BETWEEN :start AND :end
+          AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'PACS')
+          {filter_clause}
+    )
+    SELECT
+        aetitle, modality, patient_class_bucket,
+        COUNT(*) AS n,
+        ROUND(AVG(actual_min)::numeric, 1) AS avg_actual_min,
+        ROUND((PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY actual_min))::numeric, 1) AS median_actual_min,
+        ROUND(AVG(expected_min)::numeric, 1) AS avg_expected_min,
+        COUNT(*) FILTER (WHERE actual_min <= 30)                       AS bucket_0_30,
+        COUNT(*) FILTER (WHERE actual_min > 30 AND actual_min <= 60)   AS bucket_30_60,
+        COUNT(*) FILTER (WHERE actual_min > 60)                        AS bucket_60_plus
+    FROM eff
+    GROUP BY aetitle, modality, patient_class_bucket
+    ORDER BY aetitle, modality, patient_class_bucket
+"""
+
+_TECH_EFFICIENCY_RIS_ANCHOR_CTE = """
+    exam_done_anchor AS (
+        SELECT p.study_instance_uid, MAX(w.exam_done_at) AS exam_done_time
+        FROM std_worklist_exam_done w
+        JOIN std_pps p ON p.pps_key = w.pps_key
+        WHERE p.study_instance_uid IS NOT NULL
+        GROUP BY p.study_instance_uid
+    ),
+"""
+
+
+def _technician_efficiency_variant(params, filter_clause, anchor):
+    """anchor: 'ris' (WORKLIST_STATUS_HISTORY status_key=100 Exam Done, via
+    std_pps.pps_key) or 'pacs' (etl_didb_studies.insert_time, "PACS end time
+    calculation")."""
+    if anchor == "ris":
+        sql = _TECH_EFFICIENCY_SQL_TEMPLATE.format(
+            anchor_cte=_TECH_EFFICIENCY_RIS_ANCHOR_CTE,
+            anchor_join="JOIN exam_done_anchor ed ON ed.study_instance_uid = s.study_instance_uid",
+            exam_done_col="ed.exam_done_time",
+            filter_clause=filter_clause,
+        )
+    else:
+        sql = _TECH_EFFICIENCY_SQL_TEMPLATE.format(
+            anchor_cte="",
+            anchor_join="",
+            exam_done_col="s.insert_time",
+            filter_clause=(filter_clause + " AND s.insert_time IS NOT NULL"),
+        )
+    rows = []
     try:
-        rows = db.session.execute(text(f"""
-            WITH pps_done AS (
-                SELECT study_instance_uid, MAX(end_datetime) AS exam_done_time
-                FROM std_pps
-                WHERE end_datetime IS NOT NULL AND study_instance_uid IS NOT NULL
-                GROUP BY study_instance_uid
-            ),
-            role_lookup AS (
-                SELECT DISTINCT UPPER(login_id) AS login_id, group_name AS role
-                FROM std_pacs_user_groups
-                WHERE group_name IN ('radiologists', 'residents')
-            ),
-            signed_events AS (
-                SELECT s.study_db_uid, s.study_instance_uid, s.storing_ae, s.patient_class,
-                       s.patient_location,
-                       UPPER(TRIM(s.rep_prelim_signed_by)) AS signer, s.rep_prelim_timestamp AS sign_time
-                FROM etl_didb_studies s
-                WHERE s.rep_prelim_signed_by IS NOT NULL AND s.rep_prelim_timestamp IS NOT NULL
-                  AND s.study_date BETWEEN :start AND :end
-                UNION ALL
-                SELECT s.study_db_uid, s.study_instance_uid, s.storing_ae, s.patient_class,
-                       s.patient_location,
-                       UPPER(TRIM(s.rep_study_last_composed_by)) AS signer, s.rep_study_last_composed_ts AS sign_time
-                FROM etl_didb_studies s
-                WHERE s.rep_study_last_composed_by IS NOT NULL AND s.rep_study_last_composed_ts IS NOT NULL
-                  AND s.study_date BETWEEN :start AND :end
-            ),
-            classified AS (
-                SELECT
-                    se.*,
-                    rl.role,
-                    COALESCE(m.modality, es.study_modality, 'Unknown') AS modality,
-                    CASE
-                        WHEN se.patient_location = 'ER' THEN 'ER'
-                        WHEN se.patient_class = 'I' THEN 'Inpatient'
-                        WHEN se.patient_class = 'O' THEN 'Outpatient'
-                        ELSE 'Other'
-                    END AS patient_class_bucket,
-                    EXTRACT(EPOCH FROM (se.sign_time - p.exam_done_time)) / 3600.0 AS tat_hours
-                FROM signed_events se
-                JOIN pps_done p ON p.study_instance_uid = se.study_instance_uid
-                JOIN etl_didb_studies es ON es.study_db_uid = se.study_db_uid
-                LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(se.storing_ae))
-                LEFT JOIN role_lookup rl ON rl.login_id = SPLIT_PART(se.signer, '@', 1)
-                WHERE se.sign_time > p.exam_done_time
-                  AND COALESCE(m.modality, es.study_modality, '') NOT IN ('SR', 'PACS')
-                  {site_clause}
-            )
-            SELECT
-                COALESCE(role, '__unclassified__') AS role, modality, patient_class_bucket,
-                COUNT(*) AS n,
-                ROUND(AVG(tat_hours)::numeric, 2) AS avg_tat_h,
-                ROUND((PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY tat_hours))::numeric, 2) AS median_tat_h,
-                COUNT(*) FILTER (WHERE tat_hours <= 3)                   AS bucket_0_3h,
-                COUNT(*) FILTER (WHERE tat_hours > 3 AND tat_hours <= 5) AS bucket_3_5h,
-                COUNT(*) FILTER (WHERE tat_hours > 5)                    AS bucket_5h_plus
-            FROM classified
-            GROUP BY role, modality, patient_class_bucket
-            ORDER BY role, modality, patient_class_bucket
-        """), params).mappings().fetchall()
-
-        for r in rows:
-            row = dict(r)
-            role = row.pop("role")
-            if role == "radiologists":
-                result["radiologists"].append(row)
-            elif role == "residents":
-                result["residents"].append(row)
-            else:
-                result["unclassified_count"] += row["n"]
+        rows = db.session.execute(text(sql), params).mappings().fetchall()
     except Exception:
-        logger.exception("Failed to compute resident/radiologist TAT")
+        logger.exception(f"Failed to compute technician efficiency ({anchor} anchor)")
         db.session.rollback()
+    return [dict(r) for r in rows]
 
-    return result
 
-
-def get_patient_wait_time(form_data):
+def get_technician_efficiency(form_data):
     """
-    Patient wait time (arrived -> exam done) per modality per patient class
-    (Inpatient/Outpatient/ER).
+    Technician Efficiency (arrived -> exam done) per AE title per modality per
+    patient class (Inpatient/Outpatient/ER), actual duration vs. the
+    procedure_duration_map expected duration side by side (operator instruction
+    2026-07-31: renamed from "Patient Wait Time" -- that name now means Scheduled ->
+    Arrived instead, see get_patient_wait_time).
 
     "Arrived" comes from std_worklist_arrivals (RIS WORKLIST_STATUS_HISTORY,
-    status_key=60 "Arrived"), NOT hl7_orders.arrived_at -- that column was built for
-    this exact purpose but is empty, since it depends on the live HL7 ORM feed from
-    R2I, which isn't flowing yet.
+    status_key=60), NOT hl7_orders.arrived_at -- that column was built for this exact
+    purpose but is empty, since it depends on the live HL7 ORM feed from R2I, which
+    isn't flowing yet.
 
     IMPORTANT CAVEAT (operator, 2026-07-31): for Inpatient orders this is normal
     workflow, not a data bug -- staff set "Arrived" well before the actual exam
     specifically to trigger the DICOM Modality Worklist (so the device/portable unit
     can pull the order), then mark the study done once they return with images. So
-    Inpatient wait time here reflects order-to-DMWL-trigger-to-completion lag, not
-    literal waiting-room time the way it does for Outpatient/ER. Surfaced with a
-    caveat in the UI rather than excluded, per operator instruction.
-    """
-    go_live = get_etl_cutoff_date()
-    start = form_data.get("start_date") or (go_live.strftime("%Y-%m-%d") if go_live else "2024-01-01")
-    end = form_data.get("end_date") or date.today().strftime("%Y-%m-%d")
-    params = {"start": start, "end": end}
+    Inpatient numbers here reflect order-to-DMWL-trigger-to-completion lag, not
+    literal exam duration the way it does for Outpatient/ER. Surfaced with a caveat
+    in the UI rather than excluded, per operator instruction.
 
-    rh_site_id = default_site()
-    site_clause = ""
-    if rh_site_id is not None:
-        params["rh_site_id"] = rh_site_id
-        site_clause = "AND m.site_id = :rh_site_id"
+    Two anchor variants for "exam done" (see _resident_radiologist_tat_variant's
+    docstring for the same ris/pacs split) -- "ris" (WORKLIST_STATUS_HISTORY
+    status_key=100) is default/primary, "pacs" (insert_time, "PACS end time
+    calculation") is the toggle alternative. Full left-sidebar filter set applies
+    (see _sidebar_filters).
+
+    Returns {"ris": [...], "pacs": [...]}, each a flat list of per-(aetitle,
+    modality, patient_class_bucket) rows.
+    """
+    params, filter_clause, _start, _end = _sidebar_filters(form_data)
+    return {
+        "ris": _technician_efficiency_variant(params, filter_clause, "ris"),
+        "pacs": _technician_efficiency_variant(params, filter_clause, "pacs"),
+    }
+
+
+def get_patient_wait_time(form_data):
+    """
+    Patient Wait Time (Scheduled -> Arrived) per modality per patient class
+    (Inpatient/Outpatient/ER) -- redefined 2026-07-31 (operator instruction); the OLD
+    Patient Wait Time (Arrived -> Exam Done) is now Technician Efficiency, see
+    get_technician_efficiency.
+
+    Both ends are RIS status transitions off WORKLIST_STATUS_HISTORY:
+    "Scheduled" (status_key=40 -> std_worklist_scheduled, ETL_JOBS/etl_ris_worklist_scheduled.py)
+    and "Arrived" (status_key=60 -> std_worklist_arrivals), joined via std_pps.pps_key
+    -> study_instance_uid -> etl_didb_studies. No PACS has no equivalent concept of a
+    scheduling status, so there is no RIS/PACS toggle for this one.
+
+    Full left-sidebar filter set applies (see _sidebar_filters).
+    """
+    params, filter_clause, _start, _end = _sidebar_filters(form_data)
 
     rows = []
     try:
         rows = db.session.execute(text(f"""
-            WITH pps_done AS (
-                SELECT study_instance_uid, MAX(end_datetime) AS exam_done_time
-                FROM std_pps
-                WHERE end_datetime IS NOT NULL AND study_instance_uid IS NOT NULL
-                GROUP BY study_instance_uid
+            WITH scheduled AS (
+                SELECT p.study_instance_uid, MIN(sc.scheduled_at) AS scheduled_at
+                FROM std_worklist_scheduled sc
+                JOIN std_pps p ON p.pps_key = sc.pps_key
+                WHERE p.study_instance_uid IS NOT NULL
+                GROUP BY p.study_instance_uid
             ),
-            pps_arrival AS (
+            arrival AS (
                 SELECT p.study_instance_uid, MIN(wa.arrived_at) AS arrived_at
                 FROM std_worklist_arrivals wa
                 JOIN std_pps p ON p.pps_key = wa.pps_key
@@ -404,15 +595,15 @@ def get_patient_wait_time(form_data):
                         WHEN s.patient_class = 'O' THEN 'Outpatient'
                         ELSE 'Other'
                     END AS patient_class_bucket,
-                    EXTRACT(EPOCH FROM (pd.exam_done_time - pa.arrived_at)) / 60.0 AS wait_minutes
+                    EXTRACT(EPOCH FROM (ar.arrived_at - sc.scheduled_at)) / 60.0 AS wait_minutes
                 FROM etl_didb_studies s
-                JOIN pps_done pd ON pd.study_instance_uid = s.study_instance_uid
-                JOIN pps_arrival pa ON pa.study_instance_uid = s.study_instance_uid
+                JOIN scheduled sc ON sc.study_instance_uid = s.study_instance_uid
+                JOIN arrival ar ON ar.study_instance_uid = s.study_instance_uid
                 LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
-                WHERE pd.exam_done_time > pa.arrived_at
+                WHERE ar.arrived_at > sc.scheduled_at
                   AND s.study_date BETWEEN :start AND :end
                   AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'PACS')
-                  {site_clause}
+                  {filter_clause}
             )
             SELECT
                 modality, patient_class_bucket,
@@ -431,6 +622,165 @@ def get_patient_wait_time(form_data):
         db.session.rollback()
 
     return [dict(r) for r in rows]
+
+
+def _tat_anchor_result_shell():
+    return {"summary": {"n": 0, "avg_tat_h": None, "median_tat_h": None}, "matrix": [], "trend": []}
+
+
+_TAT_ANCHOR_SUMMARY_SQL = """
+    SELECT
+        COUNT(*) AS n,
+        ROUND(AVG(tat_hours)::numeric, 2) AS avg_tat_h,
+        ROUND((PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY tat_hours))::numeric, 2) AS median_tat_h
+    FROM tat
+"""
+_TAT_ANCHOR_MATRIX_SQL = """
+    SELECT
+        modality, patient_class_bucket,
+        COUNT(*) AS n,
+        ROUND(AVG(tat_hours)::numeric, 2) AS avg_tat_h,
+        ROUND((PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY tat_hours))::numeric, 2) AS median_tat_h,
+        COUNT(*) FILTER (WHERE tat_hours <= 3)                   AS bucket_0_3h,
+        COUNT(*) FILTER (WHERE tat_hours > 3 AND tat_hours <= 5) AS bucket_3_5h,
+        COUNT(*) FILTER (WHERE tat_hours > 5)                    AS bucket_5h_plus
+    FROM tat
+    GROUP BY modality, patient_class_bucket
+    ORDER BY modality, patient_class_bucket
+"""
+_TAT_ANCHOR_TREND_SQL = """
+    SELECT
+        study_date AS day,
+        COUNT(*) AS n,
+        ROUND(AVG(tat_hours)::numeric, 2) AS avg_tat_h,
+        ROUND((PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY tat_hours))::numeric, 2) AS median_tat_h
+    FROM tat
+    GROUP BY study_date
+    ORDER BY study_date
+"""
+
+
+def _run_tat_anchor_queries(base_cte, params, log_label):
+    result = _tat_anchor_result_shell()
+    try:
+        summary_row = db.session.execute(text(base_cte + _TAT_ANCHOR_SUMMARY_SQL), params).mappings().fetchone()
+        if summary_row:
+            result["summary"] = dict(summary_row)
+
+        matrix_rows = db.session.execute(text(base_cte + _TAT_ANCHOR_MATRIX_SQL), params).mappings().fetchall()
+        result["matrix"] = [dict(r) for r in matrix_rows]
+
+        trend_rows = db.session.execute(text(base_cte + _TAT_ANCHOR_TREND_SQL), params).mappings().fetchall()
+        result["trend"] = [
+            {**dict(r), "day": r["day"].strftime("%Y-%m-%d") if r["day"] else None}
+            for r in trend_rows
+        ]
+    except Exception:
+        logger.exception(f"Failed to compute {log_label} TAT")
+        db.session.rollback()
+    return result
+
+
+def get_tat_pacs_insert_time(form_data):
+    """
+    TAT (insert -> signed) anchored on PACS etl_didb_studies.insert_time — the
+    ingestion timestamp PACS itself stamps on the study row (ETL_JOBS/etl_didb_studies.py,
+    Oracle DIDB_STUDIES.INSERT_TIME), NOT the ETL's own last_update sync time.
+
+    Companion to get_tat_ris_exam_done — same shape (summary/matrix/trend), a
+    different start-of-clock anchor, for the "PACS vs RIS" TAT comparison tab.
+    This is the anchor validated 2026-07-31 as the fix for report_template's
+    study_date-is-midnight TAT bug (see project memory), reused here per-study
+    for a fuller breakdown than report_template exposes.
+
+    RH only (same site-scope reasoning as get_gold_standard_data: raw PACS
+    SITE_ID has a known SJH mislabeling bug, so site comes from the device via
+    aetitle_modality_map, not etl_didb_studies directly) — SJH is excluded per
+    operator instruction (2026-07-31): SJH images route through a PACS-side
+    middleware/gateway before landing in the PACS DB this app queries, so
+    PACS-side timestamps for SJH aren't trustworthy from here, and SJH itself
+    is phase 2 (out of scope for now). SJH TAT calculations belong on the SJH
+    PACS server directly, not this comparison.
+
+    Full left-sidebar filter set applies (see _sidebar_filters) — every chart on
+    this page must follow date range/class/modality/AE/location, not just dates.
+    """
+    params, filter_clause, _start, _end = _sidebar_filters(form_data)
+
+    base_cte = f"""
+        WITH tat AS (
+            SELECT
+                s.study_db_uid,
+                s.study_date,
+                COALESCE(m.modality, s.study_modality, 'Unknown') AS modality,
+                CASE
+                    WHEN s.patient_location = 'ER' THEN 'ER'
+                    WHEN s.patient_class = 'I' THEN 'Inpatient'
+                    WHEN s.patient_class = 'O' THEN 'Outpatient'
+                    ELSE 'Other'
+                END AS patient_class_bucket,
+                EXTRACT(EPOCH FROM (COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) - s.insert_time)) / 3600.0 AS tat_hours
+            FROM etl_didb_studies s
+            LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
+            WHERE s.study_date BETWEEN :start AND :end
+              AND s.insert_time IS NOT NULL
+              AND COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) IS NOT NULL
+              AND COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) > s.insert_time
+              AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'PACS')
+              {filter_clause}
+        )
+    """
+    return _run_tat_anchor_queries(base_cte, params, "PACS insert_time")
+
+
+def get_tat_ris_exam_done(form_data):
+    """
+    TAT (exam done -> signed) anchored on the RIS's own "Exam Done" status
+    transition — WORKLIST_STATUS_HISTORY status_key=100, ETL'd via
+    ETL_JOBS/etl_ris_worklist_exam_done.py into std_worklist_exam_done, joined
+    through std_pps.pps_key -> study_instance_uid -> etl_didb_studies (same
+    join path as get_patient_wait_time's arrivals CTE).
+
+    Companion to get_tat_pacs_insert_time — same shape, a RIS-side anchor
+    instead of the PACS insert_time proxy. Same RH-only scope and SJH
+    exclusion reasoning (see that function's docstring) — RIS is LAUMC-wide
+    (both RH and SJH), so the site filter still needs to apply here too.
+
+    Full left-sidebar filter set applies (see _sidebar_filters).
+    """
+    params, filter_clause, _start, _end = _sidebar_filters(form_data)
+
+    base_cte = f"""
+        WITH exam_done_ris AS (
+            SELECT p.study_instance_uid, MAX(ed.exam_done_at) AS exam_done_time
+            FROM std_worklist_exam_done ed
+            JOIN std_pps p ON p.pps_key = ed.pps_key
+            WHERE p.study_instance_uid IS NOT NULL
+            GROUP BY p.study_instance_uid
+        ),
+        tat AS (
+            SELECT
+                s.study_db_uid,
+                s.study_date,
+                COALESCE(m.modality, s.study_modality, 'Unknown') AS modality,
+                CASE
+                    WHEN s.patient_location = 'ER' THEN 'ER'
+                    WHEN s.patient_class = 'I' THEN 'Inpatient'
+                    WHEN s.patient_class = 'O' THEN 'Outpatient'
+                    ELSE 'Other'
+                END AS patient_class_bucket,
+                EXTRACT(EPOCH FROM (COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) - ed.exam_done_time)) / 3600.0 AS tat_hours
+            FROM etl_didb_studies s
+            JOIN exam_done_ris ed ON ed.study_instance_uid = s.study_instance_uid
+            LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
+            WHERE s.study_date BETWEEN :start AND :end
+              AND COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) IS NOT NULL
+              AND COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) > ed.exam_done_time
+              AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'PACS')
+              {filter_clause}
+        )
+    """
+    return _run_tat_anchor_queries(base_cte, params, "RIS exam_done")
 
 
 def get_gold_standard_data(form_data):
@@ -1517,6 +1867,9 @@ def report_25():
     kpi_data       = None
     res_rad_tat    = None
     wait_time_data = None
+    tech_efficiency_data = None
+    tat_pacs_data  = None
+    tat_ris_data   = None
 
     if run_report:
         from utils.audit import log_event
@@ -1527,6 +1880,9 @@ def report_25():
         kpi_data = get_kpi_detailed_reading(request.values)
         res_rad_tat = get_resident_radiologist_tat(request.values)
         wait_time_data = get_patient_wait_time(request.values)
+        tech_efficiency_data = get_technician_efficiency(request.values)
+        tat_pacs_data = get_tat_pacs_insert_time(request.values)
+        tat_ris_data = get_tat_ris_exam_done(request.values)
 
         # NOTE: Patient Journey used to be built inline here from a `fallback_id`
         # request param, joining etl_didb_studies to etl_patient_view on
@@ -1547,7 +1903,7 @@ def report_25():
 
         template_data = {k: v for k, v in data.items() if k != 'raw_df'} if data else None
 
-    return render_template("report_25.html", data=template_data, kpi_data=kpi_data, res_rad_tat=res_rad_tat, wait_time_data=wait_time_data, display_start=display_start, display_end=display_end, classes=classes, locations=locations, modalities=modalities, aetitles=aetitles, tree_json=tree_json, journey_json=journey_json, run_report=run_report, active_tab=active_tab, shift_config=shift_config)
+    return render_template("report_25.html", data=template_data, kpi_data=kpi_data, res_rad_tat=res_rad_tat, wait_time_data=wait_time_data, tech_efficiency_data=tech_efficiency_data, tat_pacs_data=tat_pacs_data, tat_ris_data=tat_ris_data, display_start=display_start, display_end=display_end, classes=classes, locations=locations, modalities=modalities, aetitles=aetitles, tree_json=tree_json, journey_json=journey_json, run_report=run_report, active_tab=active_tab, shift_config=shift_config)
 
 @report_25_bp.route("/report/25/export", methods=["POST"])
 @login_required

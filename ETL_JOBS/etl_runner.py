@@ -48,11 +48,17 @@ Execution phases (in order):
              security groups, e.g. "radiologists"/"residents". PACS-side, same Oracle
              connection as Phase 1; the reliable role source, unlike RIS's
              resource_role_key — see etl_ris_resources.py's docstring)
-  Phase 17 — RIS Worklist Arrivals (LAUMC: WORKLIST_STATUS_HISTORY [status_key=60,
-             "Arrived"] ⋈ SITE_WORKLIST -> std_worklist_arrivals — real patient-arrival
-             timestamps from RIS's own status-transition audit log, not the still-empty
-             hl7_orders.arrived_at, which depends on R2I's live HL7 ORM feed; skipped
-             unless a RIS db_params source is configured)
+  Phase 17 — RIS Worklist Status Events (LAUMC: WORKLIST_STATUS_HISTORY ⋈ SITE_WORKLIST,
+             three sub-steps sharing the same table/source — arrivals [status_key=60,
+             "Arrived"] -> std_worklist_arrivals, real patient-arrival timestamps from
+             RIS's own status-transition audit log, not the still-empty
+             hl7_orders.arrived_at (depends on R2I's live HL7 ORM feed); exam_done
+             [status_key=100, "Exam Done"] -> std_worklist_exam_done, a RIS-side "exam
+             done" anchor for the PACS-vs-RIS TAT comparison (report_25), as opposed to
+             etl_didb_studies.insert_time (PACS ingestion proxy) or std_pps.end_datetime
+             (MPPS event); scheduled [status_key=40, "Scheduled"] -> std_worklist_scheduled,
+             feeds the redefined "Patient Wait Time" (Scheduled -> Arrived); skipped unless
+             a RIS db_params source is configured)
 
 Triggered by APScheduler in app.py or manually via `python app.py -m`.
 """
@@ -95,6 +101,8 @@ from etl_ris_modality_availability import (
 )
 from etl_pacs_user_groups     import run_pacs_user_groups_etl
 from etl_ris_worklist_arrivals import run_ris_worklist_arrivals_etl
+from etl_ris_worklist_exam_done import run_ris_worklist_exam_done_etl
+from etl_ris_worklist_scheduled import run_ris_worklist_scheduled_etl
 
 logger = logging.getLogger("ETL_WORKER")
 
@@ -142,7 +150,7 @@ _PHASE_LABELS = {
     '14': ('RIS PPS',            'Oracle RIS: PPS + STATUS + PROCEDURE_PRIORITY + DICTATION + SITE_PPS -> std_pps and friends + STUDY_INSTANCE_UID<->PACS join test — moderate/heavy (LAUMC)'),
     '15': ('RIS Modality Availability', 'Oracle RIS: SCHEDULE_SCHEME + AVAILABILITY_INDICATOR + MODALITY_AVAIL_EXCEPTION + SCHEDULE_TEMPLATE_ITEM -> std_schedule_schemes / std_availability_indicators / std_modality_exceptions / std_schedule_template_items (device utilization denominator) — light (LAUMC)'),
     '16': ('PACS User Groups',   'Oracle PACS: MEDILINK.SECM_USERS/SECM_GROUPS/SECM_USER_IN_GROUP -> std_pacs_user_groups (reading-permission groups, e.g. radiologists/residents) — light (LAUMC)'),
-    '17': ('RIS Worklist Arrivals', 'Oracle RIS: WORKLIST_STATUS_HISTORY + SITE_WORKLIST -> std_worklist_arrivals (real patient-arrival timestamps) — light (LAUMC)'),
+    '17': ('RIS Worklist Status Events', 'Oracle RIS: WORKLIST_STATUS_HISTORY + SITE_WORKLIST -> std_worklist_arrivals (status_key=60 Arrived) + std_worklist_exam_done (status_key=100 Exam Done) + std_worklist_scheduled (status_key=40 Scheduled) — light (LAUMC)'),
 }
 
 
@@ -616,9 +624,10 @@ def _perform_migration(engine):
                 _phase_failures.append("16 (PACS User Groups)")
                 logger.error(f"🛑 Phase 16 (PACS User Groups) failed — continuing to next phase: {_e}", exc_info=True)
 
-        # ── PHASE 17: RIS Worklist Arrivals (real patient-arrival timestamps —
-        #     WORKLIST_STATUS_HISTORY status_key=60 "Arrived", not the still-empty
-        #     hl7_orders.arrived_at, which depends on R2I's live ORM feed) ────────
+        # ── PHASE 17: RIS Worklist Status Events — arrivals (status_key=60) +
+        #     exam_done (status_key=100), both off WORKLIST_STATUS_HISTORY ⋈
+        #     SITE_WORKLIST. Sub-steps isolated same as Phase 14: one status_key's
+        #     job failing must not silently leave the other's table unrefreshed ──
         if _confirm_phase(17):
             with engine.connect() as _c:
                 _ris_ok = _c.execute(
@@ -630,13 +639,24 @@ def _perform_migration(engine):
                     f"named '{ris_src}' (or set RAYD_RIS_SOURCE) pointing at the RIS Oracle."
                 )
             else:
-                logger.info("📋 Phase 17: RIS Worklist Arrivals")
-                try:
-                    run_ris_worklist_arrivals_etl(engine, ris_src)
+                logger.info("📋 Phase 17: RIS Worklist Status Events")
+                _phase17_substeps = [
+                    ("arrivals",  lambda: run_ris_worklist_arrivals_etl(engine, ris_src)),
+                    ("exam_done", lambda: run_ris_worklist_exam_done_etl(engine, ris_src)),
+                    ("scheduled", lambda: run_ris_worklist_scheduled_etl(engine, ris_src)),
+                ]
+                _phase17_failed = []
+                for _name, _fn in _phase17_substeps:
+                    try:
+                        _fn()
+                    except Exception as _e:
+                        _phase17_failed.append(_name)
+                        logger.error(f"🛑 Phase 17 sub-step '{_name}' failed — continuing to next sub-step: {_e}", exc_info=True)
+                if _phase17_failed:
+                    _phase_failures.append(f"17 (RIS Worklist Status Events: {', '.join(_phase17_failed)})")
+                    logger.warning(f"⚠️  Phase 17 finished with sub-step failures: {', '.join(_phase17_failed)}")
+                else:
                     logger.info("✅ Phase 17 done")
-                except Exception as _e:
-                    _phase_failures.append("17 (RIS Worklist Arrivals)")
-                    logger.error(f"🛑 Phase 17 (RIS Worklist Arrivals) failed — continuing to next phase: {_e}", exc_info=True)
 
         # ── Mark overall sync SUCCESS (or PARTIAL if any phase failed but the
         # run still made it to the end — each phase is now isolated by its own

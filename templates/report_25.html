@@ -170,6 +170,7 @@
                 <div onclick="switchTab('efficiency')"  class="tab-btn" id="btn-efficiency">Efficiency Intel</div>
                 <div onclick="switchTab('technicians')"    class="tab-btn" id="btn-technicians">Technicians</div>
                 <div onclick="switchTab('journey')"       class="tab-btn" id="btn-journey">Patient Journey</div>
+                <div onclick="switchTab('tat-anchor')"    class="tab-btn" id="btn-tat-anchor">TAT: PACS vs RIS</div>
 
             </nav>
 
@@ -612,12 +613,21 @@
 
                 <!-- ── Resident vs Radiologist TAT ─────────────────────────── -->
                 <p class="section-desc mt-8">
-                    Resident vs. Radiologist TAT (exam-done to signature) per modality per patient class. Role
-                    comes from real PACS reading-permission group membership, not a stage-based guess — every
-                    signed event (prelim and final) is attributed to whoever actually signed it.
+                    Resident vs. Radiologist TAT (exam-done to signature) per resident, per modality, per patient
+                    class. Role comes from real PACS reading-permission group membership, not a stage-based guess —
+                    every signed event (prelim and final) is attributed to whoever actually signed it.
                 </p>
 
-                {% if res_rad_tat and (res_rad_tat.residents or res_rad_tat.radiologists) %}
+                {% if res_rad_tat and (res_rad_tat.ris.residents or res_rad_tat.ris.radiologists or res_rad_tat.pacs.residents or res_rad_tat.pacs.radiologists) %}
+                <div class="flex items-center gap-2 mb-3">
+                    <span class="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Exam Done Anchor:</span>
+                    <div id="res-rad-anchor-toggle" style="display:inline-flex;border:1px solid #3f3f46;border-radius:6px;overflow:hidden;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;">
+                        <button id="res-rad-anchor-btn-ris" onclick="r25SetResRadAnchor('ris')"
+                            style="padding:4px 12px;background:rgba(52,211,153,0.15);color:#34d399;border:none;cursor:pointer;">RIS Exam Done</button>
+                        <button id="res-rad-anchor-btn-pacs" onclick="r25SetResRadAnchor('pacs')"
+                            style="padding:4px 12px;background:transparent;color:#71717a;border:none;cursor:pointer;">PACS End Time Calculation</button>
+                    </div>
+                </div>
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     <div class="glass-card">
                         <div class="chart-card-header">
@@ -636,6 +646,7 @@
                             <table class="w-full text-[10px] border-collapse whitespace-nowrap">
                                 <thead>
                                     <tr class="text-zinc-500 uppercase text-[9px]">
+                                        <th class="text-left py-1 pr-3 font-black">Resident</th>
                                         <th class="text-left py-1 pr-3 font-black">Modality</th>
                                         <th class="text-left py-1 pr-3 font-black">Class</th>
                                         <th class="text-right py-1 px-2 font-black">N</th>
@@ -646,20 +657,7 @@
                                         <th class="text-right py-1 pl-2 font-black">5h+</th>
                                     </tr>
                                 </thead>
-                                <tbody>
-                                    {% for row in res_rad_tat.residents %}
-                                    <tr class="border-t border-white/5">
-                                        <td class="py-1 pr-3 text-zinc-300">{{ row.modality }}</td>
-                                        <td class="py-1 pr-3 text-zinc-400">{{ row.patient_class_bucket }}</td>
-                                        <td class="py-1 px-2 text-right font-mono text-zinc-400">{{ row.n }}</td>
-                                        <td class="py-1 px-2 text-right font-mono text-zinc-400">{{ row.avg_tat_h }}</td>
-                                        <td class="py-1 px-2 text-right font-mono text-white font-bold">{{ row.median_tat_h }}</td>
-                                        <td class="py-1 px-2 text-right font-mono text-zinc-500">{{ row.bucket_0_3h }}</td>
-                                        <td class="py-1 px-2 text-right font-mono text-zinc-500">{{ row.bucket_3_5h }}</td>
-                                        <td class="py-1 pl-2 text-right font-mono text-zinc-500">{{ row.bucket_5h_plus }}</td>
-                                    </tr>
-                                    {% endfor %}
-                                </tbody>
+                                <tbody id="res-tat-tbody"></tbody>
                             </table>
                         </div>
                     </div>
@@ -681,6 +679,7 @@
                             <table class="w-full text-[10px] border-collapse whitespace-nowrap">
                                 <thead>
                                     <tr class="text-zinc-500 uppercase text-[9px]">
+                                        <th class="text-left py-1 pr-3 font-black">Radiologist</th>
                                         <th class="text-left py-1 pr-3 font-black">Modality</th>
                                         <th class="text-left py-1 pr-3 font-black">Class</th>
                                         <th class="text-right py-1 px-2 font-black">N</th>
@@ -691,34 +690,18 @@
                                         <th class="text-right py-1 pl-2 font-black">5h+</th>
                                     </tr>
                                 </thead>
-                                <tbody>
-                                    {% for row in res_rad_tat.radiologists %}
-                                    <tr class="border-t border-white/5">
-                                        <td class="py-1 pr-3 text-zinc-300">{{ row.modality }}</td>
-                                        <td class="py-1 pr-3 text-zinc-400">{{ row.patient_class_bucket }}</td>
-                                        <td class="py-1 px-2 text-right font-mono text-zinc-400">{{ row.n }}</td>
-                                        <td class="py-1 px-2 text-right font-mono text-zinc-400">{{ row.avg_tat_h }}</td>
-                                        <td class="py-1 px-2 text-right font-mono text-white font-bold">{{ row.median_tat_h }}</td>
-                                        <td class="py-1 px-2 text-right font-mono text-zinc-500">{{ row.bucket_0_3h }}</td>
-                                        <td class="py-1 px-2 text-right font-mono text-zinc-500">{{ row.bucket_3_5h }}</td>
-                                        <td class="py-1 pl-2 text-right font-mono text-zinc-500">{{ row.bucket_5h_plus }}</td>
-                                    </tr>
-                                    {% endfor %}
-                                </tbody>
+                                <tbody id="rad-tat-tbody"></tbody>
                             </table>
                         </div>
                     </div>
                 </div>
-                {% if res_rad_tat.unclassified_count %}
-                <p class="text-[9px] text-zinc-600 italic mt-2">{{ res_rad_tat.unclassified_count }} signed events excluded — signer not resolved to a recognized PACS radiologists/residents group.</p>
-                {% endif %}
+                <p id="res-rad-unclassified-note" class="text-[9px] text-zinc-600 italic mt-2"></p>
 
                 <script>
                 (function(){
                     const RES_RAD_TAT = {{ (res_rad_tat or {}) | tojson }};
+                    let resRadAnchor = 'ris';
 
-                    // Local helper — the shared _r25DownloadCsv lives inside a different
-                    // IIFE further down the page and isn't reachable from here.
                     function _downloadCsv(csv, filename) {
                         const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
                         const url  = URL.createObjectURL(blob);
@@ -728,16 +711,54 @@
                         document.body.removeChild(a); URL.revokeObjectURL(url);
                     }
 
+                    function _rowsHtml(rows) {
+                        return rows.map(r => `
+                            <tr class="border-t border-white/5">
+                                <td class="py-1 pr-3 text-zinc-300">${r.resident_name ?? ''}</td>
+                                <td class="py-1 pr-3 text-zinc-300">${r.modality ?? ''}</td>
+                                <td class="py-1 pr-3 text-zinc-400">${r.patient_class_bucket ?? ''}</td>
+                                <td class="py-1 px-2 text-right font-mono text-zinc-400">${r.n ?? ''}</td>
+                                <td class="py-1 px-2 text-right font-mono text-zinc-400">${r.avg_tat_h ?? ''}</td>
+                                <td class="py-1 px-2 text-right font-mono text-white font-bold">${r.median_tat_h ?? ''}</td>
+                                <td class="py-1 px-2 text-right font-mono text-zinc-500">${r.bucket_0_3h ?? ''}</td>
+                                <td class="py-1 px-2 text-right font-mono text-zinc-500">${r.bucket_3_5h ?? ''}</td>
+                                <td class="py-1 pl-2 text-right font-mono text-zinc-500">${r.bucket_5h_plus ?? ''}</td>
+                            </tr>`).join('');
+                    }
+
+                    function render() {
+                        const bucket = RES_RAD_TAT[resRadAnchor] || {residents: [], radiologists: [], unclassified_count: 0};
+                        document.getElementById('res-tat-tbody').innerHTML = _rowsHtml(bucket.residents || []);
+                        document.getElementById('rad-tat-tbody').innerHTML = _rowsHtml(bucket.radiologists || []);
+                        const note = document.getElementById('res-rad-unclassified-note');
+                        note.textContent = bucket.unclassified_count
+                            ? `${bucket.unclassified_count} signed events excluded — signer not resolved to a recognized PACS radiologists/residents group.`
+                            : '';
+                        const risBtn = document.getElementById('res-rad-anchor-btn-ris');
+                        const pacsBtn = document.getElementById('res-rad-anchor-btn-pacs');
+                        risBtn.style.background = resRadAnchor === 'ris' ? 'rgba(52,211,153,0.15)' : 'transparent';
+                        risBtn.style.color = resRadAnchor === 'ris' ? '#34d399' : '#71717a';
+                        pacsBtn.style.background = resRadAnchor === 'pacs' ? 'rgba(96,165,250,0.15)' : 'transparent';
+                        pacsBtn.style.color = resRadAnchor === 'pacs' ? '#60a5fa' : '#71717a';
+                    }
+
+                    window.r25SetResRadAnchor = function(anchor) {
+                        resRadAnchor = anchor;
+                        render();
+                    };
+
                     window.r25ExportResRadCsv = function(role) {
-                        const rows = RES_RAD_TAT[role] || [];
+                        const rows = (RES_RAD_TAT[resRadAnchor] || {})[role] || [];
                         if (!rows.length) return;
                         const q = v => '"' + String(v==null?'':v).replace(/"/g,'""') + '"';
                         const lines = [
-                            ['Modality','Patient Class','N','Avg TAT (h)','Median TAT (h)','0-3h','3-5h','5h+'].map(q).join(','),
-                            ...rows.map(r => [r.modality, r.patient_class_bucket, r.n, r.avg_tat_h, r.median_tat_h, r.bucket_0_3h, r.bucket_3_5h, r.bucket_5h_plus].map(q).join(','))
+                            ['Resident','Modality','Patient Class','N','Avg TAT (h)','Median TAT (h)','0-3h','3-5h','5h+'].map(q).join(','),
+                            ...rows.map(r => [r.resident_name, r.modality, r.patient_class_bucket, r.n, r.avg_tat_h, r.median_tat_h, r.bucket_0_3h, r.bucket_3_5h, r.bucket_5h_plus].map(q).join(','))
                         ];
-                        _downloadCsv(lines.join('\n'), `${role}_tat_${new Date().toISOString().slice(0,10)}.csv`);
+                        _downloadCsv(lines.join('\n'), `${role}_tat_${resRadAnchor}_${new Date().toISOString().slice(0,10)}.csv`);
                     };
+
+                    render();
                 })();
                 </script>
                 {% elif run_report %}
@@ -747,15 +768,11 @@
                 </div>
                 {% endif %}
 
-                <!-- ── Patient Wait Time (Arrived → Exam Done) ─────────────── -->
+                <!-- ── Patient Wait Time (Scheduled → Arrived) ─────────────── -->
                 <p class="section-desc mt-8">
-                    Patient wait time (arrived to exam done) per modality per patient class. "Arrived" is a real
-                    RIS status-transition timestamp (WORKLIST_STATUS_HISTORY), not scheduled or order time.
-                </p>
-                <p class="text-[9px] text-amber-500/80 italic mb-3">
-                    ⚠ Inpatient orders set "Arrived" early to trigger the DICOM Modality Worklist (normal workflow,
-                    not a data issue) — Inpatient numbers reflect order-to-completion lag, not literal
-                    waiting-room time the way Outpatient/ER do.
+                    Patient wait time (scheduled to arrived) per modality per patient class. Both ends are real RIS
+                    status-transition timestamps (WORKLIST_STATUS_HISTORY) — no PACS equivalent exists for a
+                    scheduling status, so there's no anchor toggle for this chart.
                 </p>
 
                 {% if wait_time_data %}
@@ -788,9 +805,9 @@
                             </thead>
                             <tbody>
                                 {% for row in wait_time_data %}
-                                <tr class="border-t border-white/5 {{ 'opacity-60' if row.patient_class_bucket == 'Inpatient' }}">
+                                <tr class="border-t border-white/5">
                                     <td class="py-1 pr-3 text-zinc-300">{{ row.modality }}</td>
-                                    <td class="py-1 pr-3 text-zinc-400">{{ row.patient_class_bucket }}{{ ' ⚠' if row.patient_class_bucket == 'Inpatient' }}</td>
+                                    <td class="py-1 pr-3 text-zinc-400">{{ row.patient_class_bucket }}</td>
                                     <td class="py-1 px-2 text-right font-mono text-zinc-400">{{ row.n }}</td>
                                     <td class="py-1 px-2 text-right font-mono text-zinc-400">{{ row.avg_wait_min }}</td>
                                     <td class="py-1 px-2 text-right font-mono text-white font-bold">{{ row.median_wait_min }}</td>
@@ -830,6 +847,124 @@
                 <div class="glass-card text-center py-12 text-zinc-600">
                     <i class="bi bi-clock-history text-4xl mb-3 block opacity-40"></i>
                     <p class="italic">No patient wait time data for this range.</p>
+                </div>
+                {% endif %}
+
+                <!-- ── Technician Efficiency (Arrived → Exam Done) ─────────── -->
+                <p class="section-desc mt-8">
+                    Technician efficiency (arrived to exam done) per AE title per modality per patient class —
+                    actual duration next to the procedure_duration_map expected duration.
+                </p>
+                <p class="text-[9px] text-amber-500/80 italic mb-3">
+                    ⚠ Inpatient orders set "Arrived" early to trigger the DICOM Modality Worklist (normal workflow,
+                    not a data issue) — Inpatient numbers reflect order-to-completion lag, not literal exam
+                    duration the way Outpatient/ER do.
+                </p>
+
+                {% if tech_efficiency_data and (tech_efficiency_data.ris or tech_efficiency_data.pacs) %}
+                <div class="flex items-center gap-2 mb-3">
+                    <span class="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Exam Done Anchor:</span>
+                    <div style="display:inline-flex;border:1px solid #3f3f46;border-radius:6px;overflow:hidden;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;">
+                        <button id="tech-eff-anchor-btn-ris" onclick="r25SetTechEffAnchor('ris')"
+                            style="padding:4px 12px;background:rgba(52,211,153,0.15);color:#34d399;border:none;cursor:pointer;">RIS Exam Done</button>
+                        <button id="tech-eff-anchor-btn-pacs" onclick="r25SetTechEffAnchor('pacs')"
+                            style="padding:4px 12px;background:transparent;color:#71717a;border:none;cursor:pointer;">PACS End Time Calculation</button>
+                    </div>
+                </div>
+                <div class="glass-card" id="tech-eff-card">
+                    <div class="chart-card-header">
+                        <span class="chart-card-title">Technician Efficiency</span>
+                        <button onclick="r25ExportTechEffCsv()" title="Export as CSV"
+                            style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #3f3f46;border-radius:6px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;"
+                            onmouseover="this.style.borderColor='#60a5fa';this.style.color='#60a5fa';"
+                            onmouseout="this.style.borderColor='#3f3f46';this.style.color='#71717a';">
+                            <i class="bi bi-download"></i> CSV
+                        </button>
+                        <button class="export-pdf-btn" onclick="exportElemPdf(document.getElementById('tech-eff-table-wrap'),'Technician Efficiency','technician_efficiency')">
+                            <i class="bi bi-file-earmark-pdf"></i> PDF
+                        </button>
+                    </div>
+                    <div id="tech-eff-table-wrap" class="overflow-x-auto">
+                        <table class="w-full text-[10px] border-collapse whitespace-nowrap">
+                            <thead>
+                                <tr class="text-zinc-500 uppercase text-[9px]">
+                                    <th class="text-left py-1 pr-3 font-black">AE Title</th>
+                                    <th class="text-left py-1 pr-3 font-black">Modality</th>
+                                    <th class="text-left py-1 pr-3 font-black">Class</th>
+                                    <th class="text-right py-1 px-2 font-black">N</th>
+                                    <th class="text-right py-1 px-2 font-black">Avg Actual (min)</th>
+                                    <th class="text-right py-1 px-2 font-black">Median Actual (min)</th>
+                                    <th class="text-right py-1 px-2 font-black">Avg Expected (min)</th>
+                                    <th class="text-right py-1 px-2 font-black">0-30m</th>
+                                    <th class="text-right py-1 px-2 font-black">30-60m</th>
+                                    <th class="text-right py-1 pl-2 font-black">60m+</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tech-eff-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <script>
+                (function(){
+                    const TECH_EFF_DATA = {{ (tech_efficiency_data or {}) | tojson }};
+                    let techEffAnchor = 'ris';
+
+                    function _downloadCsv(csv, filename) {
+                        const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+                        const url  = URL.createObjectURL(blob);
+                        const a    = document.createElement('a');
+                        a.href = url; a.download = filename;
+                        document.body.appendChild(a); a.click();
+                        document.body.removeChild(a); URL.revokeObjectURL(url);
+                    }
+
+                    function render() {
+                        const rows = TECH_EFF_DATA[techEffAnchor] || [];
+                        document.getElementById('tech-eff-tbody').innerHTML = rows.map(r => `
+                            <tr class="border-t border-white/5 ${r.patient_class_bucket === 'Inpatient' ? 'opacity-60' : ''}">
+                                <td class="py-1 pr-3 text-zinc-300">${r.aetitle ?? ''}</td>
+                                <td class="py-1 pr-3 text-zinc-300">${r.modality ?? ''}</td>
+                                <td class="py-1 pr-3 text-zinc-400">${r.patient_class_bucket ?? ''}${r.patient_class_bucket === 'Inpatient' ? ' ⚠' : ''}</td>
+                                <td class="py-1 px-2 text-right font-mono text-zinc-400">${r.n ?? ''}</td>
+                                <td class="py-1 px-2 text-right font-mono text-zinc-400">${r.avg_actual_min ?? ''}</td>
+                                <td class="py-1 px-2 text-right font-mono text-white font-bold">${r.median_actual_min ?? ''}</td>
+                                <td class="py-1 px-2 text-right font-mono text-zinc-500">${r.avg_expected_min ?? ''}</td>
+                                <td class="py-1 px-2 text-right font-mono text-zinc-500">${r.bucket_0_30 ?? ''}</td>
+                                <td class="py-1 px-2 text-right font-mono text-zinc-500">${r.bucket_30_60 ?? ''}</td>
+                                <td class="py-1 pl-2 text-right font-mono text-zinc-500">${r.bucket_60_plus ?? ''}</td>
+                            </tr>`).join('');
+                        const risBtn = document.getElementById('tech-eff-anchor-btn-ris');
+                        const pacsBtn = document.getElementById('tech-eff-anchor-btn-pacs');
+                        risBtn.style.background = techEffAnchor === 'ris' ? 'rgba(52,211,153,0.15)' : 'transparent';
+                        risBtn.style.color = techEffAnchor === 'ris' ? '#34d399' : '#71717a';
+                        pacsBtn.style.background = techEffAnchor === 'pacs' ? 'rgba(96,165,250,0.15)' : 'transparent';
+                        pacsBtn.style.color = techEffAnchor === 'pacs' ? '#60a5fa' : '#71717a';
+                    }
+
+                    window.r25SetTechEffAnchor = function(anchor) {
+                        techEffAnchor = anchor;
+                        render();
+                    };
+
+                    window.r25ExportTechEffCsv = function() {
+                        const rows = TECH_EFF_DATA[techEffAnchor] || [];
+                        if (!rows.length) return;
+                        const q = v => '"' + String(v==null?'':v).replace(/"/g,'""') + '"';
+                        const lines = [
+                            ['AE Title','Modality','Patient Class','N','Avg Actual (min)','Median Actual (min)','Avg Expected (min)','0-30m','30-60m','60m+'].map(q).join(','),
+                            ...rows.map(r => [r.aetitle, r.modality, r.patient_class_bucket, r.n, r.avg_actual_min, r.median_actual_min, r.avg_expected_min, r.bucket_0_30, r.bucket_30_60, r.bucket_60_plus].map(q).join(','))
+                        ];
+                        _downloadCsv(lines.join('\n'), `technician_efficiency_${techEffAnchor}_${new Date().toISOString().slice(0,10)}.csv`);
+                    };
+
+                    render();
+                })();
+                </script>
+                {% elif run_report %}
+                <div class="glass-card text-center py-12 text-zinc-600">
+                    <i class="bi bi-clock-history text-4xl mb-3 block opacity-40"></i>
+                    <p class="italic">No technician efficiency data for this range.</p>
                 </div>
                 {% endif %}
 
@@ -1766,6 +1901,171 @@
 
             </div>
 
+            <!-- ── TAT: PACS vs RIS TAB ───────────────────────────────────── -->
+            <div id="tab-tat-anchor" class="tab-content hidden space-y-6">
+
+                <p class="section-desc">
+                    Same TAT (exam &rarr; signed), computed two ways: <strong class="text-blue-400">PACS</strong>
+                    anchors the clock on <code>insert_time</code> (when PACS itself ingested the study — a proxy
+                    for exam time); <strong class="text-emerald-400">RIS</strong> anchors it on the RIS's own
+                    "Exam Done" status transition (<code>WORKLIST_STATUS_HISTORY</code> status_key=100) — the
+                    technologist actually marking the exam complete. RH only — SJH excluded (operator, 2026-07-31):
+                    SJH images route through a PACS-side gateway before landing in the queried PACS DB, so
+                    PACS-side timestamps aren't trustworthy for SJH from here, and SJH is phase 2 anyway.
+                </p>
+
+                {% if tat_pacs_data and tat_pacs_data.summary and tat_pacs_data.summary.n or tat_ris_data and tat_ris_data.summary and tat_ris_data.summary.n %}
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="glass-card">
+                        <p class="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-3">PACS insert_time</p>
+                        <div class="grid grid-cols-3 gap-3">
+                            <div><p class="text-[9px] text-zinc-500 uppercase font-black">Studies</p><p class="text-lg font-black text-white">{{ tat_pacs_data.summary.n }}</p></div>
+                            <div><p class="text-[9px] text-zinc-500 uppercase font-black">Avg TAT</p><p class="text-lg font-black text-white">{{ tat_pacs_data.summary.avg_tat_h }}h</p></div>
+                            <div><p class="text-[9px] text-zinc-500 uppercase font-black">Median TAT</p><p class="text-lg font-black text-white">{{ tat_pacs_data.summary.median_tat_h }}h</p></div>
+                        </div>
+                    </div>
+                    <div class="glass-card">
+                        <p class="text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-3">RIS Exam Done</p>
+                        <div class="grid grid-cols-3 gap-3">
+                            <div><p class="text-[9px] text-zinc-500 uppercase font-black">Studies</p><p class="text-lg font-black text-white">{{ tat_ris_data.summary.n }}</p></div>
+                            <div><p class="text-[9px] text-zinc-500 uppercase font-black">Avg TAT</p><p class="text-lg font-black text-white">{{ tat_ris_data.summary.avg_tat_h }}h</p></div>
+                            <div><p class="text-[9px] text-zinc-500 uppercase font-black">Median TAT</p><p class="text-lg font-black text-white">{{ tat_ris_data.summary.median_tat_h }}h</p></div>
+                        </div>
+                    </div>
+                </div>
+
+                {% if not tat_ris_data.summary.n %}
+                <p class="text-[9px] text-amber-500/80 italic">⚠ No RIS Exam Done data yet — std_worklist_exam_done is populated by ETL_JOBS/etl_ris_worklist_exam_done.py (Phase 17), which needs at least one ETL run since migration 0090 before this side fills in.</p>
+                {% endif %}
+
+                <div class="glass-card">
+                    <div class="chart-card-header">
+                        <span class="chart-card-title">Daily Avg TAT — PACS vs RIS</span>
+                    </div>
+                    <div id="chart-tat-anchor-trend" style="height:280px;"></div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="glass-card">
+                        <div class="chart-card-header">
+                            <span class="chart-card-title" style="color:#60a5fa;">PACS insert_time — by Modality/Class</span>
+                            <button onclick="r25ExportTatAnchorCsv('pacs')" title="Export as CSV"
+                                style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #3f3f46;border-radius:6px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;"
+                                onmouseover="this.style.borderColor='#60a5fa';this.style.color='#60a5fa';"
+                                onmouseout="this.style.borderColor='#3f3f46';this.style.color='#71717a';">
+                                <i class="bi bi-download"></i> CSV
+                            </button>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-[10px] border-collapse whitespace-nowrap">
+                                <thead>
+                                    <tr class="text-zinc-500 uppercase text-[9px]">
+                                        <th class="text-left py-1 pr-3 font-black">Modality</th>
+                                        <th class="text-left py-1 pr-3 font-black">Class</th>
+                                        <th class="text-right py-1 px-2 font-black">N</th>
+                                        <th class="text-right py-1 px-2 font-black">Avg (h)</th>
+                                        <th class="text-right py-1 px-2 font-black">Median (h)</th>
+                                        <th class="text-right py-1 px-2 font-black">0-3h</th>
+                                        <th class="text-right py-1 px-2 font-black">3-5h</th>
+                                        <th class="text-right py-1 pl-2 font-black">5h+</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for row in tat_pacs_data.matrix %}
+                                    <tr class="border-t border-white/5">
+                                        <td class="py-1 pr-3 text-zinc-300">{{ row.modality }}</td>
+                                        <td class="py-1 pr-3 text-zinc-400">{{ row.patient_class_bucket }}</td>
+                                        <td class="py-1 px-2 text-right font-mono text-zinc-400">{{ row.n }}</td>
+                                        <td class="py-1 px-2 text-right font-mono text-zinc-400">{{ row.avg_tat_h }}</td>
+                                        <td class="py-1 px-2 text-right font-mono text-white font-bold">{{ row.median_tat_h }}</td>
+                                        <td class="py-1 px-2 text-right font-mono text-zinc-500">{{ row.bucket_0_3h }}</td>
+                                        <td class="py-1 px-2 text-right font-mono text-zinc-500">{{ row.bucket_3_5h }}</td>
+                                        <td class="py-1 pl-2 text-right font-mono text-zinc-500">{{ row.bucket_5h_plus }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="glass-card">
+                        <div class="chart-card-header">
+                            <span class="chart-card-title" style="color:#34d399;">RIS Exam Done — by Modality/Class</span>
+                            <button onclick="r25ExportTatAnchorCsv('ris')" title="Export as CSV"
+                                style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #3f3f46;border-radius:6px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;"
+                                onmouseover="this.style.borderColor='#34d399';this.style.color='#34d399';"
+                                onmouseout="this.style.borderColor='#3f3f46';this.style.color='#71717a';">
+                                <i class="bi bi-download"></i> CSV
+                            </button>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-[10px] border-collapse whitespace-nowrap">
+                                <thead>
+                                    <tr class="text-zinc-500 uppercase text-[9px]">
+                                        <th class="text-left py-1 pr-3 font-black">Modality</th>
+                                        <th class="text-left py-1 pr-3 font-black">Class</th>
+                                        <th class="text-right py-1 px-2 font-black">N</th>
+                                        <th class="text-right py-1 px-2 font-black">Avg (h)</th>
+                                        <th class="text-right py-1 px-2 font-black">Median (h)</th>
+                                        <th class="text-right py-1 px-2 font-black">0-3h</th>
+                                        <th class="text-right py-1 px-2 font-black">3-5h</th>
+                                        <th class="text-right py-1 pl-2 font-black">5h+</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for row in tat_ris_data.matrix %}
+                                    <tr class="border-t border-white/5">
+                                        <td class="py-1 pr-3 text-zinc-300">{{ row.modality }}</td>
+                                        <td class="py-1 pr-3 text-zinc-400">{{ row.patient_class_bucket }}</td>
+                                        <td class="py-1 px-2 text-right font-mono text-zinc-400">{{ row.n }}</td>
+                                        <td class="py-1 px-2 text-right font-mono text-zinc-400">{{ row.avg_tat_h }}</td>
+                                        <td class="py-1 px-2 text-right font-mono text-white font-bold">{{ row.median_tat_h }}</td>
+                                        <td class="py-1 px-2 text-right font-mono text-zinc-500">{{ row.bucket_0_3h }}</td>
+                                        <td class="py-1 px-2 text-right font-mono text-zinc-500">{{ row.bucket_3_5h }}</td>
+                                        <td class="py-1 pl-2 text-right font-mono text-zinc-500">{{ row.bucket_5h_plus }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <script>
+                (function(){
+                    const TAT_ANCHOR_DATA = {
+                        pacs: {{ (tat_pacs_data.matrix if tat_pacs_data else []) | tojson }},
+                        ris:  {{ (tat_ris_data.matrix if tat_ris_data else []) | tojson }}
+                    };
+                    function _downloadCsv(csv, filename) {
+                        const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+                        const url  = URL.createObjectURL(blob);
+                        const a    = document.createElement('a');
+                        a.href = url; a.download = filename;
+                        document.body.appendChild(a); a.click();
+                        document.body.removeChild(a); URL.revokeObjectURL(url);
+                    }
+                    window.r25ExportTatAnchorCsv = function(anchor) {
+                        const rows = TAT_ANCHOR_DATA[anchor] || [];
+                        if (!rows.length) return;
+                        const q = v => '"' + String(v==null?'':v).replace(/"/g,'""') + '"';
+                        const lines = [
+                            ['Modality','Patient Class','N','Avg TAT (h)','Median TAT (h)','0-3h','3-5h','5h+'].map(q).join(','),
+                            ...rows.map(r => [r.modality, r.patient_class_bucket, r.n, r.avg_tat_h, r.median_tat_h, r.bucket_0_3h, r.bucket_3_5h, r.bucket_5h_plus].map(q).join(','))
+                        ];
+                        _downloadCsv(lines.join('\n'), `tat_anchor_${anchor}_${new Date().toISOString().slice(0,10)}.csv`);
+                    };
+                })();
+                </script>
+                {% elif run_report %}
+                <div class="glass-card text-center py-12 text-zinc-600">
+                    <i class="bi bi-clock-history text-4xl mb-3 block opacity-40"></i>
+                    <p class="italic">No TAT anchor comparison data for this range.</p>
+                </div>
+                {% endif %}
+
+            </div>
+
             <!-- ── FLAG ACK MODAL ─────────────────────────────────────────── -->
             <div id="ack-modal" style="display:none; position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,0.7); backdrop-filter:blur(4px);" class="flex items-center justify-center">
                 <div class="glass-card w-full max-w-md" style="border:1px solid rgba(255,255,255,0.12);">
@@ -2285,6 +2585,8 @@
         // ── Chart rendering ──────────────────────────────────────────────────
         function initCharts() {
             const d = {{ data|tojson|safe if data else "{}" }};
+            const tatAnchorTrendPacs = {{ (tat_pacs_data.trend if tat_pacs_data else []) | tojson }};
+            const tatAnchorTrendRis  = {{ (tat_ris_data.trend if tat_ris_data else []) | tojson }};
             const axisStyle = {
                 axisLabel: { color: '#52525b', fontWeight: 600, fontSize: 12 },
                 splitLine:  { lineStyle: { color: '#1f1f23' } }
@@ -2342,6 +2644,33 @@
                     series: [{ type: 'scatter', data: d.correlation || [], itemStyle: { color: '#60a5fa', opacity: 0.4 }, symbolSize: 6 }]
                 });
                 registerChart('chart-7', c7);
+            }
+
+            // Chart — TAT Anchor Trend (PACS insert_time vs RIS Exam Done, daily avg)
+            if (document.getElementById('chart-tat-anchor-trend') && !$('#tab-tat-anchor').hasClass('hidden')) {
+                const days = Array.from(new Set([
+                    ...tatAnchorTrendPacs.map(r => r.day),
+                    ...tatAnchorTrendRis.map(r => r.day)
+                ])).sort();
+                const pacsByDay = Object.fromEntries(tatAnchorTrendPacs.map(r => [r.day, r.avg_tat_h]));
+                const risByDay  = Object.fromEntries(tatAnchorTrendRis.map(r => [r.day, r.avg_tat_h]));
+                const cTatAnchor = echarts.init(document.getElementById('chart-tat-anchor-trend'));
+                cTatAnchor.setOption({
+                    tooltip: { trigger: 'axis' },
+                    legend: { data: ['PACS insert_time', 'RIS Exam Done'], textStyle: { color: '#71717a', fontSize: 11 }, top: 0 },
+                    grid: { top: 36 },
+                    xAxis: { type: 'category', data: days, ...axisStyle },
+                    yAxis: { type: 'value', name: 'Avg TAT (h)', nameTextStyle: { color: '#52525b', fontSize: 11 }, ...axisStyle },
+                    series: [
+                        { name: 'PACS insert_time', type: 'line', smooth: true, connectNulls: true,
+                          data: days.map(day => pacsByDay[day] ?? null),
+                          lineStyle: { width: 3, color: '#60a5fa' }, itemStyle: { color: '#60a5fa' } },
+                        { name: 'RIS Exam Done', type: 'line', smooth: true, connectNulls: true,
+                          data: days.map(day => risByDay[day] ?? null),
+                          lineStyle: { width: 3, color: '#34d399' }, itemStyle: { color: '#34d399' } }
+                    ]
+                });
+                registerChart('chart-tat-anchor-trend', cTatAnchor);
             }
 
             // ── EFFICIENCY INTEL CHARTS ──────────────────────────────────────
