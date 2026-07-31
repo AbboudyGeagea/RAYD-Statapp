@@ -4,7 +4,13 @@
     <meta charset="UTF-8">
     <title>RAYD | Audit & Comparison</title>
     <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
-    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <!-- Bumped to ECharts 6.x (floating major tag, not pinned to an exact patch --
+         6.0 is new enough that pinning a specific patch risked picking a version
+         that doesn't exist on the CDN) for the Busiest Day/Time matrix component
+         below (matrix coordinate system, ECharts 6.0+ only). Scoped to this page's
+         own <head> -- every other report page still loads echarts@5.4.3 and is
+         unaffected. -->
+    <script src="https://cdn.jsdelivr.net/npm/echarts@6/dist/echarts.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/dark.min.css">
@@ -221,6 +227,36 @@
                 </div>
             </div>
 
+            <!-- Row 1b: Busiest Days -->
+            <div class="data-card flex flex-col hidden" id="busiest-matrix-card">
+                <div class="card-header">
+                    <span>Busiest Day &amp; Time (Weekly Pattern)</span>
+                    <button class="export-png-btn" onclick="exportChart('chart_busiest_matrix', 'busiest_weekly_pattern')">
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                        PNG
+                    </button>
+                </div>
+                <div class="card-desc">
+                    Each cell is a weekday x time-block combination. Background shade shows total order volume for that slot across the whole audit period (darker = busier); the line inside each cell shows how that slot's daily volume moved day-by-day across the period — hover a cell for exact dates and counts.
+                </div>
+                <div id="chart_busiest_matrix" class="p-2"></div>
+            </div>
+
+            <div class="data-card flex flex-col" style="height:340px;">
+                <div class="card-header">
+                    <span>Busiest Day of Month</span>
+                    <button class="export-pdf-btn" onclick="exportChartPdf('chart_dom','Busiest Day of Month','busiest_day_of_month')"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
+                    <button class="export-png-btn" onclick="exportChart('chart_dom', 'busiest_day_of_month')">
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                        PNG
+                    </button>
+                </div>
+                <div class="card-desc">
+                    Number of orders scheduled per calendar day-of-month (1st–31st), summed across every month in the audit period. Recurring spikes (e.g. around the 1st) often track billing/insurance cycles rather than clinical demand.
+                </div>
+                <div id="chart_dom" class="flex-1 p-2"></div>
+            </div>
+
             <!-- Row 2: Demo + Status + AE -->
             <div class="grid grid-cols-3 gap-6">
                 <div class="data-card flex flex-col" style="height:380px;">
@@ -410,6 +446,100 @@
                 }]
             });
             registerChart('chart_ae', cAE);
+
+            // Busiest Day of Month
+            if (raw.busiest && raw.busiest.by_day_of_month) {
+                const domKeys = Object.keys(raw.busiest.by_day_of_month).sort((a, b) => (+a) - (+b));
+                const cDom = echarts.init(document.getElementById('chart_dom'));
+                cDom.setOption({
+                    tooltip: { trigger: 'axis' },
+                    grid: { left: '3%', right: '4%', bottom: '10%', top: '10%', containLabel: true },
+                    xAxis: {
+                        type: 'category', data: domKeys, axisLabel,
+                        name: 'Day of Month', nameTextStyle: { color: '#475569', fontSize: 11 }
+                    },
+                    yAxis: { type: 'value', splitLine, axisLabel, name: 'Orders', nameTextStyle: { color: '#475569', fontSize: 11 } },
+                    series: [{
+                        type: 'bar',
+                        data: domKeys.map(k => raw.busiest.by_day_of_month[k]),
+                        itemStyle: { color: '#a78bfa', borderRadius: [4, 4, 0, 0] }
+                    }]
+                });
+                registerChart('chart_dom', cDom);
+            }
+
+            // Busiest Day & Time matrix — weekday x 2-hour-block grid, one mini
+            // trend-line chart per cell (real daily counts across the audit period),
+            // cell background shaded by that slot's total volume so "busiest" reads
+            // at a glance without needing to study every line. Requires ECharts 6's
+            // matrix coordinate system (see the CDN script tag comment in <head>).
+            if (raw.busiest && raw.busiest.cells && raw.busiest.cells.length && typeof echarts.init === 'function') {
+                const B = raw.busiest;
+                const weekdayLabels = B.weekday_labels;
+                const blockStarts   = B.hour_block_starts;
+                const cellByKey = {};
+                B.cells.forEach(c => { cellByKey[`${c.weekday_idx}|${c.block_idx}`] = c; });
+                const maxTotal = Math.max(1, ...B.cells.map(c => c.total));
+
+                function volumeColor(value) {
+                    const t = Math.min(1, value / maxTotal);
+                    const alpha = 0.06 + 0.70 * t;
+                    return `rgba(96,165,250,${alpha.toFixed(3)})`;
+                }
+
+                const yData = blockStarts.map(h => ({
+                    value: `${String(h).padStart(2, '0')}:00\n~\n${String(h + 2).padStart(2, '0')}:00`
+                }));
+
+                const rowLevelSize = 64;
+                const matrixCard = document.getElementById('busiest-matrix-card');
+                const matrixWrap = document.getElementById('chart_busiest_matrix');
+                matrixWrap.style.height = (140 + yData.length * rowLevelSize) + 'px';
+                matrixCard.classList.remove('hidden');
+
+                const mOption = {
+                    matrix: {
+                        x: { data: weekdayLabels, levelSize: 44, label: { fontSize: 13, color: '#94a3b8' } },
+                        y: { data: yData, levelSize: rowLevelSize, label: { fontSize: 11, color: '#64748b' } },
+                        corner: { data: [{ coord: [-1, -1], value: 'Day / Time' }], label: { fontSize: 11, color: '#475569' } },
+                        top: 30, bottom: 20, width: '92%', left: 'center'
+                    },
+                    tooltip: { trigger: 'axis' },
+                    grid: [], xAxis: [], yAxis: [], series: []
+                };
+
+                blockStarts.forEach((h, yidx) => {
+                    weekdayLabels.forEach((_, xidx) => {
+                        const id = `${xidx}|${yidx}`;
+                        const cell = cellByKey[id] || { total: 0, series: [] };
+                        mOption.grid.push({
+                            id, coordinateSystem: 'matrix', coord: [xidx, yidx],
+                            top: 10, bottom: 10, left: 'center', width: '90%', containLabel: true,
+                            show: true, backgroundColor: volumeColor(cell.total), borderWidth: 0
+                        });
+                        mOption.xAxis.push({
+                            type: 'category', id, gridId: id, scale: true,
+                            axisTick: { show: false }, axisLabel: { show: false },
+                            axisLine: { show: false }, splitLine: { show: false }
+                        });
+                        mOption.yAxis.push({
+                            id, gridId: id, scale: true,
+                            axisLabel: { showMaxLabel: true, fontSize: 9, color: '#64748b' },
+                            axisLine: { show: false }, axisTick: { show: false }
+                        });
+                        mOption.series.push({
+                            xAxisId: id, yAxisId: id, type: 'line', symbol: 'none',
+                            lineStyle: { width: 1.2, color: '#60a5fa' },
+                            data: cell.series,
+                            name: `${weekdayLabels[xidx]} ${h}:00-${h + 2}:00`
+                        });
+                    });
+                });
+
+                const cBusiest = echarts.init(matrixWrap);
+                cBusiest.setOption(mOption);
+                registerChart('chart_busiest_matrix', cBusiest);
+            }
         }
 
         function applyTheme(theme) {

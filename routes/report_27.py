@@ -127,6 +127,55 @@ def report_27():
                 "demo":                      df_a.groupby(['age_group', 'sex'], observed=False).size().unstack(fill_value=0).to_dict('index'),
             }
 
+            # Busiest days (operator instruction 2026-07-31): "Hourly Load" above is
+            # already an aggregate-by-hour profile across the whole period -- this
+            # extends the same idea across two more dimensions. weekday x time-block
+            # matrix for "busiest day of week (and time)", separate day-of-month bar
+            # for "busiest day of month" (day-of-month has no natural second axis to
+            # pair with, unlike weekday x hour, so it doesn't fit the matrix).
+            sched = df_a[['scheduled_datetime']].dropna()
+            if not sched.empty:
+                sched = sched.copy()
+                sched['weekday']  = sched['scheduled_datetime'].dt.dayofweek   # 0=Mon..6=Sun
+                sched['hour']     = sched['scheduled_datetime'].dt.hour
+                sched['cal_date'] = sched['scheduled_datetime'].dt.date
+
+                # 2-hour blocks spanning the REAL observed hour range in this data
+                # (not a hardcoded clinic-hours assumption -- this includes ER, which
+                # can run round the clock).
+                min_hour = int(sched['hour'].min())
+                max_hour = int(sched['hour'].max())
+                block_floor = (min_hour // 2) * 2
+                block_ceil  = (max_hour // 2) * 2 + 2
+                block_starts = list(range(block_floor, block_ceil, 2))
+                sched['block_idx'] = (sched['hour'] - block_floor) // 2
+
+                daily = sched.groupby(['weekday', 'block_idx', 'cal_date']).size().reset_index(name='n')
+                grouped = {key: grp.sort_values('cal_date') for key, grp in daily.groupby(['weekday', 'block_idx'])}
+
+                matrix_cells = []
+                for wd in range(7):
+                    for bi in range(len(block_starts)):
+                        grp = grouped.get((wd, bi))
+                        if grp is not None:
+                            series = [[d.strftime('%Y-%m-%d'), int(n)] for d, n in zip(grp['cal_date'], grp['n'])]
+                            total = int(grp['n'].sum())
+                        else:
+                            series, total = [], 0
+                        matrix_cells.append({
+                            "weekday_idx": wd,
+                            "block_idx":   bi,
+                            "total":       total,
+                            "series":      series,   # [[date_str, count], ...] real calendar dates in range
+                        })
+
+                data['busiest'] = {
+                    "weekday_labels":     ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+                    "hour_block_starts":  block_starts,
+                    "cells":              matrix_cells,
+                    "by_day_of_month":    sched['scheduled_datetime'].dt.day.value_counts().sort_index().to_dict(),
+                }
+
     return render_template("report_27.html", data=data, run_report=run_report,
                            display_start=start_a, display_end=end_a)
 
