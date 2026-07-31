@@ -141,114 +141,6 @@
         <div class="flex-1 overflow-y-auto p-8">
             {% if run_report %}
 
-            <!-- Statistical Insights — rendered immediately (no BG fetch — this page has no
-                 other tabs competing for a fast first paint, unlike report_25) -->
-            <div id="rad-insights-wrapper">
-                <div class="space-y-2 mt-0" id="rad-insights-panel"></div>
-            </div>
-
-            <p class="section-desc mt-6">
-                KPI Detailed Reading — TAT distribution per modality × patient class × radiologist, matching the
-                hospital's own KPI spreadsheet format. Counts, not averages: each cell is how many studies fell
-                in that turnaround-time bucket. Blank = zero. Every modality present in this date range is
-                available below, not just CT.
-            </p>
-
-            {% if kpi_data %}
-            <div class="glass-card">
-                <div class="flex items-center gap-3 mb-4 flex-wrap">
-                    <label class="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Modality</label>
-                    <select id="kpi-modality-select" class="bg-zinc-900 border border-white/10 rounded-lg text-xs font-bold text-white px-3 py-1.5"></select>
-                    <label class="text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-2">Patient Class</label>
-                    <div id="kpi-class-tabs" class="flex gap-1"></div>
-                </div>
-                <div id="kpi-table-container" class="overflow-x-auto"></div>
-            </div>
-            <script>
-            (function(){
-                const KPI_DATA = {{ kpi_data | tojson }};
-                const CLASS_LABELS = {IN: 'Inpatient', Urg: 'Urgent / ER', Out: 'Outpatient'};
-
-                const modalities = [...new Set(KPI_DATA.map(b => b.modality))].sort();
-                const modSelect = document.getElementById('kpi-modality-select');
-                modSelect.innerHTML = modalities.map(m => `<option value="${m}">${m}</option>`).join('');
-
-                let currentModality = modalities[0];
-                let currentClass = null;
-
-                function blocksFor(modality) {
-                    return KPI_DATA.filter(b => b.modality === modality);
-                }
-
-                function renderClassTabs() {
-                    const blocks = blocksFor(currentModality);
-                    const classes = blocks.map(b => b.class_bucket);
-                    if (!classes.includes(currentClass)) currentClass = classes[0];
-                    const tabs = document.getElementById('kpi-class-tabs');
-                    tabs.innerHTML = classes.map(c => `
-                        <button class="kpi-class-btn px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wide transition-colors
-                            ${c === currentClass ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40' : 'bg-zinc-800/60 text-zinc-500 border border-white/5 hover:text-zinc-300'}"
-                            data-class="${c}">${CLASS_LABELS[c] || c}</button>
-                    `).join('');
-                    tabs.querySelectorAll('.kpi-class-btn').forEach(btn => {
-                        btn.addEventListener('click', () => {
-                            currentClass = btn.dataset.class;
-                            renderClassTabs();
-                            renderTable();
-                        });
-                    });
-                }
-
-                function renderTable() {
-                    const block = blocksFor(currentModality).find(b => b.class_bucket === currentClass);
-                    const container = document.getElementById('kpi-table-container');
-                    if (!block) {
-                        container.innerHTML = '<p class="text-xs text-zinc-600 italic py-8 text-center">No data for this modality / patient class in the selected range.</p>';
-                        return;
-                    }
-                    const stageRows = Object.entries(block.stages).map(([stageName, stage]) => {
-                        return stage.radiologists.map((rad, i) => `
-                            <tr class="border-t border-white/5">
-                                ${i === 0 ? `<td class="py-1 pr-3 font-bold text-blue-300 align-top" rowspan="${stage.radiologists.length}">${stageName}</td>` : ''}
-                                <td class="py-1 pr-3 text-zinc-300">${rad.name}</td>
-                                ${block.bucket_labels.map(label => `<td class="py-1 px-2 text-right font-mono text-zinc-400">${rad.counts[label] || ''}</td>`).join('')}
-                                <td class="py-1 pl-3 text-right font-black text-white">${rad.total}</td>
-                            </tr>
-                        `).join('');
-                    }).join('');
-                    container.innerHTML = `
-                        <table class="w-full text-[10px] border-collapse whitespace-nowrap">
-                            <thead>
-                                <tr class="text-zinc-500 uppercase text-[9px]">
-                                    <th class="text-left py-1 pr-3 font-black">Stage</th>
-                                    <th class="text-left py-1 pr-3 font-black">Radiologist</th>
-                                    ${block.bucket_labels.map(label => `<th class="text-right py-1 px-2 font-black">${label}</th>`).join('')}
-                                    <th class="text-right py-1 pl-3 font-black text-white">Total</th>
-                                </tr>
-                            </thead>
-                            <tbody>${stageRows}</tbody>
-                        </table>
-                    `;
-                }
-
-                modSelect.addEventListener('change', () => {
-                    currentModality = modSelect.value;
-                    currentClass = null;
-                    renderClassTabs();
-                    renderTable();
-                });
-
-                renderClassTabs();
-                renderTable();
-            })();
-            </script>
-            {% else %}
-            <div class="glass-card text-center py-12 text-zinc-600">
-                <i class="bi bi-clock-history text-4xl mb-3 block opacity-40"></i>
-                <p class="italic">No KPI Detailed Reading data for this range (RH only, TAVI/Coro CT excluded).</p>
-            </div>
-            {% endif %}
-
             <!-- ── Resident vs Radiologist TAT ─────────────────────────── -->
             <p class="section-desc mt-8">
                 Resident vs. Radiologist TAT (exam-done to signature) per resident, per modality, per patient
@@ -309,11 +201,39 @@
             </div>
             <p id="res-rad-unclassified-note" class="text-[9px] text-zinc-600 italic mt-2"></p>
 
+            <!-- ── Modality TAT (all signers combined) ─────────────────── -->
+            <p class="section-desc mt-8">
+                Modality TAT (exam-done to signature) per modality per patient class — the same data as
+                Resident/Radiologist TAT above, one level up: every signer combined into one department-wide
+                number per modality. Same exam-done anchor toggle.
+            </p>
+            <div class="glass-card">
+                <div class="chart-card-header">
+                    <span class="chart-card-title" style="color:#60a5fa;">Modality TAT — Median TAT (h)</span>
+                    <button onclick="r25ExportModTatCsv()" title="Export as CSV"
+                        style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #3f3f46;border-radius:6px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;"
+                        onmouseover="this.style.borderColor='#60a5fa';this.style.color='#60a5fa';"
+                        onmouseout="this.style.borderColor='#3f3f46';this.style.color='#71717a';">
+                        <i class="bi bi-download"></i> CSV
+                    </button>
+                    <button onclick="r25ExportModTatPng()"
+                        style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #3f3f46;border-radius:6px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;">
+                        <i class="bi bi-image"></i> PNG
+                    </button>
+                </div>
+                <div id="chart-mod-tat-heatmap" style="min-height:280px;"></div>
+                <div id="mod-tat-empty" class="hidden text-center py-8 text-zinc-600">
+                    <i class="bi bi-clock-history text-3xl block opacity-30 mb-2"></i>
+                    <p class="text-xs italic">No modality TAT data for this anchor/range.</p>
+                </div>
+            </div>
+
             <script>
             (function(){
                 const RES_RAD_TAT = {{ (res_rad_tat or {}) | tojson }};
+                const MODALITY_TAT = {{ (modality_tat or {}) | tojson }};
                 let resRadAnchor = 'ris';
-                let resChart = null, radChart = null;
+                let resChart = null, radChart = null, modChart = null;
 
                 function _downloadCsv(csv, filename) {
                     const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
@@ -324,19 +244,25 @@
                     document.body.removeChild(a); URL.revokeObjectURL(url);
                 }
 
-                // Dynamic heatmap — x = "Modality (Class)" combos actually present in the
-                // data, y = individual resident_name values actually present, both derived
-                // from the rows, never hardcoded. visualMap legend sits at the TOP (not the
-                // bottom, where it would collide with the rotated x-axis labels).
-                function _heatmapOption(rows, vmin, vmax) {
-                    const xCats = Array.from(new Set(rows.map(r => `${r.modality} (${r.patient_class_bucket})`))).sort();
-                    const yCats = Array.from(new Set(rows.map(r => r.resident_name))).sort();
+                // Dynamic heatmap. Two modes:
+                //   'byPerson'   — x = "Modality (Class)" combos, y = individual resident_name
+                //                  (Resident/Radiologist TAT)
+                //   'byModality' — x = Modality alone, y = Patient Class alone, every signer
+                //                  combined (Modality TAT — same data, one level up)
+                // Categories always derived from the rows actually present, never hardcoded.
+                // visualMap legend sits at the TOP (not the bottom, where it would collide
+                // with the rotated x-axis labels).
+                function _heatmapOption(rows, vmin, vmax, mode) {
+                    const xKey = mode === 'byModality' ? (r => r.modality) : (r => `${r.modality} (${r.patient_class_bucket})`);
+                    const yKey = mode === 'byModality' ? (r => r.patient_class_bucket) : (r => r.resident_name);
+                    const xCats = Array.from(new Set(rows.map(xKey))).sort();
+                    const yCats = Array.from(new Set(rows.map(yKey))).sort();
                     const nLookup = {};
                     const data = [];
                     rows.forEach(r => {
                         if (r.median_tat_h == null) return;
-                        const xi = xCats.indexOf(`${r.modality} (${r.patient_class_bucket})`);
-                        const yi = yCats.indexOf(r.resident_name);
+                        const xi = xCats.indexOf(xKey(r));
+                        const yi = yCats.indexOf(yKey(r));
                         data.push([xi, yi, r.median_tat_h]);
                         nLookup[`${xi}|${yi}`] = r.n;
                     });
@@ -398,7 +324,7 @@
                     } else {
                         resWrap.classList.remove('hidden');
                         document.getElementById('res-tat-empty').classList.add('hidden');
-                        const { xCats, yCats, option } = _heatmapOption(residents, vmin, vmax);
+                        const { xCats, yCats, option } = _heatmapOption(residents, vmin, vmax, 'byPerson');
                         resWrap.style.height = Math.max(400, 220 + yCats.length * 36) + 'px';
                         if (!resChart) resChart = echarts.init(resWrap);
                         resChart.setOption(option, true);
@@ -410,7 +336,7 @@
                     } else {
                         radWrap.classList.remove('hidden');
                         document.getElementById('rad-tat-empty').classList.add('hidden');
-                        const { xCats, yCats, option } = _heatmapOption(radiologists, vmin, vmax);
+                        const { xCats, yCats, option } = _heatmapOption(radiologists, vmin, vmax, 'byPerson');
                         radWrap.style.height = Math.max(400, 220 + yCats.length * 36) + 'px';
                         if (!radChart) radChart = echarts.init(radWrap);
                         radChart.setOption(option, true);
@@ -420,6 +346,24 @@
                     note.textContent = bucket.unclassified_count
                         ? `${bucket.unclassified_count} signed events excluded — signer not resolved to a recognized PACS radiologists/residents group.`
                         : '';
+
+                    // Modality TAT — same anchor, all signers combined
+                    const modRows = MODALITY_TAT[resRadAnchor] || [];
+                    const modWrap = document.getElementById('chart-mod-tat-heatmap');
+                    if (!modRows.length) {
+                        modWrap.classList.add('hidden');
+                        document.getElementById('mod-tat-empty').classList.remove('hidden');
+                    } else {
+                        modWrap.classList.remove('hidden');
+                        document.getElementById('mod-tat-empty').classList.add('hidden');
+                        const modVals = modRows.map(r => r.median_tat_h).filter(v => v != null);
+                        const modVmax = modVals.length ? Math.max(...modVals) : 1;
+                        const { xCats, yCats, option } = _heatmapOption(modRows, 0, modVmax, 'byModality');
+                        modWrap.style.height = Math.max(280, 220 + yCats.length * 36) + 'px';
+                        if (!modChart) modChart = echarts.init(modWrap);
+                        modChart.setOption(option, true);
+                    }
+
                     const risBtn = document.getElementById('res-rad-anchor-btn-ris');
                     const pacsBtn = document.getElementById('res-rad-anchor-btn-pacs');
                     risBtn.style.background = resRadAnchor === 'ris' ? 'rgba(52,211,153,0.15)' : 'transparent';
@@ -431,6 +375,25 @@
                 window.r25SetResRadAnchor = function(anchor) {
                     resRadAnchor = anchor;
                     render();
+                };
+
+                window.r25ExportModTatCsv = function() {
+                    const rows = MODALITY_TAT[resRadAnchor] || [];
+                    if (!rows.length) return;
+                    const q = v => '"' + String(v==null?'':v).replace(/"/g,'""') + '"';
+                    const lines = [
+                        ['Modality','Patient Class','N','Avg TAT (h)','Median TAT (h)'].map(q).join(','),
+                        ...rows.map(r => [r.modality, r.patient_class_bucket, r.n, r.avg_tat_h, r.median_tat_h].map(q).join(','))
+                    ];
+                    _downloadCsv(lines.join('\n'), `modality_tat_${resRadAnchor}_${new Date().toISOString().slice(0,10)}.csv`);
+                };
+
+                window.r25ExportModTatPng = function() {
+                    if (!modChart) return;
+                    const url = modChart.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#181f1c' });
+                    const a = document.createElement('a');
+                    a.href = url; a.download = `modality_tat_heatmap_${resRadAnchor}_${new Date().toISOString().slice(0,10)}.png`;
+                    a.click();
                 };
 
                 window.r25ExportResRadCsv = function(role) {
@@ -662,6 +625,160 @@
                 <p class="italic">No technician efficiency data for this range.</p>
             </div>
             {% endif %}
+
+            <!-- ── Technician TAT by AE Station (avg vs. median TAT scatter) ── -->
+            <p class="section-desc mt-8">
+                Technician TAT by AE station — one bubble per AE title/technician station. X = average TAT
+                (min), bubble size = study count. Y is the median TAT rather than a repeat of study count —
+                median_tat is a real second metric already present in the data, and plotting it against the
+                average surfaces distribution skew directly on the chart (bubbles well below the dashed
+                avg=median line mean a handful of slow outliers are dragging the average up above a otherwise
+                lower typical case), which a count-based Y axis wouldn't show. Color tier follows the same
+                0-30 / 30-60 / 60m+ minute buckets already used in Technician Efficiency above — tech_tat_cards
+                carries no per-row expected/target duration to compare against, so this falls back to that
+                fixed, page-established threshold instead.
+            </p>
+            <div class="glass-card" id="tech-tat-scatter-card">
+                <div class="chart-card-header">
+                    <span class="chart-card-title">Technician TAT by AE Station</span>
+                    <button onclick="r36ExportTechTatScatterCsv()" title="Export as CSV"
+                        style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #3f3f46;border-radius:6px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;"
+                        onmouseover="this.style.borderColor='#60a5fa';this.style.color='#60a5fa';"
+                        onmouseout="this.style.borderColor='#3f3f46';this.style.color='#71717a';">
+                        <i class="bi bi-download"></i> CSV
+                    </button>
+                    <button onclick="r36ExportTechTatScatterPng()"
+                        style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #3f3f46;border-radius:6px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;">
+                        <i class="bi bi-image"></i> PNG
+                    </button>
+                </div>
+                <div id="chart-tech-tat-scatter" style="min-height:400px;"></div>
+                <div id="tech-tat-scatter-empty" class="hidden text-center py-8 text-zinc-600">
+                    <i class="bi bi-clock-history text-3xl block opacity-30 mb-2"></i>
+                    <p class="text-xs italic">No technician TAT data for this range.</p>
+                </div>
+            </div>
+
+            <script>
+            (function(){
+                const TECH_TAT_CARDS = {{ (tech_tat_cards or []) | tojson }};
+                let techTatScatterChart = null;
+
+                // Fixed severity thresholds (minutes) -- tech_tat_cards (built in
+                // routes/report_25.py's get_gold_standard_data) has no per-row
+                // expected/target duration field (unlike Technician Efficiency's
+                // avg_expected_min, which comes from procedure_duration_map), so this
+                // falls back to the same 0-30 / 30-60 / 60+ minute buckets already
+                // established elsewhere on this page (Technician Efficiency's
+                // bucket_0_30/bucket_30_60/bucket_60_plus).
+                const GREEN = '#34d399', AMBER = '#f59e0b', RED = '#f43f5e';
+                function tierColor(avgTat) {
+                    if (avgTat <= 30) return GREEN;
+                    if (avgTat <= 60) return AMBER;
+                    return RED;
+                }
+
+                function _downloadCsv(csv, filename) {
+                    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+                    const url  = URL.createObjectURL(blob);
+                    const a    = document.createElement('a');
+                    a.href = url; a.download = filename;
+                    document.body.appendChild(a); a.click();
+                    document.body.removeChild(a); URL.revokeObjectURL(url);
+                }
+
+                function render() {
+                    const wrap  = document.getElementById('chart-tech-tat-scatter');
+                    const empty = document.getElementById('tech-tat-scatter-empty');
+                    if (!TECH_TAT_CARDS.length) {
+                        wrap.classList.add('hidden');
+                        empty.classList.remove('hidden');
+                        return;
+                    }
+                    wrap.classList.remove('hidden');
+                    empty.classList.add('hidden');
+
+                    const counts    = TECH_TAT_CARDS.map(c => c.count);
+                    const maxCount  = Math.max(...counts, 1);
+                    const sizeScale = 60 / Math.sqrt(maxCount);
+
+                    const allTat  = TECH_TAT_CARDS.flatMap(c => [c.avg_tat, c.median_tat]).filter(v => v != null);
+                    const lineMin = allTat.length ? Math.min(...allTat) : 0;
+                    const lineMax = allTat.length ? Math.max(...allTat) : 1;
+
+                    const points = TECH_TAT_CARDS.map(c => ({
+                        value: [c.avg_tat, c.median_tat, c.count],
+                        name: c.aetitle,
+                        itemStyle: { color: tierColor(c.avg_tat) }
+                    }));
+
+                    const option = {
+                        backgroundColor: 'transparent',
+                        textStyle: { fontSize: 13 },
+                        tooltip: {
+                            textStyle: { fontSize: 13 },
+                            backgroundColor: '#1c1917', borderColor: '#28332e',
+                            formatter: p => `<b>${p.data.name}</b><br/>` +
+                                `Avg TAT: <b>${p.data.value[0]}</b> min<br/>` +
+                                `Median TAT: <b>${p.data.value[1]}</b> min<br/>` +
+                                `Studies: <b>${p.data.value[2]}</b>`
+                        },
+                        grid: { top: 40, left: 70, right: 40, bottom: 60 },
+                        xAxis: {
+                            type: 'value', name: 'Avg TAT (min)', nameLocation: 'middle', nameGap: 32,
+                            nameTextStyle: { color: '#a1a1aa', fontSize: 13, fontWeight: 'bold' },
+                            axisLabel: { color: '#d4d4d8', fontSize: 12 },
+                            axisLine: { lineStyle: { color: '#3f3f46' } },
+                            splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } }
+                        },
+                        yAxis: {
+                            type: 'value', name: 'Median TAT (min)', nameLocation: 'middle', nameGap: 48,
+                            nameTextStyle: { color: '#a1a1aa', fontSize: 13, fontWeight: 'bold' },
+                            axisLabel: { color: '#d4d4d8', fontSize: 12 },
+                            axisLine: { lineStyle: { color: '#3f3f46' } },
+                            splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } }
+                        },
+                        series: [{
+                            type: 'scatter',
+                            data: points,
+                            symbolSize: v => Math.max(12, Math.sqrt(v[2]) * sizeScale),
+                            label: { show: false },
+                            emphasis: { itemStyle: { shadowBlur: 12, shadowColor: 'rgba(0,0,0,0.5)' } },
+                            markLine: {
+                                symbol: 'none',
+                                silent: true,
+                                lineStyle: { color: '#52525b', type: 'dashed', width: 1 },
+                                label: { show: true, formatter: 'avg = median', color: '#71717a', fontSize: 11, position: 'insideEndTop' },
+                                data: [[{ coord: [lineMin, lineMin] }, { coord: [lineMax, lineMax] }]]
+                            }
+                        }]
+                    };
+
+                    if (!techTatScatterChart) techTatScatterChart = echarts.init(wrap);
+                    techTatScatterChart.setOption(option, true);
+                }
+
+                window.r36ExportTechTatScatterCsv = function() {
+                    if (!TECH_TAT_CARDS.length) return;
+                    const q = v => '"' + String(v==null?'':v).replace(/"/g,'""') + '"';
+                    const lines = [
+                        ['AE Title','Studies','Avg TAT (min)','Median TAT (min)'].map(q).join(','),
+                        ...TECH_TAT_CARDS.map(c => [c.aetitle, c.count, c.avg_tat, c.median_tat].map(q).join(','))
+                    ];
+                    _downloadCsv(lines.join('\n'), `tech_tat_by_ae_${new Date().toISOString().slice(0,10)}.csv`);
+                };
+
+                window.r36ExportTechTatScatterPng = function() {
+                    if (!techTatScatterChart) return;
+                    const url = techTatScatterChart.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#181f1c' });
+                    const a = document.createElement('a');
+                    a.href = url; a.download = `tech_tat_by_ae_scatter_${new Date().toISOString().slice(0,10)}.png`;
+                    a.click();
+                };
+
+                render();
+            })();
+            </script>
 
             <!-- ── Radiologist Workload Matrix ────────────────────── -->
             {% if rad_volume_matrix %}
@@ -1172,76 +1289,6 @@
             })();
             </script>
 
-            <!-- ── Technician TAT by AE Station ─────────────────────── -->
-            <div class="glass-card mt-8" id="r25-tech-tat-card">
-                <div class="flex items-center justify-between mb-4">
-                    <p class="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Technician TAT by AE Station</p>
-                </div>
-                <p class="section-desc">Average and median turnaround time per AE station (acquisition device). SR and OT modalities excluded. Only studies with a recorded TAT are included.</p>
-                {% if tech_tat_cards %}
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left" style="border-collapse:separate;border-spacing:0;">
-                        <thead>
-                            <tr class="text-[9px] font-black text-zinc-500 uppercase tracking-wider">
-                                <th class="pb-3 pr-6">#</th>
-                                <th class="pb-3 pr-6">AE Station</th>
-                                <th class="pb-3 pr-6 text-right">Study Count</th>
-                                <th class="pb-3 pr-6 text-right">Avg TAT (min)</th>
-                                <th class="pb-3 text-right">Median TAT (min)</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                        {% for row in tech_tat_cards %}
-                        <tr class="border-t border-white/5 hover:bg-white/[0.02] transition-colors">
-                            <td class="py-2 pr-6 text-[10px] font-black text-zinc-600">{{ loop.index }}</td>
-                            <td class="py-2 pr-6 text-xs font-bold text-zinc-200">{{ row.aetitle }}</td>
-                            <td class="py-2 pr-6 text-right text-xs text-zinc-400">{{ row.count }}</td>
-                            <td class="py-2 pr-6 text-right text-xs font-black font-mono
-                                {% if row.avg_tat <= 60 %}text-emerald-400
-                                {% elif row.avg_tat <= 120 %}text-amber-400
-                                {% else %}text-red-400{% endif %}">{{ row.avg_tat }}m</td>
-                            <td class="py-2 text-right text-xs font-mono text-zinc-400">{{ row.median_tat }}m</td>
-                        </tr>
-                        {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-                <p class="text-[10px] text-zinc-600 mt-2 italic">TAT values &gt; 24h are excluded from averages and shown separately below.</p>
-                {% else %}
-                <p class="text-sm text-zinc-500 italic">No data available.</p>
-                {% endif %}
-            </div>
-
-            <script>
-            // Radiologist insight signals — rendered immediately from server-computed data
-            (function(){
-                const RAD_INSIGHTS = {{ (rad_insights or []) | tojson }};
-                const panel = document.getElementById('rad-insights-panel');
-                if (!panel) return;
-                if (RAD_INSIGHTS.length > 0) {
-                    panel.innerHTML = RAD_INSIGHTS.map((s, i) => {
-                        const color = s.severity === 'critical' ? 'rose' : s.severity === 'warning' ? 'amber' : 'blue';
-                        const icon  = s.severity === 'critical' ? 'bi-exclamation-triangle-fill' : s.severity === 'warning' ? 'bi-exclamation-circle-fill' : 'bi-info-circle-fill';
-                        const evHtml = (s.evidence && s.evidence.length) ? `
-                            <div id="rad-sig-${i}" class="hidden px-3 pb-2">
-                                <table class="w-full text-[10px] border-collapse"><thead><tr class="text-zinc-500 uppercase">
-                                    <th class="text-left py-1 pr-3 font-black">Accession</th><th class="text-left py-1 pr-3 font-black">Radiologist</th><th class="text-left py-1 font-black">Time</th>
-                                </tr></thead><tbody>
-                                ${s.evidence.map(ev => `<tr class="border-t border-white/5 text-zinc-300"><td class="py-1 pr-3 font-mono">${ev.accession||'—'}</td><td class="py-1 pr-3">${ev.user||'—'}</td><td class="py-1">${ev.time||'—'}</td></tr>`).join('')}
-                                </tbody></table></div>` : '';
-                        return `<div class="rounded-lg border bg-${color}-500/10 border-${color}-500/25">
-                            <div class="flex items-start gap-2 px-3 py-2 ${s.evidence&&s.evidence.length?'cursor-pointer':''}" ${s.evidence&&s.evidence.length?`onclick="toggleEvidence('rad-sig-${i}')"`:''}>
-                                <i class="bi ${icon} text-${color}-400 mt-0.5 shrink-0"></i>
-                                <div class="flex-1"><p class="text-[10px] font-black text-${color}-300 uppercase">${s.entity}</p><p class="text-xs text-zinc-300">${s.message}</p></div>
-                                ${s.evidence&&s.evidence.length?`<i id="rad-sig-${i}-icon" class="bi bi-chevron-down text-zinc-500 text-[10px] mt-1 shrink-0 transition-transform"></i>`:''}
-                            </div>${evHtml}</div>`;
-                    }).join('');
-                } else {
-                    panel.innerHTML = `<div class="flex items-center gap-2 text-emerald-500 text-xs font-black"><i class="bi bi-check-circle-fill"></i> No statistical anomalies detected for this period.</div>`;
-                }
-            })();
-            </script>
-
             {% else %}
             <div class="h-full flex flex-col items-center justify-center opacity-20">
                 <i class="bi bi-cpu text-6xl mb-4"></i>
@@ -1352,14 +1399,6 @@
                 saved.forEach(s => { s.n.style.maxHeight = s.mh; s.n.style.overflowY = s.oy; s.n.style.overflowX = s.ox; });
                 if (btn) { btn.innerHTML = '<i class="bi bi-file-earmark-pdf"></i> PDF'; btn.disabled = false; }
             });
-        }
-
-        function toggleEvidence(id) {
-            const el   = document.getElementById(id);
-            const icon = document.getElementById(id + '-icon');
-            if (!el) return;
-            const hidden = el.classList.toggle('hidden');
-            if (icon) icon.style.transform = hidden ? '' : 'rotate(180deg)';
         }
 
         $(document).ready(function() {
