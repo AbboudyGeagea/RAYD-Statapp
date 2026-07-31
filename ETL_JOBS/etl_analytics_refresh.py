@@ -20,7 +20,7 @@ import os
 import sys
 import logging
 from datetime import datetime
-from sqlalchemy import func, distinct, table, column
+from sqlalchemy import func, distinct, table, column, text
 from sqlalchemy.dialects.postgresql import insert
 
 # Ensure parent dir (where db.py lives) is on the path when imported from ETL_JOBS/
@@ -75,6 +75,36 @@ def refresh_storage_summary():
         # non-LAUMC/single-site install (empty `sites` table), so the join/filter
         # below is skipped entirely there — never zeroes out a single-site deployment.
         rh_site_id = default_site()
+
+        # Purge stale rows the site-scope filter below would no longer produce.
+        # Found 2026-07-31: this rollup used to run with NO site filter at all
+        # (fixed in a later commit, 29b28ff6), so summary_storage_daily accumulated
+        # rows for SJH-associated AE titles (and pre-go-live dates) that the current,
+        # correctly-scoped query never touches again -- an upsert only adds/updates
+        # keys it produces, it never removes keys it no longer produces. Those orphaned
+        # rows sat there permanently, and report_29's SUM(total_gb) (no site filter of
+        # its own) kept including them: confirmed against production, 626 orphaned SJH
+        # rows alone totaled 156TB against a real RH total of 45.6TB -- SJH averaging
+        # ~249GB per daily aggregate row, which is physically impossible, versus RH's
+        # 159,577 rows at realistic per-row sizes. Delete anything outside the current
+        # valid scope before rebuilding it, every run, so this can't recur. Raw SQL
+        # (not the ORM query/delete chain) to match how the rest of this codebase does
+        # DB writes -- this exact pattern is proven everywhere else, unlike an
+        # ORM-level bulk delete which has no precedent in this file to verify against.
+        del_result = db.session.execute(text("""
+            DELETE FROM summary_storage_daily s
+            WHERE s.study_date < :go_live
+               OR (
+                    :rh_site_id IS NOT NULL
+                    AND NOT EXISTS (
+                        SELECT 1 FROM aetitle_modality_map m
+                        WHERE UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
+                          AND m.site_id = :rh_site_id
+                    )
+                )
+        """), {"go_live": go_live, "rh_site_id": rh_site_id})
+        if del_result.rowcount:
+            logger.info(f"🧹 [Storage Summary] Purged {del_result.rowcount} stale/out-of-scope rows.")
 
         agg_query = (
             db.session.query(

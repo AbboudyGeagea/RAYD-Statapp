@@ -3,13 +3,17 @@ routes/report_25.py
 -------------------
 Report 25 — Device & Radiologist Performance Dashboard.
 
-Covers: AE-station utilisation matrix, technician TAT, radiologist RVU/TAT
-performance cards, shift patterns, and NLP-driven insight signals.
+Covers: AE-station utilisation matrix and radiologist RVU/TAT performance cards.
 
 The heavy data-fetch (get_gold_standard_data) runs synchronously and is
-cached for 5 minutes (report_cache).  A second background endpoint
-(/report/25/bg) computes shift patterns, technician monitoring and AI
-insights after the page has already loaded, so the initial render stays fast.
+cached for 5 minutes (report_cache).
+
+The Technicians tab (HL7-order-based technician compliance monitoring, its
+background /report/25/bg endpoint, the flag-acknowledgement API, and the
+"Daily Technician TAT" live-status panel) was removed 2026-07-31 (operator
+instruction) -- it depended on hl7_orders.scheduled_datetime, which is empty
+because the R2I HL7 ORM feed isn't flowing yet, so the tab only ever showed
+empty states. See git history if that feed goes live and this needs rebuilding.
 
 Register in registry.py:
     import routes.report_25
@@ -25,7 +29,6 @@ from flask_login import login_required, current_user
 from sqlalchemy import text
 from db import db, get_etl_cutoff_date
 from routes.report_cache import cache_get, cache_put
-from routes.insights_engine import run_tech_insights
 from utils.site_resolver import default_site
 from utils.report_filters import sidebar_filters as _sidebar_filters
 
@@ -771,12 +774,6 @@ def get_gold_standard_data(form_data):
         logger.exception("Failed to build radiologist × modality/AE/procedure volume matrix")
         db.session.rollback()
 
-    # tech_data and insights are deferred to /report/25/bg (background endpoint)
-    tech_data = {
-        'summary': {}, 'by_technician': [], 'by_modality': [],
-        'flagged': [], 'never_done': [], 'daily_trend': [],
-    }
-    tech_insights = []
     rad_insights  = []
 
     result = ({
@@ -844,331 +841,10 @@ def get_gold_standard_data(form_data):
         "addendum_data":      addendum_data,
         "rad_volume_matrix":  rad_volume_matrix,
         "shift_patterns":  shift_patterns,
-        "tech_data":       tech_data,
-        "tech_insights":   tech_insights,
         "rad_insights":    rad_insights,
     }, start, end)
     cache_put(25, form_data, result)
     return result
-
-def compute_bg_data(form_data):
-    """
-    Compute the deferred heavy sections: tech_data and technician insight signals.
-
-    shift_patterns and rad_insights moved to routes/report_36.py (former Radiologists
-    tab) -- this function used to compute those too, sharing the signing-timestamp
-    query's _sec_filters/_sec_needs_mod_join setup, which is why those two locals used
-    to live here; nothing left in this function needs them now.
-    """
-    from routes.report_cache import cache_get, cache_put
-    cached = cache_get(9925, form_data)
-    if cached is not None:
-        return cached
-
-    go_live = get_etl_cutoff_date()
-    start = form_data.get("start_date") or (go_live.strftime("%Y-%m-%d") if go_live else "2024-01-01")
-    end   = form_data.get("end_date") or date.today().strftime("%Y-%m-%d")
-
-    params = {"start": start, "end": end}
-    if form_data.get("class_enabled") == "on" and form_data.getlist("patient_class"):
-        params["classes"] = tuple(form_data.getlist("patient_class"))
-    if form_data.get("mod_enabled") == "on" and form_data.getlist("modality"):
-        params["modalities"] = tuple(form_data.getlist("modality"))
-    if form_data.get("ae_enabled") == "on" and form_data.getlist("aetitle"):
-        params["aetitles"] = tuple(form_data.getlist("aetitle"))
-    if form_data.get("loc_enabled") == "on" and form_data.getlist("patient_location"):
-        params["locations"] = tuple(form_data.getlist("patient_location"))
-
-    # LAUMC site rule — see get_gold_standard_data's matching block for the full rationale.
-    # RH (main site) only, resolved via aetitle_modality_map.site_id (RIS-authoritative).
-    rh_site_id = default_site()
-    if rh_site_id is not None:
-        params["rh_site_id"] = rh_site_id
-
-    # ── Technician monitoring ─────────────────────────────────────────────
-    tech_data = {
-        'summary': {}, 'by_technician': [], 'by_modality': [],
-        'flagged': [], 'never_done': [], 'daily_trend': [],
-    }
-    _tech_completed_df = pd.DataFrame()
-    try:
-        from datetime import datetime as _dt
-        _now = _dt.utcnow()
-
-        # hl7_orders carries no storing_ae/site marker of its own — resolve site via the
-        # matching PACS study by accession_number (same correlation key used for the RIS
-        # Reports enrichment in ETL_JOBS/etl_ris_reports.py), same LAUMC site rule as above.
-        _tech_site_join = ""
-        if rh_site_id is not None:
-            _tech_site_join = (
-                "JOIN etl_didb_studies s2 ON s2.accession_number = o.accession_number "
-                "JOIN aetitle_modality_map m2 ON UPPER(TRIM(s2.storing_ae)) = UPPER(TRIM(m2.aetitle)) "
-                "AND m2.site_id = :rh_site_id"
-            )
-        tech_rows = db.session.execute(text(f"""
-            SELECT
-                o.accession_number, o.modality, o.procedure_code, o.done_by,
-                o.scheduled_datetime, o.done_at, o.pacs_done_at,
-                o.patient_class, o.patient_location,
-                COALESCE(p.duration_minutes, 30) AS proc_duration
-            FROM hl7_orders o
-            LEFT JOIN procedure_duration_map p
-                   ON UPPER(TRIM(o.procedure_code)) = UPPER(TRIM(p.procedure_code))
-            {_tech_site_join}
-            WHERE o.scheduled_datetime IS NOT NULL
-              AND o.scheduled_datetime::date BETWEEN :start AND :end
-              AND UPPER(TRIM(COALESCE(o.modality, ''))) != 'SCN'
-              {"AND UPPER(TRIM(o.modality)) IN :modalities" if "modalities" in params else ""}
-            ORDER BY o.modality, o.scheduled_datetime
-        """), params).mappings().fetchall()
-
-        if tech_rows:
-            tdf = pd.DataFrame(tech_rows)
-            tdf['proc_duration']      = pd.to_numeric(tdf['proc_duration'], errors='coerce').fillna(30)
-            tdf['scheduled_datetime'] = pd.to_datetime(tdf['scheduled_datetime'])
-            tdf['done_at']            = pd.to_datetime(tdf['done_at'],      errors='coerce')
-            tdf['pacs_done_at']       = pd.to_datetime(tdf['pacs_done_at'], errors='coerce')
-            # Prefer manual done_at; fall back to PACS scanner pacs_done_at
-            tdf['effective_done_at']  = tdf['done_at'].fillna(tdf['pacs_done_at'])
-            tdf['tat_min']            = (tdf['effective_done_at'] - tdf['scheduled_datetime']).dt.total_seconds() / 60.0
-            tdf['pacs_tat_min']       = (tdf['pacs_done_at']      - tdf['scheduled_datetime']).dt.total_seconds() / 60.0
-
-            completed = tdf[tdf['effective_done_at'].notna()].copy()
-            pending   = tdf[tdf['effective_done_at'].isna()].copy()
-            _tech_completed_df = completed
-
-            # Pre-index ER orders: modality → list of (scheduled_datetime, patient_class, accession)
-            # An order is "ER" if accession_number starts with '2XE' (case-insensitive)
-            if 'patient_class' not in tdf.columns:
-                tdf['patient_class'] = None
-            er_rows = tdf[tdf['accession_number'].str.upper().str.startswith('2XE').fillna(False)].copy()
-            er_by_modality = {}
-            for _, er in er_rows.iterrows():
-                er_by_modality.setdefault(str(er['modality'] or '').upper(), []).append(er)
-
-            def _find_concurrent_er(row):
-                """Return list of ER accessions whose scheduled_datetime falls inside row's exam window."""
-                if pd.isna(row.get('effective_done_at')):
-                    return []
-                mod   = str(row.get('modality') or '').upper()
-                t0    = row['scheduled_datetime']
-                t1    = row['effective_done_at']
-                acc   = row.get('accession_number')
-                found = []
-                for er in er_by_modality.get(mod, []):
-                    if er['accession_number'] == acc:
-                        continue
-                    if t0 <= er['scheduled_datetime'] <= t1:
-                        found.append({
-                            'accession':     str(er['accession_number'] or ''),
-                            'patient_class': str(er['patient_class'] or ''),
-                        })
-                return found
-
-            overlap_accessions = set()
-            for mod, grp in completed.groupby('modality'):
-                grp = grp.sort_values('scheduled_datetime').reset_index()
-                for i in range(len(grp) - 1):
-                    cur, nxt = grp.iloc[i], grp.iloc[i + 1]
-                    if pd.notna(cur['effective_done_at']) and cur['effective_done_at'] > nxt['scheduled_datetime']:
-                        overlap_accessions.add(cur['accession_number'])
-
-            flagged_rows = []
-            for _, r in completed.iterrows():
-                flags = []
-                tat, dur = r['tat_min'], float(r['proc_duration'])
-                if pd.isna(tat): continue
-                if tat < 0: flags.append('before_scheduled')
-                elif tat < dur * 0.5: flags.append('too_early')
-                if r['accession_number'] in overlap_accessions: flags.append('overlap')
-                if tat > dur * 2: flags.append('too_late')
-                pacs_tat     = r.get('pacs_tat_min')
-                er_concurrent = _find_concurrent_er(r) if 'too_late' in flags else []
-                flagged_rows.append({
-                    'accession':      str(r.get('accession_number') or ''),
-                    'modality':       str(r.get('modality') or ''),
-                    'procedure':      str(r.get('procedure_code') or ''),
-                    'technician':     str(r['done_by']) if pd.notna(r.get('done_by')) else '',
-                    'patient_class':  str(r.get('patient_class') or ''),
-                    'scheduled_at':   r['scheduled_datetime'].strftime('%Y-%m-%d %H:%M'),
-                    'done_at':        r['effective_done_at'].strftime('%Y-%m-%d %H:%M') if pd.notna(r.get('effective_done_at')) else None,
-                    'tat_min':        round(float(tat), 1),
-                    'pacs_done_at':   r['pacs_done_at'].strftime('%Y-%m-%d %H:%M') if pd.notna(r.get('pacs_done_at')) else None,
-                    'pacs_tat_min':   round(float(pacs_tat), 1) if pd.notna(pacs_tat) else None,
-                    'proc_duration':  int(dur),
-                    'flags':          flags,
-                    'er_concurrent':  er_concurrent,
-                })
-            tech_data['flagged'] = sorted([r for r in flagged_rows if r['flags']], key=lambda x: len(x['flags']), reverse=True)
-
-            for _, r in pending.iterrows():
-                deadline = r['scheduled_datetime'] + pd.Timedelta(minutes=float(r['proc_duration']))
-                if deadline < pd.Timestamp(_now):
-                    tech_data['never_done'].append({
-                        'accession':    str(r.get('accession_number') or ''),
-                        'modality':     str(r.get('modality') or ''),
-                        'procedure':    str(r.get('procedure_code') or ''),
-                        'scheduled_at': r['scheduled_datetime'].strftime('%Y-%m-%d %H:%M'),
-                        'overdue_min':  round((pd.Timestamp(_now) - deadline).total_seconds() / 60, 1),
-                    })
-
-            flagged_accessions = {r['accession'] for r in tech_data['flagged']}
-            tech_data['summary'] = {
-                'total_scheduled':       len(tdf),
-                'total_completed':       len(completed),
-                'never_done':            len(tech_data['never_done']),
-                'flag_before_scheduled': sum(1 for r in tech_data['flagged'] if 'before_scheduled' in r['flags']),
-                'flag_too_early':        sum(1 for r in tech_data['flagged'] if 'too_early'        in r['flags']),
-                'flag_overlap':          sum(1 for r in tech_data['flagged'] if 'overlap'          in r['flags']),
-                'flag_too_late':         sum(1 for r in tech_data['flagged'] if 'too_late'         in r['flags']),
-            }
-
-            daily_trend = []
-            if len(completed):
-                completed = completed.copy()
-                completed['_date'] = completed['scheduled_datetime'].dt.date
-                for day, gdf in completed.groupby('_date'):
-                    tats = gdf['tat_min'].dropna()
-                    daily_trend.append({
-                        'date':    str(day),
-                        'avg_tat': round(float(tats.mean()), 1) if len(tats) else 0,
-                        'count':   len(gdf),
-                        'flags':   int(gdf['accession_number'].isin(flagged_accessions).sum()),
-                    })
-                daily_trend.sort(key=lambda x: x['date'])
-            tech_data['daily_trend'] = daily_trend
-
-            def _skew_insight(avg, median):
-                if avg is None or median is None or median == 0: return None
-                ratio = avg / median
-                if ratio >= 2.0: return f"Avg is {ratio:.1f}× the median — outliers inflating average."
-                if ratio >= 1.5: return f"Avg is {ratio:.1f}× the median — some delayed exams pulling up average."
-                return None
-
-            # Dept averages computed first so per-tech delta can reference them
-            # TAT > 24h (1440 min) outliers are excluded from dept-level stats
-            all_tats = completed['tat_min'].dropna()
-            normal_dept_tats = all_tats[all_tats <= 1440]
-            dept_avg = dept_median = None
-            if len(normal_dept_tats):
-                dept_avg    = round(float(normal_dept_tats.mean()),   1)
-                dept_median = round(float(normal_dept_tats.median()), 1)
-                tech_data['summary']['avg_tat']      = dept_avg
-                tech_data['summary']['median_tat']   = dept_median
-                tech_data['summary']['dept_insight'] = _skew_insight(dept_avg, dept_median)
-
-            # Per-tech modality breakdown (pure pandas, no extra query)
-            _done_with_tech = completed[
-                completed['done_by'].notna() & completed['modality'].notna()
-            ]
-            tech_mod_breakdown = {}
-            for (tech, mod), gdf in _done_with_tech.groupby(['done_by', 'modality']):
-                tats  = gdf['tat_min'].dropna()
-                ptats = gdf['pacs_tat_min'].dropna()
-                tech_mod_breakdown.setdefault(str(tech), []).append({
-                    'modality':     str(mod),
-                    'count':        len(gdf),
-                    'avg_tat':      round(float(tats.mean()),  1) if len(tats)  else None,
-                    'avg_pacs_tat': round(float(ptats.mean()), 1) if len(ptats) else None,
-                })
-
-            import statistics as _stats
-            for tech, gdf in completed[completed['done_by'].notna()].groupby('done_by'):
-                all_tats_tech = gdf['tat_min'].dropna().tolist()
-                # Separate outliers (> 24h) before computing stats
-                normal_tats  = [v for v in all_tats_tech if v <= 1440]
-                outlier_tats = [v for v in all_tats_tech if v >  1440]
-                ptats = gdf['pacs_tat_min'].dropna()
-                avg         = round(sum(normal_tats) / len(normal_tats), 1)        if normal_tats  else None
-                median      = round(_stats.median(normal_tats), 1)                  if normal_tats  else None
-                avg_pacs    = round(float(ptats.mean()),   1) if len(ptats) else None
-                median_pacs = round(float(ptats.median()), 1) if len(ptats) else None
-                flags_count = sum(1 for r in tech_data['flagged'] if r['technician'] == str(tech) and r['flags'])
-                flag_rate   = round(flags_count / len(gdf) * 100, 1) if len(gdf) else 0.0
-                dept_delta  = round(avg - dept_avg, 1) if avg is not None and dept_avg is not None else None
-                mods        = sorted(tech_mod_breakdown.get(str(tech), []), key=lambda x: x['count'], reverse=True)
-                top_mod     = mods[0]['modality'] if mods else None
-                tech_data['by_technician'].append({
-                    'name':            str(tech),
-                    'count':           len(gdf),
-                    'avg_tat':         avg,
-                    'median_tat':      median,
-                    'avg_pacs_tat':    avg_pacs,
-                    'median_pacs_tat': median_pacs,
-                    'flags':           flags_count,
-                    'flag_rate':       flag_rate,
-                    'dept_delta':      dept_delta,
-                    'top_modality':    top_mod,
-                    'modalities':      mods,
-                    'outlier_count':   len(outlier_tats),
-                    'insight':         _skew_insight(avg, median),
-                })
-            tech_data['by_technician'].sort(key=lambda x: x['avg_tat'] if x['avg_tat'] is not None else 9999)
-
-            for mod, gdf in completed[completed['modality'].notna()].groupby('modality'):
-                tats = gdf['tat_min'].dropna()
-                avg    = round(float(tats.mean()),   1) if len(tats) else None
-                median = round(float(tats.median()), 1) if len(tats) else None
-                tech_data['by_modality'].append({
-                    'modality': str(mod), 'count': len(gdf),
-                    'avg_tat': avg, 'median_tat': median,
-                    'insight': _skew_insight(avg, median),
-                })
-            tech_data['by_modality'].sort(key=lambda x: x['avg_tat'] if x['avg_tat'] is not None else 9999)
-
-    except Exception:
-        logger.exception("Failed to build technician monitoring data (background)")
-        db.session.rollback()
-
-    # ── Acknowledgements for flagged exams ────────────────────────────────
-    try:
-        from db import TechFlagAck
-        acks = TechFlagAck.query.filter(
-            TechFlagAck.flag_date.between(start, end)
-        ).all()
-        tech_data['ack_map'] = {
-            a.accession_number: {
-                'by':   a.acknowledged_by_name,
-                'at':   a.acknowledged_at.strftime('%Y-%m-%d %H:%M'),
-                'note': a.note or '',
-            }
-            for a in acks
-        }
-    except Exception as _ae:
-        db.session.rollback()
-        tech_data['ack_map'] = {}
-
-    # ── Insights ──────────────────────────────────────────────────────────
-    # rad_insights (radiologist insight signals) moved to routes/report_36.py along
-    # with the rest of the former Radiologists tab -- see get_reporting_cadence_and_insights
-    # there, which now owns run_rad_insights.
-    tech_insights = []
-    try:
-        if not _tech_completed_df.empty:
-            tech_insights = run_tech_insights(_tech_completed_df)
-    except Exception:
-        logger.exception("Failed to run technician insight signals (background)")
-
-    result = {
-        'tech_data':      tech_data,
-        'tech_insights':  tech_insights,
-    }
-    cache_put(9925, form_data, result)
-    return result
-
-
-@report_25_bp.route("/report/25/bg", methods=["POST"])
-@login_required
-def report_25_bg():
-    from flask import jsonify, render_template as rt
-    bg = compute_bg_data(request.values)
-    tech_html = rt('_tech_tab.html',
-                   tech_data=bg['tech_data'],
-                   tech_insights=bg['tech_insights'])
-    return jsonify({
-        "tech_html":      tech_html,
-        "tech_data":      bg['tech_data'],
-    })
 
 
 @report_25_bp.route("/report/25", methods=["GET", "POST"])
@@ -1245,41 +921,6 @@ def export_report_25():
         data['raw_df'].drop(columns=['study_date_dt'], errors='ignore').to_excel(writer, index=False, sheet_name='RawData')
     output.seek(0)
     return send_file(output, as_attachment=True, download_name=f"RAYD_PRO_Export_{date.today()}.xlsx")
-
-@report_25_bp.route("/report/25/export-technician", methods=["POST"])
-@login_required
-def export_technician_25():
-    from flask import current_app, jsonify
-    from routes.registry import check_license_limit
-    ok, msg = check_license_limit(current_app, 'export')
-    if not ok:
-        return jsonify({"error": msg}), 403
-    get_gold_standard_data(request.values)  # ensure main cache is warm
-    bg = compute_bg_data(request.values)
-    tech = bg.get('tech_data', {})
-
-    sections = []
-    if tech.get('summary'):
-        sections.append(pd.DataFrame([tech['summary']]).assign(_section='Summary'))
-    if tech.get('by_technician'):
-        sections.append(pd.DataFrame(tech['by_technician']).assign(_section='By Technician'))
-    if tech.get('by_modality'):
-        sections.append(pd.DataFrame(tech['by_modality']).assign(_section='By Modality'))
-    if tech.get('flagged'):
-        df_f = pd.DataFrame(tech['flagged'])
-        df_f['flags'] = df_f['flags'].apply(lambda x: ', '.join(x))
-        sections.append(df_f.assign(_section='Flagged'))
-    if tech.get('never_done'):
-        sections.append(pd.DataFrame(tech['never_done']).assign(_section='Never Done'))
-
-    if not sections:
-        return "No data", 400
-
-    output = io.BytesIO()
-    pd.concat(sections, ignore_index=True).to_csv(output, index=False)
-    output.seek(0)
-    return send_file(output, mimetype='text/csv', as_attachment=True,
-                     download_name=f"RAYD_Tech_TAT_{date.today()}.csv")
 
 @report_25_bp.route("/report/25/save-shifts", methods=["POST"])
 @login_required
@@ -1589,64 +1230,6 @@ def patient_journey_api():
     except Exception as e:
         db.session.rollback()
         return _json({'studies': [], 'error': str(e)}), 500
-
-
-# ── Flag acknowledgement API ───────────────────────────────────
-
-@report_25_bp.route('/api/tech/flag/acknowledge', methods=['POST'])
-@login_required
-def ack_tech_flag():
-    if current_user.role not in ('admin', 'viewer', 'viewer2'):
-        abort(403)
-    from db import TechFlagAck
-    data      = request.get_json(silent=True) or {}
-    accession = (data.get('accession') or '').strip()
-    flag_date = (data.get('flag_date') or '').strip()
-    flags     = data.get('flags', [])
-    note      = (data.get('note') or '').strip() or None
-    if not accession or not flag_date:
-        return jsonify({'error': 'Missing fields'}), 400
-    existing = TechFlagAck.query.filter_by(
-        accession_number=accession, flag_date=flag_date
-    ).first()
-    if existing:
-        existing.note                 = note
-        existing.acknowledged_by_id   = current_user.id
-        existing.acknowledged_by_name = current_user.username
-        existing.acknowledged_at      = datetime.utcnow()
-    else:
-        db.session.add(TechFlagAck(
-            accession_number=accession,
-            flag_date=flag_date,
-            flags=flags,
-            note=note,
-            acknowledged_by_id=current_user.id,
-            acknowledged_by_name=current_user.username,
-            acknowledged_at=datetime.utcnow(),
-        ))
-    db.session.commit()
-    return jsonify({'ok': True})
-
-
-@report_25_bp.route('/api/tech/flag/unacknowledge', methods=['POST'])
-@login_required
-def unack_tech_flag():
-    if current_user.role not in ('admin', 'viewer', 'viewer2'):
-        abort(403)
-    from db import TechFlagAck
-    data      = request.get_json(silent=True) or {}
-    accession = (data.get('accession') or '').strip()
-    flag_date = (data.get('flag_date') or '').strip()
-    if not accession or not flag_date:
-        return jsonify({'error': 'Missing fields'}), 400
-    ack = TechFlagAck.query.filter_by(
-        accession_number=accession, flag_date=flag_date
-    ).first()
-    if ack:
-        db.session.delete(ack)
-        db.session.commit()
-    return jsonify({'ok': True})
-
 
 # ── Self-register ─────────────────────────────────────────────
 from routes.report_registry import register_report
