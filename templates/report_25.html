@@ -610,6 +610,143 @@
                 </div>
                 {% endif %}
 
+                <!-- ── Resident vs Radiologist TAT ─────────────────────────── -->
+                <p class="section-desc mt-8">
+                    Resident vs. Radiologist TAT (exam-done to signature) per modality per patient class. Role
+                    comes from real PACS reading-permission group membership, not a stage-based guess — every
+                    signed event (prelim and final) is attributed to whoever actually signed it.
+                </p>
+
+                {% if res_rad_tat and (res_rad_tat.residents or res_rad_tat.radiologists) %}
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="glass-card">
+                        <div class="chart-card-header">
+                            <span class="chart-card-title" style="color:#34d399;">Residents</span>
+                            <button onclick="r25ExportResRadCsv('residents')" title="Export as CSV"
+                                style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #3f3f46;border-radius:6px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;"
+                                onmouseover="this.style.borderColor='#60a5fa';this.style.color='#60a5fa';"
+                                onmouseout="this.style.borderColor='#3f3f46';this.style.color='#71717a';">
+                                <i class="bi bi-download"></i> CSV
+                            </button>
+                            <button class="export-pdf-btn" onclick="exportElemPdf(document.getElementById('res-tat-table-wrap'),'Resident TAT','resident_tat')">
+                                <i class="bi bi-file-earmark-pdf"></i> PDF
+                            </button>
+                        </div>
+                        <div id="res-tat-table-wrap" class="overflow-x-auto">
+                            <table class="w-full text-[10px] border-collapse whitespace-nowrap">
+                                <thead>
+                                    <tr class="text-zinc-500 uppercase text-[9px]">
+                                        <th class="text-left py-1 pr-3 font-black">Modality</th>
+                                        <th class="text-left py-1 pr-3 font-black">Class</th>
+                                        <th class="text-right py-1 px-2 font-black">N</th>
+                                        <th class="text-right py-1 px-2 font-black">Avg (h)</th>
+                                        <th class="text-right py-1 px-2 font-black">Median (h)</th>
+                                        <th class="text-right py-1 px-2 font-black">0-3h</th>
+                                        <th class="text-right py-1 px-2 font-black">3-5h</th>
+                                        <th class="text-right py-1 pl-2 font-black">5h+</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for row in res_rad_tat.residents %}
+                                    <tr class="border-t border-white/5">
+                                        <td class="py-1 pr-3 text-zinc-300">{{ row.modality }}</td>
+                                        <td class="py-1 pr-3 text-zinc-400">{{ row.patient_class_bucket }}</td>
+                                        <td class="py-1 px-2 text-right font-mono text-zinc-400">{{ row.n }}</td>
+                                        <td class="py-1 px-2 text-right font-mono text-zinc-400">{{ row.avg_tat_h }}</td>
+                                        <td class="py-1 px-2 text-right font-mono text-white font-bold">{{ row.median_tat_h }}</td>
+                                        <td class="py-1 px-2 text-right font-mono text-zinc-500">{{ row.bucket_0_3h }}</td>
+                                        <td class="py-1 px-2 text-right font-mono text-zinc-500">{{ row.bucket_3_5h }}</td>
+                                        <td class="py-1 pl-2 text-right font-mono text-zinc-500">{{ row.bucket_5h_plus }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="glass-card">
+                        <div class="chart-card-header">
+                            <span class="chart-card-title" style="color:#60a5fa;">Radiologists</span>
+                            <button onclick="r25ExportResRadCsv('radiologists')" title="Export as CSV"
+                                style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #3f3f46;border-radius:6px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;"
+                                onmouseover="this.style.borderColor='#60a5fa';this.style.color='#60a5fa';"
+                                onmouseout="this.style.borderColor='#3f3f46';this.style.color='#71717a';">
+                                <i class="bi bi-download"></i> CSV
+                            </button>
+                            <button class="export-pdf-btn" onclick="exportElemPdf(document.getElementById('rad-tat-table-wrap'),'Radiologist TAT','radiologist_tat')">
+                                <i class="bi bi-file-earmark-pdf"></i> PDF
+                            </button>
+                        </div>
+                        <div id="rad-tat-table-wrap" class="overflow-x-auto">
+                            <table class="w-full text-[10px] border-collapse whitespace-nowrap">
+                                <thead>
+                                    <tr class="text-zinc-500 uppercase text-[9px]">
+                                        <th class="text-left py-1 pr-3 font-black">Modality</th>
+                                        <th class="text-left py-1 pr-3 font-black">Class</th>
+                                        <th class="text-right py-1 px-2 font-black">N</th>
+                                        <th class="text-right py-1 px-2 font-black">Avg (h)</th>
+                                        <th class="text-right py-1 px-2 font-black">Median (h)</th>
+                                        <th class="text-right py-1 px-2 font-black">0-3h</th>
+                                        <th class="text-right py-1 px-2 font-black">3-5h</th>
+                                        <th class="text-right py-1 pl-2 font-black">5h+</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for row in res_rad_tat.radiologists %}
+                                    <tr class="border-t border-white/5">
+                                        <td class="py-1 pr-3 text-zinc-300">{{ row.modality }}</td>
+                                        <td class="py-1 pr-3 text-zinc-400">{{ row.patient_class_bucket }}</td>
+                                        <td class="py-1 px-2 text-right font-mono text-zinc-400">{{ row.n }}</td>
+                                        <td class="py-1 px-2 text-right font-mono text-zinc-400">{{ row.avg_tat_h }}</td>
+                                        <td class="py-1 px-2 text-right font-mono text-white font-bold">{{ row.median_tat_h }}</td>
+                                        <td class="py-1 px-2 text-right font-mono text-zinc-500">{{ row.bucket_0_3h }}</td>
+                                        <td class="py-1 px-2 text-right font-mono text-zinc-500">{{ row.bucket_3_5h }}</td>
+                                        <td class="py-1 pl-2 text-right font-mono text-zinc-500">{{ row.bucket_5h_plus }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                {% if res_rad_tat.unclassified_count %}
+                <p class="text-[9px] text-zinc-600 italic mt-2">{{ res_rad_tat.unclassified_count }} signed events excluded — signer not resolved to a recognized PACS radiologists/residents group.</p>
+                {% endif %}
+
+                <script>
+                (function(){
+                    const RES_RAD_TAT = {{ (res_rad_tat or {}) | tojson }};
+
+                    // Local helper — the shared _r25DownloadCsv lives inside a different
+                    // IIFE further down the page and isn't reachable from here.
+                    function _downloadCsv(csv, filename) {
+                        const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+                        const url  = URL.createObjectURL(blob);
+                        const a    = document.createElement('a');
+                        a.href = url; a.download = filename;
+                        document.body.appendChild(a); a.click();
+                        document.body.removeChild(a); URL.revokeObjectURL(url);
+                    }
+
+                    window.r25ExportResRadCsv = function(role) {
+                        const rows = RES_RAD_TAT[role] || [];
+                        if (!rows.length) return;
+                        const q = v => '"' + String(v==null?'':v).replace(/"/g,'""') + '"';
+                        const lines = [
+                            ['Modality','Patient Class','N','Avg TAT (h)','Median TAT (h)','0-3h','3-5h','5h+'].map(q).join(','),
+                            ...rows.map(r => [r.modality, r.patient_class_bucket, r.n, r.avg_tat_h, r.median_tat_h, r.bucket_0_3h, r.bucket_3_5h, r.bucket_5h_plus].map(q).join(','))
+                        ];
+                        _downloadCsv(lines.join('\n'), `${role}_tat_${new Date().toISOString().slice(0,10)}.csv`);
+                    };
+                })();
+                </script>
+                {% elif run_report %}
+                <div class="glass-card text-center py-12 text-zinc-600">
+                    <i class="bi bi-clock-history text-4xl mb-3 block opacity-40"></i>
+                    <p class="italic">No resident/radiologist TAT data for this range.</p>
+                </div>
+                {% endif %}
+
                 <!-- ── Radiologist Workload Matrix ────────────────────── -->
                 {% if data.rad_volume_matrix %}
                 <div class="glass-card" id="r25-rad-matrix-card">

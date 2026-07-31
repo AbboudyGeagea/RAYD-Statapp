@@ -240,6 +240,115 @@ def get_kpi_detailed_reading(form_data):
     return blocks
 
 
+def get_resident_radiologist_tat(form_data):
+    """
+    Resident vs. Radiologist TAT (exam-done -> signature) per modality per patient
+    class (Inpatient/Outpatient/ER), split by REAL role.
+
+    Role source: std_pacs_user_groups (PACS MEDILINK reading-permission groups --
+    "radiologists" / "residents"), matched to the signer via login name. NOT RIS's
+    resource_role_key -- that one was over-granted to every user as a workaround for
+    an installation-time RIS permissions bug and doesn't reflect real job function
+    (see ETL_JOBS/etl_ris_resources.py's docstring, and the concrete false positive/
+    negatives it produced: a radiologist misclassified Resident, two real residents
+    missed entirely -- caught 2026-07-31 by comparing it against this real group data).
+
+    Counts every signed event (prelim AND final) attributed to whoever actually
+    signed it, not the stage it happened at -- a resident's final signature (rare)
+    still counts as resident work, and vice versa. "exam done" is PPS end_datetime
+    (std_pps), not insert_time -- insert_time was found to badly overstate TAT for
+    gateway-routed/SJH studies earlier this session.
+    """
+    go_live = get_etl_cutoff_date()
+    start = form_data.get("start_date") or (go_live.strftime("%Y-%m-%d") if go_live else "2024-01-01")
+    end = form_data.get("end_date") or date.today().strftime("%Y-%m-%d")
+    params = {"start": start, "end": end}
+
+    rh_site_id = default_site()
+    site_clause = ""
+    if rh_site_id is not None:
+        params["rh_site_id"] = rh_site_id
+        site_clause = "AND m.site_id = :rh_site_id"
+
+    result = {"residents": [], "radiologists": [], "unclassified_count": 0}
+    try:
+        rows = db.session.execute(text(f"""
+            WITH pps_done AS (
+                SELECT study_instance_uid, MAX(end_datetime) AS exam_done_time
+                FROM std_pps
+                WHERE end_datetime IS NOT NULL AND study_instance_uid IS NOT NULL
+                GROUP BY study_instance_uid
+            ),
+            role_lookup AS (
+                SELECT DISTINCT UPPER(login_id) AS login_id, group_name AS role
+                FROM std_pacs_user_groups
+                WHERE group_name IN ('radiologists', 'residents')
+            ),
+            signed_events AS (
+                SELECT s.study_db_uid, s.study_instance_uid, s.storing_ae, s.patient_class,
+                       s.patient_location,
+                       UPPER(TRIM(s.rep_prelim_signed_by)) AS signer, s.rep_prelim_timestamp AS sign_time
+                FROM etl_didb_studies s
+                WHERE s.rep_prelim_signed_by IS NOT NULL AND s.rep_prelim_timestamp IS NOT NULL
+                  AND s.study_date BETWEEN :start AND :end
+                UNION ALL
+                SELECT s.study_db_uid, s.study_instance_uid, s.storing_ae, s.patient_class,
+                       s.patient_location,
+                       UPPER(TRIM(s.rep_study_last_composed_by)) AS signer, s.rep_study_last_composed_ts AS sign_time
+                FROM etl_didb_studies s
+                WHERE s.rep_study_last_composed_by IS NOT NULL AND s.rep_study_last_composed_ts IS NOT NULL
+                  AND s.study_date BETWEEN :start AND :end
+            ),
+            classified AS (
+                SELECT
+                    se.*,
+                    rl.role,
+                    COALESCE(m.modality, es.study_modality, 'Unknown') AS modality,
+                    CASE
+                        WHEN se.patient_location = 'ER' THEN 'ER'
+                        WHEN se.patient_class = 'I' THEN 'Inpatient'
+                        WHEN se.patient_class = 'O' THEN 'Outpatient'
+                        ELSE 'Other'
+                    END AS patient_class_bucket,
+                    EXTRACT(EPOCH FROM (se.sign_time - p.exam_done_time)) / 3600.0 AS tat_hours
+                FROM signed_events se
+                JOIN pps_done p ON p.study_instance_uid = se.study_instance_uid
+                JOIN etl_didb_studies es ON es.study_db_uid = se.study_db_uid
+                LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(se.storing_ae))
+                LEFT JOIN role_lookup rl ON rl.login_id = SPLIT_PART(se.signer, '@', 1)
+                WHERE se.sign_time > p.exam_done_time
+                  AND COALESCE(m.modality, es.study_modality, '') NOT IN ('SR', 'PACS')
+                  {site_clause}
+            )
+            SELECT
+                COALESCE(role, '__unclassified__') AS role, modality, patient_class_bucket,
+                COUNT(*) AS n,
+                ROUND(AVG(tat_hours)::numeric, 2) AS avg_tat_h,
+                ROUND((PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY tat_hours))::numeric, 2) AS median_tat_h,
+                COUNT(*) FILTER (WHERE tat_hours <= 3)                   AS bucket_0_3h,
+                COUNT(*) FILTER (WHERE tat_hours > 3 AND tat_hours <= 5) AS bucket_3_5h,
+                COUNT(*) FILTER (WHERE tat_hours > 5)                    AS bucket_5h_plus
+            FROM classified
+            GROUP BY role, modality, patient_class_bucket
+            ORDER BY role, modality, patient_class_bucket
+        """), params).mappings().fetchall()
+
+        for r in rows:
+            row = dict(r)
+            role = row.pop("role")
+            if role == "radiologists":
+                result["radiologists"].append(row)
+            elif role == "residents":
+                result["residents"].append(row)
+            else:
+                result["unclassified_count"] += row["n"]
+    except Exception:
+        logger.exception("Failed to compute resident/radiologist TAT")
+        db.session.rollback()
+
+    return result
+
+
 def get_gold_standard_data(form_data):
     """
     Main data-fetch for Report 25.  Runs the SQL template from the DB,
@@ -1290,10 +1399,11 @@ def report_25():
     display_start = go_live.strftime("%Y-%m-%d") if go_live else "2024-01-01"
     display_end   = date.today().strftime("%Y-%m-%d")
 
-    data          = None
-    journey_json  = None
-    template_data = None
-    kpi_data      = None
+    data           = None
+    journey_json   = None
+    template_data  = None
+    kpi_data       = None
+    res_rad_tat    = None
 
     if run_report:
         from utils.audit import log_event
@@ -1302,6 +1412,7 @@ def report_25():
                           'tab': active_tab})
         data, display_start, display_end = get_gold_standard_data(request.values)
         kpi_data = get_kpi_detailed_reading(request.values)
+        res_rad_tat = get_resident_radiologist_tat(request.values)
 
         # NOTE: Patient Journey used to be built inline here from a `fallback_id`
         # request param, joining etl_didb_studies to etl_patient_view on
@@ -1322,7 +1433,7 @@ def report_25():
 
         template_data = {k: v for k, v in data.items() if k != 'raw_df'} if data else None
 
-    return render_template("report_25.html", data=template_data, kpi_data=kpi_data, display_start=display_start, display_end=display_end, classes=classes, locations=locations, modalities=modalities, aetitles=aetitles, tree_json=tree_json, journey_json=journey_json, run_report=run_report, active_tab=active_tab, shift_config=shift_config)
+    return render_template("report_25.html", data=template_data, kpi_data=kpi_data, res_rad_tat=res_rad_tat, display_start=display_start, display_end=display_end, classes=classes, locations=locations, modalities=modalities, aetitles=aetitles, tree_json=tree_json, journey_json=journey_json, run_report=run_report, active_tab=active_tab, shift_config=shift_config)
 
 @report_25_bp.route("/report/25/export", methods=["POST"])
 @login_required
