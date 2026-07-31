@@ -145,24 +145,31 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
         # never be loaded. Existing duplicate rows cleaned up separately, migration 0073.
         _EXCLUDED_AE_SQL = "AND UPPER(TRIM(s.STORING_AE)) NOT IN ('LAUMC', 'SVSM')"
 
-        # Operator instruction (2026-07-29): REP_FINAL_SIGNED_BY values ending in
-        # '@dn' (akehdi@dn, eva.d@dn, mi70@dn, ...) are not real LAUMC data — confirmed
+        # Operator instruction (2026-07-29, extended 2026-07-31): '@dn'-suffixed signer
+        # values (akehdi@dn, eva.d@dn, mi70@dn, ...) are not real LAUMC data — confirmed
         # not a different PACS_SITE_ID (they share site 0 with legitimate RH studies),
-        # just not legitimate regardless. Existing rows cleaned up separately,
-        # migration 0084.
+        # just not legitimate regardless. Originally only checked REP_FINAL_SIGNED_BY
+        # (migration 0084); '@dn' values were then found leaking through
+        # REP_PRELIM_SIGNED_BY and REP_STUDY_LAST_COMPOSED_BY too (e.g. EVA.D@DN
+        # surfacing via rep_prelim_signed_by, not rep_final_signed_by) — all three
+        # signer fields are checked now. Existing rows cleaned up separately,
+        # migrations 0084 and 0086.
         #
         # BUG FIXED 2026-07-30: the original "NOT LIKE" with no NULL guard silently
-        # dropped every row where REP_FINAL_SIGNED_BY IS NULL, since NULL NOT LIKE x
+        # dropped every row where the signer field IS NULL, since NULL NOT LIKE x
         # evaluates to NULL (excluded), not TRUE. That's virtually every brand-new
-        # study (final signature is set well after the study lands), so incremental
+        # study (signatures are set well after the study lands), so incremental
         # runs — which target exactly those new studies — came back with an empty or
         # near-empty active-study-id list most nights. That empty list tripped
         # etl_runner.py's _ensure_active_ids() fallback ("reload every study ID ever
         # loaded from Postgres") for every downstream phase — series, raw_images,
         # image_locations all trust that list blindly — turning every incremental
-        # sync into 4 full reloads. Confirmed live on LAUMC, 2026-07-30.
+        # sync into 4 full reloads. Confirmed live on LAUMC, 2026-07-30. Every clause
+        # below keeps the same NULL guard.
         _EXCLUDED_SIGNER_SQL = (
-            "AND (s.REP_FINAL_SIGNED_BY IS NULL OR UPPER(s.REP_FINAL_SIGNED_BY) NOT LIKE '%@DN')"
+            "AND (s.REP_FINAL_SIGNED_BY IS NULL OR UPPER(s.REP_FINAL_SIGNED_BY) NOT LIKE '%@DN') "
+            "AND (s.REP_PRELIM_SIGNED_BY IS NULL OR UPPER(s.REP_PRELIM_SIGNED_BY) NOT LIKE '%@DN') "
+            "AND (s.REP_STUDY_LAST_COMPOSED_BY IS NULL OR UPPER(s.REP_STUDY_LAST_COMPOSED_BY) NOT LIKE '%@DN')"
         )
 
         def _execute_query(use_join):
