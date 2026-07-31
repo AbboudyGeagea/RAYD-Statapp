@@ -82,12 +82,26 @@ def refresh_storage_summary():
                 func.coalesce(etl_didb_studies.storing_ae, 'UNKNOWN').label("storing_ae"),
                 func.coalesce(etl_didb_studies.study_modality, 'UNKNOWN').label("modality"),
                 func.coalesce(etl_didb_studies.procedure_code, 'UNKNOWN').label("procedure_code"),
+                # image_size_kb is misleadingly named -- the raw Oracle column
+                # (medistore.didb_image_locations.IMAGE_SIZE) is actually BYTES, not
+                # KB. Confirmed 2026-07-31 against the full, freshly-loaded dataset
+                # (164M rows): treating it as KB gives a median "image size" of
+                # ~200MB and an average of ~336MB, which is physically impossible
+                # for a single DICOM image at that volume -- no real modality
+                # produces hundred-MB single-frame images as a MEDIAN across
+                # millions of images. Treating it as bytes gives a median of ~200KB
+                # and average of ~336KB, which matches real DICOM file sizes.
+                # This divisor was previously changed from 1_073_741_824 (bytes->GB)
+                # to 1_048_576 (KB->GB) based on an earlier, much smaller sample
+                # that seemed to confirm "kb" — that change was the actual bug, and
+                # explains the storage total jumping ~1024x (0.37TB -> 440TB and
+                # climbing to 52,610TB as more data loaded). Reverted to bytes->GB.
                 func.round(
                     func.cast(
                         func.coalesce(
                             func.sum(etl_image_locations.image_size_kb), 0
                         ), db.Numeric
-                    ) / 1_048_576,
+                    ) / 1_073_741_824,
                     4,
                 ).label("total_gb"),
                 func.count(
