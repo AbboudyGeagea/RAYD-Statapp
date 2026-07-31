@@ -747,6 +747,92 @@
                 </div>
                 {% endif %}
 
+                <!-- ── Patient Wait Time (Arrived → Exam Done) ─────────────── -->
+                <p class="section-desc mt-8">
+                    Patient wait time (arrived to exam done) per modality per patient class. "Arrived" is a real
+                    RIS status-transition timestamp (WORKLIST_STATUS_HISTORY), not scheduled or order time.
+                </p>
+                <p class="text-[9px] text-amber-500/80 italic mb-3">
+                    ⚠ Inpatient orders set "Arrived" early to trigger the DICOM Modality Worklist (normal workflow,
+                    not a data issue) — Inpatient numbers reflect order-to-completion lag, not literal
+                    waiting-room time the way Outpatient/ER do.
+                </p>
+
+                {% if wait_time_data %}
+                <div class="glass-card" id="wait-time-card">
+                    <div class="chart-card-header">
+                        <span class="chart-card-title">Patient Wait Time</span>
+                        <button onclick="r25ExportWaitCsv()" title="Export as CSV"
+                            style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #3f3f46;border-radius:6px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;"
+                            onmouseover="this.style.borderColor='#60a5fa';this.style.color='#60a5fa';"
+                            onmouseout="this.style.borderColor='#3f3f46';this.style.color='#71717a';">
+                            <i class="bi bi-download"></i> CSV
+                        </button>
+                        <button class="export-pdf-btn" onclick="exportElemPdf(document.getElementById('wait-time-table-wrap'),'Patient Wait Time','patient_wait_time')">
+                            <i class="bi bi-file-earmark-pdf"></i> PDF
+                        </button>
+                    </div>
+                    <div id="wait-time-table-wrap" class="overflow-x-auto">
+                        <table class="w-full text-[10px] border-collapse whitespace-nowrap">
+                            <thead>
+                                <tr class="text-zinc-500 uppercase text-[9px]">
+                                    <th class="text-left py-1 pr-3 font-black">Modality</th>
+                                    <th class="text-left py-1 pr-3 font-black">Class</th>
+                                    <th class="text-right py-1 px-2 font-black">N</th>
+                                    <th class="text-right py-1 px-2 font-black">Avg (min)</th>
+                                    <th class="text-right py-1 px-2 font-black">Median (min)</th>
+                                    <th class="text-right py-1 px-2 font-black">0-30m</th>
+                                    <th class="text-right py-1 px-2 font-black">30-60m</th>
+                                    <th class="text-right py-1 pl-2 font-black">60m+</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in wait_time_data %}
+                                <tr class="border-t border-white/5 {{ 'opacity-60' if row.patient_class_bucket == 'Inpatient' }}">
+                                    <td class="py-1 pr-3 text-zinc-300">{{ row.modality }}</td>
+                                    <td class="py-1 pr-3 text-zinc-400">{{ row.patient_class_bucket }}{{ ' ⚠' if row.patient_class_bucket == 'Inpatient' }}</td>
+                                    <td class="py-1 px-2 text-right font-mono text-zinc-400">{{ row.n }}</td>
+                                    <td class="py-1 px-2 text-right font-mono text-zinc-400">{{ row.avg_wait_min }}</td>
+                                    <td class="py-1 px-2 text-right font-mono text-white font-bold">{{ row.median_wait_min }}</td>
+                                    <td class="py-1 px-2 text-right font-mono text-zinc-500">{{ row.bucket_0_30 }}</td>
+                                    <td class="py-1 px-2 text-right font-mono text-zinc-500">{{ row.bucket_30_60 }}</td>
+                                    <td class="py-1 pl-2 text-right font-mono text-zinc-500">{{ row.bucket_60_plus }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <script>
+                (function(){
+                    const WAIT_TIME_DATA = {{ (wait_time_data or []) | tojson }};
+                    function _downloadCsv(csv, filename) {
+                        const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+                        const url  = URL.createObjectURL(blob);
+                        const a    = document.createElement('a');
+                        a.href = url; a.download = filename;
+                        document.body.appendChild(a); a.click();
+                        document.body.removeChild(a); URL.revokeObjectURL(url);
+                    }
+                    window.r25ExportWaitCsv = function() {
+                        if (!WAIT_TIME_DATA.length) return;
+                        const q = v => '"' + String(v==null?'':v).replace(/"/g,'""') + '"';
+                        const lines = [
+                            ['Modality','Patient Class','N','Avg Wait (min)','Median Wait (min)','0-30m','30-60m','60m+'].map(q).join(','),
+                            ...WAIT_TIME_DATA.map(r => [r.modality, r.patient_class_bucket, r.n, r.avg_wait_min, r.median_wait_min, r.bucket_0_30, r.bucket_30_60, r.bucket_60_plus].map(q).join(','))
+                        ];
+                        _downloadCsv(lines.join('\n'), `patient_wait_time_${new Date().toISOString().slice(0,10)}.csv`);
+                    };
+                })();
+                </script>
+                {% elif run_report %}
+                <div class="glass-card text-center py-12 text-zinc-600">
+                    <i class="bi bi-clock-history text-4xl mb-3 block opacity-40"></i>
+                    <p class="italic">No patient wait time data for this range.</p>
+                </div>
+                {% endif %}
+
                 <!-- ── Radiologist Workload Matrix ────────────────────── -->
                 {% if data.rad_volume_matrix %}
                 <div class="glass-card" id="r25-rad-matrix-card">

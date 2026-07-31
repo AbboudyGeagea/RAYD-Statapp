@@ -349,6 +349,90 @@ def get_resident_radiologist_tat(form_data):
     return result
 
 
+def get_patient_wait_time(form_data):
+    """
+    Patient wait time (arrived -> exam done) per modality per patient class
+    (Inpatient/Outpatient/ER).
+
+    "Arrived" comes from std_worklist_arrivals (RIS WORKLIST_STATUS_HISTORY,
+    status_key=60 "Arrived"), NOT hl7_orders.arrived_at -- that column was built for
+    this exact purpose but is empty, since it depends on the live HL7 ORM feed from
+    R2I, which isn't flowing yet.
+
+    IMPORTANT CAVEAT (operator, 2026-07-31): for Inpatient orders this is normal
+    workflow, not a data bug -- staff set "Arrived" well before the actual exam
+    specifically to trigger the DICOM Modality Worklist (so the device/portable unit
+    can pull the order), then mark the study done once they return with images. So
+    Inpatient wait time here reflects order-to-DMWL-trigger-to-completion lag, not
+    literal waiting-room time the way it does for Outpatient/ER. Surfaced with a
+    caveat in the UI rather than excluded, per operator instruction.
+    """
+    go_live = get_etl_cutoff_date()
+    start = form_data.get("start_date") or (go_live.strftime("%Y-%m-%d") if go_live else "2024-01-01")
+    end = form_data.get("end_date") or date.today().strftime("%Y-%m-%d")
+    params = {"start": start, "end": end}
+
+    rh_site_id = default_site()
+    site_clause = ""
+    if rh_site_id is not None:
+        params["rh_site_id"] = rh_site_id
+        site_clause = "AND m.site_id = :rh_site_id"
+
+    rows = []
+    try:
+        rows = db.session.execute(text(f"""
+            WITH pps_done AS (
+                SELECT study_instance_uid, MAX(end_datetime) AS exam_done_time
+                FROM std_pps
+                WHERE end_datetime IS NOT NULL AND study_instance_uid IS NOT NULL
+                GROUP BY study_instance_uid
+            ),
+            pps_arrival AS (
+                SELECT p.study_instance_uid, MIN(wa.arrived_at) AS arrived_at
+                FROM std_worklist_arrivals wa
+                JOIN std_pps p ON p.pps_key = wa.pps_key
+                WHERE p.study_instance_uid IS NOT NULL
+                GROUP BY p.study_instance_uid
+            ),
+            wait AS (
+                SELECT
+                    s.study_db_uid,
+                    COALESCE(m.modality, s.study_modality, 'Unknown') AS modality,
+                    CASE
+                        WHEN s.patient_location = 'ER' THEN 'ER'
+                        WHEN s.patient_class = 'I' THEN 'Inpatient'
+                        WHEN s.patient_class = 'O' THEN 'Outpatient'
+                        ELSE 'Other'
+                    END AS patient_class_bucket,
+                    EXTRACT(EPOCH FROM (pd.exam_done_time - pa.arrived_at)) / 60.0 AS wait_minutes
+                FROM etl_didb_studies s
+                JOIN pps_done pd ON pd.study_instance_uid = s.study_instance_uid
+                JOIN pps_arrival pa ON pa.study_instance_uid = s.study_instance_uid
+                LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
+                WHERE pd.exam_done_time > pa.arrived_at
+                  AND s.study_date BETWEEN :start AND :end
+                  AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'PACS')
+                  {site_clause}
+            )
+            SELECT
+                modality, patient_class_bucket,
+                COUNT(*) AS n,
+                ROUND(AVG(wait_minutes)::numeric, 1) AS avg_wait_min,
+                ROUND((PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY wait_minutes))::numeric, 1) AS median_wait_min,
+                COUNT(*) FILTER (WHERE wait_minutes <= 30)                          AS bucket_0_30,
+                COUNT(*) FILTER (WHERE wait_minutes > 30 AND wait_minutes <= 60)    AS bucket_30_60,
+                COUNT(*) FILTER (WHERE wait_minutes > 60)                           AS bucket_60_plus
+            FROM wait
+            GROUP BY modality, patient_class_bucket
+            ORDER BY modality, patient_class_bucket
+        """), params).mappings().fetchall()
+    except Exception:
+        logger.exception("Failed to compute patient wait time")
+        db.session.rollback()
+
+    return [dict(r) for r in rows]
+
+
 def get_gold_standard_data(form_data):
     """
     Main data-fetch for Report 25.  Runs the SQL template from the DB,
@@ -1404,6 +1488,7 @@ def report_25():
     template_data  = None
     kpi_data       = None
     res_rad_tat    = None
+    wait_time_data = None
 
     if run_report:
         from utils.audit import log_event
@@ -1413,6 +1498,7 @@ def report_25():
         data, display_start, display_end = get_gold_standard_data(request.values)
         kpi_data = get_kpi_detailed_reading(request.values)
         res_rad_tat = get_resident_radiologist_tat(request.values)
+        wait_time_data = get_patient_wait_time(request.values)
 
         # NOTE: Patient Journey used to be built inline here from a `fallback_id`
         # request param, joining etl_didb_studies to etl_patient_view on
@@ -1433,7 +1519,7 @@ def report_25():
 
         template_data = {k: v for k, v in data.items() if k != 'raw_df'} if data else None
 
-    return render_template("report_25.html", data=template_data, kpi_data=kpi_data, res_rad_tat=res_rad_tat, display_start=display_start, display_end=display_end, classes=classes, locations=locations, modalities=modalities, aetitles=aetitles, tree_json=tree_json, journey_json=journey_json, run_report=run_report, active_tab=active_tab, shift_config=shift_config)
+    return render_template("report_25.html", data=template_data, kpi_data=kpi_data, res_rad_tat=res_rad_tat, wait_time_data=wait_time_data, display_start=display_start, display_end=display_end, classes=classes, locations=locations, modalities=modalities, aetitles=aetitles, tree_json=tree_json, journey_json=journey_json, run_report=run_report, active_tab=active_tab, shift_config=shift_config)
 
 @report_25_bp.route("/report/25/export", methods=["POST"])
 @login_required
