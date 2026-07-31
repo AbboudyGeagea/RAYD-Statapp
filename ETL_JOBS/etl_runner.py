@@ -43,6 +43,11 @@ Execution phases (in order):
              Together with Phase 14's std_pps this is the device-utilization
              denominator/numerator pair; skipped unless a RIS db_params source is
              configured)
+  Phase 16 — PACS User Groups (LAUMC: MEDILINK.SECM_USERS/SECM_GROUPS/
+             SECM_USER_IN_GROUP -> std_pacs_user_groups — PACS reading-permission
+             security groups, e.g. "radiologists"/"residents". PACS-side, same Oracle
+             connection as Phase 1; the reliable role source, unlike RIS's
+             resource_role_key — see etl_ris_resources.py's docstring)
 
 Triggered by APScheduler in app.py or manually via `python app.py -m`.
 """
@@ -83,6 +88,7 @@ from etl_ris_modality_availability import (
     run_ris_modality_exceptions_etl, run_ris_schedule_template_items_etl,
     run_ris_schedule_schemes_etl, run_ris_availability_indicators_etl,
 )
+from etl_pacs_user_groups     import run_pacs_user_groups_etl
 
 logger = logging.getLogger("ETL_WORKER")
 
@@ -129,6 +135,7 @@ _PHASE_LABELS = {
     '13': ('RIS Resources',      'Oracle RIS: RESOURCE_ID + PERSON -> std_resources_ris + reading/signing physician enrichment — moderate (LAUMC)'),
     '14': ('RIS PPS',            'Oracle RIS: PPS + STATUS + PROCEDURE_PRIORITY + DICTATION + SITE_PPS -> std_pps and friends + STUDY_INSTANCE_UID<->PACS join test — moderate/heavy (LAUMC)'),
     '15': ('RIS Modality Availability', 'Oracle RIS: SCHEDULE_SCHEME + AVAILABILITY_INDICATOR + MODALITY_AVAIL_EXCEPTION + SCHEDULE_TEMPLATE_ITEM -> std_schedule_schemes / std_availability_indicators / std_modality_exceptions / std_schedule_template_items (device utilization denominator) — light (LAUMC)'),
+    '16': ('PACS User Groups',   'Oracle PACS: MEDILINK.SECM_USERS/SECM_GROUPS/SECM_USER_IN_GROUP -> std_pacs_user_groups (reading-permission groups, e.g. radiologists/residents) — light (LAUMC)'),
 }
 
 
@@ -589,6 +596,18 @@ def _perform_migration(engine):
                 except Exception as _e:
                     _phase_failures.append("15 (RIS Modality Availability)")
                     logger.error(f"🛑 Phase 15 (RIS Modality Availability) failed — continuing to next phase: {_e}", exc_info=True)
+
+        # ── PHASE 16: PACS User Groups (MEDILINK security groups — reading
+        #     permission groups like "radiologists"/"residents"; PACS-side, same
+        #     Oracle connection as Phase 1, no RIS source needed) ──────────────
+        if _confirm_phase(16):
+            logger.info("📋 Phase 16: PACS User Groups")
+            try:
+                run_pacs_user_groups_etl(engine, src)
+                logger.info("✅ Phase 16 done")
+            except Exception as _e:
+                _phase_failures.append("16 (PACS User Groups)")
+                logger.error(f"🛑 Phase 16 (PACS User Groups) failed — continuing to next phase: {_e}", exc_info=True)
 
         # ── Mark overall sync SUCCESS (or PARTIAL if any phase failed but the
         # run still made it to the end — each phase is now isolated by its own
