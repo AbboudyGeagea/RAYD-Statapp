@@ -17,7 +17,12 @@ below closes that loop on data already loaded.
 site_id resolved via site_org_map (migration 0052) — RESOURCE_ID carries a real
 org_structure_key, unlike VISIT.
 
-RESOURCE_ROLE_KEY pulled RAW — no role lookup table provided yet.
+RESOURCE_ROLE_KEY resolved to (code, description) via a hardcoded lookup (vendor's real
+RIS RESOURCE_ROLE table, operator-provided 2026-07-31 — small, 16 rows, not expected to
+change often, same pattern as etl_ris_patients.py's GENDER_KEY map). A person can carry
+MULTIPLE resource_role_key rows (one per role/site/assignment) -- e.g. an attending
+radiologist's rows include both the generic RAD role and the specific ATT role -- so
+this resolves each row's own role, it does not collapse a person to one role.
 """
 import os
 import logging
@@ -28,6 +33,28 @@ from db import OracleConnector
 _RESOURCE_ID_TABLE = os.getenv("RAYD_RIS_RESOURCE_ID_TABLE", "RESOURCE_ID")
 _PERSON_TABLE       = os.getenv("RAYD_RIS_PERSON_TABLE", "PERSON")
 _FETCH_BATCH = 2000
+
+# Vendor-provided RESOURCE_ROLE lookup (operator screenshot, 2026-07-31). Unmapped keys
+# resolve to (None, None) -- surfaced as unresolved, not guessed -- rather than silently
+# defaulting to something.
+_ROLE_CODE_MAP = {
+    1:    ('DOC',      'Doctor'),
+    2:    ('TEC',       'Technologist'),
+    3:    ('TRA',       'Transcriptionist'),
+    4:    ('NUR',       'Nurse'),
+    5:    ('CLERK',     'Clerk'),
+    6:    ('REC',       'Receptionist'),
+    7:    ('RISAdmin',  'RIS Administrator'),
+    8:    ('RAD',       'Radiologist'),
+    3160: ('RADAD',     'Rad Admin'),
+    3240: ('ATT',       'Attending'),
+    3241: ('PHYS',      'Physicist'),
+    3260: ('CON',       'Consultant'),
+    3280: ('CARD',      'Cardiologist'),
+    3320: ('RES',       'Resident'),
+    3321: ('SPEC',      'Spec/Cons'),
+    3520: ('VRAD',      'VRadiologist'),
+}
 
 _SAFE_DATE_MIN = datetime(1900, 1, 1)
 _SAFE_DATE_MAX = datetime(9999, 12, 31)
@@ -67,14 +94,16 @@ def _load_site_org_map(pg_engine):
 
 _UPSERT_SQL = text("""
     INSERT INTO std_resources_ris (
-        resource_id_key, person_key, resource_role_key, resource_id, assigning_authority,
+        resource_id_key, person_key, resource_role_key, role_code, role_description,
+        resource_id, assigning_authority,
         org_structure_key, site_id, pref_rpt_delivery_method_key, pref_img_delivery_method_key,
         active, alternate_id, source_last_updated, last_name, first_name, middle_name,
         name_prefix, name_suffix, name_representation_code, common_name, mobile_phone_number,
         pager_number, primary_email_address, secondary_email_address, deleted, deleted_date,
         person_last_updated, last_update
     ) VALUES (
-        :resource_id_key, :person_key, :resource_role_key, :resource_id, :assigning_authority,
+        :resource_id_key, :person_key, :resource_role_key, :role_code, :role_description,
+        :resource_id, :assigning_authority,
         :org_structure_key, :site_id, :pref_rpt_delivery_method_key, :pref_img_delivery_method_key,
         :active, :alternate_id, :source_last_updated, :last_name, :first_name, :middle_name,
         :name_prefix, :name_suffix, :name_representation_code, :common_name, :mobile_phone_number,
@@ -83,6 +112,7 @@ _UPSERT_SQL = text("""
     )
     ON CONFLICT (resource_id_key) DO UPDATE SET
         person_key = EXCLUDED.person_key, resource_role_key = EXCLUDED.resource_role_key,
+        role_code = EXCLUDED.role_code, role_description = EXCLUDED.role_description,
         resource_id = EXCLUDED.resource_id, assigning_authority = EXCLUDED.assigning_authority,
         org_structure_key = EXCLUDED.org_structure_key, site_id = EXCLUDED.site_id,
         pref_rpt_delivery_method_key = EXCLUDED.pref_rpt_delivery_method_key,
@@ -189,9 +219,15 @@ def run_ris_resources_etl(pg_engine, oracle_source):
                 org_key_str = str(org_key).strip() if org_key is not None else None
                 site_id = site_map.get(org_key_str) if org_key_str else None
 
+                role_code, role_description = _ROLE_CODE_MAP.get(
+                    int(role_key) if role_key is not None else None, (None, None)
+                )
+
                 params.append({
                     "resource_id_key": rid_key, "person_key": person_key,
-                    "resource_role_key": role_key, "resource_id": _safe_str(resource_id),
+                    "resource_role_key": role_key,
+                    "role_code": role_code, "role_description": role_description,
+                    "resource_id": _safe_str(resource_id),
                     "assigning_authority": _safe_str(assigning_authority),
                     "org_structure_key": org_key_str, "site_id": site_id,
                     "pref_rpt_delivery_method_key": pref_rpt,
