@@ -14,6 +14,12 @@ MEDILINK lives in the same Oracle instance as MEDISTORE (confirmed via ALL_TABLE
 catalog query, 2026-07-31) — this uses the same PACS Oracle connection as
 etl_didb_studies.py etc., not a separate RIS source.
 
+BUG FIXED 2026-07-31: the original version only queried SECM_USER_IN_GROUP, which
+turned out to be nearly empty on real data (1 row total). SECM_USERS.SECURITY_GROUP_ID
+-- a direct FK straight to SECM_GROUPS on the user record -- is each user's actual
+primary group; SECM_USER_IN_GROUP only covers rare secondary memberships. Both are
+pulled now (see _QUERY).
+
 No date/whitelist filter — this is master/reference data (who's in which group right
 now), not transactional, and there's no meaningful "new since last run" concept for
 group membership; a full pull every run is fine at this table's size (tens to low
@@ -55,12 +61,26 @@ _UPSERT_SQL = text("""
         last_update  = EXCLUDED.last_update
 """)
 
+# Two sources, unioned: SECM_USER_IN_GROUP (bridge table -- confirmed near-empty on
+# real data, 2026-07-31, only 1 row total) plus SECM_USERS.SECURITY_GROUP_ID (a direct
+# FK straight to SECM_GROUPS on the user record itself) -- that direct FK is each
+# user's actual primary group; the bridge table only covers rare secondary
+# memberships. Negative membership_dbid (-u.DBID) for the SECURITY_GROUP_ID half so it
+# can never collide with a real (positive) SECM_USER_IN_GROUP.DBID on upsert.
 _QUERY = f"""
     SELECT
         uig.DBID, u.DBID, u.LOGIN_ID, u.EMAIL, g.DBID, g.GROUP_NAME, g.DOMAIN
     FROM {_SECM_USER_IN_GROUP_TABLE} uig
     JOIN {_SECM_USERS_TABLE}  u ON u.DBID = uig.USER_DBID
     JOIN {_SECM_GROUPS_TABLE} g ON g.DBID = uig.GROUP_DBID
+
+    UNION ALL
+
+    SELECT
+        -u.DBID, u.DBID, u.LOGIN_ID, u.EMAIL, g.DBID, g.GROUP_NAME, g.DOMAIN
+    FROM {_SECM_USERS_TABLE} u
+    JOIN {_SECM_GROUPS_TABLE} g ON g.DBID = u.SECURITY_GROUP_ID
+    WHERE u.SECURITY_GROUP_ID IS NOT NULL
 """
 
 
