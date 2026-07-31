@@ -925,9 +925,15 @@
                         }
                         const radMax = {};
                         allRads.forEach(rad => { radMax[rad] = Math.max(...allDims.map(d => lookup[d+'|'+rad]||0)); });
-                        const headerCells = allRads.map(r =>
-                            `<th style="padding:6px 8px;text-align:right;white-space:nowrap;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;color:#71717a;">${escH(r)}</th>`
-                        ).join('');
+                        const ROLE_BADGE = { residents: ['RES', '#34d399'], radiologists: ['RAD', '#60a5fa'] };
+                        const headerCells = allRads.map(r => {
+                            const role = (RAD_VOL.roles || {})[r];
+                            const badge = ROLE_BADGE[role];
+                            const badgeHtml = badge
+                                ? `<span style="display:inline-block;margin-left:4px;padding:1px 4px;border-radius:3px;font-size:8px;font-weight:900;background:${badge[1]}22;color:${badge[1]};">${badge[0]}</span>`
+                                : '';
+                            return `<th style="padding:6px 8px;text-align:right;white-space:nowrap;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;color:#71717a;">${escH(r)}${badgeHtml}</th>`;
+                        }).join('');
                         const bodyRows = allDims.map(dim => {
                             const total = dimTotals[dim]||0;
                             const label = isMonth ? _fmtMonth(dim) : dim;

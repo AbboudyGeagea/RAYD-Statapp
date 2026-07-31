@@ -887,17 +887,22 @@ def get_gold_standard_data(form_data):
         db.session.rollback()
 
     # ── Reports per radiologist × modality / AE title / procedure ────────
-    rad_volume_matrix = {"by_modality": [], "by_aetitle": [], "by_procedure": [], "by_month": []}
+    # Field fixed 2026-07-31 (operator instruction): was keyed off
+    # rep_final_timestamp / rep_final_signed_by / signing_physician_*, all PACS-side
+    # fields already established as unreliable/sparse at LAUMC (radiologists sign in
+    # RIS, not PACS) -- this was silently undercounting every study whose PACS-side
+    # signature fields never got populated even though it was really signed via RIS.
+    # Now keyed off rep_study_last_composed_by/_ts, the RIS field validated all
+    # night as the reliable one on this install.
+    rad_volume_matrix = {"by_modality": [], "by_aetitle": [], "by_procedure": [], "by_month": [], "roles": {}}
     try:
-        _RAD25_BASE = ("COALESCE(NULLIF(TRIM(CONCAT(s.signing_physician_first_name,' ',"
-                       "s.signing_physician_last_name)),''),s.rep_final_signed_by,'Unknown')")
+        _RAD25_BASE = "COALESCE(NULLIF(TRIM(s.rep_study_last_composed_by),''),'Unknown')"
         _PAM25 = ("LEFT JOIN physician_alias_map pam "
                   "ON pam.dismissed = false "
-                  "AND pam.alias = COALESCE(NULLIF(TRIM(CONCAT(s.signing_physician_first_name,' ',"
-                  "s.signing_physician_last_name)),''),s.rep_final_signed_by)")
+                  "AND pam.alias = NULLIF(TRIM(s.rep_study_last_composed_by),'')")
         _RAD25 = "COALESCE(pam.canonical_name, " + _RAD25_BASE + ")"
         _RAD25_OK = (f"AND {_RAD25} NOT IN ('','Unknown')"
-                     f" AND s.rep_final_timestamp IS NOT NULL")
+                     f" AND s.rep_study_last_composed_ts IS NOT NULL")
         _MJ25 = "LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))"
 
         rad_volume_matrix["by_modality"] = [dict(r) for r in db.session.execute(text(f"""
@@ -930,7 +935,7 @@ def get_gold_standard_data(form_data):
                 FROM etl_didb_studies s
                 {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
                 WHERE s.study_date BETWEEN :start AND :end
-                  AND s.rep_final_timestamp IS NOT NULL
+                  AND s.rep_study_last_composed_ts IS NOT NULL
                   AND s.procedure_code IS NOT NULL AND s.procedure_code != ''
                   {_sec_filters}
                 GROUP BY 1 ORDER BY COUNT(DISTINCT s.study_db_uid) DESC LIMIT 60
@@ -957,6 +962,29 @@ def get_gold_standard_data(form_data):
               {_sec_filters} {_RAD25_OK}
             GROUP BY 1, 2 ORDER BY 1, 2
         """), params).mappings().fetchall()]
+
+        # Real role per radiologist (residents/radiologists), from PACS reading-
+        # permission group membership (std_pacs_user_groups) -- not RIS's unreliable
+        # resource_role_key (see etl_ris_resources.py's docstring). Matched on the raw
+        # login before alias canonicalization, since std_pacs_user_groups.login_id is
+        # a username, not a display name.
+        role_rows = db.session.execute(text(f"""
+            WITH role_lookup AS (
+                SELECT DISTINCT UPPER(login_id) AS login_id, group_name AS role
+                FROM std_pacs_user_groups
+                WHERE group_name IN ('radiologists', 'residents')
+            )
+            SELECT DISTINCT {_RAD25} AS radiologist, rl.role
+            FROM etl_didb_studies s {_MJ25} {_PAM25}
+            LEFT JOIN role_lookup rl
+                ON rl.login_id = SPLIT_PART(UPPER(TRIM(s.rep_study_last_composed_by)), '@', 1)
+            WHERE s.study_date BETWEEN :start AND :end
+              AND COALESCE(m.modality, s.study_modality, '') != 'SR'
+              {_sec_filters} {_RAD25_OK}
+        """), params).mappings().fetchall()
+        for r in role_rows:
+            if r["role"]:
+                rad_volume_matrix["roles"][r["radiologist"]] = r["role"]
     except Exception:
         logger.exception("Failed to build radiologist × modality/AE/procedure volume matrix")
         db.session.rollback()
