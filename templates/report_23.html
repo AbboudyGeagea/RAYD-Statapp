@@ -96,9 +96,9 @@
                             <label class="mb-0 text-[10px]">Patient Class</label>
                             <input type="checkbox" name="f_class_active" onchange="document.getElementById('f_class_23').disabled=!this.checked" {% if filters and filters.f_class_active %}checked{% endif %}>
                         </div>
-                        <select name="f_class" id="f_class_23" class="input-dark" {% if not (filters and filters.f_class_active) %}disabled{% endif %}
-                                data-filter-key="classes"
-                                data-selected="{{ filters.p_class if filters and filters.p_class else '' }}">
+                        <select name="f_class" id="f_class_23" class="input-dark" {% if not (filters and filters.f_class_active) %}disabled{% endif %}>
+                            <option value="I" {% if filters and filters.p_class == 'I' %}selected{% endif %}>I</option>
+                            <option value="O" {% if filters and filters.p_class == 'O' %}selected{% endif %}>O</option>
                         </select>
                     </div>
 

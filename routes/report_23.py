@@ -191,7 +191,6 @@ def report_23():
             SELECT modality, patient_class, age_at_exam, study_date, patient_db_uid
             FROM base_data
             WHERE study_date BETWEEN :s AND :e{extra_where}
-            LIMIT 100000
         """)
 
         demo_sql = text(f"""
