@@ -19,8 +19,8 @@ Key column notes from db.py:
 import os
 import sys
 import logging
-from datetime import datetime
-from sqlalchemy import func, distinct, table, column, text
+from datetime import datetime, timedelta
+from sqlalchemy import func, distinct, table, column, text, select
 from sqlalchemy.dialects.postgresql import insert
 
 # Ensure parent dir (where db.py lives) is on the path when imported from ETL_JOBS/
@@ -48,14 +48,61 @@ logger = logging.getLogger("ETL_WORKER")
 # on the real table (db.py's aetitle_modality_map.aetitle), so this join can't fan out.
 _ae_site_map = table("aetitle_modality_map", column("aetitle"), column("site_id"))
 
+_STORAGE_JOB_NAME = "STORAGE_CUMULATIVE_SYNC"
+_INCREMENTAL_OVERLAP_MINUTES = 30  # absorbs rows committed while the prior run was still scanning
+
+
+def _storage_full_rebuild_forced():
+    """Manual escape hatch — same RAYD_ETL_* on/off convention as etl_runner.py.
+    Forces a full recalculation from go-live, ignoring the watermark."""
+    return os.getenv('RAYD_ETL_STORAGE_FULL_REBUILD', '').strip().lower() in ('1', 'true', 'yes')
+
+
+def _weekly_self_heal_due():
+    """
+    Incremental mode has one known blind spot: if Oracle corrects image_size_kb or
+    file_system on an *existing* etl_image_locations row (not a new row), that UPDATE
+    doesn't bump last_update — see etl_image_locations.py's upsert, which deliberately
+    excludes last_update from its col_names so the column stays a true "first-seen"
+    timestamp (that's what makes it usable as an incremental watermark at all). Such
+    in-place corrections are rare (DICOM images are effectively write-once) but this
+    file has a documented history of silent, long-lived drift (see the purge-step
+    comment below), so a bounded weekly full rebuild self-heals that gap instead of
+    letting it accumulate indefinitely.
+    """
+    return datetime.now().weekday() == 6  # Sunday
+
+
+def _get_storage_watermark():
+    """
+    Incremental cutoff = start_time of the last SUCCESSFUL storage rollup, minus an
+    overlap buffer. Deliberately using that run's *start* (not end) time re-covers
+    anything committed while it was still running, trading a little redundant
+    recompute for a hard guarantee against missing rows.
+    Returns None when there is no prior success (first run, or every previous run
+    failed) — caller does a full rebuild, exactly like before.
+    """
+    last_success = db.session.execute(text(
+        "SELECT MAX(start_time) FROM etl_job_log WHERE job_name = :job AND status = 'SUCCESS'"
+    ), {"job": _STORAGE_JOB_NAME}).scalar()
+    if last_success is None:
+        return None
+    return last_success - timedelta(minutes=_INCREMENTAL_OVERLAP_MINUTES)
+
 
 def refresh_storage_summary():
     """
-    Cumulative rollup: recalculates storage from go-live to today.
-    Upserts into summary_storage_daily so newly arrived images on old
-    study dates are always captured.
+    Recalculates storage into summary_storage_daily.
+
+    Incremental by default: only studies whose etl_image_locations rows were first
+    seen (inserted) since the last successful rollup get re-aggregated — but for
+    those studies the FULL group total is recomputed (not just the delta), so late-
+    arriving images on old study dates are still always captured correctly, same
+    guarantee the old full-rebuild-every-run design had. Falls back to a full
+    rebuild from go-live on the first-ever run, when forced via
+    RAYD_ETL_STORAGE_FULL_REBUILD=1, or once a week (see _weekly_self_heal_due).
     """
-    job_name   = "STORAGE_CUMULATIVE_SYNC"
+    job_name   = _STORAGE_JOB_NAME
     start_time = datetime.now()
     success    = False
 
@@ -64,7 +111,18 @@ def refresh_storage_summary():
         logger.error("❌ [Storage Summary] No go-live date found — skipping.")
         return
 
-    logger.info(f"📦 [Storage Summary] Rolling up storage from {go_live} ...")
+    forced_full  = _storage_full_rebuild_forced()
+    weekly_full  = (not forced_full) and _weekly_self_heal_due()
+    watermark    = None if (forced_full or weekly_full) else _get_storage_watermark()
+    full_rebuild = watermark is None
+
+    if full_rebuild:
+        reason = ("forced via RAYD_ETL_STORAGE_FULL_REBUILD" if forced_full else
+                   "weekly self-heal" if weekly_full else
+                   "no prior successful run")
+        logger.info(f"📦 [Storage Summary] Full rebuild from go-live {go_live} — {reason}")
+    else:
+        logger.info(f"📦 [Storage Summary] Incremental — studies with image data added since {watermark}")
 
     try:
         # LAUMC site rule (operator instruction, 2026-07-26): reports show RH (main
@@ -159,12 +217,31 @@ def refresh_storage_summary():
             agg_query
             .filter(etl_didb_studies.study_date >= go_live)
             .filter(etl_didb_studies.study_modality != 'SR')
-            .group_by(
-                etl_didb_studies.study_date,
-                etl_didb_studies.storing_ae,
-                etl_didb_studies.study_modality,
-                etl_didb_studies.procedure_code,
+        )
+
+        if not full_rebuild:
+            # Scope to studies with at least one image row first-seen since the
+            # watermark. The SUM above still runs over ALL of that study's images
+            # (not just the new ones) once it's in scope, so the recomputed total
+            # is exactly right — this only narrows *which* groups get touched, not
+            # how their value is computed.
+            dirty_studies = (
+                select(etl_didb_studies.study_db_uid)
+                .select_from(etl_didb_studies)
+                .join(etl_didb_raw_images,
+                      etl_didb_studies.study_db_uid == etl_didb_raw_images.study_db_uid)
+                .join(etl_image_locations,
+                      etl_didb_raw_images.raw_image_db_uid == etl_image_locations.raw_image_db_uid)
+                .where(etl_image_locations.last_update >= watermark)
+                .distinct()
             )
+            agg_query = agg_query.filter(etl_didb_studies.study_db_uid.in_(dirty_studies))
+
+        agg_query = agg_query.group_by(
+            etl_didb_studies.study_date,
+            etl_didb_studies.storing_ae,
+            etl_didb_studies.study_modality,
+            etl_didb_studies.procedure_code,
         )
 
         insert_stmt = insert(summary_storage_daily).from_select(

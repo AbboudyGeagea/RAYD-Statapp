@@ -52,7 +52,7 @@ PACS patient identity is intentionally NOT reconciled here).
 """
 import os
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from sqlalchemy import text
 from db import OracleConnector
 
@@ -105,6 +105,53 @@ def _load_status_map(pg_engine):
     except Exception as e:
         logging.warning(f"Orders ETL: could not load worklist_status_map ({e}) — order_status will be NULL")
         return {}
+
+
+_INCREMENTAL_OVERLAP_MINUTES = 30  # absorbs RIS commit-visibility lag around the watermark
+
+
+def _full_rebuild_forced():
+    """Manual escape hatch — force a full backfill from go-live, ignoring the
+    incremental watermark. Same on/off convention as etl_runner.py's other
+    RAYD_ETL_* toggles (e.g. RAYD_ETL_LOOKUP_FROM_PACS). For one-off reconciliation
+    if the watermark is ever suspected of drifting."""
+    return os.getenv('RAYD_ETL_ORDERS_FULL_REBUILD', '').strip().lower() in ('1', 'true', 'yes')
+
+
+def _go_live_datetime(go_live_date):
+    if isinstance(go_live_date, datetime):
+        return go_live_date
+    if hasattr(go_live_date, 'year'):
+        return datetime.combine(go_live_date, datetime.min.time())
+    return datetime.strptime(str(go_live_date), '%Y-%m-%d')
+
+
+def _resolve_watermark(pg_engine, go_live_date):
+    """
+    Incremental cutoff = MAX(etl_orders.last_update) already ingested, minus a
+    small overlap buffer. etl_orders.last_update stores the RIS's own
+    SITE_WORKLIST.LAST_UPDATE_DATE (see the row build in run_orders_etl below) —
+    a genuine source-side change timestamp, not an ETL-touch artifact — so it
+    correctly captures both brand-new orders AND status changes on orders created
+    long ago (arrived/exam-done/etc. all bump LAST_UPDATE_DATE on the RIS side).
+
+    Falls back to a full backfill from go_live_date when etl_orders is empty
+    (first run) or a full rebuild is forced — identical to the old behaviour.
+
+    Returns (watermark_datetime, is_full_rebuild).
+    """
+    go_live_dt = _go_live_datetime(go_live_date)
+
+    if _full_rebuild_forced():
+        return go_live_dt, True
+
+    with pg_engine.connect() as conn:
+        last_seen = conn.execute(text("SELECT MAX(last_update) FROM etl_orders")).scalar()
+
+    if last_seen is None:
+        return go_live_dt, True
+
+    return last_seen - timedelta(minutes=_INCREMENTAL_OVERLAP_MINUTES), False
 
 
 _CM_STAGES = {"exam_done", "dictated", "prelim", "signed", "approved"}
@@ -183,7 +230,14 @@ def run_orders_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_l
 
     gd_str = go_live_date.strftime('%Y-%m-%d') if hasattr(go_live_date, 'strftime') else str(go_live_date)
     status_map = _load_status_map(pg_engine)
+    watermark_dt, is_full_rebuild = _resolve_watermark(pg_engine, go_live_date)
+    watermark_str = watermark_dt.strftime('%Y-%m-%d %H:%M:%S')
 
+    # COALESCE(w.LAST_UPDATE_DATE, o.CREATED_ON_DATE): a handful of RIS rows carry a
+    # NULL LAST_UPDATE_DATE (never touched since creation). Filtering on
+    # LAST_UPDATE_DATE alone would silently drop those forever once the watermark
+    # moves past their CREATED_ON_DATE — CREATED_ON_DATE is always populated (it's
+    # already required by the go-live filter below) so it's a safe fallback.
     query = f"""
         SELECT
             w.SITE_WORKLIST_KEY,
@@ -203,16 +257,20 @@ def run_orders_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_l
         LEFT JOIN {_SPS_CODE_TABLE} sc ON sc.SPS_CODE_KEY = w.SPS_CODE_KEY
         WHERE o.ISSUER_OF_PLACER_ORDER_NUMBER IN ('SAP_PROD','SAP_SJH')
           AND o.CREATED_ON_DATE >= TO_DATE(:cutoff, 'YYYY-MM-DD')
+          AND COALESCE(w.LAST_UPDATE_DATE, o.CREATED_ON_DATE)
+              >= TO_TIMESTAMP(:watermark, 'YYYY-MM-DD HH24:MI:SS')
     """
 
     ora_conn = OracleConnector.get_connection(oracle_source)
     cursor   = ora_conn.cursor()
 
     try:
-        logging.info(f"Orders ETL (RIS) starting — cutoff: {gd_str}")
-        print(f"[Orders ETL] 🚀 Starting (RIS SITE_WORKLIST ⋈ ORDERS ⋈ SPS_CODE) — cutoff: {gd_str}")
+        mode = "FULL BACKFILL" if is_full_rebuild else "INCREMENTAL"
+        logging.info(f"Orders ETL (RIS) starting — mode: {mode}, go-live: {gd_str}, watermark: {watermark_str}")
+        print(f"[Orders ETL] 🚀 Starting (RIS SITE_WORKLIST ⋈ ORDERS ⋈ SPS_CODE) — "
+              f"mode: {mode}, watermark: {watermark_str}")
 
-        cursor.execute(query, {"cutoff": gd_str})
+        cursor.execute(query, {"cutoff": gd_str, "watermark": watermark_str})
 
         batch_num = 0
         while True:
