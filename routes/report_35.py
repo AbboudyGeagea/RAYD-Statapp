@@ -60,7 +60,6 @@ from sqlalchemy import text
 
 from db import db, get_etl_cutoff_date
 from routes.report_cache import cache_get, cache_put
-from routes.insights_engine import run_tech_insights
 from utils.site_resolver import default_site
 
 logger = logging.getLogger("report_35")
@@ -69,11 +68,14 @@ report_35_bp = Blueprint("report_35", __name__)
 
 _REPORT_ID = 35
 
+# Default PACS-vs-RIS exam-done significance threshold (minutes) when a modality has no
+# 'pacs_ris_diff_threshold:<MODALITY>' override in `settings` -- see get_technician_tat_data().
+_DEFAULT_PACS_RIS_THRESHOLD_MIN = 30
+
 
 def get_technician_tat_data(form_data):
     """
-    Main data-fetch for Report 35. Returns a dict:
-        { 'tech_data': {...}, 'tech_insights': [...] }
+    Main data-fetch for Report 35. Returns a dict: { 'tech_data': {...} }.
 
     Anchored on RIS PPS status-change tables (std_worklist_arrivals / _scheduled /
     _exam_done + std_pps), NOT hl7_orders -- that feed depends on the R2I HL7 ORM
@@ -92,6 +94,12 @@ def get_technician_tat_data(form_data):
     receptionists/nurses/radiologists under its most common value). A PPS can carry more
     than one qualifying TEC reference, so `tech_ref` picks one deterministically via
     DISTINCT ON ordered by display_sort_order ASC NULLS LAST (lowest = primary).
+
+    Also flags 'pacs_ris_mismatch' when PACS's own insert_time (etl_didb_studies) and
+    the RIS's self-reported exam_done_at disagree by more than a per-modality
+    significance threshold (settings key 'pacs_ris_diff_threshold:<MODALITY>', minutes;
+    falls back to _DEFAULT_PACS_RIS_THRESHOLD_MIN when a modality has no override) -- a
+    cross-system data-integrity check, independent of the TAT-based flags.
 
     CAVEAT carried over from report_36's removed docstring (operator, 2026-07-31): for
     Inpatient orders, "Arrived" is normal workflow set well before the actual exam,
@@ -125,7 +133,6 @@ def get_technician_tat_data(form_data):
         'summary': {}, 'by_technician': [], 'by_modality': [],
         'flagged': [], 'never_done': [], 'daily_trend': [],
     }
-    _tech_completed_df = pd.DataFrame()
     try:
         _now = datetime.utcnow()
 
@@ -148,6 +155,21 @@ def get_technician_tat_data(form_data):
             _filters.append("(base.site_id IS NULL OR base.site_id = :rh_site_id)")
         _filter_clause = ("WHERE " + " AND ".join(_filters)) if _filters else ""
 
+        # Per-modality PACS-vs-RIS significance threshold (operator instruction: must be
+        # configurable per modality, not one fixed number). Stored as settings rows keyed
+        # 'pacs_ris_diff_threshold:<MODALITY>' (minutes), same key-per-item convention as
+        # e.g. 'oru_crit:<keyword>' elsewhere in this app. No admin UI for these yet --
+        # set/adjust via a settings row directly until one exists. Modalities with no
+        # override fall back to _DEFAULT_PACS_RIS_THRESHOLD_MIN.
+        _pacs_ris_thresholds = dict(db.session.execute(text(
+            "SELECT key, value FROM settings WHERE key LIKE 'pacs_ris_diff_threshold:%'"
+        )).fetchall())
+        _pacs_ris_thresholds = {
+            k.split(':', 1)[1].upper(): float(v)
+            for k, v in _pacs_ris_thresholds.items()
+            if v is not None and str(v).strip()
+        }
+
         # scheduled/exam_done/tech_ref are LATERAL subqueries keyed on ar.pps_key, NOT
         # pre-aggregated CTEs over their full source tables -- std_pps_person_reference
         # alone is 667k+ rows; aggregating it (and std_worklist_scheduled/_exam_done)
@@ -164,7 +186,7 @@ def get_technician_tat_data(form_data):
         # blocks index use even when one exists.
         tech_rows = db.session.execute(text(f"""
             WITH arrival AS (
-                SELECT pps_key, MIN(arrived_at) AS arrived_at
+                SELECT pps_key, MIN(arrived_at) AS arrived_at, MAX(sps_id) AS sps_id
                 FROM std_worklist_arrivals
                 WHERE arrived_at >= :start::date AND arrived_at < :end::date + 1
                 GROUP BY pps_key
@@ -172,7 +194,7 @@ def get_technician_tat_data(form_data):
             base AS (
                 SELECT
                     ar.pps_key,
-                    COALESCE(s.accession_number, 'WL#' || ar.pps_key::text) AS accession_number,
+                    COALESCE(s.accession_number, ar.sps_id, 'WL#' || ar.pps_key::text) AS accession_number,
                     COALESCE(m.modality, s.study_modality, 'Unknown')       AS modality,
                     m.site_id,
                     pps.procedure_code,
@@ -180,6 +202,7 @@ def get_technician_tat_data(form_data):
                     tr.tech_name AS done_by,
                     sc.scheduled_at, ar.arrived_at, ed.exam_done_at,
                     pps.end_datetime AS scanner_done_at,
+                    s.insert_time AS pacs_insert_time,
                     COALESCE(pdm.duration_minutes, 30) AS proc_duration
                 FROM arrival ar
                 LEFT JOIN std_pps pps            ON pps.pps_key = ar.pps_key
@@ -208,7 +231,8 @@ def get_technician_tat_data(form_data):
             )
             SELECT accession_number, modality, procedure_code, done_by,
                    patient_class, patient_location,
-                   scheduled_at, arrived_at, exam_done_at, scanner_done_at, proc_duration
+                   scheduled_at, arrived_at, exam_done_at, scanner_done_at,
+                   pacs_insert_time, proc_duration
             FROM base
             {_filter_clause}
             ORDER BY modality, arrived_at
@@ -220,12 +244,17 @@ def get_technician_tat_data(form_data):
             tdf['arrived_at']      = pd.to_datetime(tdf['arrived_at'])
             tdf['exam_done_at']    = pd.to_datetime(tdf['exam_done_at'],    errors='coerce')
             tdf['scanner_done_at'] = pd.to_datetime(tdf['scanner_done_at'], errors='coerce')
+            tdf['pacs_insert_time'] = pd.to_datetime(tdf['pacs_insert_time'], errors='coerce')
             tdf['tat_min']         = (tdf['exam_done_at']    - tdf['arrived_at']).dt.total_seconds() / 60.0
             tdf['pacs_tat_min']    = (tdf['scanner_done_at'] - tdf['arrived_at']).dt.total_seconds() / 60.0
+            # PACS-vs-RIS cross-system consistency check: how far apart is PACS's own
+            # insert_time from the RIS's self-reported exam_done_at for the SAME exam.
+            # Signed (not abs()) so "PACS registered before RIS marked done" is visible
+            # too, not just the more intuitive "PACS lagging RIS" direction.
+            tdf['pacs_ris_diff_min'] = (tdf['pacs_insert_time'] - tdf['exam_done_at']).dt.total_seconds() / 60.0
 
             completed = tdf[tdf['exam_done_at'].notna()].copy()
             pending   = tdf[tdf['exam_done_at'].isna()].copy()
-            _tech_completed_df = completed.rename(columns={'exam_done_at': 'done_at'})
 
             # Pre-index ER orders: modality → list of (arrived_at, patient_class, accession)
             # An order is "ER" if accession_number starts with '2XE' (case-insensitive)
@@ -272,22 +301,28 @@ def get_technician_tat_data(form_data):
                 elif tat < dur * 0.5: flags.append('too_early')
                 if r['accession_number'] in overlap_accessions: flags.append('overlap')
                 if tat > dur * 2: flags.append('too_late')
-                pacs_tat      = r.get('pacs_tat_min')
+                pacs_tat     = r.get('pacs_tat_min')
+                pacs_ris_diff = r.get('pacs_ris_diff_min')
+                threshold    = _pacs_ris_thresholds.get(str(r.get('modality') or '').upper(), _DEFAULT_PACS_RIS_THRESHOLD_MIN)
+                if pd.notna(pacs_ris_diff) and abs(pacs_ris_diff) > threshold:
+                    flags.append('pacs_ris_mismatch')
                 er_concurrent = _find_concurrent_er(r) if 'too_late' in flags else []
                 flagged_rows.append({
-                    'accession':      str(r.get('accession_number') or ''),
-                    'modality':       str(r.get('modality') or ''),
-                    'procedure':      str(r.get('procedure_code') or ''),
-                    'technician':     str(r['done_by']) if pd.notna(r.get('done_by')) else '',
-                    'patient_class':  str(r.get('patient_class') or ''),
-                    'arrived_at':     r['arrived_at'].strftime('%Y-%m-%d %H:%M'),
-                    'done_at':        r['exam_done_at'].strftime('%Y-%m-%d %H:%M') if pd.notna(r.get('exam_done_at')) else None,
-                    'tat_min':        round(float(tat), 1),
-                    'pacs_done_at':   r['scanner_done_at'].strftime('%Y-%m-%d %H:%M') if pd.notna(r.get('scanner_done_at')) else None,
-                    'pacs_tat_min':   round(float(pacs_tat), 1) if pd.notna(pacs_tat) else None,
-                    'proc_duration':  int(dur),
-                    'flags':          flags,
-                    'er_concurrent':  er_concurrent,
+                    'accession':       str(r.get('accession_number') or ''),
+                    'modality':        str(r.get('modality') or ''),
+                    'procedure':       str(r.get('procedure_code') or ''),
+                    'technician':      str(r['done_by']) if pd.notna(r.get('done_by')) else '',
+                    'patient_class':   str(r.get('patient_class') or ''),
+                    'arrived_at':      r['arrived_at'].strftime('%Y-%m-%d %H:%M'),
+                    'done_at':         r['exam_done_at'].strftime('%Y-%m-%d %H:%M') if pd.notna(r.get('exam_done_at')) else None,
+                    'tat_min':         round(float(tat), 1),
+                    'pacs_done_at':    r['scanner_done_at'].strftime('%Y-%m-%d %H:%M') if pd.notna(r.get('scanner_done_at')) else None,
+                    'pacs_tat_min':    round(float(pacs_tat), 1) if pd.notna(pacs_tat) else None,
+                    'pacs_insert_at':  r['pacs_insert_time'].strftime('%Y-%m-%d %H:%M') if pd.notna(r.get('pacs_insert_time')) else None,
+                    'pacs_ris_diff':   round(float(pacs_ris_diff), 1) if pd.notna(pacs_ris_diff) else None,
+                    'proc_duration':   int(dur),
+                    'flags':           flags,
+                    'er_concurrent':   er_concurrent,
                 })
             tech_data['flagged'] = sorted([r for r in flagged_rows if r['flags']], key=lambda x: len(x['flags']), reverse=True)
 
@@ -304,13 +339,14 @@ def get_technician_tat_data(form_data):
 
             flagged_accessions = {r['accession'] for r in tech_data['flagged']}
             tech_data['summary'] = {
-                'total_arrived':     len(tdf),
-                'total_completed':   len(completed),
-                'never_done':        len(tech_data['never_done']),
-                'flag_negative_tat': sum(1 for r in tech_data['flagged'] if 'negative_tat' in r['flags']),
-                'flag_too_early':    sum(1 for r in tech_data['flagged'] if 'too_early'     in r['flags']),
-                'flag_overlap':      sum(1 for r in tech_data['flagged'] if 'overlap'       in r['flags']),
-                'flag_too_late':     sum(1 for r in tech_data['flagged'] if 'too_late'      in r['flags']),
+                'total_arrived':         len(tdf),
+                'total_completed':       len(completed),
+                'never_done':            len(tech_data['never_done']),
+                'flag_negative_tat':     sum(1 for r in tech_data['flagged'] if 'negative_tat'     in r['flags']),
+                'flag_too_early':        sum(1 for r in tech_data['flagged'] if 'too_early'        in r['flags']),
+                'flag_overlap':          sum(1 for r in tech_data['flagged'] if 'overlap'          in r['flags']),
+                'flag_too_late':         sum(1 for r in tech_data['flagged'] if 'too_late'         in r['flags']),
+                'flag_pacs_ris_mismatch': sum(1 for r in tech_data['flagged'] if 'pacs_ris_mismatch' in r['flags']),
             }
 
             daily_trend = []
@@ -427,18 +463,8 @@ def get_technician_tat_data(form_data):
         db.session.rollback()
         tech_data['ack_map'] = {}
 
-    # ── Insights (technician side only — radiologist insights need report_25's
-    # main rad_cards, which this standalone report intentionally has no dependency on) ──
-    tech_insights = []
-    try:
-        if not _tech_completed_df.empty:
-            tech_insights = run_tech_insights(_tech_completed_df)
-    except Exception:
-        logger.exception("Failed to run technician insight signals")
-
     result = {
-        'tech_data':      tech_data,
-        'tech_insights':  tech_insights,
+        'tech_data': tech_data,
     }
     cache_put(_REPORT_ID, form_data, result)
     return result

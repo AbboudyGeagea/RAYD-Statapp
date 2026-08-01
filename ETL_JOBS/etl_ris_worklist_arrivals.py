@@ -18,6 +18,12 @@ lookback, same pattern as etl_ris_reports.py/etl_ris_pps.py) and upserts on
 Arrived transitions (confirmed in the same sample: the same SITE_WORKLIST_KEY twice
 with different timestamps), so the pair is the real natural key, not either column
 alone.
+
+sps_id (migration 0099, added 2026-08-01) -- SITE_WORKLIST.SPS_ID, the real accession
+number. Report 35's flagged-exam accession display was falling back to a synthetic
+'WL#<pps_key>' placeholder far more often than expected, because a completed exam per
+RIS doesn't always have a matching PACS study (etl_didb_studies) yet -- SPS_ID gives a
+real accession straight from the worklist row itself, no PACS match required.
 """
 import logging
 from datetime import datetime, timedelta
@@ -42,12 +48,13 @@ def _safe_date(val):
 
 _UPSERT_SQL = text("""
     INSERT INTO std_worklist_arrivals (
-        site_worklist_key, pps_key, arrived_at, last_update
+        site_worklist_key, pps_key, arrived_at, sps_id, last_update
     ) VALUES (
-        :site_worklist_key, :pps_key, :arrived_at, :last_update
+        :site_worklist_key, :pps_key, :arrived_at, :sps_id, :last_update
     )
     ON CONFLICT (site_worklist_key, arrived_at) DO UPDATE SET
         pps_key      = EXCLUDED.pps_key,
+        sps_id       = EXCLUDED.sps_id,
         last_update  = EXCLUDED.last_update
 """)
 
@@ -85,8 +92,11 @@ def run_ris_worklist_arrivals_etl(pg_engine, oracle_source):
     is_fresh_load = watermark is None
     lookback_date = (datetime.now() - timedelta(days=10)).strftime('%Y-%m-%d')
 
+    # SPS_ID (migration 0099) -- the real accession number, "same value as the PACS
+    # accession number across ALL tables" (docs/LAUMC_RIS_TABLES.md). Report 35 uses it
+    # as its primary accession fallback ahead of the synthetic WL#<pps_key> placeholder.
     base_query = f"""
-        SELECT wsh.SITE_WORKLIST_KEY, sw.PPS_KEY, wsh.STATUS_TIME
+        SELECT wsh.SITE_WORKLIST_KEY, sw.PPS_KEY, wsh.STATUS_TIME, sw.SPS_ID
         FROM {_STATUS_HISTORY_TABLE} wsh
         JOIN {_WORKLIST_TABLE} sw ON sw.SITE_WORKLIST_KEY = wsh.SITE_WORKLIST_KEY
         WHERE wsh.STATUS_KEY = :arrived_key
@@ -116,7 +126,7 @@ def run_ris_worklist_arrivals_etl(pg_engine, oracle_source):
             if not batch:
                 break
             rows = []
-            for (site_worklist_key, pps_key, status_time) in batch:
+            for (site_worklist_key, pps_key, status_time, sps_id) in batch:
                 arrived_at = _safe_date(status_time)
                 if site_worklist_key is None or arrived_at is None:
                     skipped += 1
@@ -125,6 +135,7 @@ def run_ris_worklist_arrivals_etl(pg_engine, oracle_source):
                     "site_worklist_key": site_worklist_key,
                     "pps_key": pps_key,
                     "arrived_at": arrived_at,
+                    "sps_id": str(sps_id).strip() if sps_id else None,
                     "last_update": datetime.now(),
                 })
             if rows:

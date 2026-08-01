@@ -86,10 +86,11 @@
         <div class="mb-6">
             <h1 class="text-xl font-black text-white uppercase tracking-tight">Technician TAT</h1>
             <p class="section-desc mt-3">
-                Technician compliance monitoring — tracks exam completion against schedule using HL7 orders and
-                procedure durations. Flags exams marked done before their scheduled time, unusually fast
-                (&lt;50% of expected duration), overlapping with another exam on the same station, or unusually
-                slow (&gt;2× expected duration).
+                Technician compliance monitoring — tracks turnaround from RIS "Arrived" to "Exam Done" against
+                procedure durations. Flags negative TAT (done before arrival was recorded), unusually fast
+                (&lt;50% of expected duration), overlapping with another exam on the same station, unusually
+                slow (&gt;2× expected duration), or a significant disagreement between PACS insert_time and
+                the RIS's own exam-done timestamp.
             </p>
         </div>
 
@@ -102,7 +103,6 @@
 
         <div id="tech-tab-body" class="space-y-8">
             {% set tech_data = data.tech_data %}
-            {% set tech_insights = data.tech_insights %}
             {% include '_tech_tab.html' %}
         </div>
 
@@ -158,14 +158,6 @@
         });
 
         // ── Tech tab interactions (ported from report_25.html) ───────────────
-        function toggleEvidence(id) {
-            const el   = document.getElementById(id);
-            const icon = document.getElementById(id + '-icon');
-            if (!el) return;
-            const hidden = el.classList.toggle('hidden');
-            if (icon) icon.style.transform = hidden ? '' : 'rotate(180deg)';
-        }
-
         function toggleTechMod(id) {
             const sub  = document.getElementById(id);
             const icon = document.getElementById(id + '-icon');
@@ -189,19 +181,30 @@
             if (input && date === '') input.value = '';
             const tbody = document.getElementById('flag-tbody');
             if (!tbody) return;
+            const showMoreBtn = document.getElementById('flag-show-more');
             tbody.querySelectorAll('tr').forEach(tr => {
                 if (tr.dataset.child) { tr.style.display = 'none'; return; }
-                tr.style.display = (!date || tr.dataset.date === date) ? '' : 'none';
+                if (!date) {
+                    // Restore the default collapsed (row-limited) view.
+                    tr.style.display = tr.dataset.overLimit ? 'none' : '';
+                } else {
+                    // A date filter overrides the row limit -- show every matching row.
+                    tr.style.display = (tr.dataset.date === date) ? '' : 'none';
+                }
             });
+            if (showMoreBtn) {
+                showMoreBtn.style.display = date ? 'none' : (tbody.querySelector('tr[data-over-limit]') ? '' : 'none');
+            }
         }
 
         // ── Flag acknowledgement ───────────────────────────────────────────
         const _ACK_USER = "{{ current_user.username }}";
         const _FLAG_BADGE = {
-            before_scheduled: '<span style="font-size:9px;font-weight:900;padding:2px 6px;border-radius:4px;background:rgba(244,63,94,0.2);color:#f87171;border:1px solid rgba(244,63,94,0.4)">BEFORE TIME</span>',
-            too_early:        '<span style="font-size:9px;font-weight:900;padding:2px 6px;border-radius:4px;background:rgba(245,158,11,0.2);color:#fbbf24;border:1px solid rgba(245,158,11,0.4)">TOO EARLY</span>',
-            overlap:          '<span style="font-size:9px;font-weight:900;padding:2px 6px;border-radius:4px;background:rgba(249,115,22,0.2);color:#fb923c;border:1px solid rgba(249,115,22,0.4)">OVERLAP</span>',
-            too_late:         '<span style="font-size:9px;font-weight:900;padding:2px 6px;border-radius:4px;background:rgba(167,139,250,0.2);color:#a78bfa;border:1px solid rgba(167,139,250,0.4)">TOO LATE</span>',
+            negative_tat:      '<span style="font-size:11px;font-weight:900;padding:2px 6px;border-radius:4px;background:rgba(244,63,94,0.2);color:#f87171;border:1px solid rgba(244,63,94,0.4)">NEG TAT</span>',
+            too_early:         '<span style="font-size:11px;font-weight:900;padding:2px 6px;border-radius:4px;background:rgba(245,158,11,0.2);color:#fbbf24;border:1px solid rgba(245,158,11,0.4)">TOO EARLY</span>',
+            overlap:           '<span style="font-size:11px;font-weight:900;padding:2px 6px;border-radius:4px;background:rgba(249,115,22,0.2);color:#fb923c;border:1px solid rgba(249,115,22,0.4)">OVERLAP</span>',
+            too_late:          '<span style="font-size:11px;font-weight:900;padding:2px 6px;border-radius:4px;background:rgba(167,139,250,0.2);color:#a78bfa;border:1px solid rgba(167,139,250,0.4)">TOO LATE</span>',
+            pacs_ris_mismatch: '<span style="font-size:11px;font-weight:900;padding:2px 6px;border-radius:4px;background:rgba(217,70,239,0.2);color:#e879f9;border:1px solid rgba(217,70,239,0.4)">PACS/RIS Δ</span>',
         };
         let _ackPending = {};
 
