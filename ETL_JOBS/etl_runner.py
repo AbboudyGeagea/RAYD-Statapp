@@ -970,13 +970,21 @@ def _sync_lookup_tables(engine):
                 detected_at     TIMESTAMP DEFAULT NOW()
             )
         """))
-        conn.execute(text("TRUNCATE procedure_modality_conflicts"))
+        # `source` distinguishes this PACS-history writer from LAUMC's RIS-schedule writer
+        # (ETL_JOBS/etl_ris_modality_schedule.py) so a refresh from one never wipes the
+        # other's rows — only one of the two runs at a given site in practice, but stay safe.
+        conn.execute(text("""
+            ALTER TABLE procedure_modality_conflicts
+                ADD COLUMN IF NOT EXISTS source VARCHAR(30) NOT NULL DEFAULT 'pacs_history'
+        """))
+        conn.execute(text("DELETE FROM procedure_modality_conflicts WHERE source = 'pacs_history'"))
         r = conn.execute(text("""
-            INSERT INTO procedure_modality_conflicts (procedure_code, modalities, sample_count)
+            INSERT INTO procedure_modality_conflicts (procedure_code, modalities, sample_count, source)
             SELECT
                 TRIM(s.procedure_code),
                 STRING_AGG(DISTINCT UPPER(TRIM(s.study_modality)), ', ' ORDER BY UPPER(TRIM(s.study_modality))),
-                COUNT(*)
+                COUNT(*),
+                'pacs_history'
             FROM etl_didb_studies s
             WHERE s.procedure_code IS NOT NULL
               AND TRIM(s.procedure_code) != ''
@@ -985,6 +993,11 @@ def _sync_lookup_tables(engine):
               AND s.study_modality != 'SR'
             GROUP BY TRIM(s.procedure_code)
             HAVING COUNT(DISTINCT UPPER(TRIM(s.study_modality))) > 1
+            ON CONFLICT (procedure_code) DO UPDATE SET
+                modalities   = EXCLUDED.modalities,
+                sample_count = EXCLUDED.sample_count,
+                source       = EXCLUDED.source,
+                detected_at  = NOW()
         """))
         logger.info(f"Phase 8 — Conflicts detected: {r.rowcount} procedures flagged on 2+ modalities")
 

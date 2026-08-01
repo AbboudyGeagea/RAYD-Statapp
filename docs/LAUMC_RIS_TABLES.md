@@ -187,7 +187,7 @@ so std_devices carries the modality string (CT/MR/US…) directly, not the key.
 ## MODALITY_TYPE  →  merged into `std_devices` (lookup only, resolve at ETL)
 DICOM modality-code lookup (see values above). Not a standalone target.
 
-## MODALITY_SCHEDULE  →  resolves `procedure_duration_map.modality`  (fill-only)
+## MODALITY_SCHEDULE  →  resolves `procedure_duration_map.modality`  (fill-only, conflict-aware)
 **Role:** scheduling bridge table — one row per (SCHEDULE_TEMPLATE_KEY, MODALITY_KEY) pairing
 for a given SPS_CODE_KEY. This is the direct procedure↔modality link neither MODALITY nor
 SPS_CODE carries on its own, and the RIS-sourced equivalent of the PACS-history auto-learn
@@ -198,17 +198,34 @@ SPS_CODE carries on its own, and the RIS-sourced equivalent of the PACS-history 
 (always `1` in every sample row seen — no documented meaning beyond that, not used),
 SPS_CODE_KEY, MODALITY_SCHEDULE_GROUP_KEY, LAST_UPDATED.
 
+**STAKES — this column feeds TAT/RVU/utilization sitewide**: `procedure_duration_map.modality`
+is the first entry in `report_ai.py`'s utilization COALESCE chain, and is joined throughout
+report_25/27/31/34/35, `capacity_ladder.py`, `financial_dashboard.py`. Getting it wrong doesn't
+miscategorize one row, it skews those reports broadly — so this import never silently guesses.
+
 **Import (implemented, `ETL_JOBS/etl_ris_modality_schedule.py`, Phase 10 — runs after the
 MODALITY and SPS_CODE steps, joining through their `ris_modality_key`/`ris_sps_code_key`
 back-references):** stage `(SPS_CODE_KEY, MODALITY_KEY)` pairs, resolve MODALITY_KEY → modality
-string via `aetitle_modality_map.ris_modality_key`, then per SPS_CODE_KEY take the majority
-modality across all its device pairings (`MODE() WITHIN GROUP`, same idiom as Phase 8's
-strategies) and `UPDATE procedure_duration_map.modality` **only where it's still NULL** —
-never overwrites a manually-set or already-resolved value. A procedure schedulable on several
-devices of the same modality type (e.g. two CT scanners) collapses to one modality; genuinely
-mixed-modality procedures are not flagged for review yet (Phase 8's PACS-side
-`procedure_modality_conflicts` table does this for the PACS strategies — could be extended here
-if LAUMC needs the same visibility).
+string via `aetitle_modality_map.ris_modality_key`, then per SPS_CODE_KEY:
+- If every device it's scheduled on resolves to the **same** modality string (the common case —
+  several devices of one type, e.g. two CT scanners), `UPDATE procedure_duration_map.modality`
+  **only where it's still NULL** — never overwrites a manual or already-resolved value.
+- If devices resolve to **genuinely different** modality strings, do NOT pick one — write it to
+  `procedure_modality_conflicts` (the same review table `routes/mapping_controller.py`'s mapping
+  tab already surfaces for PACS-history conflicts; a `source` column keeps the two origins from
+  clobbering each other's rows) for a human to resolve, same as every other ambiguous-mapping
+  case in this codebase (`procedure_fuzzy_candidates`).
+
+**Not attempted — flagged by the operator (2026-08-01), needs the SCHEDULE_TEMPLATE Oracle
+schema before it can be built**: SCHEDULE_TEMPLATE_KEY / MODALITY_SCHEDULE_GROUP_KEY look like
+they may also resolve the open/closing-time gap in `ETL_JOBS/etl_ris_modality_availability.py`
+— `std_schedule_template_items` is "captured raw — not yet attributable to a specific device"
+because SCHEDULE_TEMPLATE_ITEM only carries `SCHEDULE_TEMPLATE_VERSION_KEY` /
+`SCHEDULE_SCHEME_KEY`, not `SCHEDULE_TEMPLATE_KEY` directly, and the table that would bridge
+SCHEDULE_TEMPLATE_KEY → SCHEDULE_TEMPLATE_VERSION_KEY (a `SCHEDULE_TEMPLATE` table, presumably)
+hasn't been seen yet. If MODALITY_SCHEDULE does turn out to be that missing link, it would feed
+device_weekly_schedule/device_exceptions-equivalent availability (utilization denominator),
+not just procedure↔modality.
 
 ## ORG_STRUCTURE  →  drives `site_org_map` (org_structure_key → canonical site_id)
 **Role:** the org hierarchy (self-referencing via PARENT_ORG_STRUCTURE_KEY). Resolves any
