@@ -70,6 +70,14 @@ Execution phases (in order):
              time via std_resources_ris.role_code = 'TEC', not by
              person_reference_type_key; skipped unless a RIS db_params source is
              configured)
+  Phase 18 — RIS Device Schedule Resolution (LAUMC: RIS SCHEDULE_TEMPLATE_VERSION ->
+             std_schedule_template_versions, then resolves std_schedule_template_items.aetitle
+             via schedule_template_version_key -> std_schedule_template_versions
+             [default_version only] -> schedule_template_key ->
+             aetitle_modality_map.ris_schedule_template_key — the device-attribution chain
+             confirmed 2026-08-01 against a real SCHEDULE_TEMPLATE_ITEM sample, completing
+             the gap Phase 15/migration 0067 left open. Second sub-step is pure Postgres, no
+             Oracle needed; skipped unless a RIS db_params source is configured)
 
 Triggered by APScheduler in app.py or manually via `python app.py -m`.
 """
@@ -99,7 +107,10 @@ from etl_analytics_refresh import refresh_storage_summary
 from etl_ris_reports       import run_ris_reports_etl
 from etl_ris_modality      import run_ris_modality_etl
 from etl_ris_procedures    import run_ris_procedures_etl
-from etl_ris_modality_schedule import run_ris_modality_schedule_etl, run_ris_schedule_template_etl
+from etl_ris_modality_schedule import (
+    run_ris_modality_schedule_etl, run_ris_schedule_template_etl,
+    run_ris_schedule_template_version_etl,
+)
 from etl_ris_ordering_org  import run_ris_ordering_org_etl
 from etl_ris_visits        import run_ris_visits_etl
 from etl_ris_patients      import run_ris_patients_etl
@@ -110,6 +121,7 @@ from etl_ris_site_pps      import run_ris_site_pps_etl
 from etl_ris_modality_availability import (
     run_ris_modality_exceptions_etl, run_ris_schedule_template_items_etl,
     run_ris_schedule_schemes_etl, run_ris_availability_indicators_etl,
+    run_schedule_template_device_link,
 )
 from etl_pacs_user_groups     import run_pacs_user_groups_etl
 from etl_ris_worklist_arrivals import run_ris_worklist_arrivals_etl
@@ -164,6 +176,7 @@ _PHASE_LABELS = {
     '15': ('RIS Modality Availability', 'Oracle RIS: SCHEDULE_SCHEME + AVAILABILITY_INDICATOR + MODALITY_AVAIL_EXCEPTION + SCHEDULE_TEMPLATE_ITEM -> std_schedule_schemes / std_availability_indicators / std_modality_exceptions / std_schedule_template_items (device utilization denominator) — light (LAUMC)'),
     '16': ('PACS User Groups',   'Oracle PACS: MEDILINK.SECM_USERS/SECM_GROUPS/SECM_USER_IN_GROUP -> std_pacs_user_groups (reading-permission groups, e.g. radiologists/residents) — light (LAUMC)'),
     '17': ('RIS Worklist Status Events', 'Oracle RIS: WORKLIST_STATUS_HISTORY + SITE_WORKLIST -> std_worklist_arrivals (status_key=60 Arrived) + std_worklist_exam_done (status_key=100 Exam Done) + std_worklist_scheduled (status_key=40 Scheduled) + PPS_PERSON_REFERENCE -> std_pps_person_reference, per-PPS technologist reference (role-filtered at query time, not by type key) — light (LAUMC)'),
+    '18': ('RIS Device Schedule Resolution', 'Oracle RIS: SCHEDULE_TEMPLATE_VERSION -> std_schedule_template_versions, then (Postgres-only) resolves std_schedule_template_items.aetitle via the version->template->device chain — light (LAUMC)'),
 }
 
 
@@ -682,6 +695,40 @@ def _perform_migration(engine):
                     logger.warning(f"⚠️  Phase 17 finished with sub-step failures: {', '.join(_phase17_failed)}")
                 else:
                     logger.info("✅ Phase 17 done")
+
+        # ── PHASE 18: RIS Device Schedule Resolution ────────────────────────
+        # SCHEDULE_TEMPLATE_VERSION -> std_schedule_template_versions, then resolve
+        # std_schedule_template_items.aetitle via the version->template->device chain.
+        # Second sub-step is pure Postgres (no Oracle) but still gated on a RIS source
+        # being configured, since the whole feature is meaningless without it.
+        if _confirm_phase(18):
+            with engine.connect() as _c:
+                _ris_ok = _c.execute(
+                    text("SELECT 1 FROM db_params WHERE name = :n"), {"n": ris_src}
+                ).fetchone()
+            if not _ris_ok:
+                logger.info(
+                    f"⏭  Phase 18 skipped — no RIS source configured. Add a db_params entry "
+                    f"named '{ris_src}' (or set RAYD_RIS_SOURCE) pointing at the RIS Oracle."
+                )
+            else:
+                logger.info("📋 Phase 18: RIS Device Schedule Resolution")
+                _phase18_substeps = [
+                    ("versions",     lambda: run_ris_schedule_template_version_etl(engine, ris_src)),
+                    ("device_link",  lambda: run_schedule_template_device_link(engine)),
+                ]
+                _phase18_failed = []
+                for _name, _fn in _phase18_substeps:
+                    try:
+                        _fn()
+                    except Exception as _e:
+                        _phase18_failed.append(_name)
+                        logger.error(f"🛑 Phase 18 sub-step '{_name}' failed — continuing to next sub-step: {_e}", exc_info=True)
+                if _phase18_failed:
+                    _phase_failures.append(f"18 (RIS Device Schedule Resolution: {', '.join(_phase18_failed)})")
+                    logger.warning(f"⚠️  Phase 18 finished with sub-step failures: {', '.join(_phase18_failed)}")
+                else:
+                    logger.info("✅ Phase 18 done")
 
         # ── Mark overall sync SUCCESS (or PARTIAL if any phase failed but the
         # run still made it to the end — each phase is now isolated by its own

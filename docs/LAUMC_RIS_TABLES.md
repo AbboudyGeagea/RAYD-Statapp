@@ -245,18 +245,42 @@ Lab. `5300`/SJH and `5100`/Vascular Lab match the ORG_STRUCTURE site split above
 `5320`=SJH, org `5120`=VASC). Imported as its own small reference table (5 rows) — nothing
 joins to it yet.
 
-**Still not attempted — needs the SCHEDULE_TEMPLATE_VERSION bridge, not guessed at**: device
-open/closing times. `std_schedule_template_items` (migration 0067) is "captured raw — not yet
-attributable to a specific device" because SCHEDULE_TEMPLATE_ITEM only carries
-`SCHEDULE_TEMPLATE_VERSION_KEY` / `SCHEDULE_SCHEME_KEY`, not `SCHEDULE_TEMPLATE_KEY` directly —
-and now that SCHEDULE_TEMPLATE itself is confirmed keyed by plain `SCHEDULE_TEMPLATE_KEY` (no
-version column of its own), the relationship between that and
-`SCHEDULE_TEMPLATE_ITEM.SCHEDULE_TEMPLATE_VERSION_KEY` is still unconfirmed — could be a
-literal alias (single "current" version per template) or a real one-to-many versioning table
-not yet seen. Needs either that table, or a sample of `SCHEDULE_TEMPLATE_ITEM` rows with real
-`SCHEDULE_TEMPLATE_VERSION_KEY` values to cross-check against SCHEDULE_TEMPLATE_KEY. Once
-resolved, this would feed device_weekly_schedule/device_exceptions-equivalent availability
-(the utilization denominator) via the `ris_schedule_template_key` link just built.
+## SCHEDULE_TEMPLATE_VERSION  →  `std_schedule_template_versions`  (the version bridge)
+**Role:** confirmed (2026-08-01, operator-provided export + a real `SCHEDULE_TEMPLATE_ITEM`
+sample): `SCHEDULE_TEMPLATE_KEY` is one-to-many to `SCHEDULE_TEMPLATE_VERSION_KEY` — a
+template can have several named versions (e.g. "Base" vs "Base 2019"), with
+`DEFAULT_VERSION='Y'` marking the one currently in effect. `SCHEDULE_TEMPLATE_ITEM`'s own
+`SCHEDULE_TEMPLATE_VERSION_KEY` values matched real keys from this table, confirming it's
+what actually carries the day/time rows. This closes the device-attribution gap:
+
+```
+SCHEDULE_TEMPLATE_ITEM.schedule_template_version_key
+  -> SCHEDULE_TEMPLATE_VERSION (WHERE default_version = TRUE)
+  -> schedule_template_key
+  -> aetitle_modality_map.ris_schedule_template_key   (migration 0106)
+  -> aetitle
+```
+
+**Named columns:** SCHEDULE_TEMPLATE_VERSION_KEY (PK), SCHEDULE_TEMPLATE_KEY, VERSION,
+DESCRIPTION, DEFAULT_VERSION, LAST_UPDATED.
+
+**Import (implemented, `ETL_JOBS/etl_ris_modality_schedule.py`'s
+`run_ris_schedule_template_version_etl`, Phase 10)**: full reload into
+`std_schedule_template_versions` (migration 0107). Then, Phase 18 (new —
+`ETL_JOBS/etl_ris_modality_availability.py`'s `run_schedule_template_device_link`, pure
+Postgres, runs after Phases 10/15 in the same pass) resolves
+`std_schedule_template_items.aetitle` via the chain above, using **only the
+`default_version = TRUE` row per template** — non-default versions (e.g. "Base 2019") are
+historical/alternate and stay unresolved. Unconditional overwrite each pass (the table is a
+pure RIS mirror, never manually edited, per migration 0067), no ambiguity possible since
+`ris_schedule_template_key` is itself only ever set when unambiguous.
+
+**Still not attempted — genuinely unconfirmed, not guessed at**: what the actual
+`DAY_OF_WEEK` convention is (0=Mon vs 0=Sun) and what `AVAILABILITY_INDICATOR_KEY` values
+(1/2/8/2100 observed in the sample) mean (Available/Unavailable/Partial/On-call?). Both are
+imported raw exactly as migration 0067 already specified — device-attribution didn't need
+either to be resolved, but converting this into an actual `device_weekly_schedule`-style
+"open Mon–Fri 07:00–17:00" answer still does.
 
 ## ORG_STRUCTURE  →  drives `site_org_map` (org_structure_key → canonical site_id)
 **Role:** the org hierarchy (self-referencing via PARENT_ORG_STRUCTURE_KEY). Resolves any

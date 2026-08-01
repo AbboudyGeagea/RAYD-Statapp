@@ -9,9 +9,15 @@ device_weekly_schedule — built as new, separate, NOT-editable-from-RAYD tables
 route is built for either), not merged into the existing ones.
 
 std_modality_exceptions resolves modality_key to a real aetitle via a live MODALITY
-join, ready to use as-is. std_schedule_template_items is captured raw/faithful but is
-NOT yet attributable to a specific device — see module docstring in migration 0067 for
-why (SCHEDULE_SCHEME table not yet provided).
+join, ready to use as-is. std_schedule_template_items was captured raw/faithful but NOT
+attributable to a specific device — until run_schedule_template_device_link below
+(migration 0107, confirmed 2026-08-01 against a real SCHEDULE_TEMPLATE_ITEM sample): the
+chain SCHEDULE_TEMPLATE_ITEM.schedule_template_version_key -> std_schedule_template_versions
+(default_version only) -> schedule_template_key -> aetitle_modality_map.ris_schedule_template_key
+now resolves it. Pure Postgres, no Oracle needed — must run AFTER this module's own
+run_ris_schedule_template_items_etl (populates the item rows) AND
+ETL_JOBS/etl_ris_modality_schedule.py's run_ris_schedule_template_version_etl (populates
+the version table) in the same pass. Called from Phase 18 in etl_runner.py.
 
 Full pull, no date filter — reference/scheduling data, not high volume.
 """
@@ -364,3 +370,50 @@ def run_ris_availability_indicators_etl(pg_engine, oracle_source):
         ora_conn.close()
         _close_job(pg_engine, log_id, start_time, status, total, error_msg, skipped)
     return total
+
+
+# ── Device attribution for std_schedule_template_items (Phase 18) ────────────────────────
+# Pure Postgres — no Oracle connection needed, everything it reads is already imported.
+
+_LINK_SCHEDULE_ITEM_DEVICE_SQL = text("""
+    UPDATE std_schedule_template_items sti
+    SET aetitle = am.aetitle
+    FROM std_schedule_template_versions stv
+    JOIN aetitle_modality_map am ON am.ris_schedule_template_key = stv.schedule_template_key
+    WHERE sti.schedule_template_version_key = stv.schedule_template_version_key
+      AND stv.default_version = TRUE
+      AND am.aetitle IS NOT NULL
+""")
+
+
+def run_schedule_template_device_link(pg_engine):
+    """
+    Resolves std_schedule_template_items.aetitle via schedule_template_version_key ->
+    std_schedule_template_versions (default_version only) -> schedule_template_key ->
+    aetitle_modality_map.ris_schedule_template_key. Unconditional overwrite — this table is
+    a pure RIS mirror, never manually edited (migration 0067), so there's no manual value to
+    protect and no ambiguity to flag: aetitle_modality_map.ris_schedule_template_key is only
+    ever set when unambiguous (etl_ris_modality_schedule.py), so at most one device can match
+    per schedule_template_key here.
+
+    Must run after run_ris_schedule_template_items_etl (this module), and after
+    ETL_JOBS/etl_ris_modality_schedule.py's run_ris_schedule_template_version_etl and
+    run_ris_schedule_template_etl — enforced by call order in etl_runner.py's Phase 18, not
+    by this function.
+    """
+    log_id, start_time = _log_job(pg_engine, "SCHEDULE_TEMPLATE_DEVICE_LINK")
+    linked, error_msg, status = 0, None, "SUCCESS"
+
+    try:
+        print("[Schedule Template Device Link] 🚀 Starting")
+        with pg_engine.begin() as conn:
+            r = conn.execute(_LINK_SCHEDULE_ITEM_DEVICE_SQL)
+            linked = r.rowcount
+        print(f"[Schedule Template Device Link] ✅ Done — {linked:,} schedule-item rows linked to a device")
+    except Exception as e:
+        status, error_msg = "FAILED", str(e)
+        logging.error(f"Schedule Template Device Link error: {error_msg}")
+        raise
+    finally:
+        _close_job(pg_engine, log_id, start_time, status, linked, error_msg)
+    return linked

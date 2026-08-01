@@ -51,10 +51,17 @@ run_ris_schedule_template_etl below):
     match the ORG_STRUCTURE site split in docs/LAUMC_RIS_TABLES.md (org 5320=SJH, org
     5120=VASC). Reference data only, nothing joins to it yet.
 
-STILL NOT ATTEMPTED: device open/closing times. std_schedule_template_items (migration
-0067) joins on SCHEDULE_TEMPLATE_VERSION_KEY / SCHEDULE_SCHEME_KEY, and neither has a
-confirmed relationship to SCHEDULE_TEMPLATE_KEY yet — needs that bridge (or a sample of
-SCHEDULE_TEMPLATE_ITEM rows to derive it from) before it can be built without guessing.
+run_ris_schedule_template_version_etl (below) imports SCHEDULE_TEMPLATE_VERSION ->
+std_schedule_template_versions (migration 0107) — the version bridge confirmed against a
+real SCHEDULE_TEMPLATE_ITEM sample (2026-08-01): SCHEDULE_TEMPLATE_KEY is one-to-many to
+SCHEDULE_TEMPLATE_VERSION_KEY, DEFAULT_VERSION='Y' marks the currently-active one, and
+SCHEDULE_TEMPLATE_ITEM.SCHEDULE_TEMPLATE_VERSION_KEY is what actually carries the day/time
+rows. Device attribution for std_schedule_template_items itself (the item -> version ->
+template -> aetitle chain) lives in etl_ris_modality_availability.py's
+run_schedule_template_device_link, called from the new Phase 18 — it needs
+std_schedule_template_items already populated (Phase 15) as well as this table and
+aetitle_modality_map.ris_schedule_template_key (this file's other function, Phase 10), so
+it can't live here without forcing an awkward phase-ordering dependency the other way.
 
 ORDERING: must run AFTER etl_ris_modality.py and etl_ris_procedures.py in the same pass —
 this script joins through the ris_modality_key / ris_sps_code_key back-references those two
@@ -447,3 +454,128 @@ def run_ris_schedule_template_etl(pg_engine, oracle_source):
                 logging.error(f"Failed to update RIS Schedule Template log: {le}")
 
     return linked
+
+
+# ── SCHEDULE_TEMPLATE_VERSION (the version bridge — Phase 18 uses this) ───────────────────
+
+_SCHEDULE_TEMPLATE_VERSION_TABLE = os.getenv("RAYD_RIS_SCHEDULE_TEMPLATE_VERSION_TABLE", "SCHEDULE_TEMPLATE_VERSION")
+
+_VERSION_DDL = text("""
+    CREATE TABLE IF NOT EXISTS std_schedule_template_versions (
+        schedule_template_version_key  BIGINT PRIMARY KEY,
+        schedule_template_key          BIGINT,
+        version                        TEXT,
+        description                    TEXT,
+        default_version                BOOLEAN,
+        source_last_updated            TIMESTAMP,
+        last_update                    TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+""")
+
+_UPSERT_VERSION_SQL = text("""
+    INSERT INTO std_schedule_template_versions
+        (schedule_template_version_key, schedule_template_key, version, description,
+         default_version, source_last_updated, last_update)
+    VALUES
+        (:schedule_template_version_key, :schedule_template_key, :version, :description,
+         :default_version, :source_last_updated, NOW())
+    ON CONFLICT (schedule_template_version_key) DO UPDATE SET
+        schedule_template_key = EXCLUDED.schedule_template_key,
+        version = EXCLUDED.version, description = EXCLUDED.description,
+        default_version = EXCLUDED.default_version,
+        source_last_updated = EXCLUDED.source_last_updated, last_update = NOW()
+""")
+
+
+def run_ris_schedule_template_version_etl(pg_engine, oracle_source):
+    """
+    Imports SCHEDULE_TEMPLATE_VERSION -> std_schedule_template_versions (small reference
+    table, full reload each pass). This is the version bridge — see module docstring.
+    Device attribution for std_schedule_template_items itself happens separately in
+    etl_ris_modality_availability.py's run_schedule_template_device_link (Phase 18), which
+    must run after this.
+    """
+    job_name   = "RIS_SCHEDULE_TEMPLATE_VERSION_ETL"
+    start_time = datetime.now()
+    total      = 0
+    status     = "RUNNING"
+    error_msg  = None
+    log_id     = None
+
+    try:
+        with pg_engine.connect() as conn:
+            res = conn.execute(
+                text("INSERT INTO etl_job_log (job_name, status, start_time, records_processed) "
+                     "VALUES (:n, :s, :t, 0) RETURNING id"),
+                {"n": job_name, "s": status, "t": start_time}
+            )
+            log_id = res.fetchone()[0]
+            conn.commit()
+    except Exception as e:
+        logging.error(f"RIS Schedule Template Version ETL log error: {e}")
+
+    query = f"""
+        SELECT SCHEDULE_TEMPLATE_VERSION_KEY, SCHEDULE_TEMPLATE_KEY, VERSION, DESCRIPTION,
+               DEFAULT_VERSION, LAST_UPDATED
+        FROM {_SCHEDULE_TEMPLATE_VERSION_TABLE}
+    """
+
+    ora_conn = OracleConnector.get_connection(oracle_source)
+    cursor   = ora_conn.cursor()
+
+    try:
+        logging.info("RIS Schedule Template Version ETL starting")
+        print(f"[RIS Schedule Template Version ETL] 🚀 Starting ({_SCHEDULE_TEMPLATE_VERSION_TABLE})")
+
+        cursor.execute(query)
+        rows = cursor.fetchall()
+
+        params = [
+            {
+                "schedule_template_version_key": key,
+                "schedule_template_key": template_key,
+                "version": str(version).strip() if version else None,
+                "description": str(desc).strip() if desc else None,
+                "default_version": _flag_to_bool(default_flag),
+                "source_last_updated": last_updated,
+            }
+            for key, template_key, version, desc, default_flag, last_updated in rows
+            if key is not None
+        ]
+        total = len(params)
+
+        with pg_engine.begin() as conn:
+            conn.execute(_VERSION_DDL)
+            if params:
+                conn.execute(_UPSERT_VERSION_SQL, params)
+
+        status = "SUCCESS"
+        print(f"[RIS Schedule Template Version ETL] ✅ Done — {total:,} versions upserted")
+        logging.info(f"RIS Schedule Template Version ETL complete: {total:,} versions")
+
+    except Exception as e:
+        status    = "FAILED"
+        error_msg = str(e)
+        logging.error(f"RIS Schedule Template Version ETL error: {error_msg}")
+        raise
+
+    finally:
+        cursor.close()
+        ora_conn.close()
+        if log_id:
+            try:
+                end_time = datetime.now()
+                duration = (end_time - start_time).total_seconds()
+                with pg_engine.connect() as conn:
+                    conn.execute(
+                        text("UPDATE etl_job_log SET status=:s, end_time=:et, "
+                             "records_processed=:r, duration_seconds=:d, "
+                             "error_message=:e WHERE id=:id"),
+                        {"s": status, "et": end_time, "r": total,
+                         "d": round(duration, 2), "e": error_msg, "id": log_id}
+                    )
+                    conn.commit()
+            except Exception as le:
+                logging.error(f"Failed to update RIS Schedule Template Version log: {le}")
+
+    return total
