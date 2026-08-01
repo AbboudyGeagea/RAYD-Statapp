@@ -169,6 +169,21 @@ info "Reloading nginx..."
 $COMPOSE exec -T nginx nginx -s reload 2>/dev/null && ok "nginx reloaded." || warn "nginx reload skipped (not running?)"
 
 # ──────────────────────────────────────────────────────
+# CLEANUP: drop dangling images left behind by the rebuild
+# ──────────────────────────────────────────────────────
+# `$COMPOSE build` re-tags :latest onto a freshly built image; the previous
+# image holding that tag becomes dangling (untagged, unreferenced) the
+# moment `up -d` swaps containers onto the new one. Left alone these pile up
+# on every update.sh run — the nlp-worker image (medspaCy + scikit-learn)
+# alone is multiple GB, so a handful of updates can fill the disk.
+# `docker image prune -f` (no -a) only removes dangling images — never a
+# tagged image or one a container is still using — so it's safe to run
+# unconditionally, including on a host that also runs other docker projects.
+info "Cleaning up dangling images from the rebuild..."
+RECLAIMED=$(docker image prune -f 2>&1 | grep -oE 'Total reclaimed space: .*' || true)
+ok "${RECLAIMED:-Total reclaimed space: 0B}"
+
+# ──────────────────────────────────────────────────────
 # DONE
 # ──────────────────────────────────────────────────────
 echo ""
