@@ -216,16 +216,47 @@ string via `aetitle_modality_map.ris_modality_key`, then per SPS_CODE_KEY:
   clobbering each other's rows) for a human to resolve, same as every other ambiguous-mapping
   case in this codebase (`procedure_fuzzy_candidates`).
 
-**Not attempted — flagged by the operator (2026-08-01), needs the SCHEDULE_TEMPLATE Oracle
-schema before it can be built**: SCHEDULE_TEMPLATE_KEY / MODALITY_SCHEDULE_GROUP_KEY look like
-they may also resolve the open/closing-time gap in `ETL_JOBS/etl_ris_modality_availability.py`
-— `std_schedule_template_items` is "captured raw — not yet attributable to a specific device"
-because SCHEDULE_TEMPLATE_ITEM only carries `SCHEDULE_TEMPLATE_VERSION_KEY` /
-`SCHEDULE_SCHEME_KEY`, not `SCHEDULE_TEMPLATE_KEY` directly, and the table that would bridge
-SCHEDULE_TEMPLATE_KEY → SCHEDULE_TEMPLATE_VERSION_KEY (a `SCHEDULE_TEMPLATE` table, presumably)
-hasn't been seen yet. If MODALITY_SCHEDULE does turn out to be that missing link, it would feed
-device_weekly_schedule/device_exceptions-equivalent availability (utilization denominator),
-not just procedure↔modality.
+## SCHEDULE_TEMPLATE  →  `std_schedule_templates` + `aetitle_modality_map.ris_schedule_template_key`
+**Role:** one row per named schedule template (device room OR physician). Confirmed against
+the operator-provided export (2026-08-01): names are literal device/room names (`RH-CT64`,
+`RH-MRI_1.5T`, `RH-US Room 1`...) for device templates (`RESOURCE_TEMPLATE_FLAG='N'`), and
+physician names for resource/physician availability templates (`FLAG='Y'`, e.g. "Dr. Sahar
+Semaan", "Dr. Tamina Elias Rizk") — the latter are NOT devices and are never resolved onto
+`aetitle_modality_map`.
+
+**Named columns:** SCHEDULE_TEMPLATE_KEY (PK), NAME, DESCRIPTION, LAST_UPDATED,
+RESOURCE_TEMPLATE_FLAG.
+
+**Import (implemented, `ETL_JOBS/etl_ris_modality_schedule.py`'s
+`run_ris_schedule_template_etl`, Phase 10 — runs after `run_ris_modality_schedule_etl` in the
+same pass, reusing its stage table):** full reload into `std_schedule_templates`. Each
+MODALITY_SCHEDULE row pairs exactly one SCHEDULE_TEMPLATE_KEY with exactly one MODALITY_KEY
+(confirmed against the export), so a device-type template resolves unambiguously to an
+`aetitle` — written to `aetitle_modality_map.ris_schedule_template_key` (migration 0106), same
+back-reference convention as `ris_modality_key`/`ris_sps_code_key` (migration 0053). Ambiguous
+cases are left NULL rather than guessed, same discipline as the modality-conflict fix above;
+physician templates simply never have a MODALITY_KEY pairing so they never resolve, no
+explicit flag filter needed.
+
+## MODALITY_SCHEDULE_GROUP  →  `std_modality_schedule_groups`  (reference only)
+Scheduling group/site discriminator — confirmed values: `4700` Radiology Scheduling Group,
+`4500` Default Scheduling Group, `4900` NonRad Scheduling Group, `5300` SJH, `5100` Vascular
+Lab. `5300`/SJH and `5100`/Vascular Lab match the ORG_STRUCTURE site split above (org
+`5320`=SJH, org `5120`=VASC). Imported as its own small reference table (5 rows) — nothing
+joins to it yet.
+
+**Still not attempted — needs the SCHEDULE_TEMPLATE_VERSION bridge, not guessed at**: device
+open/closing times. `std_schedule_template_items` (migration 0067) is "captured raw — not yet
+attributable to a specific device" because SCHEDULE_TEMPLATE_ITEM only carries
+`SCHEDULE_TEMPLATE_VERSION_KEY` / `SCHEDULE_SCHEME_KEY`, not `SCHEDULE_TEMPLATE_KEY` directly —
+and now that SCHEDULE_TEMPLATE itself is confirmed keyed by plain `SCHEDULE_TEMPLATE_KEY` (no
+version column of its own), the relationship between that and
+`SCHEDULE_TEMPLATE_ITEM.SCHEDULE_TEMPLATE_VERSION_KEY` is still unconfirmed — could be a
+literal alias (single "current" version per template) or a real one-to-many versioning table
+not yet seen. Needs either that table, or a sample of `SCHEDULE_TEMPLATE_ITEM` rows with real
+`SCHEDULE_TEMPLATE_VERSION_KEY` values to cross-check against SCHEDULE_TEMPLATE_KEY. Once
+resolved, this would feed device_weekly_schedule/device_exceptions-equivalent availability
+(the utilization denominator) via the `ris_schedule_template_key` link just built.
 
 ## ORG_STRUCTURE  →  drives `site_org_map` (org_structure_key → canonical site_id)
 **Role:** the org hierarchy (self-referencing via PARENT_ORG_STRUCTURE_KEY). Resolves any
