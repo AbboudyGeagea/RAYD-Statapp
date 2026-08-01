@@ -148,31 +148,26 @@ def get_technician_tat_data(form_data):
             _filters.append("(base.site_id IS NULL OR base.site_id = :rh_site_id)")
         _filter_clause = ("WHERE " + " AND ".join(_filters)) if _filters else ""
 
+        # scheduled/exam_done/tech_ref are LATERAL subqueries keyed on ar.pps_key, NOT
+        # pre-aggregated CTEs over their full source tables -- std_pps_person_reference
+        # alone is 667k+ rows; aggregating it (and std_worklist_scheduled/_exam_done)
+        # unfiltered before joining down to `arrival`'s much smaller date-bounded row set
+        # made this query take "a decade" in production (operator report). A LATERAL
+        # join lets each of these use their existing pps_key index (migrations
+        # 0088/0090/0092/0097) per arrival row instead of scanning/aggregating the whole
+        # table up front. Same reasoning as CLAUDE.md's "expensive CTEs must use
+        # MATERIALIZED" convention, just solved by scoping the work down instead.
+        #
+        # `arrived_at >= :start::date AND arrived_at < :end::date + 1` (not
+        # `arrived_at::date BETWEEN :start AND :end`) so the filter is sargable against
+        # idx_worklist_arrivals_arrived_at (migration 0098) -- casting the *column*
+        # blocks index use even when one exists.
         tech_rows = db.session.execute(text(f"""
             WITH arrival AS (
                 SELECT pps_key, MIN(arrived_at) AS arrived_at
                 FROM std_worklist_arrivals
-                WHERE arrived_at::date BETWEEN :start AND :end
+                WHERE arrived_at >= :start::date AND arrived_at < :end::date + 1
                 GROUP BY pps_key
-            ),
-            scheduled AS (
-                SELECT pps_key, MIN(scheduled_at) AS scheduled_at
-                FROM std_worklist_scheduled
-                GROUP BY pps_key
-            ),
-            exam_done AS (
-                SELECT pps_key, MAX(exam_done_at) AS exam_done_at
-                FROM std_worklist_exam_done
-                GROUP BY pps_key
-            ),
-            tech_ref AS (
-                SELECT DISTINCT ON (ppr.pps_key)
-                    ppr.pps_key,
-                    COALESCE(NULLIF(TRIM(CONCAT(res.first_name, ' ', res.last_name)), ''), res.common_name) AS tech_name
-                FROM std_pps_person_reference ppr
-                JOIN std_resources_ris res ON res.resource_id_key = ppr.resource_id_key
-                WHERE res.role_code = 'TEC'
-                ORDER BY ppr.pps_key, ppr.display_sort_order ASC NULLS LAST
             ),
             base AS (
                 SELECT
@@ -190,9 +185,24 @@ def get_technician_tat_data(form_data):
                 LEFT JOIN std_pps pps            ON pps.pps_key = ar.pps_key
                 LEFT JOIN etl_didb_studies s      ON s.study_instance_uid = pps.study_instance_uid
                 LEFT JOIN aetitle_modality_map m  ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(COALESCE(s.storing_ae, pps.performing_ae_title)))
-                LEFT JOIN tech_ref tr             ON tr.pps_key = ar.pps_key
-                LEFT JOIN scheduled sc            ON sc.pps_key = ar.pps_key
-                LEFT JOIN exam_done ed            ON ed.pps_key = ar.pps_key
+                LEFT JOIN LATERAL (
+                    SELECT MIN(scheduled_at) AS scheduled_at
+                    FROM std_worklist_scheduled sc0
+                    WHERE sc0.pps_key = ar.pps_key
+                ) sc ON true
+                LEFT JOIN LATERAL (
+                    SELECT MAX(exam_done_at) AS exam_done_at
+                    FROM std_worklist_exam_done ed0
+                    WHERE ed0.pps_key = ar.pps_key
+                ) ed ON true
+                LEFT JOIN LATERAL (
+                    SELECT COALESCE(NULLIF(TRIM(CONCAT(res.first_name, ' ', res.last_name)), ''), res.common_name) AS tech_name
+                    FROM std_pps_person_reference ppr
+                    JOIN std_resources_ris res ON res.resource_id_key = ppr.resource_id_key
+                    WHERE ppr.pps_key = ar.pps_key AND res.role_code = 'TEC'
+                    ORDER BY ppr.display_sort_order ASC NULLS LAST
+                    LIMIT 1
+                ) tr ON true
                 LEFT JOIN procedure_duration_map pdm ON UPPER(TRIM(pps.procedure_code)) = UPPER(TRIM(pdm.procedure_code))
                 WHERE COALESCE(m.modality, s.study_modality, '') != 'SR'
             )
