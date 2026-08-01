@@ -74,6 +74,26 @@ def _safe_bool(val):
     return str(val).strip().upper() in ('Y', 'YES', 'TRUE', '1')
 
 
+def _time_of_day(val):
+    """Extract just the time-of-day portion from an Oracle DATE/TIMESTAMP value —
+    FROM_TIME/TO_TIME store full timestamps but the date portion is an arbitrary/anchor
+    date (confirmed against a real SCHEDULE_TEMPLATE_ITEM export, 2026-08-01: rows for the
+    same recurring weekly slot carry different anchor dates); only HH:MM:SS matters for a
+    recurring weekly schedule."""
+    if val is None:
+        return None
+    if isinstance(val, datetime):
+        return val.time()
+    if isinstance(val, str):
+        s = val.strip()
+        for fmt in ('%Y-%m-%d %H:%M:%S', '%H:%M:%S'):
+            try:
+                return datetime.strptime(s, fmt).time()
+            except ValueError:
+                continue
+    return None
+
+
 def _log_job(pg_engine, job_name):
     start_time = datetime.now()
     log_id = None
@@ -133,6 +153,7 @@ _UPSERT_EXCEPTION_SQL = text("""
 def run_ris_modality_exceptions_etl(pg_engine, oracle_source):
     log_id, start_time = _log_job(pg_engine, "RIS_MODALITY_EXCEPTIONS_ETL")
     total, skipped, error_msg, status = 0, 0, None, "SUCCESS"
+    seen_keys = []
 
     query = f"""
         SELECT
@@ -157,6 +178,7 @@ def run_ris_modality_exceptions_etl(pg_engine, oracle_source):
                 if key is None:
                     skipped += 1
                     continue
+                seen_keys.append(key)
                 params.append({
                     "modality_avail_exception_key": key, "from_date": _safe_date(from_date),
                     "to_date": _safe_date(to_date), "reason": _safe_str(reason),
@@ -170,6 +192,18 @@ def run_ris_modality_exceptions_etl(pg_engine, oracle_source):
                 with pg_engine.begin() as conn:
                     conn.execute(_UPSERT_EXCEPTION_SQL, params)
                 total += len(params)
+
+        # Full-refresh sync: exceptions get resolved/removed in the RIS, not just added —
+        # a row Oracle no longer returns must not linger in Postgres forever making a
+        # device look unavailable after the exception has actually cleared. Safe because
+        # this is a full pull, no date filter. Skipped when Oracle returned zero rows at
+        # all (more likely a transient/connectivity issue than a genuinely empty table).
+        if seen_keys:
+            with pg_engine.begin() as conn:
+                conn.execute(text(
+                    "DELETE FROM std_modality_exceptions WHERE modality_avail_exception_key != ALL(:keys)"
+                ), {"keys": seen_keys})
+
         print(f"[RIS Modality Exceptions ETL] ✅ Done — {total:,} exceptions upserted, {skipped} skipped")
     except Exception as e:
         status, error_msg = "FAILED", str(e)
@@ -185,16 +219,20 @@ def run_ris_modality_exceptions_etl(pg_engine, oracle_source):
 _UPSERT_SCHEDULE_ITEM_SQL = text("""
     INSERT INTO std_schedule_template_items (
         schedule_template_item_key, day_of_week, from_time, to_time,
+        from_time_of_day, to_time_of_day,
         availability_indicator_key, schedule_scheme_key, schedule_template_version_key,
         source_last_updated, last_update
     ) VALUES (
         :schedule_template_item_key, :day_of_week, :from_time, :to_time,
+        :from_time_of_day, :to_time_of_day,
         :availability_indicator_key, :schedule_scheme_key, :schedule_template_version_key,
         :source_last_updated, :last_update
     )
     ON CONFLICT (schedule_template_item_key) DO UPDATE SET
         day_of_week = EXCLUDED.day_of_week, from_time = EXCLUDED.from_time,
-        to_time = EXCLUDED.to_time, availability_indicator_key = EXCLUDED.availability_indicator_key,
+        to_time = EXCLUDED.to_time,
+        from_time_of_day = EXCLUDED.from_time_of_day, to_time_of_day = EXCLUDED.to_time_of_day,
+        availability_indicator_key = EXCLUDED.availability_indicator_key,
         schedule_scheme_key = EXCLUDED.schedule_scheme_key,
         schedule_template_version_key = EXCLUDED.schedule_template_version_key,
         source_last_updated = EXCLUDED.source_last_updated, last_update = EXCLUDED.last_update
@@ -204,6 +242,7 @@ _UPSERT_SCHEDULE_ITEM_SQL = text("""
 def run_ris_schedule_template_items_etl(pg_engine, oracle_source):
     log_id, start_time = _log_job(pg_engine, "RIS_SCHEDULE_TEMPLATE_ITEMS_ETL")
     total, skipped, error_msg, status = 0, 0, None, "SUCCESS"
+    seen_keys = []
 
     query = f"""
         SELECT SCHEDULE_TEMPLATE_ITEM_KEY, DAY_OF_WEEK, FROM_TIME, TO_TIME,
@@ -226,9 +265,11 @@ def run_ris_schedule_template_items_etl(pg_engine, oracle_source):
                 if key is None:
                     skipped += 1
                     continue
+                seen_keys.append(key)
                 params.append({
                     "schedule_template_item_key": key, "day_of_week": _safe_int(dow),
                     "from_time": _safe_str(from_time), "to_time": _safe_str(to_time),
+                    "from_time_of_day": _time_of_day(from_time), "to_time_of_day": _time_of_day(to_time),
                     "availability_indicator_key": avail_key, "schedule_scheme_key": scheme_key,
                     "schedule_template_version_key": version_key,
                     "source_last_updated": _safe_date(last_updated), "last_update": datetime.now(),
@@ -237,6 +278,18 @@ def run_ris_schedule_template_items_etl(pg_engine, oracle_source):
                 with pg_engine.begin() as conn:
                     conn.execute(_UPSERT_SCHEDULE_ITEM_SQL, params)
                 total += len(params)
+
+        # Full-refresh sync: schedules "change almost weekly" (operator instruction,
+        # 2026-08-01) — a row Oracle no longer returns must not linger in Postgres forever
+        # counting toward availability. Safe because this is a full pull, no date filter.
+        # Skipped when Oracle returned zero rows at all (more likely a transient/
+        # connectivity issue than a genuinely empty table).
+        if seen_keys:
+            with pg_engine.begin() as conn:
+                conn.execute(text(
+                    "DELETE FROM std_schedule_template_items WHERE schedule_template_item_key != ALL(:keys)"
+                ), {"keys": seen_keys})
+
         print(f"[RIS Schedule Template Items ETL] ✅ Done — {total:,} items upserted, {skipped} skipped")
     except Exception as e:
         status, error_msg = "FAILED", str(e)
@@ -417,3 +470,108 @@ def run_schedule_template_device_link(pg_engine):
     finally:
         _close_job(pg_engine, log_id, start_time, status, linked, error_msg)
     return linked
+
+
+# ── Simple weekly Available/Unavailable minutes per device (Phase 18) ────────────────────
+# Pure Postgres — everything it reads (std_schedule_template_items, now resolved to a
+# device) is already imported by the two steps above in the same phase.
+
+_TRUNCATE_WEEKLY_AVAILABILITY_SQL = text("TRUNCATE std_device_weekly_availability")
+
+# Interval sweep: std_schedule_template_items carries overlapping/superseded rows for the
+# same device/day (confirmed against a real RH-CT64 export, 2026-08-01 — an old single
+# block sits alongside a newer split covering the same hours). This resolves it properly
+# instead of naively summing every "Available" row (which would double-count):
+#   1. breakpoints  — every distinct from/to time-of-day boundary for a device/day
+#   2. intervals    — consecutive breakpoints paired into micro-intervals
+#   3. winning      — per micro-interval, the row with the MOST RECENT source_last_updated
+#                     that fully covers it wins (ties broken by item key, higher = newer)
+#   4. sum the winning micro-intervals whose availability_indicator_key = 1 ("Available",
+#      confirmed against the real AVAILABILITY_INDICATOR export) — everything else
+#      (Unavailable/Closed/Reserved-for-IP/...) contributes 0, per operator instruction to
+#      keep this a plain Available-vs-everything-else binary.
+# RIS day_of_week (0=Sun..6=Sat, confirmed) is converted to RAYD's convention
+# (0=Mon..6=Sun, matches device_weekly_schedule) via (day_of_week + 6) % 7.
+# IMPORTANT: GROUP BY (not a WHERE filter before it) — a device/day that's fully closed
+# still gets an explicit row with available_minutes=0, so a downstream LEFT JOIN can tell
+# "this device is closed today" apart from "no schedule data exists for this device at
+# all" (which should fall back to the old estimate chain instead of reading as 0).
+_COMPUTE_WEEKLY_AVAILABILITY_SQL = text("""
+    WITH resolved_items AS (
+        SELECT aetitle, day_of_week, from_time_of_day, to_time_of_day,
+               availability_indicator_key, source_last_updated, schedule_template_item_key
+        FROM std_schedule_template_items
+        WHERE aetitle IS NOT NULL
+          AND from_time_of_day IS NOT NULL AND to_time_of_day IS NOT NULL
+          AND to_time_of_day > from_time_of_day
+    ),
+    breakpoints AS (
+        SELECT aetitle, day_of_week, from_time_of_day AS t FROM resolved_items
+        UNION
+        SELECT aetitle, day_of_week, to_time_of_day AS t FROM resolved_items
+    ),
+    intervals AS (
+        SELECT aetitle, day_of_week, t AS t_start,
+               LEAD(t) OVER (PARTITION BY aetitle, day_of_week ORDER BY t) AS t_end
+        FROM breakpoints
+    ),
+    intervals_clean AS (
+        SELECT * FROM intervals WHERE t_end IS NOT NULL AND t_end > t_start
+    ),
+    winning AS (
+        SELECT ic.aetitle, ic.day_of_week, ic.t_start, ic.t_end, w.availability_indicator_key
+        FROM intervals_clean ic
+        CROSS JOIN LATERAL (
+            SELECT ri.availability_indicator_key
+            FROM resolved_items ri
+            WHERE ri.aetitle = ic.aetitle
+              AND ri.day_of_week = ic.day_of_week
+              AND ri.from_time_of_day <= ic.t_start
+              AND ri.to_time_of_day >= ic.t_end
+            ORDER BY ri.source_last_updated DESC NULLS LAST, ri.schedule_template_item_key DESC
+            LIMIT 1
+        ) w
+    )
+    INSERT INTO std_device_weekly_availability (aetitle, day_of_week, available_minutes, last_update)
+    SELECT aetitle,
+           (day_of_week + 6) % 7 AS rayd_day_of_week,
+           SUM(CASE WHEN availability_indicator_key = 1
+                    THEN EXTRACT(EPOCH FROM (t_end - t_start)) / 60
+                    ELSE 0 END)::INT AS available_minutes,
+           NOW()
+    FROM winning
+    GROUP BY aetitle, day_of_week
+""")
+
+
+def run_device_weekly_availability_etl(pg_engine):
+    """
+    Computes std_device_weekly_availability — simple Available-minutes-per-weekday per
+    device (RAYD day-of-week convention) — from std_schedule_template_items, resolving
+    overlapping/superseded rows via an interval sweep keyed on source_last_updated (most
+    recent write wins per overlapping time slot).
+
+    Full TRUNCATE + rebuild every pass, not upsert — operator instruction (2026-08-01):
+    availability "changes almost weekly," this must never carry a stale row forward.
+
+    Pure Postgres, no Oracle connection. Must run after run_ris_schedule_template_items_etl
+    and run_schedule_template_device_link (both this module, same phase) — enforced by call
+    order in etl_runner.py's Phase 18, not by this function.
+    """
+    log_id, start_time = _log_job(pg_engine, "DEVICE_WEEKLY_AVAILABILITY_ETL")
+    total, error_msg, status = 0, None, "SUCCESS"
+
+    try:
+        print("[Device Weekly Availability ETL] 🚀 Starting")
+        with pg_engine.begin() as conn:
+            conn.execute(_TRUNCATE_WEEKLY_AVAILABILITY_SQL)
+            r = conn.execute(_COMPUTE_WEEKLY_AVAILABILITY_SQL)
+            total = r.rowcount
+        print(f"[Device Weekly Availability ETL] ✅ Done — {total:,} device/day rows computed")
+    except Exception as e:
+        status, error_msg = "FAILED", str(e)
+        logging.error(f"Device Weekly Availability ETL error: {error_msg}")
+        raise
+    finally:
+        _close_job(pg_engine, log_id, start_time, status, total, error_msg)
+    return total

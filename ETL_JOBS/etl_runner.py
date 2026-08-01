@@ -76,8 +76,13 @@ Execution phases (in order):
              [default_version only] -> schedule_template_key ->
              aetitle_modality_map.ris_schedule_template_key — the device-attribution chain
              confirmed 2026-08-01 against a real SCHEDULE_TEMPLATE_ITEM sample, completing
-             the gap Phase 15/migration 0067 left open. Second sub-step is pure Postgres, no
-             Oracle needed; skipped unless a RIS db_params source is configured)
+             the gap Phase 15/migration 0067 left open — then computes
+             std_device_weekly_availability [simple Available-minutes-per-weekday per
+             device, RAYD day-of-week convention, via an interval sweep resolving
+             overlapping/superseded schedule rows by source_last_updated recency;
+             TRUNCATE+rebuilt every pass since schedules change ~weekly]. Sub-steps 2-3 are
+             pure Postgres, no Oracle needed; skipped unless a RIS db_params source is
+             configured)
 
 Triggered by APScheduler in app.py or manually via `python app.py -m`.
 """
@@ -121,7 +126,7 @@ from etl_ris_site_pps      import run_ris_site_pps_etl
 from etl_ris_modality_availability import (
     run_ris_modality_exceptions_etl, run_ris_schedule_template_items_etl,
     run_ris_schedule_schemes_etl, run_ris_availability_indicators_etl,
-    run_schedule_template_device_link,
+    run_schedule_template_device_link, run_device_weekly_availability_etl,
 )
 from etl_pacs_user_groups     import run_pacs_user_groups_etl
 from etl_ris_worklist_arrivals import run_ris_worklist_arrivals_etl
@@ -176,7 +181,7 @@ _PHASE_LABELS = {
     '15': ('RIS Modality Availability', 'Oracle RIS: SCHEDULE_SCHEME + AVAILABILITY_INDICATOR + MODALITY_AVAIL_EXCEPTION + SCHEDULE_TEMPLATE_ITEM -> std_schedule_schemes / std_availability_indicators / std_modality_exceptions / std_schedule_template_items (device utilization denominator) — light (LAUMC)'),
     '16': ('PACS User Groups',   'Oracle PACS: MEDILINK.SECM_USERS/SECM_GROUPS/SECM_USER_IN_GROUP -> std_pacs_user_groups (reading-permission groups, e.g. radiologists/residents) — light (LAUMC)'),
     '17': ('RIS Worklist Status Events', 'Oracle RIS: WORKLIST_STATUS_HISTORY + SITE_WORKLIST -> std_worklist_arrivals (status_key=60 Arrived) + std_worklist_exam_done (status_key=100 Exam Done) + std_worklist_scheduled (status_key=40 Scheduled) + PPS_PERSON_REFERENCE -> std_pps_person_reference, per-PPS technologist reference (role-filtered at query time, not by type key) — light (LAUMC)'),
-    '18': ('RIS Device Schedule Resolution', 'Oracle RIS: SCHEDULE_TEMPLATE_VERSION -> std_schedule_template_versions, then (Postgres-only) resolves std_schedule_template_items.aetitle via the version->template->device chain — light (LAUMC)'),
+    '18': ('RIS Device Schedule Resolution', 'Oracle RIS: SCHEDULE_TEMPLATE_VERSION -> std_schedule_template_versions, then (Postgres-only) resolves std_schedule_template_items.aetitle via the version->template->device chain, then computes std_device_weekly_availability (simple Available-minutes-per-weekday, interval-swept, full rebuild) — light (LAUMC)'),
 }
 
 
@@ -714,8 +719,9 @@ def _perform_migration(engine):
             else:
                 logger.info("📋 Phase 18: RIS Device Schedule Resolution")
                 _phase18_substeps = [
-                    ("versions",     lambda: run_ris_schedule_template_version_etl(engine, ris_src)),
-                    ("device_link",  lambda: run_schedule_template_device_link(engine)),
+                    ("versions",      lambda: run_ris_schedule_template_version_etl(engine, ris_src)),
+                    ("device_link",   lambda: run_schedule_template_device_link(engine)),
+                    ("availability",  lambda: run_device_weekly_availability_etl(engine)),
                 ]
                 _phase18_failed = []
                 for _name, _fn in _phase18_substeps:

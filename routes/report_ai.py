@@ -311,14 +311,26 @@ def _get_utilization_intelligence(start, end):
     df['ae_upper']   = df['ae'].astype(str).str.upper().str.strip()
     df['date_str']   = df['study_date'].dt.strftime('%Y-%m-%d')
 
+    # Denominator priority: std_device_weekly_availability (RIS-authoritative, LAUMC —
+    # real weekly Available-minutes resolved from the RIS's own schedule, see
+    # ETL_JOBS/etl_ris_modality_availability.py) first, then the RAYD-manual
+    # daily_capacity_minutes / device_weekly_schedule chain this always used before, then
+    # a flat 480-minute default. Previously this only iterated device_weekly_schedule, so
+    # any AE with no row there (every LAUMC device — Phase 8, the only writer of that
+    # table, is disabled here via RAYD_ETL_LOOKUP_FROM_PACS=false) got day_cap=0 and thus
+    # util_pct=0 for every single day — driving from aetitle_modality_map (the master
+    # device registry, every AE regardless of source) x 7 weekdays fixes that.
     sched = db.session.execute(text("""
         SELECT
-            UPPER(TRIM(ws.aetitle)) AS ae,
-            ws.day_of_week,
-            COALESCE(m.daily_capacity_minutes, ws.std_opening_minutes, 480) AS std_opening_minutes
-        FROM device_weekly_schedule ws
-        LEFT JOIN aetitle_modality_map m
-            ON UPPER(TRIM(ws.aetitle)) = UPPER(TRIM(m.aetitle))
+            UPPER(TRIM(m.aetitle)) AS ae,
+            d.day_of_week,
+            COALESCE(dwa.available_minutes, m.daily_capacity_minutes, ws.std_opening_minutes, 480) AS std_opening_minutes
+        FROM aetitle_modality_map m
+        CROSS JOIN generate_series(0, 6) AS d(day_of_week)
+        LEFT JOIN std_device_weekly_availability dwa
+            ON UPPER(TRIM(dwa.aetitle)) = UPPER(TRIM(m.aetitle)) AND dwa.day_of_week = d.day_of_week
+        LEFT JOIN device_weekly_schedule ws
+            ON UPPER(TRIM(ws.aetitle)) = UPPER(TRIM(m.aetitle)) AND ws.day_of_week = d.day_of_week
     """)).mappings().all()
     schedule_lookup = {(s['ae'], int(s['day_of_week'])): s['std_opening_minutes'] for s in sched}
 

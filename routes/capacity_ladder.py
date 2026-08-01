@@ -207,7 +207,7 @@ def detail():
 
 def _get_opening_minutes(aetitle, day, dow):
     """Get effective opening minutes for an AE on a specific date."""
-    # Check exceptions first
+    # Check exceptions first (RAYD-manual, date-specific override — always wins)
     exc = db.session.execute(text("""
         SELECT actual_opening_minutes
         FROM device_exceptions
@@ -217,26 +217,24 @@ def _get_opening_minutes(aetitle, day, dow):
     if exc is not None:
         return exc[0]
 
-    # Fall back to weekly schedule, then master capacity
+    # Denominator priority: std_device_weekly_availability (RIS-authoritative, LAUMC —
+    # real weekly Available-minutes resolved from the RIS's own schedule, see
+    # ETL_JOBS/etl_ris_modality_availability.py), then the RAYD-manual
+    # daily_capacity_minutes / device_weekly_schedule chain this always used before.
+    # Driving from aetitle_modality_map (not device_weekly_schedule) means an AE with no
+    # weekly-schedule row still resolves via daily_capacity_minutes in one query instead
+    # of needing the old separate fallback query.
     sched = db.session.execute(text("""
-        SELECT COALESCE(m.daily_capacity_minutes, ws.std_opening_minutes, 0)
-        FROM device_weekly_schedule ws
-        LEFT JOIN aetitle_modality_map m
-            ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(ws.aetitle))
-        WHERE ws.aetitle = :ae AND ws.day_of_week = :dow
+        SELECT COALESCE(dwa.available_minutes, m.daily_capacity_minutes, ws.std_opening_minutes)
+        FROM aetitle_modality_map m
+        LEFT JOIN std_device_weekly_availability dwa
+            ON UPPER(TRIM(dwa.aetitle)) = UPPER(TRIM(m.aetitle)) AND dwa.day_of_week = :dow
+        LEFT JOIN device_weekly_schedule ws
+            ON UPPER(TRIM(ws.aetitle)) = UPPER(TRIM(m.aetitle)) AND ws.day_of_week = :dow
+        WHERE m.aetitle = :ae
     """), {"ae": aetitle, "dow": dow}).fetchone()
 
-    if sched:
-        return sched[0]
-
-    # No weekly schedule row — check master table directly
-    master = db.session.execute(text("""
-        SELECT daily_capacity_minutes
-        FROM aetitle_modality_map
-        WHERE aetitle = :ae
-    """), {"ae": aetitle}).fetchone()
-
-    return master[0] if master and master[0] else 0
+    return sched[0] if sched and sched[0] is not None else 0
 
 
 def _get_scheduled(aetitle, day):

@@ -296,11 +296,56 @@ window vs long/overnight window" pattern in the raw data suggested — Available
 Unavailable — though that pattern was never encoded as fact anywhere in the code before
 this confirmation landed.
 
-**Still not attempted — genuinely unconfirmed, not guessed at**: the `DAY_OF_WEEK`
-convention (0=Mon vs 0=Sun) on `std_schedule_template_items`. This table doesn't resolve
-that — it's the one remaining piece before device availability windows can be converted
-into an actual `device_weekly_schedule`-style "open Mon–Fri 07:00–17:00" answer (now that
-device attribution and the Available/Unavailable/Closed meaning are both confirmed).
+## DAY_OF_WEEK convention — confirmed
+`std_schedule_template_items.day_of_week` is **RIS: `0`=Sunday … `6`=Saturday.** Confirmed
+2026-08-01 two independent ways: (1) the vendor's own scheduling-grid UI for a device
+renders columns Su→Sa left to right, matching the same shape; (2) empirically, from a full
+`RH-CT64` export: days `1`–`5` all share one identical weekday pattern (closed overnight,
+08:00–13:00 / 15:00–18:00 Available with a 13:00–15:00 Reserved-for-IP gap — this is the
+exact pattern the grid screenshot showed), while days `0` and `6` both carry a
+`00:01–23:59 Unavailable` override row layered on top of older partial-day rows — i.e.
+both are the weekend. The only ordering where `0` sits immediately before `1`=Monday and
+`6` sits immediately after `5`=Friday is `0=Sun...6=Sat`.
+
+RAYD's `device_weekly_schedule` convention is `0=Mon...6=Sun` (different) — conversion is
+`rayd_day = (ris_day + 6) % 7`.
+
+## std_device_weekly_availability — simple weekly Available-minutes per device
+**Role:** operator instruction (2026-08-01): "keep it simple — Available vs Unavailable,"
+computed from `std_schedule_template_items` and used as the utilization denominator.
+
+**Implementation (`ETL_JOBS/etl_ris_modality_availability.py`'s
+`run_device_weekly_availability_etl`, Phase 18, 3rd sub-step — pure Postgres, no Oracle)**:
+an interval sweep over each device/day's schedule rows, because `std_schedule_template_items`
+carries overlapping/superseded rows for the same device/day (confirmed against the real
+`RH-CT64` export — an old single `07:00–17:44` Available block sits alongside a newer split
+covering the same hours with different boundaries). The sweep breaks each day into
+micro-intervals at every from/to boundary, and for each micro-interval the row with the
+**most recent `source_last_updated`** that fully covers it wins (ties broken by
+`schedule_template_item_key`, higher = newer) — verified against the real `RH-CT64` data by
+hand: resolves to 481 minutes/weekday (matches the grid) and 0 minutes on the weekend, with
+an **explicit 0-minute row** (not just an absent one) so a downstream consumer can tell "this
+device is closed today" apart from "no RIS schedule data exists for this device at all."
+Only `availability_indicator_key = 1` ("Available") counts; everything else contributes 0.
+
+`from_time`/`to_time` on `std_schedule_template_items` keep the raw captured value; new
+`from_time_of_day`/`to_time_of_day` `TIME` columns (migration 0108) hold the parsed
+HH:MM:SS used for the sweep (the date portion of the source timestamp is an arbitrary
+anchor, not meaningful).
+
+**Full rebuild every pass** (`TRUNCATE` + insert, not upsert) — per the same "changes almost
+weekly" instruction, `run_ris_schedule_template_items_etl` and `run_ris_modality_exceptions_etl`
+were also changed to delete rows Oracle no longer returns (previously upsert-only, so a
+row removed at the source would have lingered in Postgres forever).
+
+**Wired into utilization as the preferred denominator** (`routes/report_ai.py`'s
+`_get_utilization_intelligence`, `routes/capacity_ladder.py`'s `_get_opening_minutes`):
+`COALESCE(std_device_weekly_availability.available_minutes, aetitle_modality_map.daily_capacity_minutes,
+device_weekly_schedule.std_opening_minutes, 480)`. This was a real, live bug at LAUMC before
+this change — `device_weekly_schedule` is only ever populated by Phase 8's PACS auto-fill,
+which is disabled here (`RAYD_ETL_LOOKUP_FROM_PACS=false`), so `report_ai.py`'s utilization
+query previously matched zero rows for every LAUMC device and silently showed 0% utilization
+across the board.
 
 ## ORG_STRUCTURE  →  drives `site_org_map` (org_structure_key → canonical site_id)
 **Role:** the org hierarchy (self-referencing via PARENT_ORG_STRUCTURE_KEY). Resolves any
