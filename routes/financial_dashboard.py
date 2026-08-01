@@ -94,15 +94,20 @@ def _collect(start: str, end: str) -> dict:
     # ── By physician (top 10) ────────────────────────────────────────────────
     # Query by (physician, modality) so per-modality rates apply correctly,
     # then aggregate per physician in Python to avoid duplicate rows in the table.
+    # rep_final_signed_by / rep_final_timestamp (PACS) are sparse/unreliable on this
+    # install (operator, 2026-07-27) -- rep_study_last_composed_by/_ts is the PACS field
+    # confirmed reliable here and already the standard anchor in report_25.py; same
+    # COALESCE fallback applied here so LAUMC's per-physician RVU breakdown isn't
+    # silently empty.
     phys_rows = db.session.execute(text(f"""
         SELECT
-            COALESCE(s.rep_final_signed_by, 'Unassigned') AS physician,
+            COALESCE(s.rep_study_last_composed_by, s.rep_final_signed_by, 'Unassigned') AS physician,
             COUNT(DISTINCT s.study_db_uid)                AS study_count,
             {_MOD_EXPR}                                   AS modality,
             COALESCE(SUM(pdm.clinical_rvu), 0)            AS total_rvu
         {_STUDY_BASE}
-          AND s.rep_final_signed_by IS NOT NULL
-          AND s.rep_final_timestamp IS NOT NULL
+          AND COALESCE(s.rep_study_last_composed_by, s.rep_final_signed_by) IS NOT NULL
+          AND COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) IS NOT NULL
         GROUP BY 1, 3
         ORDER BY total_rvu DESC
     """), {'start': start, 'end': end}).fetchall()

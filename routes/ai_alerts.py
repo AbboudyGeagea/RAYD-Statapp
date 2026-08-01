@@ -25,14 +25,17 @@ def alerts():
     try:
         with db.engine.connect() as conn:
 
-            # TAT spike: this week vs prior 4-week rolling average
+            # TAT spike: this week vs prior 4-week rolling average.
+            # rep_final_timestamp (PACS) is sparse/unreliable on this install (operator,
+            # 2026-07-27) -- rep_study_last_composed_ts is the PACS field confirmed
+            # reliable here and already the standard TAT anchor in report_25.py.
             tat_rows = conn.execute(text("""
                 WITH weekly AS (
                     SELECT DATE_TRUNC('week', study_date) AS wk,
-                           ROUND(AVG(EXTRACT(EPOCH FROM (rep_final_timestamp - study_date)) / 60)::numeric, 1) AS avg_tat
+                           ROUND(AVG(EXTRACT(EPOCH FROM (COALESCE(rep_study_last_composed_ts, rep_final_timestamp) - study_date)) / 60)::numeric, 1) AS avg_tat
                     FROM etl_didb_studies
                     WHERE study_date >= CURRENT_DATE - INTERVAL '5 weeks'
-                      AND rep_final_timestamp IS NOT NULL
+                      AND COALESCE(rep_study_last_composed_ts, rep_final_timestamp) IS NOT NULL
                     GROUP BY 1 ORDER BY 1 DESC
                 )
                 SELECT wk, avg_tat FROM weekly LIMIT 5

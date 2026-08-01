@@ -443,6 +443,9 @@ def _collect_data(start, end, filters):
         ORDER BY cnt ASC LIMIT 1
     """), {"start": start, "end": end}).mappings().fetchone()
 
+    # rep_final_timestamp (PACS) is sparse/unreliable on this install (operator,
+    # 2026-07-27) -- rep_study_last_composed_ts is the PACS field confirmed
+    # reliable here and already the standard TAT anchor in report_25.py.
     # Non-ER studies with TAT > P75 on days that also had ER volume (resource contention proxy)
     if _er_vals:
         _er_in = ','.join(f"'{v.replace(chr(39), chr(39)*2)}'" for v in _er_vals)
@@ -454,11 +457,11 @@ def _collect_data(start, end, filters):
             ),
             p75 AS (
                 SELECT PERCENTILE_CONT(0.75) WITHIN GROUP (
-                    ORDER BY EXTRACT(EPOCH FROM (s.rep_final_timestamp - s.insert_time)) / 60.0
+                    ORDER BY EXTRACT(EPOCH FROM (COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) - s.insert_time)) / 60.0
                 ) AS val
                 FROM etl_didb_studies s {mj} {pj}
                 WHERE {where}
-                  AND s.rep_final_timestamp IS NOT NULL AND s.insert_time IS NOT NULL
+                  AND COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) IS NOT NULL AND s.insert_time IS NOT NULL
             )
             SELECT COUNT(*) AS cnt
             FROM etl_didb_studies s {mj} {pj}
@@ -466,8 +469,8 @@ def _collect_data(start, end, filters):
             CROSS JOIN p75
             WHERE {where}
               AND NOT ({er_filter})
-              AND s.rep_final_timestamp IS NOT NULL AND s.insert_time IS NOT NULL
-              AND EXTRACT(EPOCH FROM (s.rep_final_timestamp - s.insert_time)) / 60.0 > p75.val
+              AND COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) IS NOT NULL AND s.insert_time IS NOT NULL
+              AND EXTRACT(EPOCH FROM (COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) - s.insert_time)) / 60.0 > p75.val
         """), params).mappings().fetchone()
         er_delayed = int(er_delayed_row.get("cnt") or 0) if er_delayed_row else 0
     else:
@@ -477,9 +480,9 @@ def _collect_data(start, end, filters):
     tat = db.session.execute(text(f"""
         SELECT
             ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (
-                ORDER BY EXTRACT(EPOCH FROM (s.rep_final_timestamp - s.insert_time)) / 60.0
+                ORDER BY EXTRACT(EPOCH FROM (COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) - s.insert_time)) / 60.0
             )::numeric, 1) AS median_tat_min,
-            COUNT(*) FILTER (WHERE s.rep_final_timestamp IS NOT NULL) AS reported_count
+            COUNT(*) FILTER (WHERE COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) IS NOT NULL) AS reported_count
         FROM etl_didb_studies s {mj} {pj}
         WHERE {where} AND s.insert_time IS NOT NULL
     """), params).mappings().fetchone()
@@ -487,12 +490,12 @@ def _collect_data(start, end, filters):
     tat_by_mod = db.session.execute(text(f"""
         SELECT COALESCE(m.modality, s.study_modality, 'Unknown') AS modality,
                ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (
-                   ORDER BY EXTRACT(EPOCH FROM (s.rep_final_timestamp - s.insert_time)) / 60.0
+                   ORDER BY EXTRACT(EPOCH FROM (COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) - s.insert_time)) / 60.0
                )::numeric, 1) AS median_tat_min,
                COUNT(*) AS cnt
         FROM etl_didb_studies s {mj} {pj}
         WHERE {where}
-          AND s.rep_final_timestamp IS NOT NULL
+          AND COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) IS NOT NULL
           AND s.insert_time IS NOT NULL
         GROUP BY 1 ORDER BY median_tat_min DESC LIMIT 5
     """), params).mappings().fetchall()
@@ -513,15 +516,20 @@ def _collect_data(start, end, filters):
     """), params).mappings().fetchall()
 
     # ── Radiologist matrix: reports × modality / AE title / procedure ─
+    # rep_final_signed_by/rep_final_timestamp (PACS) are sparse/unreliable on this
+    # install (operator, 2026-07-27) -- rep_study_last_composed_by/_ts is the PACS
+    # field confirmed reliable here and already the standard anchor in report_25.py.
     _RAD_BASE_SR = ("COALESCE(NULLIF(TRIM(CONCAT(s.signing_physician_first_name,' ',"
-                    "s.signing_physician_last_name)),''),s.rep_final_signed_by)")
+                    "s.signing_physician_last_name)),''),s.rep_study_last_composed_by,"
+                    "s.rep_final_signed_by)")
     _PAM_SR = ("LEFT JOIN physician_alias_map pam "
                "ON pam.dismissed = false "
                "AND pam.alias = COALESCE(NULLIF(TRIM(CONCAT(s.signing_physician_first_name,' ',"
-               "s.signing_physician_last_name)),''),s.rep_final_signed_by)")
+               "s.signing_physician_last_name)),''),s.rep_study_last_composed_by,"
+               "s.rep_final_signed_by)")
     _RAD = f"COALESCE(pam.canonical_name, {_RAD_BASE_SR})"
     _RAD_OK = (f"{_RAD_BASE_SR} IS NOT NULL AND {_RAD} NOT IN ('','Unknown')"
-               f" AND s.rep_final_timestamp IS NOT NULL")
+               f" AND COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) IS NOT NULL")
 
     rad_mod_rows = db.session.execute(text(f"""
         SELECT {_RAD} AS radiologist,
@@ -545,7 +553,7 @@ def _collect_data(start, end, filters):
         WITH top_procs AS (
             SELECT s.procedure_code
             FROM etl_didb_studies s {mj} {pj}
-            WHERE {where} AND s.rep_final_timestamp IS NOT NULL
+            WHERE {where} AND COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) IS NOT NULL
               AND s.procedure_code IS NOT NULL AND s.procedure_code != ''
             GROUP BY 1 ORDER BY COUNT(DISTINCT s.study_db_uid) DESC LIMIT 60
         )

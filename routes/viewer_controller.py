@@ -82,13 +82,19 @@ def daily_briefing():
                   AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
             ),
             s AS MATERIALIZED (
+                -- rep_final_timestamp/rep_final_signed_by (PACS) are sparse/unreliable on
+                -- this install (operator, 2026-07-27) -- rep_study_last_composed_ts/_by is
+                -- the PACS field confirmed reliable here and already the standard TAT
+                -- anchor in report_25.py. Computed once here as final_ts/final_by so every
+                -- downstream reference in this CTE stays simple.
                 SELECT
                     s.study_date,
                     s.patient_location, s.patient_class, s.study_status,
-                    s.rep_final_timestamp, s.rep_final_signed_by,
+                    COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) AS final_ts,
+                    COALESCE(s.rep_study_last_composed_by, s.rep_final_signed_by) AS final_by,
                     COALESCE(m.modality, s.study_modality, 'Unknown') AS modality,
-                    CASE WHEN s.rep_final_timestamp IS NOT NULL
-                         THEN EXTRACT(EPOCH FROM (s.rep_final_timestamp - s.study_date::timestamp))/60
+                    CASE WHEN COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) IS NOT NULL
+                         THEN EXTRACT(EPOCH FROM (COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) - s.study_date::timestamp))/60
                     END AS tat_min
                 FROM etl_didb_studies s
                 LEFT JOIN aetitle_modality_map m
@@ -116,13 +122,13 @@ def daily_briefing():
                 (SELECT COUNT(*)::int FROM s WHERE study_date = (SELECT d FROM latest) - 7)           AS last_week_count,
                 (SELECT v   FROM avg30)                                                               AS avg_daily,
                 (SELECT COUNT(*)::int FROM s
-                 WHERE study_date = (SELECT d FROM latest) AND rep_final_timestamp IS NOT NULL)        AS signed_today,
+                 WHERE study_date = (SELECT d FROM latest) AND final_ts IS NOT NULL)                  AS signed_today,
                 (SELECT COUNT(*)::int FROM s
                  WHERE study_date = (SELECT d FROM latest) AND study_status ILIKE '%unread%')          AS unread,
-                (SELECT COUNT(DISTINCT rep_final_signed_by)::int FROM s
+                (SELECT COUNT(DISTINCT final_by)::int FROM s
                  WHERE study_date = (SELECT d FROM latest)
-                   AND rep_final_signed_by IS NOT NULL
-                   AND rep_final_timestamp IS NOT NULL)                                               AS active_rads,
+                   AND final_by IS NOT NULL
+                   AND final_ts IS NOT NULL)                                                          AS active_rads,
                 (SELECT ROUND(AVG(tat_min)::numeric,1) FROM s
                  WHERE study_date = (SELECT d FROM latest) AND tat_min > 0 AND tat_min < 2880)        AS avg_tat_today,
                 (SELECT ROUND(AVG(tat_min)::numeric,1) FROM s

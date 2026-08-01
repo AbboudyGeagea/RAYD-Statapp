@@ -138,9 +138,14 @@ def get_kpi_detailed_reading(form_data):
                 s.accession_number,
                 s.patient_class,
                 COALESCE(UPPER(m.modality), UPPER(s.study_modality), 'N/A') AS modality,
-                COALESCE(s.rep_final_signed_by, res.common_name, o.physician_id) AS radiologist,
+                -- rep_final_signed_by/rep_final_timestamp (PACS) are sparse/unreliable on
+                -- this install (operator, 2026-07-27) -- rep_study_last_composed_by/_ts is
+                -- the PACS field confirmed reliable here and already the standard anchor
+                -- in report_25.py; inserted ahead of the existing RIS fallback below
+                -- (untouched — that's this file's own prior design, not part of this fix).
+                COALESCE(s.rep_study_last_composed_by, s.rep_final_signed_by, res.common_name, o.physician_id) AS radiologist,
                 s.rep_prelim_timestamp,
-                s.rep_final_timestamp,
+                COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) AS rep_final_timestamp,
                 o.result_datetime AS ris_result_datetime,
                 ho.done_at,
                 ho.pacs_done_at

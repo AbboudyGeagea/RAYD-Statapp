@@ -234,15 +234,20 @@ def get_radiologist_performance_data(form_data):
     # doesn't expose.
     rad_volume_matrix = {"by_modality": [], "by_aetitle": [], "by_procedure": [], "by_month": []}
     try:
+        # rep_final_signed_by/rep_final_timestamp (PACS) are sparse/unreliable on this
+        # install (operator, 2026-07-27) -- rep_study_last_composed_by/_ts is the PACS
+        # field confirmed reliable here and already the standard anchor in report_25.py.
         _RAD_BASE = ("COALESCE(NULLIF(TRIM(CONCAT(s.signing_physician_first_name,' ',"
-                     "s.signing_physician_last_name)),''),s.rep_final_signed_by,'Unknown')")
+                     "s.signing_physician_last_name)),''),s.rep_study_last_composed_by,"
+                     "s.rep_final_signed_by,'Unknown')")
         _PAM = ("LEFT JOIN physician_alias_map pam "
                 "ON pam.dismissed = false "
                 "AND pam.alias = COALESCE(NULLIF(TRIM(CONCAT(s.signing_physician_first_name,' ',"
-                "s.signing_physician_last_name)),''),s.rep_final_signed_by)")
+                "s.signing_physician_last_name)),''),s.rep_study_last_composed_by,"
+                "s.rep_final_signed_by)")
         _RAD = "COALESCE(pam.canonical_name, " + _RAD_BASE + ")"
         _RAD_OK = (f"AND {_RAD} NOT IN ('','Unknown')"
-                   f" AND s.rep_final_timestamp IS NOT NULL")
+                   f" AND COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) IS NOT NULL")
         _MJ = "LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))"
 
         rad_volume_matrix["by_modality"] = [dict(r) for r in db.session.execute(text(f"""
@@ -275,7 +280,7 @@ def get_radiologist_performance_data(form_data):
                 FROM etl_didb_studies s
                 {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))" if sec_needs_mod_join else ""}
                 WHERE s.study_date BETWEEN :start AND :end
-                  AND s.rep_final_timestamp IS NOT NULL
+                  AND COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) IS NOT NULL
                   AND s.procedure_code IS NOT NULL AND s.procedure_code != ''
                   {sec_filters}
                 GROUP BY 1 ORDER BY COUNT(DISTINCT s.study_db_uid) DESC LIMIT 60
@@ -316,16 +321,16 @@ def get_radiologist_performance_data(form_data):
     try:
         add_rows = db.session.execute(text(f"""
             SELECT
-                COALESCE(pam.canonical_name, s.rep_final_signed_by, 'Unknown') AS radiologist,
+                COALESCE(pam.canonical_name, s.rep_study_last_composed_by, s.rep_final_signed_by, 'Unknown') AS radiologist,
                 COUNT(*) AS total,
                 SUM(CASE WHEN s.rep_has_addendum THEN 1 ELSE 0 END) AS addendum_count,
                 ROUND(SUM(CASE WHEN s.rep_has_addendum THEN 1 ELSE 0 END)::numeric / NULLIF(COUNT(*),0) * 100, 1) AS addendum_pct
             FROM etl_didb_studies s
             {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))" if sec_needs_mod_join else ""}
-            LEFT JOIN physician_alias_map pam ON pam.dismissed = false AND pam.alias = s.rep_final_signed_by
+            LEFT JOIN physician_alias_map pam ON pam.dismissed = false AND pam.alias = COALESCE(s.rep_study_last_composed_by, s.rep_final_signed_by)
             WHERE s.study_date BETWEEN :start AND :end
-              AND s.rep_final_signed_by IS NOT NULL
-              AND s.rep_final_timestamp IS NOT NULL
+              AND COALESCE(s.rep_study_last_composed_by, s.rep_final_signed_by) IS NOT NULL
+              AND COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) IS NOT NULL
               {sec_filters}
             GROUP BY 1
             HAVING COUNT(*) >= 5
@@ -356,12 +361,17 @@ def get_radiologist_performance_data(form_data):
     shift_patterns = {}
     try:
         _BREAK_MIN = 20
+        # rep_final_signed_by/rep_final_timestamp (PACS) are sparse/unreliable on this
+        # install (operator, 2026-07-27) -- rep_study_last_composed_by/_ts is the PACS
+        # field confirmed reliable here and already the standard anchor in report_25.py.
         _SP_RAD_BASE = ("COALESCE(NULLIF(TRIM(CONCAT(s.signing_physician_first_name,' ',"
-                        "s.signing_physician_last_name)),''),s.rep_final_signed_by,'Unknown')")
+                        "s.signing_physician_last_name)),''),s.rep_study_last_composed_by,"
+                        "s.rep_final_signed_by,'Unknown')")
         _SP_PAM = ("LEFT JOIN physician_alias_map pam "
                    "ON pam.dismissed = false "
                    "AND pam.alias = COALESCE(NULLIF(TRIM(CONCAT(s.signing_physician_first_name,' ',"
-                   "s.signing_physician_last_name)),''),s.rep_final_signed_by)")
+                   "s.signing_physician_last_name)),''),s.rep_study_last_composed_by,"
+                   "s.rep_final_signed_by)")
         _SP_RAD = "COALESCE(pam.canonical_name, " + _SP_RAD_BASE + ")"
         # SR/OT exclusion (mandatory convention — see CLAUDE.md); fall back to
         # study_modality when the aetitle_modality_map join isn't in play,
@@ -375,13 +385,13 @@ def get_radiologist_performance_data(form_data):
         ts_rows = db.session.execute(text(f"""
             SELECT
                 {_SP_RAD} AS radiologist,
-                s.rep_final_timestamp,
+                COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) AS rep_final_timestamp,
                 s.accession_number
             FROM etl_didb_studies s
             {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))" if sec_needs_mod_join else ""}
             {_SP_PAM}
-            WHERE s.rep_final_timestamp IS NOT NULL
-              AND s.rep_final_timestamp::date BETWEEN :start AND :end
+            WHERE COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) IS NOT NULL
+              AND COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp)::date BETWEEN :start AND :end
               {_sp_sr_ot_filter}
               {sec_filters}
             ORDER BY 1, 2

@@ -284,7 +284,11 @@ def widget_physician_perf(db, filters, config):
     # LEFT JOIN without fear of fan-out) and resolves its physician_id (a raw
     # RIS code) to a real name via std_resources_ris.resource_id, the same
     # join report_36.get_kpi_detailed_reading() already uses for this exact
-    # problem (moved there from report_25 2026-07-31).
+    # problem (moved there from report_25 2026-07-31). Separately,
+    # s.rep_final_timestamp (PACS) is itself sparse/unreliable on this install
+    # (operator, 2026-07-27) -- s.rep_study_last_composed_ts is the PACS field
+    # confirmed reliable here (report_25.py's standard anchor); inserted ahead
+    # of it below, RIS fallback (o.result_datetime) kept last and untouched.
     _name = (
         "COALESCE("
         "NULLIF(TRIM(CONCAT(s.reading_physician_first_name, ' ', s.reading_physician_last_name)), ''), "
@@ -296,7 +300,7 @@ def widget_physician_perf(db, filters, config):
             COUNT(*) AS studies,
             ROUND(AVG(
                 EXTRACT(EPOCH FROM (
-                    COALESCE(s.rep_final_timestamp, o.result_datetime) - s.study_date::timestamp
+                    COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp, o.result_datetime) - s.study_date::timestamp
                 )) / 3600.0
             )::numeric, 1) AS avg_tat_h
         {_BASE_JOIN}
@@ -342,15 +346,19 @@ def widget_tat_summary(db, filters, config):
           AND s.rep_prelim_timestamp > s.study_date::timestamp
     """), p).fetchone()
 
+    # rep_final_timestamp (PACS) is sparse/unreliable on this install (operator,
+    # 2026-07-27) -- rep_study_last_composed_ts is the PACS field confirmed
+    # reliable here and already the standard TAT anchor in report_25.py.
+    _final_ts = "COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp)"
     final = db.session.execute(text(f"""
-        SELECT ROUND(AVG({_tat('s.rep_final_timestamp','s.study_date')})::numeric,1)            AS avg_h,
+        SELECT ROUND(AVG({_tat(_final_ts,'s.study_date')})::numeric,1)            AS avg_h,
                ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (
-                   ORDER BY {_tat('s.rep_final_timestamp','s.study_date')})::numeric,1)         AS median_h,
+                   ORDER BY {_tat(_final_ts,'s.study_date')})::numeric,1)         AS median_h,
                ROUND(PERCENTILE_CONT(0.9) WITHIN GROUP (
-                   ORDER BY {_tat('s.rep_final_timestamp','s.study_date')})::numeric,1)         AS p90_h
+                   ORDER BY {_tat(_final_ts,'s.study_date')})::numeric,1)         AS p90_h
         {_BASE_JOIN} {_WHERE}
-          AND s.rep_final_timestamp IS NOT NULL
-          AND s.rep_final_timestamp > s.study_date::timestamp
+          AND {_final_ts} IS NOT NULL
+          AND {_final_ts} > s.study_date::timestamp
     """), p).fetchone()
 
     def _row(r):
@@ -782,14 +790,20 @@ def widget_rad_modality_matrix(db, filters, config):
     # had the identical `s.rep_final_timestamp IS NOT NULL` gate that was the
     # real root cause of physician_perf coming back empty, so it carries the
     # same latent bug even though the operator only reported the contamination
-    # symptom for this one.
+    # symptom for this one. rep_final_signed_by/rep_final_timestamp (PACS) are
+    # themselves sparse/unreliable on this install (operator, 2026-07-27) --
+    # rep_study_last_composed_by/_ts is the PACS field confirmed reliable here
+    # (report_25.py's standard anchor); inserted ahead of them below, RIS
+    # fallback (res.common_name / o.physician_id / o.result_datetime) kept
+    # last and untouched.
     _RAD_BASE_RW = ("COALESCE(NULLIF(TRIM(CONCAT(s.signing_physician_first_name,' ',"
-                    "s.signing_physician_last_name)),''), s.rep_final_signed_by, "
-                    "res.common_name, o.physician_id, 'Unknown')")
+                    "s.signing_physician_last_name)),''), s.rep_study_last_composed_by, "
+                    "s.rep_final_signed_by, res.common_name, o.physician_id, 'Unknown')")
     _PAM_RW = ("LEFT JOIN physician_alias_map pam "
                "ON pam.dismissed = false "
                "AND pam.alias = COALESCE(NULLIF(TRIM(CONCAT(s.signing_physician_first_name,' ',"
-               "s.signing_physician_last_name)),''), s.rep_final_signed_by, res.common_name, o.physician_id)")
+               "s.signing_physician_last_name)),''), s.rep_study_last_composed_by, "
+               "s.rep_final_signed_by, res.common_name, o.physician_id)")
     _RAD = f"COALESCE(pam.canonical_name, {_RAD_BASE_RW})"
     _RIS_JOINS_RW = (
         "LEFT JOIN hl7_oru_reports o ON o.accession_number = s.accession_number "
@@ -805,7 +819,7 @@ def widget_rad_modality_matrix(db, filters, config):
         {_PAM_RW}
         {_WHERE}
           AND {_RAD} NOT IN ('','Unknown')
-          AND COALESCE(s.rep_final_timestamp, o.result_datetime) IS NOT NULL
+          AND COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp, o.result_datetime) IS NOT NULL
           AND {_DEMO_ACCESSIONS_SQL}
           AND {_DEMO_PATIENT_SQL}
           {_demo_excl}
@@ -819,7 +833,7 @@ def widget_rad_modality_matrix(db, filters, config):
         {_PAM_RW}
         {_WHERE}
           AND {_RAD} NOT IN ('','Unknown')
-          AND COALESCE(s.rep_final_timestamp, o.result_datetime) IS NOT NULL
+          AND COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp, o.result_datetime) IS NOT NULL
           AND {_DEMO_ACCESSIONS_SQL}
           AND {_DEMO_PATIENT_SQL}
           {_demo_excl}
