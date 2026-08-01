@@ -24,8 +24,17 @@ number. Report 35's flagged-exam accession display was falling back to a synthet
 'WL#<pps_key>' placeholder far more often than expected, because a completed exam per
 RIS doesn't always have a matching PACS study (etl_didb_studies) yet -- SPS_ID gives a
 real accession straight from the worklist row itself, no PACS match required.
+
+sps_id backfill (2026-08-01): adding the column doesn't retroactively populate it --
+the incremental watermark (MAX(arrived_at) + 10-day lookback) means a normal run only
+ever touches recent rows, so years of existing history would keep showing the WL#
+placeholder forever without a one-time full pass. Set RAYD_FORCE_FULL_ARRIVALS_BACKFILL=1
+for exactly one run to force is_fresh_load regardless of the watermark -- every row gets
+re-upserted (harmless, same ON CONFLICT DO UPDATE path as always) so sps_id gets filled
+in everywhere, then unset the env var so normal incremental runs resume.
 """
 import logging
+import os
 from datetime import datetime, timedelta
 from sqlalchemy import text
 from db import OracleConnector
@@ -89,7 +98,8 @@ def run_ris_worklist_arrivals_etl(pg_engine, oracle_source):
         logging.warning(f"RIS Worklist Arrivals ETL: could not read watermark, falling back to full pull: {e}")
         watermark = None
 
-    is_fresh_load = watermark is None
+    _force_full_backfill = os.getenv('RAYD_FORCE_FULL_ARRIVALS_BACKFILL', '').strip() == '1'
+    is_fresh_load = watermark is None or _force_full_backfill
     lookback_date = (datetime.now() - timedelta(days=10)).strftime('%Y-%m-%d')
 
     # SPS_ID (migration 0099) -- the real accession number, "same value as the PACS
@@ -108,8 +118,9 @@ def run_ris_worklist_arrivals_etl(pg_engine, oracle_source):
     try:
         params = {"arrived_key": _ARRIVED_STATUS_KEY}
         if is_fresh_load:
-            logging.info("RIS Worklist Arrivals ETL starting — fresh load")
-            print(f"[RIS Worklist Arrivals ETL] 🚀 Starting ({_STATUS_HISTORY_TABLE} ⋈ {_WORKLIST_TABLE}), fresh load")
+            mode_label = "forced full backfill (RAYD_FORCE_FULL_ARRIVALS_BACKFILL=1)" if _force_full_backfill else "fresh load"
+            logging.info(f"RIS Worklist Arrivals ETL starting — {mode_label}")
+            print(f"[RIS Worklist Arrivals ETL] 🚀 Starting ({_STATUS_HISTORY_TABLE} ⋈ {_WORKLIST_TABLE}), {mode_label}")
             cursor.execute(base_query, params)
         else:
             logging.info(f"RIS Worklist Arrivals ETL starting — incremental, watermark={watermark}, lookback={lookback_date}")
