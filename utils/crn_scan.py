@@ -30,31 +30,67 @@ logger = logging.getLogger("CRN")
 _ACK_URL_BASE = "/crn/ack/"
 
 
-def _resolve_contact(referring_physician_code, physician_name):
-    """Resource-key match first (reliable), free-text name match as fallback."""
-    if referring_physician_code and referring_physician_code.isdigit():
+def _resolve_contact(oru_code, oru_first, oru_last, orm_code, pacs_name):
+    """
+    Layered resolution, first match wins (migration 0101, operator instruction
+    2026-08-01):
+      1. hl7_oru_reports.referring_physician_code (ORU-native, via a PV1 segment the
+         operator is adding to the live ORU feed) -- the primary path once it exists.
+      2. hl7_orders.referring_physician_code (existing ORM-based path, migration 0079)
+         -- kept as a fallback in case the R2I ORM feed ever goes live; harmless no-op
+         today since that feed isn't flowing and this is always None.
+      3. Free-text name match built from the ORU's own first+last (new columns) --
+         works even when neither code is available, as long as the ORU carries PV1.
+      4. Existing PACS-side fallback (etl_didb_studies.referring_physician_first_name/
+         last_name) -- today's only working path, kept last.
+    """
+    for code in (oru_code, orm_code):
+        if code and code.isdigit():
+            contact = db.session.execute(text("""
+                SELECT * FROM referring_contacts WHERE resource_id_key = :key AND active = TRUE
+            """), {"key": int(code)}).mappings().fetchone()
+            if contact:
+                return contact
+
+    if oru_first and oru_last:
+        name = f"{oru_first} {oru_last}".strip()
         contact = db.session.execute(text("""
-            SELECT * FROM referring_contacts WHERE resource_id_key = :key AND active = TRUE
-        """), {"key": int(referring_physician_code)}).mappings().fetchone()
+            SELECT * FROM referring_contacts WHERE physician_name = :name AND active = TRUE
+        """), {"name": name}).mappings().fetchone()
         if contact:
             return contact
-    if physician_name:
+
+    if pacs_name:
         return db.session.execute(text("""
             SELECT * FROM referring_contacts WHERE physician_name = :name AND active = TRUE
-        """), {"name": physician_name}).mappings().fetchone()
+        """), {"name": pacs_name}).mappings().fetchone()
     return None
+
+
+_FALLBACK_TEMPLATE = "RAYD: A radiology report requires your acknowledgment (accession {accession}). {ack_url}"
 
 
 def _build_message(accession_number, ack_token):
     """
-    PLACEHOLDER content — operator has not signed off on real message wording yet
-    (see docs/LAUMC_CRN_FIREWALL_REQUEST.md #3). Minimal PHI in the body, per
-    LAUMC_SCOPE.md's CRN spec: the link carries the detail, not the message itself.
+    Builds the notification text from the admin-editable settings.crn_message_template
+    (migration 0101) -- replaces the old hardcoded placeholder string (operator
+    instruction, 2026-08-01; see routes/referring_contacts_admin.py for the editor).
+    Merge fields: {accession}, {ack_url} -- deliberately no patient-identifying fields,
+    per LAUMC_SCOPE.md's CRN spec: the link carries the detail, not the message itself
+    (see routes/crn_ack.py).
     """
-    return (
-        f"RAYD: A radiology report requires your acknowledgment "
-        f"(accession {accession_number}). {_ACK_URL_BASE}{ack_token}"
-    )
+    row = db.session.execute(
+        text("SELECT value FROM settings WHERE key = 'crn_message_template'")
+    ).fetchone()
+    template = (row[0] if row and row[0] else _FALLBACK_TEMPLATE)
+    ack_url = f"{_ACK_URL_BASE}{ack_token}"
+    try:
+        return template.format(accession=accession_number, ack_url=ack_url)
+    except (KeyError, IndexError):
+        # Admin-entered template has a bad/unknown placeholder -- fail safe to the
+        # known-good default rather than error out and skip the notification entirely.
+        logger.warning("[CRN] crn_message_template has an invalid placeholder, using fallback")
+        return _FALLBACK_TEMPLATE.format(accession=accession_number, ack_url=ack_url)
 
 
 def scan_for_new_critical_results():
@@ -68,13 +104,20 @@ def scan_for_new_critical_results():
     if not _crn_live():
         return 0
 
+    # etl_didb_studies is a LEFT JOIN (not INNER): a critical result should still be
+    # resolvable via the ORU-native PV1 fields (migration 0101) even when no matching
+    # PACS study exists yet -- requiring `s` unconditionally would silently drop exactly
+    # the reports the new ORU-side resolution path exists to catch.
     rows = db.session.execute(text("""
         SELECT r.id AS report_id, r.accession_number, a.affirmed_labels,
-               o.referring_physician_code,
-               TRIM(CONCAT(s.referring_physician_first_name, ' ', s.referring_physician_last_name)) AS physician_name
+               r.referring_physician_code AS oru_code,
+               r.referring_physician_first_name AS oru_first,
+               r.referring_physician_last_name AS oru_last,
+               o.referring_physician_code AS orm_code,
+               NULLIF(TRIM(CONCAT(s.referring_physician_first_name, ' ', s.referring_physician_last_name)), '') AS pacs_name
         FROM hl7_oru_reports r
         JOIN hl7_oru_analysis a ON a.report_id = r.id
-        JOIN etl_didb_studies s ON s.accession_number = r.accession_number
+        LEFT JOIN etl_didb_studies s ON s.accession_number = r.accession_number
         LEFT JOIN LATERAL (
             SELECT referring_physician_code FROM hl7_orders
             WHERE accession_number = r.accession_number AND referring_physician_code IS NOT NULL
@@ -84,8 +127,10 @@ def scan_for_new_critical_results():
         WHERE a.is_critical = TRUE
           AND n.id IS NULL
           AND (
-              (s.referring_physician_last_name IS NOT NULL AND s.referring_physician_last_name != '')
+              r.referring_physician_code IS NOT NULL
+              OR (r.referring_physician_first_name IS NOT NULL AND r.referring_physician_last_name IS NOT NULL)
               OR o.referring_physician_code IS NOT NULL
+              OR (s.referring_physician_last_name IS NOT NULL AND s.referring_physician_last_name != '')
           )
         ORDER BY r.received_at DESC
         LIMIT 200
@@ -93,11 +138,15 @@ def scan_for_new_critical_results():
 
     created = 0
     for row in rows:
-        contact = _resolve_contact(row['referring_physician_code'], row['physician_name'])
+        contact = _resolve_contact(
+            row['oru_code'], row['oru_first'], row['oru_last'],
+            row['orm_code'], row['pacs_name'],
+        )
         if not contact:
             logger.info(
                 f"[CRN] report_id={row['report_id']}: no active referring_contacts match "
-                f"(code={row['referring_physician_code']!r}, name={row['physician_name']!r}) — skipped"
+                f"(oru_code={row['oru_code']!r}, orm_code={row['orm_code']!r}, "
+                f"oru_name={row['oru_first']!r} {row['oru_last']!r}, pacs_name={row['pacs_name']!r}) — skipped"
             )
             continue
 

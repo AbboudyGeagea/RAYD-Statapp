@@ -32,10 +32,22 @@
                         <h1 class="text-lg font-black text-white uppercase tracking-widest">Referring Contacts</h1>
                         <p class="text-xs text-zinc-500 mt-1">Contact info + preferred notification channel per referring physician. Feeds Critical Result Notification (CRN) — each physician is reached only on the channel they chose.</p>
                     </div>
-                    <button id="add-btn" class="bg-blue-500 hover:bg-blue-400 text-white text-xs font-black uppercase px-4 py-2 rounded-lg">
-                        <i class="bi bi-plus-lg"></i> Add contact
-                    </button>
+                    <div class="flex items-center gap-2">
+                        <a id="csv-template-link" href="/admin/referring-contacts/api/csv-template"
+                           class="text-xs font-bold text-zinc-400 hover:text-zinc-200 px-3 py-2">
+                            <i class="bi bi-download"></i> CSV template
+                        </a>
+                        <button id="upload-csv-btn" class="bg-zinc-700 hover:bg-zinc-600 text-white text-xs font-black uppercase px-4 py-2 rounded-lg">
+                            <i class="bi bi-upload"></i> Upload CSV
+                        </button>
+                        <input type="file" id="csv-file-input" accept=".csv" class="hidden">
+                        <button id="add-btn" class="bg-blue-500 hover:bg-blue-400 text-white text-xs font-black uppercase px-4 py-2 rounded-lg">
+                            <i class="bi bi-plus-lg"></i> Add contact
+                        </button>
+                    </div>
                 </div>
+
+                <div id="csv-result" class="glass-card p-4 mb-4 hidden text-xs"></div>
 
                 <div class="glass-card p-4 mb-4">
                     <table class="w-full text-xs">
@@ -55,6 +67,21 @@
                     </table>
                     <p id="empty-msg" class="text-zinc-600 italic text-center py-6 hidden">No referring contacts yet — add one to get started.</p>
                 </div>
+
+                <div class="glass-card p-4">
+                    <h2 class="text-sm font-black text-white uppercase tracking-widest mb-1">CRN message template</h2>
+                    <p class="text-xs text-zinc-500 mb-3">
+                        Sent to the referring physician on their preferred channel when a critical result is
+                        detected. Merge fields: <code class="text-blue-400">{accession}</code> and
+                        <code class="text-blue-400">{ack_url}</code> (both required) — no patient-identifying
+                        info belongs in this text; the acknowledgment link carries the detail.
+                    </p>
+                    <textarea id="tmpl-text" rows="3" class="font-mono"></textarea>
+                    <p id="tmpl-error" class="text-red-400 text-[11px] mt-1 hidden"></p>
+                    <div class="flex justify-end mt-3">
+                        <button id="tmpl-save-btn" class="bg-blue-500 hover:bg-blue-400 text-white text-xs font-black uppercase px-4 py-2 rounded-lg">Save template</button>
+                    </div>
+                </div>
             </div>
         </main>
     </div>
@@ -69,6 +96,10 @@
                     <label class="text-[10px] font-black text-zinc-500 uppercase block mb-1">Physician name</label>
                     <input type="text" id="f-name" list="known-names">
                     <datalist id="known-names"></datalist>
+                </div>
+                <div>
+                    <label class="text-[10px] font-black text-zinc-500 uppercase block mb-1">Middle name <span class="normal-case text-zinc-600">(optional — disambiguates two contacts sharing the same first/last name)</span></label>
+                    <input type="text" id="f-middle-name">
                 </div>
                 <div>
                     <label class="text-[10px] font-black text-zinc-500 uppercase block mb-1">Preferred channel</label>
@@ -114,6 +145,7 @@
 
         const fId = document.getElementById('f-id');
         const fName = document.getElementById('f-name');
+        const fMiddleName = document.getElementById('f-middle-name');
         const fChannel = document.getElementById('f-channel');
         const fEmail = document.getElementById('f-email');
         const fPhone = document.getElementById('f-phone');
@@ -129,6 +161,7 @@
                 fId.value = row.id;
                 fName.value = row.physician_name;
                 fName.disabled = true;
+                fMiddleName.value = row.middle_name || '';
                 fChannel.value = row.preferred_channel;
                 fEmail.value = row.email || '';
                 fPhone.value = row.phone || '';
@@ -139,6 +172,7 @@
                 fId.value = '';
                 fName.value = '';
                 fName.disabled = false;
+                fMiddleName.value = '';
                 fChannel.value = 'email';
                 fEmail.value = '';
                 fPhone.value = '';
@@ -161,6 +195,7 @@
             const payload = {
                 id: fId.value || null,
                 physician_name: fName.value.trim(),
+                middle_name: fMiddleName.value.trim(),
                 preferred_channel: fChannel.value,
                 email: fEmail.value.trim(),
                 phone: fPhone.value.trim(),
@@ -241,8 +276,70 @@
             knownNames.innerHTML = names.map(n => `<option value="${esc(n)}"></option>`).join('');
         }
 
+        // ── CSV bulk upload ──────────────────────────────────────────────────
+        const csvFileInput = document.getElementById('csv-file-input');
+        const csvResult    = document.getElementById('csv-result');
+
+        document.getElementById('upload-csv-btn').addEventListener('click', () => csvFileInput.click());
+
+        csvFileInput.addEventListener('change', async () => {
+            const file = csvFileInput.files[0];
+            if (!file) return;
+            const formData = new FormData();
+            formData.append('file', file);
+            csvResult.classList.remove('hidden');
+            csvResult.innerHTML = '<span class="text-zinc-400">Uploading…</span>';
+            try {
+                const res = await fetch('/admin/referring-contacts/api/upload-csv', {
+                    method: 'POST', body: formData,
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    csvResult.innerHTML = `<span class="text-red-400">${esc(data.error || 'Upload failed.')}</span>`;
+                } else {
+                    let html = `<span class="text-emerald-400 font-bold">${data.created} created</span>, `
+                             + `<span class="text-blue-400 font-bold">${data.updated} updated</span>`;
+                    if (data.errors && data.errors.length) {
+                        html += `, <span class="text-red-400 font-bold">${data.errors.length} error(s)</span>`
+                              + '<ul class="mt-2 space-y-1">'
+                              + data.errors.map(e => `<li class="text-red-400">Row ${e.row} (${esc(e.physician_name)}): ${esc(e.error)}</li>`).join('')
+                              + '</ul>';
+                    }
+                    csvResult.innerHTML = html;
+                    loadRows();
+                }
+            } catch (e) {
+                csvResult.innerHTML = `<span class="text-red-400">Upload failed: ${esc(e.message)}</span>`;
+            }
+            csvFileInput.value = '';
+        });
+
+        // ── CRN message template ─────────────────────────────────────────────
+        const tmplText  = document.getElementById('tmpl-text');
+        const tmplError = document.getElementById('tmpl-error');
+
+        async function loadTemplate() {
+            const res = await fetch('/admin/referring-contacts/api/message-template');
+            const data = await res.json();
+            tmplText.value = data.template || '';
+        }
+
+        document.getElementById('tmpl-save-btn').addEventListener('click', async () => {
+            tmplError.classList.add('hidden');
+            const res = await fetch('/admin/referring-contacts/api/message-template', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({template: tmplText.value}),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                tmplError.textContent = data.error || 'Save failed.';
+                tmplError.classList.remove('hidden');
+            }
+        });
+
         loadRows();
         loadKnownNames();
+        loadTemplate();
     })();
     </script>
 </body>

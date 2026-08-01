@@ -289,11 +289,15 @@ ORU_INSERT_SQL = """
     INSERT INTO hl7_oru_reports
         (procedure_code, procedure_name, modality, physician_id,
          patient_id, accession_number,
-         report_text, impression_text, result_datetime, received_at, report_source)
+         report_text, impression_text, result_datetime, received_at, report_source,
+         referring_physician_code, referring_physician_first_name,
+         referring_physician_last_name, referring_physician_middle_name)
     VALUES
         (:procedure_code, :procedure_name, :modality, :physician_id,
          :patient_id, :accession_number,
-         :report_text, :impression_text, :result_datetime, :received_at, 'hl7')
+         :report_text, :impression_text, :result_datetime, :received_at, 'hl7',
+         :referring_physician_code, :referring_physician_first_name,
+         :referring_physician_last_name, :referring_physician_middle_name)
     ON CONFLICT (accession_number) DO UPDATE SET
         -- FILL-ONLY. The RIS batch (report_source='ris') carries the authoritative,
         -- complete, decrypted plain text; the live ORU can be partial or (at LAUMC)
@@ -308,7 +312,11 @@ ORU_INSERT_SQL = """
         report_text     = COALESCE(hl7_oru_reports.report_text,     EXCLUDED.report_text),
         impression_text = COALESCE(hl7_oru_reports.impression_text, EXCLUDED.impression_text),
         result_datetime = COALESCE(hl7_oru_reports.result_datetime, EXCLUDED.result_datetime),
-        report_source   = COALESCE(hl7_oru_reports.report_source,   'hl7')
+        report_source   = COALESCE(hl7_oru_reports.report_source,   'hl7'),
+        referring_physician_code        = COALESCE(hl7_oru_reports.referring_physician_code,        EXCLUDED.referring_physician_code),
+        referring_physician_first_name  = COALESCE(hl7_oru_reports.referring_physician_first_name,  EXCLUDED.referring_physician_first_name),
+        referring_physician_last_name   = COALESCE(hl7_oru_reports.referring_physician_last_name,   EXCLUDED.referring_physician_last_name),
+        referring_physician_middle_name = COALESCE(hl7_oru_reports.referring_physician_middle_name, EXCLUDED.referring_physician_middle_name)
 """
 
 # OBX value types that are clearly non-text — skip these, accept everything else
@@ -336,6 +344,7 @@ def parse_oru_r01(raw_message):
     msh = _seg(segments, 'MSH')
     pid = _seg(segments, 'PID')
     obr = _seg(segments, 'OBR')
+    pv1 = _seg(segments, 'PV1')
 
     msg_type = _field(msh, 8, '')
     if 'ORU' not in msg_type:
@@ -344,6 +353,18 @@ def parse_oru_r01(raw_message):
     # ── PID: patient identifier ──────────────────────────────────────────────
     pid_raw    = _field(pid, 3, '')
     patient_id = _component(pid_raw, 0) or None
+
+    # ── PV1-8: referring physician (migration 0101, CRN grounding) ───────────
+    # Not present on today's ORU messages -- _seg()/_field()/_component() all degrade
+    # to '' / None gracefully when PV1 is absent, so every field here is just None
+    # until the operator's RIS-side change adds this segment to the live ORU feed.
+    # Same XCN shape (ID^Last^First^Middle) already parsed from ORM's PV1-8 in
+    # parse_orm_o01() below.
+    _pv1_8 = _field(pv1, 8, '')
+    referring_physician_code        = _component(_pv1_8, 0) or None
+    referring_physician_last_name   = _component(_pv1_8, 1, '') or None
+    referring_physician_first_name  = _component(_pv1_8, 2, '') or None
+    referring_physician_middle_name = _component(_pv1_8, 3, '') or None
 
     # ── OBR: procedure & timing ───────────────────────────────────────────────
     proc_raw         = _field(obr, 4, '')
@@ -399,6 +420,10 @@ def parse_oru_r01(raw_message):
         'impression_text': '\n'.join(impression_parts) or None,
         'result_datetime': result_dt,
         'received_at':     datetime.now(),
+        'referring_physician_code':        referring_physician_code,
+        'referring_physician_first_name':  referring_physician_first_name,
+        'referring_physician_last_name':   referring_physician_last_name,
+        'referring_physician_middle_name': referring_physician_middle_name,
     }
 
 
