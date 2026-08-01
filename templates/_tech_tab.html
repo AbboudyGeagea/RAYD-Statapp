@@ -1,4 +1,4 @@
-{% if tech_data and tech_data.summary and tech_data.summary.total_scheduled is defined and tech_data.summary.total_scheduled > 0 %}
+{% if tech_data and tech_data.summary and tech_data.summary.total_arrived is defined and tech_data.summary.total_arrived > 0 %}
 {% set ts = tech_data.summary %}
 
 <!-- Statistical Insights at top -->
@@ -61,8 +61,8 @@
 <!-- Summary KPIs -->
 <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
     <div class="glass-card flex flex-col items-center">
-        <p class="text-[10px] font-black text-zinc-500 uppercase">Scheduled</p>
-        <p class="text-3xl font-black text-white">{{ ts.total_scheduled }}</p>
+        <p class="text-[10px] font-black text-zinc-500 uppercase">Arrived</p>
+        <p class="text-3xl font-black text-white">{{ ts.total_arrived }}</p>
         <p class="text-[10px] text-zinc-600">in period</p>
     </div>
     <div class="glass-card flex flex-col items-center">
@@ -76,9 +76,9 @@
         <p class="text-[10px] text-zinc-600">past due, no mark</p>
     </div>
     <div class="glass-card flex flex-col items-center">
-        <p class="text-[10px] font-black text-zinc-500 uppercase">Before Scheduled</p>
-        <p class="text-3xl font-black {{ 'text-rose-400' if ts.flag_before_scheduled > 0 else 'text-zinc-600' }}">{{ ts.flag_before_scheduled }}</p>
-        <p class="text-[10px] text-zinc-600">done before scheduled</p>
+        <p class="text-[10px] font-black text-zinc-500 uppercase">Negative TAT</p>
+        <p class="text-3xl font-black {{ 'text-rose-400' if ts.flag_negative_tat > 0 else 'text-zinc-600' }}">{{ ts.flag_negative_tat }}</p>
+        <p class="text-[10px] text-zinc-600">done before arrival recorded</p>
     </div>
     <div class="glass-card flex flex-col items-center">
         <p class="text-[10px] font-black text-zinc-500 uppercase">Too Early</p>
@@ -126,8 +126,8 @@
                     <th class="pb-3 pr-1 sticky top-0 bg-[#111413] z-10 w-4" title="Click a row to expand breakdown by imaging type"></th>
                     <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Technician</th>
                     <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right">Exams Done</th>
-                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right text-blue-400" title="Average time from scheduled to marked done (minutes). TAT &gt; 24h excluded.">Done TAT</th>
-                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right text-purple-400" title="Average time from scheduled to scanner confirmation (minutes)">Scanner TAT</th>
+                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right text-blue-400" title="Average time from arrived to marked done (minutes). TAT &gt; 24h excluded.">Done TAT</th>
+                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right text-purple-400" title="Average time from arrived to scanner confirmation (minutes)">Scanner TAT</th>
                     <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right" title="How this technician compares to the team average. Red = slower, green = faster.">vs Team</th>
                     <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right" title="Percentage of this technician's exams that were flagged as abnormal (too early, too late, overlap)">Issues %</th>
                     <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right" title="Exams with TAT exceeding 24 hours, excluded from averages">Outliers</th>
@@ -261,7 +261,7 @@
                     <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Accession</th>
                     <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Type</th>
                     <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Technician</th>
-                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Scheduled</th>
+                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Arrived</th>
                     <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Done At</th>
                     <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10 text-right text-blue-400">Done TAT</th>
                     <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Scanner Done</th>
@@ -274,7 +274,7 @@
                 {% for s in tech_data.flagged %}
                 {% set fid = 'flag-er-' ~ loop.index %}
                 <tr class="border-t border-white/5 {{ 'cursor-pointer hover:bg-white/[0.02]' if s.er_concurrent else '' }}"
-                    data-date="{{ s.scheduled_at[:10] }}"
+                    data-date="{{ s.arrived_at[:10] }}"
                     {% if s.er_concurrent %}onclick="toggleFlagER('{{ fid }}')"{% endif %}>
                     <td class="py-2 pr-1 text-[10px] text-red-400" id="{{ fid }}-icon">
                         {% if s.er_concurrent %}▶{% endif %}
@@ -282,7 +282,7 @@
                     <td class="py-2 pr-4 text-xs font-mono text-zinc-400">{{ s.accession }}</td>
                     <td class="py-2 pr-4 text-xs text-zinc-400">{{ s.modality }}</td>
                     <td class="py-2 pr-4 text-xs font-bold text-blue-400">{{ s.technician or '—' }}</td>
-                    <td class="py-2 pr-4 text-xs text-zinc-500">{{ s.scheduled_at }}</td>
+                    <td class="py-2 pr-4 text-xs text-zinc-500">{{ s.arrived_at }}</td>
                     <td class="py-2 pr-4 text-xs text-zinc-500">{{ s.done_at }}</td>
                     <td class="py-2 pr-4 text-right text-xs font-mono font-bold {{ 'text-rose-400' if s.tat_min < 0 else 'text-blue-300' }}">{{ '%.1f'|format(s.tat_min) }} min</td>
                     <td class="py-2 pr-4 text-xs text-zinc-500 font-mono">{{ s.pacs_done_at or '—' }}</td>
@@ -292,7 +292,7 @@
                     <td class="py-2 pr-4 text-right text-xs font-mono text-zinc-500">{{ s.proc_duration }} min</td>
                     <td class="py-2">
                         <div class="flex flex-wrap gap-1">
-                            {% if 'before_scheduled' in s.flags %}<span class="px-1.5 py-0.5 rounded bg-rose-500/20 border border-rose-500/40 text-rose-400 text-[9px] font-bold">BEFORE TIME</span>{% endif %}
+                            {% if 'negative_tat' in s.flags %}<span class="px-1.5 py-0.5 rounded bg-rose-500/20 border border-rose-500/40 text-rose-400 text-[9px] font-bold">NEG TAT</span>{% endif %}
                             {% if 'too_early' in s.flags %}<span class="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-400 text-[9px] font-bold">TOO EARLY</span>{% endif %}
                             {% if 'overlap' in s.flags %}<span class="px-1.5 py-0.5 rounded bg-orange-500/20 border border-orange-500/40 text-orange-400 text-[9px] font-bold">OVERLAP</span>{% endif %}
                             {% if 'too_late' in s.flags %}<span class="px-1.5 py-0.5 rounded bg-purple-500/20 border border-purple-500/40 text-purple-400 text-[9px] font-bold">TOO LATE</span>{% endif %}
@@ -309,12 +309,12 @@
                             <div class="flex items-center gap-1 flex-wrap">
                                 <span class="px-1.5 py-0.5 rounded bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-[9px] font-bold"
                                     title="Note: {{ ack.note or 'None' }}">✓ ACK'd · {{ ack.by }}</span>
-                                <button data-idx="{{ loop.index }}" data-accession="{{ s.accession }}" data-date="{{ s.scheduled_at[:10] }}"
+                                <button data-idx="{{ loop.index }}" data-accession="{{ s.accession }}" data-date="{{ s.arrived_at[:10] }}"
                                     onclick="unAckFlag(this)"
                                     class="text-[9px] text-zinc-600 hover:text-rose-400 underline bg-transparent border-0 cursor-pointer p-0">un-ack</button>
                             </div>
                             {% else %}
-                            <button data-idx="{{ loop.index }}" data-accession="{{ s.accession }}" data-date="{{ s.scheduled_at[:10] }}"
+                            <button data-idx="{{ loop.index }}" data-accession="{{ s.accession }}" data-date="{{ s.arrived_at[:10] }}"
                                 data-flags='{{ s.flags|tojson }}'
                                 onclick="showAckModal(this)"
                                 class="px-2 py-0.5 text-[9px] font-bold rounded border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 bg-transparent cursor-pointer">
@@ -384,10 +384,10 @@
                     <td class="py-2 pr-4 text-xs font-mono text-zinc-400">{{ s.accession }}</td>
                     <td class="py-2 pr-4 text-xs text-zinc-400">{{ s.modality }}</td>
                     <td class="py-2 pr-4 text-xs font-bold text-blue-400">{{ s.technician or '—' }}</td>
-                    <td class="py-2 pr-4 text-xs text-zinc-500">{{ s.scheduled_at[:10] }}</td>
+                    <td class="py-2 pr-4 text-xs text-zinc-500">{{ s.arrived_at[:10] }}</td>
                     <td class="py-2 pr-4">
                         <div class="flex flex-wrap gap-1">
-                            {% if 'before_scheduled' in s.flags %}<span class="px-1.5 py-0.5 rounded bg-rose-500/20 border border-rose-500/40 text-rose-400 text-[9px] font-bold">BEFORE TIME</span>{% endif %}
+                            {% if 'negative_tat' in s.flags %}<span class="px-1.5 py-0.5 rounded bg-rose-500/20 border border-rose-500/40 text-rose-400 text-[9px] font-bold">NEG TAT</span>{% endif %}
                             {% if 'too_early' in s.flags %}<span class="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-400 text-[9px] font-bold">TOO EARLY</span>{% endif %}
                             {% if 'overlap' in s.flags %}<span class="px-1.5 py-0.5 rounded bg-orange-500/20 border border-orange-500/40 text-orange-400 text-[9px] font-bold">OVERLAP</span>{% endif %}
                             {% if 'too_late' in s.flags %}<span class="px-1.5 py-0.5 rounded bg-purple-500/20 border border-purple-500/40 text-purple-400 text-[9px] font-bold">TOO LATE</span>{% endif %}
@@ -398,7 +398,7 @@
                     <td class="py-2 pr-4 text-xs text-zinc-500 font-mono ack-at">{{ ack.at if ack else '' }}</td>
                     {% if current_user.role in ('admin', 'viewer', 'viewer2') %}
                     <td class="py-2">
-                        <button data-idx="{{ loop.index }}" data-accession="{{ s.accession }}" data-date="{{ s.scheduled_at[:10] }}"
+                        <button data-idx="{{ loop.index }}" data-accession="{{ s.accession }}" data-date="{{ s.arrived_at[:10] }}"
                             onclick="unAckFlag(this)"
                             class="text-[9px] font-bold px-2 py-1 rounded border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 bg-transparent cursor-pointer">
                             Un-ack
@@ -433,7 +433,7 @@
                     <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Accession</th>
                     <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Type</th>
                     <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Procedure</th>
-                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Scheduled</th>
+                    <th class="pb-3 pr-4 sticky top-0 bg-[#111413] z-10">Arrived</th>
                     <th class="pb-3 sticky top-0 bg-[#111413] z-10 text-right">Overdue By</th>
                 </tr>
             </thead>
@@ -443,7 +443,7 @@
                     <td class="py-2 pr-4 text-xs font-mono text-zinc-400">{{ s.accession }}</td>
                     <td class="py-2 pr-4 text-xs text-zinc-400">{{ s.modality }}</td>
                     <td class="py-2 pr-4 text-xs text-zinc-500">{{ s.procedure }}</td>
-                    <td class="py-2 pr-4 text-xs text-zinc-500">{{ s.scheduled_at }}</td>
+                    <td class="py-2 pr-4 text-xs text-zinc-500">{{ s.arrived_at }}</td>
                     <td class="py-2 text-right text-xs font-mono font-bold text-rose-400">{{ '%.0f'|format(s.overdue_min) }} min overdue</td>
                 </tr>
                 {% endfor %}
@@ -455,7 +455,7 @@
                     <td class="py-2 pr-4 text-xs font-mono text-zinc-400">{{ s.accession }}</td>
                     <td class="py-2 pr-4 text-xs text-zinc-400">{{ s.modality }}</td>
                     <td class="py-2 pr-4 text-xs text-zinc-500">{{ s.procedure }}</td>
-                    <td class="py-2 pr-4 text-xs text-zinc-500">{{ s.scheduled_at }}</td>
+                    <td class="py-2 pr-4 text-xs text-zinc-500">{{ s.arrived_at }}</td>
                     <td class="py-2 text-right text-xs font-mono font-bold text-rose-400">{{ '%.0f'|format(s.overdue_min) }} min overdue</td>
                 </tr>
                 {% endfor %}
@@ -479,6 +479,6 @@
 <div class="glass-card text-center py-12 text-zinc-500">
     <i class="bi bi-inbox text-4xl mb-3 block opacity-40"></i>
     <p class="font-black text-sm">No technician data for this period</p>
-    <p class="text-[11px] mt-2 text-zinc-600">No HL7 orders with <span style="font-family:monospace;color:#60a5fa;background:rgba(96,165,250,0.1);padding:0 4px;border-radius:3px;">scheduled_datetime</span> found in the selected date range.</p>
+    <p class="text-[11px] mt-2 text-zinc-600">No RIS arrival records (<span style="font-family:monospace;color:#60a5fa;background:rgba(96,165,250,0.1);padding:0 4px;border-radius:3px;">std_worklist_arrivals</span>) found for the selected date range/modality.</p>
 </div>
 {% endif %}

@@ -10,8 +10,11 @@ Radiologist Workload Matrix, Reporting Cadence Analysis, Technician TAT by AE
 Station, and a statistical-insights panel. KPI Detailed Reading, Technician TAT by AE
 Station, and the insights panel were removed 2026-07-31 (operator instruction) --
 KPI needs rework before it's worth showing again; the other two weren't earning their
-keep. What's left: Resident vs Radiologist TAT, Patient Wait Time, Technician
-Efficiency, Radiologist Workload Matrix, Reporting Cadence Analysis.
+keep. Technician Efficiency was removed again later (operator instruction) and moved
+to Report 35 (routes/report_35.py), extended there to group by technologist person
+instead of AE device -- see that module's get_technician_tat_data() docstring. What's
+left here: Resident vs Radiologist TAT, Patient Wait Time, Radiologist Workload
+Matrix, Reporting Cadence Analysis.
 
 No single base SQL applies to every remaining chart here (checked each one's data
 source before moving anything) -- most run their own bespoke RIS/PPS-anchored queries
@@ -317,150 +320,12 @@ def get_modality_tat(form_data):
     return {"ris": ris, "pacs": pacs}
 
 
-_TECH_EFFICIENCY_SQL_TEMPLATE = """
-    WITH exam_done_anchor AS (
-        SELECT p.study_instance_uid, MAX(w.exam_done_at) AS exam_done_time
-        FROM std_worklist_exam_done w
-        JOIN std_pps p ON p.pps_key = w.pps_key
-        WHERE p.study_instance_uid IS NOT NULL
-        GROUP BY p.study_instance_uid
-    ),
-    arrival AS (
-        SELECT p.study_instance_uid, MIN(wa.arrived_at) AS arrived_at
-        FROM std_worklist_arrivals wa
-        JOIN std_pps p ON p.pps_key = wa.pps_key
-        WHERE p.study_instance_uid IS NOT NULL
-        GROUP BY p.study_instance_uid
-    ),
-    eff AS (
-        SELECT
-            s.study_db_uid,
-            UPPER(TRIM(s.storing_ae)) AS aetitle,
-            COALESCE(m.modality, s.study_modality, 'Unknown') AS modality,
-            CASE
-                WHEN s.patient_location = 'ER' THEN 'ER'
-                WHEN s.patient_class = 'I' THEN 'Inpatient'
-                WHEN s.patient_class = 'O' THEN 'Outpatient'
-                ELSE 'Other'
-            END AS patient_class_bucket,
-            COALESCE(pm.duration_minutes, 15) AS expected_min,
-            CASE WHEN ed.exam_done_time IS NOT NULL AND ed.exam_done_time > ar.arrived_at
-                 THEN EXTRACT(EPOCH FROM (ed.exam_done_time - ar.arrived_at)) / 60.0 END AS actual_min_ris,
-            CASE WHEN s.insert_time IS NOT NULL AND s.insert_time > ar.arrived_at
-                 THEN EXTRACT(EPOCH FROM (s.insert_time - ar.arrived_at)) / 60.0 END AS actual_min_pacs
-        FROM etl_didb_studies s
-        JOIN arrival ar ON ar.study_instance_uid = s.study_instance_uid
-        LEFT JOIN exam_done_anchor ed ON ed.study_instance_uid = s.study_instance_uid
-        LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
-        LEFT JOIN procedure_duration_map pm ON UPPER(TRIM(s.procedure_code)) = UPPER(TRIM(pm.procedure_code))
-        WHERE s.study_date BETWEEN :start AND :end
-          AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'PACS')
-          AND ((ed.exam_done_time IS NOT NULL AND ed.exam_done_time > ar.arrived_at)
-               OR (s.insert_time IS NOT NULL AND s.insert_time > ar.arrived_at))
-          {filter_clause}
-    )
-    SELECT
-        aetitle, modality, patient_class_bucket,
-        COUNT(*) FILTER (WHERE actual_min_ris IS NOT NULL) AS n_ris,
-        ROUND((AVG(actual_min_ris) FILTER (WHERE actual_min_ris IS NOT NULL))::numeric, 1) AS avg_actual_min_ris,
-        ROUND((PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY actual_min_ris) FILTER (WHERE actual_min_ris IS NOT NULL))::numeric, 1) AS median_actual_min_ris,
-        ROUND((AVG(expected_min) FILTER (WHERE actual_min_ris IS NOT NULL))::numeric, 1) AS avg_expected_min_ris,
-        COUNT(*) FILTER (WHERE actual_min_ris <= 30)                            AS bucket_0_30_ris,
-        COUNT(*) FILTER (WHERE actual_min_ris > 30 AND actual_min_ris <= 60)    AS bucket_30_60_ris,
-        COUNT(*) FILTER (WHERE actual_min_ris > 60)                            AS bucket_60_plus_ris,
-        COUNT(*) FILTER (WHERE actual_min_pacs IS NOT NULL) AS n_pacs,
-        ROUND((AVG(actual_min_pacs) FILTER (WHERE actual_min_pacs IS NOT NULL))::numeric, 1) AS avg_actual_min_pacs,
-        ROUND((PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY actual_min_pacs) FILTER (WHERE actual_min_pacs IS NOT NULL))::numeric, 1) AS median_actual_min_pacs,
-        ROUND((AVG(expected_min) FILTER (WHERE actual_min_pacs IS NOT NULL))::numeric, 1) AS avg_expected_min_pacs,
-        COUNT(*) FILTER (WHERE actual_min_pacs <= 30)                           AS bucket_0_30_pacs,
-        COUNT(*) FILTER (WHERE actual_min_pacs > 30 AND actual_min_pacs <= 60)  AS bucket_30_60_pacs,
-        COUNT(*) FILTER (WHERE actual_min_pacs > 60)                           AS bucket_60_plus_pacs
-    FROM eff
-    GROUP BY aetitle, modality, patient_class_bucket
-    ORDER BY aetitle, modality, patient_class_bucket
-"""
-
-
-def get_technician_efficiency(form_data):
-    """
-    Technician Efficiency (arrived -> exam done) per AE title per modality per
-    patient class (Inpatient/Outpatient/ER), actual duration vs. the
-    procedure_duration_map expected duration side by side (operator instruction
-    2026-07-31: renamed from "Patient Wait Time" -- that name now means Scheduled ->
-    Arrived instead, see get_patient_wait_time).
-
-    "Arrived" comes from std_worklist_arrivals (RIS WORKLIST_STATUS_HISTORY,
-    status_key=60), NOT hl7_orders.arrived_at -- that column was built for this exact
-    purpose but is empty, since it depends on the live HL7 ORM feed from R2I, which
-    isn't flowing yet.
-
-    IMPORTANT CAVEAT (operator, 2026-07-31): for Inpatient orders this is normal
-    workflow, not a data bug -- staff set "Arrived" well before the actual exam
-    specifically to trigger the DICOM Modality Worklist (so the device/portable unit
-    can pull the order), then mark the study done once they return with images. So
-    Inpatient numbers here reflect order-to-DMWL-trigger-to-completion lag, not
-    literal exam duration the way it does for Outpatient/ER. Surfaced with a caveat
-    in the UI rather than excluded, per operator instruction.
-
-    Both anchor variants for "exam done" -- "ris" (WORKLIST_STATUS_HISTORY
-    status_key=100) and "pacs" (insert_time, "PACS end time calculation") -- are now
-    computed by ONE query (2026-07-31, load-time optimization), same FILTER-clause
-    split as get_resident_radiologist_tat/get_modality_tat: actual_min_ris and
-    actual_min_pacs are parallel per-row columns (each NULL unless that anchor's
-    exam-done time exists and is strictly after arrival), aggregated independently
-    so a row's inclusion in one anchor's numbers doesn't depend on the other. Full
-    left-sidebar filter set applies.
-
-    Returns {"ris": [...], "pacs": [...]}, each a flat list of per-(aetitle,
-    modality, patient_class_bucket) rows.
-    """
-    params, filter_clause, _start, _end = _sidebar_filters(form_data)
-    sql = _TECH_EFFICIENCY_SQL_TEMPLATE.format(filter_clause=filter_clause)
-    rows = []
-    try:
-        rows = db.session.execute(text(sql), params).mappings().fetchall()
-    except Exception:
-        logger.exception("Failed to compute technician efficiency")
-        db.session.rollback()
-    ris, pacs = [], []
-    for r in rows:
-        row = dict(r)
-        base = {
-            "aetitle": row["aetitle"],
-            "modality": row["modality"],
-            "patient_class_bucket": row["patient_class_bucket"],
-        }
-        if row["n_ris"]:
-            ris.append({
-                **base,
-                "n": row["n_ris"],
-                "avg_actual_min": row["avg_actual_min_ris"],
-                "median_actual_min": row["median_actual_min_ris"],
-                "avg_expected_min": row["avg_expected_min_ris"],
-                "bucket_0_30": row["bucket_0_30_ris"],
-                "bucket_30_60": row["bucket_30_60_ris"],
-                "bucket_60_plus": row["bucket_60_plus_ris"],
-            })
-        if row["n_pacs"]:
-            pacs.append({
-                **base,
-                "n": row["n_pacs"],
-                "avg_actual_min": row["avg_actual_min_pacs"],
-                "median_actual_min": row["median_actual_min_pacs"],
-                "avg_expected_min": row["avg_expected_min_pacs"],
-                "bucket_0_30": row["bucket_0_30_pacs"],
-                "bucket_30_60": row["bucket_30_60_pacs"],
-                "bucket_60_plus": row["bucket_60_plus_pacs"],
-            })
-    return {"ris": ris, "pacs": pacs}
-
-
 def get_patient_wait_time(form_data):
     """
     Patient Wait Time (Scheduled -> Arrived) per modality per patient class
     (Inpatient/Outpatient/ER) -- redefined 2026-07-31 (operator instruction); the OLD
-    Patient Wait Time (Arrived -> Exam Done) is now Technician Efficiency, see
-    get_technician_efficiency.
+    Patient Wait Time (Arrived -> Exam Done) is now Technician TAT, moved to Report 35
+    (routes/report_35.py's get_technician_tat_data()).
 
     Both ends are RIS status transitions off WORKLIST_STATUS_HISTORY:
     "Scheduled" (status_key=40 -> std_worklist_scheduled, ETL_JOBS/etl_ris_worklist_scheduled.py)
@@ -638,7 +503,7 @@ def _compute_report_36_data(form_data):
     get_gold_standard_data() itself is already cached under its own key (25), so
     calling it here doesn't double the cost on a cache miss for report_25 --
     only report_36's own bespoke queries (res_rad_tat, modality_tat, wait_time,
-    tech_efficiency, shift_patterns) are new work being cached by this wrapper.
+    shift_patterns) are new work being cached by this wrapper.
     """
     from routes.report_cache import cache_get, cache_put
     cached = cache_get(36, form_data)
@@ -653,7 +518,6 @@ def _compute_report_36_data(form_data):
         'res_rad_tat':          get_resident_radiologist_tat(form_data),
         'modality_tat':         get_modality_tat(form_data),
         'wait_time_data':       get_patient_wait_time(form_data),
-        'tech_efficiency_data': get_technician_efficiency(form_data),
         'shift_patterns':       get_reporting_cadence(form_data),
         'display_start':        display_start,
         'display_end':          display_end,
@@ -672,7 +536,7 @@ def report_36():
     display_start = go_live.strftime("%Y-%m-%d") if go_live else "2024-01-01"
     display_end   = date.today().strftime("%Y-%m-%d")
 
-    res_rad_tat = modality_tat = wait_time_data = tech_efficiency_data = None
+    res_rad_tat = modality_tat = wait_time_data = None
     rad_volume_matrix = shift_patterns = tech_tat_cards = None
 
     if run_report:
@@ -686,7 +550,6 @@ def report_36():
         res_rad_tat           = data['res_rad_tat']
         modality_tat          = data['modality_tat']
         wait_time_data        = data['wait_time_data']
-        tech_efficiency_data  = data['tech_efficiency_data']
         shift_patterns        = data['shift_patterns']
         display_start         = data['display_start']
         display_end           = data['display_end']
@@ -696,7 +559,6 @@ def report_36():
         res_rad_tat=res_rad_tat,
         modality_tat=modality_tat,
         wait_time_data=wait_time_data,
-        tech_efficiency_data=tech_efficiency_data,
         rad_volume_matrix=rad_volume_matrix,
         tech_tat_cards=tech_tat_cards,
         shift_patterns=shift_patterns,

@@ -10,9 +10,11 @@ independent of the shared report_template id=25 query used by report_25's
 other tabs:
 
   - Technician monitoring: per-technician / per-modality TAT compliance,
-    flagged exams (before-scheduled / too-early / overlap / too-late),
+    flagged exams (negative-TAT / too-early / overlap / too-late),
     never-marked-done overdue exams, daily TAT trend. Runs its own SQL
-    directly against hl7_orders (+ procedure_duration_map).
+    directly against the RIS PPS status-change tables (std_worklist_arrivals
+    / _scheduled / _exam_done + std_pps + std_resources_ris + procedure_duration_map)
+    -- NOT hl7_orders, see get_technician_tat_data()'s docstring for why.
 
 NOTE: this report previously also carried a "Reporting Cadence Analysis"
 (per-radiologist signing-time heatmap, derived from
@@ -73,8 +75,30 @@ def get_technician_tat_data(form_data):
     Main data-fetch for Report 35. Returns a dict:
         { 'tech_data': {...}, 'tech_insights': [...] }
 
-    Ported from report_25.compute_bg_data() — see module docstring for the
-    line-range provenance of each section.
+    Anchored on RIS PPS status-change tables (std_worklist_arrivals / _scheduled /
+    _exam_done + std_pps), NOT hl7_orders -- that feed depends on the R2I HL7 ORM
+    order feed, which was never turned on (see report_25.py's module docstring: the
+    identical hl7_orders-based tab was removed from report_25 for this exact reason).
+    TAT = RIS Exam-Done timestamp minus Arrived timestamp, same tables/definition as
+    report_36.get_technician_efficiency (removed from report_36 in favor of this
+    per-technologist version) -- extended here to resolve a real technologist name
+    instead of report_36's per-AE-device grouping.
+
+    Technologist identity does NOT come from std_pps.primary_tech_person_key -- that
+    column was confirmed 100% NULL in production and abandoned. Instead it resolves via
+    std_pps_person_reference, a per-PPS list of person references cross-referenced
+    against std_resources_ris.role_code = 'TEC' (NOT by trusting
+    person_reference_type_key directly, since that column mixes technologists with
+    receptionists/nurses/radiologists under its most common value). A PPS can carry more
+    than one qualifying TEC reference, so `tech_ref` picks one deterministically via
+    DISTINCT ON ordered by display_sort_order ASC NULLS LAST (lowest = primary).
+
+    CAVEAT carried over from report_36's removed docstring (operator, 2026-07-31): for
+    Inpatient orders, "Arrived" is normal workflow set well before the actual exam,
+    specifically to trigger the DICOM Modality Worklist (so the device/portable unit can
+    pull the order) -- staff mark the study done once they return with images. So
+    Inpatient TAT numbers here reflect order-to-DMWL-trigger-to-completion lag, not
+    literal exam duration the way they do for Outpatient/ER. Not a data bug to chase.
     """
     cached = cache_get(_REPORT_ID, form_data)
     if cached is not None:
@@ -90,8 +114,6 @@ def get_technician_tat_data(form_data):
 
     # LAUMC site rule (see report_25.py's get_gold_standard_data for full rationale):
     # reports show RH (main site) only, SJH (satellite) excluded, for now.
-    # etl_didb_studies.site_id is never populated; site is resolved via the
-    # device instead: storing_ae -> aetitle_modality_map.site_id (RIS-authoritative).
     # default_site() resolves to None (filter skipped) on a non-LAUMC/single-site
     # install rather than zeroing every report.
     rh_site_id = default_site()
@@ -107,48 +129,95 @@ def get_technician_tat_data(form_data):
     try:
         _now = datetime.utcnow()
 
-        # hl7_orders carries no storing_ae/site marker of its own — resolve site via
-        # the matching PACS study by accession_number, same LAUMC site rule as above.
-        _tech_site_join = ""
+        # Base query starts from std_worklist_arrivals, not etl_didb_studies: an order
+        # that arrived but was never scanned has no std_pps row at all (etl_ris_pps.py
+        # only pulls once Oracle PPS.START_DATETIME exists) and therefore no PACS study
+        # either, so everything past `arrival` is a LEFT JOIN. This keeps completed AND
+        # never-done exams in one fetch, same shape as before (single fetch, split into
+        # completed/pending in pandas below).
+        #
+        # Modality/site filters are applied in an outer WHERE against the already-
+        # COALESCEd `base` columns rather than reusing utils.report_filters.sidebar_filters()
+        # verbatim -- that helper assumes m/s always resolve (every other report starts
+        # FROM etl_didb_studies), but here m/s can be legitimately NULL for never-started
+        # exams, and its "AND m.site_id = :rh_site_id" clause would silently drop those.
+        _filters = []
+        if "modalities" in params:
+            _filters.append("UPPER(TRIM(base.modality)) IN :modalities")
         if rh_site_id is not None:
-            _tech_site_join = (
-                "JOIN etl_didb_studies s2 ON s2.accession_number = o.accession_number "
-                "JOIN aetitle_modality_map m2 ON UPPER(TRIM(s2.storing_ae)) = UPPER(TRIM(m2.aetitle)) "
-                "AND m2.site_id = :rh_site_id"
-            )
+            _filters.append("(base.site_id IS NULL OR base.site_id = :rh_site_id)")
+        _filter_clause = ("WHERE " + " AND ".join(_filters)) if _filters else ""
+
         tech_rows = db.session.execute(text(f"""
-            SELECT
-                o.accession_number, o.modality, o.procedure_code, o.done_by,
-                o.scheduled_datetime, o.done_at, o.pacs_done_at,
-                o.patient_class, o.patient_location,
-                COALESCE(p.duration_minutes, 30) AS proc_duration
-            FROM hl7_orders o
-            LEFT JOIN procedure_duration_map p
-                   ON UPPER(TRIM(o.procedure_code)) = UPPER(TRIM(p.procedure_code))
-            {_tech_site_join}
-            WHERE o.scheduled_datetime IS NOT NULL
-              AND o.scheduled_datetime::date BETWEEN :start AND :end
-              AND UPPER(TRIM(COALESCE(o.modality, ''))) != 'SCN'
-              {"AND UPPER(TRIM(o.modality)) IN :modalities" if "modalities" in params else ""}
-            ORDER BY o.modality, o.scheduled_datetime
+            WITH arrival AS (
+                SELECT pps_key, MIN(arrived_at) AS arrived_at
+                FROM std_worklist_arrivals
+                WHERE arrived_at::date BETWEEN :start AND :end
+                GROUP BY pps_key
+            ),
+            scheduled AS (
+                SELECT pps_key, MIN(scheduled_at) AS scheduled_at
+                FROM std_worklist_scheduled
+                GROUP BY pps_key
+            ),
+            exam_done AS (
+                SELECT pps_key, MAX(exam_done_at) AS exam_done_at
+                FROM std_worklist_exam_done
+                GROUP BY pps_key
+            ),
+            tech_ref AS (
+                SELECT DISTINCT ON (ppr.pps_key)
+                    ppr.pps_key,
+                    COALESCE(NULLIF(TRIM(CONCAT(res.first_name, ' ', res.last_name)), ''), res.common_name) AS tech_name
+                FROM std_pps_person_reference ppr
+                JOIN std_resources_ris res ON res.resource_id_key = ppr.resource_id_key
+                WHERE res.role_code = 'TEC'
+                ORDER BY ppr.pps_key, ppr.display_sort_order ASC NULLS LAST
+            ),
+            base AS (
+                SELECT
+                    ar.pps_key,
+                    COALESCE(s.accession_number, 'WL#' || ar.pps_key::text) AS accession_number,
+                    COALESCE(m.modality, s.study_modality, 'Unknown')       AS modality,
+                    m.site_id,
+                    pps.procedure_code,
+                    s.patient_class, s.patient_location,
+                    tr.tech_name AS done_by,
+                    sc.scheduled_at, ar.arrived_at, ed.exam_done_at,
+                    pps.end_datetime AS scanner_done_at,
+                    COALESCE(pdm.duration_minutes, 30) AS proc_duration
+                FROM arrival ar
+                LEFT JOIN std_pps pps            ON pps.pps_key = ar.pps_key
+                LEFT JOIN etl_didb_studies s      ON s.study_instance_uid = pps.study_instance_uid
+                LEFT JOIN aetitle_modality_map m  ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(COALESCE(s.storing_ae, pps.performing_ae_title)))
+                LEFT JOIN tech_ref tr             ON tr.pps_key = ar.pps_key
+                LEFT JOIN scheduled sc            ON sc.pps_key = ar.pps_key
+                LEFT JOIN exam_done ed            ON ed.pps_key = ar.pps_key
+                LEFT JOIN procedure_duration_map pdm ON UPPER(TRIM(pps.procedure_code)) = UPPER(TRIM(pdm.procedure_code))
+                WHERE COALESCE(m.modality, s.study_modality, '') != 'SR'
+            )
+            SELECT accession_number, modality, procedure_code, done_by,
+                   patient_class, patient_location,
+                   scheduled_at, arrived_at, exam_done_at, scanner_done_at, proc_duration
+            FROM base
+            {_filter_clause}
+            ORDER BY modality, arrived_at
         """), params).mappings().fetchall()
 
         if tech_rows:
             tdf = pd.DataFrame(tech_rows)
-            tdf['proc_duration']      = pd.to_numeric(tdf['proc_duration'], errors='coerce').fillna(30)
-            tdf['scheduled_datetime'] = pd.to_datetime(tdf['scheduled_datetime'])
-            tdf['done_at']            = pd.to_datetime(tdf['done_at'],      errors='coerce')
-            tdf['pacs_done_at']       = pd.to_datetime(tdf['pacs_done_at'], errors='coerce')
-            # Prefer manual done_at; fall back to PACS scanner pacs_done_at
-            tdf['effective_done_at']  = tdf['done_at'].fillna(tdf['pacs_done_at'])
-            tdf['tat_min']            = (tdf['effective_done_at'] - tdf['scheduled_datetime']).dt.total_seconds() / 60.0
-            tdf['pacs_tat_min']       = (tdf['pacs_done_at']      - tdf['scheduled_datetime']).dt.total_seconds() / 60.0
+            tdf['proc_duration']   = pd.to_numeric(tdf['proc_duration'], errors='coerce').fillna(30)
+            tdf['arrived_at']      = pd.to_datetime(tdf['arrived_at'])
+            tdf['exam_done_at']    = pd.to_datetime(tdf['exam_done_at'],    errors='coerce')
+            tdf['scanner_done_at'] = pd.to_datetime(tdf['scanner_done_at'], errors='coerce')
+            tdf['tat_min']         = (tdf['exam_done_at']    - tdf['arrived_at']).dt.total_seconds() / 60.0
+            tdf['pacs_tat_min']    = (tdf['scanner_done_at'] - tdf['arrived_at']).dt.total_seconds() / 60.0
 
-            completed = tdf[tdf['effective_done_at'].notna()].copy()
-            pending   = tdf[tdf['effective_done_at'].isna()].copy()
-            _tech_completed_df = completed
+            completed = tdf[tdf['exam_done_at'].notna()].copy()
+            pending   = tdf[tdf['exam_done_at'].isna()].copy()
+            _tech_completed_df = completed.rename(columns={'exam_done_at': 'done_at'})
 
-            # Pre-index ER orders: modality → list of (scheduled_datetime, patient_class, accession)
+            # Pre-index ER orders: modality → list of (arrived_at, patient_class, accession)
             # An order is "ER" if accession_number starts with '2XE' (case-insensitive)
             if 'patient_class' not in tdf.columns:
                 tdf['patient_class'] = None
@@ -158,18 +227,18 @@ def get_technician_tat_data(form_data):
                 er_by_modality.setdefault(str(er['modality'] or '').upper(), []).append(er)
 
             def _find_concurrent_er(row):
-                """Return list of ER accessions whose scheduled_datetime falls inside row's exam window."""
-                if pd.isna(row.get('effective_done_at')):
+                """Return list of ER accessions whose arrived_at falls inside row's exam window."""
+                if pd.isna(row.get('exam_done_at')):
                     return []
                 mod   = str(row.get('modality') or '').upper()
-                t0    = row['scheduled_datetime']
-                t1    = row['effective_done_at']
+                t0    = row['arrived_at']
+                t1    = row['exam_done_at']
                 acc   = row.get('accession_number')
                 found = []
                 for er in er_by_modality.get(mod, []):
                     if er['accession_number'] == acc:
                         continue
-                    if t0 <= er['scheduled_datetime'] <= t1:
+                    if t0 <= er['arrived_at'] <= t1:
                         found.append({
                             'accession':     str(er['accession_number'] or ''),
                             'patient_class': str(er['patient_class'] or ''),
@@ -178,10 +247,10 @@ def get_technician_tat_data(form_data):
 
             overlap_accessions = set()
             for mod, grp in completed.groupby('modality'):
-                grp = grp.sort_values('scheduled_datetime').reset_index()
+                grp = grp.sort_values('arrived_at').reset_index()
                 for i in range(len(grp) - 1):
                     cur, nxt = grp.iloc[i], grp.iloc[i + 1]
-                    if pd.notna(cur['effective_done_at']) and cur['effective_done_at'] > nxt['scheduled_datetime']:
+                    if pd.notna(cur['exam_done_at']) and cur['exam_done_at'] > nxt['arrived_at']:
                         overlap_accessions.add(cur['accession_number'])
 
             flagged_rows = []
@@ -189,7 +258,7 @@ def get_technician_tat_data(form_data):
                 flags = []
                 tat, dur = r['tat_min'], float(r['proc_duration'])
                 if pd.isna(tat): continue
-                if tat < 0: flags.append('before_scheduled')
+                if tat < 0: flags.append('negative_tat')
                 elif tat < dur * 0.5: flags.append('too_early')
                 if r['accession_number'] in overlap_accessions: flags.append('overlap')
                 if tat > dur * 2: flags.append('too_late')
@@ -201,10 +270,10 @@ def get_technician_tat_data(form_data):
                     'procedure':      str(r.get('procedure_code') or ''),
                     'technician':     str(r['done_by']) if pd.notna(r.get('done_by')) else '',
                     'patient_class':  str(r.get('patient_class') or ''),
-                    'scheduled_at':   r['scheduled_datetime'].strftime('%Y-%m-%d %H:%M'),
-                    'done_at':        r['effective_done_at'].strftime('%Y-%m-%d %H:%M') if pd.notna(r.get('effective_done_at')) else None,
+                    'arrived_at':     r['arrived_at'].strftime('%Y-%m-%d %H:%M'),
+                    'done_at':        r['exam_done_at'].strftime('%Y-%m-%d %H:%M') if pd.notna(r.get('exam_done_at')) else None,
                     'tat_min':        round(float(tat), 1),
-                    'pacs_done_at':   r['pacs_done_at'].strftime('%Y-%m-%d %H:%M') if pd.notna(r.get('pacs_done_at')) else None,
+                    'pacs_done_at':   r['scanner_done_at'].strftime('%Y-%m-%d %H:%M') if pd.notna(r.get('scanner_done_at')) else None,
                     'pacs_tat_min':   round(float(pacs_tat), 1) if pd.notna(pacs_tat) else None,
                     'proc_duration':  int(dur),
                     'flags':          flags,
@@ -213,31 +282,31 @@ def get_technician_tat_data(form_data):
             tech_data['flagged'] = sorted([r for r in flagged_rows if r['flags']], key=lambda x: len(x['flags']), reverse=True)
 
             for _, r in pending.iterrows():
-                deadline = r['scheduled_datetime'] + pd.Timedelta(minutes=float(r['proc_duration']))
+                deadline = r['arrived_at'] + pd.Timedelta(minutes=float(r['proc_duration']))
                 if deadline < pd.Timestamp(_now):
                     tech_data['never_done'].append({
-                        'accession':    str(r.get('accession_number') or ''),
-                        'modality':     str(r.get('modality') or ''),
-                        'procedure':    str(r.get('procedure_code') or ''),
-                        'scheduled_at': r['scheduled_datetime'].strftime('%Y-%m-%d %H:%M'),
-                        'overdue_min':  round((pd.Timestamp(_now) - deadline).total_seconds() / 60, 1),
+                        'accession':   str(r.get('accession_number') or ''),
+                        'modality':    str(r.get('modality') or ''),
+                        'procedure':   str(r.get('procedure_code') or ''),
+                        'arrived_at':  r['arrived_at'].strftime('%Y-%m-%d %H:%M'),
+                        'overdue_min': round((pd.Timestamp(_now) - deadline).total_seconds() / 60, 1),
                     })
 
             flagged_accessions = {r['accession'] for r in tech_data['flagged']}
             tech_data['summary'] = {
-                'total_scheduled':       len(tdf),
-                'total_completed':       len(completed),
-                'never_done':            len(tech_data['never_done']),
-                'flag_before_scheduled': sum(1 for r in tech_data['flagged'] if 'before_scheduled' in r['flags']),
-                'flag_too_early':        sum(1 for r in tech_data['flagged'] if 'too_early'        in r['flags']),
-                'flag_overlap':          sum(1 for r in tech_data['flagged'] if 'overlap'          in r['flags']),
-                'flag_too_late':         sum(1 for r in tech_data['flagged'] if 'too_late'         in r['flags']),
+                'total_arrived':     len(tdf),
+                'total_completed':   len(completed),
+                'never_done':        len(tech_data['never_done']),
+                'flag_negative_tat': sum(1 for r in tech_data['flagged'] if 'negative_tat' in r['flags']),
+                'flag_too_early':    sum(1 for r in tech_data['flagged'] if 'too_early'     in r['flags']),
+                'flag_overlap':      sum(1 for r in tech_data['flagged'] if 'overlap'       in r['flags']),
+                'flag_too_late':     sum(1 for r in tech_data['flagged'] if 'too_late'      in r['flags']),
             }
 
             daily_trend = []
             if len(completed):
                 completed = completed.copy()
-                completed['_date'] = completed['scheduled_datetime'].dt.date
+                completed['_date'] = completed['arrived_at'].dt.date
                 for day, gdf in completed.groupby('_date'):
                     tats = gdf['tat_min'].dropna()
                     daily_trend.append({

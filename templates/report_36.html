@@ -508,124 +508,6 @@
             </div>
             {% endif %}
 
-            <!-- ── Technician Efficiency (Arrived → Exam Done) ─────────── -->
-            <p class="section-desc mt-8">
-                Technician efficiency (arrived to exam done) per AE title per modality per patient class —
-                actual duration next to the procedure_duration_map expected duration.
-            </p>
-            <p class="text-[9px] text-amber-500/80 italic mb-3">
-                ⚠ Inpatient orders set "Arrived" early to trigger the DICOM Modality Worklist (normal workflow,
-                not a data issue) — Inpatient numbers reflect order-to-completion lag, not literal exam
-                duration the way Outpatient/ER do.
-            </p>
-
-            {% if tech_efficiency_data and (tech_efficiency_data.ris or tech_efficiency_data.pacs) %}
-            <div class="flex items-center gap-2 mb-3">
-                <span class="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Exam Done Anchor:</span>
-                <div style="display:inline-flex;border:1px solid #3f3f46;border-radius:6px;overflow:hidden;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;">
-                    <button id="tech-eff-anchor-btn-ris" onclick="r25SetTechEffAnchor('ris')"
-                        style="padding:4px 12px;background:rgba(52,211,153,0.15);color:#34d399;border:none;cursor:pointer;">RIS Exam Done</button>
-                    <button id="tech-eff-anchor-btn-pacs" onclick="r25SetTechEffAnchor('pacs')"
-                        style="padding:4px 12px;background:transparent;color:#71717a;border:none;cursor:pointer;">PACS End Time Calculation</button>
-                </div>
-            </div>
-            <div class="glass-card" id="tech-eff-card">
-                <div class="chart-card-header">
-                    <span class="chart-card-title">Technician Efficiency</span>
-                    <button onclick="r25ExportTechEffCsv()" title="Export as CSV"
-                        style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #3f3f46;border-radius:6px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;"
-                        onmouseover="this.style.borderColor='#60a5fa';this.style.color='#60a5fa';"
-                        onmouseout="this.style.borderColor='#3f3f46';this.style.color='#71717a';">
-                        <i class="bi bi-download"></i> CSV
-                    </button>
-                    <button class="export-pdf-btn" onclick="exportElemPdf(document.getElementById('tech-eff-table-wrap'),'Technician Efficiency','technician_efficiency')">
-                        <i class="bi bi-file-earmark-pdf"></i> PDF
-                    </button>
-                </div>
-                <div id="tech-eff-table-wrap" class="overflow-x-auto">
-                    <table class="w-full text-[10px] border-collapse whitespace-nowrap">
-                        <thead>
-                            <tr class="text-zinc-500 uppercase text-[9px]">
-                                <th class="text-left py-1 pr-3 font-black">AE Title</th>
-                                <th class="text-left py-1 pr-3 font-black">Modality</th>
-                                <th class="text-left py-1 pr-3 font-black">Class</th>
-                                <th class="text-right py-1 px-2 font-black">N</th>
-                                <th class="text-right py-1 px-2 font-black">Avg Actual (min)</th>
-                                <th class="text-right py-1 px-2 font-black">Median Actual (min)</th>
-                                <th class="text-right py-1 px-2 font-black">Avg Expected (min)</th>
-                                <th class="text-right py-1 px-2 font-black">0-30m</th>
-                                <th class="text-right py-1 px-2 font-black">30-60m</th>
-                                <th class="text-right py-1 pl-2 font-black">60m+</th>
-                            </tr>
-                        </thead>
-                        <tbody id="tech-eff-tbody"></tbody>
-                    </table>
-                </div>
-            </div>
-
-            <script>
-            (function(){
-                const TECH_EFF_DATA = {{ (tech_efficiency_data or {}) | tojson }};
-                let techEffAnchor = 'ris';
-
-                function _downloadCsv(csv, filename) {
-                    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
-                    const url  = URL.createObjectURL(blob);
-                    const a    = document.createElement('a');
-                    a.href = url; a.download = filename;
-                    document.body.appendChild(a); a.click();
-                    document.body.removeChild(a); URL.revokeObjectURL(url);
-                }
-
-                function render() {
-                    const rows = TECH_EFF_DATA[techEffAnchor] || [];
-                    document.getElementById('tech-eff-tbody').innerHTML = rows.map(r => `
-                        <tr class="border-t border-white/5 ${r.patient_class_bucket === 'Inpatient' ? 'opacity-60' : ''}">
-                            <td class="py-1 pr-3 text-zinc-300">${r.aetitle ?? ''}</td>
-                            <td class="py-1 pr-3 text-zinc-300">${r.modality ?? ''}</td>
-                            <td class="py-1 pr-3 text-zinc-400">${r.patient_class_bucket ?? ''}${r.patient_class_bucket === 'Inpatient' ? ' ⚠' : ''}</td>
-                            <td class="py-1 px-2 text-right font-mono text-zinc-400">${r.n ?? ''}</td>
-                            <td class="py-1 px-2 text-right font-mono text-zinc-400">${r.avg_actual_min ?? ''}</td>
-                            <td class="py-1 px-2 text-right font-mono text-white font-bold">${r.median_actual_min ?? ''}</td>
-                            <td class="py-1 px-2 text-right font-mono text-zinc-500">${r.avg_expected_min ?? ''}</td>
-                            <td class="py-1 px-2 text-right font-mono text-zinc-500">${r.bucket_0_30 ?? ''}</td>
-                            <td class="py-1 px-2 text-right font-mono text-zinc-500">${r.bucket_30_60 ?? ''}</td>
-                            <td class="py-1 pl-2 text-right font-mono text-zinc-500">${r.bucket_60_plus ?? ''}</td>
-                        </tr>`).join('');
-                    const risBtn = document.getElementById('tech-eff-anchor-btn-ris');
-                    const pacsBtn = document.getElementById('tech-eff-anchor-btn-pacs');
-                    risBtn.style.background = techEffAnchor === 'ris' ? 'rgba(52,211,153,0.15)' : 'transparent';
-                    risBtn.style.color = techEffAnchor === 'ris' ? '#34d399' : '#71717a';
-                    pacsBtn.style.background = techEffAnchor === 'pacs' ? 'rgba(96,165,250,0.15)' : 'transparent';
-                    pacsBtn.style.color = techEffAnchor === 'pacs' ? '#60a5fa' : '#71717a';
-                }
-
-                window.r25SetTechEffAnchor = function(anchor) {
-                    techEffAnchor = anchor;
-                    render();
-                };
-
-                window.r25ExportTechEffCsv = function() {
-                    const rows = TECH_EFF_DATA[techEffAnchor] || [];
-                    if (!rows.length) return;
-                    const q = v => '"' + String(v==null?'':v).replace(/"/g,'""') + '"';
-                    const lines = [
-                        ['AE Title','Modality','Patient Class','N','Avg Actual (min)','Median Actual (min)','Avg Expected (min)','0-30m','30-60m','60m+'].map(q).join(','),
-                        ...rows.map(r => [r.aetitle, r.modality, r.patient_class_bucket, r.n, r.avg_actual_min, r.median_actual_min, r.avg_expected_min, r.bucket_0_30, r.bucket_30_60, r.bucket_60_plus].map(q).join(','))
-                    ];
-                    _downloadCsv(lines.join('\n'), `technician_efficiency_${techEffAnchor}_${new Date().toISOString().slice(0,10)}.csv`);
-                };
-
-                render();
-            })();
-            </script>
-            {% else %}
-            <div class="glass-card text-center py-12 text-zinc-600">
-                <i class="bi bi-clock-history text-4xl mb-3 block opacity-40"></i>
-                <p class="italic">No technician efficiency data for this range.</p>
-            </div>
-            {% endif %}
-
             <!-- ── Technician TAT by AE Station (avg vs. median TAT scatter) ── -->
             <p class="section-desc mt-8">
                 Technician TAT by AE station — one bubble per AE title/technician station. X = average TAT
@@ -634,9 +516,9 @@
                 average surfaces distribution skew directly on the chart (bubbles well below the dashed
                 avg=median line mean a handful of slow outliers are dragging the average up above a otherwise
                 lower typical case), which a count-based Y axis wouldn't show. Color tier follows the same
-                0-30 / 30-60 / 60m+ minute buckets already used in Technician Efficiency above — tech_tat_cards
-                carries no per-row expected/target duration to compare against, so this falls back to that
-                fixed, page-established threshold instead.
+                0-30 / 30-60 / 60m+ minute buckets used by the (now-removed, moved to Report 35) Technician
+                Efficiency card — tech_tat_cards carries no per-row expected/target duration to compare
+                against, so this falls back to that same fixed threshold instead.
             </p>
             <div class="glass-card" id="tech-tat-scatter-card">
                 <div class="chart-card-header">
@@ -666,11 +548,11 @@
 
                 // Fixed severity thresholds (minutes) -- tech_tat_cards (built in
                 // routes/report_25.py's get_gold_standard_data) has no per-row
-                // expected/target duration field (unlike Technician Efficiency's
-                // avg_expected_min, which comes from procedure_duration_map), so this
-                // falls back to the same 0-30 / 30-60 / 60+ minute buckets already
-                // established elsewhere on this page (Technician Efficiency's
-                // bucket_0_30/bucket_30_60/bucket_60_plus).
+                // expected/target duration field (unlike the removed Technician
+                // Efficiency card's avg_expected_min, which came from
+                // procedure_duration_map), so this falls back to the same fixed
+                // 0-30 / 30-60 / 60+ minute buckets that card used
+                // (bucket_0_30/bucket_30_60/bucket_60_plus).
                 const GREEN = '#34d399', AMBER = '#f59e0b', RED = '#f43f5e';
                 function tierColor(avgTat) {
                     if (avgTat <= 30) return GREEN;

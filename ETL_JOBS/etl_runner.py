@@ -57,8 +57,14 @@ Execution phases (in order):
              done" anchor for the PACS-vs-RIS TAT comparison (report_25), as opposed to
              etl_didb_studies.insert_time (PACS ingestion proxy) or std_pps.end_datetime
              (MPPS event); scheduled [status_key=40, "Scheduled"] -> std_worklist_scheduled,
-             feeds the redefined "Patient Wait Time" (Scheduled -> Arrived); skipped unless
-             a RIS db_params source is configured)
+             feeds the redefined "Patient Wait Time" (Scheduled -> Arrived); plus a 4th
+             sub-step, person_reference, off the unrelated PPS_PERSON_REFERENCE table
+             (PPS_KEY join, no status_key) -> std_pps_person_reference, the working
+             replacement for std_pps.primary_tech_person_key (confirmed 100% NULL,
+             migration 0097) — per-PPS technologist reference, role-filtered at query
+             time via std_resources_ris.role_code = 'TEC', not by
+             person_reference_type_key; skipped unless a RIS db_params source is
+             configured)
 
 Triggered by APScheduler in app.py or manually via `python app.py -m`.
 """
@@ -103,6 +109,7 @@ from etl_pacs_user_groups     import run_pacs_user_groups_etl
 from etl_ris_worklist_arrivals import run_ris_worklist_arrivals_etl
 from etl_ris_worklist_exam_done import run_ris_worklist_exam_done_etl
 from etl_ris_worklist_scheduled import run_ris_worklist_scheduled_etl
+from etl_ris_pps_person_reference import run_ris_pps_person_reference_etl
 
 logger = logging.getLogger("ETL_WORKER")
 
@@ -150,7 +157,7 @@ _PHASE_LABELS = {
     '14': ('RIS PPS',            'Oracle RIS: PPS + STATUS + PROCEDURE_PRIORITY + DICTATION + SITE_PPS -> std_pps and friends + STUDY_INSTANCE_UID<->PACS join test — moderate/heavy (LAUMC)'),
     '15': ('RIS Modality Availability', 'Oracle RIS: SCHEDULE_SCHEME + AVAILABILITY_INDICATOR + MODALITY_AVAIL_EXCEPTION + SCHEDULE_TEMPLATE_ITEM -> std_schedule_schemes / std_availability_indicators / std_modality_exceptions / std_schedule_template_items (device utilization denominator) — light (LAUMC)'),
     '16': ('PACS User Groups',   'Oracle PACS: MEDILINK.SECM_USERS/SECM_GROUPS/SECM_USER_IN_GROUP -> std_pacs_user_groups (reading-permission groups, e.g. radiologists/residents) — light (LAUMC)'),
-    '17': ('RIS Worklist Status Events', 'Oracle RIS: WORKLIST_STATUS_HISTORY + SITE_WORKLIST -> std_worklist_arrivals (status_key=60 Arrived) + std_worklist_exam_done (status_key=100 Exam Done) + std_worklist_scheduled (status_key=40 Scheduled) — light (LAUMC)'),
+    '17': ('RIS Worklist Status Events', 'Oracle RIS: WORKLIST_STATUS_HISTORY + SITE_WORKLIST -> std_worklist_arrivals (status_key=60 Arrived) + std_worklist_exam_done (status_key=100 Exam Done) + std_worklist_scheduled (status_key=40 Scheduled) + PPS_PERSON_REFERENCE -> std_pps_person_reference, per-PPS technologist reference (role-filtered at query time, not by type key) — light (LAUMC)'),
 }
 
 
@@ -625,9 +632,14 @@ def _perform_migration(engine):
                 logger.error(f"🛑 Phase 16 (PACS User Groups) failed — continuing to next phase: {_e}", exc_info=True)
 
         # ── PHASE 17: RIS Worklist Status Events — arrivals (status_key=60) +
-        #     exam_done (status_key=100), both off WORKLIST_STATUS_HISTORY ⋈
-        #     SITE_WORKLIST. Sub-steps isolated same as Phase 14: one status_key's
-        #     job failing must not silently leave the other's table unrefreshed ──
+        #     exam_done (status_key=100) + scheduled (status_key=40), all off
+        #     WORKLIST_STATUS_HISTORY ⋈ SITE_WORKLIST, plus a 4th sub-step, person_
+        #     reference, off the unrelated PPS_PERSON_REFERENCE table (PPS_KEY join,
+        #     no status_key involved) — the working replacement for std_pps's dead
+        #     primary_tech_person_key (confirmed 100% NULL, migration 0097); role-
+        #     filtered at query time (std_resources_ris.role_code = 'TEC'), not by
+        #     person_reference_type_key. Sub-steps isolated same as Phase 14: one
+        #     job failing must not silently leave the others' tables unrefreshed ──
         if _confirm_phase(17):
             with engine.connect() as _c:
                 _ris_ok = _c.execute(
@@ -644,6 +656,7 @@ def _perform_migration(engine):
                     ("arrivals",  lambda: run_ris_worklist_arrivals_etl(engine, ris_src)),
                     ("exam_done", lambda: run_ris_worklist_exam_done_etl(engine, ris_src)),
                     ("scheduled", lambda: run_ris_worklist_scheduled_etl(engine, ris_src)),
+                    ("person_reference", lambda: run_ris_pps_person_reference_etl(engine, ris_src)),
                 ]
                 _phase17_failed = []
                 for _name, _fn in _phase17_substeps:
