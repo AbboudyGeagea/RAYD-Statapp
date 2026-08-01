@@ -818,7 +818,7 @@ def nlp_process():
                 INSERT INTO ai_nlp_cache
                     (source_id, classification, keywords, cluster_id, severity_score, processed_at)
                 VALUES
-                    (:sid, :cls, :kws::jsonb, :cid, :sev, NOW())
+                    (:sid, :cls, CAST(:kws AS jsonb), :cid, :sev, NOW())
                 ON CONFLICT (source_id) DO UPDATE SET
                     classification = EXCLUDED.classification,
                     keywords       = EXCLUDED.keywords,
