@@ -187,6 +187,29 @@ so std_devices carries the modality string (CT/MR/US…) directly, not the key.
 ## MODALITY_TYPE  →  merged into `std_devices` (lookup only, resolve at ETL)
 DICOM modality-code lookup (see values above). Not a standalone target.
 
+## MODALITY_SCHEDULE  →  resolves `procedure_duration_map.modality`  (fill-only)
+**Role:** scheduling bridge table — one row per (SCHEDULE_TEMPLATE_KEY, MODALITY_KEY) pairing
+for a given SPS_CODE_KEY. This is the direct procedure↔modality link neither MODALITY nor
+SPS_CODE carries on its own, and the RIS-sourced equivalent of the PACS-history auto-learn
+(Phase 8 Strategies A–E) that's disabled at LAUMC (`RAYD_ETL_LOOKUP_FROM_PACS=false`).
+**Not incremental — full reload each pass** (same as MODALITY).
+
+**Named columns:** MODALITY_SCHEDULE_KEY (PK), SCHEDULE_TEMPLATE_KEY, MODALITY_KEY, PRIORITY
+(always `1` in every sample row seen — no documented meaning beyond that, not used),
+SPS_CODE_KEY, MODALITY_SCHEDULE_GROUP_KEY, LAST_UPDATED.
+
+**Import (implemented, `ETL_JOBS/etl_ris_modality_schedule.py`, Phase 10 — runs after the
+MODALITY and SPS_CODE steps, joining through their `ris_modality_key`/`ris_sps_code_key`
+back-references):** stage `(SPS_CODE_KEY, MODALITY_KEY)` pairs, resolve MODALITY_KEY → modality
+string via `aetitle_modality_map.ris_modality_key`, then per SPS_CODE_KEY take the majority
+modality across all its device pairings (`MODE() WITHIN GROUP`, same idiom as Phase 8's
+strategies) and `UPDATE procedure_duration_map.modality` **only where it's still NULL** —
+never overwrites a manually-set or already-resolved value. A procedure schedulable on several
+devices of the same modality type (e.g. two CT scanners) collapses to one modality; genuinely
+mixed-modality procedures are not flagged for review yet (Phase 8's PACS-side
+`procedure_modality_conflicts` table does this for the PACS strategies — could be extended here
+if LAUMC needs the same visibility).
+
 ## ORG_STRUCTURE  →  drives `site_org_map` (org_structure_key → canonical site_id)
 **Role:** the org hierarchy (self-referencing via PARENT_ORG_STRUCTURE_KEY). Resolves any
 org_structure_key seen on ORDERS/WORKLIST/MODALITY to RH or SJH. Keep the hierarchy for display
