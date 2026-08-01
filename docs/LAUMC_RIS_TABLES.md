@@ -275,12 +275,32 @@ historical/alternate and stay unresolved. Unconditional overwrite each pass (the
 pure RIS mirror, never manually edited, per migration 0067), no ambiguity possible since
 `ris_schedule_template_key` is itself only ever set when unambiguous.
 
-**Still not attempted — genuinely unconfirmed, not guessed at**: what the actual
-`DAY_OF_WEEK` convention is (0=Mon vs 0=Sun) and what `AVAILABILITY_INDICATOR_KEY` values
-(1/2/8/2100 observed in the sample) mean (Available/Unavailable/Partial/On-call?). Both are
-imported raw exactly as migration 0067 already specified — device-attribution didn't need
-either to be resolved, but converting this into an actual `device_weekly_schedule`-style
-"open Mon–Fri 07:00–17:00" answer still does.
+## AVAILABILITY_INDICATOR  →  `std_availability_indicators`  (lookup, already imported)
+**Role:** what `availability_indicator_key` (on `std_modality_exceptions` and
+`std_schedule_template_items`, both migration 0067) actually means. No new ETL needed —
+`ETL_JOBS/etl_ris_modality_availability.py`'s `run_ris_availability_indicators_etl` (Phase
+15) already imports this table verbatim into `std_availability_indicators`; this section
+just records the confirmed values (2026-08-01) for reference.
+
+**Confirmed values relevant to schedule items** (the ones observed in the
+`SCHEDULE_TEMPLATE_ITEM` sample): `1` = **Available**, `2` = **Unavailable**, `8` =
+**Emergency Department**, `2100` = **Closed** (a distinct catch-all — note its `CODE`
+column is literally the text `Closed`, not a two-digit numeric code like every other row).
+Other rows exist for non-schedule contexts (`4`=Reserved mainly for IP, `5`=Reserved mainly
+for head, `1940`=Over Time, `2040`=Holiday, `2060`/`2140`=N-days-in-advance booking rules,
+`2061`=External people, `2322`=Maintenance) — the full table, not just these four, is what
+`run_ris_availability_indicators_etl` already pulls.
+
+This confirms `1`/`2` on `std_schedule_template_items` do mean what the "short daytime
+window vs long/overnight window" pattern in the raw data suggested — Available vs
+Unavailable — though that pattern was never encoded as fact anywhere in the code before
+this confirmation landed.
+
+**Still not attempted — genuinely unconfirmed, not guessed at**: the `DAY_OF_WEEK`
+convention (0=Mon vs 0=Sun) on `std_schedule_template_items`. This table doesn't resolve
+that — it's the one remaining piece before device availability windows can be converted
+into an actual `device_weekly_schedule`-style "open Mon–Fri 07:00–17:00" answer (now that
+device attribution and the Available/Unavailable/Closed meaning are both confirmed).
 
 ## ORG_STRUCTURE  →  drives `site_org_map` (org_structure_key → canonical site_id)
 **Role:** the org hierarchy (self-referencing via PARENT_ORG_STRUCTURE_KEY). Resolves any
