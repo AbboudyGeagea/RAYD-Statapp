@@ -388,11 +388,14 @@ def oru_page():
         WHERE procedure_code IS NOT NULL AND TRIM(procedure_code) != ''
         ORDER BY name
     """)).fetchall()
+    # go_live_date: the earliest HL7 ORU report ever received -- used as the page's
+    # default date-range start (operator instruction, 2026-08-01: default start date
+    # should be the integration's go-live date, not a rolling last-30-days window).
     min_date_row = db.session.execute(text(
         "SELECT MIN(received_at)::date AS d FROM hl7_oru_reports"
     )).fetchone()
-    min_date = min_date_row.d.strftime('%d %b %Y') if min_date_row and min_date_row.d else None
-    return render_template('oru_analytics.html', procedures=procedures, min_date=min_date)
+    go_live_date = min_date_row.d.isoformat() if min_date_row and min_date_row.d else None
+    return render_template('oru_analytics.html', procedures=procedures, go_live_date=go_live_date)
 
 
 @oru_bp.route('/data')
