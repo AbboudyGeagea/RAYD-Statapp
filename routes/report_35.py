@@ -180,15 +180,20 @@ def get_technician_tat_data(form_data):
         # table up front. Same reasoning as CLAUDE.md's "expensive CTEs must use
         # MATERIALIZED" convention, just solved by scoping the work down instead.
         #
-        # `arrived_at >= :start::date AND arrived_at < :end::date + 1` (not
-        # `arrived_at::date BETWEEN :start AND :end`) so the filter is sargable against
-        # idx_worklist_arrivals_arrived_at (migration 0098) -- casting the *column*
-        # blocks index use even when one exists.
+        # `arrived_at >= CAST(:start AS date) AND arrived_at < CAST(:end AS date) + 1`
+        # (not `arrived_at::date BETWEEN :start AND :end`) so the filter is sargable
+        # against idx_worklist_arrivals_arrived_at (migration 0098) -- casting the
+        # *column* blocks index use even when one exists. CAST(), not `:start::date` --
+        # a bind parameter directly followed by Postgres's :: cast operator confuses
+        # SQLAlchemy's colon-parameter parser and corrupts the compiled SQL (confirmed
+        # in production, 2026-08-01: "syntax error at or near ':'" on this exact line,
+        # silently swallowed by this function's broad except-and-log, which is why the
+        # report kept showing empty instead of erroring visibly).
         tech_rows = db.session.execute(text(f"""
             WITH arrival AS (
                 SELECT pps_key, MIN(arrived_at) AS arrived_at, MAX(sps_id) AS sps_id
                 FROM std_worklist_arrivals
-                WHERE arrived_at >= :start::date AND arrived_at < :end::date + 1
+                WHERE arrived_at >= CAST(:start AS date) AND arrived_at < CAST(:end AS date) + 1
                 GROUP BY pps_key
             ),
             base AS (
