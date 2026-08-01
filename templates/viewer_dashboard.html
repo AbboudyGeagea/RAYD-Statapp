@@ -178,7 +178,7 @@
                 </div>
 
                 <div id="grid-clinical" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {% for report in reports if report.report_id in [22,23,25,27,28,36] %}
+                    {% for report in reports if report.report_id in [22,23,25,27,28,35,36] %}
                     <div class="card-custom p-6 flex flex-col hover:border-[#60a5fa]/30 transition-colors"
                          data-report-id="{{ report.report_id }}"
                          data-report-name="{{ report.report_name }}"
@@ -220,7 +220,7 @@
                 </div>
 
                 <div id="grid-it" class="hidden grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {% for report in reports if report.report_id not in [22,23,25,27,28,36] %}
+                    {% for report in reports if report.report_id not in [22,23,25,27,28,35,36] %}
                     <div class="card-custom p-6 flex flex-col hover:border-[#60a5fa]/30 transition-colors"
                          data-report-id="{{ report.report_id }}"
                          data-report-name="{{ report.report_name }}"
