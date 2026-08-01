@@ -17,7 +17,10 @@ Execution phases (in order):
             hl7_oru_reports; skipped unless a RIS db_params source is configured)
   Phase 10 — RIS Catalog (LAUMC: RIS MODALITY -> aetitle_modality_map, RIS SPS_CODE ->
              procedure_duration_map, RIS MODALITY_SCHEDULE -> procedure_duration_map.modality
-             [fill-only, via ris_sps_code_key/ris_modality_key back-references], RIS
+             [fill-only when unambiguous, else flagged in procedure_modality_conflicts, via
+             ris_sps_code_key/ris_modality_key back-references] + SCHEDULE_TEMPLATE ->
+             std_schedule_templates + MODALITY_SCHEDULE_GROUP -> std_modality_schedule_groups
+             + aetitle_modality_map.ris_schedule_template_key device link, RIS
              ORDERING_ORGANIZATION -> std_ordering_organizations; skipped unless a RIS
              db_params source is configured)
   Phase 11 — RIS Visits (LAUMC: RIS VISIT -> std_visits; skipped unless a RIS db_params
@@ -96,7 +99,7 @@ from etl_analytics_refresh import refresh_storage_summary
 from etl_ris_reports       import run_ris_reports_etl
 from etl_ris_modality      import run_ris_modality_etl
 from etl_ris_procedures    import run_ris_procedures_etl
-from etl_ris_modality_schedule import run_ris_modality_schedule_etl
+from etl_ris_modality_schedule import run_ris_modality_schedule_etl, run_ris_schedule_template_etl
 from etl_ris_ordering_org  import run_ris_ordering_org_etl
 from etl_ris_visits        import run_ris_visits_etl
 from etl_ris_patients      import run_ris_patients_etl
@@ -488,6 +491,9 @@ def _perform_migration(engine):
                     # Must run after the two calls above — joins through the ris_modality_key /
                     # ris_sps_code_key back-references they just populated.
                     run_ris_modality_schedule_etl(engine, ris_src)
+                    # Must run after run_ris_modality_schedule_etl — reuses the stage table
+                    # it just populated (now carrying schedule_template_key too).
+                    run_ris_schedule_template_etl(engine, ris_src)
                     run_ris_ordering_org_etl(engine, ris_src)
                     logger.info("✅ Phase 10 done")
                 except Exception as _e:

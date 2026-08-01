@@ -34,14 +34,33 @@ IMPORT POLICY: fill-only for the unambiguous case — `WHERE procedure_duration_
 IS NULL` — never overwrites a manually-set or already-resolved modality. Never auto-applies
 for the ambiguous case.
 
-NOTE: this table's SCHEDULE_TEMPLATE_KEY / MODALITY_SCHEDULE_GROUP_KEY columns look like they
-may also resolve the open/closing-time gap noted in ETL_JOBS/etl_ris_modality_availability.py
-(std_schedule_template_items "captured raw — not yet attributable to a specific device") —
-NOT attempted here pending the SCHEDULE_TEMPLATE table schema (not yet seen).
+Also imports two small reference tables tied to the same MODALITY_SCHEDULE rows (see
+run_ris_schedule_template_etl below):
+  - SCHEDULE_TEMPLATE -> std_schedule_templates. Names are literal device/room names
+    (RH-CT64, RH-MRI_3T...) for device templates (RESOURCE_TEMPLATE_FLAG='N'), and
+    physician names for resource/physician availability templates (FLAG='Y' — NOT
+    devices, never resolved onto aetitle_modality_map). Each MODALITY_SCHEDULE row pairs
+    exactly one SCHEDULE_TEMPLATE_KEY with exactly one MODALITY_KEY (confirmed against
+    the vendor export), so device-type templates resolve unambiguously to an aetitle —
+    written to aetitle_modality_map.ris_schedule_template_key (migration 0106), same
+    back-reference convention as ris_modality_key/ris_sps_code_key (migration 0053).
+    Ambiguous cases (a template key resolving to more than one distinct aetitle) are
+    left NULL rather than guessed, consistent with the modality-conflict handling above.
+  - MODALITY_SCHEDULE_GROUP -> std_modality_schedule_groups. A scheduling group/site
+    discriminator (Radiology/NonRad/Default/SJH/Vascular Lab) — SJH and Vascular Lab
+    match the ORG_STRUCTURE site split in docs/LAUMC_RIS_TABLES.md (org 5320=SJH, org
+    5120=VASC). Reference data only, nothing joins to it yet.
+
+STILL NOT ATTEMPTED: device open/closing times. std_schedule_template_items (migration
+0067) joins on SCHEDULE_TEMPLATE_VERSION_KEY / SCHEDULE_SCHEME_KEY, and neither has a
+confirmed relationship to SCHEDULE_TEMPLATE_KEY yet — needs that bridge (or a sample of
+SCHEDULE_TEMPLATE_ITEM rows to derive it from) before it can be built without guessing.
 
 ORDERING: must run AFTER etl_ris_modality.py and etl_ris_procedures.py in the same pass —
 this script joins through the ris_modality_key / ris_sps_code_key back-references those two
 scripts populate. Enforced by call order in etl_runner.py's Phase 10, not by this module.
+run_ris_schedule_template_etl must run AFTER run_ris_modality_schedule_etl in the same pass
+too — it reuses the stage table that populates, now extended with schedule_template_key.
 """
 import os
 import logging
@@ -49,13 +68,20 @@ from datetime import datetime
 from sqlalchemy import text
 from db import OracleConnector
 
-_MODALITY_SCHEDULE_TABLE = os.getenv("RAYD_RIS_MODALITY_SCHEDULE_TABLE", "MODALITY_SCHEDULE")
+_MODALITY_SCHEDULE_TABLE       = os.getenv("RAYD_RIS_MODALITY_SCHEDULE_TABLE", "MODALITY_SCHEDULE")
+_SCHEDULE_TEMPLATE_TABLE       = os.getenv("RAYD_RIS_SCHEDULE_TEMPLATE_TABLE", "SCHEDULE_TEMPLATE")
+_MODALITY_SCHEDULE_GROUP_TABLE = os.getenv("RAYD_RIS_MODALITY_SCHEDULE_GROUP_TABLE", "MODALITY_SCHEDULE_GROUP")
 
 _STAGE_DDL = text("""
     CREATE TABLE IF NOT EXISTS ris_modality_schedule_stage (
         sps_code_key BIGINT,
-        modality_key BIGINT
+        modality_key BIGINT,
+        schedule_template_key BIGINT
     )
+""")
+_STAGE_TEMPLATE_COLUMN_DDL = text("""
+    ALTER TABLE ris_modality_schedule_stage
+        ADD COLUMN IF NOT EXISTS schedule_template_key BIGINT
 """)
 
 # Same review table routes/mapping_controller.py's mapping tab already reads for PACS-
@@ -141,7 +167,7 @@ def run_ris_modality_schedule_etl(pg_engine, oracle_source):
         logging.error(f"RIS Modality Schedule ETL log error: {e}")
 
     query = f"""
-        SELECT DISTINCT SPS_CODE_KEY, MODALITY_KEY
+        SELECT DISTINCT SPS_CODE_KEY, MODALITY_KEY, SCHEDULE_TEMPLATE_KEY
         FROM {_MODALITY_SCHEDULE_TABLE}
         WHERE SPS_CODE_KEY IS NOT NULL AND MODALITY_KEY IS NOT NULL
     """
@@ -157,19 +183,22 @@ def run_ris_modality_schedule_etl(pg_engine, oracle_source):
         rows = cursor.fetchall()
 
         params = [
-            {"sps_code_key": sps_code_key, "modality_key": modality_key}
-            for sps_code_key, modality_key in rows
+            {"sps_code_key": sps_code_key, "modality_key": modality_key,
+             "schedule_template_key": schedule_template_key}
+            for sps_code_key, modality_key, schedule_template_key in rows
             if sps_code_key is not None and modality_key is not None
         ]
         total = len(params)
 
         with pg_engine.begin() as conn:
             conn.execute(_STAGE_DDL)
+            conn.execute(_STAGE_TEMPLATE_COLUMN_DDL)
             conn.execute(text("TRUNCATE ris_modality_schedule_stage"))
             if params:
                 conn.execute(text(
-                    "INSERT INTO ris_modality_schedule_stage (sps_code_key, modality_key) "
-                    "VALUES (:sps_code_key, :modality_key)"
+                    "INSERT INTO ris_modality_schedule_stage "
+                    "(sps_code_key, modality_key, schedule_template_key) "
+                    "VALUES (:sps_code_key, :modality_key, :schedule_template_key)"
                 ), params)
 
             conn.execute(_CONFLICTS_DDL)
@@ -221,3 +250,200 @@ def run_ris_modality_schedule_etl(pg_engine, oracle_source):
                 logging.error(f"Failed to update RIS Modality Schedule log: {le}")
 
     return mapped
+
+
+# ── SCHEDULE_TEMPLATE + MODALITY_SCHEDULE_GROUP (reference tables + device link) ──────────
+
+_TEMPLATE_DDL = text("""
+    CREATE TABLE IF NOT EXISTS std_schedule_templates (
+        schedule_template_key   BIGINT PRIMARY KEY,
+        name                    TEXT,
+        description             TEXT,
+        resource_template_flag  BOOLEAN,
+        source_last_updated     TIMESTAMP,
+        last_update             TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+""")
+_GROUP_DDL = text("""
+    CREATE TABLE IF NOT EXISTS std_modality_schedule_groups (
+        modality_schedule_group_key  BIGINT PRIMARY KEY,
+        name                         TEXT,
+        source_last_updated          TIMESTAMP,
+        last_update                  TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+""")
+_RIS_SCHEDULE_TEMPLATE_KEY_COLUMN_DDL = text("""
+    ALTER TABLE aetitle_modality_map
+        ADD COLUMN IF NOT EXISTS ris_schedule_template_key BIGINT
+""")
+
+_UPSERT_TEMPLATE_SQL = text("""
+    INSERT INTO std_schedule_templates
+        (schedule_template_key, name, description, resource_template_flag, source_last_updated, last_update)
+    VALUES
+        (:schedule_template_key, :name, :description, :resource_template_flag, :source_last_updated, NOW())
+    ON CONFLICT (schedule_template_key) DO UPDATE SET
+        name = EXCLUDED.name, description = EXCLUDED.description,
+        resource_template_flag = EXCLUDED.resource_template_flag,
+        source_last_updated = EXCLUDED.source_last_updated, last_update = NOW()
+""")
+
+_UPSERT_GROUP_SQL = text("""
+    INSERT INTO std_modality_schedule_groups
+        (modality_schedule_group_key, name, source_last_updated, last_update)
+    VALUES
+        (:modality_schedule_group_key, :name, :source_last_updated, NOW())
+    ON CONFLICT (modality_schedule_group_key) DO UPDATE SET
+        name = EXCLUDED.name, source_last_updated = EXCLUDED.source_last_updated, last_update = NOW()
+""")
+
+# Device attribution: only when a schedule_template_key resolves to exactly one distinct
+# aetitle across its (usually single) modality_key pairing in MODALITY_SCHEDULE — same
+# "don't guess on ambiguity" discipline as the procedure/modality fill above. Physician/
+# resource templates (RESOURCE_TEMPLATE_FLAG='Y') never have a MODALITY_KEY pairing, so
+# they simply never match here and stay NULL, as intended — no explicit flag filter needed.
+_UPDATE_DEVICE_TEMPLATE_LINK_SQL = text("""
+    WITH resolved AS (
+        SELECT stg.schedule_template_key, array_agg(DISTINCT am.aetitle) AS aetitles
+        FROM ris_modality_schedule_stage stg
+        JOIN aetitle_modality_map am ON am.ris_modality_key = stg.modality_key
+        WHERE stg.schedule_template_key IS NOT NULL
+        GROUP BY stg.schedule_template_key
+        HAVING COUNT(DISTINCT am.aetitle) = 1
+    )
+    UPDATE aetitle_modality_map am
+    SET ris_schedule_template_key = resolved.schedule_template_key
+    FROM resolved
+    WHERE am.aetitle = resolved.aetitles[1]
+""")
+
+
+def _flag_to_bool(val):
+    if val is None:
+        return None
+    return str(val).strip().upper() in ('Y', 'YES', 'TRUE', '1')
+
+
+def run_ris_schedule_template_etl(pg_engine, oracle_source):
+    """
+    Imports SCHEDULE_TEMPLATE -> std_schedule_templates and MODALITY_SCHEDULE_GROUP ->
+    std_modality_schedule_groups (small reference tables, full reload each pass), then
+    resolves aetitle_modality_map.ris_schedule_template_key for device-type templates
+    using the ris_modality_schedule_stage table run_ris_modality_schedule_etl already
+    populated this pass — MUST run after it.
+    """
+    job_name   = "RIS_SCHEDULE_TEMPLATE_ETL"
+    start_time = datetime.now()
+    templates  = 0
+    groups     = 0
+    linked     = 0
+    status     = "RUNNING"
+    error_msg  = None
+    log_id     = None
+
+    try:
+        with pg_engine.connect() as conn:
+            res = conn.execute(
+                text("INSERT INTO etl_job_log (job_name, status, start_time, records_processed) "
+                     "VALUES (:n, :s, :t, 0) RETURNING id"),
+                {"n": job_name, "s": status, "t": start_time}
+            )
+            log_id = res.fetchone()[0]
+            conn.commit()
+    except Exception as e:
+        logging.error(f"RIS Schedule Template ETL log error: {e}")
+
+    template_query = f"""
+        SELECT SCHEDULE_TEMPLATE_KEY, NAME, DESCRIPTION, RESOURCE_TEMPLATE_FLAG, LAST_UPDATED
+        FROM {_SCHEDULE_TEMPLATE_TABLE}
+    """
+    # Column name for the group's label is unconfirmed (assumed NAME, matching
+    # SCHEDULE_TEMPLATE's own convention) — this table is 5 reference rows, cheap to
+    # fix if the real column turns out to be DESCRIPTION or similar.
+    group_query = f"""
+        SELECT MODALITY_SCHEDULE_GROUP_KEY, NAME, LAST_UPDATED
+        FROM {_MODALITY_SCHEDULE_GROUP_TABLE}
+    """
+
+    ora_conn = OracleConnector.get_connection(oracle_source)
+    cursor   = ora_conn.cursor()
+
+    try:
+        logging.info("RIS Schedule Template ETL starting")
+        print(f"[RIS Schedule Template ETL] 🚀 Starting ({_SCHEDULE_TEMPLATE_TABLE} + {_MODALITY_SCHEDULE_GROUP_TABLE})")
+
+        cursor.execute(template_query)
+        template_rows = cursor.fetchall()
+        template_params = [
+            {
+                "schedule_template_key": key,
+                "name": str(name).strip() if name else None,
+                "description": str(desc).strip() if desc else None,
+                "resource_template_flag": _flag_to_bool(flag),
+                "source_last_updated": last_updated,
+            }
+            for key, name, desc, flag, last_updated in template_rows
+            if key is not None
+        ]
+        templates = len(template_params)
+
+        cursor.execute(group_query)
+        group_rows = cursor.fetchall()
+        group_params = [
+            {
+                "modality_schedule_group_key": key,
+                "name": str(name).strip() if name else None,
+                "source_last_updated": last_updated,
+            }
+            for key, name, last_updated in group_rows
+            if key is not None
+        ]
+        groups = len(group_params)
+
+        with pg_engine.begin() as conn:
+            conn.execute(_TEMPLATE_DDL)
+            conn.execute(_GROUP_DDL)
+            conn.execute(_RIS_SCHEDULE_TEMPLATE_KEY_COLUMN_DDL)
+
+            if template_params:
+                conn.execute(_UPSERT_TEMPLATE_SQL, template_params)
+            if group_params:
+                conn.execute(_UPSERT_GROUP_SQL, group_params)
+
+            r = conn.execute(_UPDATE_DEVICE_TEMPLATE_LINK_SQL)
+            linked = r.rowcount
+
+        status = "SUCCESS"
+        print(f"[RIS Schedule Template ETL] ✅ Done — {templates:,} templates, {groups:,} groups, "
+              f"{linked:,} devices linked to their schedule template")
+        logging.info(
+            f"RIS Schedule Template ETL complete: {templates:,} templates, {groups:,} groups, "
+            f"{linked:,} device links"
+        )
+
+    except Exception as e:
+        status    = "FAILED"
+        error_msg = str(e)
+        logging.error(f"RIS Schedule Template ETL error: {error_msg}")
+        raise
+
+    finally:
+        cursor.close()
+        ora_conn.close()
+        if log_id:
+            try:
+                end_time = datetime.now()
+                duration = (end_time - start_time).total_seconds()
+                with pg_engine.connect() as conn:
+                    conn.execute(
+                        text("UPDATE etl_job_log SET status=:s, end_time=:et, "
+                             "records_processed=:r, duration_seconds=:d, "
+                             "error_message=:e WHERE id=:id"),
+                        {"s": status, "et": end_time, "r": templates + groups,
+                         "d": round(duration, 2), "e": error_msg, "id": log_id}
+                    )
+                    conn.commit()
+            except Exception as le:
+                logging.error(f"Failed to update RIS Schedule Template log: {le}")
+
+    return linked
