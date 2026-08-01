@@ -18,6 +18,16 @@ _MJ = "LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRI
 _SR = "COALESCE(m.modality, s.study_modality, '') != 'SR'"
 _PHY = "TRIM(CONCAT(s.referring_physician_first_name, ' ', s.referring_physician_last_name))"
 
+# Report-finalized timestamp for TAT — PACS only (etl_didb_studies), per operator
+# instruction. s.rep_final_timestamp alone is what this page used before, but that PACS
+# column is confirmed sparse/unreliable on this install (operator, 2026-07-27) — this tab
+# showing no TAT is that, not a different bug. s.rep_study_last_composed_ts is the PACS
+# column (medistore.didb_studies.REP_STUDY_LAST_COMPOSED_TS, ETL_JOBS/etl_didb_studies.py)
+# confirmed reliable here and already the standard TAT anchor in report_25.py — same
+# COALESCE order, preferring it and falling back to rep_final_timestamp only when it's
+# missing. No RIS/hl7_oru_reports involved.
+_FINAL_TS = "COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp)"
+
 
 # ─────────────────────────────────────────────
 #  PAGE
@@ -84,13 +94,13 @@ def referring_intel_detail():
                 MIN(s.study_date)::text             AS first_study,
                 MAX(s.study_date)::text             AS last_study,
                 ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (
-                    ORDER BY EXTRACT(EPOCH FROM (s.rep_final_timestamp - s.insert_time)) / 60.0
-                ) FILTER (WHERE s.rep_final_timestamp IS NOT NULL
+                    ORDER BY EXTRACT(EPOCH FROM ({_FINAL_TS} - s.insert_time)) / 60.0
+                ) FILTER (WHERE {_FINAL_TS} IS NOT NULL
                             AND s.insert_time IS NOT NULL
-                            AND s.rep_final_timestamp > s.insert_time
+                            AND {_FINAL_TS} > s.insert_time
                 )::numeric, 1)                      AS median_tat_min,
                 COUNT(*) FILTER (WHERE s.study_has_report = TRUE
-                                    OR s.rep_final_timestamp IS NOT NULL) AS reported_count,
+                                    OR {_FINAL_TS} IS NOT NULL) AS reported_count,
                 ROUND(
                     COUNT(*) FILTER (WHERE s.study_date >= CURRENT_DATE - INTERVAL '30 days')
                     * 100.0 / NULLIF(COUNT(*), 0), 1
@@ -102,12 +112,12 @@ def referring_intel_detail():
         # Department median TAT baseline (last 90 days)
         dept_tat = db.session.execute(text(f"""
             SELECT ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (
-                ORDER BY EXTRACT(EPOCH FROM (s.rep_final_timestamp - s.insert_time)) / 60.0
+                ORDER BY EXTRACT(EPOCH FROM ({_FINAL_TS} - s.insert_time)) / 60.0
             )::numeric, 1)
             FROM etl_didb_studies s {_MJ}
-            WHERE s.rep_final_timestamp IS NOT NULL
+            WHERE {_FINAL_TS} IS NOT NULL
               AND s.insert_time IS NOT NULL
-              AND s.rep_final_timestamp > s.insert_time
+              AND {_FINAL_TS} > s.insert_time
               AND s.study_date >= CURRENT_DATE - INTERVAL '90 days'
               AND {_SR}
         """)).scalar()
@@ -129,14 +139,14 @@ def referring_intel_detail():
             SELECT
                 TO_CHAR(DATE_TRUNC('month', s.study_date), 'YYYY-MM') AS month,
                 ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (
-                    ORDER BY EXTRACT(EPOCH FROM (s.rep_final_timestamp - s.insert_time)) / 60.0
+                    ORDER BY EXTRACT(EPOCH FROM ({_FINAL_TS} - s.insert_time)) / 60.0
                 )::numeric, 1) AS median_tat_min,
                 COUNT(*)       AS cnt
             FROM etl_didb_studies s {_MJ}
             WHERE {_PHY} = :physician AND {_SR}
-              AND s.rep_final_timestamp IS NOT NULL
+              AND {_FINAL_TS} IS NOT NULL
               AND s.insert_time IS NOT NULL
-              AND s.rep_final_timestamp > s.insert_time
+              AND {_FINAL_TS} > s.insert_time
               AND s.study_date >= CURRENT_DATE - (:months * INTERVAL '1 month')
             GROUP BY 1 ORDER BY 1
         """), p).mappings().fetchall()
@@ -263,7 +273,7 @@ def referring_intel_detail():
                 s.report_status,
                 s.patient_class,
                 ROUND(
-                    EXTRACT(EPOCH FROM (s.rep_final_timestamp - s.insert_time)) / 60.0
+                    EXTRACT(EPOCH FROM ({_FINAL_TS} - s.insert_time)) / 60.0
                 ) AS tat_min
             FROM etl_didb_studies s {_MJ}
             WHERE {_PHY} = :physician AND {_SR}
