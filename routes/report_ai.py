@@ -161,7 +161,19 @@ def _get_storage_intelligence(start, end):
     result = _linear_forecast(dates, values, 90)
     f_dates, f_vals, r2, slope = result
 
-    current_gb    = values[-1]
+    # total_gb is GB of images ADDED on that study_date (ETL_JOBS/etl_analytics_
+    # refresh.py groups by study_date/storing_ae/modality/procedure_code -- it's
+    # a daily delta, not a running total). current_gb must be the all-time
+    # cumulative SUM across every row ever recorded, not values[-1] -- that was
+    # only the last day's delta within the selected date range, which
+    # understated actual archive usage by orders of magnitude and made
+    # days_to_full meaningless. Deliberately unbounded by start/end: "how full
+    # is the archive right now" shouldn't change just because the trend
+    # chart's date range was narrowed.
+    current_gb = float(db.session.execute(text(
+        "SELECT COALESCE(SUM(total_gb), 0) FROM summary_storage_daily"
+    )).scalar() or 0.0)
+
     daily_growth  = slope
     days_to_full  = None
 
@@ -267,6 +279,10 @@ def _get_utilization_intelligence(start, end):
     # collapsed load_mins to ~0 for most AEs, which is why utilization always
     # came back null/empty. Also applies the SR exclusion + storing_ae guard
     # every other etl_didb_studies query in this file already uses.
+    # SJHCSAPWFMFIR excluded (operator instruction): a PACS-side workflow-manager
+    # forwarding node (aetitle_modality_map.modality='PACS', same non-imaging
+    # infra category as the other *FIR AEs), not a real imaging device --
+    # doesn't belong in device utilization.
     rows = db.session.execute(text("""
         SELECT
             s.storing_ae,
@@ -277,6 +293,7 @@ def _get_utilization_intelligence(start, end):
         LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
         WHERE s.study_date BETWEEN :s AND :e
           AND s.storing_ae IS NOT NULL
+          AND UPPER(TRIM(s.storing_ae)) != 'SJHCSAPWFMFIR'
           AND COALESCE(m.modality, s.study_modality, '') != 'SR'
         GROUP BY 1, 2
         ORDER BY 1, 2
@@ -294,6 +311,7 @@ def _get_utilization_intelligence(start, end):
         LEFT JOIN aetitle_modality_map am ON UPPER(TRIM(am.aetitle)) = UPPER(TRIM(s.storing_ae))
         WHERE s.study_date BETWEEN :s AND :e
           AND s.storing_ae IS NOT NULL
+          AND UPPER(TRIM(s.storing_ae)) != 'SJHCSAPWFMFIR'
           AND COALESCE(am.modality, s.study_modality, '') != 'SR'
         GROUP BY 1, 2
         ORDER BY 1, 3 DESC
@@ -393,6 +411,21 @@ def _get_utilization_intelligence(start, end):
         (df["effective_mins"] / df["day_cap"] * 100).round(1),
         0.0
     )
+    # Theoretical utilization: what utilization WOULD be if every exam took
+    # exactly its SPS-scheduled duration (procedure_duration_map.duration_minutes
+    # -- populated from the RIS's own SPS_CODE table via Phase 10 catalog import
+    # on LAUMC, see ris_sps_code_key; a flat 15-min default elsewhere per the
+    # load_mins comment above). Always computed from load_mins, unlike util_pct
+    # which prefers real std_pps actuals when available -- this is the
+    # "100% schedule adherence" baseline to compare actual performance against.
+    # On AE/days with no PPS coverage, effective_mins == load_mins, so util_pct
+    # and theoretical_pct are identical there (honestly: no measured gap exists
+    # without real PPS data, not a fabricated "on schedule" result).
+    df["theoretical_pct"] = np.where(
+        df["day_cap"] > 0,
+        (df["load_mins"] / df["day_cap"] * 100).round(1),
+        0.0
+    )
     df = df.sort_values(["ae", "study_date"])
 
     ae_results   = []
@@ -402,9 +435,17 @@ def _get_utilization_intelligence(start, end):
 
     for ae, ae_df in df.groupby('ae', sort=False):
         daily_utils = ae_df['util_pct'].tolist()
+        daily_theoretical = ae_df['theoretical_pct'].tolist()
         daily_dates = ae_df['date_str'].tolist()
 
-        avg_util   = round(np.mean(daily_utils), 1) if daily_utils else 0
+        avg_util        = round(np.mean(daily_utils), 1) if daily_utils else 0
+        avg_theoretical = round(np.mean(daily_theoretical), 1) if daily_theoretical else 0
+        # Positive gap = actual running hotter than the SPS schedule assumes
+        # (exams overrunning their scheduled duration -- real demand on this
+        # device exceeds what the schedule accounts for). Negative gap = exams
+        # finishing faster than scheduled (either genuine slack capacity, or
+        # the SPS duration for this device's procedure mix is padded).
+        gap_pct    = round(avg_util - avg_theoretical, 1)
         anomalies  = _detect_anomalies(daily_utils, dates=daily_dates)
         anom_count = sum(anomalies)
         all_anomalies += anom_count
@@ -420,11 +461,14 @@ def _get_utilization_intelligence(start, end):
         ae_results.append({
             "ae": ae,
             "avg_util": avg_util,
+            "avg_theoretical_util": avg_theoretical,
+            "gap_pct": gap_pct,
             "anomaly_count": anom_count,
             "slope": slope,
             "modality_mix": ae_modality_mix.get(ae, []),
             "chart": {
                 "dates":          daily_dates,
+                "theoretical_utils": daily_theoretical,
                 "utils":          daily_utils,
                 "anomaly_flags":  anomalies,
                 "forecast_dates": f_dates,

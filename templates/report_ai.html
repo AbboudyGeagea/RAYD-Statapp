@@ -301,8 +301,11 @@
         document.getElementById('ae-chart-title').textContent = `${ae.ae} — Daily Utilization + 30-Day Forecast`;
         const mixStr = ae.modality_mix && ae.modality_mix.length
             ? '  ·  ' + ae.modality_mix.slice(0,4).map(m=>`${m.modality} (${m.count})`).join(', ') : '';
+        const gapStr = ae.avg_theoretical_util != null
+            ? `  ·  Theoretical (SPS): ${ae.avg_theoretical_util}%  ·  Gap: ${ae.gap_pct>0?'+':''}${ae.gap_pct}pp${ae.gap_pct>0?' (overrunning schedule)':ae.gap_pct<0?' (finishing ahead of schedule)':''}`
+            : '';
         document.getElementById('ae-chart-desc').textContent =
-            `Avg: ${ae.avg_util}%  ·  Anomalies: ${ae.anomaly_count}  ·  Slope: ${ae.slope>0?'+':''}${ae.slope}%/day${mixStr}`;
+            `Avg: ${ae.avg_util}%  ·  Anomalies: ${ae.anomaly_count}  ·  Slope: ${ae.slope>0?'+':''}${ae.slope}%/day${gapStr}${mixStr}`;
 
         const all = [...ae.chart.dates, ...ae.chart.forecast_dates];
         // Show at most ~14 x-axis labels regardless of range length
@@ -349,6 +352,10 @@
                   lineStyle: { color: '#2f80ed', width: 2.5 },
                   areaStyle: { color: 'rgba(47,128,237,0.07)' },
                   itemStyle: { color: '#2f80ed' }, symbol: 'none' },
+                { name: 'Theoretical (SPS)', type: 'line', smooth: true,
+                  data: [...(ae.chart.theoretical_utils || []), ...new Array(foreLen).fill(null)],
+                  lineStyle: { color: '#bb87fc', width: 1.5, type: 'dashed' },
+                  itemStyle: { color: '#bb87fc' }, symbol: 'none', opacity: 0.85 },
                 { name: 'Anomaly', type: 'scatter',
                   data: [...anom, ...new Array(foreLen).fill(null)],
                   itemStyle: { color: '#eb5757' }, z: 10 },
