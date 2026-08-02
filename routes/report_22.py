@@ -5,6 +5,7 @@ from flask import Blueprint, render_template, request, Response
 from flask_login import login_required
 from sqlalchemy import text
 from db import db, get_go_live_date
+from utils.site_resolver import default_site
 
 report_22_bp = Blueprint("report_22", __name__)
 
@@ -39,7 +40,21 @@ def get_where_params(form):
         where += " AND UPPER(TRIM(storing_ae)) = UPPER(TRIM(:ae))"
         params["ae"] = form.get("f_ae")
 
-    return where, params
+    # LAUMC site rule (operator instruction, 2026-07-26): reports show RH (main
+    # site) only, SJH excluded, for now. etl_didb_studies.site_id is never
+    # actually populated by the ETL, so site is resolved via the device instead:
+    # storing_ae -> aetitle_modality_map.site_id (same pattern as report_25 /
+    # utils/report_filters.py). site_clause must be appended inside each
+    # base_data CTE's WHERE, where the `m` (aetitle_modality_map) alias is in
+    # scope -- the outer `where` string here runs against base_data's already
+    # de-aliased column list, which doesn't carry site_id.
+    rh_site_id = default_site()
+    site_clause = ""
+    if rh_site_id is not None:
+        params["rh_site_id"] = rh_site_id
+        site_clause = " AND m.site_id = :rh_site_id"
+
+    return where, params, site_clause
 
 @report_22_bp.route("/report/22", methods=["GET", "POST"])
 @login_required
@@ -73,7 +88,7 @@ def report_22():
         log_event('report_run', category='report', resource_type='report_22',
                   detail={'from': start_date, 'to': end_date,
                           'modality': filters.get('mod'), 'ae': filters.get('ae')})
-        where, params = get_where_params(request.values)
+        where, params, site_clause = get_where_params(request.values)
 
         try:
             db.session.execute(text("""
@@ -99,7 +114,7 @@ def report_22():
             LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
             LEFT JOIN etl_patient_view p ON p.patient_db_uid::TEXT = s.patient_db_uid::TEXT
             WHERE COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
-        """
+        """ + site_clause
 
         cte = f"WITH base_data AS ({base_sql})"
 
@@ -437,7 +452,7 @@ def status_drilldown_22():
     export = request.form.get("export") == "1"
 
     # Reuse the shared filter builder so drilldown respects active filters
-    where, params = get_where_params(request.form)
+    where, params, site_clause = get_where_params(request.form)
 
     rows = db.session.execute(text(f"""
         WITH base_data AS (
@@ -458,6 +473,7 @@ def status_drilldown_22():
             LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
             LEFT JOIN etl_patient_view p ON p.patient_db_uid::TEXT = s.patient_db_uid::TEXT
             WHERE COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+              {site_clause}
         )
         SELECT study_db_uid, patient_id, study_date, modality,
                procedure_code, description, ae, physician
@@ -496,7 +512,7 @@ def status_drilldown_22():
 @report_22_bp.route("/report/22/export", methods=["POST"])
 @login_required
 def export_report_22():
-    where, params = get_where_params(request.form)
+    where, params, site_clause = get_where_params(request.form)
     # Optional modality filter via URL query param or form field
     export_mod = request.values.get("modality", "").strip()
     mod_clause = ""
@@ -514,6 +530,7 @@ def export_report_22():
             LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
             LEFT JOIN etl_patient_view p ON p.patient_db_uid::TEXT = s.patient_db_uid::TEXT
             WHERE COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+              {site_clause}
         )
         SELECT study_date, COALESCE(patient_class, 'N/A'), COALESCE(modality, 'N/A'), COALESCE(sex, 'U'),
                COALESCE(study_status, 'N/A'), COALESCE(patient_location, 'N/A'), COALESCE(physician, 'Unknown'),

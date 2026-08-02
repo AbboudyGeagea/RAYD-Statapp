@@ -240,6 +240,26 @@ in all data — per `migrations/0046_sites_mapping.sql` both values mean **RH**,
   `admin_controller`, `ai_alerts`, `registry`, `auth_controller` (each needs individual
   inspection — query structures differ from report_25's). Operator explicitly deferred this
   rollout rather than doing all 20 in one pass — pick up here.
+  - **Update 2026-08-02**: operator noticed inflated "today/yesterday" study counts and asked
+    to verify. Confirmed: `report_22` and `viewer_controller` (`/viewer/briefing` home-dashboard
+    "Studies Today" widget + `/viewer/yesterday`) were still counting SJH alongside RH — exactly
+    the two screens showing unfiltered day-of/day-before numbers, so this was the visible
+    symptom of the still-open rollout gap. Both now fixed with the same `default_site()` /
+    `m.site_id` pattern as report_25 (report_22: `get_where_params` returns an extra
+    `site_clause` appended into each `base_data` CTE's WHERE, all 3 routes — main view,
+    status-drilldown, CSV export — pick it up automatically via the shared `{cte}`;
+    viewer_controller: same pattern applied to `daily_briefing()`'s 3 CTEs + its `hl7_scn_studies`
+    real-time fallback [new join added, that table has no site marker of its own — joins via
+    `storing_ae` same as `etl_didb_studies`], and to `yesterday_overview()`'s KPI/physician/AE
+    queries). `report_widgets`/`report_23`/`report_31`-`35` were already done as of this session
+    too (found via `default_site()` grep) — this bullet list above is stale on those, not
+    re-verified individually. **Not fixed, flagged for later**: `yesterday_overview()`'s orders
+    reconciliation query (`etl_orders`, "Orders vs PACS studies reconciliation (Mazloum)") has
+    no `aetitle_modality_map` join to hang a site filter off — needs its own investigation, not
+    a copy-paste of this pattern. Still open per the list above: `report_27`, `super_report`,
+    `er_dashboard`, `oru_analytics`, `hl7_orders`, `capacity_ladder`, `cd_print_log`,
+    `financial_dashboard`, `referring_intel`, `live_feed`, `report_ai`, `admin_controller`,
+    `ai_alerts`, `registry`, `auth_controller`.
 - Once `utils/site_scope.py`/RLS is actually wired app-side (READY TO BUILD NEXT #1), this
   whole per-report workaround may become unnecessary — RLS would enforce site scope at the
   DB level for every query automatically. That's the real fix; this is the interim patch.

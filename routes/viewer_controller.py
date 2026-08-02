@@ -4,6 +4,7 @@ from flask_login import login_required, current_user
 from sqlalchemy import text
 from db import ReportAccessControl, db
 from utils.permissions import permission_required
+from utils.site_resolver import default_site
 
 from routes.report_registry import get_report
 
@@ -71,7 +72,17 @@ def viewer_dashboard():
 def daily_briefing():
     try:
         db.session.execute(text("SET LOCAL timezone = 'Asia/Beirut'"))
-        row = db.session.execute(text("""
+
+        # LAUMC site rule (operator instruction, 2026-07-26): reports show RH
+        # (main site) only, SJH excluded, for now. etl_didb_studies.site_id is
+        # never actually populated by the ETL, so site is resolved via the
+        # device instead: storing_ae -> aetitle_modality_map.site_id (same
+        # pattern as report_25 / utils/report_filters.py). Resolves to None
+        # (filter skipped) on a non-LAUMC/single-site install.
+        rh_site_id = default_site()
+        site_clause = " AND m.site_id = :rh_site_id" if rh_site_id is not None else ""
+
+        row = db.session.execute(text(f"""
             WITH
             latest AS (
                 SELECT MAX(s.study_date) AS d
@@ -80,6 +91,7 @@ def daily_briefing():
                     ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
                 WHERE s.study_date <= CURRENT_DATE - 1
                   AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+                  {site_clause}
             ),
             s AS MATERIALIZED (
                 -- rep_final_timestamp/rep_final_signed_by (PACS) are sparse/unreliable on
@@ -101,6 +113,7 @@ def daily_briefing():
                     ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
                 WHERE s.study_date >= (SELECT d FROM latest) - 7
                   AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+                  {site_clause}
             ),
             avg30 AS (
                 SELECT COALESCE(COUNT(*)::float / NULLIF(COUNT(DISTINCT s.study_date),0), 0) AS v
@@ -110,6 +123,7 @@ def daily_briefing():
                 WHERE s.study_date BETWEEN (SELECT d FROM latest) - 30
                                        AND (SELECT d FROM latest) - 1
                   AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+                  {site_clause}
             ),
             top_mod AS (
                 SELECT modality, COUNT(*) AS cnt
@@ -153,7 +167,7 @@ def daily_briefing():
                  WHERE study_date BETWEEN (SELECT d FROM latest) - 30
                                       AND (SELECT d FROM latest) - 1
                    AND tat_min > 0 AND tat_min < 2880)                                                AS avg_tat_30d
-        """)).fetchone()
+        """), {"rh_site_id": rh_site_id}).fetchone()
 
         if not row or not row[0]:
             return jsonify({'headline': 'No data available.', 'kpis': [], 'insights': [], 'pct_vs_avg': 0})
@@ -165,12 +179,17 @@ def daily_briefing():
 
         # Real-time today count from PACS completion messages.
         # Falls back to ETL snapshot if no SCN messages received yet today.
-        scn_today = db.session.execute(text("""
+        # hl7_scn_studies carries no site_id of its own -- resolve the same way
+        # as etl_didb_studies, via storing_ae -> aetitle_modality_map.site_id.
+        scn_today = db.session.execute(text(f"""
             SELECT COUNT(*)::int
-            FROM hl7_scn_studies
-            WHERE study_datetime::date = CURRENT_DATE
-              AND COALESCE(modality, '') NOT IN ('SR', 'OT')
-        """)).scalar() or 0
+            FROM hl7_scn_studies scn
+            LEFT JOIN aetitle_modality_map m
+                ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(scn.storing_ae))
+            WHERE scn.study_datetime::date = CURRENT_DATE
+              AND COALESCE(scn.modality, '') NOT IN ('SR', 'OT')
+              {site_clause}
+        """), {"rh_site_id": rh_site_id}).scalar() or 0
         if scn_today > 0:
             today_count = scn_today
 
@@ -308,12 +327,19 @@ def yesterday_overview():
         rows = lambda q, p={}: db.session.execute(text(q), p).fetchall()
         one  = lambda q, p={}: db.session.execute(text(q), p).fetchone()
 
+        # LAUMC site rule (operator instruction, 2026-07-26): reports show RH
+        # (main site) only, SJH excluded, for now. See daily_briefing() above
+        # for the full rationale; same pattern applied here.
+        rh_site_id = default_site()
+        site_clause = " AND m.site_id = :rh_site_id" if rh_site_id is not None else ""
+        site_params = {"rh_site_id": rh_site_id}
+
         # ── Query 1: all scalar KPIs in one round trip ─────────────────
         # MATERIALIZED forces PG to compute s/o once and reuse across all
         # scalar subqueries.  The first_visit window is capped at 1 year —
         # the old unbounded GROUP BY scanned the entire table every time.
         db.session.execute(text("SET LOCAL timezone = 'Asia/Beirut'"))
-        kpi = one("""
+        kpi = one(f"""
             WITH
             s AS MATERIALIZED (
                 SELECT s.patient_db_uid, s.storing_ae, s.patient_location,
@@ -322,6 +348,7 @@ def yesterday_overview():
                 LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
                 WHERE s.study_date = CURRENT_DATE - 1
                   AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+                  {site_clause}
             ),
             o AS MATERIALIZED (
                 SELECT order_status, scheduled_datetime
@@ -334,6 +361,7 @@ def yesterday_overview():
                 LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
                 WHERE s.study_date >= CURRENT_DATE - 365
                   AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+                  {site_clause}
                 GROUP BY s.patient_db_uid
             ),
             avg7 AS (
@@ -345,6 +373,7 @@ def yesterday_overview():
                 WHERE s.study_date >= CURRENT_DATE - 8
                   AND s.study_date <  CURRENT_DATE - 1
                   AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+                  {site_clause}
             ),
             peak AS (
                 SELECT EXTRACT(HOUR FROM scheduled_datetime)::int AS hr, COUNT(*) AS cnt
@@ -367,7 +396,7 @@ def yesterday_overview():
                 (SELECT COUNT(*)::int            FROM s WHERE UPPER(COALESCE(patient_location,''))='ER') AS er_patients,
                 (SELECT hr                       FROM peak)                                           AS peak_hr,
                 (SELECT cnt::int                 FROM peak)                                           AS peak_cnt
-        """)
+        """, site_params)
 
         orders_total       = kpi[0] or 0
         orders_ca          = kpi[1] or 0
@@ -381,7 +410,7 @@ def yesterday_overview():
         vs_avg             = round((studies_total - avg_7d) / avg_7d * 100, 1) if avg_7d else None
 
         # ── Query 2a: top referring physicians ─────────────────────────
-        phys_rows = rows("""
+        phys_rows = rows(f"""
             SELECT
                 COALESCE(NULLIF(TRIM(CONCAT_WS(' ',
                     s.referring_physician_first_name,
@@ -392,27 +421,29 @@ def yesterday_overview():
             WHERE s.study_date = CURRENT_DATE - 1
               AND s.referring_physician_first_name IS NOT NULL
               AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+              {site_clause}
             GROUP BY 1
             ORDER BY 2 DESC
             LIMIT 5
-        """)
+        """, site_params)
         physicians = [{"name": r[0], "count": r[1]} for r in phys_rows]
 
         # ── Query 2b: AE by study count ────────────────────────────────
-        ae_rows = rows("""
+        ae_rows = rows(f"""
             SELECT s.storing_ae AS ae, COUNT(*)::int AS count
             FROM etl_didb_studies s
             LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
             WHERE s.study_date = CURRENT_DATE - 1
               AND s.storing_ae IS NOT NULL
               AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+              {site_clause}
             GROUP BY 1
             ORDER BY 2 DESC
-        """)
+        """, site_params)
         ae_by_count_raw = [{"ae": r[0], "count": r[1]} for r in ae_rows]
 
         # ── Query 3: AE utilisation (join-heavy, kept separate) ────────
-        ae_by_util = rows("""
+        ae_by_util = rows(f"""
             SELECT
                 s.storing_ae,
                 SUM(COALESCE(pm.duration_minutes, 15))                                    AS used_mins,
@@ -428,13 +459,14 @@ def yesterday_overview():
             WHERE s.study_date = CURRENT_DATE - 1
               AND s.storing_ae IS NOT NULL
               AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+              {site_clause}
             GROUP BY s.storing_ae
             HAVING COALESCE(MAX(m.daily_capacity_minutes), MAX(ws.std_opening_minutes), 480) > 0
             ORDER BY
                 SUM(COALESCE(pm.duration_minutes, 15))::float /
                 NULLIF(COALESCE(MAX(m.daily_capacity_minutes), MAX(ws.std_opening_minutes), 480), 0)
                 DESC
-        """)
+        """, site_params)
 
         util_list = [
             {"ae": r[0], "used_min": int(r[1] or 0), "cap_min": int(r[2] or 0),
