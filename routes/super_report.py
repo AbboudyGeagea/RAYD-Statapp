@@ -17,6 +17,7 @@ from flask_login import login_required, current_user
 from sqlalchemy import text
 from db import db
 from routes.insights_engine import run_dept_insights
+from routes.report_cache import cache_get, cache_put
 from utils.stats import _pct, _fmt
 
 logger = logging.getLogger("SUPER_REPORT")
@@ -167,12 +168,19 @@ def super_report_snapshots():
 @super_report_bp.route("/viewer/super-report/filters")
 @login_required
 def super_report_filters():
+    # 19 SELECT DISTINCT queries below are expensive on the full ETL tables and
+    # never change within a TTL window -- cached like everything else in
+    # routes/report_cache.py (fixed key, no request params to vary on).
+    cached = cache_get("super_report_filters", {})
+    if cached is not None:
+        return jsonify(cached)
+
     try:
         def distinct(sql):
             rows = db.session.execute(text(sql)).fetchall()
             return sorted([r[0] for r in rows if r[0] is not None and str(r[0]).strip() != ''])
 
-        return jsonify({
+        data = {
             "modality":            distinct("SELECT DISTINCT COALESCE(m.modality, s.study_modality) FROM etl_didb_studies s LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle)) WHERE COALESCE(m.modality, s.study_modality) IS NOT NULL"),
             "storing_ae":          distinct("SELECT DISTINCT storing_ae FROM etl_didb_studies WHERE storing_ae IS NOT NULL"),
             "study_status":        distinct("SELECT DISTINCT study_status FROM etl_didb_studies WHERE study_status IS NOT NULL"),
@@ -194,7 +202,9 @@ def super_report_filters():
             "ae_modality_map":     dict(db.session.execute(text(
                 "SELECT aetitle, modality FROM aetitle_modality_map WHERE aetitle IS NOT NULL AND modality IS NOT NULL"
             )).fetchall()),
-        })
+        }
+        cache_put("super_report_filters", {}, data)
+        return jsonify(data)
     except Exception as e:
         logger.error(f"Filters error: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
@@ -240,18 +250,33 @@ def super_report():
     filters["age_min"]    = request.args.get("age_min")
     filters["age_max"]    = request.args.get("age_max")
 
+    # Cache key built post-resolution so an implicit vs. explicit cmp_start/end
+    # (auto-computed above when omitted) still lands on the same key, and
+    # multi-select values are pre-sorted so UI selection order doesn't cause a
+    # spurious cache miss (report_cache's generic key-builder sorts only the
+    # outer list, not values nested a level deeper).
+    cache_key = {
+        "start": start, "end": end, "cmp_start": cmp_start, "cmp_end": cmp_end,
+        **{k: (sorted(v) if isinstance(v, list) else v) for k, v in filters.items()},
+    }
+    cached = cache_get("super_report", cache_key)
+    if cached is not None:
+        return jsonify(cached)
+
     try:
         current   = _collect_data(start, end, filters)
         previous  = _collect_data(cmp_start, cmp_end, filters)
         narrative = _generate_narrative(current, previous, start, end, cmp_start, cmp_end, delta)
-        return jsonify({
+        result = {
             "current":    current,
             "previous":   previous,
             "narrative":  narrative,
             "cmp_start":  cmp_start,
             "cmp_end":    cmp_end,
             "delta_days": delta,
-        })
+        }
+        cache_put("super_report", cache_key, result)
+        return jsonify(result)
     except Exception as e:
         logger.error(f"Super report error: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
