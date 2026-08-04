@@ -51,6 +51,7 @@ Register in registry.py:
 import io
 import logging
 import statistics as _stats
+import time
 from datetime import date, datetime
 
 import numpy as np
@@ -113,6 +114,20 @@ def get_technician_tat_data(form_data):
     if cached is not None:
         return cached
 
+    # Temporary timing instrumentation (2026-08-04, operator request): logs how
+    # long each phase of this function takes so a slow real-world date range
+    # can be diagnosed from production logs instead of guessed at. Remove once
+    # the report_35 slowness investigation is closed out.
+    _t_start = time.perf_counter()
+    _t_prev = [_t_start]
+
+    def _lap(label, **extra):
+        now = time.perf_counter()
+        elapsed = now - _t_prev[0]
+        _t_prev[0] = now
+        extra_str = (' ' + ' '.join(f'{k}={v}' for k, v in extra.items())) if extra else ''
+        logger.info(f"[report_35][timing] {label}: {elapsed:.3f}s{extra_str}")
+
     go_live = get_etl_cutoff_date()
     start = form_data.get("start_date") or (go_live.strftime("%Y-%m-%d") if go_live else "2024-01-01")
     end   = form_data.get("end_date") or date.today().strftime("%Y-%m-%d")
@@ -170,6 +185,7 @@ def get_technician_tat_data(form_data):
             for k, v in _pacs_ris_thresholds.items()
             if v is not None and str(v).strip()
         }
+        _lap("settings thresholds query")
 
         # scheduled/exam_done/tech_ref are LATERAL subqueries keyed on ar.pps_key, NOT
         # pre-aggregated CTEs over their full source tables -- std_pps_person_reference
@@ -243,6 +259,7 @@ def get_technician_tat_data(form_data):
             {_filter_clause}
             ORDER BY modality, arrived_at
         """), params).mappings().fetchall()
+        _lap("main tech_rows SQL query (arrival+base CTE, LATERAL joins)", rows=len(tech_rows))
 
         if tech_rows:
             tdf = pd.DataFrame(tech_rows)
@@ -258,9 +275,11 @@ def get_technician_tat_data(form_data):
             # Signed (not abs()) so "PACS registered before RIS marked done" is visible
             # too, not just the more intuitive "PACS lagging RIS" direction.
             tdf['pacs_ris_diff_min'] = (tdf['pacs_insert_time'] - tdf['exam_done_at']).dt.total_seconds() / 60.0
+            _lap("dataframe construction + dtype conversion", rows=len(tdf))
 
             completed = tdf[tdf['exam_done_at'].notna()].copy()
             pending   = tdf[tdf['exam_done_at'].isna()].copy()
+            _lap("completed/pending split", completed=len(completed), pending=len(pending))
 
             # Pre-index ER orders: modality → sorted arrays of (arrived_at, accession,
             # patient_class). An order is "ER" if accession_number starts with '2XE'
@@ -279,6 +298,7 @@ def get_technician_tat_data(form_data):
                     'accession':     grp['accession_number'].to_numpy(),
                     'patient_class': grp['patient_class'].to_numpy(),
                 }
+            _lap("ER index build", er_rows=len(er_rows))
 
             def _find_concurrent_er(row):
                 """Return list of ER accessions whose arrived_at falls inside row's exam window."""
@@ -313,6 +333,7 @@ def get_technician_tat_data(form_data):
                     cur, nxt = grp.iloc[i], grp.iloc[i + 1]
                     if pd.notna(cur['exam_done_at']) and cur['exam_done_at'] > nxt['arrived_at']:
                         overlap_accessions.add(cur['accession_number'])
+            _lap("overlap detection", overlaps=len(overlap_accessions))
 
             # Flags computed as numpy boolean arrays over the whole `completed` frame at
             # once, instead of a per-row .iterrows() loop -- iterrows() reconstructs a
@@ -343,6 +364,7 @@ def get_technician_tat_data(form_data):
 
             has_any_flag = valid_tat & (is_negative | is_too_early | is_overlap | is_too_late | is_mismatch)
             flagged_idx  = np.nonzero(has_any_flag)[0]
+            _lap("flag vectorization", flagged=len(flagged_idx))
 
             flagged_rows = []
             for i in flagged_idx:
@@ -375,6 +397,7 @@ def get_technician_tat_data(form_data):
                     'er_concurrent':   er_concurrent,
                 })
             tech_data['flagged'] = sorted(flagged_rows, key=lambda x: len(x['flags']), reverse=True)
+            _lap("flagged row formatting (strftime + ER lookup)", flagged=len(flagged_rows))
 
             # Same treatment for overdue pending exams: compute the deadline check as a
             # vectorized comparison, then only build output dicts for the (usually small)
@@ -394,6 +417,7 @@ def get_technician_tat_data(form_data):
                         'arrived_at':  r['arrived_at'].strftime('%Y-%m-%d %H:%M'),
                         'overdue_min': round((now_ts - deadline).total_seconds() / 60, 1),
                     })
+            _lap("never_done computation", never_done=len(tech_data['never_done']))
 
             flagged_accessions = {r['accession'] for r in tech_data['flagged']}
             tech_data['summary'] = {
@@ -406,6 +430,7 @@ def get_technician_tat_data(form_data):
                 'flag_too_late':         sum(1 for r in tech_data['flagged'] if 'too_late'         in r['flags']),
                 'flag_pacs_ris_mismatch': sum(1 for r in tech_data['flagged'] if 'pacs_ris_mismatch' in r['flags']),
             }
+            _lap("summary flag counts")
 
             daily_trend = []
             if len(completed):
@@ -421,6 +446,7 @@ def get_technician_tat_data(form_data):
                     })
                 daily_trend.sort(key=lambda x: x['date'])
             tech_data['daily_trend'] = daily_trend
+            _lap("daily trend computation", days=len(daily_trend))
 
             def _skew_insight(avg, median):
                 if avg is None or median is None or median == 0: return None
@@ -440,6 +466,7 @@ def get_technician_tat_data(form_data):
                 tech_data['summary']['avg_tat']      = dept_avg
                 tech_data['summary']['median_tat']   = dept_median
                 tech_data['summary']['dept_insight'] = _skew_insight(dept_avg, dept_median)
+            _lap("dept averages")
 
             # Per-tech modality breakdown (pure pandas, no extra query)
             _done_with_tech = completed[
@@ -455,6 +482,7 @@ def get_technician_tat_data(form_data):
                     'avg_tat':      round(float(tats.mean()),  1) if len(tats)  else None,
                     'avg_pacs_tat': round(float(ptats.mean()), 1) if len(ptats) else None,
                 })
+            _lap("tech/modality breakdown", techs=len(tech_mod_breakdown))
 
             for tech, gdf in completed[completed['done_by'].notna()].groupby('done_by'):
                 all_tats_tech = gdf['tat_min'].dropna().tolist()
@@ -487,6 +515,7 @@ def get_technician_tat_data(form_data):
                     'insight':         _skew_insight(avg, median),
                 })
             tech_data['by_technician'].sort(key=lambda x: x['avg_tat'] if x['avg_tat'] is not None else 9999)
+            _lap("by_technician aggregation", technicians=len(tech_data['by_technician']))
 
             for mod, gdf in completed[completed['modality'].notna()].groupby('modality'):
                 tats = gdf['tat_min'].dropna()
@@ -498,6 +527,7 @@ def get_technician_tat_data(form_data):
                     'insight': _skew_insight(avg, median),
                 })
             tech_data['by_modality'].sort(key=lambda x: x['avg_tat'] if x['avg_tat'] is not None else 9999)
+            _lap("by_modality aggregation", modalities=len(tech_data['by_modality']))
 
     except Exception:
         logger.exception("Failed to build technician monitoring data")
@@ -520,11 +550,14 @@ def get_technician_tat_data(form_data):
     except Exception:
         db.session.rollback()
         tech_data['ack_map'] = {}
+    _lap("acknowledgements query", acks=len(tech_data.get('ack_map', {})))
 
     result = {
         'tech_data': tech_data,
     }
     cache_put(_REPORT_ID, form_data, result)
+    logger.info(f"[report_35][timing] TOTAL: {time.perf_counter() - _t_start:.3f}s "
+                f"(start={start} end={end} modalities={params.get('modalities')})")
     return result
 
 
