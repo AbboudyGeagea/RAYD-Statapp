@@ -55,28 +55,34 @@ def _evict_expired() -> int:
     """Remove all entries past their TTL. Returns count removed. Thread-safe."""
     now = time.time()
     with _lock:
-        expired = [k for k, v in _store.items() if now - v["ts"] >= _TTL]
+        expired = [k for k, v in _store.items() if now - v["ts"] >= v.get("ttl", _TTL)]
         for k in expired:
             del _store[k]
     return len(expired)
 
 
-def cache_get(report_id: int, form_data):
-    """Return cached result tuple or None if missing/expired."""
+def cache_get(report_id: int, form_data, ttl: int = None):
+    """Return cached result tuple or None if missing/expired.
+
+    ttl overrides the default 5-minute window for callers whose data doesn't
+    need to be that fresh (e.g. trend/forecast sections) — must match the ttl
+    passed to the corresponding cache_put, since the stored ttl (set at write
+    time) is what's actually checked on read.
+    """
     key = _make_key(report_id, form_data)
     with _lock:
         entry = _store.get(key)
-    if entry and (time.time() - entry["ts"]) < _TTL:
+    if entry and (time.time() - entry["ts"]) < entry.get("ttl", _TTL):
         return entry["data"]
     return None
 
 
-def cache_put(report_id: int, form_data, data) -> None:
+def cache_put(report_id: int, form_data, data, ttl: int = None) -> None:
     """Store result. Evicts oldest entry if over _MAX_SIZE."""
     key = _make_key(report_id, form_data)
     now = time.time()
     with _lock:
-        _store[key] = {"data": data, "ts": now}
+        _store[key] = {"data": data, "ts": now, "ttl": ttl if ttl is not None else _TTL}
         if len(_store) > _MAX_SIZE:
             oldest = min(_store, key=lambda k: _store[k]["ts"])
             del _store[oldest]

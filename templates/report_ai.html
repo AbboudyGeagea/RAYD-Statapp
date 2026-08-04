@@ -122,10 +122,14 @@
             <div style="border-top:1px solid var(--border);padding-top:16px;">
                 <label class="mb-3">Modules</label>
                 <div class="flex flex-col gap-2">
-                    {% for module, lbl, color in [('storage','Storage Forecast','#2f80ed'),('volume','Volume Forecast','#56ccf2'),('utilization','Utilization Anomalies','#f2994a'),('physician','Physician Intelligence','#9b51e0')] %}
+                    {% for module, lbl in [('storage','Storage Forecast'),('volume','Volume Forecast'),('utilization','Utilization Anomalies'),('physician','Physician Intelligence')] %}
                     <div class="flex items-center justify-between">
                         <span style="font-size:13px;color:#b0cce8;">{{ lbl }}</span>
-                        <span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:4px;background:{{ 'rgba(39,174,96,0.15)' if data[module] else 'rgba(235,87,87,0.15)' }};color:{{ '#27ae60' if data[module] else '#eb5757' }};">{{ 'OK' if data[module] else 'NO DATA' }}</span>
+                        {% if module == active_data_key %}
+                        <span id="module-badge-{{ module }}" style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:4px;background:{{ 'rgba(39,174,96,0.15)' if data[module] else 'rgba(235,87,87,0.15)' }};color:{{ '#27ae60' if data[module] else '#eb5757' }};">{{ 'OK' if data[module] else 'NO DATA' }}</span>
+                        {% else %}
+                        <span id="module-badge-{{ module }}" title="Loads when you open this tab" style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:4px;background:rgba(122,156,201,0.12);color:#7a9cc9;">—</span>
+                        {% endif %}
                     </div>
                     {% endfor %}
                 </div>
@@ -135,101 +139,32 @@
         <div class="flex-1 flex flex-col overflow-hidden">
 
             <div class="tab-bar">
-                <div class="tab active" onclick="switchTab('storage',   this)">📦 Storage</div>
-                <div class="tab"        onclick="switchTab('volume',    this)">📈 Volume</div>
-                <div class="tab"        onclick="switchTab('util',      this)">⚡ Utilization</div>
-                <div class="tab"        onclick="switchTab('physician', this)">👨‍⚕️ Physicians</div>
+                <div class="tab {{ 'active' if active_tab=='storage'   else '' }}" onclick="switchTab('storage',   this)">📦 Storage</div>
+                <div class="tab {{ 'active' if active_tab=='volume'    else '' }}" onclick="switchTab('volume',    this)">📈 Volume</div>
+                <div class="tab {{ 'active' if active_tab=='util'      else '' }}" onclick="switchTab('util',      this)">⚡ Utilization</div>
+                <div class="tab {{ 'active' if active_tab=='physician' else '' }}" onclick="switchTab('physician', this)">👨‍⚕️ Physicians</div>
             </div>
 
             <div class="flex-1 overflow-y-auto p-6" style="background:var(--bg);" id="panels-wrap">
 
                 <!-- STORAGE -->
-                <div id="panel-storage" class="panel active space-y-6">
-                    {% if data.storage %}{% set s = data.storage %}
-                    <div class="explain-box"><strong>AI Analysis:</strong> {{ s.explanation }}</div>
-                    <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);">
-                        <div class="kpi blue"><div class="kpi-label">Current Storage</div><div class="kpi-val">{{ "%.1f"|format(s.current_gb) }}<span style="font-size:16px;color:#94b8d8;"> GB</span></div><div class="kpi-sub">of {{ "%.0f"|format(s.capacity_gb) }} GB capacity</div></div>
-                        <div class="kpi {{ 'red' if s.daily_growth_gb > 1 else 'cyan' }}"><div class="kpi-label">Daily Growth</div><div class="kpi-val">{{ "%.2f"|format(s.daily_growth_gb) }}<span style="font-size:16px;color:#94b8d8;"> GB</span></div><div class="kpi-sub">per day (linear trend)</div></div>
-                        <div class="kpi {{ 'red' if s.days_to_full and s.days_to_full < 180 else 'green' }}"><div class="kpi-label">Days to Capacity</div><div class="kpi-val">{{ s.days_to_full if s.days_to_full else '—' }}</div><div class="kpi-sub">at current growth rate</div></div>
-                    </div>
-                    {% set used_pct = (s.current_gb / s.capacity_gb * 100)|round(1) %}
-                    <div class="card p-5"><div class="flex justify-between items-center mb-3"><span style="font-size:13px;font-weight:700;color:#b0cce8;text-transform:uppercase;letter-spacing:0.06em;">Capacity Usage</span><span style="font-size:15px;font-weight:700;color:white;font-family:'JetBrains Mono',monospace;">{{ used_pct }}%</span></div><div class="progress-wrap"><div class="progress-fill" style="width:{{ used_pct }}%;background:{{ '#eb5757' if used_pct > 80 else '#f2994a' if used_pct > 60 else '#27ae60' }};"></div></div><div class="flex justify-between mt-2"><span style="font-size:12px;color:#94b8d8;">{{ "%.1f"|format(s.current_gb) }} GB used</span><span style="font-size:12px;color:#94b8d8;">{{ "%.1f"|format(s.capacity_gb - s.current_gb) }} GB free</span></div></div>
-                    <div class="card"><div class="card-head">Storage Growth + 90-Day Forecast <span style="font-size:11px;color:#7a9cc9;">R² = {{ s.r2 }}</span></div><div class="card-desc">Historical storage with linear regression forecast for the next 90 days.</div><div id="chart-storage" style="height:380px;padding:16px;"></div></div>
-                    {% else %}<div class="flex items-center justify-center h-64 text-center" style="color:var(--muted);"><div><div style="font-size:32px;margin-bottom:12px;">📦</div><p style="font-size:15px;font-weight:700;color:white;">No storage data found</p></div></div>{% endif %}
+                <div id="panel-storage" class="panel {{ 'active' if active_tab=='storage' else '' }} space-y-6">
+                    {% if active_tab == 'storage' %}{% include '_ai_panel_storage.html' %}{% endif %}
                 </div>
 
                 <!-- VOLUME -->
-                <div id="panel-volume" class="panel space-y-6">
-                    {% if data.volume %}{% set v = data.volume %}
-                    <div class="explain-box"><strong>AI Analysis:</strong> {{ v.explanation }}</div>
-                    <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);">
-                        <div class="kpi blue"><div class="kpi-label">Total Studies</div><div class="kpi-val">{{ "{:,}".format(v.total) }}</div><div class="kpi-sub">in selected period</div></div>
-                        <div class="kpi cyan"><div class="kpi-label">Avg Daily Volume</div><div class="kpi-val">{{ v.avg_daily }}</div><div class="kpi-sub">studies per day</div></div>
-                        <div class="kpi {{ 'green' if v.slope > 0 else 'red' }}"><div class="kpi-label">Trend</div><div class="kpi-val">{{ '+' if v.slope > 0 else '' }}{{ v.slope }}</div><div class="kpi-sub">studies/day change (regression)</div></div>
-                    </div>
-                    <div class="card"><div class="card-head">Daily Study Volume + 90-Day Forecast <span style="font-size:11px;color:#7a9cc9;">R² = {{ v.r2 }} · anomalies highlighted</span></div><div class="card-desc">Daily study count with linear forecast. Red dots = anomalous days (±2σ).</div><div id="chart-volume" style="height:380px;padding:16px;"></div></div>
-                    <div class="card"><div class="card-head">Volume Split by Modality</div><div class="card-desc">Proportion of total studies per modality in the selected period.</div><div id="chart-volume-mod" style="height:320px;padding:16px;"></div></div>
-                    {% else %}<div class="flex items-center justify-center h-64" style="color:var(--muted);">No study data available.</div>{% endif %}
+                <div id="panel-volume" class="panel {{ 'active' if active_tab=='volume' else '' }} space-y-6">
+                    {% if active_tab == 'volume' %}{% include '_ai_panel_volume.html' %}{% endif %}
                 </div>
 
                 <!-- UTILIZATION -->
-                <div id="panel-util" class="panel space-y-6">
-                    {% if data.utilization %}{% set u = data.utilization %}
-                    <div class="explain-box"><strong>AI Analysis:</strong> {{ u.explanation }}</div>
-                    <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);">
-                        <div class="kpi {{ 'red' if u.anomaly_count > 10 else 'orange' if u.anomaly_count > 0 else 'green' }}"><div class="kpi-label">Anomalies Detected</div><div class="kpi-val">{{ u.anomaly_count }}</div><div class="kpi-sub">days outside normal range (±2σ)</div></div>
-                        <div class="kpi red"><div class="kpi-label">High Stress AEs</div><div class="kpi-val">{{ u.high_stress|length }}</div><div class="kpi-sub">avg utilization >85%</div></div>
-                        <div class="kpi orange"><div class="kpi-label">Under-Utilized AEs</div><div class="kpi-val">{{ u.low_util|length }}</div><div class="kpi-sub">avg utilization <30%</div></div>
-                    </div>
-                    <!-- AE chip selector -->
-                    <div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;scrollbar-width:thin;">
-                        {% for ae in u.ae_list %}
-                        {% set util_color = '#eb5757' if ae.avg_util > 85 else '#f2994a' if ae.avg_util > 60 else '#27ae60' %}
-                        {% set border_l   = '3px solid #eb5757' if ae.avg_util > 85 else '3px solid #f2994a' if ae.avg_util > 60 else '3px solid #27ae60' %}
-                        <button id="ae-chip-{{ loop.index0 }}" onclick="selectAE({{ loop.index0 }})"
-                            style="flex-shrink:0;min-width:130px;max-width:170px;background:var(--surface);border:1px solid var(--border);border-left:{{ border_l }};border-radius:10px;padding:10px 12px;cursor:pointer;text-align:left;transition:all 0.15s;font-family:'Space Grotesk',sans-serif;">
-                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
-                                <span style="font-size:11px;font-weight:700;color:white;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:90px;">{{ ae.ae }}</span>
-                                <span style="font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;color:{{ util_color }};flex-shrink:0;">{{ ae.avg_util }}%</span>
-                            </div>
-                            <div style="background:var(--border);border-radius:4px;height:3px;overflow:hidden;">
-                                <div style="width:{{ [ae.avg_util,100]|min }}%;height:100%;border-radius:4px;background:{{ util_color }};"></div>
-                            </div>
-                            {% if ae.anomaly_count > 0 %}
-                            <div style="margin-top:5px;font-size:9px;color:#f2994a;font-weight:700;">⚠ {{ ae.anomaly_count }} anomalies</div>
-                            {% endif %}
-                        </button>
-                        {% endfor %}
-                    </div>
-
-                    <!-- AE detail chart — full width -->
-                    <div class="card" style="display:flex;flex-direction:column;">
-                        <div class="card-head" id="ae-chart-title">Select an AE to view detail</div>
-                        <div class="card-desc" id="ae-chart-desc">Click any AE chip above to view daily utilization trend, anomalies, and 30-day forecast. Use the zoom bar to navigate dense date ranges.</div>
-                        <div id="chart-ae-detail" style="height:440px;padding:16px;"></div>
-                    </div>
-                    {% else %}<div class="flex items-center justify-center h-64" style="color:var(--muted);">No utilization data available.</div>{% endif %}
+                <div id="panel-util" class="panel {{ 'active' if active_tab=='util' else '' }} space-y-6">
+                    {% if active_tab == 'util' %}{% include '_ai_panel_util.html' %}{% endif %}
                 </div>
 
                 <!-- PHYSICIAN -->
-                <div id="panel-physician" class="panel space-y-6">
-                    {% if data.physician %}{% set p = data.physician %}
-                    <details class="mb-3 small">
-                      <summary class="text-muted" style="cursor:pointer;">How is this calculated?</summary>
-                      <div class="mt-2 text-muted ps-3 border-start">
-                        Physician referral trends are calculated using <strong>linear regression</strong> on daily
-                        referral counts over the selected date range. The <strong>90-day forecast</strong> projects
-                        this trend forward assuming a constant slope. Physicians with a consistently negative trend
-                        are flagged as <em>Declining</em>; those with a positive trend as <em>Growing</em>.
-                        Data source: referring physician field from PACS studies (etl_didb_studies).
-                      </div>
-                    </details>
-                    <div class="explain-box"><strong>AI Analysis:</strong> {{ p.explanation }}</div>
-                    {% if p.churning %}<div style="background:rgba(235,87,87,0.07);border:1px solid rgba(235,87,87,0.25);border-radius:10px;padding:14px 18px;"><div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#eb5757;margin-bottom:8px;">⬇ Declining Referral Trend</div><div class="flex flex-wrap gap-2">{% for name in p.churning %}<span style="background:rgba(235,87,87,0.15);color:#eb5757;font-size:10px;font-weight:700;padding:3px 10px;border-radius:5px;">{{ name }}</span>{% endfor %}</div></div>{% endif %}
-                    {% if p.growing %}<div style="background:rgba(39,174,96,0.07);border:1px solid rgba(39,174,96,0.25);border-radius:10px;padding:14px 18px;"><div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#27ae60;margin-bottom:8px;">⬆ Growing Referral Trend</div><div class="flex flex-wrap gap-2">{% for name in p.growing %}<span style="background:rgba(39,174,96,0.15);color:#27ae60;font-size:10px;font-weight:700;padding:3px 10px;border-radius:5px;">{{ name }}</span>{% endfor %}</div></div>{% endif %}
-                    <div class="card"><div class="card-head">Top 20 Referring Physicians — Trend Analysis <span style="font-size:11px;color:#7a9cc9;">click row to view monthly chart</span></div><div class="card-desc">Monthly referral volume per physician with linear trend slope.</div><div style="overflow-x:auto;max-height:400px;overflow-y:auto;"><table class="phys-table"><thead><tr><th>Physician</th><th>Modalities</th><th>Total</th><th>Trend</th><th>Forecast</th></tr></thead><tbody>{% for doc in p.physicians %}<tr onclick="selectPhysician({{ loop.index0 }})" style="cursor:pointer;" id="phys-row-{{ loop.index0 }}"><td style="font-weight:700;color:white;">{{ doc.name }}</td><td>{% if doc.modality_mix %}<div style="display:flex;flex-wrap:wrap;gap:2px;">{% for mm in doc.modality_mix[:5] %}<span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;background:rgba(47,128,237,0.12);color:#56ccf2;">{{ mm.modality }}</span>{% endfor %}</div>{% else %}<span style="color:var(--muted);font-size:10px;">—</span>{% endif %}</td><td style="font-family:'JetBrains Mono',monospace;">{{ "{:,}".format(doc.total) }}</td><td>{% if doc.slope > 0.5 %}<span class="badge badge-up">▲ +{{ doc.slope }}</span>{% elif doc.slope < -0.5 %}<span class="badge badge-down">▼ {{ doc.slope }}</span>{% else %}<span class="badge" style="background:rgba(61,82,120,0.3);color:var(--muted);">→ stable</span>{% endif %}</td><td style="font-size:10px;color:var(--muted);">{% if doc.chart.forecast_vals %}~{{ doc.chart.forecast_vals[-1]|round|int }}/mo{% else %}—{% endif %}</td></tr>{% endfor %}</tbody></table></div></div>
-                    <div class="card"><div class="card-head" id="phys-chart-title">Select a physician to view monthly trend</div><div id="chart-physician-detail" style="height:340px;padding:16px;"></div></div>
-                    {% else %}<div class="flex items-center justify-center h-64" style="color:var(--muted);">No physician data available.</div>{% endif %}
+                <div id="panel-physician" class="panel {{ 'active' if active_tab=='physician' else '' }} space-y-6">
+                    {% if active_tab == 'physician' %}{% include '_ai_panel_physician.html' %}{% endif %}
                 </div>
 
             </div><!-- /panels-wrap -->
@@ -239,24 +174,65 @@
     <script>
     const D = {{ data | tojson | safe if data else '{}' }};
 
-    function switchTab(name, el) {
+    // Tab name (URL/DOM, e.g. 'util') -> data dict key (e.g. 'utilization').
+    // Pre-existing mismatch kept as-is rather than renamed everywhere.
+    function dataKeyFor(tabName) { return tabName === 'util' ? 'utilization' : tabName; }
+
+    // Sections fetched so far -- the tab rendered by the server on this load
+    // starts pre-populated; the other three are fetched the first time the
+    // user actually clicks over to them (see loadSection below).
+    const loadedSections = new Set(['{{ active_data_key }}']);
+
+    async function switchTab(name, el) {
         document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
         document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
         if (el) el.classList.add('active');
         const panel = document.getElementById('panel-' + name);
         if (panel) panel.classList.add('active');
+
+        const key = dataKeyFor(name);
+        if (!loadedSections.has(key)) {
+            await loadSection(name, key);
+        }
         // ECharts renders as 0x0 when container is display:none — resize after tab is visible
         setTimeout(() => Object.values(charts).forEach(c => c && c.resize()), 50);
     }
 
-    // Deep-link: jump to the tab requested via ?tab= param
-    (function() {
-        const t = '{{ active_tab }}';
-        if (t && t !== 'storage') {
-            const el = document.querySelector('[onclick*="\'' + t + '\'"]');
-            switchTab(t, el);
+    async function loadSection(name, key) {
+        const panel = document.getElementById('panel-' + name);
+        if (panel) panel.innerHTML = '<div class="flex items-center justify-center h-64" style="color:var(--muted);">Loading…</div>';
+        try {
+            const params = new URLSearchParams({ start_date: '{{ display_start }}', end_date: '{{ display_end }}' });
+            const resp = await fetch('{{ url_for("report_ai.report_ai_panel", section="_S_") }}'.replace('_S_', name) + '?' + params);
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            const payload = await resp.json();
+            if (panel) panel.innerHTML = payload.html;
+            D[key] = payload.data;
+            loadedSections.add(key);
+            initChartsFor(name, payload.data);
+            updateModuleStatus(key, payload.data);
+        } catch (e) {
+            if (panel) panel.innerHTML = '<div class="flex items-center justify-center h-64" style="color:var(--danger);">Failed to load this section — try again.</div>';
         }
-    })();
+    }
+
+    function updateModuleStatus(key, sectionData) {
+        const badge = document.getElementById('module-badge-' + key);
+        if (!badge) return;
+        if (sectionData) {
+            badge.style.background = 'rgba(39,174,96,0.15)'; badge.style.color = '#27ae60'; badge.textContent = 'OK';
+        } else {
+            badge.style.background = 'rgba(235,87,87,0.15)'; badge.style.color = '#eb5757'; badge.textContent = 'NO DATA';
+        }
+        badge.title = '';
+    }
+
+    function initChartsFor(name, sectionData) {
+        if (name === 'storage')   initStorageChart(sectionData);
+        if (name === 'volume')    initVolumeChart(sectionData);
+        if (name === 'util')      initUtilChart(sectionData);
+        if (name === 'physician') initPhysicianChart(sectionData);
+    }
 
     const charts = {};
     function mkChart(id) {
@@ -270,27 +246,43 @@
     const axisLabel = { color: '#7a9cc9', fontSize: 12 };
     const splitLine = { lineStyle: { color: '#162440' } };
 
-    if (D.storage && D.storage.chart) {
-        const sc = D.storage.chart, c = mkChart('chart-storage');
+    function initStorageChart(sdata) {
+        if (!sdata || !sdata.chart) return;
+        const sc = sdata.chart, c = mkChart('chart-storage');
         if (c) {
             const all = [...sc.historical_dates, ...sc.forecast_dates];
             c.setOption({ tooltip: { trigger:'axis', formatter: p => p.map(s=>`${s.marker} ${s.seriesName}: ${s.value!=null?s.value+' GB':'—'}`).join('<br>') }, legend: { bottom:0, textStyle:{color:'#3d5278',fontSize:11} }, grid:{left:60,right:30,top:20,bottom:50}, xAxis:{type:'category',data:all,axisLabel:{...axisLabel,rotate:30}}, yAxis:{type:'value',name:'GB',nameTextStyle:{color:'#3d5278',fontSize:10},splitLine,axisLabel:{...axisLabel,formatter:v=>v+' GB'}}, series:[{name:'Historical',type:'line',smooth:true,data:[...sc.historical_vals,...new Array(sc.forecast_dates.length).fill(null)],lineStyle:{color:'#2f80ed',width:2.5},itemStyle:{color:'#2f80ed'},areaStyle:{color:'rgba(47,128,237,0.1)'},symbol:'none'},{name:'Forecast',type:'line',smooth:true,data:[...new Array(sc.historical_dates.length).fill(null),...sc.forecast_vals],lineStyle:{color:'#56ccf2',width:2,type:'dashed'},itemStyle:{color:'#56ccf2'},areaStyle:{color:'rgba(86,204,242,0.07)'},symbol:'none'}] });
+            _addPdfOverlay('chart-storage', 'Storage Growth + 90-Day Forecast', 'ai_storage', '#050d1a');
         }
     }
-    if (D.volume && D.volume.chart) {
-        const vc = D.volume.chart, c = mkChart('chart-volume');
-        if (c) {
-            const all = [...vc.historical_dates,...vc.forecast_dates];
-            const anom = vc.historical_dates.map((d,i)=>vc.anomaly_flags[i]?{value:vc.historical_vals[i],itemStyle:{color:'#eb5757'},symbolSize:8}:{value:vc.historical_vals[i],symbolSize:0});
-            c.setOption({tooltip:{trigger:'axis'},legend:{bottom:0,textStyle:{color:'#3d5278',fontSize:11}},grid:{left:60,right:30,top:20,bottom:50},xAxis:{type:'category',data:all,axisLabel:{...axisLabel,rotate:30}},yAxis:{type:'value',name:'Studies',nameTextStyle:{color:'#3d5278',fontSize:10},splitLine,axisLabel},series:[{name:'Daily Volume',type:'bar',data:[...vc.historical_vals,...new Array(vc.forecast_dates.length).fill(null)],itemStyle:{color:'#2f80ed',borderRadius:[2,2,0,0]},barMaxWidth:12},{name:'Anomaly',type:'scatter',data:[...anom,...new Array(vc.forecast_dates.length).fill(null)],itemStyle:{color:'#eb5757'},symbol:'circle',symbolSize:8,z:10},{name:'Forecast',type:'line',smooth:true,data:[...new Array(vc.historical_dates.length).fill(null),...vc.forecast_vals],lineStyle:{color:'#56ccf2',width:2,type:'dashed'},itemStyle:{color:'#56ccf2'},symbol:'none'}]});
+    function initVolumeChart(vdata) {
+        if (!vdata) return;
+        if (vdata.chart) {
+            const vc = vdata.chart, c = mkChart('chart-volume');
+            if (c) {
+                const all = [...vc.historical_dates,...vc.forecast_dates];
+                const anom = vc.historical_dates.map((d,i)=>vc.anomaly_flags[i]?{value:vc.historical_vals[i],itemStyle:{color:'#eb5757'},symbolSize:8}:{value:vc.historical_vals[i],symbolSize:0});
+                c.setOption({tooltip:{trigger:'axis'},legend:{bottom:0,textStyle:{color:'#3d5278',fontSize:11}},grid:{left:60,right:30,top:20,bottom:50},xAxis:{type:'category',data:all,axisLabel:{...axisLabel,rotate:30}},yAxis:{type:'value',name:'Studies',nameTextStyle:{color:'#3d5278',fontSize:10},splitLine,axisLabel},series:[{name:'Daily Volume',type:'bar',data:[...vc.historical_vals,...new Array(vc.forecast_dates.length).fill(null)],itemStyle:{color:'#2f80ed',borderRadius:[2,2,0,0]},barMaxWidth:12},{name:'Anomaly',type:'scatter',data:[...anom,...new Array(vc.forecast_dates.length).fill(null)],itemStyle:{color:'#eb5757'},symbol:'circle',symbolSize:8,z:10},{name:'Forecast',type:'line',smooth:true,data:[...new Array(vc.historical_dates.length).fill(null),...vc.forecast_vals],lineStyle:{color:'#56ccf2',width:2,type:'dashed'},itemStyle:{color:'#56ccf2'},symbol:'none'}]});
+                _addPdfOverlay('chart-volume', 'Daily Study Volume + 90-Day Forecast', 'ai_volume', '#050d1a');
+            }
         }
-        if (D.volume.modality_split) {
+        if (vdata.modality_split) {
             const cm = mkChart('chart-volume-mod');
-            if (cm) cm.setOption({tooltip:{trigger:'item',formatter:'{b}: {c} studies ({d}%)'},series:[{type:'pie',radius:['40%','72%'],center:['50%','50%'],data:D.volume.modality_split.map(m=>({name:m.name,value:m.value})),itemStyle:{borderRadius:6,borderColor:'#03070f',borderWidth:2},label:{color:'#8fb3e0',fontSize:12},emphasis:{itemStyle:{shadowBlur:10,shadowColor:'rgba(47,128,237,0.5)'}}}],color:['#2f80ed','#56ccf2','#27ae60','#f2994a','#9b51e0','#eb5757','#6fcf97','#bb87fc']});
+            if (cm) {
+                cm.setOption({tooltip:{trigger:'item',formatter:'{b}: {c} studies ({d}%)'},series:[{type:'pie',radius:['40%','72%'],center:['50%','50%'],data:vdata.modality_split.map(m=>({name:m.name,value:m.value})),itemStyle:{borderRadius:6,borderColor:'#03070f',borderWidth:2},label:{color:'#8fb3e0',fontSize:12},emphasis:{itemStyle:{shadowBlur:10,shadowColor:'rgba(47,128,237,0.5)'}}}],color:['#2f80ed','#56ccf2','#27ae60','#f2994a','#9b51e0','#eb5757','#6fcf97','#bb87fc']});
+                _addPdfOverlay('chart-volume-mod', 'Volume Split by Modality', 'ai_volume_mod', '#050d1a');
+            }
         }
     }
-    const AE_DATA = D.utilization ? D.utilization.ae_list : [];
-    const aeChart = mkChart('chart-ae-detail');
+
+    let AE_DATA = [];
+    let aeChart = null;
+    function initUtilChart(udata) {
+        AE_DATA = udata ? udata.ae_list : [];
+        aeChart = mkChart('chart-ae-detail');
+        _addPdfOverlay('chart-ae-detail', 'AE Utilization Detail', 'ai_ae_detail', '#050d1a');
+        if (AE_DATA.length > 0) selectAE(0);
+    }
     function selectAE(idx) {
         // Highlight chip
         AE_DATA.forEach((_,i) => {
@@ -370,9 +362,14 @@
             ]
         });
     }
-    if (AE_DATA.length > 0) selectAE(0);
-    const PHYS_DATA=D.physician?D.physician.physicians:[];
-    const physChart=mkChart('chart-physician-detail');
+    let PHYS_DATA = [];
+    let physChart = null;
+    function initPhysicianChart(pdata) {
+        PHYS_DATA = pdata ? pdata.physicians : [];
+        physChart = mkChart('chart-physician-detail');
+        _addPdfOverlay('chart-physician-detail', 'Physician Monthly Referrals', 'ai_phys', '#050d1a');
+        if (PHYS_DATA.length > 0) selectPhysician(0);
+    }
     function selectPhysician(idx) {
         document.querySelectorAll('[id^="phys-row-"]').forEach((r,i)=>{r.style.background=i===idx?'rgba(47,128,237,0.08)':'';});
         const doc=PHYS_DATA[idx]; if (!doc||!physChart) return;
@@ -380,15 +377,13 @@
         const all=[...doc.chart.months,...doc.chart.forecast_months];
         physChart.setOption({tooltip:{trigger:'axis'},legend:{bottom:0,textStyle:{color:'#3d5278',fontSize:11}},grid:{left:60,right:30,top:20,bottom:50},xAxis:{type:'category',data:all,axisLabel:{...axisLabel,rotate:30}},yAxis:{type:'value',name:'Referrals',nameTextStyle:{color:'#3d5278',fontSize:10},splitLine,axisLabel},series:[{name:'Monthly Referrals',type:'bar',data:[...doc.chart.counts,...new Array(doc.chart.forecast_months.length).fill(null)],itemStyle:{color:doc.slope<-0.5?'#eb5757':doc.slope>0.5?'#27ae60':'#2f80ed',borderRadius:[3,3,0,0]},barMaxWidth:30},{name:'Forecast',type:'line',smooth:true,data:[...new Array(doc.chart.months.length).fill(null),...doc.chart.forecast_vals],lineStyle:{color:'#56ccf2',width:2,type:'dashed'},itemStyle:{color:'#56ccf2'},symbol:'circle',symbolSize:6}]});
     }
-    if (PHYS_DATA.length>0) selectPhysician(0);
-
-    _addPdfOverlay('chart-storage',          'Storage Growth + 90-Day Forecast',  'ai_storage',   '#050d1a');
-    _addPdfOverlay('chart-volume',           'Daily Study Volume + 90-Day Forecast','ai_volume',   '#050d1a');
-    _addPdfOverlay('chart-volume-mod',       'Volume Split by Modality',           'ai_volume_mod','#050d1a');
-    _addPdfOverlay('chart-ae-detail',        'AE Utilization Detail',              'ai_ae_detail', '#050d1a');
-    _addPdfOverlay('chart-physician-detail', 'Physician Monthly Referrals',        'ai_phys',      '#050d1a');
 
     window.addEventListener('resize',()=>Object.values(charts).forEach(c=>c&&c.resize()));
+
+    // Initialize charts for whichever tab the server rendered eagerly (the
+    // active tab, including any ?tab= deep link -- the correct tab/panel
+    // 'active' classes are already set server-side, no JS switch needed here).
+    initChartsFor('{{ active_tab }}', D['{{ active_data_key }}']);
 
     function _addPdfOverlay(chartId, title, filename, bg) {
         const el = document.getElementById(chartId);

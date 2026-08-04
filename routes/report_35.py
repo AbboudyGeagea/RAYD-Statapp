@@ -53,6 +53,7 @@ import logging
 import statistics as _stats
 from datetime import date, datetime
 
+import numpy as np
 import pandas as pd
 from flask import Blueprint, render_template, request, send_file, jsonify, abort
 from flask_login import login_required, current_user
@@ -261,32 +262,48 @@ def get_technician_tat_data(form_data):
             completed = tdf[tdf['exam_done_at'].notna()].copy()
             pending   = tdf[tdf['exam_done_at'].isna()].copy()
 
-            # Pre-index ER orders: modality → list of (arrived_at, patient_class, accession)
-            # An order is "ER" if accession_number starts with '2XE' (case-insensitive)
+            # Pre-index ER orders: modality → sorted arrays of (arrived_at, accession,
+            # patient_class). An order is "ER" if accession_number starts with '2XE'
+            # (case-insensitive). Sorted + numpy so _find_concurrent_er can binary-search
+            # the arrival-time range instead of linear-scanning every ER row per lookup --
+            # matters on ER-heavy modalities (CT/CR) over wide date ranges, where that scan
+            # was O(too_late_flagged_count x ER_count_for_that_modality).
             if 'patient_class' not in tdf.columns:
                 tdf['patient_class'] = None
             er_rows = tdf[tdf['accession_number'].str.upper().str.startswith('2XE').fillna(False)].copy()
             er_by_modality = {}
-            for _, er in er_rows.iterrows():
-                er_by_modality.setdefault(str(er['modality'] or '').upper(), []).append(er)
+            for mod, grp in er_rows.groupby(er_rows['modality'].fillna('').astype(str).str.upper()):
+                grp = grp.sort_values('arrived_at')
+                er_by_modality[mod] = {
+                    'arrived_at':    grp['arrived_at'].to_numpy(),
+                    'accession':     grp['accession_number'].to_numpy(),
+                    'patient_class': grp['patient_class'].to_numpy(),
+                }
 
             def _find_concurrent_er(row):
                 """Return list of ER accessions whose arrived_at falls inside row's exam window."""
                 if pd.isna(row.get('exam_done_at')):
                     return []
-                mod   = str(row.get('modality') or '').upper()
-                t0    = row['arrived_at']
-                t1    = row['exam_done_at']
-                acc   = row.get('accession_number')
+                mod = str(row.get('modality') or '').upper()
+                bucket = er_by_modality.get(mod)
+                if bucket is None:
+                    return []
+                arrived = bucket['arrived_at']
+                t0  = np.datetime64(row['arrived_at'])
+                t1  = np.datetime64(row['exam_done_at'])
+                acc = row.get('accession_number')
+                lo = np.searchsorted(arrived, t0, side='left')
+                hi = np.searchsorted(arrived, t1, side='right')
                 found = []
-                for er in er_by_modality.get(mod, []):
-                    if er['accession_number'] == acc:
+                for i in range(lo, hi):
+                    er_acc = bucket['accession'][i]
+                    if er_acc == acc:
                         continue
-                    if t0 <= er['arrived_at'] <= t1:
-                        found.append({
-                            'accession':     str(er['accession_number'] or ''),
-                            'patient_class': str(er['patient_class'] or ''),
-                        })
+                    pc = bucket['patient_class'][i]
+                    found.append({
+                        'accession':     str(er_acc or ''),
+                        'patient_class': str(pc) if pd.notna(pc) else '',
+                    })
                 return found
 
             overlap_accessions = set()
@@ -297,20 +314,48 @@ def get_technician_tat_data(form_data):
                     if pd.notna(cur['exam_done_at']) and cur['exam_done_at'] > nxt['arrived_at']:
                         overlap_accessions.add(cur['accession_number'])
 
+            # Flags computed as numpy boolean arrays over the whole `completed` frame at
+            # once, instead of a per-row .iterrows() loop -- iterrows() reconstructs a
+            # pandas Series (with dtype coercion across every column) for each row, which
+            # dominates wall time on wide date ranges. Same if/elif semantics as before,
+            # just evaluated as arrays first. Output dicts (strftime calls, ER lookup) are
+            # then only built for rows that end up flagged -- previously every completed
+            # row got a dict built and the unflagged ones (the majority, on a healthy
+            # department) were discarded right after by the `if r['flags']` filter.
+            completed = completed.reset_index(drop=True)
+            tat_arr = completed['tat_min'].to_numpy(dtype=float)
+            dur_arr = completed['proc_duration'].to_numpy(dtype=float)
+            valid_tat = ~np.isnan(tat_arr)
+
+            is_negative  = valid_tat & (tat_arr < 0)
+            is_too_early = valid_tat & ~is_negative & (tat_arr < dur_arr * 0.5)
+            is_overlap   = completed['accession_number'].isin(overlap_accessions).to_numpy()
+            is_too_late  = valid_tat & (tat_arr > dur_arr * 2)
+
+            mod_upper = completed['modality'].fillna('').astype(str).str.upper()
+            threshold_map = {
+                m: _pacs_ris_thresholds.get(m, _DEFAULT_PACS_RIS_THRESHOLD_MIN)
+                for m in mod_upper.unique()
+            }
+            threshold_arr = mod_upper.map(threshold_map).to_numpy(dtype=float)
+            pacs_ris_diff_arr = completed['pacs_ris_diff_min'].to_numpy(dtype=float)
+            is_mismatch = ~np.isnan(pacs_ris_diff_arr) & (np.abs(pacs_ris_diff_arr) > threshold_arr)
+
+            has_any_flag = valid_tat & (is_negative | is_too_early | is_overlap | is_too_late | is_mismatch)
+            flagged_idx  = np.nonzero(has_any_flag)[0]
+
             flagged_rows = []
-            for _, r in completed.iterrows():
+            for i in flagged_idx:
+                r = completed.iloc[i]
+                tat, dur = tat_arr[i], dur_arr[i]
                 flags = []
-                tat, dur = r['tat_min'], float(r['proc_duration'])
-                if pd.isna(tat): continue
-                if tat < 0: flags.append('negative_tat')
-                elif tat < dur * 0.5: flags.append('too_early')
-                if r['accession_number'] in overlap_accessions: flags.append('overlap')
-                if tat > dur * 2: flags.append('too_late')
-                pacs_tat     = r.get('pacs_tat_min')
+                if is_negative[i]: flags.append('negative_tat')
+                elif is_too_early[i]: flags.append('too_early')
+                if is_overlap[i]: flags.append('overlap')
+                if is_too_late[i]: flags.append('too_late')
+                if is_mismatch[i]: flags.append('pacs_ris_mismatch')
+                pacs_tat      = r.get('pacs_tat_min')
                 pacs_ris_diff = r.get('pacs_ris_diff_min')
-                threshold    = _pacs_ris_thresholds.get(str(r.get('modality') or '').upper(), _DEFAULT_PACS_RIS_THRESHOLD_MIN)
-                if pd.notna(pacs_ris_diff) and abs(pacs_ris_diff) > threshold:
-                    flags.append('pacs_ris_mismatch')
                 er_concurrent = _find_concurrent_er(r) if 'too_late' in flags else []
                 flagged_rows.append({
                     'accession':       str(r.get('accession_number') or ''),
@@ -329,17 +374,25 @@ def get_technician_tat_data(form_data):
                     'flags':           flags,
                     'er_concurrent':   er_concurrent,
                 })
-            tech_data['flagged'] = sorted([r for r in flagged_rows if r['flags']], key=lambda x: len(x['flags']), reverse=True)
+            tech_data['flagged'] = sorted(flagged_rows, key=lambda x: len(x['flags']), reverse=True)
 
-            for _, r in pending.iterrows():
-                deadline = r['arrived_at'] + pd.Timedelta(minutes=float(r['proc_duration']))
-                if deadline < pd.Timestamp(_now):
+            # Same treatment for overdue pending exams: compute the deadline check as a
+            # vectorized comparison, then only build output dicts for the (usually small)
+            # overdue subset instead of every still-open exam.
+            pending = pending.reset_index(drop=True)
+            if len(pending):
+                deadline_arr = pending['arrived_at'] + pd.to_timedelta(pending['proc_duration'].astype(float), unit='m')
+                now_ts = pd.Timestamp(_now)
+                overdue_idx = np.nonzero((deadline_arr < now_ts).to_numpy())[0]
+                for i in overdue_idx:
+                    r = pending.iloc[i]
+                    deadline = deadline_arr.iloc[i]
                     tech_data['never_done'].append({
                         'accession':   str(r.get('accession_number') or ''),
                         'modality':    str(r.get('modality') or ''),
                         'procedure':   str(r.get('procedure_code') or ''),
                         'arrived_at':  r['arrived_at'].strftime('%Y-%m-%d %H:%M'),
-                        'overdue_min': round((pd.Timestamp(_now) - deadline).total_seconds() / 60, 1),
+                        'overdue_min': round((now_ts - deadline).total_seconds() / 60, 1),
                     })
 
             flagged_accessions = {r['accession'] for r in tech_data['flagged']}

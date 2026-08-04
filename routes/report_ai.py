@@ -16,15 +16,23 @@ report_ai_bp = Blueprint("report_ai", __name__)
 # Must not collide with numeric report IDs used by other routes.
 _AI_CACHE_REPORT_ID = 9900
 
+# This page is trend/forecast/anomaly analysis, not a live operational view --
+# nothing here needs to be fresher than an hour. The shared report_cache's
+# default TTL (5 min) meant almost every open recomputed all four sections
+# from scratch (each a full-history scan + numpy/pandas regression), since 5
+# minutes rarely elapses between opens. A 1-hour TTL cuts that down to ~once
+# per hour per distinct date range instead of ~once per open.
+_AI_CACHE_TTL = 3600
+
 
 def _ai_cache_get(section: str, start: str, end: str):
     """Look up a cached AI-intelligence section result."""
-    return cache_get(_AI_CACHE_REPORT_ID, {"section": section, "start": start, "end": end})
+    return cache_get(_AI_CACHE_REPORT_ID, {"section": section, "start": start, "end": end}, ttl=_AI_CACHE_TTL)
 
 
 def _ai_cache_put(section: str, start: str, end: str, data) -> None:
     """Store an AI-intelligence section result in the shared cache."""
-    cache_put(_AI_CACHE_REPORT_ID, {"section": section, "start": start, "end": end}, data)
+    cache_put(_AI_CACHE_REPORT_ID, {"section": section, "start": start, "end": end}, data, ttl=_AI_CACHE_TTL)
 
 # ─────────────────────────────────────────────
 #  HELPERS
@@ -585,43 +593,64 @@ def _get_physician_intelligence(start, end):
 
 
 # ─────────────────────────────────────────────
-#  ROUTE
+#  ROUTES
 # ─────────────────────────────────────────────
+
+# Maps the tab name used in the URL/DOM ('util', not 'utilization' -- that
+# mismatch is pre-existing, the data dict has always used 'utilization') to
+# (data dict key, fetch function, partial template). Single source of truth
+# for both the main route's eager tab and the on-demand panel endpoint below,
+# so the two can never drift out of sync on which function/template a tab maps to.
+_SECTION_CONFIG = {
+    'storage':   ('storage',     _get_storage_intelligence,     '_ai_panel_storage.html'),
+    'volume':    ('volume',      _get_volume_intelligence,      '_ai_panel_volume.html'),
+    'util':      ('utilization', _get_utilization_intelligence, '_ai_panel_util.html'),
+    'physician': ('physician',   _get_physician_intelligence,   '_ai_panel_physician.html'),
+}
+
+
+def _fetch_section(tab_name, start, end):
+    """Compute one section's data, tolerating failure the same way the old
+    all-sections _safe() wrapper did (log, roll back, return None -> renders
+    the partial's "no data" branch instead of a 500)."""
+    _, fn, _ = _SECTION_CONFIG[tab_name]
+    try:
+        return fn(start, end)
+    except Exception as exc:
+        logger.error(f"[report_ai] {fn.__name__} failed: {exc}", exc_info=True)
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        return None
+
+
+def _resolve_date_range(values):
+    go_live = get_go_live_date() or date(2025, 1, 1)
+    today   = date.today()
+    start = values.get("start_date", go_live.strftime('%Y-%m-%d'))
+    end   = values.get("end_date",   today.strftime('%Y-%m-%d'))
+    return start, end
+
 
 @report_ai_bp.route("/report/ai", methods=["GET", "POST"])
 @login_required
 def report_ai():
     if current_user.role not in ('admin', 'viewer') and not user_has_page(current_user, 'report_ai'):
         abort(403)
-    go_live = get_go_live_date() or date(2025, 1, 1)
-    today   = date.today()
-
-    start = request.values.get("start_date", go_live.strftime('%Y-%m-%d'))
-    end   = request.values.get("end_date",   today.strftime('%Y-%m-%d'))
+    start, end = _resolve_date_range(request.values)
     active_tab = request.values.get("tab", "storage")
+    if active_tab not in _SECTION_CONFIG:
+        active_tab = "storage"
+    active_data_key = _SECTION_CONFIG[active_tab][0]
 
-    def _safe(fn, *args):
-        try:
-            return fn(*args)
-        except Exception as exc:
-            logger.error(f"[report_ai] {fn.__name__} failed: {exc}", exc_info=True)
-            try:
-                db.session.rollback()
-            except Exception:
-                pass
-            return None
-
-    storage     = _safe(_get_storage_intelligence,     start, end)
-    volume      = _safe(_get_volume_intelligence,      start, end)
-    utilization = _safe(_get_utilization_intelligence, start, end)
-    physician   = _safe(_get_physician_intelligence,   start, end)
-
-    data = {
-        "storage":     storage,
-        "volume":      volume,
-        "utilization": utilization,
-        "physician":   physician
-    }
+    # Only the tab actually being shown is computed on page load -- the other
+    # three are fetched on demand by report_ai_panel() below, only if/when the
+    # user clicks over to them. All 4 used to be computed unconditionally on
+    # every load (each with its own DB round-trips + numpy/pandas regression)
+    # even though a given visit typically only looks at one or two tabs.
+    active_data = _fetch_section(active_tab, start, end)
+    data = {active_data_key: active_data}
 
     # Load current storage capacity setting for the form
     cap_row = db.session.execute(text(
@@ -638,9 +667,29 @@ def report_ai():
         display_start=start,
         display_end=end,
         active_tab=active_tab,
+        active_data_key=active_data_key,
         storage_capacity_gb=storage_capacity_gb,
         ui_theme=ui_theme,
     )
+
+
+@report_ai_bp.route("/report/ai/panel/<section>", methods=["GET"])
+@login_required
+def report_ai_panel(section):
+    """On-demand fetch for one AI-intelligence tab, triggered by switchTab()
+    in report_ai.html the first time a user opens that tab. Returns the same
+    partial markup the main route would have inlined had that tab been the
+    active one, plus the raw section data (for chart init on the client)."""
+    if current_user.role not in ('admin', 'viewer') and not user_has_page(current_user, 'report_ai'):
+        abort(403)
+    if section not in _SECTION_CONFIG:
+        abort(404)
+    data_key, _, template = _SECTION_CONFIG[section]
+
+    start, end = _resolve_date_range(request.args)
+    section_data = _fetch_section(section, start, end)
+    html = render_template(template, data={data_key: section_data})
+    return jsonify({"html": html, "data": section_data})
 
 
 @report_ai_bp.route("/report/ai/storage-capacity", methods=["POST"])

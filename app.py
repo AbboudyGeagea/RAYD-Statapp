@@ -215,6 +215,16 @@ def create_app():
 
     app.config['SQLALCHEMY_DATABASE_URI'] = f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{dbname}"
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+    # Default pool (size=5, overflow=10 => 15 max) was sized for one connection per
+    # in-flight request. report_ai now fans out to 4 connections concurrently per
+    # request (routes/report_ai.py's parallel section fetch) and gunicorn runs 4
+    # threads (scripts/entrypoint.sh), so worst case is ~16 connections just from
+    # that one route. Sized with headroom for that plus normal traffic.
+    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+        'pool_size': 10,
+        'max_overflow': 15,
+        'pool_pre_ping': True,
+    }
     app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 60  # browsers re-check static files every 60 s
     app.config['SESSION_COOKIE_HTTPONLY'] = True
     app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'

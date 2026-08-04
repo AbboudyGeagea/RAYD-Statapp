@@ -1,0 +1,10 @@
+{% if data.volume %}{% set v = data.volume %}
+<div class="explain-box"><strong>AI Analysis:</strong> {{ v.explanation }}</div>
+<div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);">
+    <div class="kpi blue"><div class="kpi-label">Total Studies</div><div class="kpi-val">{{ "{:,}".format(v.total) }}</div><div class="kpi-sub">in selected period</div></div>
+    <div class="kpi cyan"><div class="kpi-label">Avg Daily Volume</div><div class="kpi-val">{{ v.avg_daily }}</div><div class="kpi-sub">studies per day</div></div>
+    <div class="kpi {{ 'green' if v.slope > 0 else 'red' }}"><div class="kpi-label">Trend</div><div class="kpi-val">{{ '+' if v.slope > 0 else '' }}{{ v.slope }}</div><div class="kpi-sub">studies/day change (regression)</div></div>
+</div>
+<div class="card"><div class="card-head">Daily Study Volume + 90-Day Forecast <span style="font-size:11px;color:#7a9cc9;">R² = {{ v.r2 }} · anomalies highlighted</span></div><div class="card-desc">Daily study count with linear forecast. Red dots = anomalous days (±2σ).</div><div id="chart-volume" style="height:380px;padding:16px;"></div></div>
+<div class="card"><div class="card-head">Volume Split by Modality</div><div class="card-desc">Proportion of total studies per modality in the selected period.</div><div id="chart-volume-mod" style="height:320px;padding:16px;"></div></div>
+{% else %}<div class="flex items-center justify-center h-64" style="color:var(--muted);">No study data available.</div>{% endif %}
