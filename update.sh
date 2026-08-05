@@ -74,6 +74,16 @@ REQ_HASH=$(md5sum requirements.txt 2>/dev/null | awk '{print $1}')
 LAST_HASH=$(cat .last_req_hash 2>/dev/null || echo "")
 [ "$REQ_HASH" != "$LAST_HASH" ] && info "requirements.txt changed — will reinstall Python packages."
 
+# This multi-service build (rayd-app + rayd-nlp) goes through Compose's
+# buildx-bake path by default on newer Compose versions -- confirmed live on
+# the LAUMC host by the "load local bake definitions" / "reading from stdin"
+# lines in the build log, right before EVERY layer (including apt-get, which
+# never changes) rebuilt from scratch on back-to-back runs with zero code
+# changes between them and nothing auto-pruning the cache. Forcing the
+# classic per-service build path here as the fix for that -- bake's cache
+# handling is the one remaining difference from a plain `docker build`, which
+# caches normally on this same host/builder.
+export COMPOSE_BAKE=false
 $COMPOSE build       # exits script on failure thanks to set -e; old containers untouched
 echo "$REQ_HASH" > .last_req_hash
 ok "Build complete."
