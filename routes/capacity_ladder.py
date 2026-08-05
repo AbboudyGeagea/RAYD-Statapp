@@ -238,7 +238,15 @@ def _get_opening_minutes(aetitle, day, dow):
 
 
 def _get_scheduled(aetitle, day):
-    """Get scheduled orders for an AE's modality from hl7_orders (real-time)."""
+    """Get scheduled orders for an AE's modality from etl_orders (nightly RIS ETL sync).
+
+    hl7_orders (the live RIS -> RAYD HL7 order feed this used to read) is never
+    populated on this install -- that connection was never actually turned on
+    RIS-side (see docs/LAUMC_NEXT_SESSION.md punch-list #10/#11, a vendor/IT
+    connectivity gap, not a RAYD bug), which is why every AE always computed
+    0% here. etl_orders is the same table daily_briefing()/yesterday_overview()
+    already rely on for real scheduled-order numbers.
+    """
     ae_row = db.session.execute(text(
         "SELECT modality FROM aetitle_modality_map WHERE aetitle = :ae"
     ), {"ae": aetitle}).fetchone()
@@ -248,23 +256,23 @@ def _get_scheduled(aetitle, day):
 
     rows = db.session.execute(text("""
         SELECT
-            o.procedure_code,
-            o.procedure_text,
-            o.patient_id,
+            o.proc_id,
+            o.proc_text,
+            o.patient_dbid,
             COALESCE(pm.duration_minutes, 15) AS duration,
             o.scheduled_datetime
-        FROM hl7_orders o
-        LEFT JOIN procedure_duration_map pm ON pm.procedure_code = o.procedure_code
-        WHERE UPPER(o.modality) = UPPER(:mod)
+        FROM etl_orders o
+        LEFT JOIN procedure_duration_map pm ON pm.procedure_code = o.proc_id
+        WHERE UPPER(TRIM(COALESCE(o.modality, ''))) = UPPER(:mod)
           AND o.scheduled_datetime::date = :day
           AND COALESCE(o.order_status, '') != 'CA'
         ORDER BY o.scheduled_datetime
     """), {"mod": ae_row[0], "day": day}).mappings().fetchall()
 
     return [{
-        "proc_code": r["procedure_code"] or "—",
-        "label":     r["procedure_text"] or r["procedure_code"] or "Unknown Procedure",
-        "patient":   str(r["patient_id"] or ""),
+        "proc_code": r["proc_id"] or "—",
+        "label":     r["proc_text"] or r["proc_id"] or "Unknown Procedure",
+        "patient":   str(r["patient_dbid"] or ""),
         "duration":  int(r["duration"] or 15),
     } for r in rows]
 
