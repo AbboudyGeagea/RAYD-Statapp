@@ -183,6 +183,18 @@ info "Cleaning up dangling images from the rebuild..."
 RECLAIMED=$(docker image prune -f 2>&1 | grep -oE 'Total reclaimed space: .*' || true)
 ok "${RECLAIMED:-Total reclaimed space: 0B}"
 
+# BuildKit's layer cache is a separate pool from images -- `docker image
+# prune` never touches it, so it grows on every `$COMPOSE build` above
+# regardless of whether image content actually changed. Found piling up to
+# 75+ GB unreclaimed on the live LAUMC host (`docker system df` showed 0
+# active cache entries, all of it stale). `-a` is safe unconditionally: it
+# only drops cache not backing any image Docker currently has tagged --
+# never a running container's actual image, and never volumes (Postgres
+# data is a named volume, a completely separate pool build cache can't touch).
+info "Cleaning up unused build cache..."
+CACHE_RECLAIMED=$(docker builder prune -a -f 2>&1 | tail -n1)
+ok "${CACHE_RECLAIMED:-Total: 0B}"
+
 # ──────────────────────────────────────────────────────
 # DONE
 # ──────────────────────────────────────────────────────
