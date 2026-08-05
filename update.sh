@@ -183,19 +183,16 @@ info "Cleaning up dangling images from the rebuild..."
 RECLAIMED=$(docker image prune -f 2>&1 | grep -oE 'Total reclaimed space: .*' || true)
 ok "${RECLAIMED:-Total reclaimed space: 0B}"
 
-# BuildKit's layer cache is a separate pool from images -- `docker image
-# prune` never touches it, so it can pile up over many rebuilds (found at
-# 75+ GB stale/reclaimable on the live LAUMC host at one point). Deliberately
-# NOT passing -a here: -a removes ALL build cache, including the layers still
-# backing the image that was JUST built -- that regressed a prior version of
-# this script into re-downloading and reinstalling every pip package on every
-# single update, since there was nothing left for the next build to hit.
-# Bare `docker builder prune -f` only drops dangling cache (superseded by a
-# newer layer, not tied to any image Docker currently has tagged), so the
-# cache backing THIS build's requirements.txt layer survives for next time.
-info "Cleaning up dangling build cache..."
-CACHE_RECLAIMED=$(docker builder prune -f 2>&1 | tail -n1)
-ok "${CACHE_RECLAIMED:-Total: 0B}"
+# Deliberately NOT auto-pruning BuildKit's build cache here (tried twice --
+# both `docker builder prune -a -f` and the bare `-f` form ended up wiping
+# out the cache the NEXT build needed, regressing this script into
+# re-downloading and reinstalling apt/pip packages from scratch on every
+# single update, every layer, not just requirements.txt's). Whatever the
+# exact semantics are on this Docker/BuildKit version, routinely running it
+# here isn't safe. If the cache grows large again (`docker system df` showed
+# 75+ GB reclaimable once), clear it manually and deliberately, NOT as part
+# of a routine deploy:
+#   sudo docker builder prune -f
 
 # ──────────────────────────────────────────────────────
 # DONE
