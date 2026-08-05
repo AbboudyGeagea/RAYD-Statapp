@@ -29,6 +29,17 @@
         .chip { font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 4px; background: rgba(96,165,250,0.12); color: #60a5fa; border: 1px solid rgba(96,165,250,0.2); display: inline-flex; align-items: center; gap: 3px; cursor: pointer; margin: 1px; }
         .chip:hover { background: rgba(96,165,250,0.25); }
 
+        /* Filter accordion groups */
+        .filter-group { border: 1px solid #28332e; border-radius: 8px; overflow: hidden; }
+        .filter-group-summary { list-style: none; cursor: pointer; padding: 8px 10px; font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.08em; color: #94a3b8; background: #181f1c; display: flex; align-items: center; justify-content: space-between; user-select: none; }
+        .filter-group-summary::-webkit-details-marker { display: none; }
+        .filter-group-summary::after { content: "+"; font-size: 12px; color: #64748b; }
+        .filter-group[open] .filter-group-summary::after { content: "\2212"; }
+        .filter-group[open] .filter-group-summary { border-bottom: 1px solid #28332e; }
+        .filter-group-body { padding: 10px; display: flex; flex-direction: column; gap: 12px; }
+        body.light .filter-group { border-color: #e2e8f0 !important; }
+        body.light .filter-group-summary { background: #f8fafc !important; color: #475569 !important; }
+
         /* Searchable dropdown */
         .search-dropdown { position: relative; }
         .search-dropdown input { width: 100%; }
@@ -135,7 +146,7 @@
             </div>
 
             <!-- Scrollable body -->
-            <div class="flex-1 overflow-y-auto p-3 space-y-4" id="filter-body">
+            <div class="flex-1 overflow-y-auto p-3 space-y-3" id="filter-body">
 
                 <!-- Main period -->
                 <div>
@@ -153,27 +164,39 @@
                     <input type="date" id="cmp-end"   class="f-input">
                 </div>
 
-                <!-- Age range -->
-                <div>
-                    <span class="f-label">Age Range</span>
-                    <div class="flex gap-1">
-                        <input type="number" id="age-min" placeholder="Min" min="0" max="120" class="f-input">
-                        <input type="number" id="age-max" placeholder="Max" min="0" max="120" class="f-input">
+                <!-- Study Attributes -->
+                <details class="filter-group" open>
+                    <summary class="filter-group-summary">Study Attributes</summary>
+                    <div class="filter-group-body" id="group-study"></div>
+                </details>
+
+                <!-- Patient -->
+                <details class="filter-group">
+                    <summary class="filter-group-summary">Patient</summary>
+                    <div class="filter-group-body" id="group-patient">
+                        <div>
+                            <span class="f-label">Age Range</span>
+                            <div class="flex gap-1">
+                                <input type="number" id="age-min" placeholder="Min" min="0" max="120" class="f-input">
+                                <input type="number" id="age-max" placeholder="Max" min="0" max="120" class="f-input">
+                            </div>
+                        </div>
+                        <div>
+                            <span class="f-label">Has Report</span>
+                            <select id="f-has_report" class="f-input">
+                                <option value="">All</option>
+                                <option value="Yes">Yes</option>
+                                <option value="No">No</option>
+                            </select>
+                        </div>
                     </div>
-                </div>
+                </details>
 
-                <!-- Has report -->
-                <div>
-                    <span class="f-label">Has Report</span>
-                    <select id="f-has_report" class="f-input">
-                        <option value="">All</option>
-                        <option value="Yes">Yes</option>
-                        <option value="No">No</option>
-                    </select>
-                </div>
-
-                <!-- Dynamic filters injected here -->
-                <div id="dynamic-filters"></div>
+                <!-- Clinical & Physicians -->
+                <details class="filter-group">
+                    <summary class="filter-group-summary">Clinical & Physicians</summary>
+                    <div class="filter-group-body" id="group-clinical"></div>
+                </details>
 
             </div>
 
@@ -291,6 +314,22 @@
                     </div>
                 </div>
 
+                <!-- Operational Health -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="card p-5">
+                        <h4 class="text-amber-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-clock-history"></i> Turnaround Time</h4>
+                        <div id="super-tat"></div>
+                    </div>
+                    <div class="card p-5">
+                        <h4 class="text-red-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-exclamation-octagon"></i> Critical Findings (CRN)</h4>
+                        <div id="super-crn"></div>
+                    </div>
+                    <div class="card p-5">
+                        <h4 class="text-cyan-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-speedometer2"></i> Device Utilization</h4>
+                        <div id="super-utilization"></div>
+                    </div>
+                </div>
+
                 <!-- Demographics -->
                 <div class="card p-5">
                     <h4 class="text-pink-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-people"></i> Patient Demographics</h4>
@@ -395,31 +434,35 @@
 
     <script>
     // ── Filter definitions ────────────────────────────────────────────
+    // Each filter's `group` (study / patient / clinical) picks which accordion
+    // section in the sidebar it renders into -- see the group-* containers and
+    // renderMultiFilters/renderSingleFilters/renderSearchFilters below.
+
     // Multi-select listbox (hold Ctrl to pick multiple)
     const MULTI_FILTERS = [
-        { key:'modality',         label:'Modality' },
-        { key:'storing_ae',       label:'AE Title' },
-        { key:'study_status',     label:'Study Status' },
-        { key:'patient_class',    label:'Patient Class' },
-        { key:'patient_location', label:'Patient Location' },
-        { key:'procedure_code',   label:'Procedure Code' },
+        { key:'modality',         label:'Modality',         group:'study' },
+        { key:'storing_ae',       label:'AE Title',         group:'study' },
+        { key:'study_status',     label:'Study Status',     group:'study' },
+        { key:'procedure_code',   label:'Procedure Code',   group:'study' },
+        { key:'patient_class',    label:'Patient Class',    group:'patient' },
+        { key:'patient_location', label:'Patient Location', group:'patient' },
     ];
 
     // Single-value dropdown (<select> with All option)
     const SINGLE_FILTERS = [
-        { key:'report_status',     label:'Report Status' },
-        { key:'order_status',      label:'Order Status' },
-        { key:'sex',               label:'Sex' },
-        { key:'order_modality',    label:'Order Modality' },
-        { key:'signing_physician', label:'Signing Physician' },
+        { key:'sex',               label:'Sex',               group:'patient' },
+        { key:'report_status',     label:'Report Status',     group:'clinical' },
+        { key:'order_status',      label:'Order Status',      group:'clinical' },
+        { key:'order_modality',    label:'Order Modality',    group:'clinical' },
+        { key:'signing_physician', label:'Signing Physician', group:'clinical' },
     ];
 
     // Searchable type-to-filter dropdowns (select as chips)
     const SEARCH_FILTERS = [
-        { key:'referring_physician', label:'Referring Physician', note:'type to search · comma-separated' },
-        { key:'body_part',           label:'Body Part' },
-        { key:'protocol_name',       label:'Protocol Name' },
-        { key:'body_part_series',    label:'Body Part (Series)' },
+        { key:'body_part',           label:'Body Part',           group:'study' },
+        { key:'protocol_name',       label:'Protocol Name',       group:'study' },
+        { key:'body_part_series',    label:'Body Part (Series)',  group:'study' },
+        { key:'referring_physician', label:'Referring Physician', group:'clinical', note:'type to search · comma-separated' },
     ];
 
     // Stores all loaded filter data
@@ -476,11 +519,11 @@
     }
 
     function renderMultiFilters(data) {
-        const container = document.getElementById('dynamic-filters');
         const aeMap = data.ae_modality_map || {};
         MULTI_FILTERS.forEach(fc => {
+            const container = document.getElementById(`group-${fc.group}`);
             const vals = data[fc.key] || [];
-            if (!vals.length) return;
+            if (!container || !vals.length) return;
             const isAE = fc.key === 'storing_ae';
             const div = document.createElement('div');
             div.innerHTML = `
@@ -504,10 +547,10 @@
     }
 
     function renderSingleFilters(data) {
-        const container = document.getElementById('dynamic-filters');
         SINGLE_FILTERS.forEach(fc => {
+            const container = document.getElementById(`group-${fc.group}`);
             const vals = data[fc.key] || [];
-            if (!vals.length) return;
+            if (!container || !vals.length) return;
             const div = document.createElement('div');
             div.innerHTML = `
                 <span class="f-label">${fc.label}</span>
@@ -521,10 +564,10 @@
     }
 
     function renderSearchFilters(data) {
-        const container = document.getElementById('dynamic-filters');
         SEARCH_FILTERS.forEach(fc => {
+            const container = document.getElementById(`group-${fc.group}`);
             const vals = data[fc.key] || [];
-            if (!vals.length) return;
+            if (!container || !vals.length) return;
             window._searchSelected[fc.key] = [];
             const noteHtml = fc.note
                 ? `<span class="text-[8px] text-slate-600 normal-case font-normal">(${fc.note})</span>`
@@ -849,6 +892,39 @@
             row('Fulfilled', fmt(o.fulfilled), null) +
             rowWarn('Fulfillment %', fmtD(o.fulfillment_pct)+'%', parseFloat(o.fulfillment_pct||0) < 85) +
             subSection('By Modality', (o.by_modality||[]).map(m=>row(m.modality, fmt(m.cnt), null)).join(''));
+
+        // Turnaround Time
+        const t = cur.tat, pt_ = prev.tat;
+        document.getElementById('super-tat').innerHTML =
+            row('Overall median', fmtD(t.median_tat_min)+' min', pct(t.median_tat_min, pt_.median_tat_min)) +
+            row('Reported', fmt(t.reported_count), null) +
+            row('ER median', t.er_reported_count ? fmtD(t.er_median_tat_min)+' min' : '—',
+                (t.er_reported_count && pt_.er_reported_count) ? pct(t.er_median_tat_min, pt_.er_median_tat_min) : null) +
+            row('Non-ER median', t.non_er_reported_count ? fmtD(t.non_er_median_tat_min)+' min' : '—',
+                (t.non_er_reported_count && pt_.non_er_reported_count) ? pct(t.non_er_median_tat_min, pt_.non_er_median_tat_min) : null) +
+            subSection('Slowest Modalities', (t.by_modality||[]).map(m=>row(m.modality, fmtD(m.median_tat_min)+' min', null)).join('')
+                || '<p class="text-slate-600 text-xs">No data</p>');
+
+        // Critical Findings (CRN)
+        const c = cur.crn, pc_ = prev.crn;
+        document.getElementById('super-crn').innerHTML =
+            (d.crn_enabled ? '' : '<p style="font-size:9px;color:#f59e0b;font-weight:700;margin-bottom:6px;">DRY-RUN MODE — no real notifications sent yet</p>') +
+            row('Critical findings', fmt(c.critical_count), pct(c.critical_count, pc_.critical_count)) +
+            row('Notifications sent', fmt(c.total_notifications), null) +
+            row('Acknowledged', fmt(c.acknowledged), null) +
+            rowWarn('Exhausted (no ack)', fmt(c.exhausted), c.exhausted > 0) +
+            row('Avg time to ack', c.avg_ack_min !== null ? fmtD(c.avg_ack_min)+' min' : '—', null);
+
+        // Device Utilization
+        const u = cur.utilization, pu = prev.utilization;
+        document.getElementById('super-utilization').innerHTML = (u && u.available)
+            ? row('Avg utilization', fmtD(u.avg_utilization)+'%', (pu && pu.available) ? pct(u.avg_utilization, pu.avg_utilization) : null) +
+              rowWarn('Over 85% (stressed)', fmt(u.high_stress_count), u.high_stress_count > 0) +
+              row('Under 30% (idle)', fmt(u.low_util_count), null) +
+              row('No schedule data', fmt(u.no_schedule_count), null) +
+              subSection('Busiest Devices', (u.busiest||[]).map(b=>row(b.ae, fmtD(b.avg)+'%', null)).join('')
+                  || '<p class="text-slate-600 text-xs">No data</p>')
+            : '<p class="text-slate-600 text-xs">No utilization data for this period.</p>';
 
         // Demographics
         const dm = cur.demographics, pdm = prev.demographics;

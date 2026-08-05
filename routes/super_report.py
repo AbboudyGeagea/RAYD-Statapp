@@ -19,6 +19,7 @@ from db import db
 from routes.insights_engine import run_dept_insights
 from routes.report_cache import cache_get, cache_put
 from utils.stats import _pct, _fmt
+from utils.site_resolver import default_site
 
 logger = logging.getLogger("SUPER_REPORT")
 super_report_bp = Blueprint("super_report", __name__)
@@ -259,21 +260,34 @@ def super_report():
         "start": start, "end": end, "cmp_start": cmp_start, "cmp_end": cmp_end,
         **{k: (sorted(v) if isinstance(v, list) else v) for k, v in filters.items()},
     }
+    # LAUMC site rule (operator instruction, 2026-07-26): reports show RH (main
+    # site) only, SJH excluded, for now. Resolved once per request and threaded
+    # through both periods rather than re-resolved inside _collect_data (which
+    # runs twice per request, current + comparison period).
+    rh_site_id = default_site()
+    cache_key["rh_site_id"] = rh_site_id
+
     cached = cache_get("super_report", cache_key)
     if cached is not None:
         return jsonify(cached)
 
     try:
-        current   = _collect_data(start, end, filters)
-        previous  = _collect_data(cmp_start, cmp_end, filters)
+        crn_enabled_row = db.session.execute(
+            text("SELECT value FROM settings WHERE key = 'crn_enabled'")
+        ).fetchone()
+        crn_enabled = bool(crn_enabled_row and crn_enabled_row[0] == 'true')
+
+        current   = _collect_data(start, end, filters, rh_site_id)
+        previous  = _collect_data(cmp_start, cmp_end, filters, rh_site_id)
         narrative = _generate_narrative(current, previous, start, end, cmp_start, cmp_end, delta)
         result = {
-            "current":    current,
-            "previous":   previous,
-            "narrative":  narrative,
-            "cmp_start":  cmp_start,
-            "cmp_end":    cmp_end,
-            "delta_days": delta,
+            "current":     current,
+            "previous":    previous,
+            "narrative":   narrative,
+            "cmp_start":   cmp_start,
+            "cmp_end":     cmp_end,
+            "delta_days":  delta,
+            "crn_enabled": crn_enabled,
         }
         cache_put("super_report", cache_key, result)
         return jsonify(result)
@@ -286,12 +300,25 @@ def super_report():
 #  DATA COLLECTION
 # ─────────────────────────────────────────────
 
-def _build_where(start, end, filters):
+def _build_where(start, end, filters, rh_site_id=None):
     clauses = [
         "s.study_date BETWEEN :start AND :end",
         "COALESCE(m.modality, s.study_modality, 'Unknown') != 'SR'",
     ]
     params  = {"start": start, "end": end}
+
+    # LAUMC site rule (operator instruction, 2026-07-26): reports show RH (main
+    # site) only, SJH excluded, for now. Same default_site()/aetitle_modality_map
+    # pattern used throughout (report_25, report_34, viewer_controller, etc.) --
+    # `m` (aetitle_modality_map) is already joined into every query built on this
+    # WHERE clause. Resolves to None (filter skipped) on a non-LAUMC/single-site
+    # install. Note: the orders (etl_orders) and storage (summary_storage_daily)
+    # queries in _collect_data below have no site-resolvable join and remain
+    # unscoped -- same known, documented gap as etl_orders elsewhere (see
+    # viewer_controller.py's daily_briefing()), not fixed here.
+    if rh_site_id is not None:
+        clauses.append("m.site_id = :rh_site_id")
+        params["rh_site_id"] = rh_site_id
 
     multi = {
         "storing_ae":          ("s.storing_ae",         "storing_ae"),
@@ -337,8 +364,8 @@ def _build_where(start, end, filters):
     return " AND ".join(clauses), params
 
 
-def _collect_data(start, end, filters):
-    where, params = _build_where(start, end, filters)
+def _collect_data(start, end, filters, rh_site_id=None):
+    where, params = _build_where(start, end, filters, rh_site_id)
     mj = "LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))"
     pj = "LEFT JOIN etl_patient_view p ON p.patient_db_uid = s.patient_db_uid"
 
@@ -456,7 +483,11 @@ def _collect_data(start, end, filters):
     """), params).mappings().fetchone()
 
     # Most idle configured AE (fewest studies in period — includes 0-study AEs)
-    ae_idle_row = db.session.execute(text("""
+    _idle_site_clause = "WHERE am.site_id = :rh_site_id" if rh_site_id is not None else ""
+    _idle_params = {"start": start, "end": end}
+    if rh_site_id is not None:
+        _idle_params["rh_site_id"] = rh_site_id
+    ae_idle_row = db.session.execute(text(f"""
         SELECT am.aetitle, COALESCE(sub.cnt, 0) AS cnt
         FROM aetitle_modality_map am
         LEFT JOIN (
@@ -465,8 +496,9 @@ def _collect_data(start, end, filters):
             WHERE study_date BETWEEN :start AND :end
             GROUP BY storing_ae
         ) sub ON UPPER(TRIM(sub.storing_ae)) = UPPER(TRIM(am.aetitle))
+        {_idle_site_clause}
         ORDER BY cnt ASC LIMIT 1
-    """), {"start": start, "end": end}).mappings().fetchone()
+    """), _idle_params).mappings().fetchone()
 
     # rep_final_timestamp (PACS) is sparse/unreliable on this install (operator,
     # 2026-07-27) -- rep_study_last_composed_ts is the PACS field confirmed
@@ -502,12 +534,19 @@ def _collect_data(start, end, filters):
         er_delayed = 0
 
     # ── TAT & reporting (null-safe — columns populated by ETL) ────
+    # ER vs non-ER split reuses er_filter (already resolved above from the
+    # configurable pc_emergency setting) via FILTER clauses in the same scan,
+    # rather than a second round trip.
+    _tat_epoch = ("EXTRACT(EPOCH FROM (COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) "
+                  "- s.insert_time)) / 60.0")
     tat = db.session.execute(text(f"""
         SELECT
-            ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (
-                ORDER BY EXTRACT(EPOCH FROM (COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) - s.insert_time)) / 60.0
-            )::numeric, 1) AS median_tat_min,
-            COUNT(*) FILTER (WHERE COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) IS NOT NULL) AS reported_count
+            ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY {_tat_epoch})::numeric, 1) AS median_tat_min,
+            COUNT(*) FILTER (WHERE COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) IS NOT NULL) AS reported_count,
+            ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY {_tat_epoch}) FILTER (WHERE {er_filter})::numeric, 1) AS er_median_tat_min,
+            COUNT(*) FILTER (WHERE {er_filter} AND COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) IS NOT NULL) AS er_reported_count,
+            ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY {_tat_epoch}) FILTER (WHERE NOT ({er_filter}))::numeric, 1) AS non_er_median_tat_min,
+            COUNT(*) FILTER (WHERE NOT ({er_filter}) AND COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) IS NOT NULL) AS non_er_reported_count
         FROM etl_didb_studies s {mj} {pj}
         WHERE {where} AND s.insert_time IS NOT NULL
     """), params).mappings().fetchone()
@@ -620,9 +659,13 @@ def _collect_data(start, end, filters):
             "er_delayed":  er_delayed,
         },
         "tat": {
-            "median_tat_min": float(tat.get("median_tat_min") or 0) if tat else 0,
-            "reported_count": int(tat.get("reported_count") or 0) if tat else 0,
-            "by_modality":    [dict(r) for r in tat_by_mod],
+            "median_tat_min":        float(tat.get("median_tat_min") or 0) if tat else 0,
+            "reported_count":        int(tat.get("reported_count") or 0) if tat else 0,
+            "er_median_tat_min":     float(tat.get("er_median_tat_min") or 0) if tat else 0,
+            "er_reported_count":     int(tat.get("er_reported_count") or 0) if tat else 0,
+            "non_er_median_tat_min": float(tat.get("non_er_median_tat_min") or 0) if tat else 0,
+            "non_er_reported_count": int(tat.get("non_er_reported_count") or 0) if tat else 0,
+            "by_modality":           [dict(r) for r in tat_by_mod],
         },
         "daily_series":    [dict(r) for r in daily_series],
         "modality_series": [dict(r) for r in modality_series],
@@ -632,6 +675,83 @@ def _collect_data(start, end, filters):
             "by_procedure": [dict(r) for r in rad_proc_rows],
             "by_month":     [dict(r) for r in rad_month_rows],
         },
+        "crn":         _get_crn_summary(start, end),
+        "utilization": _get_utilization_summary(start, end),
+    }
+
+
+def _get_crn_summary(start, end):
+    """Critical Result Notification activity for the period.
+
+    Not site-scoped (no established site-resolution join for hl7_oru_reports /
+    crn_notifications yet -- CRN is single dry-run scaffold today, not part of
+    the RH/SJH rollout) and not filtered by Super Report's other active
+    filters -- a period-only rollup, same simplification as
+    _get_utilization_summary below.
+    """
+    critical = db.session.execute(text("""
+        SELECT COUNT(*) AS critical_count
+        FROM hl7_oru_analysis a
+        JOIN hl7_oru_reports r ON r.id = a.report_id
+        WHERE a.is_critical = TRUE
+          AND COALESCE(r.result_datetime, r.received_at)::date BETWEEN :start AND :end
+    """), {"start": start, "end": end}).mappings().fetchone()
+
+    notif = db.session.execute(text("""
+        SELECT
+            COUNT(*)                                      AS total_notifications,
+            COUNT(*) FILTER (WHERE status = 'acknowledged') AS acknowledged,
+            COUNT(*) FILTER (WHERE status = 'exhausted')    AS exhausted,
+            COUNT(*) FILTER (WHERE status = 'pending')      AS pending,
+            ROUND(AVG(EXTRACT(EPOCH FROM (acknowledged_at - created_at)) / 60.0)
+                  FILTER (WHERE acknowledged_at IS NOT NULL)::numeric, 1) AS avg_ack_min
+        FROM crn_notifications
+        WHERE created_at::date BETWEEN :start AND :end
+    """), {"start": start, "end": end}).mappings().fetchone()
+
+    return {
+        "critical_count":      int(critical["critical_count"] or 0) if critical else 0,
+        "total_notifications": int(notif["total_notifications"] or 0) if notif else 0,
+        "acknowledged":        int(notif["acknowledged"] or 0) if notif else 0,
+        "exhausted":           int(notif["exhausted"] or 0) if notif else 0,
+        "pending":             int(notif["pending"] or 0) if notif else 0,
+        "avg_ack_min":         float(notif["avg_ack_min"]) if notif and notif["avg_ack_min"] is not None else None,
+    }
+
+
+def _get_utilization_summary(start, end):
+    """Compact device/modality utilization rollup for the period.
+
+    Reuses report_34's device-utilization matrix verbatim (same std_pps-actuals
+    / procedure_duration_map-estimate load logic, same RH-only site filter
+    already wired into report_34) rather than re-deriving it -- report_34.py's
+    get_device_utilization_data() is the source of truth this ports from, kept
+    in sync automatically since it's a direct call, not a copy. Scoped by date
+    range only -- Super Report's other active filters (modality, patient
+    class, etc.) aren't forwarded, matching report_34's own behavior when none
+    of its filter toggles are enabled. Shares report_34's cache (keyed on the
+    same start_date/end_date), so a Report 34 view for the same range makes
+    this instant.
+    """
+    from routes.report_34 import get_device_utilization_data
+    from werkzeug.datastructures import MultiDict
+
+    data, _, _ = get_device_utilization_data(MultiDict({"start_date": start, "end_date": end}))
+    if not data:
+        return {"available": False}
+
+    matrix = [row for row in data["matrix"] if not row["no_schedule"]]
+    avg_util = round(sum(r["avg"] for r in matrix) / len(matrix), 1) if matrix else 0
+    ranked = sorted(matrix, key=lambda r: r["avg"], reverse=True)
+
+    return {
+        "available":         True,
+        "avg_utilization":   avg_util,
+        "high_stress_count": data["summary"]["high_stress_count"],
+        "low_util_count":    data["summary"]["low_util_count"],
+        "no_schedule_count": data["summary"]["no_schedule_count"],
+        "busiest": [{"ae": r["ae"], "avg": r["avg"]} for r in ranked[:3]],
+        "idlest":  [{"ae": r["ae"], "avg": r["avg"]} for r in ranked[-3:][::-1]] if len(ranked) >= 6 else [],
     }
 
 
