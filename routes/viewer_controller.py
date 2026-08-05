@@ -80,7 +80,8 @@ def daily_briefing():
         # pattern as report_25 / utils/report_filters.py). Resolves to None
         # (filter skipped) on a non-LAUMC/single-site install.
         rh_site_id = default_site()
-        site_clause = " AND m.site_id = :rh_site_id" if rh_site_id is not None else ""
+        site_clause   = " AND m.site_id = :rh_site_id"  if rh_site_id is not None else ""
+        site_clause_o = " AND m2.site_id = :rh_site_id" if rh_site_id is not None else ""
 
         row = db.session.execute(text(f"""
             WITH
@@ -115,15 +116,32 @@ def daily_briefing():
                   AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
                   {site_clause}
             ),
+            o AS MATERIALIZED (
+                -- Scheduled RIS orders drive the volume/comparison KPIs instead of study
+                -- counts: study completion can't be trusted in real time (the PACS SCN
+                -- feed was mixing a live, partial "today" count into a card whose other
+                -- numbers are all last-complete-day). Orders land via the same nightly
+                -- ETL as studies, so "last day" order volume is a same-day-safe proxy.
+                -- Site resolved via the order's matched study (if any) -> storing_ae, same
+                -- join report_31.py uses for order-level site scoping; orders with no
+                -- matched study yet fall out of a site-scoped count (acceptable here vs.
+                -- re-leaking SJH into the RH-only numbers).
+                SELECT o.scheduled_datetime::date AS order_date
+                FROM etl_orders o
+                LEFT JOIN etl_didb_studies s2 ON s2.study_db_uid = o.study_db_uid
+                LEFT JOIN aetitle_modality_map m2
+                    ON UPPER(TRIM(m2.aetitle)) = UPPER(TRIM(s2.storing_ae))
+                WHERE o.scheduled_datetime::date BETWEEN (SELECT d FROM latest) - 30
+                                                       AND (SELECT d FROM latest)
+                  AND o.order_status NOT ILIKE '%CA%'
+                  AND UPPER(TRIM(COALESCE(o.modality, ''))) NOT IN ('SR', 'OT', 'SCN')
+                  {site_clause_o}
+            ),
             avg30 AS (
-                SELECT COALESCE(COUNT(*)::float / NULLIF(COUNT(DISTINCT s.study_date),0), 0) AS v
-                FROM etl_didb_studies s
-                LEFT JOIN aetitle_modality_map m
-                    ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
-                WHERE s.study_date BETWEEN (SELECT d FROM latest) - 30
-                                       AND (SELECT d FROM latest) - 1
-                  AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
-                  {site_clause}
+                SELECT COALESCE(COUNT(*)::float / NULLIF(COUNT(DISTINCT order_date),0), 0) AS v
+                FROM o
+                WHERE order_date BETWEEN (SELECT d FROM latest) - 30
+                                      AND (SELECT d FROM latest) - 1
             ),
             top_mod AS (
                 SELECT modality, COUNT(*) AS cnt
@@ -132,8 +150,8 @@ def daily_briefing():
             )
             SELECT
                 (SELECT d   FROM latest)                                                              AS latest_date,
-                (SELECT COUNT(*)::int FROM s WHERE study_date = (SELECT d FROM latest))               AS today_count,
-                (SELECT COUNT(*)::int FROM s WHERE study_date = (SELECT d FROM latest) - 7)           AS last_week_count,
+                (SELECT COUNT(*)::int FROM o WHERE order_date = (SELECT d FROM latest))               AS orders_today,
+                (SELECT COUNT(*)::int FROM o WHERE order_date = (SELECT d FROM latest) - 7)           AS orders_last_week,
                 (SELECT v   FROM avg30)                                                               AS avg_daily,
                 (SELECT COUNT(*)::int FROM s
                  WHERE study_date = (SELECT d FROM latest) AND final_ts IS NOT NULL)                  AS signed_today,
@@ -172,38 +190,22 @@ def daily_briefing():
         if not row or not row[0]:
             return jsonify({'headline': 'No data available.', 'kpis': [], 'insights': [], 'pct_vs_avg': 0})
 
-        (latest_date, today_count, last_week_count, avg_daily, signed_today,
+        (latest_date, orders_today, orders_last_week, avg_daily, signed_today,
          unread, active_rads, avg_tat_today, avg_tat_prev,
          er_tat_today, er_tat_prev, top_modality, top_mod_count,
          active_classes, avg_tat_30d) = row
 
-        # Real-time today count from PACS completion messages.
-        # Falls back to ETL snapshot if no SCN messages received yet today.
-        # hl7_scn_studies carries no site_id of its own -- resolve the same way
-        # as etl_didb_studies, via storing_ae -> aetitle_modality_map.site_id.
-        scn_today = db.session.execute(text(f"""
-            SELECT COUNT(*)::int
-            FROM hl7_scn_studies scn
-            LEFT JOIN aetitle_modality_map m
-                ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(scn.storing_ae))
-            WHERE scn.study_datetime::date = CURRENT_DATE
-              AND COALESCE(scn.modality, '') NOT IN ('SR', 'OT')
-              {site_clause}
-        """), {"rh_site_id": rh_site_id}).scalar() or 0
-        if scn_today > 0:
-            today_count = scn_today
-
-        today_count    = today_count    or 0
-        last_week_count= last_week_count or 0
-        avg_daily      = float(avg_daily or 0)
-        signed_today   = signed_today   or 0
-        unread         = unread         or 0
-        active_rads    = active_rads    or 0
+        orders_today      = orders_today     or 0
+        orders_last_week  = orders_last_week or 0
+        avg_daily         = float(avg_daily or 0)
+        signed_today      = signed_today     or 0
+        unread            = unread           or 0
+        active_rads       = active_rads      or 0
 
         # ── Derived comparisons ────────────────────────────────────────
-        pct_vs_avg  = round((today_count - avg_daily) / avg_daily * 100) if avg_daily else 0
-        vs_last_wk  = today_count - last_week_count
-        sign_rate   = round(signed_today / today_count * 100) if today_count else 0
+        pct_vs_avg  = round((orders_today - avg_daily) / avg_daily * 100) if avg_daily else 0
+        vs_last_wk  = orders_today - orders_last_week
+        sign_rate   = round(signed_today / orders_today * 100) if orders_today else 0
 
         def _fmt_tat(v): return f"{v}m" if v is not None else "—"
         def _diff_label(a, b, unit="m", lower_better=True):
@@ -224,17 +226,17 @@ def daily_briefing():
         wk_phrase = (f", {abs(vs_last_wk)} {'more' if vs_last_wk >= 0 else 'fewer'} than last {latest_date.strftime('%A') if latest_date else 'week'}")
         headline = (
             f"{'Busy' if pct_vs_avg >= 15 else ('Slow' if pct_vs_avg <= -15 else 'Steady')} day — "
-            f"{today_count:,} {'study' if today_count == 1 else 'studies'} "
+            f"{orders_today:,} {'order' if orders_today == 1 else 'orders'} scheduled "
             f"({'+'if pct_vs_avg >= 0 else ''}{pct_vs_avg}% vs 30-day avg{wk_phrase})."
         )
 
         # ── KPI pills ──────────────────────────────────────────────────
         kpis = [
-            {"label": "Studies Today",   "value": f"{today_count:,}",
+            {"label": "Orders (Last Day)", "value": f"{orders_today:,}",
              "sub": f"{'+'if pct_vs_avg>=0 else ''}{pct_vs_avg}% vs 30d avg",
              "trend": "up" if pct_vs_avg >= 0 else "down"},
             {"label": "vs Last Week",    "value": f"{'+'if vs_last_wk>=0 else ''}{vs_last_wk}",
-             "sub": f"same weekday ({last_week_count:,} studies)",
+             "sub": f"same weekday ({orders_last_week:,} orders)",
              "trend": "up" if vs_last_wk >= 0 else "down"},
             {"label": "Signed",          "value": f"{signed_today:,}",
              "sub": f"{sign_rate}% reporting rate",
@@ -263,15 +265,14 @@ def daily_briefing():
         avg_str = f"{avg_daily:.0f}" if avg_daily else "—"
         insights.append(
             f"Volume is {abs(pct_vs_avg)}% {'above' if pct_vs_avg >= 0 else 'below'} the 30-day average "
-            f"({today_count:,} studies today vs {avg_str} daily average). "
-            f"Compared to the same day last week: {'+' if vs_last_wk >= 0 else ''}{vs_last_wk} studies "
-            f"({last_week_count:,} last {latest_date.strftime('%A') if latest_date else 'week'})."
+            f"({orders_today:,} orders scheduled vs {avg_str} daily average). "
+            f"Compared to the same day last week: {'+' if vs_last_wk >= 0 else ''}{vs_last_wk} orders "
+            f"({orders_last_week:,} last {latest_date.strftime('%A') if latest_date else 'week'})."
         )
 
         # Reporting throughput
-        unsigned = today_count - signed_today
         insights.append(
-            f"{signed_today:,} of {today_count:,} studies ({sign_rate}%) have a final report. "
+            f"{signed_today:,} studies have a final report against {orders_today:,} orders scheduled ({sign_rate}%). "
             f"{'All studies are reported.' if unread == 0 else f'{unread:,} remain unread — reporting backlog detected.' if unread > 20 else f'{unread:,} studies are still pending a report.'}"
         )
 
@@ -307,7 +308,7 @@ def daily_briefing():
             'kpis':        kpis,
             'insights':    insights,
             'pct_vs_avg':  pct_vs_avg,
-            'today':       today_count,
+            'today':       orders_today,
             'unread':      unread,
             'active_rads': active_rads,
             'er_tat_today': float(er_tat_today) if er_tat_today else None,
