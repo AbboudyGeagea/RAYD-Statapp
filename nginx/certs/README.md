@@ -41,15 +41,17 @@ sudo security add-trusted-cert -d -r trustRoot \
 
 ## Regenerating the server certificate (e.g. hostname changed)
 
-Delete `fullchain.pem` and `privkey.pem`, then re-run `install.sh`.
-The existing CA will be reused — clients don't need to reinstall anything.
+On a **live site**, do NOT re-run `install.sh` (it's fresh-install / data-reset only).
+Use `scripts/regenerate_cert.sh` instead — it only touches the server cert and reloads
+nginx, reusing the existing CA:
 
 ```bash
-rm nginx/certs/fullchain.pem nginx/certs/privkey.pem
-sudo bash install.sh
+sudo bash scripts/regenerate_cert.sh RAYD-Statapp.ad.umcrh.com
 ```
+
+For a **fresh install**, `install.sh` handles this as part of setup — no separate step needed.
 
 ## Renewing before expiry (825-day validity)
 
-Same as regenerating — delete the server cert files and re-run `install.sh`.
-The CA itself is valid for 10 years.
+Same as regenerating — run `scripts/regenerate_cert.sh <hostname>` again on a live site
+(or re-run `install.sh` for a fresh install). The CA itself is valid for 10 years.
