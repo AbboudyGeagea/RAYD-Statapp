@@ -16,6 +16,12 @@ Once clients trust the CA, HTTPS opens without any browser warnings.
 
 ## Client setup — install the CA certificate once per PC
 
+**Getting the file onto a client PC:** the easiest way is to download it straight from the
+server — `https://<rayd-hostname>/rayd-ca.crt` (e.g. `https://RAYD-Statapp.umcrh.com/rayd-ca.crt`).
+The browser will show its usual "not private" warning on that first request (expected — the CA
+isn't trusted yet, that's the whole point); click through it once (Advanced → Proceed) and the
+file downloads normally. No SSH/file-share access to the server needed.
+
 ### Windows (run as Administrator)
 ```bat
 certutil -addstore Root nginx\certs\rayd-ca.crt
@@ -46,7 +52,7 @@ Use `scripts/regenerate_cert.sh` instead — it only touches the server cert and
 nginx, reusing the existing CA:
 
 ```bash
-sudo bash scripts/regenerate_cert.sh RAYD-Statapp.ad.umcrh.com
+sudo bash scripts/regenerate_cert.sh RAYD-Statapp.umcrh.com
 ```
 
 For a **fresh install**, `install.sh` handles this as part of setup — no separate step needed.
