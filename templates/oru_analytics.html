@@ -2,362 +2,439 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RAYD · Report Intelligence</title>
 <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
 <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/dark.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-treemap@2.3.0/dist/chartjs-chart-treemap.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
-  :root { --bg:#181f1c; --card:#1a211e; --border:#1e2d27; --text:#e2e8f0; --muted:#64748b; }
+  /* ── Theme tokens ──────────────────────────────────────────────────────────
+     Dark is the base (no class); body.light overrides to the bright, airy
+     palette from the redesign brief. Semantic accents (primary/success/
+     warning/danger/critical) are intentionally theme-invariant. */
+  :root {
+    --bg:#0f172a; --card:#1e293b; --border:#334155;
+    --text:#f1f5f9; --text-dim:#cbd5e1; --muted:#94a3b8;
+    --primary:#0ea5e9; --success:#22c55e; --warning:#eab308; --danger:#f43f5e; --critical:#ef4444;
+    --shadow:0 1px 3px rgba(0,0,0,.35);
+    --well:rgba(148,163,184,0.09);
+    --track:rgba(148,163,184,0.18);
+  }
+  body.light {
+    --bg:#f8fafc; --card:#ffffff; --border:#e2e8f0;
+    --text:#0f172a; --text-dim:#334155; --muted:#64748b;
+    --shadow:0 1px 3px rgba(15,23,42,.07), 0 1px 2px rgba(15,23,42,.04);
+    --well:rgba(100,116,139,0.06);
+    --track:rgba(100,116,139,0.14);
+  }
+  * { box-sizing:border-box; }
+  html { scroll-behavior:smooth; }
   body { background:var(--bg); color:var(--text); margin:0; font-family:'Inter',system-ui,sans-serif; }
-  .page-wrap { display:flex; height:100vh; overflow:hidden; }
-  .main-area { flex:1; display:flex; flex-direction:column; overflow:hidden; }
-  .content   { flex:1; overflow-y:auto; padding:20px 24px; }
-
-  .card {
-    background:var(--card);
-    border:1px solid var(--border);
-    border-radius:12px;
-    padding:18px 20px;
-  }
-  .card-title {
-    font-size:9px;
-    font-weight:800;
-    letter-spacing:0.22em;
-    text-transform:uppercase;
-    color:#4b7a63;
-    margin-bottom:14px;
-    display:flex;
-    align-items:center;
-    gap:7px;
-  }
-
-  /* KPI strip */
-  .kpi-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:16px; }
-  .kpi { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:14px 18px; position:relative; overflow:hidden; }
-  .kpi::before { content:''; position:absolute; top:0;left:0;right:0;height:2px; }
-  .kpi.green::before  { background:#34d399; }
-  .kpi.blue::before   { background:#60a5fa; }
-  .kpi.amber::before  { background:#f59e0b; }
-  .kpi.rose::before   { background:#f87171; }
-  .kpi-label { font-size:9px;font-weight:800;letter-spacing:0.18em;text-transform:uppercase;color:#4b7a63; }
-  .kpi-val   { font-size:34px;font-weight:900;line-height:1.1;letter-spacing:-0.02em; }
-  .kpi.green .kpi-val  { color:#34d399; }
-  .kpi.blue  .kpi-val  { color:#60a5fa; }
-  .kpi.amber .kpi-val  { color:#f59e0b; }
-  .kpi.rose  .kpi-val  { color:#f87171; }
-
-  /* Filters */
-  .filter-bar { display:flex; align-items:center; gap:10px; margin-bottom:16px; flex-wrap:wrap; }
-  .filter-bar select, .filter-bar button {
-    background:#1a211e; border:1px solid #1e2d27; color:#e2e8f0;
-    padding:7px 14px; border-radius:8px; font-size:12px; font-weight:600;
-    cursor:pointer; outline:none;
-  }
-  .filter-bar select:focus, .filter-bar button:hover {
-    border-color:#34d399; color:#34d399;
-  }
-  .quick-pill { font-size:9px;font-weight:900;padding:3px 10px;border-radius:999px;border:1px solid #334155;color:#94a3b8;background:#141b19;cursor:pointer;text-transform:uppercase;letter-spacing:.08em;transition:all .15s; }
-  .quick-pill:hover { background:#60a5fa;border-color:#60a5fa;color:#0f172a; }
-  /* Procedure combobox */
-  .proc-combo { position:relative; display:inline-block; }
-  .proc-combo input[type="text"] {
-    background:#1a211e; border:1px solid #1e2d27; color:#e2e8f0;
-    padding:7px 30px 7px 14px; border-radius:8px; font-size:12px; font-weight:600;
-    outline:none; width:220px; cursor:text;
-  }
-  .proc-combo input[type="text"]:focus { border-color:#34d399; color:#e2e8f0; }
-  .proc-combo input[type="text"]::placeholder { color:#64748b; }
-  .proc-dropdown {
-    position:absolute; top:calc(100% + 4px); left:0;
-    background:#1a211e; border:1px solid #1e2d27; border-radius:8px;
-    list-style:none; margin:0; padding:4px 0;
-    min-width:100%; max-height:260px; overflow-y:auto;
-    z-index:999; box-shadow:0 8px 24px rgba(0,0,0,0.5);
-  }
-  .proc-dropdown li {
-    padding:6px 14px; font-size:12px; color:#e2e8f0;
-    cursor:pointer; white-space:nowrap;
-  }
-  .proc-dropdown li:hover { background:#28332e; color:#34d399; }
-  .proc-dropdown li.selected { color:#34d399; }
-  .proc-dropdown li.no-match { color:#475569; cursor:default; font-style:italic; }
-  body.light .proc-combo input[type="text"] { background:#f8fafc; border-color:#e2e8f0; color:#1a202c; }
-  body.light .proc-combo input[type="text"]:focus { border-color:#34d399; }
-  body.light .proc-dropdown { background:#f8fafc; border-color:#e2e8f0; }
-  body.light .proc-dropdown li { color:#1a202c; }
-  body.light .proc-dropdown li:hover { background:#e2e8f0; color:#16a34a; }
-  .btn-active { border-color:#34d399!important; color:#34d399!important; }
-
-  /* Main grid */
-  .main-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:14px; }
-  .full-width { grid-column:1/-1; }
-
-  /* Word cloud canvas */
-  #cloud-canvas { width:100%; height:340px; display:block; }
-
-  /* Bar rows */
-  .bar-row { display:grid; grid-template-columns:130px 1fr 46px; align-items:center; gap:10px; margin-bottom:7px; }
-  .bar-label { font-size:11px;font-weight:700;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
-  .bar-track { background:#0f1512;border-radius:4px;height:14px;overflow:hidden; }
-  .bar-fill  { height:100%;border-radius:4px;transition:width .5s ease; }
-  .bar-count { font-size:11px;font-weight:800;color:#e2e8f0;text-align:right; }
-
-  /* Critical table */
-  .crit-table { width:100%;border-collapse:collapse;font-size:12px; }
-  .crit-table th { font-size:9px;font-weight:800;letter-spacing:0.15em;text-transform:uppercase;color:#4b7a63;padding:6px 10px;border-bottom:1px solid #1e2d27;text-align:left; }
-  .crit-table td { padding:8px 10px;border-bottom:1px solid #1a211e;vertical-align:top; }
-  .crit-table tr:last-child td { border-bottom:none; }
-  .keyword-badge { display:inline-block;font-size:9px;font-weight:800;padding:2px 7px;border-radius:4px;background:rgba(248,113,113,0.12);color:#f87171;border:1px solid rgba(248,113,113,0.25);margin:1px; }
-  .proc-tag { font-size:10px;font-weight:700;color:#a78bfa; }
-  .snippet { color:#64748b;font-size:11px;line-height:1.5; }
-
-  /* Normal/Abnormal donut */
-  #donut-wrap { display:flex;align-items:center;justify-content:center;gap:24px;height:200px; }
-  #donutChart { max-width:160px; }
-  .donut-legend { display:flex;flex-direction:column;gap:8px; }
-  .legend-item { display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700; }
-  .legend-dot  { width:10px;height:10px;border-radius:50%;flex-shrink:0; }
-
-  /* Spinner */
-  .spinner { width:32px;height:32px;border:3px solid #1e2d27;border-top-color:#34d399;border-radius:50%;animation:spin .7s linear infinite;margin:auto; }
-  @keyframes spin { to { transform:rotate(360deg); } }
-
-  .empty-state { text-align:center;padding:40px;color:#4b7a63;font-size:13px;font-weight:600; }
-
-  /* Export button */
-  .export-btn {
-    font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;
-    padding:5px 12px;border-radius:7px;border:1px solid #334155;
-    background:#1e293b;color:#94a3b8;cursor:pointer;transition:all .15s;
-  }
-  .export-btn:hover { border-color:#60a5fa;color:#60a5fa; }
-
-  /* Gap physician table */
-  .gap-table { width:100%;border-collapse:collapse;font-size:12px; }
-  .gap-table th { font-size:9px;font-weight:800;letter-spacing:.15em;text-transform:uppercase;color:#475569;padding:6px 10px;border-bottom:1px solid #1e293b;text-align:left; }
-  .gap-table td { padding:7px 10px;border-bottom:1px solid #0f172a;color:#cbd5e1;font-weight:600; }
-  .gap-table tr:hover td { background:#1e293b; }
-  .gap-count-badge { display:inline-block;background:#7f1d1d;color:#fca5a5;font-size:10px;font-weight:800;padding:2px 8px;border-radius:20px;min-width:30px;text-align:center; }
-
-  /* ── Light mode ─────────────────────────────────────────── */
-  body.light { --bg:#f0f4f8; --card:#ffffff; --border:#e2e8f0; --text:#1a202c; --muted:#718096; }
   body.light aside, body.light header { background:#ffffff !important; border-color:#e2e8f0 !important; }
   body.light aside .sidebar-item { color:#4a5568; }
   body.light aside .sidebar-item:hover, body.light aside .sidebar-item.active { background:#e2e8f0 !important; border-color:#cbd5e1 !important; color:#2b6cb0 !important; box-shadow:none; }
-  body.light .card-title { color:#4a5568; }
-  body.light .filter-bar select, body.light .filter-bar button { background:#f8fafc; border-color:#e2e8f0; color:#1a202c; }
-  body.light .filter-bar select:focus, body.light .filter-bar button:hover { border-color:#34d399; color:#16a34a; }
-  body.light .bar-label { color:#4a5568; }
-  body.light .bar-track { background:#e2e8f0; }
-  body.light .bar-count { color:#1a202c; }
-  body.light .crit-table th { color:#4a5568; border-bottom-color:#e2e8f0; }
-  body.light .crit-table td { border-bottom-color:#f0f4f8; }
-  body.light .snippet { color:#718096; }
-  body.light .export-btn { background:#f8fafc; border-color:#e2e8f0; color:#4a5568; }
-  body.light .export-btn:hover { border-color:#60a5fa; color:#2563eb; }
-  body.light .gap-table th { color:#4a5568; border-bottom-color:#e2e8f0; }
-  body.light .gap-table td { color:#1a202c; border-bottom-color:#f0f4f8; }
-  body.light .gap-table tr:hover td { background:#f0f4f8; }
-  body.light .spinner { border-color:#e2e8f0; border-top-color:#34d399; }
-  body.light .empty-state { color:#718096; }
+  .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+
+  .page-wrap  { display:flex; height:100vh; overflow:hidden; }
+  .main-area  { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+  .content    { flex:1; overflow-y:auto; }
+  .page-inner { padding:24px 28px 8px; max-width:1680px; margin:0 auto; }
+
+  /* Sticky in-page header */
+  .topbar { position:sticky; top:0; z-index:30; background:var(--card); border-bottom:1px solid var(--border); box-shadow:var(--shadow); padding:16px 28px; }
+  h1.page-title { font-size:22px; font-weight:800; letter-spacing:-0.02em; color:var(--text); margin:0; display:flex; align-items:center; }
+  .page-sub { font-size:12px; color:var(--muted); font-weight:600; margin:2px 0 0; }
+
+  .filter-label { font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); }
+  .filter-input { background:rgba(148,163,184,0.08); border:1px solid var(--border); color:var(--text); padding:8px 12px; border-radius:9px; font-size:12.5px; font-weight:600; outline:none; }
+  .filter-input:focus { border-color:var(--primary); }
+  .filter-input::placeholder { color:var(--muted); }
+
+  .quick-pill { font-size:10px; font-weight:800; padding:6px 12px; border-radius:999px; border:1px solid var(--border); color:var(--muted); background:rgba(148,163,184,0.08); cursor:pointer; text-transform:uppercase; letter-spacing:.06em; transition:all .15s; }
+  .quick-pill:hover { border-color:var(--primary); color:var(--primary); }
+  .quick-pill.active { background:var(--primary); border-color:var(--primary); color:#fff; }
+
+  .btn-primary { background:var(--primary); border:none; color:#fff; padding:9px 18px; border-radius:9px; font-size:11.5px; font-weight:800; cursor:pointer; letter-spacing:.06em; text-transform:uppercase; box-shadow:0 2px 8px rgba(14,165,233,.35); transition:filter .15s; }
+  .btn-primary:hover { filter:brightness(1.08); }
+  .btn-primary:disabled { opacity:.55; cursor:not-allowed; filter:none; }
+
+  /* Procedure combobox */
+  .proc-combo { position:relative; display:inline-block; }
+  .proc-combo input[type="text"] { width:220px; cursor:text; }
+  .proc-dropdown { position:absolute; top:calc(100% + 6px); left:0; background:var(--card); border:1px solid var(--border); border-radius:10px; list-style:none; margin:0; padding:5px 0; min-width:100%; max-height:280px; overflow-y:auto; z-index:999; box-shadow:0 12px 28px rgba(0,0,0,0.22); }
+  .proc-dropdown li { padding:7px 14px; font-size:12.5px; color:var(--text); cursor:pointer; white-space:nowrap; }
+  .proc-dropdown li:hover { background:var(--well); color:var(--primary); }
+  .proc-dropdown li.selected { color:var(--primary); font-weight:700; }
+  .proc-dropdown li.no-match { color:var(--muted); cursor:default; font-style:italic; }
+
+  /* Cards */
+  .card { background:var(--card); border:1px solid var(--border); border-radius:16px; padding:24px; box-shadow:var(--shadow); }
+  .section-label { font-size:11px; font-weight:800; letter-spacing:0.1em; text-transform:uppercase; color:var(--muted); display:flex; align-items:center; gap:8px; margin-bottom:16px; }
+
+  /* KPI row */
+  .kpi-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; }
+  .kpi-card { position:relative; background:var(--card); border:1px solid var(--border); border-radius:16px; padding:20px 22px; box-shadow:var(--shadow); overflow:hidden; }
+  .kpi-card::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; background:var(--accent); }
+  .kpi-card.sky   { --accent:#0ea5e9; }
+  .kpi-card.green { --accent:#22c55e; }
+  .kpi-card.amber { --accent:#eab308; }
+  .kpi-card.rose  { --accent:#f43f5e; background:rgba(244,63,94,0.06); border-color:rgba(244,63,94,0.35); }
+  .kpi-top  { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
+  .kpi-label{ font-size:11px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:var(--muted); }
+  .kpi-val  { font-size:32px; font-weight:800; line-height:1.15; letter-spacing:-0.02em; color:var(--text); margin-top:8px; }
+  .kpi-card.rose .kpi-val { color:var(--danger); }
+  .kpi-icon { font-size:16px; width:32px; height:32px; border-radius:10px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .kpi-icon.sky   { color:#0ea5e9; background:rgba(14,165,233,0.13); }
+  .kpi-icon.green { color:#22c55e; background:rgba(34,197,94,0.13); }
+  .kpi-icon.amber { color:#a16207; background:rgba(234,179,8,0.18); }
+  .kpi-icon.rose  { color:#f43f5e; background:rgba(244,63,94,0.15); }
+  .kpi-foot { display:flex; align-items:center; justify-content:space-between; margin-top:12px; }
+  .kpi-foot-label { font-size:10px; color:var(--muted); font-weight:700; }
+  .kpi-spark { width:64px; height:22px; overflow:visible; }
+
+  /* Critical findings spotlight */
+  .spotlight-banner { background:linear-gradient(135deg,#ef4444,#f97316); border-radius:16px; padding:22px 26px; color:#fff; box-shadow:0 6px 18px rgba(239,68,68,.32); }
+  .spotlight-header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:14px; }
+  .spotlight-title { font-size:12.5px; font-weight:800; letter-spacing:0.08em; text-transform:uppercase; display:flex; align-items:center; gap:8px; }
+  .spotlight-viewall { font-size:12px; font-weight:800; color:#fff; background:rgba(255,255,255,0.2); padding:7px 14px; border-radius:8px; text-decoration:none; transition:background .15s; white-space:nowrap; }
+  .spotlight-viewall:hover, .spotlight-viewall:focus-visible { background:rgba(255,255,255,0.34); }
+  .spotlight-list { display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:12px; }
+  .spotlight-item { background:rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.28); border-radius:10px; padding:12px 14px; }
+  .spotlight-main { font-size:12.5px; font-weight:700; margin-bottom:8px; display:flex; flex-wrap:wrap; gap:5px; align-items:center; }
+  .spotlight-acc  { font-family:monospace; }
+  .spotlight-sep  { opacity:0.65; }
+  .spotlight-kw   { display:flex; flex-wrap:wrap; gap:4px; }
+  .spotlight-kw .keyword-badge { background:rgba(255,255,255,0.92); color:#9f1239; }
+
+  /* Bar rows */
+  .bar-row   { display:grid; grid-template-columns:120px 1fr 46px; align-items:center; gap:10px; margin-bottom:8px; }
+  .bar-label { font-size:12px; font-weight:600; color:var(--text-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .bar-track { background:var(--track); border-radius:5px; height:14px; overflow:hidden; }
+  .bar-fill  { height:100%; border-radius:5px; transition:width .5s ease; }
+  .bar-count { font-size:12px; font-weight:800; color:var(--text); text-align:right; }
+
+  /* Donut */
+  #donut-wrap { display:flex; align-items:center; justify-content:center; gap:28px; height:220px; }
+  #donutChart, #nlpDonutChart { max-width:180px; }
+  .donut-legend { display:flex; flex-direction:column; gap:10px; }
+  .legend-item  { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:700; color:var(--text); }
+  .legend-dot   { width:11px; height:11px; border-radius:50%; flex-shrink:0; }
+
+  /* Treemap */
+  .treemap-wrap    { position:relative; }
+  .treemap-spinner { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; background:var(--card); border-radius:10px; }
+
+  /* Critical findings table */
+  .crit-table { width:100%; border-collapse:collapse; font-size:12.5px; }
+  .crit-table th { font-size:10px; font-weight:800; letter-spacing:0.08em; text-transform:uppercase; color:var(--muted); padding:8px 10px; border-bottom:1px solid var(--border); text-align:left; }
+  .crit-table td { padding:10px; border-bottom:1px solid var(--border); vertical-align:top; color:var(--text-dim); }
+  .crit-table tbody tr[data-row="main"]:hover { background:var(--well); }
+  .keyword-badge { display:inline-block; font-size:10px; font-weight:800; padding:2px 8px; border-radius:5px; background:var(--critical); color:#fff; margin:1px; }
+  .proc-tag { font-size:11px; font-weight:700; color:#a78bfa; }
+
+  /* Section-gap table & alert cards */
+  .gap-table { width:100%; border-collapse:collapse; font-size:12.5px; }
+  .gap-table th { font-size:10px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); padding:7px 10px; border-bottom:1px solid var(--border); text-align:left; }
+  .gap-table td { padding:8px 10px; border-bottom:1px solid var(--border); color:var(--text-dim); font-weight:600; }
+  .gap-table tr:hover td { background:var(--well); }
+  .gap-count-badge { display:inline-block; background:#eab308; color:#422006; font-size:10px; font-weight:800; padding:2px 9px; border-radius:20px; min-width:30px; text-align:center; }
+  .gap-card { display:block; width:100%; text-align:left; background:rgba(234,179,8,0.07); border:1px solid rgba(234,179,8,0.32); border-left:3px solid var(--warning); border-radius:12px; padding:14px 16px; cursor:pointer; transition:background .15s; }
+  .gap-card:hover, .gap-card:focus-visible { background:rgba(234,179,8,0.14); }
+  .gap-card-label { font-size:10.5px; font-weight:800; text-transform:uppercase; letter-spacing:.06em; color:var(--text-dim); }
+  .gap-card-count { font-size:24px; font-weight:800; color:var(--text); margin-top:6px; }
+  .gap-card-hint  { font-size:10px; color:var(--muted); margin-top:4px; font-weight:700; }
+
+  /* Buttons */
+  .export-btn { font-size:10.5px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; padding:6px 13px; border-radius:8px; border:1px solid var(--border); background:rgba(148,163,184,0.07); color:var(--text-dim); cursor:pointer; transition:all .15s; display:inline-flex; align-items:center; gap:6px; }
+  .export-btn:hover:not(:disabled) { border-color:var(--primary); color:var(--primary); }
+  .export-btn:disabled { opacity:.4; cursor:not-allowed; }
+
+  /* Spinner / empty state */
+  .spinner { width:32px; height:32px; border:3px solid var(--border); border-top-color:var(--primary); border-radius:50%; animation:spin .7s linear infinite; margin:auto; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .empty-state { text-align:center; padding:40px; color:var(--muted); font-size:13px; font-weight:600; }
+
+  /* NLP clusters */
+  .cluster-card { background:var(--well); border:1px solid var(--border); border-radius:10px; padding:14px 16px; }
+
+  /* Keyword / vocabulary chips (admin) */
+  .chip { display:inline-flex; align-items:center; gap:5px; padding:3px 10px; border-radius:100px; font-size:11px; font-weight:700; }
+  .chip-critical  { background:var(--critical); color:#fff; }
+  .chip-suggested { background:#7c3aed; color:#fff; }
+  .chip-neutral   { background:var(--well); border:1px solid var(--border); color:var(--text-dim); }
+  .chip button { background:none; border:none; cursor:pointer; padding:0; font-size:13px; line-height:1; color:inherit; }
+
+  footer.page-footer { padding:16px 28px 26px; display:flex; align-items:center; justify-content:space-between; border-top:1px solid var(--border); margin-top:8px; }
+
+  /* Flatpickr — light by default, patched for dark mode */
+  body:not(.light) .flatpickr-calendar { background:var(--card); border-color:var(--border); box-shadow:0 12px 28px rgba(0,0,0,.45); }
+  body:not(.light) .flatpickr-calendar.arrowTop:before,
+  body:not(.light) .flatpickr-calendar.arrowTop:after { border-bottom-color:var(--card); }
+  body:not(.light) .flatpickr-day { color:var(--text-dim); }
+  body:not(.light) .flatpickr-day.flatpickr-disabled,
+  body:not(.light) .flatpickr-day.prevMonthDay,
+  body:not(.light) .flatpickr-day.nextMonthDay { color:var(--muted); }
+  body:not(.light) .flatpickr-day:hover { background:var(--well); }
+  body:not(.light) .flatpickr-day.selected { background:var(--primary); border-color:var(--primary); color:#fff; }
+  body:not(.light) .flatpickr-months,
+  body:not(.light) .flatpickr-weekdays { background:var(--card); }
+  body:not(.light) .flatpickr-weekday { background:var(--card); color:var(--muted); }
+  body:not(.light) .flatpickr-current-month,
+  body:not(.light) .flatpickr-current-month input.cur-year { color:var(--text); }
+  body:not(.light) .flatpickr-months .flatpickr-prev-month svg,
+  body:not(.light) .flatpickr-months .flatpickr-next-month svg { fill:var(--text-dim); }
 </style>
 </head>
 <body>
 <div class="page-wrap">
   {% include '_sidebar.html' %}
-  <div class="main-area">
+  <main class="main-area">
     {% include '_header.html' %}
     <div class="content">
 
-      <!-- Page title -->
-      <div style="margin-bottom:18px;display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;">
-        <div>
-          <h1 style="font-size:20px;font-weight:900;letter-spacing:-0.02em;color:#e2e8f0;margin:0;">
-            <i class="bi bi-cloud-fill" style="color:#a78bfa;margin-right:8px;"></i>Report Intelligence
-          </h1>
-          <p style="font-size:11px;color:#4b7a63;font-weight:600;margin-top:3px;">
-            Anonymous analysis of ORU^R01 radiology reports — OBR &amp; OBX segments only
-          </p>
-        </div>
-        <!-- NLP control strip -->
-        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-          <div style="font-size:10px;font-weight:700;color:#4b7a63;" id="nlp-status-text">Checking NLP status...</div>
-          <button id="run-nlp-btn" onclick="runNLP()"
-            style="background:#1a211e;border:1px solid #34d399;color:#34d399;padding:7px 16px;border-radius:8px;font-size:11px;font-weight:800;cursor:pointer;letter-spacing:0.1em;text-transform:uppercase;transition:all .2s;">
-            <i class="bi bi-cpu"></i> Run NLP Analysis
-          </button>
-          <button id="load-nlp-btn" onclick="loadNLPResults()"
-            style="background:#1a211e;border:1px solid #1e2d27;color:#94a3b8;padding:7px 16px;border-radius:8px;font-size:11px;font-weight:800;cursor:pointer;letter-spacing:0.1em;text-transform:uppercase;transition:all .2s;">
-            <i class="bi bi-graph-up"></i> Show NLP Results
-          </button>
-        </div>
-      </div>
-
-
-      <!-- NLP progress toast -->
-      <div id="nlp-toast" style="display:none;background:rgba(52,211,153,0.08);border:1px solid rgba(52,211,153,0.25);border-radius:10px;padding:12px 18px;margin-bottom:14px;font-size:12px;font-weight:700;color:#34d399;display:none;align-items:center;gap:10px;">
-        <div class="spinner" style="width:16px;height:16px;border-width:2px;flex-shrink:0;"></div>
-        <span id="nlp-toast-text">Processing reports...</span>
-      </div>
-
-      <!-- Filters -->
-      <div class="filter-bar">
-        <!-- Searchable procedure combobox -->
-        <div class="proc-combo" id="proc-combo-wrap">
-          <input type="text" id="proc-filter-input" placeholder="All Procedures" autocomplete="off" spellcheck="false">
-          <ul id="proc-dropdown" class="proc-dropdown" style="display:none"></ul>
-        </div>
-        <input type="hidden" id="proc-filter" value="">
-
-        <div class="flex items-center gap-2">
-          <label style="font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:#475569;">From</label>
-          <input type="date" id="date-from" style="background:#1a211e;border:1px solid #1e2d27;color:#e2e8f0;padding:7px 10px;border-radius:8px;font-size:12px;font-weight:600;outline:none;cursor:pointer;">
-        </div>
-        <div class="flex items-center gap-2">
-          <label style="font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:#475569;">To</label>
-          <input type="date" id="date-to" style="background:#1a211e;border:1px solid #1e2d27;color:#e2e8f0;padding:7px 10px;border-radius:8px;font-size:12px;font-weight:600;outline:none;cursor:pointer;">
-        </div>
-        <div style="display:flex;gap:4px;">
-          <button class="quick-pill" onclick="setQuickRange(7)">7d</button>
-          <button class="quick-pill" onclick="setQuickRange(30)">30d</button>
-          <button class="quick-pill" onclick="setQuickRange(90)">90d</button>
-          <button class="quick-pill" onclick="setQuickRange(365)">1y</button>
-        </div>
-
-        <button id="refresh-btn" onclick="loadData()">
-          <i class="bi bi-arrow-clockwise"></i> Refresh
-        </button>
-
-        <span id="last-refresh" style="font-size:10px;color:#4b7a63;margin-left:auto;font-weight:600;"></span>
-      </div>
-
-      <!-- KPI strip -->
-      <div class="kpi-grid" id="kpi-strip">
-        <div class="kpi green"><div class="kpi-label">Total Reports</div><div class="kpi-val" id="kpi-total">—</div></div>
-        <div class="kpi blue"><div class="kpi-label">Normal</div><div class="kpi-val" id="kpi-normal">—</div></div>
-        <div class="kpi rose"><div class="kpi-label">Abnormal / Flagged</div><div class="kpi-val" id="kpi-abnormal">—</div></div>
-        <div class="kpi amber"><div class="kpi-label">Critical Findings</div><div class="kpi-val" id="kpi-critical">—</div></div>
-      </div>
-
-      <!-- ── Section Gap Alert ── -->
-      <div id="gap-section" style="display:none;margin-bottom:20px;">
-
-        <!-- Red summary cards -->
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px;">
-          <div class="kpi" style="background:#2d1414;border:1px solid #7f1d1d;cursor:pointer;" onclick="toggleGapList('gap-tech-wrap')">
-            <div class="kpi-label" style="color:#fca5a5;">Empty Technique</div>
-            <div class="kpi-val" id="gap-tech-count" style="color:#f87171;">—</div>
-            <div style="font-size:9px;color:#7f1d1d;margin-top:4px;font-weight:700;">Click to view · Export ↓</div>
+      <!-- ══ Sticky page header ══════════════════════════════════════════ -->
+      <div class="topbar">
+        <div class="flex items-start justify-between gap-4 flex-wrap" style="margin-bottom:14px;">
+          <div>
+            <h1 class="page-title"><i class="bi bi-cloud-fill" style="color:var(--primary);margin-right:8px;" aria-hidden="true"></i>Report Intelligence</h1>
+            <p class="page-sub">Anonymous analysis of ORU^R01 radiology reports — OBR &amp; OBX segments only</p>
           </div>
-          <div class="kpi" style="background:#2d1414;border:1px solid #7f1d1d;cursor:pointer;" onclick="toggleGapList('gap-find-wrap')">
-            <div class="kpi-label" style="color:#fca5a5;">Empty Résultats</div>
-            <div class="kpi-val" id="gap-find-count" style="color:#f87171;">—</div>
-            <div style="font-size:9px;color:#7f1d1d;margin-top:4px;font-weight:700;">Click to view · Export ↓</div>
-          </div>
-          <div class="kpi" style="background:#2d1414;border:1px solid #7f1d1d;cursor:pointer;" onclick="toggleGapList('gap-concl-wrap')">
-            <div class="kpi-label" style="color:#fca5a5;">Empty Conclusion</div>
-            <div class="kpi-val" id="gap-concl-count" style="color:#f87171;">—</div>
-            <div style="font-size:9px;color:#7f1d1d;margin-top:4px;font-weight:700;">Click to view · Export ↓</div>
+          <div class="flex items-center gap-3 flex-wrap">
+            <span id="nlp-status-text" role="status" aria-live="polite" style="font-size:11px;font-weight:700;color:var(--muted);">Checking NLP status…</span>
+            <button id="run-nlp-btn" onclick="runNLP()" class="btn-primary" type="button">
+              <i class="bi bi-cpu" aria-hidden="true"></i> Process Reports
+            </button>
           </div>
         </div>
 
-        <!-- Gap lists — one per section, hidden by default, toggled by card click -->
-        <div id="gap-tech-wrap"  style="display:none;margin-bottom:12px;">
-          <div class="table-container" style="padding:1rem;">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-              <span style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:#fca5a5;"><i class="bi bi-gear-fill"></i> Radiologists with Empty Technique Section</span>
-              <button onclick="exportGap('gap-tech-table','technique')" class="export-btn"><i class="bi bi-download"></i> Export CSV</button>
+        <div class="flex items-center gap-3 flex-wrap" role="search" aria-label="Report filters">
+          <div class="proc-combo" id="proc-combo-wrap">
+            <input type="text" id="proc-filter-input" class="filter-input" placeholder="All Procedures"
+                   autocomplete="off" spellcheck="false" role="combobox" aria-expanded="false"
+                   aria-controls="proc-dropdown" aria-label="Filter by procedure">
+            <ul id="proc-dropdown" class="proc-dropdown" role="listbox" style="display:none"></ul>
+          </div>
+          <input type="hidden" id="proc-filter" value="">
+
+          <div class="flex items-center gap-2">
+            <label for="date-from" class="filter-label">From</label>
+            <input type="date" id="date-from" class="filter-input">
+          </div>
+          <div class="flex items-center gap-2">
+            <label for="date-to" class="filter-label">To</label>
+            <input type="date" id="date-to" class="filter-input">
+          </div>
+          <div class="flex gap-1.5" role="group" aria-label="Quick date range presets">
+            <button type="button" class="quick-pill" onclick="setQuickRange(7,this)">7d</button>
+            <button type="button" class="quick-pill" onclick="setQuickRange(30,this)">30d</button>
+            <button type="button" class="quick-pill" onclick="setQuickRange(90,this)">90d</button>
+            <button type="button" class="quick-pill" onclick="setQuickRange(365,this)">1y</button>
+          </div>
+        </div>
+      </div><!-- /topbar -->
+
+      <div class="page-inner">
+
+        <!-- NLP progress toast -->
+        <div id="nlp-toast" role="status" aria-live="polite"
+             style="display:none;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.3);border-radius:12px;padding:12px 18px;margin:20px 0;font-size:12.5px;font-weight:700;color:var(--success);align-items:center;gap:10px;">
+          <div class="spinner" style="width:16px;height:16px;border-width:2px;flex-shrink:0;"></div>
+          <span id="nlp-toast-text">Processing reports…</span>
+        </div>
+
+        <!-- ══ KPI row ══════════════════════════════════════════════════ -->
+        <div class="kpi-grid" style="margin-top:20px;" role="group" aria-label="Key metrics">
+          <div class="kpi-card sky">
+            <div class="kpi-top">
+              <div><div class="kpi-label">Total Reports</div><div class="kpi-val" id="kpi-total">—</div></div>
+              <div class="kpi-icon sky"><i class="bi bi-file-earmark-medical-fill" aria-hidden="true"></i></div>
             </div>
-            <div id="gap-tech-table"></div>
+            <div class="kpi-foot"><span class="kpi-foot-label">in selected period</span><svg id="kpi-total-spark" class="kpi-spark" viewBox="0 0 64 22" aria-hidden="true"></svg></div>
           </div>
-        </div>
-
-        <div id="gap-find-wrap"  style="display:none;margin-bottom:12px;">
-          <div class="table-container" style="padding:1rem;">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-              <span style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:#fca5a5;"><i class="bi bi-file-text-fill"></i> Radiologists with Empty Résultats Section</span>
-              <button onclick="exportGap('gap-find-table','resultats')" class="export-btn"><i class="bi bi-download"></i> Export CSV</button>
+          <div class="kpi-card green">
+            <div class="kpi-top">
+              <div><div class="kpi-label">Normal</div><div class="kpi-val" id="kpi-normal">—</div></div>
+              <div class="kpi-icon green"><i class="bi bi-check-circle-fill" aria-hidden="true"></i></div>
             </div>
-            <div id="gap-find-table"></div>
+            <div class="kpi-foot"><span class="kpi-foot-label">clear reports</span><svg id="kpi-normal-spark" class="kpi-spark" viewBox="0 0 64 22" aria-hidden="true"></svg></div>
           </div>
-        </div>
-
-        <div id="gap-concl-wrap" style="display:none;margin-bottom:12px;">
-          <div class="table-container" style="padding:1rem;">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-              <span style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:#fca5a5;"><i class="bi bi-check-circle-fill"></i> Radiologists with Empty Conclusion Section</span>
-              <button onclick="exportGap('gap-concl-table','conclusion')" class="export-btn"><i class="bi bi-download"></i> Export CSV</button>
+          <div class="kpi-card amber">
+            <div class="kpi-top">
+              <div><div class="kpi-label">Abnormal / Flagged</div><div class="kpi-val" id="kpi-abnormal">—</div></div>
+              <div class="kpi-icon amber"><i class="bi bi-exclamation-circle-fill" aria-hidden="true"></i></div>
             </div>
-            <div id="gap-concl-table"></div>
+            <div class="kpi-foot"><span class="kpi-foot-label">needs review</span><svg id="kpi-abnormal-spark" class="kpi-spark" viewBox="0 0 64 22" aria-hidden="true"></svg></div>
+          </div>
+          <div class="kpi-card rose">
+            <div class="kpi-top">
+              <div><div class="kpi-label">Critical Findings</div><div class="kpi-val" id="kpi-critical">—</div></div>
+              <div class="kpi-icon rose"><i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i></div>
+            </div>
+            <div class="kpi-foot"><span class="kpi-foot-label">act now</span><svg id="kpi-critical-spark" class="kpi-spark" viewBox="0 0 64 22" aria-hidden="true"></svg></div>
           </div>
         </div>
 
-        <!-- Export all in one shot -->
-        <div style="text-align:right;margin-bottom:4px;">
-          <button onclick="exportAllGaps()" class="export-btn" style="background:#7f1d1d;border-color:#991b1b;color:#fca5a5;">
-            <i class="bi bi-file-earmark-spreadsheet"></i> Export All Gaps (CSV)
-          </button>
+        <!-- ══ Critical findings spotlight ══════════════════════════════ -->
+        <div class="spotlight-banner" id="critical-spotlight" style="display:none;margin-top:20px;" role="region" aria-label="Critical findings spotlight">
+          <div class="spotlight-header">
+            <span class="spotlight-title"><i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i> Critical Findings — Needs Attention</span>
+            <a href="#critical-card" class="spotlight-viewall">View All <i class="bi bi-arrow-right" aria-hidden="true"></i></a>
+          </div>
+          <div class="spotlight-list" id="spotlight-list"></div>
         </div>
-      </div>
 
-      <!-- Main grid -->
-      <div class="main-grid">
+        <!-- ══ Two-column main content ══════════════════════════════════ -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:20px;">
 
-        <!-- Term Treemap -->
-        <div class="card full-width">
-          <div class="card-title"><i class="bi bi-grid-fill" style="color:#a78bfa;"></i>Report Term Treemap <span style="font-weight:400;color:#4b7a63;font-size:9px;margin-left:6px;">sized by frequency · top 60 terms</span></div>
-          <div style="position:relative;height:340px;">
-            <canvas id="cloud-canvas"></canvas>
-            <div id="cloud-spinner" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#1a211e;border-radius:8px;">
-              <div class="spinner"></div>
+          <!-- Left column -->
+          <div style="display:flex;flex-direction:column;gap:16px;">
+            <div class="card">
+              <div class="section-label"><i class="bi bi-pie-chart-fill" style="color:var(--success);" aria-hidden="true"></i>Normal vs Abnormal Rate</div>
+              <div id="donut-wrap">
+                <canvas id="donutChart" role="img" aria-label="Normal versus abnormal report rate"></canvas>
+                <div class="donut-legend">
+                  <div class="legend-item"><div class="legend-dot" style="background:var(--success);"></div><span id="normal-pct" style="color:var(--success);">—</span> Normal</div>
+                  <div class="legend-item"><div class="legend-dot" style="background:var(--critical);"></div><span id="abnormal-pct" style="color:var(--critical);">—</span> Abnormal</div>
+                </div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="section-label"><i class="bi bi-bar-chart-fill" style="color:var(--primary);" aria-hidden="true"></i>Reports by Modality</div>
+              <div id="mod-list"></div>
+            </div>
+            <div class="card">
+              <div class="section-label"><i class="bi bi-list-ol" style="color:var(--warning);" aria-hidden="true"></i>Top Procedures by Volume</div>
+              <div id="proc-list"></div>
             </div>
           </div>
+
+          <!-- Right column -->
+          <div style="display:flex;flex-direction:column;gap:16px;">
+            <div class="card">
+              <div class="section-label"><i class="bi bi-person-badge-fill" style="color:#a78bfa;" aria-hidden="true"></i>Reporting Physician Activity
+                <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;">(ID only)</span>
+              </div>
+              <div id="phys-list"></div>
+            </div>
+
+            <div class="card" id="gap-section" style="display:none;">
+              <div class="section-label"><i class="bi bi-clipboard2-x-fill" style="color:var(--warning);" aria-hidden="true"></i>Section Gap Alerts</div>
+
+              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px;">
+                <button type="button" class="gap-card" onclick="toggleGapList('gap-tech-wrap',this)" aria-expanded="false" aria-controls="gap-tech-wrap">
+                  <div class="gap-card-label">Empty Technique</div>
+                  <div class="gap-card-count" id="gap-tech-count">—</div>
+                  <div class="gap-card-hint">Click to view</div>
+                </button>
+                <button type="button" class="gap-card" onclick="toggleGapList('gap-find-wrap',this)" aria-expanded="false" aria-controls="gap-find-wrap">
+                  <div class="gap-card-label">Empty Résultats</div>
+                  <div class="gap-card-count" id="gap-find-count">—</div>
+                  <div class="gap-card-hint">Click to view</div>
+                </button>
+                <button type="button" class="gap-card" onclick="toggleGapList('gap-concl-wrap',this)" aria-expanded="false" aria-controls="gap-concl-wrap">
+                  <div class="gap-card-label">Empty Conclusion</div>
+                  <div class="gap-card-count" id="gap-concl-count">—</div>
+                  <div class="gap-card-hint">Click to view</div>
+                </button>
+              </div>
+
+              <div id="gap-tech-wrap" style="display:none;margin-bottom:12px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                  <span style="font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);"><i class="bi bi-gear-fill" aria-hidden="true"></i> Radiologists — Empty Technique</span>
+                  <button onclick="exportGap('gap-tech-table','technique')" class="export-btn" type="button"><i class="bi bi-download" aria-hidden="true"></i> CSV</button>
+                </div>
+                <div id="gap-tech-table"></div>
+              </div>
+              <div id="gap-find-wrap" style="display:none;margin-bottom:12px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                  <span style="font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);"><i class="bi bi-file-text-fill" aria-hidden="true"></i> Radiologists — Empty Résultats</span>
+                  <button onclick="exportGap('gap-find-table','resultats')" class="export-btn" type="button"><i class="bi bi-download" aria-hidden="true"></i> CSV</button>
+                </div>
+                <div id="gap-find-table"></div>
+              </div>
+              <div id="gap-concl-wrap" style="display:none;margin-bottom:12px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                  <span style="font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);"><i class="bi bi-check-circle-fill" aria-hidden="true"></i> Radiologists — Empty Conclusion</span>
+                  <button onclick="exportGap('gap-concl-table','conclusion')" class="export-btn" type="button"><i class="bi bi-download" aria-hidden="true"></i> CSV</button>
+                </div>
+                <div id="gap-concl-table"></div>
+              </div>
+
+              <div style="text-align:right;">
+                <button onclick="exportAllGaps()" class="export-btn" type="button" style="background:var(--warning);border-color:var(--warning);color:#422006;">
+                  <i class="bi bi-file-earmark-spreadsheet" aria-hidden="true"></i> Export All Gaps
+                </button>
+              </div>
+            </div>
+          </div>
+        </div><!-- /two-column -->
+
+        <!-- ══ Term Treemap ═════════════════════════════════════════════ -->
+        <div class="card" style="margin-top:20px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px;">
+            <div class="section-label" style="margin-bottom:0;"><i class="bi bi-grid-fill" style="color:#a78bfa;" aria-hidden="true"></i>Report Term Treemap
+              <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;">sized by frequency · top 60 terms</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <i class="bi bi-search" style="color:var(--muted);font-size:12px;" aria-hidden="true"></i>
+              <input id="treemap-search" type="text" class="filter-input" style="width:200px;" placeholder="Filter terms…"
+                     oninput="filterTreemapTerms(this.value)" aria-label="Filter treemap terms">
+            </div>
+          </div>
+          <div class="treemap-wrap" style="height:380px;">
+            <canvas id="cloud-canvas" role="img" aria-label="Treemap of most frequent report terms"></canvas>
+            <div id="cloud-spinner" class="treemap-spinner"><div class="spinner"></div></div>
+          </div>
         </div>
 
-        <!-- Normal vs Abnormal donut -->
-        <div class="card">
-          <div class="card-title"><i class="bi bi-pie-chart-fill" style="color:#34d399;"></i>Normal vs Abnormal Rate</div>
-          <div id="donut-wrap">
-            <canvas id="donutChart"></canvas>
-            <div class="donut-legend">
-              <div class="legend-item"><div class="legend-dot" style="background:#34d399;"></div><span id="normal-pct" style="color:#34d399;">—</span> Normal</div>
-              <div class="legend-item"><div class="legend-dot" style="background:#f87171;"></div><span id="abnormal-pct" style="color:#f87171;">—</span> Abnormal</div>
+        <!-- ══ Section content analysis ═════════════════════════════════ -->
+        <div class="section-label" style="margin-top:20px;"><i class="bi bi-layout-three-columns" aria-hidden="true"></i> Section Content Analysis
+          <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;">most common terms per report section</span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;">
+          <div class="card" style="padding:18px;">
+            <div class="section-label"><i class="bi bi-gear-fill" style="color:var(--primary);" aria-hidden="true"></i>Technique</div>
+            <div class="treemap-wrap" style="height:260px;">
+              <canvas id="sec-tech-canvas"></canvas>
+              <div id="sec-tech-spinner" class="treemap-spinner"><span style="color:var(--muted);font-size:12px;">Loading…</span></div>
+            </div>
+          </div>
+          <div class="card" style="padding:18px;">
+            <div class="section-label"><i class="bi bi-file-text-fill" style="color:var(--success);" aria-hidden="true"></i>Résultats</div>
+            <div class="treemap-wrap" style="height:260px;">
+              <canvas id="sec-find-canvas"></canvas>
+              <div id="sec-find-spinner" class="treemap-spinner"><span style="color:var(--muted);font-size:12px;">Loading…</span></div>
+            </div>
+          </div>
+          <div class="card" style="padding:18px;">
+            <div class="section-label"><i class="bi bi-check-circle-fill" style="color:var(--warning);" aria-hidden="true"></i>Conclusion</div>
+            <div class="treemap-wrap" style="height:260px;">
+              <canvas id="sec-concl-canvas"></canvas>
+              <div id="sec-concl-spinner" class="treemap-spinner"><span style="color:var(--muted);font-size:12px;">Loading…</span></div>
             </div>
           </div>
         </div>
 
-        <!-- Modality breakdown -->
-        <div class="card">
-          <div class="card-title"><i class="bi bi-bar-chart-fill" style="color:#60a5fa;"></i>Reports by Modality</div>
-          <div id="mod-list"></div>
-        </div>
-
-        <!-- Top procedures -->
-        <div class="card">
-          <div class="card-title"><i class="bi bi-list-ol" style="color:#f59e0b;"></i>Top Procedures by Volume</div>
-          <div id="proc-list"></div>
-        </div>
-
-        <!-- Physician activity -->
-        <div class="card">
-          <div class="card-title"><i class="bi bi-person-badge-fill" style="color:#a78bfa;"></i>Reporting Physician Activity <span style="font-weight:400;color:#4b7a63;">(ID only)</span></div>
-          <div id="phys-list"></div>
-        </div>
-
-        <!-- Critical findings log -->
-        <div class="card full-width" id="critical-card">
-          <div class="card-title" style="justify-content:space-between;">
-            <span><i class="bi bi-exclamation-triangle-fill" style="color:#f87171;"></i>Critical Findings Log <span style="font-weight:400;color:#4b7a63;">(most recent 20)</span></span>
-            <div style="display:flex;gap:8px;align-items:center;">
-              <button onclick="exportCriticalPNG()" id="critical-png-btn" class="export-btn" style="display:none;">
-                <i class="bi bi-image"></i> Export PNG
+        <!-- ══ Critical Findings Log ════════════════════════════════════ -->
+        <div class="card" id="critical-card" style="margin-top:20px;scroll-margin-top:110px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px;">
+            <div class="section-label" style="margin-bottom:0;">
+              <i class="bi bi-exclamation-triangle-fill" style="color:var(--critical);" aria-hidden="true"></i>Critical Findings Log
+              <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;">(most recent 20)</span>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <button onclick="exportCriticalPNG()" id="critical-png-btn" class="export-btn" type="button" style="display:none;">
+                <i class="bi bi-image" aria-hidden="true"></i> PNG
+              </button>
+              <button onclick="exportCriticalCSV()" id="critical-csv-btn" class="export-btn" type="button" style="display:none;">
+                <i class="bi bi-download" aria-hidden="true"></i> CSV
               </button>
               {% if current_user.role == 'admin' %}
-              <button onclick="toggleKeywordsPanel()" style="background:#1a211e;border:1px solid #1e2d27;color:#94a3b8;padding:5px 12px;border-radius:6px;font-size:10px;font-weight:700;cursor:pointer;letter-spacing:0.1em;text-transform:uppercase;">
-                <i class="bi bi-tags-fill"></i> Manage Keywords
+              <button onclick="toggleKeywordsPanel()" class="export-btn" type="button" aria-expanded="false" aria-controls="keywords-panel">
+                <i class="bi bi-tags-fill" aria-hidden="true"></i> Manage Keywords
               </button>
               {% endif %}
             </div>
@@ -365,73 +442,66 @@
 
           {% if current_user.role == 'admin' %}
           <!-- Keywords management panel (admin only) -->
-          <div id="keywords-panel" style="display:none;background:#0f1512;border:1px solid #1e2d27;border-radius:8px;padding:14px 16px;margin-bottom:14px;">
-            <div style="font-size:9px;font-weight:800;letter-spacing:0.2em;text-transform:uppercase;color:#4b7a63;margin-bottom:10px;">Critical Keywords Dictionary</div>
+          <div id="keywords-panel" style="display:none;background:var(--well);border:1px solid var(--border);border-radius:12px;padding:16px 18px;margin-bottom:16px;">
+            <div style="font-size:10px;font-weight:800;letter-spacing:0.16em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;">Critical Keywords Dictionary</div>
             <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap;align-items:center;">
-              <input id="new-kw-input" type="text" placeholder="Add keyword (e.g. tamponade)…"
-                style="background:#1a211e;border:1px solid #1e2d27;color:#e2e8f0;padding:6px 12px;border-radius:6px;font-size:12px;font-weight:600;outline:none;flex:1;min-width:180px;"
+              <input id="new-kw-input" type="text" class="filter-input" placeholder="Add keyword (e.g. tamponade)…" style="flex:1;min-width:180px;"
                 onkeydown="if(event.key==='Enter') addKeyword()">
-              <button onclick="addKeyword()"
-                style="background:#1a211e;border:1px solid #34d399;color:#34d399;padding:6px 16px;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;">
-                <i class="bi bi-plus-circle"></i> Add
+              <button onclick="addKeyword()" class="export-btn" type="button" style="border-color:var(--success);color:var(--success);">
+                <i class="bi bi-plus-circle" aria-hidden="true"></i> Add
               </button>
             </div>
             <div style="margin-bottom:8px;">
-              <span style="font-size:10px;font-weight:700;color:#4b7a63;">Custom Keywords</span>
+              <span style="font-size:10px;font-weight:700;color:var(--muted);">Custom Keywords</span>
               <div id="custom-kw-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;min-height:22px;">
-                <span style="font-size:10px;color:#475569;font-style:italic;">Loading…</span>
+                <span style="font-size:10px;color:var(--muted);font-style:italic;">Loading…</span>
               </div>
             </div>
-            <div style="margin-top:14px;padding-top:12px;border-top:1px solid #1e2d27;">
-              <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-                <span style="font-size:10px;font-weight:800;color:#f59e0b;letter-spacing:0.05em;text-transform:uppercase;">
-                  <i class="bi bi-lightbulb-fill"></i> Suggested from your reports
+            <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+                <span style="font-size:10px;font-weight:800;color:var(--warning);letter-spacing:0.05em;text-transform:uppercase;">
+                  <i class="bi bi-lightbulb-fill" aria-hidden="true"></i> Suggested from your reports
                 </span>
-                <span style="font-size:9px;color:#475569;">frequent terms not yet marked critical — last 6 months</span>
-                <button onclick="loadSuggestions(true)" id="sugg-refresh-btn"
-                  style="margin-left:auto;background:none;border:none;color:#475569;cursor:pointer;font-size:11px;"
-                  title="Refresh suggestions"><i class="bi bi-arrow-clockwise"></i></button>
+                <span style="font-size:9px;color:var(--muted);">frequent terms not yet marked critical — last 6 months</span>
+                <button onclick="loadSuggestions(true)" id="sugg-refresh-btn" type="button"
+                  style="margin-left:auto;background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px;"
+                  title="Refresh suggestions" aria-label="Refresh suggestions"><i class="bi bi-arrow-clockwise" aria-hidden="true"></i></button>
               </div>
               <div id="suggested-kw-chips" style="display:flex;flex-wrap:wrap;gap:6px;min-height:24px;">
-                <span style="font-size:10px;color:#475569;font-style:italic;">Loading…</span>
+                <span style="font-size:10px;color:var(--muted);font-style:italic;">Loading…</span>
               </div>
             </div>
 
-            <details style="margin-top:12px;padding-top:10px;border-top:1px solid #1e2d27;">
-              <summary style="font-size:10px;font-weight:700;color:#4b7a63;cursor:pointer;">Built-in keywords (read-only)</summary>
+            <details style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border);">
+              <summary style="font-size:10px;font-weight:700;color:var(--muted);cursor:pointer;">Built-in keywords (read-only)</summary>
               <div id="builtin-kw-chips" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;"></div>
             </details>
 
-            <details style="margin-top:12px;padding-top:10px;border-top:1px solid #1e2d27;">
-              <summary style="font-size:10px;font-weight:700;color:#4b7a63;cursor:pointer;">Diagnosis vocabulary (phrase → label mapping)</summary>
+            <details style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border);">
+              <summary style="font-size:10px;font-weight:700;color:var(--muted);cursor:pointer;">Diagnosis vocabulary (phrase → label mapping)</summary>
               <div style="display:flex;gap:8px;margin:10px 0;flex-wrap:wrap;align-items:center;">
-                <input id="new-vocab-phrase" type="text" placeholder="Phrase (e.g. pleural thickening)…"
-                  style="background:#1a211e;border:1px solid #1e2d27;color:#e2e8f0;padding:6px 12px;border-radius:6px;font-size:12px;font-weight:600;outline:none;flex:1;min-width:160px;">
-                <input id="new-vocab-label" type="text" placeholder="Canonical label (e.g. Pleural Thickening)…"
-                  style="background:#1a211e;border:1px solid #1e2d27;color:#e2e8f0;padding:6px 12px;border-radius:6px;font-size:12px;font-weight:600;outline:none;flex:1;min-width:160px;">
-                <label style="display:flex;align-items:center;gap:4px;font-size:10px;color:#94a3b8;font-weight:700;white-space:nowrap;">
+                <input id="new-vocab-phrase" type="text" class="filter-input" placeholder="Phrase (e.g. pleural thickening)…" style="flex:1;min-width:160px;">
+                <input id="new-vocab-label" type="text" class="filter-input" placeholder="Canonical label (e.g. Pleural Thickening)…" style="flex:1;min-width:160px;">
+                <label style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--text-dim);font-weight:700;white-space:nowrap;">
                   <input id="new-vocab-benign" type="checkbox"> Benign
                 </label>
-                <button onclick="addVocabTerm()"
-                  style="background:#1a211e;border:1px solid #34d399;color:#34d399;padding:6px 16px;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;">
-                  <i class="bi bi-plus-circle"></i> Add
+                <button onclick="addVocabTerm()" class="export-btn" type="button" style="border-color:var(--success);color:var(--success);">
+                  <i class="bi bi-plus-circle" aria-hidden="true"></i> Add
                 </button>
               </div>
               <div id="vocab-chips" style="display:flex;flex-wrap:wrap;gap:6px;min-height:22px;">
-                <span style="font-size:10px;color:#475569;font-style:italic;">Loading…</span>
+                <span style="font-size:10px;color:var(--muted);font-style:italic;">Loading…</span>
               </div>
             </details>
           </div>
           {% endif %}
 
           <div class="mb-3 flex items-center gap-2">
-            <i class="bi bi-search text-[#4b7a63] text-sm"></i>
-            <input id="crit-search"
-                   type="text"
+            <i class="bi bi-search" style="color:var(--muted);font-size:13px;" aria-hidden="true"></i>
+            <input id="crit-search" type="text" class="filter-input" style="flex:1;"
                    placeholder="Search findings — accession, procedure, modality, impression…"
-                   class="flex-1 bg-[#0f1512] border border-[#1e2d27] rounded-lg px-3 py-1.5 text-sm text-[#e2e8f0] placeholder-[#4b7a63] focus:outline-none focus:border-[#34d399]"
-                   oninput="filterCriticalTable(this.value)">
-            <span id="crit-count" class="text-[10px] text-[#4b7a63] font-bold whitespace-nowrap"></span>
+                   oninput="filterCriticalTable(this.value)" aria-label="Search critical findings">
+            <span id="crit-count" style="font-size:10px;color:var(--muted);font-weight:800;white-space:nowrap;"></span>
           </div>
 
           <div id="critical-wrap" style="overflow-x:auto;">
@@ -439,125 +509,115 @@
             <table class="crit-table" id="critical-table" style="display:none;">
               <thead>
                 <tr>
-                  <th>Date Reported</th>
-                  <th>Reporter</th>
-                  <th>PID</th>
-                  <th>Procedure</th>
-                  <th>Critical Words</th>
-                  <th>Accession #</th>
+                  <th scope="col">Date Reported</th>
+                  <th scope="col">Reporter</th>
+                  <th scope="col">PID</th>
+                  <th scope="col">Procedure</th>
+                  <th scope="col">Modality</th>
+                  <th scope="col">Critical Words</th>
+                  <th scope="col">Accession #</th>
+                  <th scope="col"><span class="sr-only">Details</span></th>
                 </tr>
               </thead>
               <tbody id="critical-body"></tbody>
             </table>
           </div>
-        </div>
 
-      </div><!-- /main-grid -->
-
-      <!-- ── Section Frequency Treemaps ── -->
-      <div style="margin:28px 0 14px;padding-bottom:10px;border-bottom:1px solid #1e2d27;">
-        <span style="font-size:9px;font-weight:800;letter-spacing:0.25em;text-transform:uppercase;color:#60a5fa;">
-          <i class="bi bi-layout-three-columns"></i> Section Frequency Analysis
-        </span>
-        <span style="font-size:10px;color:#4b7a63;margin-left:10px;font-weight:600;">Most common terms per report section</span>
-      </div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:28px;">
-
-        <div class="card" style="padding:1rem;">
-          <div class="card-title"><i class="bi bi-gear-fill" style="color:#60a5fa;"></i>Technique</div>
-          <div style="position:relative;height:280px;">
-            <canvas id="sec-tech-canvas"></canvas>
-            <div id="sec-tech-spinner" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#1a211e;border-radius:8px;">
-              <span style="color:#475569;font-size:12px;">Loading…</span>
+          <div id="critical-pager" style="display:none;align-items:center;justify-content:space-between;margin-top:14px;font-size:11px;font-weight:700;color:var(--muted);">
+            <span id="critical-pager-info"></span>
+            <div style="display:flex;gap:8px;">
+              <button id="critical-prev-btn" onclick="critPageChange(-1)" class="export-btn" type="button" aria-label="Previous page"><i class="bi bi-chevron-left" aria-hidden="true"></i> Prev</button>
+              <button id="critical-next-btn" onclick="critPageChange(1)" class="export-btn" type="button" aria-label="Next page">Next <i class="bi bi-chevron-right" aria-hidden="true"></i></button>
             </div>
           </div>
         </div>
 
-        <div class="card" style="padding:1rem;">
-          <div class="card-title"><i class="bi bi-file-text-fill" style="color:#34d399;"></i>Résultats</div>
-          <div style="position:relative;height:280px;">
-            <canvas id="sec-find-canvas"></canvas>
-            <div id="sec-find-spinner" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#1a211e;border-radius:8px;">
-              <span style="color:#475569;font-size:12px;">Loading…</span>
+        <!-- ══ NLP Results (collapsible, shown after processing) ═══════ -->
+        <div id="nlp-section" style="display:none;margin-top:20px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px;">
+            <div class="section-label" style="margin-bottom:0;"><i class="bi bi-cpu" aria-hidden="true"></i> NLP Analysis Results
+              <span id="nlp-result-meta" style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;margin-left:8px;"></span>
+            </div>
+            <div style="display:flex;gap:8px;">
+              <button id="load-nlp-btn" onclick="loadNLPResults()" class="export-btn" type="button" title="Reload NLP results" aria-label="Reload NLP results">
+                <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
+              </button>
+              <button id="nlp-collapse-btn" class="export-btn" type="button" onclick="toggleNlpBody()" aria-expanded="true" aria-controls="nlp-body">
+                <i class="bi bi-chevron-up" aria-hidden="true"></i> Collapse
+              </button>
             </div>
           </div>
-        </div>
 
-        <div class="card" style="padding:1rem;">
-          <div class="card-title"><i class="bi bi-check-circle-fill" style="color:#f59e0b;"></i>Conclusion</div>
-          <div style="position:relative;height:280px;">
-            <canvas id="sec-concl-canvas"></canvas>
-            <div id="sec-concl-spinner" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#1a211e;border-radius:8px;">
-              <span style="color:#475569;font-size:12px;">Loading…</span>
-            </div>
-          </div>
-        </div>
+          <div id="nlp-body">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
 
-      </div>
+              <div class="card">
+                <div class="section-label"><i class="bi bi-pie-chart-fill" style="color:var(--success);" aria-hidden="true"></i>NLP Classification</div>
+                <div style="display:flex;align-items:center;justify-content:center;gap:24px;height:200px;">
+                  <canvas id="nlpDonutChart" role="img" aria-label="NLP classification breakdown"></canvas>
+                  <div class="donut-legend">
+                    <div class="legend-item"><div class="legend-dot" style="background:var(--success);"></div><span id="nlp-normal-pct" style="color:var(--success);">—</span> Normal</div>
+                    <div class="legend-item"><div class="legend-dot" style="background:var(--warning);"></div><span id="nlp-borderline-pct" style="color:var(--warning);">—</span> Borderline</div>
+                    <div class="legend-item"><div class="legend-dot" style="background:var(--critical);"></div><span id="nlp-critical-pct" style="color:var(--critical);">—</span> Critical</div>
+                  </div>
+                </div>
+              </div>
 
-      <!-- ── NLP Results (shown after processing) ── -->
-      <div id="nlp-section" style="display:none;">
-        <div style="margin:8px 0 14px;padding-bottom:10px;border-bottom:1px solid #1e2d27;">
-          <span style="font-size:9px;font-weight:800;letter-spacing:0.25em;text-transform:uppercase;color:#34d399;">
-            <i class="bi bi-cpu"></i> NLP Analysis Results
-          </span>
-          <span style="font-size:10px;color:#4b7a63;margin-left:10px;font-weight:600;" id="nlp-result-meta"></span>
-        </div>
+              <div class="card">
+                <div class="section-label"><i class="bi bi-bar-chart-steps" style="color:var(--warning);" aria-hidden="true"></i>Severity Distribution (1–5 scale)</div>
+                <canvas id="sevChart" style="max-height:180px;" role="img" aria-label="Severity score histogram"></canvas>
+                <p style="font-size:10px;color:var(--muted);margin-top:8px;font-weight:600;">1 = Normal &nbsp;·&nbsp; 3 = Borderline &nbsp;·&nbsp; 5 = Critical</p>
+              </div>
 
-        <div class="main-grid">
+              <div class="card" style="grid-column:1/-1;">
+                <div class="section-label"><i class="bi bi-diagram-3-fill" style="color:var(--primary);" aria-hidden="true"></i>Diagnostic Clusters
+                  <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;">auto-labeled by TF-IDF · K-means</span>
+                </div>
+                <div id="cluster-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;"></div>
+              </div>
 
-          <!-- AI Classification (replaces keyword-based) -->
-          <div class="card">
-            <div class="card-title"><i class="bi bi-pie-chart-fill" style="color:#34d399;"></i>NLP Classification</div>
-            <div id="nlp-donut-wrap" style="display:flex;align-items:center;justify-content:center;gap:24px;height:200px;">
-              <canvas id="nlpDonutChart" style="max-width:160px;"></canvas>
-              <div class="donut-legend">
-                <div class="legend-item"><div class="legend-dot" style="background:#34d399;"></div><span id="nlp-normal-pct" style="color:#34d399;">—</span> Normal</div>
-                <div class="legend-item"><div class="legend-dot" style="background:#f59e0b;"></div><span id="nlp-borderline-pct" style="color:#f59e0b;">—</span> Borderline</div>
-                <div class="legend-item"><div class="legend-dot" style="background:#f87171;"></div><span id="nlp-critical-pct" style="color:#f87171;">—</span> Critical</div>
+              <div class="card" style="grid-column:1/-1;">
+                <div class="section-label"><i class="bi bi-tags-fill" style="color:#a78bfa;" aria-hidden="true"></i>Extracted Medical Terms
+                  <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;">from NLP keyword extraction · not raw word count</span>
+                </div>
+                <div id="nlp-kw-bars"></div>
               </div>
             </div>
-          </div>
 
-          <!-- Severity histogram -->
-          <div class="card">
-            <div class="card-title"><i class="bi bi-bar-chart-steps" style="color:#f59e0b;"></i>Severity Distribution (1–5 scale)</div>
-            <canvas id="sevChart" style="max-height:180px;"></canvas>
-            <p style="font-size:10px;color:#4b7a63;margin-top:8px;font-weight:600;">
-              1 = Normal &nbsp;·&nbsp; 3 = Borderline &nbsp;·&nbsp; 5 = Critical
+            <p style="font-size:10px;color:var(--muted);margin-top:12px;font-weight:600;">
+              ⚠ Negation is not resolved — "no fracture" may still surface the token "fracture" in borderline scores. Use as a trend signal, not a clinical classifier.
             </p>
           </div>
+        </div><!-- /nlp-section -->
 
-          <!-- Cluster map -->
-          <div class="card full-width">
-            <div class="card-title"><i class="bi bi-diagram-3-fill" style="color:#60a5fa;"></i>Diagnostic Clusters
-              <span style="font-weight:400;color:#4b7a63;font-size:9px;margin-left:6px;">auto-labeled by TF-IDF · K-means</span>
-            </div>
-            <div id="cluster-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;"></div>
-          </div>
+      </div><!-- /page-inner -->
 
-          <!-- NLP keyword cloud -->
-          <div class="card full-width">
-            <div class="card-title"><i class="bi bi-tags-fill" style="color:#a78bfa;"></i>Extracted Medical Terms
-              <span style="font-weight:400;color:#4b7a63;font-size:9px;margin-left:6px;">from NLP keyword extraction · not raw word count</span>
-            </div>
-            <div id="nlp-kw-bars"></div>
-          </div>
-
-        </div>
-
-        <p style="font-size:10px;color:#334155;margin-top:6px;font-weight:600;">
-          ⚠ Negation is not resolved — "no fracture" may still surface the token "fracture" in borderline scores. Use as a trend signal, not a clinical classifier.
-        </p>
-      </div><!-- /nlp-section -->
+      <!-- ══ Footer ═══════════════════════════════════════════════════ -->
+      <footer class="page-footer">
+        <span id="last-refresh" style="font-size:11px;color:var(--muted);font-weight:600;"></span>
+        <button id="refresh-btn" onclick="loadData()" class="export-btn" type="button">
+          <i class="bi bi-arrow-clockwise" aria-hidden="true"></i> Refresh
+        </button>
+      </footer>
 
     </div><!-- /content -->
-  </div><!-- /main-area -->
+  </main><!-- /main-area -->
 </div><!-- /page-wrap -->
 
 <script>
-let donutChart = null;
+let donutChart = null, cloudChart = null, nlpDonutChart = null, sevChart = null;
+const _secCharts = {};
+let _nlpPollTimer = null;
+let _lastLoadedData = null, _lastNlpData = null, _cloudWordsFull = [];
+let _lastCriticalLog = [], _critPage = 0;
+const CRIT_PAGE_SIZE = 8;
+let _gapData = {};
+let _kwPanelLoaded = false, _suggLoaded = false, _vocabLoaded = false;
+
 const esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const fmt = n => Number(n).toLocaleString();
+function cssVar(name) { return getComputedStyle(document.body).getPropertyValue(name).trim(); }
+
 const MODALITY_COLORS = {
   CT:'#60a5fa', MR:'#a78bfa', CR:'#34d399', DX:'#67e8f9',
   US:'#fbbf24', NM:'#fb7185', PT:'#f472b6', XA:'#2dd4bf',
@@ -565,18 +625,44 @@ const MODALITY_COLORS = {
 };
 function modColor(m) { return MODALITY_COLORS[m] || '#64748b'; }
 
-function fmt(n) { return Number(n).toLocaleString(); }
+// ── KPI sparklines ────────────────────────────────────────────────────────────
+const KPI_HISTORY_KEY = 'oru_kpi_history_v1';
+function _loadKpiHistory() {
+  try { return JSON.parse(sessionStorage.getItem(KPI_HISTORY_KEY)) || {total:[],normal:[],abnormal:[],critical:[]}; }
+  catch (e) { return {total:[],normal:[],abnormal:[],critical:[]}; }
+}
+function drawSparkline(svgId, values, color) {
+  const svg = document.getElementById(svgId);
+  if (!svg) return;
+  if (values.length < 2) { svg.innerHTML = ''; return; }
+  const w = 64, h = 22, pad = 2;
+  const min = Math.min(...values), max = Math.max(...values), range = (max - min) || 1;
+  const step = (w - pad * 2) / (values.length - 1);
+  const pts = values.map((v, i) =>
+    `${(pad + i * step).toFixed(1)},${(h - pad - ((v - min) / range) * (h - pad * 2)).toFixed(1)}`
+  ).join(' ');
+  svg.innerHTML = `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>`;
+}
+function updateKpiSparklines(total, normal, abnormal, critical) {
+  const h = _loadKpiHistory();
+  [['total', total], ['normal', normal], ['abnormal', abnormal], ['critical', critical]].forEach(([k, v]) => {
+    h[k].push(v);
+    if (h[k].length > 12) h[k].shift();
+  });
+  try { sessionStorage.setItem(KPI_HISTORY_KEY, JSON.stringify(h)); } catch (e) {}
+  drawSparkline('kpi-total-spark',    h.total,    '#0ea5e9');
+  drawSparkline('kpi-normal-spark',   h.normal,   '#22c55e');
+  drawSparkline('kpi-abnormal-spark', h.abnormal, '#eab308');
+  drawSparkline('kpi-critical-spark', h.critical, '#f43f5e');
+}
 
 // ── Term Treemap ─────────────────────────────────────────────────────────────
-let cloudChart = null;
-const TREEMAP_PALETTE = ['#a78bfa','#818cf8','#60a5fa','#38bdf8','#34d399','#2dd4bf','#f59e0b','#fb923c','#f87171','#f472b6'];
-
 function termColor(ratio) {
   if (ratio > 0.8) return '#a78bfa';
   if (ratio > 0.6) return '#60a5fa';
   if (ratio > 0.4) return '#34d399';
   if (ratio > 0.2) return '#f59e0b';
-  return '#4b7a63';
+  return cssVar('--muted');
 }
 
 function buildCloud(words) {
@@ -584,7 +670,7 @@ function buildCloud(words) {
 
   if (!words || !words.length) {
     document.getElementById('cloud-spinner').innerHTML =
-      '<span style="color:#4b7a63;font-size:12px;font-weight:700;">No report data in selected period</span>';
+      '<span style="color:var(--muted);font-size:12px;font-weight:700;">No report data in selected period</span>';
     document.getElementById('cloud-spinner').style.display = 'flex';
     return;
   }
@@ -604,15 +690,15 @@ function buildCloud(words) {
         labels: {
           display:   true,
           formatter: (c) => c.raw && c.raw._data ? c.raw._data.l : '',
-          color:     '#e2e8f0',
+          color:     '#f8fafc',
           font:      { family: 'Inter, system-ui, sans-serif', weight: '800', size: 11 },
           hoverColor:'#ffffff',
         },
         backgroundColor: (c) => {
-          if (!c.raw || !c.raw._data) return '#1e2d27';
+          if (!c.raw || !c.raw._data) return cssVar('--border');
           return termColor(c.raw._data.v / maxCount);
         },
-        borderColor:  '#0f1512',
+        borderColor:  cssVar('--card'),
         borderWidth:  2,
         spacing:      1,
       }]
@@ -630,9 +716,9 @@ function buildCloud(words) {
               : '',
           },
           bodyFont:  { size: 12, weight: 'bold' },
-          bodyColor: '#e2e8f0',
-          backgroundColor: '#232b28',
-          borderColor: '#1e2d27',
+          bodyColor: '#f1f5f9',
+          backgroundColor: '#1e293b',
+          borderColor: '#334155',
           borderWidth: 1,
         },
       },
@@ -640,9 +726,13 @@ function buildCloud(words) {
   });
 }
 
-// ── Section gap audit ────────────────────────────────────────────────────────
-let _gapData = {};   // stored for export-all
+function filterTreemapTerms(q) {
+  const term = (q || '').trim().toLowerCase();
+  const src = _cloudWordsFull || [];
+  buildCloud(term ? src.filter(w => w.word.toLowerCase().includes(term)) : src);
+}
 
+// ── Section gap audit ────────────────────────────────────────────────────────
 function loadSectionGaps() {
   const proc = document.getElementById('proc-filter').value;
 
@@ -652,16 +742,13 @@ function loadSectionGaps() {
       _gapData = d;
       const total = d.total || 1;
 
-      // Update red cards
       document.getElementById('gap-tech-count').textContent  = fmt(d.empty_technique)  + ' / ' + fmt(total);
       document.getElementById('gap-find-count').textContent  = fmt(d.empty_findings)   + ' / ' + fmt(total);
       document.getElementById('gap-concl-count').textContent = fmt(d.empty_conclusion) + ' / ' + fmt(total);
 
-      // Show the gap section only if there's at least one issue
       const hasGaps = d.empty_technique > 0 || d.empty_findings > 0 || d.empty_conclusion > 0;
       document.getElementById('gap-section').style.display = hasGaps ? 'block' : 'none';
 
-      // Render tables
       renderGapTable('gap-tech-table',  d.docs_empty_technique,  'Technique');
       renderGapTable('gap-find-table',  d.docs_empty_findings,   'Résultats');
       renderGapTable('gap-concl-table', d.docs_empty_conclusion, 'Conclusion');
@@ -672,39 +759,41 @@ function loadSectionGaps() {
 function renderGapTable(containerId, rows, sectionLabel) {
   const el = document.getElementById(containerId);
   if (!rows || !rows.length) {
-    el.innerHTML = `<div class="empty-state" style="padding:20px;">No gaps found for ${sectionLabel}.</div>`;
+    el.innerHTML = `<div class="empty-state" style="padding:16px;">No gaps found for ${sectionLabel}.</div>`;
     return;
   }
   const total = rows.reduce((s, r) => s + r.count, 0);
   el.innerHTML = `
     <table class="gap-table">
       <thead><tr>
-        <th>#</th>
-        <th>Radiologist ID</th>
-        <th>Reports Missing ${sectionLabel}</th>
-        <th>% of Their Reports</th>
+        <th scope="col">#</th>
+        <th scope="col">Radiologist ID</th>
+        <th scope="col">Reports Missing ${sectionLabel}</th>
+        <th scope="col">% of Their Reports</th>
       </tr></thead>
       <tbody>
         ${rows.map((r, i) => {
-          const physTotal = (_gapData.total || 0);   // approximation — all reports in window
+          const physTotal = (_gapData.total || 0);
           return `<tr>
-            <td style="color:#475569;">${i + 1}</td>
-            <td style="font-weight:800;color:#e2e8f0;">${esc(r.physician)}</td>
+            <td style="color:var(--muted);">${i + 1}</td>
+            <td style="font-weight:800;color:var(--text);">${esc(r.physician)}</td>
             <td><span class="gap-count-badge">${r.count}</span></td>
-            <td style="color:#94a3b8;">${physTotal ? Math.round(r.count / physTotal * 100) + '%' : '—'}</td>
+            <td style="color:var(--text-dim);">${physTotal ? Math.round(r.count / physTotal * 100) + '%' : '—'}</td>
           </tr>`;
         }).join('')}
       </tbody>
     </table>
-    <div style="font-size:10px;color:#475569;margin-top:8px;font-weight:600;">
-      Total affected reports: <span style="color:#f87171;">${total}</span>
+    <div style="font-size:10.5px;color:var(--muted);margin-top:8px;font-weight:600;">
+      Total affected reports: <span style="color:var(--critical);font-weight:800;">${total}</span>
     </div>`;
 }
 
-function toggleGapList(wrapperId) {
+function toggleGapList(wrapperId, btn) {
   const el = document.getElementById(wrapperId);
   if (!el) return;
-  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+  const show = el.style.display === 'none';
+  el.style.display = show ? 'block' : 'none';
+  if (btn) btn.setAttribute('aria-expanded', show ? 'true' : 'false');
 }
 
 function _csvFromRows(rows, sectionLabel) {
@@ -715,7 +804,7 @@ function _csvFromRows(rows, sectionLabel) {
 }
 
 function _downloadCsv(content, filename) {
-  const blob = new Blob(['\uFEFF' + content, ], { type: 'text/csv;charset=utf-8;' });
+  const blob = new Blob(['﻿' + content], { type: 'text/csv;charset=utf-8;' });
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href     = url;
@@ -725,7 +814,6 @@ function _downloadCsv(content, filename) {
 }
 
 function exportGap(tableId, sectionLabel) {
-  // Map tableId to the correct data array
   const map = {
     'gap-tech-table':  { data: () => _gapData.docs_empty_technique,  label: 'Technique'  },
     'gap-find-table':  { data: () => _gapData.docs_empty_findings,   label: 'Resultats'  },
@@ -759,23 +847,22 @@ function exportAllGaps() {
 }
 
 // ── Section treemaps ─────────────────────────────────────────────────────────
-const _secCharts = {};
 const _secColors = {
-  'sec-tech-canvas':  (r) => `hsl(213,${40 + r*50}%,${28 + r*22}%)`,
-  'sec-find-canvas':  (r) => `hsl(158,${35 + r*45}%,${22 + r*26}%)`,
-  'sec-concl-canvas': (r) => `hsl(38, ${40 + r*50}%,${24 + r*28}%)`,
+  'sec-tech-canvas':  (r) => `hsl(213,${45 + r*45}%,${38 + r*20}%)`,
+  'sec-find-canvas':  (r) => `hsl(158,${40 + r*40}%,${32 + r*22}%)`,
+  'sec-concl-canvas': (r) => `hsl(38, ${45 + r*45}%,${36 + r*22}%)`,
 };
 
 function _buildSectionTreemap(canvasId, spinnerId, words) {
   const spinner = document.getElementById(spinnerId);
   const canvas  = document.getElementById(canvasId);
   if (!words || !words.length) {
-    spinner.innerHTML = '<span style="color:#475569;font-size:12px;">No data</span>';
+    spinner.innerHTML = '<span style="color:var(--muted);font-size:12px;">No data</span>';
     return;
   }
   spinner.style.display = 'none';
   const maxC    = words[0].count;
-  const colorFn = _secColors[canvasId] || (() => '#334155');
+  const colorFn = _secColors[canvasId] || (() => cssVar('--border'));
   if (_secCharts[canvasId]) _secCharts[canvasId].destroy();
   _secCharts[canvasId] = new Chart(canvas.getContext('2d'), {
     type: 'treemap',
@@ -786,15 +873,15 @@ function _buildSectionTreemap(canvasId, spinnerId, words) {
         labels: {
           display:    true,
           formatter:  (c) => c.raw && c.raw._data ? c.raw._data.l : '',
-          color:      '#e2e8f0',
+          color:      '#f8fafc',
           font:       { family: 'Inter, system-ui, sans-serif', weight: '800', size: 11 },
           hoverColor: '#ffffff',
         },
         backgroundColor: (c) => {
-          if (!c.raw || !c.raw._data) return '#1e293b';
+          if (!c.raw || !c.raw._data) return cssVar('--border');
           return colorFn(c.raw._data.v / maxC);
         },
-        borderColor: '#0f172a',
+        borderColor: cssVar('--card'),
         borderWidth: 2,
         spacing:     1,
       }]
@@ -810,7 +897,7 @@ function _buildSectionTreemap(canvasId, spinnerId, words) {
               ? ` ${c.raw._data.l}  ·  ${c.raw._data.v.toLocaleString()} occurrences` : '',
           },
           bodyFont: { size: 12, weight: 'bold' },
-          bodyColor: '#e2e8f0',
+          bodyColor: '#f1f5f9',
           backgroundColor: '#1e293b',
           borderColor: '#334155',
           borderWidth: 1,
@@ -834,7 +921,7 @@ function loadSections() {
     .catch(() => {
       ['sec-tech-spinner','sec-find-spinner','sec-concl-spinner'].forEach(id => {
         const el = document.getElementById(id);
-        if (el) el.innerHTML = '<span style="color:#f87171;font-size:12px;">Error</span>';
+        if (el) el.innerHTML = '<span style="color:var(--critical);font-size:12px;">Error</span>';
       });
     });
 }
@@ -849,7 +936,7 @@ function buildBars(containerId, items, labelKey, countKey, colorFn) {
   const max = Math.max(...items.map(i => i[countKey]));
   el.innerHTML = items.map(item => {
     const pct   = Math.round(item[countKey] / max * 100);
-    const color = colorFn ? colorFn(item) : '#34d399';
+    const color = colorFn ? colorFn(item) : 'var(--primary)';
     const label = String(item[labelKey] || '—').substring(0, 22);
     return `
       <div class="bar-row">
@@ -876,8 +963,8 @@ function buildDonut(normal, abnormal) {
       labels: ['Normal','Abnormal'],
       datasets: [{
         data:            [normal, abnormal],
-        backgroundColor: ['#34d399','#f87171'],
-        borderColor:     ['#0f1512'],
+        backgroundColor: ['#22c55e','#ef4444'],
+        borderColor:     [cssVar('--card')],
         borderWidth:     3,
         hoverOffset:     4,
       }]
@@ -890,69 +977,140 @@ function buildDonut(normal, abnormal) {
   });
 }
 
-// ── Critical table ───────────────────────────────────────────────────────────
+// ── Critical findings spotlight ──────────────────────────────────────────────
+function buildCriticalSpotlight(log) {
+  const wrap = document.getElementById('critical-spotlight');
+  const list = document.getElementById('spotlight-list');
+  if (!wrap || !list) return;
+  if (!log || !log.length) { wrap.style.display = 'none'; return; }
+  wrap.style.display = 'block';
+  list.innerHTML = log.slice(0, 5).map(r => `
+    <div class="spotlight-item">
+      <div class="spotlight-main">
+        <span class="spotlight-acc">${esc(r.accession_number)}</span>
+        <span class="spotlight-sep">·</span>
+        <span>${esc(r.patient_id)}</span>
+        <span class="spotlight-sep">·</span>
+        <span>${esc(r.modality || '—')}</span>
+      </div>
+      <div class="spotlight-kw">${(r.keywords||[]).map(k => `<span class="keyword-badge">${esc(k)}</span>`).join('')}</div>
+    </div>`).join('');
+}
+
+// ── Critical table (search + client-side pagination) ────────────────────────
 function buildCritical(log) {
+  _lastCriticalLog = (log || []).map((r, i) => Object.assign({}, r, { _idx: i }));
+  _critPage = 0;
+  renderCriticalTable();
+}
+
+function _criticalRowHtml(r) {
+  const hasText   = r.report_text && r.report_text.trim();
+  const detailId  = `crit-detail-${r._idx}`;
+  const mono = s => (s && s !== '—')
+    ? `<span style="font-family:monospace;font-size:11px;color:var(--text);">${esc(s)}</span>`
+    : `<em style="color:var(--muted)">—</em>`;
+  const mainRow = `
+  <tr data-row="main">
+    <td style="white-space:nowrap;font-size:11px;color:var(--muted);">${esc(r.date || r.received_at)}</td>
+    <td style="color:#a78bfa;font-size:11px;font-weight:700;">${esc(r.physician_name || r.physician_id || '—')}</td>
+    <td style="font-family:monospace;font-size:11px;color:var(--primary);">${esc(r.patient_id || '—')}</td>
+    <td><span class="proc-tag">${esc(r.procedure || r.procedure_code || '—')}</span></td>
+    <td><span style="font-size:10.5px;font-weight:700;color:var(--text-dim);">${esc(r.modality || '—')}</span></td>
+    <td>${(r.keywords||[]).map(k => `<span class="keyword-badge">${esc(k)}</span>`).join('') || '<em style="color:var(--muted)">—</em>'}</td>
+    <td>${mono(r.accession_number)}</td>
+    <td>${hasText ? `<button type="button" class="export-btn" style="padding:3px 8px;" onclick="toggleCritDetail('${detailId}')" aria-expanded="false" aria-controls="${detailId}" aria-label="Toggle report text"><i class="bi bi-chevron-down" aria-hidden="true"></i></button>` : ''}</td>
+  </tr>`;
+  const detailRow = hasText ? `
+  <tr id="${detailId}" style="display:none;">
+    <td colspan="8" style="padding:10px 16px 14px;background:var(--well);border-bottom:1px solid var(--border);">
+      <pre style="margin:0;white-space:pre-wrap;font-size:11px;color:var(--text-dim);line-height:1.6;font-family:inherit;">${esc(r.report_text)}</pre>
+    </td>
+  </tr>` : '';
+  return mainRow + detailRow;
+}
+
+function renderCriticalTable() {
   const empty  = document.getElementById('critical-empty');
   const table  = document.getElementById('critical-table');
   const tbody  = document.getElementById('critical-body');
   const pngBtn = document.getElementById('critical-png-btn');
+  const csvBtn = document.getElementById('critical-csv-btn');
+  const pager  = document.getElementById('critical-pager');
+  const cnt    = document.getElementById('crit-count');
 
-  if (!log || !log.length) {
-    empty.style.display  = 'block';
-    table.style.display  = 'none';
+  if (!_lastCriticalLog.length) {
+    empty.style.display = 'block';
+    table.style.display = 'none';
     if (pngBtn) pngBtn.style.display = 'none';
+    if (csvBtn) csvBtn.style.display = 'none';
+    if (pager)  pager.style.display  = 'none';
+    if (cnt)    cnt.textContent = '';
     return;
   }
   empty.style.display = 'none';
   table.style.display = 'table';
   if (pngBtn) pngBtn.style.display = '';
+  if (csvBtn) csvBtn.style.display = '';
 
-  const mono = s => (s && s !== '—')
-    ? `<span style="font-family:monospace;font-size:11px;color:#e2e8f0;">${esc(s)}</span>`
-    : `<em style="color:#475569">—</em>`;
+  const term = (document.getElementById('crit-search')?.value || '').trim().toLowerCase();
+  const filtered = term
+    ? _lastCriticalLog.filter(r => JSON.stringify(r).toLowerCase().includes(term))
+    : _lastCriticalLog;
 
-  tbody.innerHTML = log.map((r, i) => {
-    const hasText = r.report_text && r.report_text.trim();
-    const detailId = `crit-detail-${i}`;
-    const mainRow = `
-    <tr style="cursor:${hasText ? 'pointer' : 'default'};" onclick="${hasText ? `toggleCritDetail('${detailId}')` : ''}">
-      <td style="white-space:nowrap;font-size:11px;color:#64748b;">${esc(r.date || r.received_at)}</td>
-      <td style="color:#a78bfa;font-size:11px;font-weight:700;">${esc(r.physician_name || r.physician_id || '—')}</td>
-      <td style="font-family:monospace;font-size:11px;color:#60a5fa;">${esc(r.patient_id || '—')}</td>
-      <td><span class="proc-tag">${esc(r.procedure || r.procedure_code || '—')}</span></td>
-      <td>${(r.keywords||[]).map(k => `<span class="keyword-badge">${esc(k)}</span>`).join('') || '<em style="color:#475569">—</em>'}</td>
-      <td>${mono(r.accession_number)}${hasText ? ' <span style="color:#4b7a63;font-size:9px;vertical-align:middle;">▼</span>' : ''}</td>
-    </tr>`;
-    const detailRow = hasText ? `
-    <tr id="${detailId}" style="display:none;">
-      <td colspan="6" style="padding:8px 16px 12px;background:#0d1510;border-bottom:1px solid #1a211e;">
-        <pre style="margin:0;white-space:pre-wrap;font-size:11px;color:#94a3b8;line-height:1.6;font-family:inherit;">${esc(r.report_text)}</pre>
-      </td>
-    </tr>` : '';
-    return mainRow + detailRow;
-  }).join('');
-  filterCriticalTable(document.getElementById('crit-search')?.value || '');
+  const totalPages = Math.max(1, Math.ceil(filtered.length / CRIT_PAGE_SIZE));
+  _critPage = Math.min(_critPage, totalPages - 1);
+  const start = _critPage * CRIT_PAGE_SIZE;
+  const pageRows = filtered.slice(start, start + CRIT_PAGE_SIZE);
+
+  tbody.innerHTML = pageRows.length
+    ? pageRows.map(_criticalRowHtml).join('')
+    : `<tr><td colspan="8" class="empty-state">No findings match your search.</td></tr>`;
+
+  if (cnt) cnt.textContent = term
+    ? `${filtered.length} / ${_lastCriticalLog.length} shown`
+    : `${_lastCriticalLog.length} result${_lastCriticalLog.length !== 1 ? 's' : ''}`;
+
+  if (pager) {
+    pager.style.display = filtered.length > CRIT_PAGE_SIZE ? 'flex' : 'none';
+    document.getElementById('critical-pager-info').textContent = `Page ${_critPage + 1} of ${totalPages}`;
+    document.getElementById('critical-prev-btn').disabled = _critPage === 0;
+    document.getElementById('critical-next-btn').disabled = _critPage >= totalPages - 1;
+  }
+}
+
+function filterCriticalTable(q) {
+  _critPage = 0;
+  renderCriticalTable();
+}
+
+function critPageChange(delta) {
+  _critPage = Math.max(0, _critPage + delta);
+  renderCriticalTable();
 }
 
 function toggleCritDetail(id) {
   const row = document.getElementById(id);
   if (!row) return;
-  row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+  const show = row.style.display === 'none';
+  row.style.display = show ? 'table-row' : 'none';
+  const btn = document.querySelector(`[aria-controls="${id}"]`);
+  if (btn) {
+    btn.setAttribute('aria-expanded', show ? 'true' : 'false');
+    const icon = btn.querySelector('i');
+    if (icon) icon.className = show ? 'bi bi-chevron-up' : 'bi bi-chevron-down';
+  }
 }
 
-function filterCriticalTable(q) {
-    const rows  = document.querySelectorAll('#critical-body tr');
-    const term  = q.trim().toLowerCase();
-    let   shown = 0;
-    rows.forEach(function(row) {
-        const text = row.textContent.toLowerCase();
-        const match = !term || text.includes(term);
-        row.style.display = match ? '' : 'none';
-        if (match) shown++;
-    });
-    const total = rows.length;
-    const el = document.getElementById('crit-count');
-    if (el) el.textContent = term ? shown + ' / ' + total + ' shown' : total + ' result' + (total !== 1 ? 's' : '');
+function exportCriticalCSV() {
+  if (!_lastCriticalLog.length) return;
+  const header = 'Date,Reporter,PID,Procedure,Modality,Critical Words,Accession\n';
+  const body = _lastCriticalLog.map(r => [
+    r.date || r.received_at || '', r.physician_name || r.physician_id || '',
+    r.patient_id || '', r.procedure || r.procedure_code || '', r.modality || '',
+    (r.keywords || []).join('; '), r.accession_number || ''
+  ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+  _downloadCsv(header + body, `critical_findings_${new Date().toISOString().slice(0, 10)}.csv`);
 }
 
 function exportCriticalPNG() {
@@ -960,7 +1118,7 @@ function exportCriticalPNG() {
   if (!card || typeof html2canvas === 'undefined') return;
   const btn = document.getElementById('critical-png-btn');
   if (btn) { btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Capturing…'; }
-  html2canvas(card, { backgroundColor: '#1a211e', scale: 2, useCORS: true, logging: false })
+  html2canvas(card, { backgroundColor: cssVar('--card'), scale: 2, useCORS: true, logging: false })
     .then(canvas => {
       const a = document.createElement('a');
       a.download = 'critical_findings_' + new Date().toISOString().slice(0, 10) + '.png';
@@ -969,26 +1127,22 @@ function exportCriticalPNG() {
     })
     .catch(e => console.warn('PNG export failed:', e))
     .finally(() => {
-      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-image"></i> Export PNG'; }
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-image"></i> PNG'; }
     });
 }
 
 // ── Keywords management (admin only) ────────────────────────────────────────
-let _kwPanelLoaded = false;
-let _suggLoaded    = false;
-let _vocabLoaded   = false;
-
 function toggleKeywordsPanel() {
   const panel = document.getElementById('keywords-panel');
+  const trigger = document.querySelector('[aria-controls="keywords-panel"]');
   if (!panel) return;
   const shown = panel.style.display !== 'none';
   panel.style.display = shown ? 'none' : 'block';
+  if (trigger) trigger.setAttribute('aria-expanded', shown ? 'false' : 'true');
   if (!shown && !_kwPanelLoaded) { loadKeywords(); _kwPanelLoaded = true; }
   if (!shown) loadSuggestions();
   if (!shown && !_vocabLoaded) { loadVocabulary(); _vocabLoaded = true; }
 }
-
-// ── Diagnosis vocabulary management (admin only) ────────────────────────────
 
 function loadVocabulary() {
   fetch('/oru/diagnosis-vocabulary')
@@ -1001,13 +1155,13 @@ function renderVocabChips(list) {
   const wrap = document.getElementById('vocab-chips');
   if (!wrap) return;
   if (!list.length) {
-    wrap.innerHTML = '<span style="font-size:10px;color:#475569;font-style:italic;">No vocabulary entries yet.</span>';
+    wrap.innerHTML = '<span style="font-size:10px;color:var(--muted);font-style:italic;">No vocabulary entries yet.</span>';
     return;
   }
   wrap.innerHTML = list.map(v => `
-    <span style="display:inline-flex;align-items:center;gap:5px;background:#14201c;border:1px solid #1e2d27;color:${v.is_benign ? '#4b7a63' : '#94a3b8'};padding:3px 10px;border-radius:100px;font-size:11px;font-weight:700;">
-      ${esc(v.phrase)} <i class="bi bi-arrow-right" style="font-size:9px;"></i> ${esc(v.canonical_label)}${v.is_benign ? ' <span style="font-size:9px;opacity:0.7;">(benign)</span>' : ''}
-      <button onclick="deleteVocabTerm(${v.id})" style="background:none;border:none;color:#f87171;cursor:pointer;padding:0;font-size:12px;line-height:1;">&times;</button>
+    <span class="chip chip-neutral">
+      ${esc(v.phrase)} <i class="bi bi-arrow-right" style="font-size:9px;" aria-hidden="true"></i> ${esc(v.canonical_label)}${v.is_benign ? ' <span style="font-size:9px;opacity:0.7;">(benign)</span>' : ''}
+      <button onclick="deleteVocabTerm(${v.id})" aria-label="Delete vocabulary entry" style="color:var(--critical);">&times;</button>
     </span>`).join('');
 }
 
@@ -1046,9 +1200,7 @@ function loadKeywords() {
       renderCustomChips(d.custom || []);
       const builtinWrap = document.getElementById('builtin-kw-chips');
       if (builtinWrap) {
-        builtinWrap.innerHTML = (d.builtin || []).map(k =>
-          `<span style="background:#1a211e;border:1px solid #1e2d27;color:#64748b;padding:3px 8px;border-radius:4px;font-size:10px;font-weight:700;">${esc(k)}</span>`
-        ).join('');
+        builtinWrap.innerHTML = (d.builtin || []).map(k => `<span class="chip chip-neutral">${esc(k)}</span>`).join('');
       }
     }).catch(e => console.warn('keywords load', e));
 }
@@ -1057,13 +1209,13 @@ function renderCustomChips(list) {
   const wrap = document.getElementById('custom-kw-chips');
   if (!wrap) return;
   if (!list.length) {
-    wrap.innerHTML = '<span style="font-size:10px;color:#475569;font-style:italic;">No custom keywords yet.</span>';
+    wrap.innerHTML = '<span style="font-size:10px;color:var(--muted);font-style:italic;">No custom keywords yet.</span>';
     return;
   }
   wrap.innerHTML = list.map(k => `
-    <span style="display:inline-flex;align-items:center;gap:5px;background:#2d1414;border:1px solid #7f1d1d;color:#fca5a5;padding:3px 10px;border-radius:100px;font-size:11px;font-weight:700;">
+    <span class="chip chip-critical">
       ${esc(k)}
-      <button onclick="deleteKeyword('${esc(k)}')" style="background:none;border:none;color:#f87171;cursor:pointer;padding:0;font-size:12px;line-height:1;">&times;</button>
+      <button onclick="deleteKeyword('${esc(k)}')" aria-label="Delete keyword ${esc(k)}">&times;</button>
     </span>`).join('');
 }
 
@@ -1099,21 +1251,21 @@ function loadSuggestions(force) {
       if (btn) btn.style.opacity = '';
       const list = d.suggestions || [];
       if (!list.length) {
-        wrap.innerHTML = '<span style="font-size:10px;color:#475569;font-style:italic;">No frequent terms found yet — check back after more reports arrive.</span>';
+        wrap.innerHTML = '<span style="font-size:10px;color:var(--muted);font-style:italic;">No frequent terms found yet — check back after more reports arrive.</span>';
         return;
       }
       wrap.innerHTML = list.map(s => `
-        <span style="display:inline-flex;align-items:center;gap:4px;background:#1e1a2d;border:1px solid #3b2f6a;color:#c4b5fd;padding:3px 6px 3px 10px;border-radius:100px;font-size:11px;font-weight:700;">
+        <span class="chip chip-suggested">
           ${esc(s.word)}
-          <span style="font-size:9px;color:#7c5cbf;font-weight:800;background:#2a1f4a;border-radius:3px;padding:1px 4px;">${s.count}</span>
-          <button onclick="addKeyword('${esc(s.word)}')" title="Add as critical keyword"
-            style="background:none;border:1px solid rgba(167,139,250,0.4);color:#a78bfa;cursor:pointer;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:800;line-height:1.4;margin-left:2px;">+</button>
+          <span style="font-size:9px;font-weight:800;background:rgba(255,255,255,0.25);border-radius:3px;padding:1px 4px;">${s.count}</span>
+          <button onclick="addKeyword('${esc(s.word)}')" title="Add as critical keyword" aria-label="Add ${esc(s.word)} as critical keyword"
+            style="border:1px solid rgba(255,255,255,0.5);padding:1px 6px;border-radius:4px;font-size:10px;font-weight:800;margin-left:2px;">+</button>
         </span>`).join('');
     })
     .catch(() => {
       if (btn) btn.style.opacity = '';
       const w = document.getElementById('suggested-kw-chips');
-      if (w) w.innerHTML = '<span style="font-size:10px;color:#f87171;font-style:italic;">Failed to load suggestions.</span>';
+      if (w) w.innerHTML = '<span style="font-size:10px;color:var(--critical);font-style:italic;">Failed to load suggestions.</span>';
     });
 }
 
@@ -1134,32 +1286,35 @@ function loadData() {
   fetch(`/oru/data?proc=${encodeURIComponent(proc)}&${getDateParams()}`)
     .then(r => r.json())
     .then(d => {
-      // KPIs — plain DOM, always runs
+      _lastLoadedData = d;
+
       document.getElementById('kpi-total').textContent    = fmt(d.total);
       document.getElementById('kpi-normal').textContent   = fmt(d.normal);
       document.getElementById('kpi-abnormal').textContent = fmt(d.abnormal);
       document.getElementById('kpi-critical').textContent = fmt((d.critical_log || []).length);
 
-      // Each panel isolated — one failure won't block the others
+      try { updateKpiSparklines(d.total, d.normal, d.abnormal, (d.critical_log || []).length); } catch(e) { console.warn('sparklines', e); }
       try { buildDonut(d.normal, d.abnormal); }        catch(e) { console.warn('donut', e); }
       try { buildBars('mod-list',  d.modalities, 'modality', 'count', i => modColor(i.modality)); } catch(e) { console.warn('mod', e); }
-      try { buildBars('proc-list', d.top_procs,  'name',     'count', () => '#f59e0b'); }           catch(e) { console.warn('proc', e); }
+      try { buildBars('proc-list', d.top_procs,  'name',     'count', () => 'var(--warning)'); }    catch(e) { console.warn('proc', e); }
       try { buildBars('phys-list', d.physicians, 'id',       'count', () => '#a78bfa'); }           catch(e) { console.warn('phys', e); }
       try { buildCritical(d.critical_log || []); }      catch(e) { console.warn('critical', e); }
+      try { buildCriticalSpotlight(d.critical_log || []); } catch(e) { console.warn('spotlight', e); }
       try { loadSections(); }                          catch(e) { console.warn('sections', e); }
       try { loadSectionGaps(); }                       catch(e) { console.warn('section-gaps', e); }
 
-      // Word cloud last — deferred so layout is complete before measuring canvas
+      const searchEl = document.getElementById('treemap-search');
+      if (searchEl) searchEl.value = '';
+
       setTimeout(() => {
-        try { buildCloud(d.cloud); } catch(e) {
+        try { _cloudWordsFull = d.cloud || []; buildCloud(d.cloud); } catch(e) {
           console.warn('cloud', e);
           document.getElementById('cloud-spinner').style.display = 'none';
         }
       }, 100);
 
       const now = new Date();
-      document.getElementById('last-refresh').textContent =
-        `Last refresh: ${now.toLocaleTimeString()}`;
+      document.getElementById('last-refresh').textContent = `Last refresh: ${now.toLocaleTimeString()}`;
     })
     .catch(err => {
       console.error('ORU data error:', err);
@@ -1174,13 +1329,13 @@ function checkNLPStatus() {
       const el = document.getElementById('nlp-status-text');
       if (d.processed === 0) {
         el.textContent = `${d.total} reports · NLP not yet run`;
-        el.style.color = '#64748b';
+        el.style.color = 'var(--muted)';
       } else if (d.pending > 0) {
         el.textContent = `${d.processed} processed · ${d.pending} pending`;
-        el.style.color = '#f59e0b';
+        el.style.color = 'var(--warning)';
       } else {
         el.textContent = `${d.processed} reports fully processed`;
-        el.style.color = '#34d399';
+        el.style.color = 'var(--success)';
       }
     }).catch(() => {});
 }
@@ -1190,9 +1345,6 @@ function checkNLPStatus() {
 // TF-IDF/K-means clustering runs in the background nlp-worker container, so we
 // poll /oru/nlp/job/<id> until it finishes instead of assuming the POST response
 // means the work is done.
-let nlpDonutChart = null, sevChart = null;
-let _nlpPollTimer = null;
-
 function runNLP() {
   const f    = document.getElementById('date-from').value;
   const t    = document.getElementById('date-to').value;
@@ -1260,19 +1412,19 @@ function pollNLPJob(jobId) {
 function showNLPError(msg) {
   const toast = document.getElementById('nlp-toast');
   toast.style.display = 'flex';
-  toast.style.background = 'rgba(248,113,113,0.08)';
-  toast.style.borderColor = 'rgba(248,113,113,0.25)';
-  toast.style.color = '#f87171';
+  toast.style.background = 'rgba(239,68,68,0.08)';
+  toast.style.borderColor = 'rgba(239,68,68,0.28)';
+  toast.style.color = 'var(--critical)';
   document.getElementById('nlp-toast-text').textContent = 'Error: ' + msg;
 }
 
 function resetNLPButton() {
   const btn = document.getElementById('run-nlp-btn');
   btn.disabled = false;
-  btn.innerHTML = '<i class="bi bi-cpu"></i> Run NLP Analysis';
+  btn.innerHTML = '<i class="bi bi-cpu"></i> Process Reports';
 }
 
-// ── Load NLP results ─────────────────────────────────────────────────────────
+// ── Load / render NLP results ────────────────────────────────────────────────
 function loadNLPResults() {
   const proc = document.getElementById('proc-filter').value;
 
@@ -1283,6 +1435,7 @@ function loadNLPResults() {
         document.getElementById('nlp-section').style.display = 'none';
         return;
       }
+      _lastNlpData = d;
       document.getElementById('nlp-section').style.display = 'block';
       document.getElementById('nlp-result-meta').textContent =
         `${d.total.toLocaleString()} classified reports · ${d.clusters.length} clusters`;
@@ -1292,6 +1445,18 @@ function loadNLPResults() {
       renderClusters(d.clusters);
       renderNLPKeywords(d.top_keywords);
     });
+}
+
+function toggleNlpBody() {
+  const body = document.getElementById('nlp-body');
+  const btn  = document.getElementById('nlp-collapse-btn');
+  if (!body || !btn) return;
+  const collapsed = body.style.display === 'none';
+  body.style.display = collapsed ? 'block' : 'none';
+  btn.setAttribute('aria-expanded', collapsed ? 'true' : 'false');
+  btn.innerHTML = collapsed
+    ? '<i class="bi bi-chevron-up"></i> Collapse'
+    : '<i class="bi bi-chevron-down"></i> Expand';
 }
 
 function renderNLPDonut(cls) {
@@ -1308,8 +1473,8 @@ function renderNLPDonut(cls) {
       labels: ['Normal','Borderline','Critical'],
       datasets: [{
         data: [cls.normal, cls.borderline, cls.critical],
-        backgroundColor: ['#34d399','#f59e0b','#f87171'],
-        borderColor: ['#0f1512'], borderWidth: 3, hoverOffset: 4,
+        backgroundColor: ['#22c55e','#eab308','#ef4444'],
+        borderColor: [cssVar('--card')], borderWidth: 3, hoverOffset: 4,
       }]
     },
     options: { plugins: { legend: { display: false } }, cutout: '70%' }
@@ -1325,15 +1490,15 @@ function renderSeverity(buckets) {
       labels: ['1 — Normal','2','3 — Borderline','4','5 — Critical'],
       datasets: [{
         data: buckets,
-        backgroundColor: ['#34d399','#84cc16','#f59e0b','#fb923c','#f87171'],
+        backgroundColor: ['#22c55e','#84cc16','#eab308','#fb923c','#ef4444'],
         borderRadius: 6,
       }]
     },
     options: {
       plugins: { legend: { display: false } },
       scales: {
-        x: { grid: { color: '#1e2d27' }, ticks: { color: '#64748b', font: { size: 10 } } },
-        y: { grid: { color: '#1e2d27' }, ticks: { color: '#64748b', font: { size: 10 } } },
+        x: { grid: { color: cssVar('--border') }, ticks: { color: cssVar('--muted'), font: { size: 10 } } },
+        y: { grid: { color: cssVar('--border') }, ticks: { color: cssVar('--muted'), font: { size: 10 } } },
       }
     }
   });
@@ -1347,15 +1512,15 @@ function renderClusters(clusters) {
   el.innerHTML = clusters.map((c, i) => {
     const color = palette[i % palette.length];
     const pct   = Math.round(c.count / maxCount * 100);
-    const sevColor = c.avg_sev >= 4 ? '#f87171' : c.avg_sev >= 2.5 ? '#f59e0b' : '#34d399';
+    const sevColor = c.avg_sev >= 4 ? 'var(--critical)' : c.avg_sev >= 2.5 ? 'var(--warning)' : 'var(--success)';
     return `
-      <div style="background:#0f1512;border:1px solid #1e2d27;border-radius:10px;padding:14px 16px;border-left:3px solid ${color};">
+      <div class="cluster-card" style="border-left:3px solid ${color};">
         <div style="font-size:11px;font-weight:800;color:${color};margin-bottom:6px;">${c.label || 'Cluster ' + c.id}</div>
-        <div style="background:#151e1a;border-radius:4px;height:6px;overflow:hidden;margin-bottom:8px;">
-          <div style="width:${pct}%;height:100%;background:${color};border-radius:4px;"></div>
+        <div class="bar-track" style="height:6px;margin-bottom:8px;">
+          <div style="width:${pct}%;height:100%;background:${color};border-radius:5px;"></div>
         </div>
         <div style="display:flex;justify-content:space-between;font-size:10px;font-weight:700;">
-          <span style="color:#64748b;">${c.count.toLocaleString()} reports</span>
+          <span style="color:var(--muted);">${c.count.toLocaleString()} reports</span>
           <span style="color:${sevColor};">avg severity ${c.avg_sev}</span>
         </div>
       </div>`;
@@ -1403,23 +1568,36 @@ function renderNLPKeywords(words) {
       dropdown.innerHTML = '<li class="no-match">No match</li>';
     } else {
       dropdown.innerHTML = matches.map(p =>
-        `<li data-code="${p.code}" data-name="${p.name.replace(/"/g,'&quot;')}"
+        `<li data-code="${p.code}" data-name="${p.name.replace(/"/g,'&quot;')}" role="option"
              class="${p.code === hidden.value ? 'selected' : ''}">${p.name}</li>`
       ).join('');
     }
     dropdown.style.display = 'block';
+    input.setAttribute('aria-expanded', 'true');
+  }
+
+  function hide() {
+    dropdown.style.display = 'none';
+    input.setAttribute('aria-expanded', 'false');
   }
 
   function select(code, name) {
     hidden.value      = code;
     input.value       = code ? name : '';
     input.placeholder = code ? '' : 'All Procedures';
-    dropdown.style.display = 'none';
+    hide();
     loadData();
   }
 
   input.addEventListener('focus', () => render(input.value));
   input.addEventListener('input', () => render(input.value));
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { hide(); input.blur(); }
+    if (e.key === 'Enter') {
+      const first = dropdown.querySelector('li[data-code]');
+      if (first) { e.preventDefault(); select(first.dataset.code, first.dataset.name); }
+    }
+  });
 
   dropdown.addEventListener('mousedown', e => {
     const li = e.target.closest('li[data-code]');
@@ -1432,7 +1610,7 @@ function renderNLPKeywords(words) {
     if (!wrap.contains(e.target) && dropdown.style.display !== 'none') {
       const cur = PROCS.find(p => p.code === hidden.value);
       input.value = cur && cur.code ? cur.name : '';
-      dropdown.style.display = 'none';
+      hide();
     }
   });
 })();
@@ -1443,13 +1621,32 @@ function getDateParams() {
   const t = document.getElementById('date-to').value;
   return `date_from=${encodeURIComponent(f)}&date_to=${encodeURIComponent(t)}`;
 }
-function setQuickRange(days) {
+function setQuickRange(days, el) {
   const to   = new Date();
   const from = new Date();
   from.setDate(from.getDate() - days);
   document.getElementById('date-to').value   = to.toISOString().slice(0,10);
   document.getElementById('date-from').value = from.toISOString().slice(0,10);
+  document.querySelectorAll('.quick-pill').forEach(p => p.classList.remove('active'));
+  if (el) el.classList.add('active');
   loadData();
+}
+
+// ── Theme re-paint for canvas-based charts (CSS vars don't reach <canvas>) ───
+function _rethemeCharts() {
+  try {
+    if (_lastLoadedData) {
+      buildDonut(_lastLoadedData.normal, _lastLoadedData.abnormal);
+      buildCloud(_cloudWordsFull.length ? _cloudWordsFull : _lastLoadedData.cloud);
+      loadSections();
+    }
+  } catch (e) { console.warn('retheme', e); }
+  try {
+    if (_lastNlpData && _lastNlpData.has_data) {
+      renderNLPDonut(_lastNlpData.classification);
+      renderSeverity(_lastNlpData.severity_histogram);
+    }
+  } catch (e) { console.warn('retheme nlp', e); }
 }
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
@@ -1471,6 +1668,7 @@ const GO_LIVE_DATE = {{ go_live_date|tojson }};
 })();
 loadData();
 checkNLPStatus();
+loadNLPResults();
 
 // ── Theme ─────────────────────────────────────────────────────────────────────
 function applyTheme(theme) {
@@ -1483,6 +1681,7 @@ function toggleTheme() {
     const next = document.body.classList.contains('light') ? 'dark' : 'light';
     applyTheme(next);
     fetch('/user/theme', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({theme: next}) });
+    setTimeout(_rethemeCharts, 30);
 }
 </script>
 <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
