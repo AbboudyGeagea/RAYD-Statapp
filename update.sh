@@ -184,15 +184,17 @@ RECLAIMED=$(docker image prune -f 2>&1 | grep -oE 'Total reclaimed space: .*' ||
 ok "${RECLAIMED:-Total reclaimed space: 0B}"
 
 # BuildKit's layer cache is a separate pool from images -- `docker image
-# prune` never touches it, so it grows on every `$COMPOSE build` above
-# regardless of whether image content actually changed. Found piling up to
-# 75+ GB unreclaimed on the live LAUMC host (`docker system df` showed 0
-# active cache entries, all of it stale). `-a` is safe unconditionally: it
-# only drops cache not backing any image Docker currently has tagged --
-# never a running container's actual image, and never volumes (Postgres
-# data is a named volume, a completely separate pool build cache can't touch).
-info "Cleaning up unused build cache..."
-CACHE_RECLAIMED=$(docker builder prune -a -f 2>&1 | tail -n1)
+# prune` never touches it, so it can pile up over many rebuilds (found at
+# 75+ GB stale/reclaimable on the live LAUMC host at one point). Deliberately
+# NOT passing -a here: -a removes ALL build cache, including the layers still
+# backing the image that was JUST built -- that regressed a prior version of
+# this script into re-downloading and reinstalling every pip package on every
+# single update, since there was nothing left for the next build to hit.
+# Bare `docker builder prune -f` only drops dangling cache (superseded by a
+# newer layer, not tied to any image Docker currently has tagged), so the
+# cache backing THIS build's requirements.txt layer survives for next time.
+info "Cleaning up dangling build cache..."
+CACHE_RECLAIMED=$(docker builder prune -f 2>&1 | tail -n1)
 ok "${CACHE_RECLAIMED:-Total: 0B}"
 
 # ──────────────────────────────────────────────────────
