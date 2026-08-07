@@ -148,21 +148,6 @@
                 <div id="chart-radiologist" style="height:280px;"></div>
             </div>
 
-            <!-- SLA Breach Heatmap -->
-            <div id="breach-section" class="hidden">
-                <p class="section-title"><i class="bi bi-shield-exclamation mr-1"></i> SLA Breach Heatmap — Radiologist × Modality</p>
-                <p class="text-xs text-slate-500 mb-2">
-                    Rows represent assigned radiologists. The row labelled <strong class="text-slate-400">Unassigned</strong>
-                    <i class="bi bi-info-circle text-muted"
-                       title="Studies where no reading radiologist has been assigned in the PACS system yet. These studies have been received but not yet claimed by a radiologist."
-                       data-bs-toggle="tooltip" data-bs-placement="right"></i>
-                    groups studies that have not yet been claimed by a radiologist in PACS.
-                </p>
-                <div class="card">
-                    <div id="breach-heatmap" style="height:320px;"></div>
-                </div>
-            </div>
-
         </div><!-- #content -->
     </main>
 </div>
@@ -223,14 +208,12 @@ async function loadData() {
     renderModality(d.by_modality, d.kpi.sla_limit);
     renderHour(d.by_hour);
     renderRadiologist(d.by_radiologist, d.kpi.sla_limit);
-    renderBreaches(d.breaches, d.kpi.sla_limit);
 
     _addPdfOverlay('chart-trend',       'ER Study Volume Trend',          'er_trend',       '#181f1c');
     _addPdfOverlay('chart-histogram',   'TAT Distribution (Histogram)',   'er_histogram',   '#181f1c');
     _addPdfOverlay('chart-modality',    'Studies by Modality',            'er_modality',    '#181f1c');
     _addPdfOverlay('chart-hour',        'Volume by Hour of Day',          'er_hourly',      '#181f1c');
     _addPdfOverlay('chart-radiologist', 'Radiologist Performance',        'er_radiologist', '#181f1c');
-    _addPdfOverlay('breach-heatmap',    'SLA Breach Heatmap',            'er_breach_heatmap', '#181f1c');
 }
 
 function _addPdfOverlay(chartId, title, filename, bg) {
@@ -425,69 +408,6 @@ function renderRadiologist(rows, sla) {
             label:{show:true,position:'right',formatter:p=>fmtMin(p.value),color:CHART_TEXT,fontSize:10},
             markLine:{silent:true,symbol:'none',data:[{xAxis:sla,label:{formatter:`SLA`,color:AMBER,fontSize:9},lineStyle:{color:AMBER,type:'dashed',width:1}}]}
         }]
-    });
-}
-
-function renderBreaches(rows, sla) {
-    const sec = document.getElementById('breach-section');
-    if (!rows.length) { sec.classList.add('hidden'); return; }
-    sec.classList.remove('hidden');
-
-    const radiologists = [...new Set(rows.map(r => r.radiologist))];
-    const modalities   = [...new Set(rows.map(r => r.modality))];
-
-    // Build [modIdx, radIdx, count] data for heatmap
-    const data = rows.map(r => [
-        modalities.indexOf(r.modality),
-        radiologists.indexOf(r.radiologist),
-        r.breach_count,
-        r.avg_over_sla_min,
-        r.worst_tat_min,
-    ]);
-    const maxCount = Math.max(...rows.map(r => r.breach_count));
-
-    const chart = ec('breach-heatmap');
-    chart.setOption({
-        backgroundColor: '#181f1c',
-        tooltip: {
-            formatter: p => {
-                const d = p.data;
-                return `<b>${radiologists[d[1]]}</b><br/>
-                        Modality: <b>${modalities[d[0]]}</b><br/>
-                        Breaches: <b style="color:#f43f5e">${d[2]}</b><br/>
-                        Avg over SLA: <b>+${fmtMin(d[3])}</b><br/>
-                        Worst TAT: <b>${fmtMin(d[4])}</b>`;
-            }
-        },
-        grid: { top: 20, bottom: 60, left: 140, right: 60 },
-        xAxis: {
-            type: 'category', data: modalities,
-            axisLabel: { color: '#94a3b8', fontSize: 11, fontWeight: 'bold' },
-            axisLine: { lineStyle: { color: '#28332e' } },
-            splitLine: { lineStyle: { color: '#1e2a26' } },
-        },
-        yAxis: {
-            type: 'category', data: radiologists,
-            axisLabel: { color: '#94a3b8', fontSize: 11 },
-            axisLine: { lineStyle: { color: '#28332e' } },
-            splitLine: { lineStyle: { color: '#1e2a26' } },
-        },
-        visualMap: {
-            min: 1, max: maxCount,
-            calculable: false, orient: 'horizontal',
-            left: 'center', bottom: 0,
-            inRange: { color: ['#3d1a1a', '#7f1d1d', '#dc2626', '#f43f5e'] },
-            textStyle: { color: '#94a3b8', fontSize: 10 },
-        },
-        series: [{
-            type: 'heatmap', data: data,
-            label: {
-                show: true,
-                formatter: p => p.data[2],
-                color: '#fff', fontSize: 11, fontWeight: 'bold',
-            },
-            emphasis: { itemStyle: { shadowBlur: 8, shadowColor: '#f43f5e' } },
-        }],
     });
 }
 

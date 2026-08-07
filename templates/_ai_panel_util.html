@@ -6,7 +6,7 @@
     <div class="kpi orange"><div class="kpi-label">Under-Utilized AEs</div><div class="kpi-val">{{ u.low_util|length }}</div><div class="kpi-sub">avg utilization <30%</div></div>
 </div>
 <!-- AE chip selector -->
-<div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;scrollbar-width:thin;">
+<div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;scrollbar-width:thin;width:100%;min-width:0;">
     {% for ae in u.ae_list %}
     {% set util_color = '#eb5757' if ae.avg_util > 85 else '#f2994a' if ae.avg_util > 60 else '#27ae60' %}
     {% set border_l   = '3px solid #eb5757' if ae.avg_util > 85 else '3px solid #f2994a' if ae.avg_util > 60 else '3px solid #27ae60' %}
@@ -30,6 +30,6 @@
 <div class="card" style="display:flex;flex-direction:column;">
     <div class="card-head" id="ae-chart-title">Select an AE to view detail</div>
     <div class="card-desc" id="ae-chart-desc">Click any AE chip above to view daily utilization trend, anomalies, and 30-day forecast. Use the zoom bar to navigate dense date ranges.</div>
-    <div id="chart-ae-detail" style="height:440px;padding:16px;"></div>
+    <div id="chart-ae-detail" style="height:560px;padding:16px;"></div>
 </div>
 {% else %}<div class="flex items-center justify-center h-64" style="color:var(--muted);">No utilization data available.</div>{% endif %}

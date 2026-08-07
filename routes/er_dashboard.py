@@ -12,20 +12,16 @@ _ER_WHERE = """(
     OR s.patient_class ILIKE '%Emergency%'
 )"""
 
-_STUDY_DT = """(
-    s.study_date::timestamp +
-    CASE
-        WHEN s.study_time ~ '^[0-9]{6}'
-        THEN make_interval(
-            hours => SUBSTRING(s.study_time,1,2)::int,
-            mins  => SUBSTRING(s.study_time,3,2)::int,
-            secs  => SUBSTRING(s.study_time,5,2)::int
-        )
-        WHEN s.study_time ~ '^[0-9]{2}:[0-9]{2}'
-        THEN s.study_time::interval
-        ELSE '0'::interval
-    END
-)"""
+# s.study_time is a column on etl_didb_studies that the ETL job never actually writes
+# to (confirmed: ETL_JOBS/etl_didb_studies.py has no study_time in its column list) --
+# it is always NULL, so the old regex-based reconstruction below always fell through to
+# its ELSE '0'::interval branch, silently anchoring every study to midnight. That both
+# flattened "volume by hour" onto 00:00 and inflated every TAT figure on this page
+# (TAT was being measured from midnight of study_date, not from when the study actually
+# happened). s.insert_time (PACS ingestion) is the real timestamp with actual
+# hour-of-day, and is already the standard TAT-start anchor used elsewhere in this app
+# (report_25.py, referring_intel.py) for the same reason.
+_STUDY_DT = "s.insert_time"
 
 
 @er_bp.route('/er')
@@ -64,10 +60,19 @@ def er_data():
                 s.accession_number,
                 s.study_date,
                 COALESCE(m.modality, s.study_modality, 'Unknown') AS modality,
-                NULLIF(TRIM(CONCAT(
-                    COALESCE(s.signing_physician_first_name,''), ' ',
-                    COALESCE(s.signing_physician_last_name,'')
-                )), '') AS radiologist,
+                -- signing_physician_first/last_name (PACS-native) is sparse/unreliable on
+                -- this install -- radiologists sign in the RIS, not PACS (same root cause
+                -- as completed_ts below, and already fixed the same way in report_32.py's
+                -- radiologist resolution). Falls back to the PACS RIS-sourced
+                -- rep_study_last_composed_by, then rep_final_signed_by.
+                COALESCE(
+                    NULLIF(TRIM(CONCAT(
+                        COALESCE(s.signing_physician_first_name,''), ' ',
+                        COALESCE(s.signing_physician_last_name,'')
+                    )), ''),
+                    s.rep_study_last_composed_by,
+                    s.rep_final_signed_by
+                ) AS radiologist,
                 NULLIF(TRIM(CONCAT(
                     COALESCE(s.referring_physician_first_name,''), ' ',
                     COALESCE(s.referring_physician_last_name,'')
@@ -196,22 +201,6 @@ def er_data():
         """), params).mappings().fetchall()
         by_radiologist = [dict(r) for r in rad_rows]
 
-        # ── SLA breach heatmap (radiologist × modality) ───────────────────────
-        heatmap_rows = db.session.execute(text(cte + f"""
-            SELECT
-                COALESCE(radiologist, 'Unassigned') AS radiologist,
-                modality,
-                COUNT(*)                                        AS breach_count,
-                ROUND(AVG(final_tat_min - {sla_limit}))        AS avg_over_sla_min,
-                ROUND(MAX(final_tat_min))                       AS worst_tat_min
-            FROM er
-            WHERE final_tat_min > {sla_limit}
-              AND modality IS NOT NULL AND modality != 'Unknown'
-            GROUP BY radiologist, modality
-            ORDER BY breach_count DESC
-        """), params).mappings().fetchall()
-        breaches = [dict(r) for r in heatmap_rows]
-
         return jsonify({
             'kpi': {
                 'total':        total,
@@ -229,7 +218,6 @@ def er_data():
             'by_modality':   by_modality,
             'by_hour':       by_hour,
             'by_radiologist':by_radiologist,
-            'breaches':      breaches,
             'error':         None,
         })
 

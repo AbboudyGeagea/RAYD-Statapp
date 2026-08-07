@@ -542,22 +542,22 @@
                     </div>
                 </div>
 
-                <!-- Row 1: Efficiency Score Bar + Stress vs Output Scatter -->
-                <div class="grid grid-cols-2 gap-6">
-                    <div class="glass-card">
-                        <div class="flex items-center justify-between mb-4">
-                            <p class="text-xs font-black text-blue-500 uppercase">Modality Efficiency Score</p>
-                            <p class="text-[9px] text-zinc-500 uppercase">RVU per 1% Utilization</p>
-                        </div>
-                        <div id="chart-eff-bar" class="w-full" style="height:300px;"></div>
+                <!-- Row 1a: Efficiency Score Bar (full width) -->
+                <div class="glass-card">
+                    <div class="flex items-center justify-between mb-4">
+                        <p class="text-xs font-black text-blue-500 uppercase">Modality Efficiency Score</p>
+                        <p class="text-[9px] text-zinc-500 uppercase">RVU per 1% Utilization</p>
                     </div>
-                    <div class="glass-card">
-                        <div class="flex items-center justify-between mb-4">
-                            <p class="text-xs font-black text-blue-500 uppercase">Stress vs Output</p>
-                            <p class="text-[9px] text-zinc-500 uppercase">Util % vs RVU per AE</p>
-                        </div>
-                        <div id="chart-stress-scatter" class="w-full" style="height:300px;"></div>
+                    <div id="chart-eff-bar" class="w-full" style="height:600px;"></div>
+                </div>
+
+                <!-- Row 1b: Stress vs Output Scatter -->
+                <div class="glass-card">
+                    <div class="flex items-center justify-between mb-4">
+                        <p class="text-xs font-black text-blue-500 uppercase">Stress vs Output</p>
+                        <p class="text-[9px] text-zinc-500 uppercase">Util % vs RVU per AE</p>
                     </div>
+                    <div id="chart-stress-scatter" class="w-full" style="height:300px;"></div>
                 </div>
 
                 <!-- Row 2: TAT Histogram + RVU vs TAT scatter -->
@@ -1408,77 +1408,6 @@
                             document.getElementById('kpi-outlier-count').textContent = d.outlier_studies.length;
                         }
                     }
-                }
-
-                // --- TAT Outlier Table (legacy client-side) ---
-                const allTats = [];
-                (d.rad_cards || []).forEach(rad => {
-                    (rad.drilldown || []).forEach(loc => {
-                        (loc.mods || []).forEach(m => {
-                            allTats.push(m.avg);
-                        });
-                    });
-                });
-
-                const sorted = [...allTats].sort((a, b) => a - b);
-                const median = sorted.length > 0 ? sorted[Math.floor(sorted.length / 2)] : 0;
-                const threshold = median * 1.5;
-
-                const outliers = [];
-                (d.rad_cards || []).forEach(rad => {
-                    (rad.drilldown || []).forEach(loc => {
-                        (loc.mods || []).forEach(m => {
-                            if (m.avg > threshold) {
-                                outliers.push({
-                                    rad: rad.name, loc: loc.loc,
-                                    mod: m.m, avg: m.avg, median: median,
-                                    ratio: +(m.avg / median).toFixed(2), count: m.count
-                                });
-                            }
-                        });
-                    });
-                });
-
-                outliers.sort((a, b) => b.ratio - a.ratio);
-
-                // Update outlier KPI
-                document.getElementById('kpi-outlier-count').textContent = outliers.length;
-
-                const _oList = document.getElementById('outlier-list');
-                if (!_oList) { /* already rendered by server-side path */ }
-                else if (outliers.length === 0) {
-                    _oList.innerHTML = '<div class="text-center py-8 text-zinc-500 italic text-xs">No TAT outliers detected — all procedures within normal range.</div>';
-                } else {
-                    const _oMax = Math.max(...outliers.map(o => o.avg));
-                    const _oIni = name => name.trim().split(/\s+/).map(n => n[0]).join('').slice(0,2).toUpperCase();
-                    _oList.innerHTML = outliers.map(o => {
-                        const critical = o.ratio > 2.5;
-                        const accent = critical ? '#ef4444' : '#f59e0b';
-                        const barW = Math.min(Math.round(o.avg / _oMax * 100), 100);
-                        return `
-                        <div class="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/[0.02] border border-white/5 hover:border-white/10 transition-all">
-                            <div class="w-1 self-stretch rounded-full flex-shrink-0" style="background:${accent}"></div>
-                            <div class="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-[11px] font-black" style="background:${accent}22;color:${accent}">${_oIni(o.rad)}</div>
-                            <div class="flex-1 min-w-0">
-                                <div class="flex items-center gap-2 mb-1.5 flex-wrap">
-                                    <span class="text-xs font-bold text-zinc-200 truncate">${o.rad}</span>
-                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-zinc-800 text-zinc-300">${o.mod}</span>
-                                    <span class="text-[10px] text-zinc-500">${o.loc}</span>
-                                </div>
-                                <div class="flex items-center gap-2">
-                                    <div class="flex-1 h-1 bg-white/5 rounded-full overflow-hidden">
-                                        <div class="h-full rounded-full" style="width:${barW}%;background:${accent}99"></div>
-                                    </div>
-                                    <span class="text-[10px] text-zinc-600 flex-shrink-0">${o.median.toFixed(1)}m median</span>
-                                </div>
-                            </div>
-                            <div class="text-right flex-shrink-0 space-y-0.5">
-                                <div class="text-sm font-black" style="color:${accent}">${o.avg}m</div>
-                                <div class="text-[10px] font-black px-1.5 py-0.5 rounded-full inline-block" style="background:${accent}22;color:${accent}">${o.ratio}×</div>
-                            </div>
-                            <div class="text-[10px] text-zinc-600 flex-shrink-0 w-14 text-right hidden sm:block">${o.count} studies</div>
-                        </div>`;
-                    }).join('');
                 }
             }
 

@@ -193,12 +193,12 @@
                 </div>
 
                 <!-- ── Tab: Mix ─────────────────────────────────────── -->
-                <div id="dtab-content-mix" class="detail-panel hidden">
+                <div id="dtab-content-mix" class="detail-panel hidden space-y-4">
+                    <div class="card p-5">
+                        <p class="text-[9px] font-black uppercase tracking-widest mb-3" style="color:#34d399;">Modality Mix</p>
+                        <div id="chart-modality" style="height:420px;"></div>
+                    </div>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div class="card p-5">
-                            <p class="text-[9px] font-black uppercase tracking-widest mb-3" style="color:#34d399;">Modality Mix</p>
-                            <div id="chart-modality" style="height:240px;"></div>
-                        </div>
                         <div class="card p-5">
                             <p class="text-[9px] font-black uppercase tracking-widest mb-3" style="color:#34d399;">Body Parts</p>
                             <div id="chart-body" style="height:240px;"></div>
@@ -683,19 +683,21 @@
 
     // ── Charts: Mix ───────────────────────────────────────────────────
     function renderMixCharts(d) {
-        // Modality donut
+        // Modality bar
         const elMod = document.getElementById('chart-modality');
         if (elMod) {
             if (_charts.mod) _charts.mod.dispose();
             const c = echarts.init(elMod, null, {renderer:'canvas'});
             _charts.mod = c;
+            const modSorted = [...d.modality].sort((a,b)=>a.cnt-b.cnt);
             c.setOption({
-                tooltip:{ trigger:'item', formatter:'{b}: {c} ({d}%)' },
-                legend:{ textStyle:{color:'#4b5563',fontSize:10}, bottom:0, type:'scroll' },
-                series:[{ type:'pie', radius:['38%','65%'],
-                    data: d.modality.map(r=>({name:r.modality,value:r.cnt})),
-                    label:{ color:'#9ca3af', fontSize:10 },
-                    itemStyle:{ borderWidth:2, borderColor:'#151c18' }
+                tooltip:{ trigger:'axis', formatter:p=>`${p[0].name}: ${p[0].value}` },
+                grid:{ left:90, right:40, top:10, bottom:10 },
+                xAxis:{ type:'value', ...axisStyle },
+                yAxis:{ type:'category', data:modSorted.map(r=>r.modality), ...axisStyle },
+                series:[{ type:'bar', data:modSorted.map(r=>r.cnt), barMaxWidth:22,
+                    itemStyle:{ borderRadius:[0,4,4,0], color:'#34d399' },
+                    label:{ show:true, position:'right', color:'#4b5563', fontSize:10 }
                 }]
             });
             window.addEventListener('resize', () => c.resize());
