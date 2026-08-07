@@ -125,7 +125,10 @@
                     <div id="chart-trend" style="height:260px;"></div>
                 </div>
                 <div class="card p-5">
-                    <p class="section-title"><i class="bi bi-bar-chart mr-1"></i> TAT Distribution</p>
+                    <p class="section-title">
+                        <i class="bi bi-bar-chart mr-1"></i> TAT Distribution
+                        <span id="tat-cluster-note" style="font-size:10px;font-weight:400;color:#64748b;"></span>
+                    </p>
                     <div id="chart-histogram" style="height:260px;"></div>
                 </div>
             </div>
@@ -351,17 +354,19 @@ function renderTrend(rows, sla) {
 
 function renderHistogram(rows, sla) {
     const c = ec('chart-histogram');
+    const note = document.getElementById('tat-cluster-note');
+    if (note) note.textContent = rows.length ? `— K-means, k=${rows[0].k}` : '';
+
     const labels = rows.map(r => r.bucket);
     const counts = rows.map(r => r.cnt);
-    const colors = labels.map(l => {
-        if (l === '0-30 min') return GREEN;
-        if (l === '30-60 min') return BLUE;
-        if (l === '60-90 min') return AMBER;
-        return RED;
-    });
+    // Buckets are data-driven cluster ranges now, not fixed labels -- color by each
+    // cluster's average TAT against the SLA, same 3-tier scheme used elsewhere on
+    // this dashboard (renderModality/renderRadiologist) instead of matching on
+    // hardcoded bucket strings that no longer apply.
+    const colors = rows.map(r => r.avg <= sla ? GREEN : r.avg <= sla * 1.5 ? AMBER : RED);
     c.setOption({
         backgroundColor:'transparent',
-        tooltip:{trigger:'axis'},
+        tooltip:{trigger:'axis',formatter:p=>`${p[0].name}<br>${p[0].value} studies · avg ${rows[p[0].dataIndex].avg}m`},
         grid:{top:10,right:20,bottom:40,left:60},
         xAxis:{type:'category',data:labels,axisLabel:{color:CHART_TEXT,fontSize:10},axisLine:{lineStyle:{color:CHART_LINE}}},
         yAxis:{type:'value',axisLabel:{color:CHART_TEXT,fontSize:10},splitLine:{lineStyle:{color:CHART_LINE,type:'dashed'}}},

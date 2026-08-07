@@ -28,6 +28,67 @@ _STUDY_DT = """(
 )"""
 
 
+def _cluster_tat_histogram(vals, max_k=6):
+    """K-means clustering of ER TAT values into natural groups, replacing fixed-width
+    (0-30/30-60/...) bins with data-driven ones. Auto-selects k (2 <= k <= max_k) via
+    inertia elbow -- same convention as nlp_worker/clustering.py's cluster_reports()
+    (pick the smallest k where the next cluster only buys <15% inertia improvement).
+    1-D K-means naturally produces contiguous, non-overlapping ranges when sorted by
+    centroid, so each cluster becomes one clean "low-high min" bucket.
+
+    Falls back to a single bucket spanning the full range when there's too little data
+    for clustering to be meaningful (mirrors cluster_reports()'s own len-based bailout).
+    Returns [] for no data, or a list of {bucket, cnt, avg} sorted by avg ascending, plus
+    a 'k' key on each row so the frontend can show how many clusters were found.
+    """
+    if not vals:
+        return []
+    if len(vals) < 10:
+        return [{'bucket': f'{round(min(vals))}-{round(max(vals))} min',
+                  'cnt': len(vals), 'avg': round(sum(vals) / len(vals), 1), 'k': 1}]
+
+    try:
+        from sklearn.cluster import KMeans
+    except ImportError:
+        return [{'bucket': f'{round(min(vals))}-{round(max(vals))} min',
+                  'cnt': len(vals), 'avg': round(sum(vals) / len(vals), 1), 'k': 1}]
+
+    X = [[v] for v in vals]
+    k_range = list(range(2, min(max_k, len(vals) // 5) + 1))
+    if len(k_range) <= 1:
+        k = 2
+    else:
+        inertias = []
+        for k_try in k_range:
+            km = KMeans(n_clusters=k_try, n_init=5, max_iter=100, random_state=42)
+            km.fit(X)
+            inertias.append(km.inertia_)
+        k = k_range[0]
+        for i in range(1, len(inertias)):
+            drop = (inertias[i - 1] - inertias[i]) / (inertias[0] + 1e-9)
+            if drop < 0.15:
+                k = k_range[i]
+                break
+
+    km = KMeans(n_clusters=k, n_init=10, max_iter=300, random_state=42)
+    labels = km.fit_predict(X)
+
+    clusters = []
+    for c in range(k):
+        cvals = [v for v, l in zip(vals, labels) if l == c]
+        if not cvals:
+            continue
+        clusters.append({
+            'bucket': f'{round(min(cvals))}-{round(max(cvals))} min',
+            'cnt': len(cvals),
+            'avg': round(sum(cvals) / len(cvals), 1),
+        })
+    clusters.sort(key=lambda row: row['avg'])
+    for row in clusters:
+        row['k'] = len(clusters)
+    return clusters
+
+
 @er_bp.route('/er')
 @login_required
 def er_page():
@@ -136,22 +197,12 @@ def er_data():
         """), params).mappings().fetchall()
         trend = [dict(r) for r in trend_rows]
 
-        # ── TAT histogram ─────────────────────────────────────────────────────
-        hist_rows = db.session.execute(text(cte + f"""
-            SELECT
-                CASE
-                    WHEN final_tat_min <= 30  THEN '0-30 min'
-                    WHEN final_tat_min <= 60  THEN '30-60 min'
-                    WHEN final_tat_min <= 90  THEN '60-90 min'
-                    WHEN final_tat_min <= 120 THEN '90-120 min'
-                    ELSE '120+ min'
-                END AS bucket,
-                COUNT(*) AS cnt
-            FROM er WHERE final_tat_min > 0
-            GROUP BY 1
-            ORDER BY MIN(final_tat_min)
-        """), params).mappings().fetchall()
-        histogram = [dict(r) for r in hist_rows]
+        # ── TAT histogram (K-means clustered, not fixed-width bins) ────────────
+        tat_val_rows = db.session.execute(text(cte + """
+            SELECT final_tat_min FROM er WHERE final_tat_min > 0
+        """), params).fetchall()
+        tat_vals  = [float(r[0]) for r in tat_val_rows]
+        histogram = _cluster_tat_histogram(tat_vals)
 
         # ── TAT by modality ───────────────────────────────────────────────────
         mod_rows = db.session.execute(text(cte + """
