@@ -74,6 +74,15 @@
                     </span>
                     <span id="phy-count" class="text-[9px]" style="color:#4b5563;">—</span>
                 </div>
+                <div class="flex gap-1 mt-2">
+                    <button onclick="showListView()" id="view-btn-list"
+                        class="flex-1 text-[9px] font-black uppercase py-1.5 rounded-lg"
+                        style="background:rgba(52,211,153,0.12);color:#34d399;border:1px solid rgba(52,211,153,0.3);">List</button>
+                    <button onclick="showLoyaltyView()" id="view-btn-loyalty"
+                        class="flex-1 text-[9px] font-black uppercase py-1.5 rounded-lg"
+                        style="background:#1a2820;color:#4b5563;border:1px solid #1e2820;"
+                        title="Median TAT vs. 90-day patient return rate, one bubble per physician">Loyalty Map</button>
+                </div>
             </div>
 
             <!-- List -->
@@ -105,6 +114,28 @@
                 <div class="text-center">
                     <p class="text-xl font-black uppercase tracking-tight text-white">Referring Intelligence</p>
                     <p class="text-sm mt-1" style="color:#4b5563;">Select a physician from the list to view their cohort analysis</p>
+                </div>
+            </div>
+
+            <!-- Loyalty Map: median TAT vs. 90-day return rate, one bubble per physician -->
+            <div id="loyalty-view" class="hidden h-full p-6 flex flex-col gap-3">
+                <div>
+                    <p class="text-[9px] font-black uppercase tracking-widest mb-1" style="color:#34d399;">
+                        <i class="bi bi-bullseye mr-1"></i>Loyalty &amp; Turnaround Correlation
+                    </p>
+                    <p class="text-xs" style="color:#4b5563;">
+                        Each bubble is one referring physician (min. 10 studies in the selected window). X = median report
+                        turnaround time. Y = % of that physician's patients who returned within 90 days. Bubble size =
+                        study volume. Click a bubble to open that physician's full detail. Slow TAT paired with a low
+                        return rate is the combination worth investigating first.
+                    </p>
+                </div>
+                <div class="card p-5 flex-1 min-h-0">
+                    <div id="chart-loyalty" style="height:100%; min-height:420px;"></div>
+                    <div id="loyalty-empty" class="hidden text-center py-12" style="color:#4b5563;">
+                        <i class="bi bi-bullseye text-3xl block opacity-30 mb-2"></i>
+                        <p class="text-xs italic">Not enough data for this window (need &ge;10 studies and a resolved TAT per physician).</p>
+                    </div>
                 </div>
             </div>
 
@@ -308,11 +339,93 @@
         }).join('');
     }
 
+    // ── List / Loyalty Map toggle ───────────────────────────────────────
+    let _loyaltyData = null;
+    let loyaltyChart = null;
+
+    function showListView() {
+        document.getElementById('loyalty-view').classList.add('hidden');
+        document.getElementById('view-btn-loyalty').style.cssText = 'background:#1a2820;color:#4b5563;border:1px solid #1e2820;';
+        document.getElementById('view-btn-list').style.cssText = 'background:rgba(52,211,153,0.12);color:#34d399;border:1px solid rgba(52,211,153,0.3);';
+        (_activePhysician ? document.getElementById('detail-content') : document.getElementById('detail-empty')).classList.remove('hidden');
+    }
+
+    async function showLoyaltyView() {
+        document.getElementById('detail-empty').classList.add('hidden');
+        document.getElementById('detail-content').classList.add('hidden');
+        document.getElementById('detail-loading').classList.add('hidden');
+        document.getElementById('loyalty-view').classList.remove('hidden');
+        document.getElementById('view-btn-list').style.cssText = 'background:#1a2820;color:#4b5563;border:1px solid #1e2820;';
+        document.getElementById('view-btn-loyalty').style.cssText = 'background:rgba(52,211,153,0.12);color:#34d399;border:1px solid rgba(52,211,153,0.3);';
+
+        if (!_loyaltyData) {
+            try {
+                const res = await fetch(`/viewer/referring-intel/loyalty?months=${_activeMonths}`);
+                _loyaltyData = await res.json();
+                if (_loyaltyData.error) throw new Error(_loyaltyData.error);
+            } catch(e) {
+                _loyaltyData = [];
+            }
+        }
+        renderLoyaltyChart();
+    }
+
+    function renderLoyaltyChart() {
+        const wrap  = document.getElementById('chart-loyalty');
+        const empty = document.getElementById('loyalty-empty');
+        const rows  = (_loyaltyData || []).filter(r => r.median_tat_min != null && r.return_rate_pct != null);
+        if (!rows.length) {
+            wrap.classList.add('hidden');
+            empty.classList.remove('hidden');
+            return;
+        }
+        wrap.classList.remove('hidden');
+        empty.classList.add('hidden');
+
+        const counts    = rows.map(r => r.total_studies);
+        const maxCount  = Math.max(...counts, 1);
+        const sizeScale = 55 / Math.sqrt(maxCount);
+
+        const points = rows.map(r => ({
+            value: [r.median_tat_min, r.return_rate_pct, r.total_studies],
+            name: r.physician,
+            itemStyle: { color: r.return_rate_pct >= 50 ? '#34d399' : (r.return_rate_pct >= 25 ? '#f59e0b' : '#f43f5e') }
+        }));
+
+        if (!loyaltyChart) loyaltyChart = echarts.init(wrap);
+        loyaltyChart.setOption({
+            backgroundColor: 'transparent',
+            tooltip: {
+                backgroundColor: '#0f1712', borderColor: '#1e2820', textStyle: { color: '#d1fae5' },
+                formatter: p => `<b>${esc(p.data.name)}</b><br/>` +
+                    `Median TAT: <b>${p.data.value[0]}</b> min<br/>` +
+                    `90d Return Rate: <b>${p.data.value[1]}</b>%<br/>` +
+                    `Studies: <b>${p.data.value[2]}</b>`
+            },
+            grid: { top: 30, left: 60, right: 30, bottom: 50 },
+            xAxis: {
+                type: 'value', name: 'Median TAT (min)', nameLocation: 'middle', nameGap: 30, ...axisStyle
+            },
+            yAxis: {
+                type: 'value', name: '90d Return Rate (%)', nameLocation: 'middle', nameGap: 40, ...axisStyle
+            },
+            series: [{
+                type: 'scatter', data: points,
+                symbolSize: v => Math.max(10, Math.sqrt(v[2]) * sizeScale),
+                label: { show: false },
+                emphasis: { itemStyle: { shadowBlur: 12, shadowColor: 'rgba(0,0,0,0.5)' } }
+            }]
+        });
+        loyaltyChart.off('click');
+        loyaltyChart.on('click', p => { if (p.data && p.data.name) { showListView(); selectPhysician(p.data.name); } });
+    }
+
     // ── Select physician ──────────────────────────────────────────────
     async function selectPhysician(name) {
         _activePhysician = name;
         renderPhysicianList(document.getElementById('phy-search').value.trim().toLowerCase());
 
+        document.getElementById('loyalty-view').classList.add('hidden');
         document.getElementById('detail-empty').classList.add('hidden');
         document.getElementById('detail-content').classList.add('hidden');
         document.getElementById('detail-loading').classList.remove('hidden');

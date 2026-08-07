@@ -62,6 +62,75 @@ def referring_intel_list():
 
 
 # ─────────────────────────────────────────────
+#  LOYALTY / TURNAROUND CORRELATION
+# ─────────────────────────────────────────────
+
+@referring_intel_bp.route("/viewer/referring-intel/loyalty")
+@login_required
+def referring_intel_loyalty():
+    """Cohort-wide view for all physicians at once: median report turnaround time vs.
+    90-day patient return rate, one row per physician. Combines the same two CTEs used
+    per-physician in referring_intel_detail() (median TAT via PERCENTILE_CONT, return
+    rate via a LAG()-over-study_date gap analysis), grouped by physician instead of
+    filtered to one -- referring_intel_list()/_detail() don't fit a scatter-style
+    cohort view: list() has no TAT/return-rate, detail() is single-physician only.
+    """
+    months = min(int(request.args.get("months", 24)), 60)
+    p = {"months": months}
+
+    try:
+        rows = db.session.execute(text(f"""
+            WITH visits AS (
+                SELECT s.patient_db_uid, s.study_date, {_PHY} AS physician
+                FROM etl_didb_studies s {_MJ}
+                WHERE {_PHY} IS NOT NULL AND {_PHY} != '' AND {_SR}
+                  AND s.study_date >= CURRENT_DATE - (:months * INTERVAL '1 month')
+            ),
+            gaps AS (
+                SELECT physician, patient_db_uid, study_date,
+                       LAG(study_date) OVER (
+                           PARTITION BY physician, patient_db_uid ORDER BY study_date
+                       ) AS prev_date
+                FROM visits
+            ),
+            returns AS (
+                SELECT physician,
+                       COUNT(DISTINCT patient_db_uid) AS total_patients,
+                       COUNT(DISTINCT patient_db_uid) FILTER (
+                           WHERE prev_date IS NOT NULL AND (study_date - prev_date) <= 90
+                       ) AS return_90d
+                FROM gaps GROUP BY physician
+            ),
+            tat AS (
+                SELECT {_PHY} AS physician,
+                       COUNT(*) AS total_studies,
+                       ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (
+                           ORDER BY EXTRACT(EPOCH FROM (s.rep_final_timestamp - s.insert_time)) / 60.0
+                       ) FILTER (WHERE s.rep_final_timestamp IS NOT NULL
+                                   AND s.insert_time IS NOT NULL
+                                   AND s.rep_final_timestamp > s.insert_time
+                       )::numeric, 1) AS median_tat_min
+                FROM etl_didb_studies s {_MJ}
+                WHERE {_SR} AND s.study_date >= CURRENT_DATE - (:months * INTERVAL '1 month')
+                GROUP BY 1
+            )
+            SELECT t.physician, t.total_studies, t.median_tat_min,
+                   COALESCE(r.total_patients, 0) AS total_patients,
+                   COALESCE(r.return_90d, 0)     AS return_90d,
+                   ROUND(COALESCE(r.return_90d, 0) * 100.0 / NULLIF(r.total_patients, 0), 1) AS return_rate_pct
+            FROM tat t
+            LEFT JOIN returns r ON r.physician = t.physician
+            WHERE t.total_studies >= 10 AND t.median_tat_min IS NOT NULL
+            ORDER BY t.total_studies DESC
+            LIMIT 300
+        """), p).mappings().fetchall()
+        return jsonify([dict(r) for r in rows])
+    except Exception as e:
+        logger.error(f"Physician loyalty error: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+# ─────────────────────────────────────────────
 #  PHYSICIAN DETAIL
 # ─────────────────────────────────────────────
 
