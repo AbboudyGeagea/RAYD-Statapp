@@ -181,6 +181,121 @@
 </div>
 {% endif %}
 
+<!-- JCI Compliance: order-to-acquisition interval vs. admin-configurable per-priority target -->
+<div id="jci-compliance" class="space-y-3">
+    <p class="text-sm font-black text-blue-500 uppercase tracking-widest">JCI Compliance — Order to Acquisition</p>
+    <p class="text-[12px] text-zinc-600 -mt-2">
+        Time from order scheduling to actual scan start, per priority tier. Tiers with no target set below show
+        the raw time distribution only — no pass/fail judgement is made until a threshold is entered.
+    </p>
+
+    {% if current_user.role == 'admin' %}
+    <div class="glass-card space-y-3">
+        <p class="text-[12px] font-black text-zinc-500 uppercase tracking-widest">Compliance Targets (minutes) — Admin</p>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {% for tier in data.jci_priority_catalog %}
+            <div class="flex flex-col gap-1">
+                <label class="text-[11px] font-bold text-zinc-500" title="{{ tier.description }}">{{ tier.description or tier.code }}</label>
+                <input type="number" min="1" step="1"
+                       id="jci-thresh-{{ tier.code }}" data-code="{{ tier.code }}"
+                       class="bg-[#1a211e] border border-[#28332e] text-zinc-200 text-sm rounded px-2 py-1.5 focus:outline-none focus:border-blue-500/50"
+                       value="{{ data.jci_thresholds.get(tier.code)|int if data.jci_thresholds.get(tier.code) is not none else '' }}"
+                       placeholder="no target set">
+            </div>
+            {% endfor %}
+        </div>
+        <div class="flex items-center gap-3 pt-1">
+            <button type="button" onclick="saveJciThresholds()"
+                    class="px-4 py-1.5 rounded-lg bg-blue-500/15 border border-blue-500/30 text-blue-400 hover:bg-blue-500/25 text-[12px] font-black uppercase tracking-wider transition-colors">
+                Save Targets
+            </button>
+            <span id="jci-thresh-msg" class="text-[12px]"></span>
+        </div>
+    </div>
+    <script>
+    function saveJciThresholds() {
+        const thresholds = {};
+        document.querySelectorAll('[id^="jci-thresh-"]').forEach(function(inp) {
+            thresholds[inp.dataset.code] = inp.value === '' ? null : parseFloat(inp.value);
+        });
+        const msg = document.getElementById('jci-thresh-msg');
+        msg.textContent = 'Saving…'; msg.className = 'text-[12px] text-zinc-500';
+        fetch('{{ url_for("report_35.save_jci_thresholds") }}', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({thresholds: thresholds})
+        }).then(r => r.json()).then(d => {
+            if (d.status === 'success') {
+                msg.textContent = 'Saved — reload the report to see updated compliance %';
+                msg.className = 'text-[12px] text-emerald-400';
+            } else {
+                msg.textContent = d.message || 'Error';
+                msg.className = 'text-[12px] text-rose-400';
+            }
+        }).catch(() => { msg.textContent = 'Network error'; msg.className = 'text-[12px] text-rose-400'; });
+    }
+    </script>
+    {% endif %}
+
+    {% if tech_data.jci_compliance.by_tier %}
+    {% set jc = tech_data.jci_compliance %}
+    <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+        <div class="glass-card flex flex-col items-center">
+            <p class="text-[12px] font-black text-zinc-500 uppercase">Overall Compliance</p>
+            <p class="text-[32px] font-black {{ 'text-zinc-600' if jc.overall_pct is none else ('text-emerald-400' if jc.overall_pct >= 90 else ('text-amber-400' if jc.overall_pct >= 75 else 'text-rose-400')) }}">
+                {{ jc.overall_pct ~ '%' if jc.overall_pct is not none else '—' }}
+            </p>
+            <p class="text-[12px] text-zinc-600">{% if jc.overall_pct is none %}no targets set{% else %}across tiers with a target{% endif %}</p>
+        </div>
+        <div class="glass-card flex flex-col items-center">
+            <p class="text-[12px] font-black text-zinc-500 uppercase">Median Interval</p>
+            <p class="text-[32px] font-black text-white">{{ jc.overall_median_min ~ 'm' if jc.overall_median_min is not none else '—' }}</p>
+            <p class="text-[12px] text-zinc-600">order to acquisition, all tiers</p>
+        </div>
+    </div>
+
+    <div class="glass-card overflow-x-auto">
+        <table class="w-full text-left" style="border-collapse:separate; border-spacing:0;">
+            <thead>
+                <tr class="text-[12px] font-black text-zinc-500 uppercase tracking-wider">
+                    <th class="pb-3 pr-4">Priority</th>
+                    <th class="pb-3 pr-4 text-right">Studies</th>
+                    <th class="pb-3 pr-4 text-right">Median</th>
+                    <th class="pb-3 pr-4 text-right">P90</th>
+                    <th class="pb-3 pr-4 text-right">Target</th>
+                    <th class="pb-3 text-right">Compliant</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for t in tech_data.jci_compliance.by_tier %}
+                <tr class="border-t border-white/5">
+                    <td class="py-2 pr-4 text-sm font-bold text-blue-400">{{ t.label }}</td>
+                    <td class="py-2 pr-4 text-sm text-right text-zinc-400">{{ t.count }}</td>
+                    <td class="py-2 pr-4 text-sm text-right font-mono text-white">{{ t.median_min }}m</td>
+                    <td class="py-2 pr-4 text-sm text-right font-mono text-zinc-400">{{ t.p90_min }}m</td>
+                    <td class="py-2 pr-4 text-sm text-right font-mono text-zinc-500">{{ t.threshold_min|int ~ 'm' if t.threshold_min is not none else '—' }}</td>
+                    <td class="py-2 text-right">
+                        {% if t.pct_compliant is none %}
+                        <span class="text-zinc-600 text-sm">—</span>
+                        {% elif t.pct_compliant >= 90 %}
+                        <span class="px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[12px] font-bold">{{ t.pct_compliant }}%</span>
+                        {% elif t.pct_compliant >= 75 %}
+                        <span class="px-2 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 text-amber-400 text-[12px] font-bold">{{ t.pct_compliant }}%</span>
+                        {% else %}
+                        <span class="px-2 py-0.5 rounded bg-rose-500/15 border border-rose-500/30 text-rose-400 text-[12px] font-bold">{{ t.pct_compliant }}%</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="glass-card text-center py-8 text-zinc-500">
+        <p class="text-[13px]">No order-to-acquisition data for this period (requires both a scheduled time and a recorded scan start).</p>
+    </div>
+    {% endif %}
+</div>
+
 <!-- Flagged Exams -->
 {% if tech_data.flagged %}
 <div id="tech-flagged" class="space-y-3">

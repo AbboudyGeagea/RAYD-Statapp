@@ -165,6 +165,7 @@
         <header class="h-20 border-b border-[#28332e] flex items-center justify-between px-10 bg-[#181f1c]/95 backdrop-blur-xl z-10 shrink-0">
             <nav class="flex space-x-12 h-full overflow-x-auto whitespace-nowrap flex-1 min-w-0" style="scrollbar-width:thin;">
                 <div onclick="switchTab('ops')"      class="tab-btn shrink-0" id="btn-ops">Operations</div>
+                <div onclick="switchTab('peak')"      class="tab-btn shrink-0" id="btn-peak">Peak Hours</div>
                 <div onclick="switchTab('infra')"    class="tab-btn shrink-0" id="btn-infra">Infrastructure</div>
                 <div onclick="switchTab('efficiency')"  class="tab-btn shrink-0" id="btn-efficiency">Efficiency Intel</div>
                 <div onclick="switchTab('journey')"       class="tab-btn shrink-0" id="btn-journey">Patient Journey</div>
@@ -421,6 +422,31 @@
                         </div>
                         <div class="chart-card-body"><div id="chart-7" class="h-80"></div></div>
                     </div>
+                </div>
+            </div>
+
+            <!-- ── PEAK HOURS TAB ─────────────────────────────────────────── -->
+            <div id="tab-peak" class="tab-content hidden space-y-6">
+
+                <p class="section-desc">
+                    Peak and off-peak scan volume per modality, by hour of day — anchored on actual scan-start time (RIS Performed Procedure Step), not order-scheduling time. Use this to see when each modality is genuinely busiest, for staffing and appointment-window planning.
+                </p>
+
+                <div class="chart-card">
+                    <div class="chart-card-header">
+                        <span class="chart-card-title">Hourly Utilization by Modality</span>
+                        <button class="export-png-btn" onclick="exportChart('chart-peak-heatmap', 'hourly_modality_utilization')">
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                            PNG
+                        </button>
+                        <button class="export-pdf-btn" onclick="exportChartPdf('chart-peak-heatmap','Hourly Utilization by Modality','hourly_modality_utilization')">
+                            <i class="bi bi-file-earmark-pdf"></i> PDF
+                        </button>
+                    </div>
+                    <div class="chart-card-desc">
+                        Darker cells indicate more studies scanned in that hour for that modality, aggregated across the full date range. Empty columns are quiet hours — off-peak windows worth targeting for maintenance or elective scheduling.
+                    </div>
+                    <div class="chart-card-body"><div id="chart-peak-heatmap" class="h-[520px]"></div></div>
                 </div>
             </div>
 
@@ -1125,6 +1151,39 @@
                     series: [{ type: 'line', smooth: true, data: Object.values(d.hourly_patterns || {}), lineStyle: { width: 4, color: '#60a5fa' }, areaStyle: { color: 'rgba(96,165,250,0.1)' } }]
                 });
                 registerChart('chart-6', c6);
+            }
+
+            // Chart Peak — Hourly Utilization Heatmap (modality × hour of day)
+            if (document.getElementById('chart-peak-heatmap') && !$('#tab-peak').hasClass('hidden')) {
+                const hm = d.hourly_modality_patterns || {};
+                const modalities = Object.keys(hm);
+                const hours = Array.from({length: 24}, (_, i) => String(i));
+                const cells = [];
+                let maxCount = 0;
+                modalities.forEach((mod, yi) => {
+                    hours.forEach((hr, xi) => {
+                        const cnt = (hm[mod] && hm[mod][hr]) || 0;
+                        if (cnt > maxCount) maxCount = cnt;
+                        cells.push([xi, yi, cnt]);
+                    });
+                });
+                const cPeak = echarts.init(document.getElementById('chart-peak-heatmap'));
+                cPeak.setOption({
+                    tooltip: { position: 'top', formatter: p => `${modalities[p.value[1]]} · ${p.value[0]}:00<br>${p.value[2]} studies` },
+                    grid: { left: 90, right: 20, top: 20, bottom: 40 },
+                    xAxis: { type: 'category', data: hours, name: 'Hour of Day', nameTextStyle: { color: '#52525b', fontSize: 11 }, splitArea: { show: true }, ...axisStyle },
+                    yAxis: { type: 'category', data: modalities, splitArea: { show: true }, ...axisStyle },
+                    visualMap: {
+                        min: 0, max: maxCount || 1, calculable: true, orient: 'horizontal',
+                        left: 'center', bottom: 0, textStyle: { color: '#94a3b8' },
+                        inRange: { color: ['#181f1c', '#1d3a5f', '#60a5fa', '#34d399'] }
+                    },
+                    series: [{
+                        type: 'heatmap', data: cells, label: { show: false },
+                        emphasis: { itemStyle: { shadowBlur: 10, shadowColor: 'rgba(96,165,250,0.5)' } }
+                    }]
+                });
+                registerChart('chart-peak-heatmap', cPeak);
             }
 
             // Chart 5 — Modality Split

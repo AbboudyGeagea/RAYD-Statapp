@@ -61,7 +61,7 @@ from flask_login import login_required, current_user
 from sqlalchemy import text
 
 from db import db, get_etl_cutoff_date
-from routes.report_cache import cache_get, cache_put
+from routes.report_cache import cache_get, cache_put, cache_invalidate
 from utils.site_resolver import default_site
 
 logger = logging.getLogger("report_35")
@@ -148,7 +148,10 @@ def get_technician_tat_data(form_data):
     tech_data = {
         'summary': {}, 'by_technician': [], 'by_modality': [],
         'flagged': [], 'never_done': [], 'daily_trend': [],
+        'jci_compliance': {'by_tier': [], 'overall_pct': None, 'overall_median_min': None},
     }
+    _jci_thresholds = {}  # populated below; kept defined here so it's safe to read even
+                           # if an earlier query in the try block fails first
     try:
         _now = datetime.utcnow()
 
@@ -187,6 +190,23 @@ def get_technician_tat_data(form_data):
         }
         _lap("settings thresholds query")
 
+        # JCI order-to-acquisition compliance targets, per priority tier (operator
+        # instruction, 2026-08-07: no fixed policy number exists yet -- must be
+        # admin-editable on this page since policy may change or need tuning against
+        # real data). Same prefixed-settings-key convention as
+        # 'pacs_ris_diff_threshold:<MODALITY>' above, keyed by priority code instead:
+        # 'jci_threshold:<CODE>' (minutes). Tiers with no threshold set are shown in the
+        # raw distribution only -- no pass/fail judgement is made for them.
+        _jci_thresholds = dict(db.session.execute(text(
+            "SELECT key, value FROM settings WHERE key LIKE 'jci_threshold:%'"
+        )).fetchall())
+        _jci_thresholds = {
+            k.split(':', 1)[1]: float(v)
+            for k, v in _jci_thresholds.items()
+            if v is not None and str(v).strip()
+        }
+        _lap("JCI threshold settings query")
+
         # scheduled/exam_done/tech_ref are LATERAL subqueries keyed on ar.pps_key, NOT
         # pre-aggregated CTEs over their full source tables -- std_pps_person_reference
         # alone is 667k+ rows; aggregating it (and std_worklist_scheduled/_exam_done)
@@ -223,13 +243,16 @@ def get_technician_tat_data(form_data):
                     s.patient_class, s.patient_location,
                     tr.tech_name AS done_by,
                     sc.scheduled_at, ar.arrived_at, ed.exam_done_at,
+                    pps.start_datetime AS scan_start_at,
                     pps.end_datetime AS scanner_done_at,
                     s.insert_time AS pacs_insert_time,
-                    COALESCE(pdm.duration_minutes, 30) AS proc_duration
+                    COALESCE(pdm.duration_minutes, 30) AS proc_duration,
+                    pri.code AS priority_code, pri.description AS priority_desc
                 FROM arrival ar
                 LEFT JOIN std_pps pps            ON pps.pps_key = ar.pps_key
                 LEFT JOIN etl_didb_studies s      ON s.study_instance_uid = pps.study_instance_uid
                 LEFT JOIN aetitle_modality_map m  ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(COALESCE(s.storing_ae, pps.performing_ae_title)))
+                LEFT JOIN std_procedure_priorities pri ON pri.priority_key = pps.priority_key
                 LEFT JOIN LATERAL (
                     SELECT MIN(scheduled_at) AS scheduled_at
                     FROM std_worklist_scheduled sc0
@@ -253,8 +276,8 @@ def get_technician_tat_data(form_data):
             )
             SELECT accession_number, modality, procedure_code, done_by,
                    patient_class, patient_location,
-                   scheduled_at, arrived_at, exam_done_at, scanner_done_at,
-                   pacs_insert_time, proc_duration
+                   scheduled_at, arrived_at, exam_done_at, scan_start_at, scanner_done_at,
+                   pacs_insert_time, proc_duration, priority_code, priority_desc
             FROM base
             {_filter_clause}
             ORDER BY modality, arrived_at
@@ -275,6 +298,14 @@ def get_technician_tat_data(form_data):
             # Signed (not abs()) so "PACS registered before RIS marked done" is visible
             # too, not just the more intuitive "PACS lagging RIS" direction.
             tdf['pacs_ris_diff_min'] = (tdf['pacs_insert_time'] - tdf['exam_done_at']).dt.total_seconds() / 60.0
+            # JCI order-to-acquisition interval: order-scheduled time to actual scan
+            # start (std_pps.start_datetime) -- NOT exam_done_at, which marks RIS
+            # completion status, not acquisition start.
+            tdf['scan_start_at'] = pd.to_datetime(tdf['scan_start_at'], errors='coerce')
+            tdf['scheduled_at']  = pd.to_datetime(tdf['scheduled_at'],  errors='coerce')
+            tdf['jci_interval_min'] = (tdf['scan_start_at'] - tdf['scheduled_at']).dt.total_seconds() / 60.0
+            tdf['priority_code'] = tdf['priority_code'].fillna('UNSPECIFIED')
+            tdf['priority_desc'] = tdf['priority_desc'].fillna('Unspecified')
             _lap("dataframe construction + dtype conversion", rows=len(tdf))
 
             completed = tdf[tdf['exam_done_at'].notna()].copy()
@@ -574,6 +605,38 @@ def get_technician_tat_data(form_data):
             tech_data['by_modality'].sort(key=lambda x: x['avg_tat'] if x['avg_tat'] is not None else 9999)
             _lap("by_modality aggregation", modalities=len(tech_data['by_modality']))
 
+            # ── JCI order-to-acquisition compliance, per priority tier ────────
+            jci_rows = tdf[tdf['jci_interval_min'].notna() & (tdf['jci_interval_min'] >= 0)]
+            by_tier = []
+            for code, gdf in jci_rows.groupby('priority_code'):
+                intervals = gdf['jci_interval_min']
+                threshold = _jci_thresholds.get(code)
+                pct_compliant = (
+                    round(float((intervals <= threshold).mean() * 100), 1)
+                    if threshold is not None else None
+                )
+                by_tier.append({
+                    'code': code,
+                    'label': gdf['priority_desc'].iloc[0],
+                    'count': int(len(intervals)),
+                    'median_min': round(float(intervals.median()), 1),
+                    'p90_min': round(float(intervals.quantile(0.9)), 1),
+                    'threshold_min': threshold,
+                    'pct_compliant': pct_compliant,
+                })
+            by_tier.sort(key=lambda x: x['count'], reverse=True)
+            tech_data['jci_compliance']['by_tier'] = by_tier
+
+            _thresholded = jci_rows[jci_rows['priority_code'].isin(_jci_thresholds.keys())]
+            if len(_thresholded):
+                _within = _thresholded.apply(
+                    lambda r: r['jci_interval_min'] <= _jci_thresholds[r['priority_code']], axis=1
+                )
+                tech_data['jci_compliance']['overall_pct'] = round(float(_within.mean() * 100), 1)
+            if len(jci_rows):
+                tech_data['jci_compliance']['overall_median_min'] = round(float(jci_rows['jci_interval_min'].median()), 1)
+            _lap("JCI compliance aggregation", tiers=len(by_tier))
+
     except Exception:
         logger.exception("Failed to build technician monitoring data")
         db.session.rollback()
@@ -597,8 +660,28 @@ def get_technician_tat_data(form_data):
         tech_data['ack_map'] = {}
     _lap("acknowledgements query", acks=len(tech_data.get('ack_map', {})))
 
+    # Priority catalog for the JCI threshold admin editor -- one input per active RIS
+    # priority tier, so the editor always reflects the real tiers in use rather than a
+    # hardcoded guess. Kept separate from tech_data['jci_compliance']['by_tier'] since
+    # that list only contains tiers with data in the selected date range; the editor
+    # should offer every active tier even if it has zero studies right now.
+    jci_priority_catalog = []
+    try:
+        jci_priority_catalog = [
+            {'code': r.code, 'description': r.description}
+            for r in db.session.execute(text(
+                "SELECT code, description FROM std_procedure_priorities WHERE active ORDER BY code"
+            )).fetchall()
+            if r.code
+        ]
+    except Exception:
+        logger.exception("Failed to load JCI priority catalog")
+        db.session.rollback()
+
     result = {
         'tech_data': tech_data,
+        'jci_priority_catalog': jci_priority_catalog,
+        'jci_thresholds': _jci_thresholds,
     }
     cache_put(_REPORT_ID, form_data, result)
     logger.info(f"[report_35][timing] TOTAL: {time.perf_counter() - _t_start:.3f}s "
@@ -637,6 +720,47 @@ def report_35():
         run_report=run_report,
         filters=filters,
     )
+
+
+@report_35_bp.route("/report/35/jci-thresholds", methods=["POST"])
+@login_required
+def save_jci_thresholds():
+    """Admin-editable JCI order-to-acquisition compliance targets, one per priority
+    tier. Stored as 'jci_threshold:<CODE>' settings rows -- same convention as
+    'pacs_ris_diff_threshold:<MODALITY>' above. A tier with no value submitted (blank
+    input) has its threshold removed, reverting that tier to distribution-only display."""
+    if current_user.role != 'admin':
+        return jsonify({"status": "error", "message": "Admin only"}), 403
+    try:
+        thresholds = request.get_json(force=True).get("thresholds", {})
+        if not isinstance(thresholds, dict):
+            return jsonify({"status": "error", "message": "Invalid payload"}), 400
+
+        for code, raw_val in thresholds.items():
+            code = str(code).strip()
+            if not code:
+                continue
+            key = f"jci_threshold:{code}"
+            if raw_val in (None, ""):
+                db.session.execute(text("DELETE FROM settings WHERE key = :k"), {"k": key})
+                continue
+            val = float(raw_val)
+            if val <= 0:
+                return jsonify({"status": "error", "message": f"{code}: must be > 0"}), 400
+            db.session.execute(text("""
+                INSERT INTO settings (key, value) VALUES (:k, :v)
+                ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+            """), {"k": key, "v": str(val)})
+
+        db.session.commit()
+        cache_invalidate(_REPORT_ID)  # next load recomputes compliance with the new thresholds
+        return jsonify({"status": "success"})
+    except (TypeError, ValueError) as e:
+        return jsonify({"status": "error", "message": f"Invalid number: {e}"}), 400
+    except Exception as e:
+        db.session.rollback()
+        logger.exception("Failed to save JCI thresholds")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
 @report_35_bp.route("/report/35/export", methods=["POST"])

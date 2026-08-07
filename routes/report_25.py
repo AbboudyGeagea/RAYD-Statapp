@@ -776,6 +776,32 @@ def get_gold_standard_data(form_data):
 
     rad_insights  = []
 
+    # Peak/off-peak per modality — anchored on std_pps.start_datetime (the actual
+    # scan-start timestamp) rather than etl_orders.scheduled_datetime (order time), same
+    # rationale as the actual_lookup PPS query above: this reflects when the device was
+    # really busy, not when the order was scheduled. Wrapped in try/except like that
+    # query since std_pps can be sparse/absent for non-RIS sites or date ranges before
+    # the PPS feed started. Shape: {modality: {hour_str: count, ...}, ...}.
+    hourly_modality_patterns = {}
+    try:
+        hm_rows = db.session.execute(text(f"""
+            SELECT EXTRACT(HOUR FROM pps.start_datetime)::int AS hr,
+                   COALESCE({"m.modality, " if _sec_needs_mod_join else ""}s.study_modality, 'Unknown') AS modality,
+                   COUNT(*) AS cnt
+            FROM std_pps pps
+            JOIN etl_didb_studies s ON s.study_db_uid = pps.study_db_uid
+            {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
+            WHERE pps.start_datetime BETWEEN :start AND :end
+              AND COALESCE({"m.modality, " if _sec_needs_mod_join else ""}s.study_modality, '') != 'SR'
+              {_sec_filters}
+            GROUP BY 1, 2 ORDER BY 2, 1
+        """), params).mappings().all()
+        for r in hm_rows:
+            hourly_modality_patterns.setdefault(r["modality"], {})[str(r["hr"])] = int(r["cnt"])
+    except Exception:
+        logger.exception("Failed to build hourly modality utilization pattern")
+        db.session.rollback()
+
     result = ({
         "summary": {
             "total": len(df), "global_util": f"{(sum(r['avg'] * r.get('total_cap', 1) for r in matrix_rows) / sum(r.get('total_cap', 1) for r in matrix_rows) if matrix_rows and sum(r.get('total_cap', 1) for r in matrix_rows) > 0 else 0):.1f}%",
@@ -818,6 +844,7 @@ def get_gold_standard_data(form_data):
                 GROUP BY 1 ORDER BY 1
             """), params).fetchall()
         })(),
+        "hourly_modality_patterns": hourly_modality_patterns,
         "correlation": (lambda: (
             lambda raw: raw[_iqr_filter(raw['proc_duration']) & _iqr_filter(raw['total_tat_min'])][['proc_duration','total_tat_min']].values.tolist()
         )(df[(df['proc_duration']>0)&(df['total_tat_min']>0)]) if 'proc_duration' in df.columns and 'total_tat_min' in df.columns else [])(),
