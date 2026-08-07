@@ -118,19 +118,26 @@
                 </div>
             </div>
 
-            <!-- Charts row 1: Trend + Histogram -->
-            <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                <div class="card p-5">
-                    <p class="section-title"><i class="bi bi-graph-up mr-1"></i> Daily Average TAT (minutes)</p>
-                    <div id="chart-trend" style="height:260px;"></div>
-                </div>
-                <div class="card p-5">
-                    <p class="section-title">
+            <!-- Trend chart -->
+            <div class="card p-5">
+                <p class="section-title"><i class="bi bi-graph-up mr-1"></i> Daily Average TAT (minutes)</p>
+                <div id="chart-trend" style="height:260px;"></div>
+            </div>
+
+            <!-- TAT Distribution — full width for readability with 10 clusters -->
+            <div class="card p-5">
+                <div class="flex items-center justify-between flex-wrap gap-2 mb-1">
+                    <p class="section-title mb-0">
                         <i class="bi bi-bar-chart mr-1"></i> TAT Distribution
                         <span id="tat-cluster-note" style="font-size:10px;font-weight:400;color:#64748b;"></span>
                     </p>
-                    <div id="chart-histogram" style="height:260px;"></div>
+                    <div class="flex items-center gap-4" style="font-size:10px;color:#94a3b8;">
+                        <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#22c55e;margin-right:4px;"></span>Within SLA</span>
+                        <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#fbbf24;margin-right:4px;"></span>Up to 1.5&times; SLA</span>
+                        <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#f43f5e;margin-right:4px;"></span>Over 1.5&times; SLA</span>
+                    </div>
                 </div>
+                <div id="chart-histogram" style="height:340px;"></div>
             </div>
 
             <!-- Charts row 2: Modality + Hour -->
@@ -347,6 +354,14 @@ function renderHistogram(rows, sla) {
     // this dashboard (renderModality/renderRadiologist) instead of matching on
     // hardcoded bucket strings that no longer apply.
     const colors = rows.map(r => r.avg <= sla ? GREEN : r.avg <= sla * 1.5 ? AMBER : RED);
+
+    // Clusters are sorted ascending by avg -- find the boundary where avg first
+    // crosses the SLA and draw a reference line between those two bars. A category
+    // axis has no continuous "60 min" position, so the line goes at the split
+    // point (index - 0.5), which ECharts renders between the two adjacent bars.
+    const splitIdx = rows.findIndex(r => r.avg > sla);
+    const hasSplit = splitIdx > 0 && splitIdx < rows.length;
+
     c.setOption({
         backgroundColor:'transparent',
         tooltip:{trigger:'axis',formatter:p=>`${p[0].name}<br>${p[0].value} studies · avg ${rows[p[0].dataIndex].avg}m`},
@@ -355,7 +370,13 @@ function renderHistogram(rows, sla) {
         yAxis:{type:'value',axisLabel:{color:CHART_TEXT,fontSize:10},splitLine:{lineStyle:{color:CHART_LINE,type:'dashed'}}},
         series:[{
             type:'bar', data:counts.map((v,i)=>({value:v,itemStyle:{color:colors[i],borderRadius:4}})),
-            label:{show:true,position:'top',color:CHART_TEXT,fontSize:10}
+            label:{show:true,position:'top',color:CHART_TEXT,fontSize:10},
+            markLine: hasSplit ? {
+                silent:true, symbol:'none',
+                lineStyle:{color:AMBER,type:'dashed',width:1.5},
+                label:{formatter:`SLA ${sla}m`,color:AMBER,fontSize:10,position:'insideEndTop'},
+                data:[{xAxis: splitIdx - 0.5}]
+            } : undefined
         }]
     });
 }
