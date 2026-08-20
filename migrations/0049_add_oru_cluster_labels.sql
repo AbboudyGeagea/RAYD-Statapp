@@ -1,4 +1,4 @@
--- Migration 0104: dedicated storage for NLP cluster labels.
+-- Migration 0049: dedicated storage for NLP cluster labels.
 --
 -- Cluster labels used to live as a single JSON blob in settings
 -- (key = 'nlp_cluster_labels'), overwritten on every processing run, and matched

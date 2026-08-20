@@ -174,7 +174,7 @@ def _any_unnegated(t, keyword):
 
 
 # ── Diagnosis vocabulary — DB-configurable (oru_diagnosis_vocabulary, migration
-# 0103) instead of a hardcoded constant, so admins can add/edit mappings without
+# 0048) instead of a hardcoded constant, so admins can add/edit mappings without
 # a code change. Cached in-process with a short TTL since this is looked up on
 # every /oru/data request. rule_version is derived from the vocabulary content
 # itself (not a manually-bumped constant), so hl7_oru_rule_cache rows are
@@ -579,7 +579,7 @@ def oru_data():
 
     # ── Build affirmed-label sets for the paginated set — stored analysis first,
     # then the rule cache, only falling all the way back to live computation for
-    # reports neither has yet (see migration 0080 for why the cache exists).
+    # reports neither has yet (see migration 0046 for why the cache exists).
     analyzed_affirmed = {
         i: set(row.affirmed_labels)
         for i, row in enumerate(detail_rows)
@@ -894,7 +894,7 @@ def nlp_results():
     cls_counter = Counter(r.classification for r in rows)
 
     # Cluster distribution with labels — cluster_label is now written directly
-    # onto each ai_nlp_cache row by the worker (migration 0104 / item 9), so no
+    # onto each ai_nlp_cache row by the worker (migration 0049), so no
     # more matching a settings-blob array back to a cluster_id by index.
     cluster_rows = db.session.execute(text(f"""
         SELECT c.cluster_id, c.cluster_label, COUNT(*) AS cnt,
@@ -1091,7 +1091,7 @@ def keyword_suggestions():
 
 # ── Diagnosis vocabulary management (admin) ─────────────────────────────────────
 # phrase -> canonical label mapping used by the word cloud / critical findings
-# log, DB-configurable since migration 0103 instead of a hardcoded constant.
+# log, DB-configurable since migration 0048 instead of a hardcoded constant.
 
 @oru_bp.route('/diagnosis-vocabulary')
 @login_required

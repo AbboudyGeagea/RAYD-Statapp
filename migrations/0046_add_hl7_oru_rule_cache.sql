@@ -1,4 +1,4 @@
--- Migration 0080: cache the rule-based NLP fallback used by /oru/data.
+-- Migration 0046: cache the rule-based NLP fallback used by /oru/data.
 --
 -- routes/oru_analytics.py's /oru/data endpoint runs a synchronous, pure-Python
 -- negation-aware phrase scan (~130 phrases x up to 8000 chars, with a backward

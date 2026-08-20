@@ -1,4 +1,4 @@
--- Migration 0103: make the ORU diagnosis phrase->label vocabulary DB-configurable.
+-- Migration 0048: make the ORU diagnosis phrase->label vocabulary DB-configurable.
 --
 -- routes/oru_analytics.py's DIAGNOSES list (phrase -> canonical label, used for the
 -- word cloud and critical findings log) and nlp_worker/worker.py's duplicate copy of

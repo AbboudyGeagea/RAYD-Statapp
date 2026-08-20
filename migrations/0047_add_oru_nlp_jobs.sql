@@ -1,4 +1,4 @@
--- Migration 0102: background job queue for ORU NLP clustering.
+-- Migration 0047: background job queue for ORU NLP clustering.
 --
 -- POST /oru/nlp/process used to run TF-IDF vectorisation + K-means synchronously
 -- inside the request (nlp_processor.process_reports, up to 500 reports). This table
