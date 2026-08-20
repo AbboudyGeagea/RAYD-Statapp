@@ -116,12 +116,28 @@ def er_data():
                 )), '') AS physician,
                 s.rep_final_timestamp,
                 s.study_has_report,
-                EXTRACT(HOUR FROM {_STUDY_DT}) AS study_hour,
+                -- ER Volume by Hour of Day: {_STUDY_DT} was flattening every ER order onto
+                -- midnight (study_time is unreliable, always falls to the ELSE '0'::interval
+                -- branch above). Confirmed with HIS/clinical (2026-08-20): ORC-7.4 (Quantity/
+                -- Timing, Start date/time -- hl7_orders.orc_start_datetime, migration 0052) is
+                -- the reliable order-start time here. Scoped to this chart only -- final_tat_min
+                -- below still anchors on {_STUDY_DT}, unchanged, since TAT wasn't reported as
+                -- wrong. Falls back to {_STUDY_DT} for ER studies with no matching hl7_orders
+                -- row, so unmatched studies don't just vanish from the chart.
+                EXTRACT(HOUR FROM COALESCE(ho.orc_start_datetime, {_STUDY_DT})) AS study_hour,
                 CASE WHEN s.rep_final_timestamp IS NOT NULL
                      THEN EXTRACT(EPOCH FROM (s.rep_final_timestamp - {_STUDY_DT})) / 60.0
                 END AS final_tat_min
             FROM etl_didb_studies s
             LEFT JOIN aetitle_modality_map m ON m.aetitle = s.storing_ae
+            LEFT JOIN LATERAL (
+                SELECT orc_start_datetime
+                FROM hl7_orders
+                WHERE accession_number = s.accession_number
+                  AND orc_start_datetime IS NOT NULL
+                ORDER BY received_at DESC
+                LIMIT 1
+            ) ho ON true
             WHERE s.study_date BETWEEN :start AND :end
               AND {_ER_WHERE}
               AND COALESCE(m.modality, s.study_modality, 'Unknown') NOT IN ('SR', 'OT')

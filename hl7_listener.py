@@ -99,7 +99,7 @@ INSERT_SQL = """
         patient_id, patient_name, date_of_birth, gender,
         accession_number, placer_order_number,
         procedure_code, procedure_text,
-        modality, scheduled_datetime,
+        modality, scheduled_datetime, orc_start_datetime,
         ordering_physician, order_status,
         patient_class, patient_location,
         raw_message, received_at
@@ -108,7 +108,7 @@ INSERT_SQL = """
         :patient_id, :patient_name, :date_of_birth, :gender,
         :accession_number, :placer_order_number,
         :procedure_code, :procedure_text,
-        :modality, :scheduled_datetime,
+        :modality, :scheduled_datetime, :orc_start_datetime,
         :ordering_physician, :order_status,
         :patient_class, :patient_location,
         :raw_message, :received_at
@@ -125,6 +125,7 @@ INSERT_SQL = """
         procedure_text     = EXCLUDED.procedure_text,
         modality           = EXCLUDED.modality,
         scheduled_datetime = EXCLUDED.scheduled_datetime,
+        orc_start_datetime = EXCLUDED.orc_start_datetime,
         ordering_physician = EXCLUDED.ordering_physician,
         order_status       = EXCLUDED.order_status,
         patient_class      = EXCLUDED.patient_class,
@@ -381,6 +382,13 @@ def parse_orm_o01(raw_message):
     placer_order_number = _component(_field(orc, 2, ''), 0)
     ordering_physician  = _format_name(_field(orc, 12, ''))
 
+    # ORC-7.4 (Quantity/Timing, component 4 = Start date/time) -- read on its own,
+    # deliberately NOT folded into scheduled_datetime's existing OBR-7-first fallback
+    # below: confirmed with HIS/clinical (2026-08-20) that ORC-7.4 is the reliable
+    # order time for the ER Volume by Hour of Day chart, while the fields
+    # scheduled_datetime prefers were collapsing every ER order to midnight.
+    orc_start_datetime = _parse_hl7_datetime(_component(_field(orc, 7, ''), 3))
+
     # ── OBR — Observation request ────────────────────────────────────────────
     if not accession_number:
         accession_number = _component(_field(obr, 3, ''), 0)
@@ -424,6 +432,7 @@ def parse_orm_o01(raw_message):
         "procedure_text":     procedure_text,
         "modality":           modality,
         "scheduled_datetime": scheduled_datetime,
+        "orc_start_datetime": orc_start_datetime,
         "ordering_physician": ordering_physician,
         "order_status":       order_status,
         "raw_message":        raw_message,
