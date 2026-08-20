@@ -143,12 +143,22 @@ def _run_statements(db, statements):
     below (on the SQLAlchemy Connection, not the raw one) reaches the real cursor via
     a genuine passthrough method, keeping the same no-%-substitution guarantee as the
     main path.
+
+    The same AUTOCOMMIT path is used for a DO block that COMMITs internally (e.g. a
+    batched DELETE/UPDATE loop) — psycopg2's non-autocommit connection always sends an
+    implicit BEGIN before the first statement of a transaction, so by the time such a
+    DO block runs, it's already inside a client-opened transaction and its internal
+    COMMIT fails with "invalid transaction termination". Confirmed live: migration
+    0073's unconditional LOOP always reaches its COMMIT at least once and always hit
+    this; migration 0081's WHILE loop only reaches it when the loop body actually runs
+    at least once, so it silently never triggered on an install with zero matching
+    rows — same bug, just untriggered there.
     """
     main_conn = db.engine.raw_connection()
     try:
         cur = main_conn.cursor()
         for statement in statements:
-            if "CONCURRENTLY" in statement.upper():
+            if _needs_autocommit(statement):
                 with db.engine.connect().execution_options(isolation_level="AUTOCOMMIT") as ac_conn:
                     ac_conn.connection.cursor().execute(statement)
             else:
@@ -159,6 +169,19 @@ def _run_statements(db, statements):
         raise
     finally:
         main_conn.close()
+
+
+_DO_BLOCK_RE = re.compile(r'^\s*DO\s', re.IGNORECASE)
+_INTERNAL_COMMIT_RE = re.compile(r'\bCOMMIT\s*;', re.IGNORECASE)
+
+
+def _needs_autocommit(statement):
+    """True for a statement that must run on its own AUTOCOMMIT connection instead of
+    inside db_migrations.py's shared per-file transaction: CONCURRENTLY DDL, or a DO
+    block that issues an internal COMMIT (see _run_statements' docstring)."""
+    if "CONCURRENTLY" in statement.upper():
+        return True
+    return bool(_DO_BLOCK_RE.match(statement) and _INTERNAL_COMMIT_RE.search(statement))
 
 
 _DOLLAR_TAG_RE = re.compile(r'\$([A-Za-z_][A-Za-z0-9_]*)?\$')

@@ -14,5 +14,18 @@ ALTER TABLE std_worklist_arrivals DROP CONSTRAINT IF EXISTS std_worklist_arrival
 ALTER TABLE std_worklist_arrivals DROP COLUMN IF EXISTS worklist_status_history_key;
 ALTER TABLE std_worklist_arrivals ADD COLUMN IF NOT EXISTS id BIGSERIAL PRIMARY KEY;
 
-ALTER TABLE std_worklist_arrivals
-    ADD CONSTRAINT uq_worklist_arrivals_site_time UNIQUE (site_worklist_key, arrived_at);
+-- Postgres has no ADD CONSTRAINT IF NOT EXISTS (syntax error), so guard explicitly.
+-- Needed in practice: a pre-migration-lock race (see db_migrations.py's run_migrations
+-- docstring, 2026-07-27 incident) let two concurrent runs both attempt this ADD
+-- CONSTRAINT; one committed it, the other failed and was never recorded as applied,
+-- so every run since has retried and failed again on "relation already exists" even
+-- though the constraint has been correctly in place the whole time.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'uq_worklist_arrivals_site_time'
+    ) THEN
+        ALTER TABLE std_worklist_arrivals
+            ADD CONSTRAINT uq_worklist_arrivals_site_time UNIQUE (site_worklist_key, arrived_at);
+    END IF;
+END $$;
