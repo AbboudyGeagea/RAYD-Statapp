@@ -116,14 +116,21 @@ def er_data():
                 )), '') AS physician,
                 s.rep_final_timestamp,
                 s.study_has_report,
-                -- ER Volume by Hour of Day: {_STUDY_DT} was flattening every ER order onto
-                -- midnight (study_time is unreliable, always falls to the ELSE '0'::interval
-                -- branch above). Confirmed with HIS/clinical (2026-08-20): ORC-7.4 (Quantity/
-                -- Timing, Start date/time -- hl7_orders.orc_start_datetime, migration 0052) is
-                -- the reliable order-start time here. Scoped to this chart only -- final_tat_min
-                -- below still anchors on {_STUDY_DT}, unchanged, since TAT wasn't reported as
-                -- wrong. Falls back to {_STUDY_DT} for ER studies with no matching hl7_orders
-                -- row, so unmatched studies don't just vanish from the chart.
+                -- ER Volume by Hour of Day: the _STUDY_DT study_time reconstruction above was
+                -- flattening every ER order onto midnight (study_time is unreliable, always
+                -- falls to the ELSE '0'::interval branch). Confirmed with HIS/clinical
+                -- (2026-08-20): ORC-7.4 (Quantity/Timing, Start date/time --
+                -- hl7_orders.orc_start_datetime, migration 0052) is the reliable order-start
+                -- time here. Scoped to this chart only -- final_tat_min below still anchors on
+                -- _STUDY_DT, unchanged, since TAT wasn't reported as wrong. Falls back to
+                -- _STUDY_DT for ER studies with no matching hl7_orders row, so unmatched
+                -- studies don't just vanish from the chart.
+                --
+                -- NOTE: _STUDY_DT is NOT interpolated into these comment lines (unlike the
+                -- live code below) because it's a multi-line expression on this branch -- a
+                -- '--' comment only comments out its own line, so a multi-line substitution
+                -- here would leak uncommented SQL onto the following lines and break the
+                -- query. (Confirmed live, 2026-08-20 -- exactly this bug shipped once already.)
                 EXTRACT(HOUR FROM COALESCE(ho.orc_start_datetime, {_STUDY_DT})) AS study_hour,
                 CASE WHEN s.rep_final_timestamp IS NOT NULL
                      THEN EXTRACT(EPOCH FROM (s.rep_final_timestamp - {_STUDY_DT})) / 60.0
