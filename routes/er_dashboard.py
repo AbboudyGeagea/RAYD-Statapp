@@ -128,28 +128,13 @@ def er_data():
                 -- install) -> rep_final_timestamp (PACS-native, kept as fallback for older
                 -- rows that do have it) -> hl7_oru_reports.result_datetime (RIS-sourced).
                 COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp, o.result_datetime) AS completed_ts,
-                -- ER Volume by Hour of Day: {_STUDY_DT} (insert_time) was flattening every ER
-                -- order onto midnight. Confirmed with HIS/clinical (2026-08-20): ORC-7.4 (Quantity/
-                -- Timing, Start date/time -- hl7_orders.orc_start_datetime, migration 0110) is the
-                -- reliable order-start time here. Scoped to this chart only -- final_tat_min below
-                -- still anchors on {_STUDY_DT}, unchanged, since TAT wasn't reported as wrong.
-                -- Falls back to {_STUDY_DT} for ER studies with no matching hl7_orders row, so
-                -- unmatched studies don't just vanish from the chart.
-                EXTRACT(HOUR FROM COALESCE(ho.orc_start_datetime, {_STUDY_DT})) AS study_hour,
+                EXTRACT(HOUR FROM {_STUDY_DT}) AS study_hour,
                 CASE WHEN COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp, o.result_datetime) IS NOT NULL
                      THEN EXTRACT(EPOCH FROM (COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp, o.result_datetime) - {_STUDY_DT})) / 60.0
                 END AS final_tat_min
             FROM etl_didb_studies s
             LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
             LEFT JOIN hl7_oru_reports o ON o.accession_number = s.accession_number
-            LEFT JOIN LATERAL (
-                SELECT orc_start_datetime
-                FROM hl7_orders
-                WHERE accession_number = s.accession_number
-                  AND orc_start_datetime IS NOT NULL
-                ORDER BY received_at DESC
-                LIMIT 1
-            ) ho ON true
             WHERE s.study_date BETWEEN :start AND :end
               AND {_ER_WHERE}
               AND COALESCE(m.modality, s.study_modality, 'Unknown') NOT IN ('SR', 'OT')
