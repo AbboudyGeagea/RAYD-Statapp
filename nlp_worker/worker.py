@@ -6,11 +6,84 @@ so medspaCy's RAM footprint and native deps are isolated from the main app.
 
 Polls hl7_oru_reports every 60 seconds, processes unanalyzed rows in chunks,
 writes results to hl7_oru_analysis.
+
+Also polls oru_nlp_jobs every few seconds for on-demand TF-IDF/K-means
+clustering runs requested from /oru/nlp/process (routes/oru_analytics.py) --
+that route just enqueues a row and returns immediately; this worker does the
+actual clustering (moved here from nlp_processor.py -> clustering.py so the
+main app never blocks a request thread on it).
 """
 import os
 import time
+import json
+import re
+from collections import deque
 import psycopg2
 import psycopg2.extras
+
+import clustering
+
+# ── Multi-pattern matching (Aho-Corasick) ─────────────────────────────────────
+# The rule-based fallback used to run one independent str.find() sweep per
+# phrase (~150 phrases x up to 8000 chars, per report). A single combined regex
+# alternation would be faster but only reports non-overlapping matches, which
+# silently drops shorter phrases nested inside longer ones (e.g. the CRITICAL
+# keyword "effusion" inside the DIAGNOSES phrase "pleural effusion") -- a real
+# risk for a clinical critical-findings feed. Aho-Corasick finds every
+# occurrence of every pattern, including overlapping ones, in one O(text
+# length) pass, so it's a strict speedup with no change in what gets matched.
+
+class _AhoCorasick:
+    """Minimal Aho-Corasick automaton for multi-pattern substring search."""
+
+    def __init__(self, patterns):
+        self._goto = [{}]
+        self._fail = [0]
+        self._output = [[]]
+        for p in patterns:
+            self._add(p)
+        self._build_fail_links()
+
+    def _add(self, pattern):
+        node = 0
+        for ch in pattern:
+            nxt = self._goto[node].get(ch)
+            if nxt is None:
+                self._goto.append({})
+                self._fail.append(0)
+                self._output.append([])
+                nxt = len(self._goto) - 1
+                self._goto[node][ch] = nxt
+            node = nxt
+        self._output[node].append(pattern)
+
+    def _build_fail_links(self):
+        queue = deque()
+        root = 0
+        for ch, nxt in self._goto[root].items():
+            self._fail[nxt] = root
+            queue.append(nxt)
+        while queue:
+            node = queue.popleft()
+            for ch, nxt in list(self._goto[node].items()):
+                queue.append(nxt)
+                f = self._fail[node]
+                while f != root and ch not in self._goto[f]:
+                    f = self._fail[f]
+                target = self._goto[f].get(ch, root)
+                self._fail[nxt] = target if target != nxt else root
+                self._output[nxt] = self._output[nxt] + self._output[self._fail[nxt]]
+
+    def find_all(self, text):
+        """Yield (start_index, pattern) for every occurrence of every pattern."""
+        node = 0
+        for i, ch in enumerate(text):
+            while node and ch not in self._goto[node]:
+                node = self._fail[node]
+            node = self._goto[node].get(ch, 0)
+            for pattern in self._output[node]:
+                yield i - len(pattern) + 1, pattern
+
 
 # ── Negation helpers ──────────────────────────────────────────────────────────
 
@@ -33,16 +106,11 @@ def _is_negated(t, match_start, window=80):
             segment = segment[last_sep + 1:]
     return any(neg in segment for neg in NEGATION_PREFIXES)
 
-def _any_unnegated(t, keyword):
-    idx = t.find(keyword)
-    while idx != -1:
-        if not _is_negated(t, idx):
-            return True
-        idx = t.find(keyword, idx + len(keyword))
-    return False
-
 
 # ── Critical keyword groups ───────────────────────────────────────────────────
+# Kept as a code constant (unlike DIAGNOSES below) -- these feed medspaCy's
+# target matcher and the rule-based fallback, and already have a separate
+# user-extension mechanism (settings 'oru_crit:*' rows, main app only).
 
 CRITICAL = [
     'pneumothorax','hemorrhage','haemorrhage','haematoma','hematoma',
@@ -53,134 +121,50 @@ CRITICAL = [
     'occlusion','stenosis','dissection','embolism','pneumonia','effusion',
 ]
 
-# ── Diagnosis vocabulary: (match_phrase, canonical_label) ────────────────────
+# ── Diagnosis vocabulary — loaded from oru_diagnosis_vocabulary (DB-configurable,
+# see migration 0103) instead of a hardcoded constant. Populated once at startup
+# by _load_vocabulary(); picking up an admin's edit requires restarting this
+# container (`docker compose restart rayd-nlp`) -- no rebuild/redeploy needed.
 
-DIAGNOSES = [
-    # Pulmonary / Chest
-    ('pneumothorax',         'Pneumothorax'),
-    ('pulmonary embolism',   'Pulmonary Embolism'),
-    ('pleural effusion',     'Pleural Effusion'),
-    ('épanchement pleural',  'Pleural Effusion'),
-    ('consolidation',        'Consolidation'),
-    ('pneumonia',            'Pneumonia'),
-    ('pneumonie',            'Pneumonia'),
-    ('atelectasis',          'Atelectasis'),
-    ('atélectasie',          'Atelectasis'),
-    ('emphysema',            'Emphysema'),
-    ('pulmonary edema',      'Pulmonary Edema'),
-    ('pulmonary oedema',     'Pulmonary Edema'),
-    ('oedème pulmonaire',    'Pulmonary Edema'),
-    ('hemothorax',           'Hemothorax'),
-    ('haemothorax',          'Hemothorax'),
-    ('cardiomegaly',         'Cardiomegaly'),
-    ('pericardial effusion', 'Pericardial Effusion'),
-    ('aortic dissection',    'Aortic Dissection'),
-    ('aortic aneurysm',      'Aortic Aneurysm'),
-    # Neuro / Brain
-    ('intracranial hemorrhage', 'Intracranial Hemorrhage'),
-    ('intracranial haemorrhage','Intracranial Hemorrhage'),
-    ('subdural hematoma',    'Subdural Hematoma'),
-    ('subdural haematoma',   'Subdural Hematoma'),
-    ('epidural hematoma',    'Epidural Hematoma'),
-    ('subarachnoid hemorrhage','Subarachnoid Hemorrhage'),
-    ('hemorrhage',           'Hemorrhage'),
-    ('haemorrhage',          'Hemorrhage'),
-    ('hematoma',             'Hematoma'),
-    ('haematoma',            'Hematoma'),
-    ('stroke',               'Stroke'),
-    ('infarction',           'Infarction'),
-    ('infarct',              'Infarction'),
-    ('ischemia',             'Ischemia'),
-    ('ischaemia',            'Ischemia'),
-    ('aneurysm',             'Aneurysm'),
-    ('hydrocephalus',        'Hydrocephalus'),
-    ('midline shift',        'Midline Shift'),
-    # Abdomen / GI
-    ('appendicitis',         'Appendicitis'),
-    ('cholecystitis',        'Cholecystitis'),
-    ('cholelithiasis',       'Cholelithiasis'),
-    ('gallstone',            'Gallstone'),
-    ('bowel obstruction',    'Bowel Obstruction'),
-    ('obstruction',          'Obstruction'),
-    ('perforation',          'Perforation'),
-    ('abscess',              'Abscess'),
-    ('hepatomegaly',         'Hepatomegaly'),
-    ('splenomegaly',         'Splenomegaly'),
-    ('ascites',              'Ascites'),
-    ('pancreatitis',         'Pancreatitis'),
-    ('diverticulitis',       'Diverticulitis'),
-    ('hernia',               'Hernia'),
-    # Vascular
-    ('deep vein thrombosis', 'DVT'),
-    ('dvt',                  'DVT'),
-    ('thrombosis',           'Thrombosis'),
-    ('thrombose',            'Thrombosis'),
-    ('occlusion',            'Occlusion'),
-    ('stenosis',             'Stenosis'),
-    ('sténose',              'Stenosis'),
-    ('dissection',           'Dissection'),
-    ('embolism',             'Embolism'),
-    ('embolus',              'Embolism'),
-    # MSK / Trauma
-    ('fracture',             'Fracture'),
-    ('dislocation',          'Dislocation'),
-    ('luxation',             'Dislocation'),
-    ('osteoporosis',         'Osteoporosis'),
-    ('arthritis',            'Arthritis'),
-    ('arthrose',             'Arthritis'),
-    ('osteomyelitis',        'Osteomyelitis'),
-    ('spondylosis',          'Spondylosis'),
-    ('disc herniation',      'Disc Herniation'),
-    ('disk herniation',      'Disc Herniation'),
-    ('herniated disc',       'Disc Herniation'),
-    ('spinal stenosis',      'Spinal Stenosis'),
-    # Oncology
-    ('metastasis',           'Metastasis'),
-    ('metastases',           'Metastasis'),
-    ('métastase',            'Metastasis'),
-    ('malignancy',           'Malignancy'),
-    ('malignant',            'Malignancy'),
-    ('carcinoma',            'Carcinoma'),
-    ('carcinome',            'Carcinoma'),
-    ('lymphoma',             'Lymphoma'),
-    ('lymphome',             'Lymphoma'),
-    ('adenoma',              'Adenoma'),
-    ('adénome',              'Adenoma'),
-    ('neoplasm',             'Neoplasm'),
-    ('tumor',                'Tumor / Mass'),
-    ('tumour',               'Tumor / Mass'),
-    ('tumeur',               'Tumor / Mass'),
-    ('mass',                 'Tumor / Mass'),
-    ('nodule',               'Nodule'),
-    ('lesion',               'Lesion'),
-    ('lésion',               'Lesion'),
-    ('cyst',                 'Cyst'),
-    ('kyste',                'Cyst'),
-    # Kidney / Urinary
-    ('hydronephrosis',       'Hydronephrosis'),
-    ('nephrolithiasis',      'Nephrolithiasis'),
-    ('urolithiasis',         'Nephrolithiasis'),
-    ('renal calculus',       'Renal Calculus'),
-    ('kidney stone',         'Renal Calculus'),
-    # Infection / Inflammation
-    ('empyema',              'Empyema'),
-    ('cellulitis',           'Cellulitis'),
-    # Normal / Benign
-    ('no acute',             'No Acute Finding'),
-    ('unremarkable',         'Unremarkable'),
-    ('within normal limits', 'Normal'),
-    ('sans particularité',   'Normal'),
-    ('normal study',         'Normal'),
-]
+DIAGNOSES = []          # [(phrase, canonical_label), ...]
+_BENIGN_LABELS = set()  # canonical labels considered benign
+_PHRASE_AUTOMATON = None
 
-_BENIGN_LABELS = {'No Acute Finding', 'Unremarkable', 'Normal'}
+def _load_vocabulary(conn):
+    with conn.cursor(cursor_factory=psycopg2.extras.NamedTupleCursor) as cur:
+        cur.execute("""
+            SELECT phrase, canonical_label, is_benign
+            FROM oru_diagnosis_vocabulary
+            WHERE active = TRUE
+            ORDER BY id
+        """)
+        rows = cur.fetchall()
+    diagnoses = [(r.phrase, r.canonical_label) for r in rows]
+    benign = {r.canonical_label for r in rows if r.is_benign}
+    return diagnoses, benign
+
+
+def _init_vocabulary():
+    global DIAGNOSES, _BENIGN_LABELS, _PHRASE_AUTOMATON
+    conn = _get_conn()
+    try:
+        DIAGNOSES, _BENIGN_LABELS = _load_vocabulary(conn)
+    finally:
+        conn.close()
+    all_phrases = sorted({p for p, _ in DIAGNOSES} | set(CRITICAL))
+    _PHRASE_AUTOMATON = _AhoCorasick(all_phrases)
+    print(f"[NLP Worker] Vocabulary loaded — {len(DIAGNOSES)} diagnosis phrases, "
+          f"{len(CRITICAL)} critical keywords.")
+
 
 # Bump when the model or vocabulary changes — triggers re-analysis of stale rows
 _NLP_MODEL_VERSION = 'medspacy-v1'
 
-_CHUNK        = 500
-_BATCH_LIMIT  = 2000
-_POLL_SECONDS = 60
+_CHUNK           = 500
+_BATCH_LIMIT      = 2000
+_POLL_SECONDS      = 60
+_JOB_POLL_SECONDS  = 5
+_BATCH_EVERY_TICKS = _POLL_SECONDS // _JOB_POLL_SECONDS
 
 
 # ── medspaCy ──────────────────────────────────────────────────────────────────
@@ -233,6 +217,19 @@ def _load_medspacy():
     return _NLP
 
 
+def _affirmed_phrases_rule_based(t):
+    """Single Aho-Corasick pass over the text; the existing negation-window
+    check still runs per match (unchanged semantics from the old str.find
+    loop — a phrase is affirmed if ANY of its occurrences is unnegated)."""
+    found = set()
+    for pos, phrase in _PHRASE_AUTOMATON.find_all(t):
+        if phrase in found:
+            continue
+        if not _is_negated(t, pos):
+            found.add(phrase)
+    return found
+
+
 def _affirmed_phrases_batch(texts):
     if not texts:
         return []
@@ -254,10 +251,7 @@ def _affirmed_phrases_batch(texts):
             except Exception:
                 pass
 
-    def _rb(t):
-        return {phrase for phrase, _ in DIAGNOSES if _any_unnegated(t, phrase)} | \
-               {kw for kw in CRITICAL if _any_unnegated(t, kw)}
-    return [_rb(t) for t in cleaned]
+    return [_affirmed_phrases_rule_based(t) for t in cleaned]
 
 
 # ── PostgreSQL ────────────────────────────────────────────────────────────────
@@ -272,7 +266,7 @@ def _get_conn():
     )
 
 
-# ── Batch processing ──────────────────────────────────────────────────────────
+# ── Batch processing (medspaCy negation-aware analysis) ───────────────────────
 
 def run_batch():
     conn = _get_conn()
@@ -298,34 +292,169 @@ def run_batch():
             texts  = [(r.impression_text or r.report_text or '') for r in chunk]
             affirmed_list = _affirmed_phrases_batch(texts)
 
-            with conn.cursor() as cur:
-                for r, affirmed in zip(chunk, affirmed_list):
-                    seen, labels = set(), []
-                    for phrase, label in DIAGNOSES:
-                        if label in _BENIGN_LABELS or label in seen:
-                            continue
-                        if phrase in affirmed:
-                            seen.add(label)
-                            labels.append(label)
-                    pg_array = '{' + ','.join(labels) + '}'
-                    try:
+            for r, affirmed in zip(chunk, affirmed_list):
+                seen, labels = set(), []
+                for phrase, label in DIAGNOSES:
+                    if label in _BENIGN_LABELS or label in seen:
+                        continue
+                    if phrase in affirmed:
+                        seen.add(label)
+                        labels.append(label)
+                pg_array = '{' + ','.join(labels) + '}'
+                try:
+                    with conn.cursor() as cur:
                         cur.execute("""
                             INSERT INTO hl7_oru_analysis
                                 (report_id, affirmed_labels, is_critical, nlp_version, analyzed_at)
                             VALUES (%s, %s::TEXT[], %s, %s, NOW())
                             ON CONFLICT (report_id) DO NOTHING
                         """, (r.id, pg_array, len(labels) > 0, _NLP_MODEL_VERSION))
-                    except Exception as e:
-                        print(f"[NLP Worker] Row {r.id} error: {e}")
-                        conn.rollback()
-                        continue
-
-            conn.commit()
-            committed += len(chunk)
+                    # Commit per row: a failure on one row must only roll back that
+                    # row, not every prior success in this chunk (previously a
+                    # single rollback() here discarded the whole chunk-so-far).
+                    conn.commit()
+                    committed += 1
+                except Exception as e:
+                    print(f"[NLP Worker] Row {r.id} error: {e}")
+                    conn.rollback()
+                    continue
 
         print(f"[NLP Worker] Batch complete — {committed}/{total} reports analyzed.")
     finally:
         conn.close()
+
+
+# ── On-demand clustering jobs (oru_nlp_jobs) ──────────────────────────────────
+
+def run_pending_jobs():
+    conn = _get_conn()
+    job = None
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.NamedTupleCursor) as cur:
+            cur.execute("""
+                SELECT id, days FROM oru_nlp_jobs
+                WHERE status = 'pending'
+                ORDER BY created_at
+                LIMIT 1
+                FOR UPDATE SKIP LOCKED
+            """)
+            job = cur.fetchone()
+            if job:
+                cur.execute("""
+                    UPDATE oru_nlp_jobs SET status = 'running', started_at = NOW()
+                    WHERE id = %s
+                """, (job.id,))
+        conn.commit()
+    except Exception as e:
+        print(f"[NLP Worker] Job claim error: {e}")
+        conn.rollback()
+        conn.close()
+        return
+
+    if not job:
+        conn.close()
+        return
+
+    try:
+        _process_job(conn, job.id, job.days)
+    finally:
+        conn.close()
+
+
+def _process_job(conn, job_id, days):
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.NamedTupleCursor) as cur:
+            cur.execute("""
+                SELECT o.id, o.report_text, o.impression_text
+                FROM hl7_oru_reports o
+                LEFT JOIN ai_nlp_cache c ON c.source_id = o.id
+                WHERE c.id IS NULL
+                  AND o.received_at >= NOW() - (%s || ' days')::INTERVAL
+                  AND o.report_text IS NOT NULL
+                  AND TRIM(o.report_text) != ''
+                ORDER BY o.received_at DESC
+                LIMIT 500
+            """, (days,))
+            rows = cur.fetchall()
+
+        if not rows:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE oru_nlp_jobs
+                    SET status = 'done', processed_count = 0, cluster_count = 0,
+                        message = 'Nothing new to process.', finished_at = NOW()
+                    WHERE id = %s
+                """, (job_id,))
+            conn.commit()
+            return
+
+        records = [
+            {'id': r.id, 'report_text': r.report_text, 'impression_text': r.impression_text}
+            for r in rows
+        ]
+        results, cluster_labels = clustering.process_reports(records)
+
+        # Cluster labels first so ai_nlp_cache.cluster_label can reference them.
+        with conn.cursor() as cur:
+            for cid, label in enumerate(cluster_labels):
+                cur.execute("""
+                    INSERT INTO oru_cluster_labels (cluster_id, label, updated_at)
+                    VALUES (%s, %s, NOW())
+                    ON CONFLICT (cluster_id) DO UPDATE SET
+                        label = EXCLUDED.label, updated_at = NOW()
+                """, (cid, label))
+        conn.commit()
+
+        saved = 0
+        for res in results:
+            cid = res['cluster_id']
+            label = cluster_labels[cid] if cid is not None and cid < len(cluster_labels) else None
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        INSERT INTO ai_nlp_cache
+                            (source_id, classification, keywords, cluster_id, cluster_label, severity_score, processed_at)
+                        VALUES (%s, %s, %s::jsonb, %s, %s, %s, NOW())
+                        ON CONFLICT (source_id) DO UPDATE SET
+                            classification = EXCLUDED.classification,
+                            keywords       = EXCLUDED.keywords,
+                            cluster_id     = EXCLUDED.cluster_id,
+                            cluster_label  = EXCLUDED.cluster_label,
+                            severity_score = EXCLUDED.severity_score,
+                            processed_at   = NOW()
+                    """, (res['id'], res['classification'], json.dumps(res['keywords']),
+                          cid, label, res['severity_score']))
+                # Commit per row (item 10 fix — same reasoning as run_batch()).
+                conn.commit()
+                saved += 1
+            except Exception as e:
+                print(f"[NLP Worker] ai_nlp_cache row {res['id']} error: {e}")
+                conn.rollback()
+                continue
+
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE oru_nlp_jobs
+                SET status = 'done', processed_count = %s, cluster_count = %s,
+                    message = %s, finished_at = NOW()
+                WHERE id = %s
+            """, (saved, len(cluster_labels),
+                  f'Processed {saved} reports into {len(cluster_labels)} clusters.', job_id))
+        conn.commit()
+        print(f"[NLP Worker] Job {job_id} done — {saved} reports, {len(cluster_labels)} clusters.")
+
+    except Exception as e:
+        conn.rollback()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE oru_nlp_jobs SET status = 'error', error_message = %s, finished_at = NOW()
+                    WHERE id = %s
+                """, (str(e)[:2000], job_id))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+        print(f"[NLP Worker] Job {job_id} error: {e}")
 
 
 # ── Main loop ─────────────────────────────────────────────────────────────────
@@ -344,15 +473,26 @@ def main():
             time.sleep(5)
 
     print("[NLP Worker] DB ready.")
+    _init_vocabulary()
     _load_medspacy()
-    print(f"[NLP Worker] Polling every {_POLL_SECONDS}s.")
+    print(f"[NLP Worker] Polling jobs every {_JOB_POLL_SECONDS}s, "
+          f"medspaCy batch every {_POLL_SECONDS}s.")
 
+    tick = 0
     while True:
         try:
-            run_batch()
+            run_pending_jobs()
         except Exception as e:
-            print(f"[NLP Worker] Batch error: {e}")
-        time.sleep(_POLL_SECONDS)
+            print(f"[NLP Worker] Job poll error: {e}")
+
+        if tick % _BATCH_EVERY_TICKS == 0:
+            try:
+                run_batch()
+            except Exception as e:
+                print(f"[NLP Worker] Batch error: {e}")
+
+        tick += 1
+        time.sleep(_JOB_POLL_SECONDS)
 
 
 if __name__ == '__main__':

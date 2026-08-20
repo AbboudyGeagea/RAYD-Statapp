@@ -401,6 +401,26 @@
               <summary style="font-size:10px;font-weight:700;color:#4b7a63;cursor:pointer;">Built-in keywords (read-only)</summary>
               <div id="builtin-kw-chips" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;"></div>
             </details>
+
+            <details style="margin-top:12px;padding-top:10px;border-top:1px solid #1e2d27;">
+              <summary style="font-size:10px;font-weight:700;color:#4b7a63;cursor:pointer;">Diagnosis vocabulary (phrase → label mapping)</summary>
+              <div style="display:flex;gap:8px;margin:10px 0;flex-wrap:wrap;align-items:center;">
+                <input id="new-vocab-phrase" type="text" placeholder="Phrase (e.g. pleural thickening)…"
+                  style="background:#1a211e;border:1px solid #1e2d27;color:#e2e8f0;padding:6px 12px;border-radius:6px;font-size:12px;font-weight:600;outline:none;flex:1;min-width:160px;">
+                <input id="new-vocab-label" type="text" placeholder="Canonical label (e.g. Pleural Thickening)…"
+                  style="background:#1a211e;border:1px solid #1e2d27;color:#e2e8f0;padding:6px 12px;border-radius:6px;font-size:12px;font-weight:600;outline:none;flex:1;min-width:160px;">
+                <label style="display:flex;align-items:center;gap:4px;font-size:10px;color:#94a3b8;font-weight:700;white-space:nowrap;">
+                  <input id="new-vocab-benign" type="checkbox"> Benign
+                </label>
+                <button onclick="addVocabTerm()"
+                  style="background:#1a211e;border:1px solid #34d399;color:#34d399;padding:6px 16px;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;">
+                  <i class="bi bi-plus-circle"></i> Add
+                </button>
+              </div>
+              <div id="vocab-chips" style="display:flex;flex-wrap:wrap;gap:6px;min-height:22px;">
+                <span style="font-size:10px;color:#475569;font-style:italic;">Loading…</span>
+              </div>
+            </details>
           </div>
           {% endif %}
 
@@ -957,6 +977,7 @@ function exportCriticalPNG() {
 // ── Keywords management (admin only) ────────────────────────────────────────
 let _kwPanelLoaded = false;
 let _suggLoaded    = false;
+let _vocabLoaded   = false;
 
 function toggleKeywordsPanel() {
   const panel = document.getElementById('keywords-panel');
@@ -965,6 +986,58 @@ function toggleKeywordsPanel() {
   panel.style.display = shown ? 'none' : 'block';
   if (!shown && !_kwPanelLoaded) { loadKeywords(); _kwPanelLoaded = true; }
   if (!shown) loadSuggestions();
+  if (!shown && !_vocabLoaded) { loadVocabulary(); _vocabLoaded = true; }
+}
+
+// ── Diagnosis vocabulary management (admin only) ────────────────────────────
+
+function loadVocabulary() {
+  fetch('/oru/diagnosis-vocabulary')
+    .then(r => r.json())
+    .then(d => renderVocabChips(d.vocabulary || []))
+    .catch(e => console.warn('vocabulary load', e));
+}
+
+function renderVocabChips(list) {
+  const wrap = document.getElementById('vocab-chips');
+  if (!wrap) return;
+  if (!list.length) {
+    wrap.innerHTML = '<span style="font-size:10px;color:#475569;font-style:italic;">No vocabulary entries yet.</span>';
+    return;
+  }
+  wrap.innerHTML = list.map(v => `
+    <span style="display:inline-flex;align-items:center;gap:5px;background:#14201c;border:1px solid #1e2d27;color:${v.is_benign ? '#4b7a63' : '#94a3b8'};padding:3px 10px;border-radius:100px;font-size:11px;font-weight:700;">
+      ${esc(v.phrase)} <i class="bi bi-arrow-right" style="font-size:9px;"></i> ${esc(v.canonical_label)}${v.is_benign ? ' <span style="font-size:9px;opacity:0.7;">(benign)</span>' : ''}
+      <button onclick="deleteVocabTerm(${v.id})" style="background:none;border:none;color:#f87171;cursor:pointer;padding:0;font-size:12px;line-height:1;">&times;</button>
+    </span>`).join('');
+}
+
+function addVocabTerm() {
+  const phraseInput = document.getElementById('new-vocab-phrase');
+  const labelInput  = document.getElementById('new-vocab-label');
+  const benignInput = document.getElementById('new-vocab-benign');
+  const phrase = (phraseInput.value || '').trim().toLowerCase();
+  const label  = (labelInput.value || '').trim();
+  if (!phrase || !label) return;
+  fetch('/oru/diagnosis-vocabulary', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({phrase, canonical_label: label, is_benign: benignInput.checked})
+  }).then(r => r.json()).then(d => {
+    if (d.error) { alert('Error: ' + d.error); return; }
+    phraseInput.value = '';
+    labelInput.value  = '';
+    benignInput.checked = false;
+    loadVocabulary();
+  }).catch(e => alert('Request failed: ' + e));
+}
+
+function deleteVocabTerm(id) {
+  fetch('/oru/diagnosis-vocabulary/' + id, {method: 'DELETE'})
+    .then(r => r.json()).then(d => {
+      if (d.error) { alert('Error: ' + d.error); return; }
+      loadVocabulary();
+    }).catch(e => alert('Request failed: ' + e));
 }
 
 function loadKeywords() {
@@ -1114,7 +1187,12 @@ function checkNLPStatus() {
 }
 
 // ── Run NLP ──────────────────────────────────────────────────────────────────
+// /oru/nlp/process only enqueues a job (routes/oru_analytics.py) -- the actual
+// TF-IDF/K-means clustering runs in the background nlp-worker container, so we
+// poll /oru/nlp/job/<id> until it finishes instead of assuming the POST response
+// means the work is done.
 let nlpDonutChart = null, sevChart = null;
+let _nlpPollTimer = null;
 
 function runNLP() {
   const f    = document.getElementById('date-from').value;
@@ -1126,7 +1204,10 @@ function runNLP() {
   btn.disabled = true;
   btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Processing...';
   toast.style.display = 'flex';
-  document.getElementById('nlp-toast-text').textContent = 'Running TF-IDF + K-means — this may take a few seconds...';
+  toast.style.background = '';
+  toast.style.borderColor = '';
+  toast.style.color = '';
+  document.getElementById('nlp-toast-text').textContent = 'Queued — waiting for the NLP worker to pick it up…';
 
   fetch('/oru/nlp/process', {
     method: 'POST',
@@ -1135,26 +1216,61 @@ function runNLP() {
   })
   .then(r => r.json())
   .then(d => {
-    if (d.error) {
-      document.getElementById('nlp-toast-text').textContent = 'Error: ' + d.error;
-      toast.style.background = 'rgba(248,113,113,0.08)';
-      toast.style.borderColor = 'rgba(248,113,113,0.25)';
-      toast.style.color = '#f87171';
-    } else {
-      document.getElementById('nlp-toast-text').textContent =
-        `✓ ${d.message}`;
-      setTimeout(() => { toast.style.display = 'none'; }, 3000);
-      checkNLPStatus();
-      loadNLPResults();
+    if (d.error || !d.job_id) {
+      showNLPError(d.error || 'No job id returned');
+      resetNLPButton();
+      return;
     }
+    pollNLPJob(d.job_id);
   })
   .catch(err => {
-    document.getElementById('nlp-toast-text').textContent = 'Request failed: ' + err;
-  })
-  .finally(() => {
-    btn.disabled = false;
-    btn.innerHTML = '<i class="bi bi-cpu"></i> Run NLP Analysis';
+    showNLPError('Request failed: ' + err);
+    resetNLPButton();
   });
+}
+
+function pollNLPJob(jobId) {
+  if (_nlpPollTimer) clearInterval(_nlpPollTimer);
+  _nlpPollTimer = setInterval(() => {
+    fetch(`/oru/nlp/job/${jobId}`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.status === 'running') {
+          document.getElementById('nlp-toast-text').textContent = 'Running TF-IDF + K-means…';
+        } else if (d.status === 'done') {
+          clearInterval(_nlpPollTimer);
+          document.getElementById('nlp-toast-text').textContent = `✓ ${d.message || 'Processing complete.'}`;
+          setTimeout(() => { document.getElementById('nlp-toast').style.display = 'none'; }, 3000);
+          checkNLPStatus();
+          loadNLPResults();
+          resetNLPButton();
+        } else if (d.status === 'error') {
+          clearInterval(_nlpPollTimer);
+          showNLPError(d.error_message || 'Job failed');
+          resetNLPButton();
+        }
+      })
+      .catch(err => {
+        clearInterval(_nlpPollTimer);
+        showNLPError('Status check failed: ' + err);
+        resetNLPButton();
+      });
+  }, 2000);
+}
+
+function showNLPError(msg) {
+  const toast = document.getElementById('nlp-toast');
+  toast.style.display = 'flex';
+  toast.style.background = 'rgba(248,113,113,0.08)';
+  toast.style.borderColor = 'rgba(248,113,113,0.25)';
+  toast.style.color = '#f87171';
+  document.getElementById('nlp-toast-text').textContent = 'Error: ' + msg;
+}
+
+function resetNLPButton() {
+  const btn = document.getElementById('run-nlp-btn');
+  btn.disabled = false;
+  btn.innerHTML = '<i class="bi bi-cpu"></i> Run NLP Analysis';
 }
 
 // ── Load NLP results ─────────────────────────────────────────────────────────

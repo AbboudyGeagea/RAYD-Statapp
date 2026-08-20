@@ -1,10 +1,11 @@
-import os
 import re
+import time
 import json
-from collections import Counter
+import hashlib
+from collections import Counter, deque
 from flask import Blueprint, render_template, jsonify, request, abort
 from flask_login import login_required, current_user
-from sqlalchemy import text
+from sqlalchemy import and_, text
 from db import db
 
 oru_bp = Blueprint('oru', __name__, url_prefix='/oru')
@@ -72,6 +73,71 @@ NORMAL_PHRASES = [
     'no significant','no abnormality','no evidence of acute',
     'no pathological','no active disease','normal limits',
 ]
+_NORMAL_PATTERN = '|'.join(re.escape(p) for p in NORMAL_PHRASES)
+
+# ── Multi-pattern matching (Aho-Corasick) ─────────────────────────────────────
+# The rule-based negation fallback used to run one independent str.find() sweep
+# per phrase (~150 phrases x up to 8000 chars). A single combined regex
+# alternation would be faster but only reports non-overlapping matches, which
+# silently drops shorter phrases nested inside longer ones (e.g. the CRITICAL
+# keyword "effusion" inside the DIAGNOSES phrase "pleural effusion") -- a real
+# risk for a clinical critical-findings feed. Aho-Corasick finds every
+# occurrence of every pattern, including overlapping ones, in one O(text
+# length) pass, so it's a strict speedup with no change in what gets matched.
+# (Mirrored in nlp_worker/worker.py -- same duplication convention as the rest
+# of the negation/vocabulary logic between the two files.)
+
+class _AhoCorasick:
+    """Minimal Aho-Corasick automaton for multi-pattern substring search."""
+
+    def __init__(self, patterns):
+        self._goto = [{}]
+        self._fail = [0]
+        self._output = [[]]
+        for p in patterns:
+            self._add(p)
+        self._build_fail_links()
+
+    def _add(self, pattern):
+        node = 0
+        for ch in pattern:
+            nxt = self._goto[node].get(ch)
+            if nxt is None:
+                self._goto.append({})
+                self._fail.append(0)
+                self._output.append([])
+                nxt = len(self._goto) - 1
+                self._goto[node][ch] = nxt
+            node = nxt
+        self._output[node].append(pattern)
+
+    def _build_fail_links(self):
+        queue = deque()
+        root = 0
+        for ch, nxt in self._goto[root].items():
+            self._fail[nxt] = root
+            queue.append(nxt)
+        while queue:
+            node = queue.popleft()
+            for ch, nxt in list(self._goto[node].items()):
+                queue.append(nxt)
+                f = self._fail[node]
+                while f != root and ch not in self._goto[f]:
+                    f = self._fail[f]
+                target = self._goto[f].get(ch, root)
+                self._fail[nxt] = target if target != nxt else root
+                self._output[nxt] = self._output[nxt] + self._output[self._fail[nxt]]
+
+    def find_all(self, text):
+        """Yield (start_index, pattern) for every occurrence of every pattern."""
+        node = 0
+        for i, ch in enumerate(text):
+            while node and ch not in self._goto[node]:
+                node = self._fail[node]
+            node = self._goto[node].get(ch, 0)
+            for pattern in self._output[node]:
+                yield i - len(pattern) + 1, pattern
+
 
 # ── Rule-based negation fallback ─────────────────────────────────────────────
 # Used when medspacy is unavailable. Checks a backward character window within
@@ -96,6 +162,9 @@ def _is_negated(t, match_start, window=80):
     return any(neg in segment for neg in NEGATION_PREFIXES)
 
 def _any_unnegated(t, keyword):
+    """Used for the small, per-request custom-keyword search (settings-driven
+    'oru_crit:*' list) -- not the ~150-phrase DIAGNOSES/CRITICAL vocabulary,
+    which goes through the Aho-Corasick automaton below instead."""
     idx = t.find(keyword)
     while idx != -1:
         if not _is_negated(t, idx):
@@ -104,13 +173,67 @@ def _any_unnegated(t, keyword):
     return False
 
 
+# ── Diagnosis vocabulary — DB-configurable (oru_diagnosis_vocabulary, migration
+# 0103) instead of a hardcoded constant, so admins can add/edit mappings without
+# a code change. Cached in-process with a short TTL since this is looked up on
+# every /oru/data request. rule_version is derived from the vocabulary content
+# itself (not a manually-bumped constant), so hl7_oru_rule_cache rows are
+# automatically treated as stale whenever the vocabulary changes.
+
+_diag_cache = {'rows': None, 'benign': None, 'automaton': None, 'version': None, 'loaded_at': 0}
+_DIAG_TTL = 300  # seconds
+
+def _get_diagnoses():
+    """Returns (diagnoses, benign_labels, automaton, rule_version)."""
+    now = time.time()
+    if _diag_cache['rows'] is None or now - _diag_cache['loaded_at'] > _DIAG_TTL:
+        try:
+            rows = db.session.execute(text("""
+                SELECT phrase, canonical_label, is_benign
+                FROM oru_diagnosis_vocabulary
+                WHERE active = TRUE
+                ORDER BY id
+            """)).fetchall()
+        except Exception:
+            rows = []
+        diagnoses = [(r.phrase, r.canonical_label) for r in rows]
+        benign = {r.canonical_label for r in rows if r.is_benign}
+        all_phrases = sorted({p for p, _ in diagnoses} | set(CRITICAL))
+        version_src = '|'.join(all_phrases).encode('utf-8')
+        _diag_cache.update(
+            rows=diagnoses,
+            benign=benign,
+            automaton=_AhoCorasick(all_phrases),
+            version='rule-v2:' + hashlib.md5(version_src).hexdigest()[:12],
+            loaded_at=now,
+        )
+    return _diag_cache['rows'], _diag_cache['benign'], _diag_cache['automaton'], _diag_cache['version']
+
+
+def _invalidate_diagnoses_cache():
+    _diag_cache['loaded_at'] = 0
+
+
+def _affirmed_phrases_rule_based(t, automaton):
+    """Single Aho-Corasick pass over the text; the negation-window check still
+    runs per match (a phrase is affirmed if ANY of its occurrences is
+    unnegated -- same semantics as the old per-phrase str.find loop)."""
+    found = set()
+    for pos, phrase in automaton.find_all(t):
+        if phrase in found:
+            continue
+        if not _is_negated(t, pos):
+            found.add(phrase)
+    return found
+
+
 def _affirmed_phrases(text):
     """Single-text rule-based lookup. Batch NLP is handled by the nlp-worker container."""
     if not text:
         return set()
+    _, _, automaton, _ = _get_diagnoses()
     t = text.lower()[:8000]
-    return {phrase for phrase, _ in DIAGNOSES if _any_unnegated(t, phrase)} | \
-           {kw for kw in CRITICAL if _any_unnegated(t, kw)}
+    return _affirmed_phrases_rule_based(t, automaton)
 
 
 def _affirmed_phrases_batch(texts):
@@ -120,146 +243,12 @@ def _affirmed_phrases_batch(texts):
     """
     if not texts:
         return []
+    _, _, automaton, _ = _get_diagnoses()
     def _rb(t):
         t = (t or '').lower()[:8000]
-        return {phrase for phrase, _ in DIAGNOSES if _any_unnegated(t, phrase)} | \
-               {kw for kw in CRITICAL if _any_unnegated(t, kw)}
+        return _affirmed_phrases_rule_based(t, automaton)
     return [_rb(t) for t in texts]
 
-
-# Bump this string whenever the NLP model or DIAGNOSES vocabulary changes
-# so stale rows in hl7_oru_analysis can be detected and re-processed.
-_NLP_MODEL_VERSION = 'medspacy-v1'
-
-# Bump whenever DIAGNOSES/CRITICAL/NEGATION_PREFIXES change, so stale
-# hl7_oru_rule_cache rows get recomputed instead of silently reused. Separate
-# from _NLP_MODEL_VERSION: this versions the RULE-BASED fallback below, not
-# the real medspaCy model the nlp-worker container runs.
-_RULE_VERSION = 'rule-v1'
-
-
-
-
-# ── Diagnosis vocabulary: (match_phrase, canonical_label)
-# Multiple phrases can share the same label — counted per-report (not per-word)
-DIAGNOSES = [
-    # Pulmonary / Chest
-    ('pneumothorax',         'Pneumothorax'),
-    ('pulmonary embolism',   'Pulmonary Embolism'),
-    ('pleural effusion',     'Pleural Effusion'),
-    ('épanchement pleural',  'Pleural Effusion'),
-    ('consolidation',        'Consolidation'),
-    ('pneumonia',            'Pneumonia'),
-    ('pneumonie',            'Pneumonia'),
-    ('atelectasis',          'Atelectasis'),
-    ('atélectasie',          'Atelectasis'),
-    ('emphysema',            'Emphysema'),
-    ('pulmonary edema',      'Pulmonary Edema'),
-    ('pulmonary oedema',     'Pulmonary Edema'),
-    ('oedème pulmonaire',    'Pulmonary Edema'),
-    ('hemothorax',           'Hemothorax'),
-    ('haemothorax',          'Hemothorax'),
-    ('cardiomegaly',         'Cardiomegaly'),
-    ('pericardial effusion', 'Pericardial Effusion'),
-    ('aortic dissection',    'Aortic Dissection'),
-    ('aortic aneurysm',      'Aortic Aneurysm'),
-    # Neuro / Brain
-    ('intracranial hemorrhage', 'Intracranial Hemorrhage'),
-    ('intracranial haemorrhage','Intracranial Hemorrhage'),
-    ('subdural hematoma',    'Subdural Hematoma'),
-    ('subdural haematoma',   'Subdural Hematoma'),
-    ('epidural hematoma',    'Epidural Hematoma'),
-    ('subarachnoid hemorrhage','Subarachnoid Hemorrhage'),
-    ('hemorrhage',           'Hemorrhage'),
-    ('haemorrhage',          'Hemorrhage'),
-    ('hematoma',             'Hematoma'),
-    ('haematoma',            'Hematoma'),
-    ('stroke',               'Stroke'),
-    ('infarction',           'Infarction'),
-    ('infarct',              'Infarction'),
-    ('ischemia',             'Ischemia'),
-    ('ischaemia',            'Ischemia'),
-    ('aneurysm',             'Aneurysm'),
-    ('hydrocephalus',        'Hydrocephalus'),
-    ('midline shift',        'Midline Shift'),
-    # Abdomen / GI
-    ('appendicitis',         'Appendicitis'),
-    ('cholecystitis',        'Cholecystitis'),
-    ('cholelithiasis',       'Cholelithiasis'),
-    ('gallstone',            'Gallstone'),
-    ('bowel obstruction',    'Bowel Obstruction'),
-    ('obstruction',          'Obstruction'),
-    ('perforation',          'Perforation'),
-    ('abscess',              'Abscess'),
-    ('hepatomegaly',         'Hepatomegaly'),
-    ('splenomegaly',         'Splenomegaly'),
-    ('ascites',              'Ascites'),
-    ('pancreatitis',         'Pancreatitis'),
-    ('diverticulitis',       'Diverticulitis'),
-    ('hernia',               'Hernia'),
-    # Vascular
-    ('deep vein thrombosis', 'DVT'),
-    ('dvt',                  'DVT'),
-    ('thrombosis',           'Thrombosis'),
-    ('thrombose',            'Thrombosis'),
-    ('occlusion',            'Occlusion'),
-    ('stenosis',             'Stenosis'),
-    ('sténose',              'Stenosis'),
-    ('dissection',           'Dissection'),
-    ('embolism',             'Embolism'),
-    ('embolus',              'Embolism'),
-    # MSK / Trauma
-    ('fracture',             'Fracture'),
-    ('dislocation',          'Dislocation'),
-    ('luxation',             'Dislocation'),
-    ('osteoporosis',         'Osteoporosis'),
-    ('arthritis',            'Arthritis'),
-    ('arthrose',             'Arthritis'),
-    ('osteomyelitis',        'Osteomyelitis'),
-    ('spondylosis',          'Spondylosis'),
-    ('disc herniation',      'Disc Herniation'),
-    ('disk herniation',      'Disc Herniation'),
-    ('herniated disc',       'Disc Herniation'),
-    ('spinal stenosis',      'Spinal Stenosis'),
-    # Oncology
-    ('metastasis',           'Metastasis'),
-    ('metastases',           'Metastasis'),
-    ('métastase',            'Metastasis'),
-    ('malignancy',           'Malignancy'),
-    ('malignant',            'Malignancy'),
-    ('carcinoma',            'Carcinoma'),
-    ('carcinome',            'Carcinoma'),
-    ('lymphoma',             'Lymphoma'),
-    ('lymphome',             'Lymphoma'),
-    ('adenoma',              'Adenoma'),
-    ('adénome',              'Adenoma'),
-    ('neoplasm',             'Neoplasm'),
-    ('tumor',                'Tumor / Mass'),
-    ('tumour',               'Tumor / Mass'),
-    ('tumeur',               'Tumor / Mass'),
-    ('mass',                 'Tumor / Mass'),
-    ('nodule',               'Nodule'),
-    ('lesion',               'Lesion'),
-    ('lésion',               'Lesion'),
-    ('cyst',                 'Cyst'),
-    ('kyste',                'Cyst'),
-    # Kidney / Urinary
-    ('hydronephrosis',       'Hydronephrosis'),
-    ('nephrolithiasis',      'Nephrolithiasis'),
-    ('urolithiasis',         'Nephrolithiasis'),
-    ('renal calculus',       'Renal Calculus'),
-    ('kidney stone',         'Renal Calculus'),
-    # Infection / Inflammation
-    ('empyema',              'Empyema'),
-    ('cellulitis',           'Cellulitis'),
-    ('osteomyelitis',        'Osteomyelitis'),
-    # Normal / Benign
-    ('no acute',             'No Acute Finding'),
-    ('unremarkable',         'Unremarkable'),
-    ('within normal limits', 'Normal'),
-    ('sans particularité',   'Normal'),
-    ('normal study',         'Normal'),
-]
 
 # Deduplicate: for each canonical label keep count of reports mentioning it
 # (multiple phrases mapping to same label are OR'd per report, not summed)
@@ -267,22 +256,23 @@ def _count_diagnoses(affirmed_list, top_n=50):
     """
     Count diagnosis labels across a list of pre-computed affirmed-phrase sets.
     Expects output of _affirmed_phrases_batch() or all_affirmed built in oru_data().
+    top_n=None returns every counted label (used when the caller merges these
+    counts into a larger aggregate before truncating).
     """
+    diagnoses, _, _, _ = _get_diagnoses()
     label_counts = Counter()
     for affirmed in affirmed_list:
         if not affirmed:
             continue
         seen_labels = set()
-        for phrase, label in DIAGNOSES:
+        for phrase, label in diagnoses:
             if label in seen_labels:
                 continue
             if phrase in affirmed or label in affirmed:
                 seen_labels.add(label)
                 label_counts[label] += 1
-    return [
-        {'word': label, 'count': cnt}
-        for label, cnt in label_counts.most_common(top_n)
-    ]
+    items = label_counts.most_common(top_n) if top_n else label_counts.most_common()
+    return [{'word': label, 'count': cnt} for label, cnt in items]
 
 
 def _tokenize(text):
@@ -336,39 +326,64 @@ def _parse_sections(text):
     return result
 
 
-def _is_normal(text):
-    if not text:
-        return False
-    t = text.lower()
-    return any(p in t for p in NORMAL_PHRASES)
-
-
-# Labels considered benign — excluded from the critical findings log
-_BENIGN_LABELS = {'No Acute Finding', 'Unremarkable', 'Normal'}
-
 def _best_text(row):
     """Return the most meaningful text from a report row, stripping whitespace."""
     imp = (row.impression_text or '').strip()
     rep = (row.report_text or '').strip()
     return imp or rep
 
-def _matched_diagnoses(text):
+
+# ── Shared date-range / procedure-code filter (item 4/5 consolidation) ────────
+
+def _date_proc_conditions(date_from, date_to, proc, alias, days_default=30, days_cap=365):
     """
-    Return list of canonical diagnosis labels affirmed in text, excluding benign ones.
-    Negated and historical mentions are excluded via medspacy (or rule-based fallback).
-    Uses the same DIAGNOSES vocabulary as the treemap so both panels are consistent.
+    Build an already-aliased, parameterized WHERE clause for the date-range /
+    procedure-code filter shared by /data, /section-gaps, /sections, and
+    /nlp/results. Returns (clause_str, params, days).
+
+    Conditions are correctly table-qualified from construction (no post-hoc
+    string surgery like the old `.replace('received_at', 'r.received_at')`
+    patch), and combined via SQLAlchemy's and_() rather than a manual
+    ' AND '.join() of raw fragments.
     """
-    if not text:
-        return []
-    affirmed = _affirmed_phrases(text)
-    seen, found = set(), []
-    for phrase, label in DIAGNOSES:
-        if label in _BENIGN_LABELS or label in seen:
-            continue
-        if phrase in affirmed:
-            seen.add(label)
-            found.append(label)
-    return found
+    conditions, params = [], {}
+    if date_from and date_to:
+        conditions.append(text(
+            f"COALESCE({alias}.result_datetime, {alias}.received_at) "
+            f"BETWEEN :date_from AND (CAST(:date_to AS DATE) + INTERVAL '1 day')"
+        ))
+        params['date_from'] = date_from
+        params['date_to'] = date_to
+        days = None
+    else:
+        days = min(int(request.args.get('days', days_default)), days_cap)
+        conditions.append(text(
+            f"COALESCE({alias}.result_datetime, {alias}.received_at) "
+            f">= NOW() - CAST(:interval AS INTERVAL)"
+        ))
+        params['interval'] = f'{days} days'
+    if proc:
+        conditions.append(text(f"UPPER(TRIM({alias}.procedure_code)) = UPPER(:proc)"))
+        params['proc'] = proc
+    return str(and_(*conditions)), params, days
+
+
+def _oru_report_ids(where_clause, params, limit=None, offset=0):
+    """Ordered list of hl7_oru_reports.id (most recent first) matching a filter
+    already built against the 'r' alias. Used to drive a bounded detail fetch
+    instead of pulling every matching row's full columns."""
+    p = dict(params, offset=offset)
+    limit_sql = ""
+    if limit:
+        p['limit'] = limit
+        limit_sql = "LIMIT :limit"
+    rows = db.session.execute(text(f"""
+        SELECT r.id FROM hl7_oru_reports r
+        WHERE {where_clause}
+        ORDER BY r.received_at DESC
+        {limit_sql} OFFSET :offset
+    """), p).fetchall()
+    return [row.id for row in rows]
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
@@ -403,96 +418,202 @@ def oru_page():
 def oru_data():
     proc    = request.args.get('proc', '').strip()
     top_n   = int(request.args.get('top', 40))
+    limit   = min(int(request.args.get('limit', 200)), 1000)
+    offset  = max(int(request.args.get('offset', 0)), 0)
 
     date_from = request.args.get('date_from', '').strip()
     date_to   = request.args.get('date_to', '').strip()
-    if date_from and date_to:
-        where  = ["received_at BETWEEN :date_from AND (CAST(:date_to AS DATE) + INTERVAL '1 day')"]
-        params = {'date_from': date_from, 'date_to': date_to}
-        days   = None
-    else:
-        days   = min(int(request.args.get('days', 30)), 365)
-        where  = ["received_at >= NOW() - INTERVAL :interval"]
-        params = {'interval': f'{days} days'}
+    # Filter by the report's actual date (result_datetime), not received_at, which is
+    # only an ingestion timestamp and can drift from when the report actually
+    # happened if a row is ever re-touched. received_at is only the fallback for
+    # the rare row missing result_datetime entirely.
+    where_clause, params, days = _date_proc_conditions(date_from, date_to, proc, alias='r')
 
     from utils.audit import log_event
     log_event('oru_accessed', category='report', resource_type='oru_analytics',
               detail={'days': days, 'proc': proc or None})
-    if proc:
-        where.append("UPPER(TRIM(procedure_code)) = UPPER(:proc)")
-        params['proc'] = proc
 
-    where_sql = ' AND '.join(where)
+    diagnoses, benign_labels, automaton, rule_version = _get_diagnoses()
 
-    # LEFT JOIN pre-computed analysis — analyzed rows skip NLP entirely
-    rows = db.session.execute(text(f"""
-        SELECT r.id AS report_id, r.procedure_code, r.procedure_name,
-               COALESCE(NULLIF(TRIM(r.modality), ''), NULLIF(TRIM(ho.modality), ''), 'UNK') AS modality,
-               r.physician_id, r.patient_id, r.accession_number,
-               r.report_text, r.impression_text, r.result_datetime, r.received_at,
-               a.affirmed_labels
-        FROM   hl7_oru_reports r
-        LEFT JOIN hl7_oru_analysis a ON a.report_id = r.id
+    # ── Aggregates over the FULL filtered range — no row materialization ─────
+    agg_row = db.session.execute(text(f"""
+        SELECT
+            COUNT(*) AS total,
+            COUNT(*) FILTER (
+                WHERE COALESCE(NULLIF(TRIM(r.impression_text), ''), r.report_text) ~* :normal_pattern
+            ) AS normal
+        FROM hl7_oru_reports r
+        WHERE {where_clause}
+    """), {**params, 'normal_pattern': _NORMAL_PATTERN}).fetchone()
+    total = agg_row.total or 0
+    normal_count = agg_row.normal or 0
+    abnormal_count = total - normal_count
+
+    modality_rows = db.session.execute(text(f"""
+        SELECT UPPER(COALESCE(NULLIF(TRIM(r.modality), ''), NULLIF(TRIM(ho.modality), ''), 'UNK')) AS modality,
+               COUNT(*) AS cnt
+        FROM hl7_oru_reports r
         LEFT JOIN LATERAL (
             SELECT modality FROM hl7_orders
             WHERE accession_number = r.accession_number
               AND modality IS NOT NULL AND TRIM(modality) != ''
             LIMIT 1
         ) ho ON true
-        WHERE  {where_sql.replace('received_at', 'r.received_at').replace('procedure_code', 'r.procedure_code')}
-        ORDER  BY r.received_at DESC
+        WHERE {where_clause}
+        GROUP BY 1
+        ORDER BY cnt DESC
+    """), params).fetchall()
+    modalities = [{'modality': row.modality, 'count': row.cnt} for row in modality_rows]
+
+    proc_rows = db.session.execute(text(f"""
+        SELECT UPPER(TRIM(r.procedure_code)) AS code,
+               COALESCE(NULLIF(TRIM(r.procedure_name), ''), TRIM(r.procedure_code), 'Unknown') AS name,
+               COUNT(*) AS cnt
+        FROM hl7_oru_reports r
+        WHERE {where_clause} AND r.procedure_code IS NOT NULL AND TRIM(r.procedure_code) != ''
+        GROUP BY 1, 2
+        ORDER BY cnt DESC
+        LIMIT 10
+    """), params).fetchall()
+    top_procs = [{'code': row.code, 'name': row.name, 'count': row.cnt} for row in proc_rows]
+
+    phys_rows = db.session.execute(text(f"""
+        SELECT TRIM(r.physician_id) AS pid, COUNT(*) AS cnt
+        FROM hl7_oru_reports r
+        WHERE {where_clause} AND r.physician_id IS NOT NULL AND TRIM(r.physician_id) != ''
+        GROUP BY 1
+        ORDER BY cnt DESC
+        LIMIT 10
+    """), params).fetchall()
+    physicians = [{'id': row.pid, 'count': row.cnt} for row in phys_rows]
+
+    # ── Diagnosis frequency (word cloud) — SQL aggregate over already-analyzed
+    # reports (hl7_oru_analysis.affirmed_labels never contains benign labels —
+    # the worker skips them on write) plus the existing rule-cache/live-fallback
+    # path, scoped ONLY to the reports neither table has analysis for yet (a
+    # backlog bounded by ingestion rate, not by how wide the date filter is).
+    analyzed_label_rows = db.session.execute(text(f"""
+        SELECT label, COUNT(DISTINCT report_id) AS cnt FROM (
+            SELECT r.id AS report_id, unnest(a.affirmed_labels) AS label
+            FROM hl7_oru_reports r
+            JOIN hl7_oru_analysis a ON a.report_id = r.id
+            WHERE {where_clause}
+        ) x
+        GROUP BY label
+    """), params).fetchall()
+    label_counts = Counter({row.label: row.cnt for row in analyzed_label_rows})
+
+    pending_rows = db.session.execute(text(f"""
+        SELECT r.id AS report_id, r.report_text, r.impression_text
+        FROM hl7_oru_reports r
+        LEFT JOIN hl7_oru_analysis a ON a.report_id = r.id
+        WHERE {where_clause} AND a.id IS NULL
     """), params).fetchall()
 
-    total        = len(rows)
-    normal_count = sum(1 for r in rows if _is_normal(r.impression_text or r.report_text))
-    abnormal_count = total - normal_count
+    if pending_rows:
+        pending_ids = [row.report_id for row in pending_rows]
+        try:
+            cached_rows = db.session.execute(text("""
+                SELECT report_id, affirmed_labels FROM hl7_oru_rule_cache
+                WHERE report_id = ANY(:ids) AND rule_version = :ver
+            """), {'ids': pending_ids, 'ver': rule_version}).fetchall()
+            cached_by_id = {row.report_id: set(row.affirmed_labels) for row in cached_rows}
+        except Exception:
+            cached_by_id = {}
 
-    # ── Build affirmed-label sets — stored analysis first, then a per-report cache
-    # of the rule-based fallback (hl7_oru_rule_cache), only falling all the way back
-    # to live computation for reports neither has yet.
-    #
-    # Why the extra cache layer: hl7_oru_analysis is written ONLY by nlp_worker.py
-    # (CLAUDE.md rule) — this route can never persist a fallback result there. Without
-    # a separate cache, every report the nlp-worker hasn't gotten to yet re-runs the
-    # full negation-aware phrase scan (~130 phrases x up to 8000 chars) on EVERY page
-    # load, for as long as the nlp-worker backlog persists. hl7_oru_rule_cache is a
-    # route-owned table, not hl7_oru_analysis, so it doesn't touch that rule — and the
-    # moment a report's real analysis lands, the first branch above already prefers
-    # it, so the cache can never go stale in a way that matters.
+        pending_affirmed = []
+        to_compute = [row for row in pending_rows if row.report_id not in cached_by_id]
+        pending_affirmed.extend(cached_by_id.values())
+
+        if to_compute:
+            try:
+                texts = [_best_text(row) for row in to_compute]
+                computed = _affirmed_phrases_batch(texts)
+            except Exception:
+                computed = None
+            if computed:
+                pending_affirmed.extend(computed)
+                try:
+                    for row, affirmed in zip(to_compute, computed):
+                        db.session.execute(text("""
+                            INSERT INTO hl7_oru_rule_cache (report_id, affirmed_labels, rule_version, computed_at)
+                            VALUES (:rid, :labels, :ver, NOW())
+                            ON CONFLICT (report_id) DO UPDATE SET
+                                affirmed_labels = EXCLUDED.affirmed_labels,
+                                rule_version    = EXCLUDED.rule_version,
+                                computed_at     = NOW()
+                        """), {"rid": row.report_id, "labels": list(affirmed), "ver": rule_version})
+                    db.session.commit()
+                except Exception:
+                    db.session.rollback()  # best-effort cache write — response is unaffected
+
+        if pending_affirmed:
+            for item in _count_diagnoses(pending_affirmed, top_n=None):
+                label_counts[item['word']] += item['count']
+
+    cloud_words = [{'word': label, 'count': cnt} for label, cnt in label_counts.most_common(top_n)]
+
+    # ── Paginated detail rows — critical findings log + report detail ────────
+    ids = _oru_report_ids(where_clause, params, limit=limit, offset=offset)
+
+    detail_rows = []
+    if ids:
+        detail_rows = db.session.execute(text("""
+            SELECT r.id AS report_id, r.procedure_code, r.procedure_name,
+                   COALESCE(NULLIF(TRIM(r.modality), ''), NULLIF(TRIM(ho.modality), ''), 'UNK') AS modality,
+                   r.physician_id,
+                   r.patient_id, r.accession_number,
+                   r.report_text, r.impression_text, r.result_datetime, r.received_at,
+                   a.affirmed_labels
+            FROM   hl7_oru_reports r
+            LEFT JOIN hl7_oru_analysis a ON a.report_id = r.id
+            LEFT JOIN LATERAL (
+                SELECT modality FROM hl7_orders
+                WHERE accession_number = r.accession_number
+                  AND modality IS NOT NULL AND TRIM(modality) != ''
+                LIMIT 1
+            ) ho ON true
+            WHERE r.id = ANY(:ids)
+            ORDER  BY r.received_at DESC
+        """), {'ids': ids}).fetchall()
+
+    # ── Build affirmed-label sets for the paginated set — stored analysis first,
+    # then the rule cache, only falling all the way back to live computation for
+    # reports neither has yet (see migration 0080 for why the cache exists).
     analyzed_affirmed = {
-        i: set(r.affirmed_labels)
-        for i, r in enumerate(rows)
-        if r.affirmed_labels is not None
+        i: set(row.affirmed_labels)
+        for i, row in enumerate(detail_rows)
+        if row.affirmed_labels is not None
     }
-    pending_indices = [i for i, r in enumerate(rows) if r.affirmed_labels is None]
+    detail_pending_indices = [i for i, row in enumerate(detail_rows) if row.affirmed_labels is None]
 
-    if pending_indices:
+    if detail_pending_indices:
         try:
             cached_rows = db.session.execute(text("""
                 SELECT report_id, affirmed_labels FROM hl7_oru_rule_cache
                 WHERE report_id = ANY(:ids) AND rule_version = :ver
             """), {
-                "ids": [rows[i].report_id for i in pending_indices],
-                "ver": _RULE_VERSION,
+                "ids": [detail_rows[i].report_id for i in detail_pending_indices],
+                "ver": rule_version,
             }).fetchall()
-            cached_by_id = {r.report_id: set(r.affirmed_labels) for r in cached_rows}
+            cached_by_id = {row.report_id: set(row.affirmed_labels) for row in cached_rows}
         except Exception:
             cached_by_id = {}
 
-        for i in pending_indices:
-            if rows[i].report_id in cached_by_id:
-                analyzed_affirmed[i] = cached_by_id[rows[i].report_id]
+        for i in detail_pending_indices:
+            if detail_rows[i].report_id in cached_by_id:
+                analyzed_affirmed[i] = cached_by_id[detail_rows[i].report_id]
 
-        to_compute = [i for i in pending_indices if rows[i].report_id not in cached_by_id]
+        to_compute = [i for i in detail_pending_indices if detail_rows[i].report_id not in cached_by_id]
         computed = None
         if to_compute:
             try:
-                texts    = [_best_text(rows[i]) for i in to_compute]
+                texts    = [_best_text(detail_rows[i]) for i in to_compute]
                 computed = _affirmed_phrases_batch(texts)
                 for i, affirmed in zip(to_compute, computed):
                     analyzed_affirmed[i] = affirmed
             except Exception:
-                computed = None  # fall back to stored/cached labels only; rest get empty affirmed set
+                computed = None
 
         if computed:
             try:
@@ -504,41 +625,20 @@ def oru_data():
                             affirmed_labels = EXCLUDED.affirmed_labels,
                             rule_version    = EXCLUDED.rule_version,
                             computed_at     = NOW()
-                    """), {"rid": rows[i].report_id, "labels": list(affirmed), "ver": _RULE_VERSION})
+                    """), {"rid": detail_rows[i].report_id, "labels": list(affirmed), "ver": rule_version})
                 db.session.commit()
             except Exception:
-                db.session.rollback()  # best-effort cache write — this request's response is unaffected
+                db.session.rollback()
 
-    all_affirmed = [analyzed_affirmed.get(i, set()) for i in range(len(rows))]
+    detail_affirmed = [analyzed_affirmed.get(i, set()) for i in range(len(detail_rows))]
 
-    # ── Diagnosis frequency (word cloud) — purely from pre-computed sets ─────
-    cloud_words = _count_diagnoses(all_affirmed, top_n=top_n)
-
-    # ── Modality breakdown ────────────────────────────────────────────────────
-    mod_counter = Counter(
-        (r.modality or 'UNK').upper().strip() for r in rows
-    )
-    modalities = [{'modality': m, 'count': c} for m, c in mod_counter.most_common()]
-
-    # ── Top procedures ────────────────────────────────────────────────────────
-    proc_counter = Counter()
-    for r in rows:
-        key = (r.procedure_code or '').upper().strip()
-        name = (r.procedure_name or r.procedure_code or 'Unknown').strip()
-        if key:
-            proc_counter[(key, name)] += 1
-    top_procs = [
-        {'code': k, 'name': n, 'count': c}
-        for (k, n), c in proc_counter.most_common(10)
-    ]
-
-    # ── Critical findings (most recent 20) ───────────────────────────────────
+    # ── Critical findings (most recent 20 within the paginated set) ─────────
     custom_kws = _get_all_critical_keywords()
     critical_log = []
-    for r, affirmed in zip(rows, all_affirmed):
+    for r, affirmed in zip(detail_rows, detail_affirmed):
         seen, hits = set(), []
-        for phrase, label in DIAGNOSES:
-            if label in _BENIGN_LABELS or label in seen:
+        for phrase, label in diagnoses:
+            if label in benign_labels or label in seen:
                 continue
             if phrase in affirmed or label in affirmed:
                 seen.add(label)
@@ -563,15 +663,6 @@ def oru_data():
             })
     critical_log = critical_log[:20]
 
-    # ── Physician activity (anonymised) ──────────────────────────────────────
-    phys_counter = Counter(
-        (r.physician_id or 'UNKNOWN').strip() for r in rows if r.physician_id
-    )
-    physicians = [
-        {'id': pid, 'count': c}
-        for pid, c in phys_counter.most_common(10)
-    ]
-
     return jsonify({
         'total':          total,
         'normal':         normal_count,
@@ -582,6 +673,9 @@ def oru_data():
         'critical_log':   critical_log,
         'physicians':     physicians,
         'days':           days,
+        'limit':          limit,
+        'offset':         offset,
+        'returned':       len(detail_rows),
     })
 
 
@@ -603,24 +697,15 @@ def oru_section_gaps():
 
     date_from = request.args.get('date_from', '').strip()
     date_to   = request.args.get('date_to', '').strip()
-    if date_from and date_to:
-        where  = ["received_at BETWEEN :date_from AND (CAST(:date_to AS DATE) + INTERVAL '1 day')"]
-        params = {'date_from': date_from, 'date_to': date_to}
-        days   = None
-    else:
-        days   = min(int(request.args.get('days', 30)), 365)
-        where  = ["received_at >= NOW() - INTERVAL :interval"]
-        params = {'interval': f'{days} days'}
-    if proc:
-        where.append("UPPER(TRIM(procedure_code)) = UPPER(:proc)")
-        params['proc'] = proc
+    # See oru_data()'s comment: filter by result_datetime, the report's real date.
+    where_clause, params, days = _date_proc_conditions(date_from, date_to, proc, alias='hl7_oru_reports')
 
     rows = db.session.execute(text(
         f"""SELECT physician_id, procedure_code, procedure_name,
                    report_text, impression_text,
                    to_char(received_at, 'YYYY-MM-DD HH24:MI') AS received_at
-            FROM hl7_oru_reports WHERE {' AND '.join(where)}
-            ORDER BY received_at DESC"""
+            FROM hl7_oru_reports WHERE {where_clause}
+            ORDER BY COALESCE(result_datetime, received_at) DESC"""
     ), params).fetchall()
 
     total = len(rows)
@@ -675,19 +760,11 @@ def oru_sections():
 
     date_from = request.args.get('date_from', '').strip()
     date_to   = request.args.get('date_to', '').strip()
-    if date_from and date_to:
-        where  = ["received_at BETWEEN :date_from AND (CAST(:date_to AS DATE) + INTERVAL '1 day')"]
-        params = {'date_from': date_from, 'date_to': date_to}
-    else:
-        days   = min(int(request.args.get('days', 30)), 365)
-        where  = ["received_at >= NOW() - INTERVAL :interval"]
-        params = {'interval': f'{days} days'}
-    if proc:
-        where.append("UPPER(TRIM(procedure_code)) = UPPER(:proc)")
-        params['proc'] = proc
+    # See oru_data()'s comment: filter by result_datetime, not received_at.
+    where_clause, params, _days = _date_proc_conditions(date_from, date_to, proc, alias='hl7_oru_reports')
 
     rows = db.session.execute(text(
-        f"SELECT report_text, impression_text FROM hl7_oru_reports WHERE {' AND '.join(where)}"
+        f"SELECT report_text, impression_text FROM hl7_oru_reports WHERE {where_clause}"
     ), params).fetchall()
 
     tech_counter   = Counter()
@@ -731,7 +808,11 @@ def nlp_status():
     })
 
 
-# ── NLP processing (on-demand, triggered by user) ─────────────────────────────
+# ── NLP processing (on-demand, triggered by user, runs in the background) ─────
+# The route only enqueues a job; nlp_worker/worker.py (the rayd_nlp container,
+# already polling every 60s for medspaCy analysis) picks up pending rows and
+# runs the actual TF-IDF/K-means clustering, so this request thread is never
+# blocked on it.
 
 @oru_bp.route('/nlp/process', methods=['POST'])
 @login_required
@@ -740,85 +821,41 @@ def nlp_process():
         from flask import abort
         abort(403)
 
-    data = request.get_json(force=True)
+    data = request.get_json(force=True) or {}
     days = min(int(data.get('days', 90)), 365)
 
-    # Fetch unprocessed reports only
-    rows = db.session.execute(text("""
-        SELECT o.id, o.report_text, o.impression_text
-        FROM hl7_oru_reports o
-        LEFT JOIN ai_nlp_cache c ON c.source_id = o.id
-        WHERE c.id IS NULL
-          AND o.received_at >= NOW() - INTERVAL :interval
-          AND o.report_text IS NOT NULL
-          AND TRIM(o.report_text) != ''
-        ORDER BY o.received_at DESC
-        LIMIT 500
-    """), {'interval': f'{days} days'}).fetchall()
-
-    if not rows:
-        return jsonify({'processed': 0, 'message': 'Nothing new to process.'})
-
-    records = [{'id': r.id, 'report_text': r.report_text, 'impression_text': r.impression_text}
-               for r in rows]
-
-    try:
-        from nlp_processor import process_reports
-        results, cluster_labels = process_reports(records)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-    # Persist cluster labels (store in settings table for display)
-    try:
-        labels_json = json.dumps(cluster_labels)
-        exists = db.session.execute(
-            text("SELECT 1 FROM settings WHERE key = 'nlp_cluster_labels'")
-        ).fetchone()
-        if exists:
-            db.session.execute(
-                text("UPDATE settings SET value = :v WHERE key = 'nlp_cluster_labels'"),
-                {'v': labels_json}
-            )
-        else:
-            db.session.execute(
-                text("INSERT INTO settings (key, value) VALUES ('nlp_cluster_labels', :v)"),
-                {'v': labels_json}
-            )
-    except Exception:
-        pass  # non-fatal
-
-    # Upsert NLP results
-    saved = 0
-    for res in results:
-        try:
-            db.session.execute(text("""
-                INSERT INTO ai_nlp_cache
-                    (source_id, classification, keywords, cluster_id, severity_score, processed_at)
-                VALUES
-                    (:sid, :cls, :kws::jsonb, :cid, :sev, NOW())
-                ON CONFLICT (source_id) DO UPDATE SET
-                    classification = EXCLUDED.classification,
-                    keywords       = EXCLUDED.keywords,
-                    cluster_id     = EXCLUDED.cluster_id,
-                    severity_score = EXCLUDED.severity_score,
-                    processed_at   = NOW()
-            """), {
-                'sid': res['id'],
-                'cls': res['classification'],
-                'kws': json.dumps(res['keywords']),
-                'cid': res['cluster_id'],
-                'sev': res['severity_score'],
-            })
-            saved += 1
-        except Exception:
-            db.session.rollback()
-            continue
-
+    row = db.session.execute(text("""
+        INSERT INTO oru_nlp_jobs (status, days, requested_by)
+        VALUES ('pending', :days, :uid)
+        RETURNING id
+    """), {'days': days, 'uid': current_user.id}).fetchone()
     db.session.commit()
+
+    return jsonify({'job_id': row.id, 'status': 'pending'}), 202
+
+
+@oru_bp.route('/nlp/job/<int:job_id>')
+@login_required
+def nlp_job_status(job_id):
+    if current_user.role != 'admin':
+        from flask import abort
+        abort(403)
+
+    row = db.session.execute(text("""
+        SELECT id, status, processed_count, cluster_count, message, error_message, finished_at
+        FROM oru_nlp_jobs WHERE id = :id
+    """), {'id': job_id}).fetchone()
+    if not row:
+        abort(404)
+
     return jsonify({
-        'processed':      saved,
-        'cluster_labels': cluster_labels,
-        'message':        f'Processed {saved} reports into {len(cluster_labels)} clusters.',
+        'job_id':          row.id,
+        'status':          row.status,
+        'processed_count': row.processed_count,
+        'cluster_count':   row.cluster_count,
+        'message':         row.message,
+        'error_message':   row.error_message,
+        'finished_at':     row.finished_at.strftime('%Y-%m-%d %H:%M:%S') if row.finished_at else None,
     })
 
 
@@ -831,19 +868,8 @@ def nlp_results():
 
     date_from = request.args.get('date_from', '').strip()
     date_to   = request.args.get('date_to', '').strip()
-    if date_from and date_to:
-        date_clause = "o.received_at BETWEEN :date_from AND (CAST(:date_to AS DATE) + INTERVAL '1 day')"
-        date_params = {'date_from': date_from, 'date_to': date_to}
-    else:
-        days = min(int(request.args.get('days', 90)), 365)
-        date_clause = "o.received_at >= NOW() - INTERVAL :interval"
-        date_params = {'interval': f'{days} days'}
-
-    where_extra = ''
-    params = dict(date_params)
-    if proc:
-        where_extra = "AND UPPER(TRIM(o.procedure_code)) = UPPER(:proc)"
-        params['proc'] = proc
+    # See oru_data()'s comment: filter by result_datetime, not received_at.
+    where_clause, params, _days = _date_proc_conditions(date_from, date_to, proc, alias='o', days_default=90)
 
     rows = db.session.execute(text(f"""
         SELECT
@@ -858,8 +884,7 @@ def nlp_results():
             o.physician_id
         FROM ai_nlp_cache c
         JOIN hl7_oru_reports o ON o.id = c.source_id
-        WHERE {date_clause}
-          {where_extra}
+        WHERE {where_clause}
     """), params).fetchall()
 
     if not rows:
@@ -868,22 +893,18 @@ def nlp_results():
     # Classification distribution
     cls_counter = Counter(r.classification for r in rows)
 
-    # Cluster distribution with labels
+    # Cluster distribution with labels — cluster_label is now written directly
+    # onto each ai_nlp_cache row by the worker (migration 0104 / item 9), so no
+    # more matching a settings-blob array back to a cluster_id by index.
     cluster_rows = db.session.execute(text(f"""
         SELECT c.cluster_id, c.cluster_label, COUNT(*) AS cnt,
                ROUND(AVG(c.severity_score)::numeric, 2) AS avg_sev
         FROM ai_nlp_cache c
         JOIN hl7_oru_reports o ON o.id = c.source_id
-        WHERE {date_clause}
+        WHERE {where_clause}
         GROUP BY c.cluster_id, c.cluster_label
         ORDER BY cnt DESC
-    """), date_params).fetchall()
-
-    # Load cluster labels from settings (set during last processing run)
-    labels_row = db.session.execute(
-        text("SELECT value FROM settings WHERE key = 'nlp_cluster_labels'")
-    ).fetchone()
-    stored_labels = json.loads(labels_row.value) if labels_row else []
+    """), params).fetchall()
 
     # Top keywords across all reports (from NLP extraction)
     kw_counter = Counter()
@@ -918,7 +939,7 @@ def nlp_results():
         'clusters': [
             {
                 'id':      r.cluster_id,
-                'label':   r.cluster_label or (stored_labels[r.cluster_id] if r.cluster_id is not None and r.cluster_id < len(stored_labels) else f'Cluster {r.cluster_id}'),
+                'label':   r.cluster_label or f'Cluster {r.cluster_id}',
                 'count':   r.cnt,
                 'avg_sev': float(r.avg_sev or 0),
             }
@@ -1066,3 +1087,68 @@ def keyword_suggestions():
         if c >= 3
     ]
     return jsonify({'suggestions': suggestions})
+
+
+# ── Diagnosis vocabulary management (admin) ─────────────────────────────────────
+# phrase -> canonical label mapping used by the word cloud / critical findings
+# log, DB-configurable since migration 0103 instead of a hardcoded constant.
+
+@oru_bp.route('/diagnosis-vocabulary')
+@login_required
+def get_diagnosis_vocabulary():
+    if current_user.role != 'admin':
+        abort(403)
+    rows = db.session.execute(text("""
+        SELECT id, phrase, canonical_label, is_benign, active
+        FROM oru_diagnosis_vocabulary
+        ORDER BY canonical_label, phrase
+    """)).fetchall()
+    return jsonify({'vocabulary': [
+        {'id': r.id, 'phrase': r.phrase, 'canonical_label': r.canonical_label,
+         'is_benign': r.is_benign, 'active': r.active}
+        for r in rows
+    ]})
+
+
+@oru_bp.route('/diagnosis-vocabulary', methods=['POST'])
+@login_required
+def add_diagnosis_vocabulary():
+    if current_user.role != 'admin':
+        abort(403)
+    data = request.get_json(silent=True) or {}
+    phrase = (data.get('phrase') or '').strip().lower()
+    label  = (data.get('canonical_label') or '').strip()
+    is_benign = bool(data.get('is_benign', False))
+    if not phrase or len(phrase) > 200 or not label or len(label) > 100:
+        return jsonify({'error': 'phrase and canonical_label are required'}), 400
+    try:
+        db.session.execute(text("""
+            INSERT INTO oru_diagnosis_vocabulary (phrase, canonical_label, is_benign)
+            VALUES (:phrase, :label, :benign)
+            ON CONFLICT (phrase) DO UPDATE SET
+                canonical_label = EXCLUDED.canonical_label,
+                is_benign       = EXCLUDED.is_benign,
+                active          = TRUE,
+                updated_at      = NOW()
+        """), {'phrase': phrase, 'label': label, 'benign': is_benign})
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+    _invalidate_diagnoses_cache()
+    return jsonify({'ok': True, 'phrase': phrase, 'canonical_label': label})
+
+
+@oru_bp.route('/diagnosis-vocabulary/<int:vocab_id>', methods=['DELETE'])
+@login_required
+def delete_diagnosis_vocabulary(vocab_id):
+    if current_user.role != 'admin':
+        abort(403)
+    try:
+        db.session.execute(text("DELETE FROM oru_diagnosis_vocabulary WHERE id = :id"), {'id': vocab_id})
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+    _invalidate_diagnoses_cache()
+    return jsonify({'ok': True})
