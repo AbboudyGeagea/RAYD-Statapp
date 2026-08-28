@@ -109,9 +109,12 @@ def report_22():
                 s.patient_class,
                 s.age_at_exam,
                 COALESCE(NULLIF(TRIM(CONCAT_WS(' ', s.referring_physician_first_name, s.referring_physician_last_name)), ''), 'Unknown') as physician,
-                s.patient_location, p.fallback_id as patient_id
+                s.patient_location, p.fallback_id as patient_id,
+                COALESCE(NULLIF(TRIM(m.station_name),''), s.storing_ae) as ae_station_name,
+                COALESCE(NULLIF(TRIM(pm.procedure_name),''), s.procedure_code) as proc_display_name
             FROM etl_didb_studies s
             LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
+            LEFT JOIN procedure_duration_map pm ON UPPER(TRIM(s.procedure_code)) = UPPER(TRIM(pm.procedure_code))
             LEFT JOIN etl_patient_view p ON p.patient_db_uid::TEXT = s.patient_db_uid::TEXT
             WHERE COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
         """ + site_clause
@@ -247,7 +250,7 @@ def report_22():
         res_proc_age = db.session.execute(text(f"""
             {cte}
             SELECT
-                procedure_code,
+                proc_display_name,
                 ROUND(AVG(age_at_exam)::numeric, 1)                                           AS avg_age,
                 ROUND(MIN(age_at_exam)::numeric, 1)                                           AS min_age,
                 ROUND(MAX(age_at_exam)::numeric, 1)                                           AS max_age,
@@ -346,7 +349,7 @@ def report_22():
             age_map[age] = age_map.get(age, 0) + count
 
         # 4. Tree Flow Logic
-        res_flow = db.session.execute(text(f"{cte} SELECT COALESCE(modality, 'UNMAPPED'), COALESCE(storing_ae, 'Unknown AE'), COALESCE(study_description, 'No Description'), COUNT(*) FROM base_data {where} GROUP BY 1, 2, 3"), params).fetchall()
+        res_flow = db.session.execute(text(f"{cte} SELECT COALESCE(modality, 'UNMAPPED'), COALESCE(ae_station_name, 'Unknown AE'), COALESCE(study_description, 'No Description'), COUNT(*) FROM base_data {where} GROUP BY 1, 2, 3"), params).fetchall()
 
         total_vol = 0
         mod_map = {}
@@ -465,18 +468,21 @@ def status_drilldown_22():
                 COALESCE(s.procedure_code, 'N/A') AS procedure_code,
                 COALESCE(s.study_description, '') AS description,
                 COALESCE(s.storing_ae, 'N/A') AS ae,
+                COALESCE(NULLIF(TRIM(m.station_name),''), s.storing_ae, 'N/A') AS ae_station_name,
+                COALESCE(NULLIF(TRIM(pm.procedure_name),''), s.procedure_code, 'N/A') AS proc_display_name,
                 s.study_status, s.patient_class, p.sex,
                 COALESCE(NULLIF(TRIM(CONCAT_WS(' ',
                     s.referring_physician_first_name,
                     s.referring_physician_last_name)), ''), 'Unknown') AS physician
             FROM etl_didb_studies s
             LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
+            LEFT JOIN procedure_duration_map pm ON UPPER(TRIM(s.procedure_code)) = UPPER(TRIM(pm.procedure_code))
             LEFT JOIN etl_patient_view p ON p.patient_db_uid::TEXT = s.patient_db_uid::TEXT
             WHERE COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
               {site_clause}
         )
         SELECT study_db_uid, patient_id, study_date, modality,
-               procedure_code, description, ae, physician
+               procedure_code, description, ae, physician, ae_station_name, proc_display_name
         FROM base_data {where}
           AND UPPER(study_status) = UPPER(:status)
         ORDER BY study_date DESC
@@ -492,10 +498,11 @@ def status_drilldown_22():
         def generate():
             out = io.StringIO()
             w = csv.writer(out)
-            w.writerow(["Study UID", "Patient ID", "Date", "Modality", "Procedure", "Description", "AE", "Physician"])
+            w.writerow(["Study UID", "Patient ID", "Date", "Modality", "Procedure", "Procedure Description",
+                        "Description", "AE", "Station Name", "Physician"])
             yield out.getvalue(); out.seek(0); out.truncate(0)
             for r in rows:
-                w.writerow(r)
+                w.writerow([r[0], r[1], r[2], r[3], r[4], r[9], r[5], r[6], r[8], r[7]])
                 yield out.getvalue(); out.seek(0); out.truncate(0)
         filename = f"{status}_studies_{params['start']}_to_{params['end']}.csv"
         return Response(generate(), mimetype="text/csv",
@@ -503,7 +510,8 @@ def status_drilldown_22():
 
     studies = [
         {"uid": r[0], "patient_id": r[1], "date": str(r[2]), "modality": r[3],
-         "procedure": r[4], "description": r[5], "ae": r[6], "physician": r[7]}
+         "procedure": r[4], "description": r[5], "ae": r[6], "physician": r[7],
+         "station_name": r[8], "procedure_display": r[9]}
         for r in rows
     ]
     return jsonify({"status": status, "count": len(studies), "studies": studies})

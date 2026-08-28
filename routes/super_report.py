@@ -20,6 +20,7 @@ from routes.insights_engine import run_dept_insights
 from routes.report_cache import cache_get, cache_put
 from utils.stats import _pct, _fmt
 from utils.site_resolver import default_site
+from utils.radiologist_resolve import rad_alias_join_sql, rad_display_sql, rad_ok_sql
 
 logger = logging.getLogger("SUPER_REPORT")
 super_report_bp = Blueprint("super_report", __name__)
@@ -202,6 +203,12 @@ def super_report_filters():
             "protocol_name":       distinct("SELECT DISTINCT protocol_name FROM etl_didb_serieses WHERE protocol_name IS NOT NULL LIMIT 100"),
             "ae_modality_map":     dict(db.session.execute(text(
                 "SELECT aetitle, modality FROM aetitle_modality_map WHERE aetitle IS NOT NULL AND modality IS NOT NULL"
+            )).fetchall()),
+            "ae_station_map":      dict(db.session.execute(text(
+                "SELECT aetitle, station_name FROM aetitle_modality_map WHERE aetitle IS NOT NULL AND station_name IS NOT NULL AND TRIM(station_name) != ''"
+            )).fetchall()),
+            "procedure_name_map":  dict(db.session.execute(text(
+                "SELECT procedure_code, procedure_name FROM procedure_duration_map WHERE procedure_code IS NOT NULL AND procedure_name IS NOT NULL AND TRIM(procedure_name) != ''"
             )).fetchall()),
         }
         cache_put("super_report_filters", {}, data)
@@ -476,10 +483,10 @@ def _collect_data(start, end, filters, rh_site_id=None):
 
     # Busiest AE title by study count in period
     ae_busy_row = db.session.execute(text(f"""
-        SELECT s.storing_ae AS aetitle, COUNT(*) AS cnt
+        SELECT s.storing_ae AS aetitle, m.station_name AS station_name, COUNT(*) AS cnt
         FROM etl_didb_studies s {mj} {pj}
         WHERE {where} AND s.storing_ae IS NOT NULL
-        GROUP BY s.storing_ae ORDER BY cnt DESC LIMIT 1
+        GROUP BY s.storing_ae, m.station_name ORDER BY cnt DESC LIMIT 1
     """), params).mappings().fetchone()
 
     # Most idle configured AE (fewest studies in period — includes 0-study AEs)
@@ -488,7 +495,7 @@ def _collect_data(start, end, filters, rh_site_id=None):
     if rh_site_id is not None:
         _idle_params["rh_site_id"] = rh_site_id
     ae_idle_row = db.session.execute(text(f"""
-        SELECT am.aetitle, COALESCE(sub.cnt, 0) AS cnt
+        SELECT am.aetitle, am.station_name AS station_name, COALESCE(sub.cnt, 0) AS cnt
         FROM aetitle_modality_map am
         LEFT JOIN (
             SELECT storing_ae, COUNT(*) AS cnt
@@ -586,14 +593,10 @@ def _collect_data(start, end, filters, rh_site_id=None):
     _RAD_BASE_SR = ("COALESCE(NULLIF(TRIM(CONCAT(s.signing_physician_first_name,' ',"
                     "s.signing_physician_last_name)),''),s.rep_study_last_composed_by,"
                     "s.rep_final_signed_by)")
-    _PAM_SR = ("LEFT JOIN physician_alias_map pam "
-               "ON pam.dismissed = false "
-               "AND pam.alias = COALESCE(NULLIF(TRIM(CONCAT(s.signing_physician_first_name,' ',"
-               "s.signing_physician_last_name)),''),s.rep_study_last_composed_by,"
-               "s.rep_final_signed_by)")
-    _RAD = f"COALESCE(pam.canonical_name, {_RAD_BASE_SR})"
-    _RAD_OK = (f"{_RAD_BASE_SR} IS NOT NULL AND {_RAD} NOT IN ('','Unknown')"
-               f" AND COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) IS NOT NULL")
+    _PAM_SR = rad_alias_join_sql(_RAD_BASE_SR)
+    _RAD = rad_display_sql(_RAD_BASE_SR)
+    _RAD_OK = rad_ok_sql(_RAD_BASE_SR,
+                          ts_expr="COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp)")
 
     rad_mod_rows = db.session.execute(text(f"""
         SELECT {_RAD} AS radiologist,
@@ -606,7 +609,7 @@ def _collect_data(start, end, filters, rh_site_id=None):
 
     rad_ae_rows = db.session.execute(text(f"""
         SELECT {_RAD} AS radiologist,
-               COALESCE(s.storing_ae, 'Unknown') AS dim,
+               COALESCE(NULLIF(TRIM(m.station_name),''), s.storing_ae, 'Unknown') AS dim,
                COUNT(DISTINCT s.study_db_uid) AS cnt
         FROM etl_didb_studies s {mj} {pj} {_PAM_SR}
         WHERE {where} AND {_RAD_OK}
@@ -622,9 +625,10 @@ def _collect_data(start, end, filters, rh_site_id=None):
             GROUP BY 1 ORDER BY COUNT(DISTINCT s.study_db_uid) DESC LIMIT 60
         )
         SELECT {_RAD} AS radiologist,
-               s.procedure_code AS proc,
+               COALESCE(NULLIF(TRIM(pm.procedure_name),''), s.procedure_code) AS proc,
                COUNT(DISTINCT s.study_db_uid) AS cnt
         FROM etl_didb_studies s {mj} {pj} {_PAM_SR}
+        LEFT JOIN procedure_duration_map pm ON UPPER(TRIM(s.procedure_code)) = UPPER(TRIM(pm.procedure_code))
         JOIN top_procs tp ON tp.procedure_code = s.procedure_code
         WHERE {where} AND {_RAD_OK}
         GROUP BY 1, 2 ORDER BY 2, 3 DESC
@@ -652,9 +656,9 @@ def _collect_data(start, end, filters, rh_site_id=None):
         "physicians":    [dict(r) for r in physicians],
         "demographics":  {**dict(demo), "pc_breakdown": [dict(r) for r in pc_breakdown]},
         "ae_ops": {
-            "busiest_ae":  ae_busy_row["aetitle"] if ae_busy_row else None,
+            "busiest_ae":  (ae_busy_row["station_name"] or ae_busy_row["aetitle"]) if ae_busy_row else None,
             "busiest_cnt": int(ae_busy_row["cnt"] or 0) if ae_busy_row else 0,
-            "idle_ae":     ae_idle_row["aetitle"] if ae_idle_row else None,
+            "idle_ae":     (ae_idle_row["station_name"] or ae_idle_row["aetitle"]) if ae_idle_row else None,
             "idle_cnt":    int(ae_idle_row["cnt"] or 0) if ae_idle_row else 0,
             "er_delayed":  er_delayed,
         },

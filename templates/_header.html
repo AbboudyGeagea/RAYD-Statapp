@@ -135,6 +135,8 @@ document.addEventListener('DOMContentLoaded', function () {
     fetch('/api/filter-options')
         .then(r => r.json())
         .then(opts => {
+            const aetitleLabels = opts.aetitle_labels || {};
+
             selects.forEach(sel => {
                 const key      = sel.dataset.filterKey;
                 const values   = opts[key] || [];
@@ -144,7 +146,10 @@ document.addEventListener('DOMContentLoaded', function () {
                 values.forEach(v => {
                     if (current.includes(v)) return;
                     const o = document.createElement('option');
-                    o.value = v; o.textContent = v;
+                    o.value = v;
+                    // AE title dropdowns: show the RIS station/room name when known,
+                    // falling back to the raw code (filter value is always the code).
+                    o.textContent = (key === 'aetitles' && aetitleLabels[v]) ? `${aetitleLabels[v]} (${v})` : v;
                     sel.appendChild(o);
                 });
 

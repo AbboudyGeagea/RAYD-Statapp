@@ -137,8 +137,8 @@ _FILTER_TTL = 300  # seconds
 
 def get_filter_options(db) -> dict:
     """
-    Return {classes, locations, modalities, aetitles, statuses, sex_values}
-    from cache, re-querying only when the TTL has expired.
+    Return {classes, locations, modalities, aetitles, statuses, sex_values,
+    aetitle_labels} from cache, re-querying only when the TTL has expired.
     Each field is fetched independently so one failure never blanks the rest.
     """
     from sqlalchemy import text
@@ -149,7 +149,8 @@ def get_filter_options(db) -> dict:
     if entry and (time.time() - entry["ts"]) < _FILTER_TTL:
         return entry["data"]
 
-    data = {"classes": [], "locations": [], "statuses": [], "aetitles": [], "modalities": [], "sex_values": []}
+    data = {"classes": [], "locations": [], "statuses": [], "aetitles": [], "modalities": [],
+            "sex_values": [], "aetitle_labels": {}}
 
     # NOTE: values are TRIM'd (and deduped post-TRIM) so what's offered in the
     # dropdown exactly matches what report filters search for. Report filter
@@ -175,6 +176,20 @@ def get_filter_options(db) -> dict:
         except Exception as exc:
             logger.error("filter_options[%s] failed: %s", key, exc)
             db.session.rollback()
+
+    # AE title -> RIS station/room name, for dropdowns to show a friendlier label
+    # while still filtering on the raw aetitle value (additive -- doesn't touch
+    # the "aetitles" array above, so any other unaudited consumer of that shape
+    # is unaffected).
+    try:
+        rows = db.session.execute(text(
+            "SELECT aetitle, station_name FROM aetitle_modality_map "
+            "WHERE aetitle IS NOT NULL AND station_name IS NOT NULL AND TRIM(station_name) != ''"
+        )).fetchall()
+        data["aetitle_labels"] = {r[0]: r[1] for r in rows}
+    except Exception as exc:
+        logger.error("filter_options[aetitle_labels] failed: %s", exc)
+        db.session.rollback()
 
     with _lock:
         _store[_FILTER_KEY] = {"data": data, "ts": time.time()}

@@ -519,18 +519,28 @@
     }
 
     function renderMultiFilters(data) {
-        const aeMap = data.ae_modality_map || {};
+        const aeMap      = data.ae_modality_map    || {};
+        const stationMap = data.ae_station_map     || {};
+        const procMap    = data.procedure_name_map || {};
         MULTI_FILTERS.forEach(fc => {
             const container = document.getElementById(`group-${fc.group}`);
             const vals = data[fc.key] || [];
             if (!container || !vals.length) return;
-            const isAE = fc.key === 'storing_ae';
+            const isAE   = fc.key === 'storing_ae';
+            const isProc = fc.key === 'procedure_code';
             const div = document.createElement('div');
             div.innerHTML = `
                 <span class="f-label">${fc.label}</span>
                 <select multiple id="f-${fc.key}" class="f-multi">
                     ${vals.map(v => {
-                        const label = isAE && aeMap[v] ? `${escHtml(v)} (${escHtml(aeMap[v])})` : escHtml(v);
+                        let label = escHtml(v);
+                        if (isAE) {
+                            label = stationMap[v] ? `${escHtml(stationMap[v])} (${escHtml(v)})`
+                                  : aeMap[v]        ? `${escHtml(v)} (${escHtml(aeMap[v])})`
+                                  : label;
+                        } else if (isProc && procMap[v]) {
+                            label = `${escHtml(procMap[v])} (${escHtml(v)})`;
+                        }
                         return `<option value="${escHtml(v)}">${label}</option>`;
                     }).join('')}
                 </select>

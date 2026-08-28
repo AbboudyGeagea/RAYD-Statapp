@@ -31,6 +31,7 @@ from db import db, get_etl_cutoff_date
 from routes.report_cache import cache_get, cache_put
 from utils.site_resolver import default_site
 from utils.report_filters import sidebar_filters as _sidebar_filters
+from utils.radiologist_resolve import rad_alias_join_sql, rad_display_sql
 
 logger = logging.getLogger("report_25")
 
@@ -335,6 +336,13 @@ def get_gold_standard_data(form_data):
     under_utilized = 0
     total_active_mins = df.loc[df['proc_duration'] > 0, 'proc_duration'].sum()
 
+    # aetitle -> resolved RIS station/room name (falls back to the raw AE title when the
+    # migration adding aetitle_display hasn't run yet, e.g. a non-LAUMC install).
+    ae_display_map = (
+        df.drop_duplicates('aetitle').set_index('aetitle')['aetitle_display'].to_dict()
+        if 'aetitle_display' in df.columns else {}
+    )
+
     if 'aetitle' in df.columns:
         date_range = pd.date_range(start, end)
         weekday_counts = date_range.dayofweek.value_counts().to_dict()
@@ -411,7 +419,8 @@ def get_gold_standard_data(form_data):
                 under_utilized += 1
 
             matrix_rows.append({
-                "ae": ae, "days": days_util, "avg": ae_avg,
+                "ae": ae, "ae_display": ae_display_map.get(ae, ae),
+                "days": days_util, "avg": ae_avg,
                 "total_rvu": round(ae_df['technical_rvu'].sum(), 1),
                 "total_cap": ae_total_cap,
             })
@@ -521,13 +530,16 @@ def get_gold_standard_data(form_data):
         if 'aetitle' in df.columns:
             ae_g = df[df['total_tat_min'] > 0].groupby('aetitle')['total_tat_min'].agg(['mean', 'count']).reset_index()
             ae_g = ae_g[ae_g['count'] >= 5].sort_values('mean')
-            ae_tat = [{'ae': r['aetitle'], 'avg_tat': round(float(r['mean']), 1), 'cnt': int(r['count'])} for _, r in ae_g.iterrows()]
+            ae_tat = [{'ae': r['aetitle'], 'ae_display': ae_display_map.get(r['aetitle'], r['aetitle']),
+                       'avg_tat': round(float(r['mean']), 1), 'cnt': int(r['count'])} for _, r in ae_g.iterrows()]
 
         # IQR-based outlier threshold (robust to skew, unlike mean*2)
         q1_tat, q3_tat = tat_vals.quantile(0.25), tat_vals.quantile(0.75)
         iqr_tat = q3_tat - q1_tat
         threshold = q3_tat + 1.5 * iqr_tat
-        out_cols = [c for c in ['aetitle', 'modality', 'reading_radiologist', 'patient_class', 'procedure_code', 'study_date', 'total_tat_min'] if c in df.columns]
+        out_cols = [c for c in ['aetitle', 'aetitle_display', 'modality', 'reading_radiologist',
+                                 'patient_class', 'procedure_code', 'procedure_display',
+                                 'study_date', 'total_tat_min'] if c in df.columns]
         out_df = df[df['total_tat_min'] > threshold][out_cols].sort_values('total_tat_min', ascending=False).head(50)
         for row in out_df.to_dict('records'):
             if 'study_date' in row and hasattr(row['study_date'], 'strftime'):
@@ -703,10 +715,10 @@ def get_gold_standard_data(form_data):
 
         rad_volume_matrix["by_aetitle"] = [dict(r) for r in db.session.execute(text(f"""
             SELECT {_RAD25} AS radiologist,
-                   COALESCE(s.storing_ae, 'Unknown') AS dim,
+                   COALESCE(NULLIF(TRIM(m.station_name),''), s.storing_ae, 'Unknown') AS dim,
                    COUNT(DISTINCT s.study_db_uid) AS cnt
             FROM etl_didb_studies s
-            {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
+            {_MJ25}
             {_PAM25}
             WHERE s.study_date BETWEEN :start AND :end
               AND COALESCE(s.study_modality, '') != 'SR'
@@ -726,10 +738,11 @@ def get_gold_standard_data(form_data):
                 GROUP BY 1 ORDER BY COUNT(DISTINCT s.study_db_uid) DESC LIMIT 60
             )
             SELECT {_RAD25} AS radiologist,
-                   s.procedure_code AS proc,
+                   COALESCE(NULLIF(TRIM(pm.procedure_name),''), s.procedure_code) AS proc,
                    COUNT(DISTINCT s.study_db_uid) AS cnt
             FROM etl_didb_studies s
             {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
+            LEFT JOIN procedure_duration_map pm ON UPPER(TRIM(s.procedure_code)) = UPPER(TRIM(pm.procedure_code))
             {_PAM25}
             JOIN top_procs tp ON tp.procedure_code = s.procedure_code
             WHERE s.study_date BETWEEN :start AND :end
@@ -882,11 +895,11 @@ def report_25():
     # the entire page load.
     classes = locations = modalities = aetitles = []
     
-    tree_raw = db.session.execute(text("SELECT modality, aetitle FROM aetitle_modality_map")).all()
+    tree_raw = db.session.execute(text("SELECT modality, aetitle, station_name FROM aetitle_modality_map")).all()
     tree_dict = {}
-    for mod, ae in tree_raw:
+    for mod, ae, station_name in tree_raw:
         if mod not in tree_dict: tree_dict[mod] = []
-        tree_dict[mod].append({"name": ae})
+        tree_dict[mod].append({"name": (station_name or '').strip() or ae})
     tree_json = json.dumps({"name": "FLEET", "children": [{"name": k, "children": v} for k, v in tree_dict.items()]})
 
     shift_config = _load_shift_config()
@@ -1100,7 +1113,16 @@ def patient_journey_api():
         # s.rep_final_timestamp, which is mostly NULL for recent studies on
         # this PACS install -- so "Final Report Signed" was silently missing
         # from most journeys even for studies that really were reported.
-        study_rows = db.session.execute(text("""
+        # final_by has no physician_alias_map resolution -- wrap it the same way
+        # er_dashboard.py's radiologist column does, rather than leaving it a raw
+        # RIS composed-by/PACS-signed-by/HL7 code when the signing_physician_*
+        # name fields are empty.
+        _final_by_base = ("COALESCE(s.rep_study_last_composed_by, s.rep_final_signed_by, "
+                           "o.physician_id)")
+        _final_by_join = rad_alias_join_sql(_final_by_base)
+        _final_by_display = rad_display_sql(_final_by_base)
+
+        study_rows = db.session.execute(text(f"""
             SELECT DISTINCT ON (s.accession_number)
                 s.accession_number,
                 s.study_db_uid,
@@ -1114,7 +1136,8 @@ def patient_journey_api():
                 s.rep_prelim_timestamp,
                 s.rep_transcribed_timestamp,
                 COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp, o.result_datetime) AS final_ts,
-                COALESCE(s.rep_study_last_composed_by, s.rep_final_signed_by, o.physician_id)     AS final_by,
+                {_final_by_base}     AS final_by,
+                {_final_by_display}  AS final_by_display,
                 NULLIF(TRIM(CONCAT(
                     COALESCE(s.signing_physician_first_name,''), ' ',
                     COALESCE(s.signing_physician_last_name,'')
@@ -1124,6 +1147,7 @@ def patient_journey_api():
                 ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
             LEFT JOIN hl7_oru_reports o
                 ON o.accession_number = s.accession_number
+            {_final_by_join}
             WHERE s.accession_number = ANY(:accns)
         """), {'accns': accn_list}).mappings().fetchall()
         studies_map = {r['accession_number']: dict(r) for r in study_rows}
@@ -1221,7 +1245,7 @@ def patient_journey_api():
             _ev(events, study.get('rep_prelim_timestamp'),      'prelim',      'Preliminary Report', '')
             _ev(events, study.get('rep_transcribed_timestamp'), 'transcribed', 'Transcribed', '')
             _ev(events, study.get('final_ts'),                  'final',       'Final Report Signed',
-                '', study.get('radiologist') or study.get('final_by'))
+                '', study.get('radiologist') or study.get('final_by_display') or study.get('final_by'))
 
             events.sort(key=lambda x: x['ts'])
             for i in range(1, len(events)):

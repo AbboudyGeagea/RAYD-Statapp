@@ -481,15 +481,26 @@ def oru_data():
     """), params).fetchall()
     top_procs = [{'code': row.code, 'name': row.name, 'count': row.cnt} for row in proc_rows]
 
+    # physician_id is an email-shaped code -- resolved to a display name via
+    # std_resources_ris, same LATERAL-join pattern as the Critical Findings Log's
+    # "Reporter" column below. Falls back to the raw id when unmatched.
     phys_rows = db.session.execute(text(f"""
-        SELECT TRIM(r.physician_id) AS pid, COUNT(*) AS cnt
+        SELECT TRIM(r.physician_id) AS pid, COALESCE(phys.name, TRIM(r.physician_id)) AS pname, COUNT(*) AS cnt
         FROM hl7_oru_reports r
+        LEFT JOIN LATERAL (
+            SELECT COALESCE(NULLIF(TRIM(rr.common_name), ''), TRIM(CONCAT(rr.first_name, ' ', rr.last_name))) AS name
+            FROM std_resources_ris rr
+            WHERE r.physician_id IS NOT NULL
+              AND (LOWER(rr.primary_email_address) = LOWER(r.physician_id)
+                   OR LOWER(rr.secondary_email_address) = LOWER(r.physician_id))
+            LIMIT 1
+        ) phys ON true
         WHERE {where_clause} AND r.physician_id IS NOT NULL AND TRIM(r.physician_id) != ''
-        GROUP BY 1
+        GROUP BY 1, 2
         ORDER BY cnt DESC
         LIMIT 10
     """), params).fetchall()
-    physicians = [{'id': row.pid, 'count': row.cnt} for row in phys_rows]
+    physicians = [{'id': row.pname, 'count': row.cnt} for row in phys_rows]
 
     # ── Diagnosis frequency (word cloud) — SQL aggregate over already-analyzed
     # reports (hl7_oru_analysis.affirmed_labels never contains benign labels —
@@ -729,6 +740,30 @@ def oru_section_gaps():
 
     total = len(rows)
 
+    # physician_id is an email-shaped code -- resolve to a display name via
+    # std_resources_ris, same source as the Critical Findings Log's Reporter
+    # column and the Reporting Physician Activity panel above. Built once as a
+    # lowercased-email lookup rather than a per-row LATERAL join since this
+    # endpoint tallies in Python, not SQL.
+    _phys_name_rows = db.session.execute(text("""
+        SELECT LOWER(email) AS email, name FROM (
+            SELECT primary_email_address AS email,
+                   COALESCE(NULLIF(TRIM(common_name), ''), TRIM(CONCAT(first_name, ' ', last_name))) AS name
+            FROM std_resources_ris WHERE primary_email_address IS NOT NULL
+            UNION ALL
+            SELECT secondary_email_address AS email,
+                   COALESCE(NULLIF(TRIM(common_name), ''), TRIM(CONCAT(first_name, ' ', last_name))) AS name
+            FROM std_resources_ris WHERE secondary_email_address IS NOT NULL
+        ) x WHERE email IS NOT NULL
+    """)).fetchall()
+    _phys_name_map = {r[0]: r[1] for r in _phys_name_rows if r[1]}
+
+    def _resolve_phys(pid):
+        pid = (pid or '').strip()
+        if not pid:
+            return 'UNKNOWN'
+        return _phys_name_map.get(pid.lower(), pid)
+
     # {physician: count} per missing section
     empty_tech  = Counter()
     empty_find  = Counter()
@@ -737,7 +772,7 @@ def oru_section_gaps():
     for r in rows:
         txt  = _best_text(r)
         sec  = _parse_sections(txt)
-        phys = (r.physician_id or 'UNKNOWN').strip()
+        phys = _resolve_phys(r.physician_id)
         if not sec['technique']:
             empty_tech[phys]  += 1
         if not sec['findings']:

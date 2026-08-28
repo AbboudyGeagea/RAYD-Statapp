@@ -471,7 +471,7 @@
                         <tbody>
                             {% for row in data.matrix %}
                             <tr class="border-b border-white/5 hover:bg-white/[0.02]">
-                                <td class="p-4 font-bold text-white text-sm">{{ row.ae }}</td>
+                                <td class="p-4 font-bold text-white text-sm">{{ row.ae_display or row.ae }}</td>
                                 {% for day in row.days %}
                                 <td class="p-2 text-center">
                                     <span class="util-badge px-3 py-1 rounded-lg font-black text-[12px]
@@ -1246,7 +1246,7 @@
                 // --- Modality Efficiency Score (RVU / util%) ---
                 const effData = (d.matrix || [])
                     .filter(r => r.avg > 0)
-                    .map(r => ({ ae: r.ae, score: r.avg > 0 ? +(r.total_rvu / r.avg).toFixed(2) : 0 }))
+                    .map(r => ({ ae: r.ae_display || r.ae, score: r.avg > 0 ? +(r.total_rvu / r.avg).toFixed(2) : 0 }))
                     .sort((a, b) => b.score - a.score);
 
                 // Set top AE KPI
@@ -1283,7 +1283,7 @@
                 // --- Stress vs Output Scatter ---
                 if (document.getElementById('chart-stress-scatter')) {
                     const scatterData = (d.matrix || []).map(r => ({
-                        value: [r.avg, r.total_rvu, r.ae],
+                        value: [r.avg, r.total_rvu, r.ae_display || r.ae],
                         symbolSize: Math.max(8, Math.min(r.avg / 5, 30))
                     }));
 
@@ -1450,7 +1450,7 @@
                     tooltip: { trigger: 'axis', formatter: p => `${p[0].name}<br>Avg TAT: <b>${p[0].value}m</b>` },
                     grid: { left: 80, right: 60, top: 10, bottom: 30 },
                     xAxis: { type: 'value', name: 'Avg TAT (min)', nameTextStyle: { color: '#52525b', fontSize: 11 }, ...axisStyle },
-                    yAxis: { type: 'category', data: d.ae_tat.map(r => r.ae), ...axisStyle },
+                    yAxis: { type: 'category', data: d.ae_tat.map(r => r.ae_display || r.ae), ...axisStyle },
                     series: [{
                         type: 'bar', data: d.ae_tat.map(r => r.avg_tat),
                         itemStyle: { borderRadius: [0,5,5,0], color: (p) => p.dataIndex < midpoint ? '#22c55e' : p.dataIndex > d.ae_tat.length - midpoint - 1 ? '#ef4444' : '#60a5fa' },
