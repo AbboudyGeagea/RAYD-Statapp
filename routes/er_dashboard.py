@@ -3,6 +3,7 @@ from flask_login import login_required, current_user
 from sqlalchemy import text
 from db import db
 from datetime import date, timedelta
+from utils.radiologist_resolve import rad_alias_join_sql, rad_display_sql
 
 er_bp = Blueprint('er', __name__)
 
@@ -29,12 +30,15 @@ def _cluster_tat_histogram(vals, k=10):
     fixed-width (0-30/30-60/...) bins with data-driven ones. Fixed k=10 -- the
     earlier inertia-elbow auto-selection (2-6 clusters) produced too few/uneven
     buckets in practice. 1-D K-means naturally produces contiguous, non-overlapping
-    ranges when sorted by centroid, so each cluster becomes one clean "low-high min"
+    ranges when sorted by centroid, so each cluster becomes one clean "low-high h"
     bucket. k is clamped down to len(vals) when there isn't enough data for 10
     distinct clusters (K-means requires n_samples >= n_clusters).
 
     Returns [] for no data, or a list of {bucket, cnt, avg} sorted by avg ascending,
     plus a 'k' key on each row so the frontend can show how many clusters were found.
+    'bucket' is formatted in hours (display unit for this page); 'avg' stays in
+    minutes since it's also used server-side-adjacent for SLA (minutes) comparisons
+    on the frontend.
     """
     if not vals:
         return []
@@ -42,7 +46,7 @@ def _cluster_tat_histogram(vals, k=10):
     try:
         from sklearn.cluster import KMeans
     except ImportError:
-        return [{'bucket': f'{round(min(vals))}-{round(max(vals))} min',
+        return [{'bucket': f'{round(min(vals)/60,1)}-{round(max(vals)/60,1)}h',
                   'cnt': len(vals), 'avg': round(sum(vals) / len(vals), 1), 'k': 1}]
 
     n = min(k, len(vals))
@@ -56,7 +60,7 @@ def _cluster_tat_histogram(vals, k=10):
         if not cvals:
             continue
         clusters.append({
-            'bucket': f'{round(min(cvals))}-{round(max(cvals))} min',
+            'bucket': f'{round(min(cvals)/60,1)}-{round(max(cvals)/60,1)}h',
             'cnt': len(cvals),
             'avg': round(sum(cvals) / len(cvals), 1),
         })
@@ -94,6 +98,19 @@ def er_data():
               detail={'from': start, 'to': end, 'sla': sla_limit})
 
     try:
+        # Radiologist raw fallback chain (PACS signing_physician_* -> RIS
+        # rep_study_last_composed_by -> rep_final_signed_by) wrapped through
+        # physician_alias_map for a curated display name, same mechanism
+        # super_report.py's radiologist matrix uses -- this CTE previously had no
+        # alias resolution at all, so it could surface a raw RIS composed-by
+        # username unresolved.
+        _rad_base = ("COALESCE("
+                     "NULLIF(TRIM(CONCAT(COALESCE(s.signing_physician_first_name,''), ' ', "
+                     "COALESCE(s.signing_physician_last_name,''))), ''), "
+                     "s.rep_study_last_composed_by, s.rep_final_signed_by)")
+        _rad_join = rad_alias_join_sql(_rad_base)
+        _rad_display = rad_display_sql(_rad_base)
+
         # ── Base CTE ──────────────────────────────────────────────────────────
         cte = f"""
         WITH er AS (
@@ -102,19 +119,7 @@ def er_data():
                 s.accession_number,
                 s.study_date,
                 COALESCE(m.modality, s.study_modality, 'Unknown') AS modality,
-                -- signing_physician_first/last_name (PACS-native) is sparse/unreliable on
-                -- this install -- radiologists sign in the RIS, not PACS (same root cause
-                -- as completed_ts below, and already fixed the same way in report_32.py's
-                -- radiologist resolution). Falls back to the PACS RIS-sourced
-                -- rep_study_last_composed_by, then rep_final_signed_by.
-                COALESCE(
-                    NULLIF(TRIM(CONCAT(
-                        COALESCE(s.signing_physician_first_name,''), ' ',
-                        COALESCE(s.signing_physician_last_name,'')
-                    )), ''),
-                    s.rep_study_last_composed_by,
-                    s.rep_final_signed_by
-                ) AS radiologist,
+                {_rad_display} AS radiologist,
                 NULLIF(TRIM(CONCAT(
                     COALESCE(s.referring_physician_first_name,''), ' ',
                     COALESCE(s.referring_physician_last_name,'')
@@ -135,6 +140,7 @@ def er_data():
             FROM etl_didb_studies s
             LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
             LEFT JOIN hl7_oru_reports o ON o.accession_number = s.accession_number
+            {_rad_join}
             WHERE s.study_date BETWEEN :start AND :end
               AND {_ER_WHERE}
               AND COALESCE(m.modality, s.study_modality, 'Unknown') NOT IN ('SR', 'OT')

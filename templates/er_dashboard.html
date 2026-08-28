@@ -120,7 +120,7 @@
 
             <!-- Trend chart -->
             <div class="card p-5">
-                <p class="section-title"><i class="bi bi-graph-up mr-1"></i> Daily Average TAT (minutes)</p>
+                <p class="section-title"><i class="bi bi-graph-up mr-1"></i> Daily Average TAT (hours)</p>
                 <div id="chart-trend" style="height:260px;"></div>
             </div>
 
@@ -179,10 +179,12 @@ function ec(id) {
     return charts[id];
 }
 
-function fmtMin(m) {
-    m = Math.round(m);
-    if (m < 60) return m + ' min';
-    return Math.floor(m/60) + 'h ' + (m%60) + 'm';
+// All TAT figures come from the backend in minutes; this page displays them in
+// hours (radiology TAT convention), so every render function converts at the
+// display boundary rather than the backend recomputing/re-querying in hours.
+function fmtHours(m) {
+    if (m === null || m === undefined || isNaN(m)) return '—';
+    return (m / 60).toFixed(1) + 'h';
 }
 
 function tatColor(min, sla) {
@@ -219,23 +221,44 @@ async function loadData() {
     renderHour(d.by_hour);
     renderRadiologist(d.by_radiologist, d.kpi.sla_limit);
 
-    _addPdfOverlay('chart-trend',       'ER Study Volume Trend',          'er_trend',       '#181f1c');
-    _addPdfOverlay('chart-histogram',   'TAT Distribution (Histogram)',   'er_histogram',   '#181f1c');
-    _addPdfOverlay('chart-modality',    'Studies by Modality',            'er_modality',    '#181f1c');
-    _addPdfOverlay('chart-hour',        'Volume by Hour of Day',          'er_hourly',      '#181f1c');
-    _addPdfOverlay('chart-radiologist', 'Radiologist Performance',        'er_radiologist', '#181f1c');
+    _addExportOverlay('chart-trend',       'ER Study Volume Trend',          'er_trend',       '#181f1c');
+    _addExportOverlay('chart-histogram',   'TAT Distribution (Histogram)',   'er_histogram',   '#181f1c');
+    _addExportOverlay('chart-modality',    'Studies by Modality',            'er_modality',    '#181f1c');
+    _addExportOverlay('chart-hour',        'Volume by Hour of Day',          'er_hourly',      '#181f1c');
+    _addExportOverlay('chart-radiologist', 'Radiologist Performance',        'er_radiologist', '#181f1c');
 }
 
-function _addPdfOverlay(chartId, title, filename, bg) {
-    const el = document.getElementById(chartId);
-    if (!el || el.dataset.pdfBtn) return;
-    el.dataset.pdfBtn = '1';
-    const btn = document.createElement('button');
-    btn.innerHTML = '<i class="bi bi-file-earmark-pdf"></i> PDF';
-    btn.style.cssText = 'position:absolute;top:6px;right:6px;z-index:20;display:inline-flex;align-items:center;gap:3px;padding:3px 8px;background:rgba(0,0,0,0.65);border:1px solid #52525b;border-radius:5px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;backdrop-filter:blur(4px);transition:all 0.15s;font-family:inherit;line-height:1;';
+function _exportBtnStyle(btn) {
+    btn.style.cssText = 'display:inline-flex;align-items:center;gap:3px;padding:3px 8px;background:rgba(0,0,0,0.65);border:1px solid #52525b;border-radius:5px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;backdrop-filter:blur(4px);transition:all 0.15s;font-family:inherit;line-height:1;';
     btn.onmouseover = () => { btn.style.borderColor='#f87171'; btn.style.color='#f87171'; };
     btn.onmouseout  = () => { btn.style.borderColor='#52525b'; btn.style.color='#71717a'; };
-    btn.onclick = () => {
+}
+
+function _addExportOverlay(chartId, title, filename, bg) {
+    const el = document.getElementById(chartId);
+    if (!el || el.dataset.exportBtn) return;
+    el.dataset.exportBtn = '1';
+
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'position:absolute;top:6px;right:6px;z-index:20;display:flex;gap:4px;';
+
+    const pngBtn = document.createElement('button');
+    pngBtn.innerHTML = '<i class="bi bi-file-earmark-image"></i> PNG';
+    _exportBtnStyle(pngBtn);
+    pngBtn.onclick = () => {
+        const inst = echarts.getInstanceByDom(el);
+        if (!inst) return;
+        const url = inst.getDataURL({ type:'png', pixelRatio:2, backgroundColor:bg });
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${filename}_${new Date().toISOString().slice(0,10)}.png`;
+        a.click();
+    };
+
+    const pdfBtn = document.createElement('button');
+    pdfBtn.innerHTML = '<i class="bi bi-file-earmark-pdf"></i> PDF';
+    _exportBtnStyle(pdfBtn);
+    pdfBtn.onclick = () => {
         const inst = echarts.getInstanceByDom(el);
         if (!inst) return;
         const url = inst.getDataURL({ type:'png', pixelRatio:2, backgroundColor:bg });
@@ -257,8 +280,11 @@ function _addPdfOverlay(chartId, title, filename, bg) {
         };
         img.src = url;
     };
+
+    wrap.appendChild(pngBtn);
+    wrap.appendChild(pdfBtn);
     el.style.position = 'relative';
-    el.appendChild(btn);
+    el.appendChild(wrap);
 }
 
 function renderKPIs(k) {
@@ -272,18 +298,18 @@ function renderKPIs(k) {
         </div>
         <div class="kpi-card ${tatColor} col-span-1">
             <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Avg TAT</p>
-            <p class="text-2xl font-black text-white">${fmtMin(k.avg_tat)}</p>
-            <p class="text-[10px] text-slate-500 mt-1">SLA: ${k.sla_limit} min</p>
+            <p class="text-2xl font-black text-white">${fmtHours(k.avg_tat)}</p>
+            <p class="text-[10px] text-slate-500 mt-1">SLA: ${fmtHours(k.sla_limit)}</p>
         </div>
         <div class="kpi-card ${slaColor} col-span-1">
             <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">SLA Compliance</p>
             <p class="text-2xl font-black text-white">${k.sla_pct}%</p>
-            <p class="text-[10px] text-slate-500 mt-1">${k.within_sla} within ${k.sla_limit} min</p>
+            <p class="text-[10px] text-slate-500 mt-1">${k.within_sla} within ${fmtHours(k.sla_limit)}</p>
         </div>
         <div class="kpi-card ${k.breached > 0 ? 'red' : 'green'} col-span-1">
             <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">SLA Breaches</p>
             <p class="text-2xl font-black text-white">${k.breached.toLocaleString()}</p>
-            <p class="text-[10px] text-slate-500 mt-1">exceeded ${k.sla_limit} min</p>
+            <p class="text-[10px] text-slate-500 mt-1">exceeded ${fmtHours(k.sla_limit)}</p>
         </div>
         <div class="kpi-card ${k.unread_today > 0 ? 'red' : 'green'} col-span-1 xl:col-span-3">
             <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">
@@ -306,7 +332,7 @@ function renderUnread(rows, sla) {
         return `<tr class="hover:bg-[#1d2522]/50">
             <td class="py-3 px-4 font-mono text-xs text-slate-300">${r.accession_number || '—'}</td>
             <td class="py-3 px-4 text-xs font-bold text-white">${r.modality}</td>
-            <td class="py-3 px-4 text-xs font-bold ${cls}">${fmtMin(w)}</td>
+            <td class="py-3 px-4 text-xs font-bold ${cls}">${fmtHours(w)}</td>
             <td class="py-3 px-4 text-xs">
                 ${w > sla ? `<span style="background:rgba(244,63,94,0.15);color:#f43f5e;padding:2px 8px;border-radius:4px;font-size:9px;font-weight:900;text-transform:uppercase;">SLA BREACH</span>` :
                             `<span style="background:rgba(251,191,36,0.15);color:#fbbf24;padding:2px 8px;border-radius:4px;font-size:9px;font-weight:900;text-transform:uppercase;">Pending</span>`}
@@ -322,19 +348,21 @@ function renderTrend(rows, sla) {
     const vols = rows.map(r => r.total);
     c.setOption({
         backgroundColor: 'transparent',
-        tooltip: { trigger:'axis', formatter: p => `${p[0].axisValue}<br>Avg TAT: <b>${p[0].data ? fmtMin(p[0].data) : '—'}</b><br>Studies: <b>${p[1]?.data || 0}</b>` },
+        tooltip: { trigger:'axis', formatter: p => `${p[0].axisValue}<br>Avg TAT: <b>${p[0].data ? fmtHours(p[0].data) : '—'}</b><br>Studies: <b>${p[1]?.data || 0}</b>` },
         legend: { data:['Avg TAT','Volume'], textStyle:{color:CHART_TEXT,fontSize:10}, bottom:0 },
         grid: { top:10, right:60, bottom:40, left:60 },
         xAxis: { type:'category', data:days, axisLabel:{color:CHART_TEXT,fontSize:10,rotate:30}, axisLine:{lineStyle:{color:CHART_LINE}} },
         yAxis: [
-            { type:'value', name:'min', nameTextStyle:{color:CHART_TEXT,fontSize:9}, axisLabel:{color:CHART_TEXT,fontSize:10}, splitLine:{lineStyle:{color:CHART_LINE,type:'dashed'}} },
+            // Underlying data stays in minutes (as returned by the backend); only the
+            // tick labels are rescaled to hours for display.
+            { type:'value', name:'h', nameTextStyle:{color:CHART_TEXT,fontSize:9}, axisLabel:{color:CHART_TEXT,fontSize:10,formatter:v=>(v/60).toFixed(1)}, splitLine:{lineStyle:{color:CHART_LINE,type:'dashed'}} },
             { type:'value', name:'studies', nameTextStyle:{color:CHART_TEXT,fontSize:9}, axisLabel:{color:CHART_TEXT,fontSize:10}, splitLine:{show:false} },
         ],
         series: [
             { name:'Avg TAT', type:'line', data:tats, smooth:true, symbol:'circle', symbolSize:4,
               lineStyle:{color:BLUE,width:2}, itemStyle:{color:BLUE},
               areaStyle:{color:{type:'linear',x:0,y:0,x2:0,y2:1,colorStops:[{offset:0,color:'rgba(96,165,250,0.25)'},{offset:1,color:'rgba(96,165,250,0)'}]}},
-              markLine:{silent:true,symbol:'none',data:[{yAxis:sla,label:{formatter:`SLA ${sla}m`,color:AMBER,fontSize:9},lineStyle:{color:AMBER,type:'dashed',width:1}}]}
+              markLine:{silent:true,symbol:'none',data:[{yAxis:sla,label:{formatter:`SLA ${(sla/60).toFixed(1)}h`,color:AMBER,fontSize:9},lineStyle:{color:AMBER,type:'dashed',width:1}}]}
             },
             { name:'Volume', type:'bar', yAxisIndex:1, data:vols, barMaxWidth:12,
               itemStyle:{color:'rgba(96,165,250,0.25)',borderColor:BLUE,borderWidth:1,borderRadius:2} },
@@ -364,7 +392,7 @@ function renderHistogram(rows, sla) {
 
     c.setOption({
         backgroundColor:'transparent',
-        tooltip:{trigger:'axis',formatter:p=>`${p[0].name}<br>${p[0].value} studies · avg ${rows[p[0].dataIndex].avg}m`},
+        tooltip:{trigger:'axis',formatter:p=>`${p[0].name}<br>${p[0].value} studies · avg ${fmtHours(rows[p[0].dataIndex].avg)}`},
         grid:{top:10,right:20,bottom:40,left:60},
         xAxis:{type:'category',data:labels,axisLabel:{color:CHART_TEXT,fontSize:10},axisLine:{lineStyle:{color:CHART_LINE}}},
         yAxis:{type:'value',axisLabel:{color:CHART_TEXT,fontSize:10},splitLine:{lineStyle:{color:CHART_LINE,type:'dashed'}}},
@@ -374,7 +402,7 @@ function renderHistogram(rows, sla) {
             markLine: hasSplit ? {
                 silent:true, symbol:'none',
                 lineStyle:{color:AMBER,type:'dashed',width:1.5},
-                label:{formatter:`SLA ${sla}m`,color:AMBER,fontSize:10,position:'insideEndTop'},
+                label:{formatter:`SLA ${fmtHours(sla)}`,color:AMBER,fontSize:10,position:'insideEndTop'},
                 data:[{xAxis: splitIdx - 0.5}]
             } : undefined
         }]
@@ -387,15 +415,15 @@ function renderModality(rows, sla) {
     const tats = rows.map(r => r.avg_tat);
     c.setOption({
         backgroundColor:'transparent',
-        tooltip:{trigger:'axis',formatter:p=>`${p[0].axisValue}: <b>${fmtMin(p[0].data)}</b>`},
+        tooltip:{trigger:'axis',formatter:p=>`${p[0].axisValue}: <b>${fmtHours(p[0].data)}</b>`},
         grid:{top:10,right:80,bottom:10,left:80,containLabel:true},
-        xAxis:{type:'value',axisLabel:{color:CHART_TEXT,fontSize:10},splitLine:{lineStyle:{color:CHART_LINE,type:'dashed'}}},
+        xAxis:{type:'value',axisLabel:{color:CHART_TEXT,fontSize:10,formatter:v=>(v/60).toFixed(1)},splitLine:{lineStyle:{color:CHART_LINE,type:'dashed'}}},
         yAxis:{type:'category',data:mods,axisLabel:{color:CHART_TEXT,fontSize:11,fontWeight:'bold'},axisLine:{lineStyle:{color:CHART_LINE}}},
         series:[{
             type:'bar', data:tats.map(v=>({value:v,itemStyle:{color:v<=sla?GREEN:v<=sla*1.5?AMBER:RED,borderRadius:3}})),
             barMaxWidth:18,
-            label:{show:true,position:'right',formatter:p=>fmtMin(p.value),color:CHART_TEXT,fontSize:10},
-            markLine:{silent:true,symbol:'none',data:[{xAxis:sla,label:{formatter:`SLA`,color:AMBER,fontSize:9},lineStyle:{color:AMBER,type:'dashed',width:1}}]}
+            label:{show:true,position:'right',formatter:p=>fmtHours(p.value),color:CHART_TEXT,fontSize:10},
+            markLine:{silent:true,symbol:'none',data:[{xAxis:sla,label:{formatter:`SLA ${fmtHours(sla)}`,color:AMBER,fontSize:9},lineStyle:{color:AMBER,type:'dashed',width:1}}]}
         }]
     });
 }
@@ -424,15 +452,15 @@ function renderRadiologist(rows, sla) {
     const tats  = rows.map(r => r.avg_tat);
     c.setOption({
         backgroundColor:'transparent',
-        tooltip:{trigger:'axis',formatter:p=>`${p[0].axisValue}<br>Avg TAT: <b>${fmtMin(p[0].data)}</b>`},
+        tooltip:{trigger:'axis',formatter:p=>`${p[0].axisValue}<br>Avg TAT: <b>${fmtHours(p[0].data)}</b>`},
         grid:{top:10,right:80,bottom:10,left:10,containLabel:true},
-        xAxis:{type:'value',axisLabel:{color:CHART_TEXT,fontSize:10},splitLine:{lineStyle:{color:CHART_LINE,type:'dashed'}}},
+        xAxis:{type:'value',axisLabel:{color:CHART_TEXT,fontSize:10,formatter:v=>(v/60).toFixed(1)},splitLine:{lineStyle:{color:CHART_LINE,type:'dashed'}}},
         yAxis:{type:'category',data:names,axisLabel:{color:CHART_TEXT,fontSize:11},axisLine:{lineStyle:{color:CHART_LINE}}},
         series:[{
             type:'bar', data:tats.map(v=>({value:v,itemStyle:{color:v<=sla?GREEN:v<=sla*1.5?AMBER:RED,borderRadius:3}})),
             barMaxWidth:16,
-            label:{show:true,position:'right',formatter:p=>fmtMin(p.value),color:CHART_TEXT,fontSize:10},
-            markLine:{silent:true,symbol:'none',data:[{xAxis:sla,label:{formatter:`SLA`,color:AMBER,fontSize:9},lineStyle:{color:AMBER,type:'dashed',width:1}}]}
+            label:{show:true,position:'right',formatter:p=>fmtHours(p.value),color:CHART_TEXT,fontSize:10},
+            markLine:{silent:true,symbol:'none',data:[{xAxis:sla,label:{formatter:`SLA ${fmtHours(sla)}`,color:AMBER,fontSize:9},lineStyle:{color:AMBER,type:'dashed',width:1}}]}
         }]
     });
 }
