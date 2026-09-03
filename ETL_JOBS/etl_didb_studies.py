@@ -143,7 +143,22 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
         # Operator instruction (2026-07-27): 'LAUMC' and 'SVSM' are not real imaging
         # devices — studies land there as duplicates of a real device's AE and should
         # never be loaded. Existing duplicate rows cleaned up separately, migration 0073.
-        _EXCLUDED_AE_SQL = "AND UPPER(TRIM(s.STORING_AE)) NOT IN ('LAUMC', 'SVSM')"
+        #
+        # The 13 AEs below are dedicated Cardiology/Vascular-Lab PACS-only-archival
+        # equipment (echo/cath/angio workstations) — they archive straight to PACS and
+        # never go through the RIS ordering workflow, so their studies inflate
+        # studies-vs-orders counts in every report with no way to ever reconcile.
+        # Existing rows cleaned up separately, migration 0111. NOT included here:
+        # SJHCSAPWFMFIR / LAUMCWFM2FIR — those are shared SJH gateway AEs that also
+        # carry ~182,700 legitimate non-Cardiology studies, so they can't be excluded
+        # by AE alone; see etl_runner.py Phase 2c, which excludes only their
+        # CARD-family-tagged rows post-modality-backfill.
+        _EXCLUDED_AE_SQL = """AND UPPER(TRIM(s.STORING_AE)) NOT IN (
+            'LAUMC', 'SVSM',
+            'ECHOPAC-PC', 'ADW_8', 'AETITLE', 'VIVIDE9-003168', 'VIVID_S5-050514', 'TERRA',
+            'VIVIDS70-003049', 'TERRA2', 'AWVASC', 'AWCTHD1', 'PHCARDIO', 'LOGIQV2-01',
+            'DEFINIUM1'
+        )"""
 
         # Operator instruction (2026-07-29, extended 2026-07-31): '@dn'-suffixed signer
         # values (akehdi@dn, eva.d@dn, mi70@dn, ...) are not real LAUMC data — confirmed

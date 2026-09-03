@@ -166,6 +166,7 @@ _PHASE_LABELS = {
     '1':  ('Studies',            'Oracle: DIDB_STUDIES  — heavy'),
     '2':  ('Series',             'Oracle: DIDB_SERIESES — heavy'),
     '2b': ('Modality backfill',  'PostgreSQL only — cheap'),
+    '2c': ('SJH gateway CARD purge', 'PostgreSQL only — cheap (LAUMC)'),
     '3':  ('Raw Images',         'Oracle: DIDB_RAW_IMAGES — VERY heavy (100M+ rows)'),
     '4':  ('Image Locations',    'Oracle: DIDB_IMAGE_LOCATIONS — VERY heavy'),
     '5':  ('Patients',           'Oracle: DIDB_PATIENTS_VIEW — moderate'),
@@ -370,6 +371,37 @@ def _perform_migration(engine):
             except Exception as _e:
                 _phase_failures.append("2b (Modality backfill)")
                 logger.warning(f"Phase 2b (study_modality backfill) skipped: {_e}")
+
+        # ── PHASE 2c: Purge CARD-family studies from the shared SJH gateway AEs ────
+        # Unlike the dedicated Cardiology/Vascular-Lab AEs (excluded at Phase 1 extract
+        # — see etl_didb_studies.py's _EXCLUDED_AE_SQL), SJHCSAPWFMFIR and LAUMCWFM2FIR
+        # also carry ~182,700 legitimate non-Cardiology studies (RF/CT/SR/MR/DX/MG/XA/
+        # US/PR/etc.), so they can't be excluded by AE alone — this has to wait until
+        # Phase 2b resolves study_modality, then delete only the CARD-family-tagged
+        # subset. Runs every cycle (idempotent) so new CARD-family rows never surface.
+        # Deletes cascade to etl_didb_serieses/etl_didb_raw_images/etl_image_locations
+        # via their existing ON DELETE CASCADE FKs. Migration 0111 did the one-time
+        # cleanup of rows already loaded before this phase existed.
+        if _confirm_phase('2c'):
+            logger.info("📋 Phase 2c: Purging CARD-family studies from SJH gateway AEs")
+            try:
+                with engine.begin() as _c:
+                    _r = _c.execute(text("""
+                        DELETE FROM etl_didb_studies
+                        WHERE UPPER(TRIM(storing_ae)) IN ('SJHCSAPWFMFIR', 'LAUMCWFM2FIR')
+                          AND UPPER(TRIM(study_modality)) IN ('CARD', 'SJH_CARD', 'CARDUS', 'SJHCARD')
+                    """))
+                    logger.info(f"✅ Phase 2c done — {_r.rowcount:,} CARD-family studies purged")
+                if active_ids:
+                    with engine.connect() as _c:
+                        surviving = _c.execute(
+                            text("SELECT study_db_uid FROM etl_didb_studies WHERE study_db_uid = ANY(:ids)"),
+                            {"ids": active_ids}
+                        ).scalars().all()
+                    active_ids = surviving
+            except Exception as _e:
+                _phase_failures.append("2c (SJH gateway CARD purge)")
+                logger.warning(f"Phase 2c (SJH gateway CARD purge) skipped: {_e}")
 
         # ── PHASE 3: Raw Images ───────────────────────────────────────────
         if _confirm_phase(3):
