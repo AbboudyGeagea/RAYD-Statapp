@@ -386,6 +386,18 @@ def _perform_migration(engine):
             logger.info("📋 Phase 2c: Purging CARD-family studies from SJH gateway AEs")
             try:
                 with engine.begin() as _c:
+                    # std_pps.study_db_uid (migration 0065) has an FK with no ON DELETE
+                    # clause -- an unrelated later phase (14, RIS PPS) can enrich a row
+                    # between cycles before this phase catches it, so guard every run,
+                    # not just the one-time migration 0111 cleanup this mirrors.
+                    _c.execute(text("""
+                        UPDATE std_pps SET study_db_uid = NULL
+                        WHERE study_db_uid IN (
+                            SELECT study_db_uid FROM etl_didb_studies
+                            WHERE UPPER(TRIM(storing_ae)) IN ('SJHCSAPWFMFIR', 'LAUMCWFM2FIR')
+                              AND UPPER(TRIM(study_modality)) IN ('CARD', 'SJH_CARD', 'CARDUS', 'SJHCARD')
+                        )
+                    """))
                     _r = _c.execute(text("""
                         DELETE FROM etl_didb_studies
                         WHERE UPPER(TRIM(storing_ae)) IN ('SJHCSAPWFMFIR', 'LAUMCWFM2FIR')
