@@ -70,8 +70,8 @@ _UPSERT_SQL = text("""
 """)
 
 # Enrich site_id / patient_id / modality from the matching PACS study by accession.
-# Fill-only (COALESCE) so a value already resolved by ORU enrichment is kept. SR studies
-# are excluded per the project-wide SR rule. Safe no-op when studies aren't loaded yet.
+# Fill-only (COALESCE) so a value already resolved by ORU enrichment is kept. Safe no-op
+# when studies aren't loaded yet.
 #
 # patient_id source fixed 2026-07-27: previously etl_patient_view.id — a PACS-internal
 # column, confirmed by the operator to surface placeholder values (e.g. "PIX_xxxxx"),
@@ -84,12 +84,38 @@ _UPSERT_SQL = text("""
 # etl_didb_studies for this specific join). Existing wrong values already loaded are
 # corrected separately by migrations/0081 — this only changes the source for reports
 # enriched from here on.
+#
+# Modality source fixed 2026-09-04: an accession commonly has ONLY an SR-classified
+# row in etl_didb_studies (the auto-generated structured-report object — see the
+# project-wide SR rule), with no companion row for the real acquisition. The previous
+# version filtered such rows out of the join entirely (`s.study_modality != 'SR'` in
+# the WHERE), which also blocked site_id/patient_id enrichment on the same accession
+# and left modality permanently NULL — confirmed against live data: 63k+ of ~75k
+# blank-modality RIS reports were stuck this way. Fix: pick ONE study row per
+# accession via LATERAL (preferring a non-SR row when both exist, so we never lose
+# real data to ambiguity), then resolve modality through aetitle_modality_map keyed
+# on that row's storing_ae — same AE/station regardless of whether PACS also emitted
+# an SR object for it — per the project-wide "prefer aetitle_modality_map over
+# study_modality" convention. Raw study_modality is only the last-resort fallback,
+# and NULLIF'd against 'SR' so that literal value can never land in the column.
 _ENRICH_SQL = text("""
     UPDATE hl7_oru_reports o
     SET site_id    = COALESCE(o.site_id,    s.site_id),
         patient_id = COALESCE(o.patient_id, pid.patient_id),
-        modality   = COALESCE(o.modality,   s.study_modality)
-    FROM etl_didb_studies s
+        modality   = COALESCE(o.modality,   m.modality, NULLIF(s.study_modality, 'SR'))
+    FROM LATERAL (
+        SELECT *
+        FROM etl_didb_studies s0
+        WHERE s0.accession_number = o.accession_number
+        ORDER BY (COALESCE(s0.study_modality, '') = 'SR')
+        LIMIT 1
+    ) s
+    LEFT JOIN LATERAL (
+        SELECT modality
+        FROM aetitle_modality_map
+        WHERE aetitle = s.storing_ae
+        LIMIT 1
+    ) m ON true
     LEFT JOIN LATERAL (
         SELECT eo.patient_dbid
         FROM etl_orders eo
@@ -105,9 +131,7 @@ _ENRICH_SQL = text("""
           AND UPPER(is_primary) = 'Y'
         LIMIT 1
     ) pid ON true
-    WHERE o.accession_number = s.accession_number
-      AND COALESCE(s.study_modality, '') != 'SR'
-      AND o.report_source = 'ris'
+    WHERE o.report_source = 'ris'
       AND (o.site_id IS NULL OR o.patient_id IS NULL OR o.modality IS NULL)
 """)
 

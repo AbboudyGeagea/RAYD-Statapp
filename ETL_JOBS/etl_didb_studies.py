@@ -3,8 +3,13 @@ from datetime import datetime, timedelta
 from sqlalchemy import text
 from db import OracleConnector
 
-def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_live_date):
-    job_name = "STUDIES_ETL"
+def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_live_date, force_ae=None):
+    """force_ae: one-off backfill mode (see backfill_ae_studies.py). When set, pulls the
+    FULL history for that single AE since go_live_date, ignoring the incremental
+    max_uid/lookback watermark entirely — for recovering an AE that was wrongly on
+    _EXCLUDED_AE_SQL and has been silently skipped by every regular incremental run
+    since. Not used by the normal nightly path."""
+    job_name = "STUDIES_ETL" if not force_ae else f"STUDIES_ETL_BACKFILL_{force_ae}"
     start_time = datetime.now()
     total_rows = 0
     status = "RUNNING"
@@ -40,7 +45,10 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
 
         is_fresh_load = (max_uid == 0)
 
-        if is_fresh_load:
+        if force_ae:
+            print(f"[Studies ETL] 🩹 Backfill mode — pulling ALL '{force_ae}' studies since {gd_str}, ignoring watermark")
+            logging.info(f"Studies ETL: force_ae backfill for {force_ae}, since {gd_str}")
+        elif is_fresh_load:
             print(f"[Studies ETL] 🆕 Fresh load detected — pulling ALL studies since {gd_str}")
             logging.info(f"Studies ETL: fresh load, pulling all since {gd_str}")
         else:
@@ -144,7 +152,7 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
         # devices — studies land there as duplicates of a real device's AE and should
         # never be loaded. Existing duplicate rows cleaned up separately, migration 0073.
         #
-        # The 13 AEs below are dedicated Cardiology/Vascular-Lab PACS-only-archival
+        # The 12 AEs below are dedicated Cardiology/Vascular-Lab PACS-only-archival
         # equipment (echo/cath/angio workstations) — they archive straight to PACS and
         # never go through the RIS ordering workflow, so their studies inflate
         # studies-vs-orders counts in every report with no way to ever reconcile.
@@ -153,11 +161,20 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
         # carry ~182,700 legitimate non-Cardiology studies, so they can't be excluded
         # by AE alone; see etl_runner.py Phase 2c, which excludes only their
         # CARD-family-tagged rows post-modality-backfill.
+        #
+        # 'DEFINIUM1' REMOVED 2026-09-04: it was bundled into this list alongside the
+        # echo/cath/angio devices, but it's a GE Definium general digital-radiography
+        # (X-ray) room, not cardiology equipment. Confirmed against live Oracle DIDB
+        # data (real XR/CT orders, real non-'@dn' signing physicians) that every study
+        # on this AE was being silently dropped, which orphaned ~12k hl7_oru_reports
+        # rows (real reports with no matching PACS study -> blank modality in the ORU
+        # tab). See the one-time backfill note near run_studies_etl(): removing it here
+        # only affects studies from now on -- historical DEFINIUM1 studies need a
+        # separate one-off pull since they predate the incremental watermark/lookback.
         _EXCLUDED_AE_SQL = """AND UPPER(TRIM(s.STORING_AE)) NOT IN (
             'LAUMC', 'SVSM',
             'ECHOPAC-PC', 'ADW_8', 'AETITLE', 'VIVIDE9-003168', 'VIVID_S5-050514', 'TERRA',
-            'VIVIDS70-003049', 'TERRA2', 'AWVASC', 'AWCTHD1', 'PHCARDIO', 'LOGIQV2-01',
-            'DEFINIUM1'
+            'VIVIDS70-003049', 'TERRA2', 'AWVASC', 'AWCTHD1', 'PHCARDIO', 'LOGIQV2-01'
         )"""
 
         # Operator instruction (2026-07-29, extended 2026-07-31): '@dn'-suffixed signer
@@ -189,7 +206,18 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
 
         def _execute_query(use_join):
             select = _SELECT_WITH_JOIN if use_join else _SELECT_NO_JOIN
-            if is_fresh_load:
+            if force_ae:
+                # No AE exclusion (that's the whole point — this AE was wrongly on that
+                # list) and no max_uid/lookback restriction — full history for this one
+                # AE only, so it can't touch any other device's rows.
+                q = select + f"""
+                    WHERE s.STUDY_DATE >= TO_DATE(:gd, 'YYYY-MM-DD')
+                    AND UPPER(TRIM(s.STORING_AE)) = :force_ae
+                    {_EXCLUDED_SIGNER_SQL}
+                    ORDER BY s.STUDY_DB_UID
+                """
+                cursor.execute(q, {'gd': gd_str, 'force_ae': force_ae.upper()})
+            elif is_fresh_load:
                 q = select + f"""
                     WHERE s.STUDY_DATE >= TO_DATE(:gd, 'YYYY-MM-DD')
                     {_EXCLUDED_AE_SQL}
