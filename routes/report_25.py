@@ -125,6 +125,28 @@ def get_gold_standard_data(form_data):
     
     df['study_date_dt'] = pd.to_datetime(df['study_date'], errors='coerce') if 'study_date' in df.columns else pd.to_datetime(date.today())
 
+    # Exam-type / radiologist filters (2026-09-16, Mazloum P90/wait-time addition).
+    # Applied against the already-fetched DataFrame rather than folded into where_clauses
+    # above: 'reading_radiologist' and 'procedure_code' are columns this file already
+    # reads off df (see rad_cards / outlier_studies below), but they come from the
+    # report_template(id=25) row stored in the DB, not a file — this session has no
+    # live DB access to confirm those are also valid column names on the *wrapped*
+    # subquery (`sql_exec` above). Filtering the fetched frame instead is slower but
+    # can't reference a column that doesn't exist. Substring match (not an exact-value
+    # dropdown) for the same reason — no way to confirm the live cardinality/format of
+    # either field without a DB session to inspect it.
+    proc_contains = (form_data.get("procedure_contains") or "").strip()
+    if proc_contains and 'procedure_code' in df.columns:
+        df = df[df['procedure_code'].astype(str).str.contains(proc_contains, case=False, na=False, regex=False)]
+
+    rad_contains = (form_data.get("radiologist_contains") or "").strip()
+    if rad_contains and 'reading_radiologist' in df.columns:
+        df = df[df['reading_radiologist'].astype(str).str.contains(rad_contains, case=False, na=False, regex=False)]
+
+    if df.empty:
+        logger.info("Report 25: exam-type/radiologist filter removed all rows (proc=%r, rad=%r)", proc_contains, rad_contains)
+        return None, start, end
+
     # --- Metrics Generation ---
     matrix_rows = []
     high_stress = 0
@@ -183,6 +205,101 @@ def get_gold_standard_data(form_data):
     tat_median = round(float(tat_vals_all.median()), 1) if len(tat_vals_all) > 0 else 0.0
     tat_p25    = round(float(tat_vals_all.quantile(0.25)), 1) if len(tat_vals_all) > 0 else 0.0
     tat_p75    = round(float(tat_vals_all.quantile(0.75)), 1) if len(tat_vals_all) > 0 else 0.0
+    tat_p90    = round(float(tat_vals_all.quantile(0.90)), 1) if len(tat_vals_all) > 0 else 0.0
+
+    # TAT exceptions: studies whose own TAT is above this period's P90 — for RCA,
+    # not the same thing as the existing IQR-based outlier_studies list further down
+    # (Q3 + 1.5*IQR flags extreme cases; P90 flags "the worst 10%" regardless of how
+    # extreme they are). Capped at 50 like the other exception lists in this file.
+    tat_p90_outliers = []
+    if len(tat_vals_all) > 0 and tat_p90 > 0:
+        _p90_cols = [c for c in ['aetitle', 'modality', 'reading_radiologist', 'patient_class',
+                                  'procedure_code', 'study_date', 'total_tat_min'] if c in df.columns]
+        _p90_df = df[df['total_tat_min'] > tat_p90][_p90_cols].sort_values('total_tat_min', ascending=False).head(50)
+        for row in _p90_df.to_dict('records'):
+            if 'study_date' in row and hasattr(row['study_date'], 'strftime'):
+                row['study_date'] = str(row['study_date'])[:10]
+            if 'total_tat_min' in row:
+                row['total_tat_min'] = round(float(row['total_tat_min']), 1)
+            tat_p90_outliers.append(row)
+
+    # ── Patient Waiting Time (Mazloum agreement, 2026-09-16) ────────────────────
+    # No RIS at this site, so there is no real arrival/exam-start event to anchor
+    # this on. Working definition agreed with the operator: arrival proxy = the HL7
+    # order message's own timestamp (hl7_orders.message_datetime — NOT a column
+    # literally called "order_date", that name doesn't exist on this table; see
+    # init-db/schema.sql), completion proxy = etl_didb_studies.insert_time (PACS
+    # study-record commit time). This measures order-received -> PACS-complete span,
+    # not literal time spent physically waiting in the department — flag that
+    # distinction to the hospital, it was flagged to the operator when this was scoped.
+    wait_available = False
+    wait_n = 0
+    wait_excluded = 0
+    wait_avg = wait_median = wait_p90 = 0.0
+    wait_outliers = []
+    wait_df = pd.DataFrame()
+    try:
+        _wait_where = ["s.study_date BETWEEN :start AND :end",
+                        "COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')"]
+        _wait_params = {"start": start, "end": end}
+        if "classes" in params:
+            _wait_where.append("s.patient_class IN :classes")
+            _wait_params["classes"] = params["classes"]
+        if "modalities" in params:
+            _wait_where.append("UPPER(TRIM(m.modality)) IN :modalities")
+            _wait_params["modalities"] = params["modalities"]
+        if proc_contains:
+            _wait_where.append("s.procedure_code ILIKE :proc_like")
+            _wait_params["proc_like"] = f"%{proc_contains}%"
+
+        wait_rows = db.session.execute(text(f"""
+            SELECT
+                s.accession_number,
+                s.study_date,
+                COALESCE(m.modality, s.study_modality, 'Unknown') AS modality,
+                s.procedure_code,
+                s.patient_class,
+                o.message_datetime   AS arrival_time,
+                s.insert_time        AS pacs_complete_time,
+                EXTRACT(EPOCH FROM (s.insert_time - o.message_datetime)) / 60.0 AS wait_minutes
+            FROM etl_didb_studies s
+            JOIN hl7_orders o ON o.accession_number = s.accession_number
+            LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
+            WHERE {' AND '.join(_wait_where)}
+              AND o.message_datetime IS NOT NULL
+              AND s.insert_time IS NOT NULL
+        """), _wait_params).mappings().fetchall()
+
+        wait_available = True
+        if wait_rows:
+            wait_df = pd.DataFrame(wait_rows)
+            wait_df['wait_minutes'] = pd.to_numeric(wait_df['wait_minutes'], errors='coerce')
+            # Data-quality guard, same principle as total_tat_min elsewhere in this file:
+            # order timestamp after PACS-complete, or a gap over 14 days, is treated as a
+            # bad accession_number join / retrospective order-entry artifact, not a real
+            # wait, and is excluded rather than silently skewing the percentile.
+            _valid_mask = (wait_df['wait_minutes'] > 0) & (wait_df['wait_minutes'] <= 14 * 24 * 60)
+            wait_excluded = int((~_valid_mask).sum())
+            wait_valid = wait_df[_valid_mask]
+            wait_n = int(len(wait_valid))
+            if wait_n > 0:
+                wait_avg    = round(float(wait_valid['wait_minutes'].mean()), 1)
+                wait_median = round(float(wait_valid['wait_minutes'].median()), 1)
+                wait_p90    = round(float(wait_valid['wait_minutes'].quantile(0.90)), 1)
+
+                _wcols = [c for c in ['accession_number', 'modality', 'procedure_code',
+                                       'patient_class', 'study_date', 'wait_minutes'] if c in wait_valid.columns]
+                _wout = wait_valid[wait_valid['wait_minutes'] > wait_p90][_wcols] \
+                    .sort_values('wait_minutes', ascending=False).head(50)
+                for row in _wout.to_dict('records'):
+                    if 'study_date' in row and hasattr(row['study_date'], 'strftime'):
+                        row['study_date'] = str(row['study_date'])[:10]
+                    if 'wait_minutes' in row:
+                        row['wait_minutes'] = round(float(row['wait_minutes']), 1)
+                    wait_outliers.append(row)
+    except Exception:
+        logger.exception("Failed to compute patient wait time (Mazloum)")
+        db.session.rollback()
 
     # Apply physician alias mapping so migrated name variants collapse to canonical
     try:
@@ -524,7 +641,9 @@ def get_gold_standard_data(form_data):
             "total_rvu": round(df['clinical_rvu'].sum() + df['technical_rvu'].sum(), 1),
             "clinical_rvu": round(df['clinical_rvu'].sum(), 1),
             "technical_rvu": round(df['technical_rvu'].sum(), 1),
-            "tat_median": tat_median, "tat_p25": tat_p25, "tat_p75": tat_p75,
+            "tat_median": tat_median, "tat_p25": tat_p25, "tat_p75": tat_p75, "tat_p90": tat_p90,
+            "wait_available": wait_available, "wait_n": wait_n, "wait_excluded": wait_excluded,
+            "wait_avg": wait_avg, "wait_median": wait_median, "wait_p90": wait_p90,
         },
         "matrix": matrix_rows, 
         "class_tat": df[df['total_tat_min'] > 0].groupby('patient_class')['total_tat_min'].mean().round(1).to_dict() if 'patient_class' in df.columns else {},
@@ -561,6 +680,9 @@ def get_gold_standard_data(form_data):
         "ae_tat": ae_tat,
         "rvu_tat": rvu_tat,
         "outlier_studies": outlier_studies,
+        "tat_p90_outliers": tat_p90_outliers,
+        "wait_outliers": wait_outliers,
+        "wait_raw_df": wait_df,
         "global_mean_tat": global_mean_tat,
         "modality_tat":    modality_tat,
         "unread_aging":    unread_aging,
@@ -1020,7 +1142,7 @@ def report_25():
                     nodes.append({"name": r['procedure_code'], "children": [{"name": f"Sched: {r['scheduled_datetime'].strftime('%H:%M') if r['scheduled_datetime'] else 'N/A'}"}, {"name": f"True Entry: {t_ent.strftime('%H:%M') if t_ent else 'N/A'}"}]})
                 journey_json = json.dumps({"name": f"ID: {pid}", "children": nodes})
 
-        template_data = {k: v for k, v in data.items() if k != 'raw_df'} if data else None
+        template_data = {k: v for k, v in data.items() if k not in ('raw_df', 'wait_raw_df')} if data else None
 
     return render_template("report_25.html", data=template_data, display_start=display_start, display_end=display_end, classes=classes, locations=locations, modalities=modalities, aetitles=aetitles, tree_json=tree_json, journey_json=journey_json, run_report=run_report, active_tab=active_tab, shift_config=shift_config)
 
@@ -1037,6 +1159,13 @@ def export_report_25():
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         data['raw_df'].drop(columns=['study_date_dt'], errors='ignore').to_excel(writer, index=False, sheet_name='RawData')
+        if data.get('tat_p90_outliers'):
+            pd.DataFrame(data['tat_p90_outliers']).to_excel(writer, index=False, sheet_name='TAT_P90_Exceptions')
+        wait_df = data.get('wait_raw_df')
+        if wait_df is not None and not wait_df.empty:
+            wait_df.to_excel(writer, index=False, sheet_name='PatientWaitTime')
+        if data.get('wait_outliers'):
+            pd.DataFrame(data['wait_outliers']).to_excel(writer, index=False, sheet_name='WaitTime_P90_Exceptions')
     output.seek(0)
     return send_file(output, as_attachment=True, download_name=f"RAYD_PRO_Export_{date.today()}.xlsx")
 

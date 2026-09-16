@@ -139,7 +139,21 @@
                 </label>
             </div>
 
+            <div>
+                <label class="sidebar-label">Exam Type Contains</label>
+                <input type="text" name="procedure_contains" placeholder="e.g. CT CHEST"
+                       value="{{ request.args.get('procedure_contains', '') }}"
+                       class="w-full bg-black border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder-zinc-700">
+                <p class="text-[9px] text-zinc-700 italic mt-1">Matches procedure code, case-insensitive.</p>
+            </div>
 
+            <div>
+                <label class="sidebar-label">Radiologist Contains</label>
+                <input type="text" name="radiologist_contains" placeholder="e.g. noufaily"
+                       value="{{ request.args.get('radiologist_contains', '') }}"
+                       class="w-full bg-black border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder-zinc-700">
+                <p class="text-[9px] text-zinc-700 italic mt-1">Matches the reading/signing radiologist, case-insensitive.</p>
+            </div>
 
             <div class="flex flex-col gap-3 pt-4">
                 <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-2xl font-black text-xs uppercase shadow-xl transition-all text-white">
@@ -299,6 +313,7 @@
 
                 <!-- TAT Percentile Stats Strip -->
                 {% if data.summary.tat_median and data.summary.tat_p75 %}
+                {% set _p90ref = data.summary.tat_p90 if data.summary.tat_p90 and data.summary.tat_p90 > 0 else data.summary.tat_p75 %}
                 <div class="flex gap-4 items-center px-4 py-3 bg-white/[0.03] border border-white/5 rounded-2xl">
                     <p class="text-[10px] font-black text-zinc-600 uppercase tracking-widest shrink-0">TAT Percentiles</p>
                     <div class="flex gap-6 flex-1">
@@ -314,14 +329,53 @@
                             <p class="text-[9px] text-zinc-600 uppercase font-bold">P75</p>
                             <p class="text-base font-black text-amber-400">{{ data.summary.tat_p75 }}m</p>
                         </div>
+                        <div class="text-center">
+                            <p class="text-[9px] text-zinc-600 uppercase font-bold">P90</p>
+                            <p class="text-base font-black text-rose-400">{{ data.summary.tat_p90 }}m</p>
+                        </div>
                         <div class="flex-1 flex items-center px-2">
                             <div class="relative w-full h-2 bg-white/5 rounded-full overflow-hidden">
-                                <div class="absolute left-0 top-0 h-full bg-emerald-500/40 rounded-full" style="width: {{ [(data.summary.tat_p25 / data.summary.tat_p75 * 100)|round|int, 100]|min }}%"></div>
-                                <div class="absolute top-0 h-full w-0.5 bg-blue-400" style="left: {{ [(data.summary.tat_median / data.summary.tat_p75 * 100)|round|int, 100]|min }}%"></div>
+                                <div class="absolute left-0 top-0 h-full bg-emerald-500/40 rounded-full" style="width: {{ [(data.summary.tat_p25 / _p90ref * 100)|round|int, 100]|min }}%"></div>
+                                <div class="absolute top-0 h-full w-0.5 bg-blue-400" style="left: {{ [(data.summary.tat_median / _p90ref * 100)|round|int, 100]|min }}%"></div>
+                                <div class="absolute top-0 h-full w-0.5 bg-amber-400" style="left: {{ [(data.summary.tat_p75 / _p90ref * 100)|round|int, 100]|min }}%"></div>
+                                <div class="absolute top-0 h-full w-0.5 bg-rose-400" style="left: {{ [(data.summary.tat_p90 / _p90ref * 100)|round|int, 100]|min }}%"></div>
                             </div>
                         </div>
                     </div>
-                    <p class="text-[9px] text-zinc-700 italic shrink-0">Use median, not mean, to benchmark TAT fairly.</p>
+                    <p class="text-[9px] text-zinc-700 italic shrink-0">Use median, not mean, to benchmark TAT fairly. P90 = the slowest 10% of studies.</p>
+                </div>
+                {% endif %}
+
+                <!-- Patient Wait Time (order received -> PACS complete; Mazloum agreement 2026-09-16) -->
+                {% if data.summary.wait_available %}
+                <div class="flex gap-4 items-center px-4 py-3 bg-white/[0.03] border border-white/5 rounded-2xl">
+                    <p class="text-[10px] font-black text-zinc-600 uppercase tracking-widest shrink-0">Patient Wait Time</p>
+                    {% if data.summary.wait_n and data.summary.wait_n > 0 %}
+                    <div class="flex gap-6 flex-1">
+                        <div class="text-center">
+                            <p class="text-[9px] text-zinc-600 uppercase font-bold">Avg</p>
+                            <p class="text-base font-black text-emerald-400">{{ data.summary.wait_avg }}m</p>
+                        </div>
+                        <div class="text-center">
+                            <p class="text-[9px] text-zinc-600 uppercase font-bold">Median</p>
+                            <p class="text-base font-black text-blue-400">{{ data.summary.wait_median }}m</p>
+                        </div>
+                        <div class="text-center">
+                            <p class="text-[9px] text-zinc-600 uppercase font-bold">P90</p>
+                            <p class="text-base font-black text-rose-400">{{ data.summary.wait_p90 }}m</p>
+                        </div>
+                        <div class="text-center">
+                            <p class="text-[9px] text-zinc-600 uppercase font-bold">Studies</p>
+                            <p class="text-base font-black text-zinc-300">{{ data.summary.wait_n }}</p>
+                        </div>
+                    </div>
+                    <p class="text-[9px] text-zinc-700 italic shrink-0 max-w-xs">
+                        Order received &rarr; PACS complete. Not a literal check-in-to-scan time (no scheduling
+                        system at this site yet) — {{ data.summary.wait_excluded }} rows excluded as bad-join/implausible.
+                    </p>
+                    {% else %}
+                    <p class="text-[11px] text-zinc-600 italic">No orders with a matching HL7 message in this date range — nothing to compute yet.</p>
+                    {% endif %}
                 </div>
                 {% endif %}
 
@@ -1400,6 +1454,28 @@
                     </div>
                 </div>
 
+                <!-- Row 4: P90 RCA Exceptions (TAT + Patient Wait Time) -->
+                <div class="grid grid-cols-2 gap-6">
+                    <div class="glass-card">
+                        <div class="flex items-center justify-between mb-4">
+                            <p class="text-xs font-black text-rose-500 uppercase tracking-widest">TAT — Above P90</p>
+                            <span class="text-[10px] text-zinc-600 italic">Worst 10% · for RCA · max 50 rows</span>
+                        </div>
+                        <div id="tat-p90-outlier-list" class="space-y-2 max-h-[420px] overflow-y-auto">
+                            <div class="text-center py-8 text-zinc-600 italic text-xs">Loading…</div>
+                        </div>
+                    </div>
+                    <div class="glass-card">
+                        <div class="flex items-center justify-between mb-4">
+                            <p class="text-xs font-black text-rose-500 uppercase tracking-widest">Patient Wait Time — Above P90</p>
+                            <span class="text-[10px] text-zinc-600 italic">Order received &rarr; PACS complete · max 50 rows</span>
+                        </div>
+                        <div id="wait-p90-outlier-list" class="space-y-2 max-h-[420px] overflow-y-auto">
+                            <div class="text-center py-8 text-zinc-600 italic text-xs">Loading…</div>
+                        </div>
+                    </div>
+                </div>
+
             </div>
 
             <!-- ── WORKFLOW TAB ───────────────────────────────────────────── -->
@@ -2423,6 +2499,46 @@
                         }
                     }
                 }
+
+                // P90 RCA exception lists (Mazloum, 2026-09-16 agreement) — same simple
+                // "worst N, sorted desc" rendering for both TAT and Patient Wait Time,
+                // since the server already sorted/capped each list at 50 rows.
+                function _renderP90List(containerId, rows, valueKey, valueLabel, emptyMsg) {
+                    const el = document.getElementById(containerId);
+                    if (!el) return;
+                    if (!rows || rows.length === 0) {
+                        el.innerHTML = `<div class="text-center py-8 text-zinc-600 italic text-xs">${emptyMsg}</div>`;
+                        return;
+                    }
+                    const maxV = Math.max(...rows.map(r => r[valueKey] || 0)) || 1;
+                    el.innerHTML = rows.map(r => {
+                        const barW = Math.min(Math.round((r[valueKey] || 0) / maxV * 100), 100);
+                        const who = r.reading_radiologist || r.accession_number || '—';
+                        return `
+                        <div class="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/[0.02] border border-white/5 hover:border-white/10 transition-all">
+                            <div class="w-1 self-stretch rounded-full flex-shrink-0" style="background:#f43f5e"></div>
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-center gap-2 mb-1.5 flex-wrap">
+                                    <span class="text-xs font-bold text-zinc-200 truncate">${_esc(who)}</span>
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-zinc-800 text-zinc-300">${_esc(r.modality || '—')}</span>
+                                    ${r.procedure_code ? `<span class="text-[10px] text-zinc-500">${_esc(r.procedure_code)}</span>` : ''}
+                                    ${r.patient_class ? `<span class="text-[10px] text-zinc-500">${_esc(r.patient_class)}</span>` : ''}
+                                </div>
+                                <div class="h-1 bg-white/5 rounded-full overflow-hidden">
+                                    <div class="h-full rounded-full" style="width:${barW}%;background:#f43f5e99"></div>
+                                </div>
+                            </div>
+                            <div class="text-right flex-shrink-0">
+                                <div class="text-sm font-black text-rose-400">${r[valueKey]}${valueLabel}</div>
+                            </div>
+                            <div class="text-[10px] text-zinc-600 flex-shrink-0 w-20 text-right hidden sm:block">${r.study_date || '—'}</div>
+                        </div>`;
+                    }).join('');
+                }
+                _renderP90List('tat-p90-outlier-list', d.tat_p90_outliers, 'total_tat_min', 'm',
+                    'No studies above this period’s P90 — nothing to review.');
+                _renderP90List('wait-p90-outlier-list', d.wait_outliers, 'wait_minutes', 'm',
+                    'No wait-time exceptions in this date range.');
 
                 // --- TAT Outlier Table (legacy client-side) ---
                 const allTats = [];
