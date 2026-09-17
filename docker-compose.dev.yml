@@ -1,11 +1,25 @@
-# Standalone dev compose — runs the app stack locally without nginx/TLS.
-# Exposes port 5432 so MCP tools and psql can connect directly.
-# Credentials are intentionally minimal dev values; never use in production.
+# Dev compose. Two supported ways to use it, and they are NOT interchangeable.
 #
-# Usage:
-#   docker compose -f docker-compose.dev.yml up -d
+#   1. AS AN OVERRIDE (what CLAUDE.md documents, and what you want for HL7):
+#          docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#      Everything from the base file — including nginx on 443 — plus this file's
+#      dev credentials, the app on 8080 and Postgres on 5432 for psql and MCP.
 #
-# Then Claude Code MCP (rayd-postgres) can connect via localhost:5432.
+#   2. STANDALONE:
+#          docker compose -f docker-compose.dev.yml up -d
+#      App, worker and database only. NO nginx, so no TLS and nothing on 443.
+#
+# ⚠ THE TWO MODES USE DIFFERENT DATABASE VOLUMES.
+#   base alone      -> postgres_data
+#   with this file  -> postgres_dev_data     (override wins, verified via
+#                                             `docker compose config`)
+#
+# So switching modes silently swaps you onto a different database, which presents
+# as "all my data vanished". It is also how a bare `docker compose up -d rayd-app`
+# once recreated rayd_db against the wrong volume. Pick one mode and stay in it;
+# if you must run a one-off command, pass the SAME -f flags you started with.
+#
+# Credentials here are intentionally minimal dev values; never use in production.
 services:
 
   rayd-app:
@@ -29,7 +43,15 @@ services:
       db:
         condition: service_healthy
 
-  nlp-worker:
+  # Service key MUST match the base file's (rayd-nlp), not be a new name.
+  #
+  # This was `nlp-worker`, which made the documented override command
+  #     docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+  # fail outright with:
+  #     services.rayd-nlp: container name "rayd_nlp" is already in use by service {}
+  # Compose saw two DIFFERENT services both claiming container_name rayd_nlp and
+  # refused, rather than treating this as an override of the base service.
+  rayd-nlp:
     build: ./nlp_worker
     container_name: rayd_nlp
     restart: unless-stopped

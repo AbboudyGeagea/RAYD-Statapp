@@ -179,30 +179,53 @@ procedure_exceptions    — legacy exceptions table (see device_exceptions for c
 
 ## Dev Workflow
 
+**Always pass both `-f` flags, on every command.** The base file and the dev
+override use *different* database volumes (`postgres_data` vs `postgres_dev_data`),
+so dropping the flags silently switches you to a different, empty database — and a
+bare `docker compose up -d rayd-app` is what once recreated `rayd_db` against the
+wrong volume. Define an alias and use it for everything:
+
 ```bash
-# Start stack with DB port exposed (needed for MCP postgres server)
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+alias dc='docker compose -f docker-compose.yml -f docker-compose.dev.yml'
+```
+
+```bash
+# Start the stack. nginx serves HTTPS on 443; port 80 is NOT published (another
+# app owns it on this host), so use https:// explicitly — there is no redirect.
+dc up -d
+
+#   https://localhost      web UI
+#   localhost:6661         HL7 MLLP listener
+#   localhost:5432         Postgres, for psql and the rayd-postgres MCP server
+#   localhost:8080         app direct, bypassing nginx
 
 # Tail logs
-docker compose logs -f rayd-app
-docker compose logs -f rayd-nlp
+dc logs -f rayd-app
+dc logs -f rayd-nlp
 
-# Run ETL sync manually
-docker compose exec rayd-app python app.py -m
+# Watch HL7 traffic arrive
+dc logs -f rayd-app | grep -E "HL7|MLLP|RAY7"
 
 # Connect to DB (password from .env)
 psql "postgresql://etl_user:PASSWORD@localhost:5432/etl_db"
 
-# Apply a migration
-docker exec rayd_db psql -U etl_user -d etl_db \
-  -f /docker-entrypoint-initdb.d/migrations/NNNN_name.sql
-
-# Rebuild a single service
-docker compose build rayd-app && docker compose up -d rayd-app
+# Rebuild one service after a code change
+dc build rayd-app && dc up -d rayd-app
 
 # Check NLP worker health
-docker compose logs rayd-nlp --tail 20
+dc logs rayd-nlp --tail 20
 ```
+
+**Migrations apply themselves.** `run_migrations()` runs at app startup
+(`app.py`), so `dc up -d` after adding `migrations/NNNN_*.sql` is all that is
+needed — confirm with `dc logs rayd-app | grep migrations`. There is no manual
+apply step; the `migrations/` directory is not mounted into the database
+container, so any `docker exec rayd_db psql -f /docker-entrypoint-initdb.d/...`
+command will not find the file.
+
+**There is no ETL on this branch.** `python app.py -m` exits with an error by
+design — it is reserved for the HL7 projector replay. Data arrives only over
+MLLP on 6661.
 
 ## MCP Servers (for Claude Code agents)
 

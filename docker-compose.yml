@@ -4,8 +4,18 @@ services:
     image: nginx:stable-alpine
     container_name: rayd_proxy
     ports:
-      - "443:443"
-      - "80:80"
+      # HTTPS only. Port 80 is deliberately NOT published — another application owns
+      # it on this host, and a duplicate binding fails the whole `up` rather than
+      # just this container.
+      #
+      # nginx still listens on 80 INSIDE the container and still serves the
+      # HTTP->HTTPS redirect (see nginx/conf.d/default.conf); it simply is not
+      # reachable from the host. The only thing lost is the courtesy redirect for
+      # someone who types http:// by hand — they get a connection refused instead.
+      # To restore it on a host where 80 is free, add: - "${HTTP_PORT:-80}:80"
+      #
+      # HTTPS_PORT exists so this can move off 443 too without editing the file.
+      - "${HTTPS_PORT:-443}:443"
     volumes:
       - ./nginx/conf.d:/etc/nginx/conf.d
       - ./nginx/certs:/etc/nginx/certs
@@ -55,7 +65,12 @@ services:
       # master data arrives by MFN message or CSV import instead.
 
     volumes:
-      - /opt/rayd/logs:/opt/rayd/logs
+      # RAYD_LOG_DIR so this works on a developer machine as well as a Linux server.
+      # The default is the production path; on Docker Desktop that resolves inside
+      # the WSL VM rather than on the Windows filesystem, so the logs are written
+      # somewhere real but effectively invisible. Set RAYD_LOG_DIR=./logs in .env to
+      # put them next to the project instead.
+      - ${RAYD_LOG_DIR:-/opt/rayd/logs}:/opt/rayd/logs
       - ./static:/app/static
       # No Oracle Instant Client bind mount on the HL7 branch — the client is not
       # installed on the host and the image no longer links against it.
