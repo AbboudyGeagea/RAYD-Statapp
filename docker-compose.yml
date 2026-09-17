@@ -1,8 +1,18 @@
+# Container names carry an overridable prefix so a second checkout of this repo can
+# run on the same machine without colliding. Compose derives its PROJECT name from
+# the directory, which namespaces volumes and networks automatically — but
+# container_name is explicit and global, so two clones would fight over "rayd_db"
+# even though their data is properly separate.
+#
+# Default is "rayd", so production and every existing command (install.sh's
+# `docker exec rayd_db psql ...`, the CLAUDE.md snippets) are unchanged. A test
+# checkout sets RAYD_CONTAINER_PREFIX in its own .env.
+
 services:
 
   nginx:
     image: nginx:stable-alpine
-    container_name: rayd_proxy
+    container_name: ${RAYD_CONTAINER_PREFIX:-rayd}_proxy
     ports:
       # HTTPS only. Port 80 is deliberately NOT published — another application owns
       # it on this host, and a duplicate binding fails the whole `up` rather than
@@ -30,7 +40,7 @@ services:
 
   rayd-app:
     build: .
-    container_name: rayd_service
+    container_name: ${RAYD_CONTAINER_PREFIX:-rayd}_service
     restart: always
     ports:
       # HL7/MLLP listener — the senders (Carestream PACS, SAP/Mirth HIS, RIS) are REMOTE
@@ -81,7 +91,7 @@ services:
 
   rayd-nlp:
     build: ./nlp_worker
-    container_name: rayd_nlp
+    container_name: ${RAYD_CONTAINER_PREFIX:-rayd}_nlp
     restart: always
     env_file:
       - .env
@@ -103,7 +113,7 @@ services:
 
   db:
     image: postgres:15
-    container_name: rayd_db
+    container_name: ${RAYD_CONTAINER_PREFIX:-rayd}_db
     restart: always
     environment:
       - POSTGRES_USER=${POSTGRES_USER}

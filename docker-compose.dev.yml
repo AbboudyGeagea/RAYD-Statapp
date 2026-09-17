@@ -24,7 +24,7 @@ services:
 
   rayd-app:
     build: .
-    container_name: rayd_service
+    container_name: ${RAYD_CONTAINER_PREFIX:-rayd}_service
     restart: unless-stopped
     ports:
       - "8080:8080"
@@ -53,7 +53,7 @@ services:
   # refused, rather than treating this as an override of the base service.
   rayd-nlp:
     build: ./nlp_worker
-    container_name: rayd_nlp
+    container_name: ${RAYD_CONTAINER_PREFIX:-rayd}_nlp
     restart: unless-stopped
     environment:
       - TZ=Asia/Beirut
@@ -68,7 +68,7 @@ services:
 
   db:
     image: postgres:15
-    container_name: rayd_db
+    container_name: ${RAYD_CONTAINER_PREFIX:-rayd}_db
     restart: unless-stopped
     environment:
       - POSTGRES_USER=etl_user
