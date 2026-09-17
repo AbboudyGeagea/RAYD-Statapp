@@ -37,9 +37,14 @@ three non-negotiable properties:
      message still projects. A screening engine that can block ingestion by crashing
      is a bigger risk to the data than the anomalies it was built to catch.
 
-Two lookups per message hit the database (duplicate probe, study state); everything
-else is served from short-lived in-process caches, same pattern as the listener's
-field-map cache.
+Database cost per message: two reads in screen() (duplicate probe, study state), then
+in persist() one UPDATE plus one INSERT per finding — so a clean message costs three
+statements and a flagged one a few more. Rule config, the status map and the AE title
+set come from in-process caches, warmed at startup by warm_caches() and refreshed on
+a TTL; a refresh adds three reads to whichever message happens to trip it.
+
+Every one of those statements is time-bounded and runs inside its own SAVEPOINT. See
+_bounded_query() for why the savepoint is the load-bearing part.
 
 
 TWO TRAPS THIS ENGINE IS SHAPED AROUND
@@ -59,6 +64,7 @@ import json
 import time
 import hashlib
 import logging
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
@@ -78,15 +84,31 @@ ACCEPTED    = 'accepted'
 FLAGGED     = 'flagged'
 QUARANTINED = 'quarantined'
 
-# How long the whole inline pass may take before remaining rules are abandoned.
-# Generous relative to a socket timeout, tight relative to a human noticing.
+# How long the whole inline pass may take before remaining work is abandoned. This
+# covers the database lookups too, not just the rules — see screen().
 _TIME_BUDGET_MS = 250
+
+# Ceiling on any single RAY7 query. THE IMPORTANT ONE.
+#
+# Every RAY7 statement runs inside the sender's ACK window, so an unbounded query is
+# not a slow query — it is a stalled HL7 feed. Without this, a lock held on
+# ray7_study_state or a Postgres hiccup blocks the MLLP socket for as long as it
+# lasts, and back-pressures into the hospital's interface engine. With it, the query
+# is cancelled, RAY7 degrades to screening that message with less information, and
+# the message still gets through. Degraded screening is a bad day; a stalled feed is
+# an incident.
+_STATEMENT_TIMEOUT_MS = 150
 
 # Tolerance for sender clock skew before an event counts as "in the future".
 _FUTURE_SKEW_MINUTES = 5
 
 # Config caches. Small, slow-changing, read on every message.
+#
+# Guarded by a lock because the listener runs one thread per connection: without it,
+# every thread that finds the cache expired starts its own reload, so a busy moment
+# turns one refresh into a dozen simultaneous ones inside as many ACK windows.
 _CACHE_TTL = 300
+_CACHE_LOCK = threading.Lock()
 _cache = {'rules': (0.0, None), 'status_map': (0.0, None), 'aetitles': (0.0, None)}
 
 
@@ -183,26 +205,83 @@ def content_hash(raw_message):
 # ── Configuration ─────────────────────────────────────────────────────────────
 
 def _cached(key, loader):
+    """
+    TTL cache with single-flight refresh.
+
+    The fast path takes no lock — a stale read for the microseconds it takes another
+    thread to finish refreshing is harmless, and locking every message to read a dict
+    would be worse than the problem. Only the refresh serialises, and the second
+    thread in re-checks the stamp and finds the work already done.
+    """
     stamp, value = _cache.get(key, (0.0, None))
     now = time.time()
-    if value is None or (now - stamp) > _CACHE_TTL:
+    if value is not None and (now - stamp) <= _CACHE_TTL:
+        return value
+
+    with _CACHE_LOCK:
+        stamp, value = _cache.get(key, (0.0, None))
+        now = time.time()
+        if value is not None and (now - stamp) <= _CACHE_TTL:
+            return value
         try:
             value = loader()
             _cache[key] = (now, value)
         except Exception:
+            # Keep serving the stale value. Config that is five minutes out of date
+            # screens better than config that is missing.
             logger.exception("RAY7 could not refresh cache '%s'; using previous value", key)
     return value
 
 
+def warm_caches():
+    """
+    Populate every cache up front, called once at listener startup.
+
+    Without this the first message after boot — and one message every TTL after that
+    — pays three extra queries inside its own ACK window. Warming moves that cost off
+    the hot path to a moment when nothing is waiting on it.
+    """
+    try:
+        _rules()
+        status_map()
+        _known_aetitles()
+        logger.info("RAY7 caches warmed: %d rules, %d status mappings, %d AE titles",
+                    len(_rules() or {}), len(status_map() or {}), len(_known_aetitles() or set()))
+    except Exception:
+        logger.exception("RAY7 cache warm failed; caches will fill lazily instead")
+
+
+def _as_naive(value):
+    """
+    Coerce a datetime to naive local time.
+
+    Every timestamp in this schema is `timestamp without time zone`, and
+    hl7_listener._parse_hl7_datetime strips offsets, so parsers should never hand us
+    an aware value. If one ever does, comparing it against datetime.now() raises
+    TypeError — which fail-open would swallow, silently disabling FUTURE_EVENT for
+    good. A rule that stops working quietly is worse than one that never existed, so
+    normalise rather than trust.
+    """
+    if isinstance(value, datetime) and value.tzinfo is not None:
+        return value.astimezone().replace(tzinfo=None)
+    return value
+
+
+# The cache loaders go through _bounded_query for the same reason every other read
+# does. They are called lazily from inside screen(), which runs in the listener's
+# transaction, so an unguarded refresh that timed out would abort that transaction
+# and discard the archived message — the cache being stale is not worth that.
 def _rules():
     """{(rule_code, modality): {...}} — operator-tuned config from ray7_rules."""
     def load():
-        rows = db.session.execute(text("""
+        rows, err = _bounded_query('rule config load', """
             SELECT rule_code, modality, enabled,
                    COALESCE(severity, default_severity) AS severity,
                    threshold_minutes
               FROM ray7_rules
-        """)).mappings().all()
+        """)
+        if err:
+            raise RuntimeError(err)     # _cached keeps serving the previous value
         return {(r['rule_code'], r['modality'] or ''): dict(r) for r in rows}
     return _cached('rules', load) or {}
 
@@ -225,10 +304,12 @@ def _rule_config(code, modality=None):
 def status_map():
     """{(sending_app, order_control, order_status): (canonical_state, ladder_rank)}"""
     def load():
-        rows = db.session.execute(text("""
+        rows, err = _bounded_query('status map load', """
             SELECT sending_app, order_control, order_status, canonical_state, ladder_rank
               FROM hl7_status_map WHERE active
-        """)).mappings().all()
+        """)
+        if err:
+            raise RuntimeError(err)
         return {
             (r['sending_app'] or '', r['order_control'] or '', (r['order_status'] or '').upper()):
                 (r['canonical_state'], r['ladder_rank'])
@@ -259,14 +340,54 @@ def resolve_status(sending_app, order_control, order_status):
 
 def _known_aetitles():
     def load():
-        rows = db.session.execute(
-            text("SELECT UPPER(aetitle) FROM aetitle_modality_map")
-        ).fetchall()
-        return {r[0] for r in rows if r[0]}
+        rows, err = _bounded_query(
+            'AE title load',
+            "SELECT UPPER(aetitle) AS ae FROM aetitle_modality_map",
+        )
+        if err:
+            raise RuntimeError(err)
+        return {r['ae'] for r in rows if r['ae']}
     return _cached('aetitles', load) or set()
 
 
 # ── Context: everything the rules need, fetched once ──────────────────────────
+
+def _bounded_query(label, sql, params=None, one=False):
+    """
+    Run one RAY7 statement under a time limit, inside its own SAVEPOINT.
+
+    Returns (rows, error) — never raises, never leaves the caller's transaction in a
+    state the caller did not ask for.
+
+    THE SAVEPOINT IS NOT OPTIONAL, and the reason is easy to miss. When Postgres
+    cancels a statement for exceeding statement_timeout, it does not just fail that
+    statement — it ABORTS THE TRANSACTION. RAY7 shares the listener's transaction,
+    which also holds the archive INSERT. So a naive timeout here would roll back the
+    very row whose survival is the point of the entire design: the engine built to
+    guarantee no message is ever lost would become the thing that loses it, and only
+    under load, which is exactly when nobody is watching closely.
+
+    begin_nested() issues a SAVEPOINT, so a cancelled query rolls back only to that
+    point. The archive row, and anything else the caller has already written,
+    survives untouched.
+
+    SET LOCAL is scoped to the savepoint too, so the 150ms ceiling reverts with it
+    and cannot leak onto the projection writes that follow — those are legitimately
+    larger than a point read and must not inherit a limit meant for one.
+    """
+    try:
+        with db.session.begin_nested():
+            db.session.execute(
+                text("SET LOCAL statement_timeout = :ms"),
+                {'ms': str(_STATEMENT_TIMEOUT_MS)},
+            )
+            result = db.session.execute(text(sql), params or {})
+            rows = result.mappings().first() if one else result.mappings().all()
+        return rows, None
+    except Exception as exc:
+        logger.warning("RAY7 %s failed or timed out: %s", label, exc)
+        return None, str(exc)
+
 
 class _Context:
     """
@@ -275,9 +396,20 @@ class _Context:
     Rules must never query on their own. With twenty of them inside the ACK window,
     per-rule queries would turn a sub-millisecond pass into a visible stall on the
     sender's socket.
+
+    Both lookups are time-bounded. When one is cancelled or fails, the context is
+    marked DEGRADED rather than the failure being swallowed: the rules that depend on
+    it will quietly find nothing and raise no findings, and "RAY7 saw no problems"
+    must never be indistinguishable from "RAY7 could not look". screen() turns that
+    flag into a finding of its own.
     """
 
     # Ladder rungs, in order, mapped to their column in ray7_study_state.
+    #
+    # This maps RANK to COLUMN, which is schema structure, not clinical policy — it
+    # is not the hardcoded status ladder the standing rule warns against. The part
+    # that varies per site, CODE to rank, lives in hl7_status_map where an operator
+    # can reach it.
     RUNGS = [(40, 'scheduled_at'), (60, 'arrived_at'), (70, 'started_at'), (100, 'completed_at')]
 
     def __init__(self, msg, archive_id):
@@ -285,6 +417,7 @@ class _Context:
         self.archive_id = archive_id
         self.siblings   = []     # other archive rows sharing sender + control ID
         self.state      = None   # ray7_study_state row, if the study is known
+        self.degraded   = []     # names of lookups that failed or timed out
 
         self._load_siblings()
         self._load_state()
@@ -292,33 +425,36 @@ class _Context:
     def _load_siblings(self):
         if not self.msg.control_id:
             return
-        try:
-            self.siblings = db.session.execute(text("""
-                SELECT id, content_hash, received_at
-                  FROM hl7_message_archive
-                 WHERE sending_app = :app
-                   AND message_control_id = :cid
-                   AND id <> :self_id
-                 LIMIT 5
-            """), {
-                'app': self.msg.sending_app or '',
-                'cid': self.msg.control_id,
-                'self_id': self.archive_id or -1,
-            }).mappings().all()
-        except Exception:
-            logger.exception("RAY7 duplicate probe failed; treating as no siblings")
+        rows, err = _bounded_query('duplicate probe', """
+            SELECT id, content_hash, received_at
+              FROM hl7_message_archive
+             WHERE sending_app = :app
+               AND message_control_id = :cid
+               AND id <> :self_id
+             LIMIT 5
+        """, {
+            'app': self.msg.sending_app or '',
+            'cid': self.msg.control_id,
+            'self_id': self.archive_id or -1,
+        })
+        if err:
+            self.degraded.append('duplicate_probe')
+        else:
+            self.siblings = rows or []
 
     def _load_state(self):
         acc = self.msg.accession_number
         if not acc:
             return
-        try:
-            self.state = db.session.execute(
-                text("SELECT * FROM ray7_study_state WHERE accession_number = :acc"),
-                {'acc': acc},
-            ).mappings().first()
-        except Exception:
-            logger.exception("RAY7 state lookup failed; treating study as unknown")
+        row, err = _bounded_query(
+            'study state lookup',
+            "SELECT * FROM ray7_study_state WHERE accession_number = :acc",
+            {'acc': acc}, one=True,
+        )
+        if err:
+            self.degraded.append('study_state')
+        else:
+            self.state = row
 
     def rung_time(self, rank):
         if not self.state:
@@ -353,6 +489,31 @@ class _Context:
 #       every code against an empty table and flagging all of them, which is noise,
 #       not information. The catalogue rows exist so the rules can be switched on the
 #       day MFN lands without a migration.
+
+_DEFAULT_DUPLICATE_WINDOW_MIN = 10
+
+
+def _duplicate_window(modality=None):
+    """
+    The boundary between LOGICAL_DUPLICATE and REPEATED_TRANSITION, in minutes.
+
+    One window, read by both rules, because they are two halves of one decision: the
+    same rung reported twice is a duplicate inside the window and a genuine repeat
+    outside it, and there is no coherent configuration where those two numbers
+    differ. LOGICAL_DUPLICATE's own row is authoritative so the studio has an obvious
+    place to edit it; REPEATED_TRANSITION's value is the fallback, which is where the
+    seed migration happens to put it.
+
+    Previously both rules read REPEATED_TRANSITION's threshold directly, so an
+    operator tuning that row silently moved a boundary the other rule never
+    advertised it depended on.
+    """
+    own = _rule_config('LOGICAL_DUPLICATE', modality).get('threshold_minutes')
+    if own:
+        return own
+    shared = _rule_config('REPEATED_TRANSITION', modality).get('threshold_minutes')
+    return shared or _DEFAULT_DUPLICATE_WINDOW_MIN
+
 
 _RULES = []
 
@@ -428,7 +589,7 @@ def _rule_logical_duplicate(msg, ctx):
     existing = ctx.rung_time(msg.ladder_rank)
     if not existing:
         return
-    window = _rule_config('REPEATED_TRANSITION', msg.modality).get('threshold_minutes') or 10
+    window = _duplicate_window(msg.modality)
     if abs((msg.event_time - existing).total_seconds()) <= window * 60:
         return [Finding('LOGICAL_DUPLICATE', WARNING, {
             'state': msg.canonical_state,
@@ -449,7 +610,7 @@ def _rule_repeated_transition(msg, ctx):
     existing = ctx.rung_time(msg.ladder_rank)
     if not existing:
         return
-    window = _rule_config('REPEATED_TRANSITION', msg.modality).get('threshold_minutes') or 10
+    window = _duplicate_window(msg.modality)
     gap = abs((msg.event_time - existing).total_seconds())
     if gap > window * 60:
         return [Finding('REPEATED_TRANSITION', INFO, {
@@ -604,25 +765,42 @@ def screen(msg, archive_id=None):
     started = time.monotonic()
     findings = []
 
+    # Normalise once, here, rather than in each rule that compares timestamps.
+    msg.event_time = _as_naive(msg.event_time)
+
     try:
         ctx = _Context(msg, archive_id)
     except Exception:
         logger.exception("RAY7 could not build context; accepting message unscreened")
-        return Verdict(status=ACCEPTED)
+        return _verdict([Finding('RAY7_DEGRADED', WARNING, {
+            'phase': 'context',
+            'effect': 'message accepted without being screened at all',
+        })])
 
-    budget_blown = False
+    # The budget covers the database work, not just the rules.
+    #
+    # An earlier version started the clock and then checked it only between rules —
+    # which measured nothing that could actually be slow, since every rule is pure
+    # computation over data the context already fetched. The two lookups above are
+    # the only part that can block, so they are what the budget has to bound.
+    elapsed_ms = (time.monotonic() - started) * 1000
+    budget_blown = elapsed_ms > _TIME_BUDGET_MS
+
+    if ctx.degraded:
+        findings.append(Finding('RAY7_DEGRADED', WARNING, {
+            'failed_lookups': list(ctx.degraded),
+            'effect': 'the rules depending on those lookups could not run',
+        }))
+
     for rule in _RULES:
-        if rule['kinds'] and msg.kind not in rule['kinds']:
-            continue
-
-        elapsed_ms = (time.monotonic() - started) * 1000
-        if elapsed_ms > _TIME_BUDGET_MS:
-            budget_blown = True
+        if budget_blown:
             logger.warning(
-                "RAY7 time budget exceeded (%.0fms) — skipping %s and later rules "
-                "for control_id=%s", elapsed_ms, rule['code'], msg.control_id,
+                "RAY7 budget exceeded (%.0fms) — skipping %s and later rules for control_id=%s",
+                elapsed_ms, rule['code'], msg.control_id,
             )
             break
+        if rule['kinds'] and msg.kind not in rule['kinds']:
+            continue
 
         cfg = _rule_config(rule['code'], msg.modality)
         if not cfg.get('enabled', True):
@@ -636,13 +814,20 @@ def screen(msg, archive_id=None):
             continue
 
         for f in produced:
-            # Operator severity override wins over whatever the rule proposed.
-            f.severity = cfg.get('severity') or f.severity
+            # Keyed on the code the finding actually carries, not the code the rule
+            # was registered under. They are the same for every rule today, but a
+            # rule that emits a second, related finding would otherwise be given the
+            # wrong rule's operator severity.
+            override = _rule_config(f.rule_code, msg.modality).get('severity')
+            f.severity = override or f.severity
             findings.append(f)
+
+        elapsed_ms = (time.monotonic() - started) * 1000
+        budget_blown = elapsed_ms > _TIME_BUDGET_MS
 
     if budget_blown:
         findings.append(Finding('RAY7_BUDGET_EXCEEDED', INFO, {
-            'elapsed_ms': round((time.monotonic() - started) * 1000, 1),
+            'elapsed_ms': round(elapsed_ms, 1),
             'budget_ms': _TIME_BUDGET_MS,
         }))
 
@@ -675,39 +860,50 @@ def persist(verdict, msg, archive_id):
     if not archive_id:
         return
 
+    # Same savepoint reasoning as the reads: recording a verdict must never be able
+    # to abort the caller's transaction and take the archived message down with it.
+    # A finding we failed to write is a gap in the audit trail; a message we failed
+    # to keep is unrecoverable.
     try:
-        db.session.execute(text("""
-            UPDATE hl7_message_archive
-               SET ray7_status = :status,
-                   ray7_severity = :severity,
-                   ray7_screened_at = NOW()
-             WHERE id = :id
-        """), {'status': verdict.status, 'severity': verdict.severity, 'id': archive_id})
-
-        for f in verdict.findings:
+        with db.session.begin_nested():
             db.session.execute(text("""
-                INSERT INTO ray7_findings
-                    (message_archive_id, rule_code, severity,
-                     accession_number, patient_id, detail)
-                VALUES
-                    (:archive_id, :rule_code, :severity,
-                     :accession, :patient_id, CAST(:detail AS jsonb))
-                ON CONFLICT (message_archive_id, rule_code)
-                WHERE message_archive_id IS NOT NULL
-                DO UPDATE SET severity   = EXCLUDED.severity,
-                              detail     = EXCLUDED.detail,
-                              created_at = NOW()
-            """), {
-                'archive_id': archive_id,
-                'rule_code': f.rule_code,
-                'severity': f.severity,
-                'accession': msg.accession_number,
-                'patient_id': msg.patient_id,
-                'detail': _json(f.detail),
-            })
+                UPDATE hl7_message_archive
+                   SET ray7_status = :status,
+                       ray7_severity = :severity,
+                       ray7_screened_at = NOW()
+                 WHERE id = :id
+            """), {'status': verdict.status, 'severity': verdict.severity, 'id': archive_id})
     except Exception:
-        # Recording the verdict must never cost us the message either.
-        logger.exception("RAY7 could not persist verdict for archive_id=%s", archive_id)
+        logger.exception("RAY7 could not stamp verdict on archive_id=%s", archive_id)
+
+    # One savepoint per finding, not one around the batch: a single malformed detail
+    # payload should cost that one finding, not every other finding on the message.
+    for f in verdict.findings:
+        try:
+            with db.session.begin_nested():
+                db.session.execute(text("""
+                    INSERT INTO ray7_findings
+                        (message_archive_id, rule_code, severity,
+                         accession_number, patient_id, detail)
+                    VALUES
+                        (:archive_id, :rule_code, :severity,
+                         :accession, :patient_id, CAST(:detail AS jsonb))
+                    ON CONFLICT (message_archive_id, rule_code)
+                    WHERE message_archive_id IS NOT NULL
+                    DO UPDATE SET severity   = EXCLUDED.severity,
+                                  detail     = EXCLUDED.detail,
+                                  created_at = NOW()
+                """), {
+                    'archive_id': archive_id,
+                    'rule_code': f.rule_code,
+                    'severity': f.severity,
+                    'accession': msg.accession_number,
+                    'patient_id': msg.patient_id,
+                    'detail': _json(f.detail),
+                })
+        except Exception:
+            logger.exception(
+                "RAY7 could not record finding %s for archive_id=%s", f.rule_code, archive_id)
 
 
 def note_redelivery(sending_app, control_id, hash_value):
@@ -724,36 +920,37 @@ def note_redelivery(sending_app, control_id, hash_value):
     but the RATE is a real signal about the interface, and a rate is only
     measurable if each instance is counted somewhere.
     """
-    try:
-        row = db.session.execute(text("""
-            SELECT id FROM hl7_message_archive
-             WHERE sending_app = :app
-               AND message_control_id = :cid
-               AND content_hash = :hash
-             LIMIT 1
-        """), {'app': sending_app or '', 'cid': control_id, 'hash': hash_value}).first()
-        if not row:
-            return
+    row, err = _bounded_query('redelivery lookup', """
+        SELECT id FROM hl7_message_archive
+         WHERE sending_app = :app
+           AND message_control_id = :cid
+           AND content_hash = :hash
+         LIMIT 1
+    """, {'app': sending_app or '', 'cid': control_id, 'hash': hash_value}, one=True)
+    if err or not row:
+        return
 
-        db.session.execute(text("""
-            INSERT INTO ray7_findings
-                (message_archive_id, rule_code, severity, detail)
-            VALUES
-                (:archive_id, 'EXACT_REDELIVERY', :severity,
-                 CAST(:detail AS jsonb))
-            ON CONFLICT (message_archive_id, rule_code)
-            WHERE message_archive_id IS NOT NULL
-            DO UPDATE SET
-                detail = jsonb_set(
-                    ray7_findings.detail, '{seen}',
-                    to_jsonb(COALESCE((ray7_findings.detail ->> 'seen')::int, 1) + 1)
-                ),
-                created_at = NOW()
-        """), {
-            'archive_id': row[0],
-            'severity': _rule_config('EXACT_REDELIVERY').get('severity') or INFO,
-            'detail': _json({'control_id': control_id, 'seen': 1}),
-        })
+    try:
+        with db.session.begin_nested():
+            db.session.execute(text("""
+                INSERT INTO ray7_findings
+                    (message_archive_id, rule_code, severity, detail)
+                VALUES
+                    (:archive_id, 'EXACT_REDELIVERY', :severity,
+                     CAST(:detail AS jsonb))
+                ON CONFLICT (message_archive_id, rule_code)
+                WHERE message_archive_id IS NOT NULL
+                DO UPDATE SET
+                    detail = jsonb_set(
+                        ray7_findings.detail, '{seen}',
+                        to_jsonb(COALESCE((ray7_findings.detail ->> 'seen')::int, 1) + 1)
+                    ),
+                    created_at = NOW()
+            """), {
+                'archive_id': row['id'],
+                'severity': _rule_config('EXACT_REDELIVERY').get('severity') or INFO,
+                'detail': _json({'control_id': control_id, 'seen': 1}),
+            })
     except Exception:
         logger.exception("RAY7 could not record redelivery for control_id=%s", control_id)
 

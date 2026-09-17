@@ -144,6 +144,39 @@ check("quarantined blocks projection",
 check("flagged still projects",
       ray7._verdict([ray7.Finding('X', ray7.WARNING)]).may_project, True)
 
+print("\n_as_naive — a parser emitting tz-aware timestamps must not disable a rule")
+import datetime as _dt
+_aware = _dt.datetime(2026, 9, 17, 9, 0, tzinfo=_dt.timezone(_dt.timedelta(hours=3)))
+check("aware datetime is coerced to naive",
+      ray7._as_naive(_aware).tzinfo, None)
+check("naive datetime passes through unchanged",
+      ray7._as_naive(T(9)), T(9))
+check("None passes through", ray7._as_naive(None), None)
+# The failure this guards: comparing aware vs naive raises TypeError, which
+# fail-open would swallow, silently retiring FUTURE_EVENT forever.
+_m = msg(60, 'arrived', _aware)
+_m.event_time = ray7._as_naive(_m.event_time)
+try:
+    ray7._rule_future_event(_m, Ctx())
+    check("FUTURE_EVENT survives an aware input once normalised", True, True)
+except TypeError:
+    check("FUTURE_EVENT survives an aware input once normalised", False, True)
+
+print("\nduplicate window resolution")
+_cfgs = {}
+ray7._rule_config = lambda code, modality=None: _cfgs.get(
+    code, {'enabled': True, 'severity': None, 'threshold_minutes': None})
+_cfgs['LOGICAL_DUPLICATE'] = {'enabled': True, 'severity': None, 'threshold_minutes': 25}
+_cfgs['REPEATED_TRANSITION'] = {'enabled': True, 'severity': None, 'threshold_minutes': 10}
+check("LOGICAL_DUPLICATE's own threshold wins", ray7._duplicate_window(), 25)
+_cfgs['LOGICAL_DUPLICATE'] = {'enabled': True, 'severity': None, 'threshold_minutes': None}
+check("falls back to REPEATED_TRANSITION", ray7._duplicate_window(), 10)
+_cfgs.clear()
+check("falls back to the built-in default", ray7._duplicate_window(),
+      ray7._DEFAULT_DUPLICATE_WINDOW_MIN)
+ray7._rule_config = lambda code, modality=None: {
+    'enabled': True, 'severity': None, 'threshold_minutes': 10}
+
 print("\ncontent_hash")
 check("CRLF vs CR reframing hashes the same",
       ray7.content_hash("MSH|a\r\nPID|b"), ray7.content_hash("MSH|a\rPID|b"))
