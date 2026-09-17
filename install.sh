@@ -17,16 +17,13 @@ PG_USER="etl_user"
 PG_DB="etl_db"
 PG_PASSWORD="SecureCrynBabe"
 
-# ── Fixed app secret key (must match the key used to encrypt Oracle password) ──
-# WARNING: changing this will invalidate all encrypted DB passwords stored in db_params
+# ── Fixed app secret key ───────────────────────────────────────────────────────
+# Still required: utils/crypto.py uses it, and it signs the Flask session.
 FIXED_SECRET_KEY="c0f1a2b3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1"
 
-# ── Fixed Oracle PACS credentials (only host changes per site) ────────────────
-ORACLE_PORT=1521
-ORACLE_SID="mst1"
-ORACLE_USER="sys"
-# Pre-encrypted with FIXED_SECRET_KEY above — update both together if password changes
-ORACLE_PASS_ENCRYPTED="gAAAAABp7K-egdXV1gJMKghGHJ3Iji-v81_fe1hL3EZ5krpgHT4YThnzsXVYUQkG_LJxfY8utazmYqc5EWPww7gh8D7LaI61VQ=="
+# HL7 BRANCH: the hardcoded Oracle PACS credentials that used to live here are gone
+# — host, port, SID, the 'sys' username and the pre-encrypted password. This install
+# never connects to a source database, so it ships with no credentials for one.
 
 # Run SQL against the Postgres container
 pg_exec() {
@@ -42,7 +39,7 @@ echo ""
 # ──────────────────────────────────────────────────────
 # STEP 1: Check prerequisites
 # ──────────────────────────────────────────────────────
-info "Step 1/7 — Checking prerequisites..."
+info "Step 1/5 — Checking prerequisites..."
 
 command -v docker   >/dev/null 2>&1 || error "Docker is not installed. Install it from https://docs.docker.com/engine/install/"
 command -v openssl  >/dev/null 2>&1 || error "'openssl' is required. Run: apt-get install -y openssl"
@@ -58,43 +55,14 @@ fi
 ok "Docker found: $(docker --version)"
 ok "Docker Compose found: $($COMPOSE version)"
 
-# ──────────────────────────────────────────────────────
-# STEP 2: Oracle Instant Client 21.13
-# ──────────────────────────────────────────────────────
-info "Step 2/7 — Checking Oracle Instant Client..."
-
-ORACLE_DIR="/opt/oracle/instantclient_21_13"
-ORACLE_ZIP="instantclient-basiclite-linux.x64-21.13.0.0.0dbru.zip"
-ORACLE_URL="https://download.oracle.com/otn_software/linux/instantclient/2113000/${ORACLE_ZIP}"
-
-if [ -d "$ORACLE_DIR" ]; then
-    ok "Oracle Instant Client 21.13 already installed at $ORACLE_DIR"
-else
-    warn "Oracle Instant Client not found. Installing..."
-    apt-get update -qq
-    apt-get install -y -qq libaio-dev unzip wget
-    apt-get install -y -qq libaio1t64 2>/dev/null || apt-get install -y -qq libaio1 2>/dev/null || warn "libaio not found — Oracle client may not work. Install libaio1 or libaio1t64 manually."
-
-    mkdir -p /opt/oracle
-    cd /opt/oracle
-
-    if [ ! -f "$ORACLE_ZIP" ]; then
-        info "Downloading Oracle Instant Client..."
-        wget -q "$ORACLE_URL" -O "$ORACLE_ZIP" || error "Download failed. Download manually from https://www.oracle.com/database/technologies/instant-client/linux-x86-64-downloads.html and place at /opt/oracle/${ORACLE_ZIP}"
-    fi
-
-    unzip -q "$ORACLE_ZIP" -d /opt/oracle
-    cd "$SCRIPT_DIR"
-
-    echo "$ORACLE_DIR" | tee /etc/ld.so.conf.d/oracle-instantclient.conf
-    ldconfig
-    ok "Oracle Instant Client 21.13 installed."
-fi
+# HL7 BRANCH: the Oracle Instant Client install step was removed. Nothing on
+# this host connects to an Oracle database, so the client is not downloaded,
+# not unpacked into /opt/oracle, and not registered with ldconfig.
 
 # ──────────────────────────────────────────────────────
-# STEP 3: Environment file
+# STEP 2: Environment file
 # ──────────────────────────────────────────────────────
-info "Step 3/7 — Setting up .env..."
+info "Step 2/5 — Setting up .env..."
 
 if [ -f ".env" ] && grep -q "^SECRET_KEY=.\+" .env; then
     ok ".env already exists with SECRET_KEY — skipping. Edit it manually if needed."
@@ -117,9 +85,9 @@ POSTGRES_DB=${PG_DB}
 TZ=Asia/Beirut
 LIVE_FEED_ENABLED=true
 
-# LAUMC: modalities/procedures come from the RIS (std_devices / std_procedure_codes)
-# or manual import — do NOT auto-fill them from PACS in ETL Phase 8.
-RAYD_ETL_LOOKUP_FROM_PACS=false
+# HL7 BRANCH: RAYD_ETL_LOOKUP_FROM_PACS dropped with ETL Phase 8 — there is no PACS
+# database to mine modalities and procedures from. That master data arrives by MFN
+# message or CSV import.
 EOF
 
     ok ".env created."
@@ -129,9 +97,9 @@ fi
 set -a; source .env; set +a
 
 # ──────────────────────────────────────────────────────
-# STEP 4: SSL certificates (private CA → trusted HTTPS)
+# STEP 3: SSL certificates (private CA → trusted HTTPS)
 # ──────────────────────────────────────────────────────
-info "Step 4/7 — Setting up SSL certificates..."
+info "Step 3/5 — Setting up SSL certificates..."
 
 CERT_DIR="./nginx/certs"
 mkdir -p "$CERT_DIR"
@@ -225,9 +193,9 @@ echo "  └───────────────────────
 echo ""
 
 # ──────────────────────────────────────────────────────
-# STEP 5: Build and start containers
+# STEP 4: Build and start containers
 # ──────────────────────────────────────────────────────
-info "Step 5/7 — Building and starting Docker containers..."
+info "Step 4/5 — Building and starting Docker containers..."
 
 $COMPOSE down --remove-orphans 2>/dev/null || true
 
@@ -262,9 +230,9 @@ $COMPOSE ps | grep rayd_service | grep -q "Up" || error "rayd_service failed to 
 ok "All containers are running."
 
 # ──────────────────────────────────────────────────────
-# STEP 6: Database configuration
+# STEP 5: Database configuration
 # ──────────────────────────────────────────────────────
-info "Step 6/7 — Configuring database..."
+info "Step 5/5 — Configuring database..."
 
 # ── 6a. Truncate all ETL tables ───────────────────────
 info "Truncating all ETL tables (RESTART IDENTITY CASCADE)..."
@@ -289,38 +257,24 @@ ok "ETL tables truncated."
 pg_exec "ALTER TABLE public.settings ALTER COLUMN key TYPE TEXT, ALTER COLUMN value TYPE TEXT;"
 ok "settings table widened to TEXT."
 
-# ── 6b. PACS Oracle connection ────────────────────────
+# ── 5b. HL7 interface ─────────────────────────────────
+#
+# Replaces the old "PACS Oracle Connection" step, which prompted for a host and
+# wrote a db_params row holding a pre-encrypted 'sys' password. Nothing is stored
+# here: the install is a passive MLLP receiver, so the only thing that has to be
+# true is that the sending system can reach port 6661 on this host.
 echo ""
-echo "  ── PACS Oracle Connection ──────────────────────"
-echo "  (All credentials are fixed — only the host IP changes per site)"
+echo "  ── HL7 Interface ──────────────────────────────────────────────────────────"
+echo "  This install receives all clinical data as HL7 v2 over MLLP."
+echo "  No source-database credentials are stored."
 echo ""
-
-read -r -p "  Oracle PACS host IP or hostname: " ORACLE_HOST
-while [ -z "$ORACLE_HOST" ]; do
-    read -r -p "  Oracle PACS host IP or hostname (required): " ORACLE_HOST
-done
-
-pg_exec "
-INSERT INTO db_params (name, db_role, db_type, host, port, sid, username, password, mode)
-VALUES (
-    'oracle_ris',
-    'source',
-    'oracle',
-    '${ORACLE_HOST}',
-    ${ORACLE_PORT},
-    '${ORACLE_SID}',
-    '${ORACLE_USER}',
-    '${ORACLE_PASS_ENCRYPTED}',
-    ''
-)
-ON CONFLICT (name) DO UPDATE SET
-    host     = EXCLUDED.host,
-    port     = EXCLUDED.port,
-    sid      = EXCLUDED.sid,
-    username = EXCLUDED.username,
-    password = EXCLUDED.password;
-"
-ok "Oracle PACS connection saved (${ORACLE_USER}@${ORACLE_HOST}:${ORACLE_PORT}/${ORACLE_SID}) — password pre-encrypted."
+echo "    Listening on : 6661/tcp (MLLP)"
+echo "    Expects      : ADT and ORM from the HIS, status events from the RIS,"
+echo "                   ORU from the PACS"
+echo ""
+echo "  Ask the integration team to add this host as a destination on those feeds."
+echo "  Restrict who may reach the port with: scripts/hl7_firewall.sh"
+echo ""
 
 # ── 6c. License Tier ─────────────────────────────
 echo ""
@@ -496,51 +450,29 @@ ON CONFLICT (key) DO UPDATE SET value = 'false';
 "
     ok "Demo mode is OFF."
 
-    echo ""
-    read -r -p "  Go-live date for ETL (YYYY-MM-DD) — ETL will pull data from this date onwards: " GO_LIVE
-    while ! [[ "$GO_LIVE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; do
-        read -r -p "  Invalid format. Go-live date (YYYY-MM-DD): " GO_LIVE
-    done
-
-    pg_exec "
-TRUNCATE go_live_config RESTART IDENTITY;
-INSERT INTO go_live_config (go_live_date) VALUES ('${GO_LIVE}');
-"
-    ok "Go-live date set to ${GO_LIVE}."
+    # HL7 BRANCH: no go-live date is asked for.
+    #
+    # The Oracle ETL needed one because it faced a PACS database holding years of
+    # history and had to be told how far back to pull. An HL7 feed has no history
+    # to pull — data starts arriving the moment the sender is pointed here — so the
+    # question has no answer worth storing, and asking it invites a wrong one.
+    #
+    # go_live_config is left empty. db.get_etl_cutoff_date() derives the reporting
+    # floor from the earliest study actually held instead, so every report's default
+    # date range still opens on real data without any report query changing.
 fi
 
-# ──────────────────────────────────────────────────────
-# STEP 7: Initial ETL — run phase by phase (operator paced)
+# HL7 BRANCH: there is no initial ETL step.
 #
-# LAUMC is a large site: the full sync walks studies -> series -> raw images
-# (100M+ rows) -> image locations -> patients -> orders -> rollups. Running all
-# phases back-to-back can overwhelm the Oracle source, so the ETL is offered
-# phase-by-phase: you are asked before each one and can skip or quit at any point.
-# Phases already completed are kept, so a run can be resumed on another day.
-# ──────────────────────────────────────────────────────
-echo ""
-echo "  ── Initial ETL ────────────────────────────────────────────────────────────"
-echo "  The initial sync runs in phases. Heavy phases (raw images, image locations)"
-echo "  can take hours and put real load on the PACS Oracle server."
-echo ""
-echo "    1) Run now, phase by phase  — you approve each phase before it starts"
-echo "    2) Skip for now             — run it later at a quieter time"
-echo "  ─────────────────────────────────────────────────────────────────────────"
-read -r -p "  Choice [1-2] (default 2): " ETL_CHOICE
-ETL_CHOICE="${ETL_CHOICE:-2}"
-
-if [ "$ETL_CHOICE" = "1" ]; then
-    info "Starting phase-paced ETL — you will be prompted before each phase."
-    echo ""
-    # -e sets the interactive flag inside the container; the exec allocates a TTY so
-    # the per-phase prompts work. A non-zero exit (e.g. operator quit) must not abort
-    # the installer, hence the '|| true'.
-    $COMPOSE exec -e RAYD_ETL_INTERACTIVE=1 rayd-app python app.py -m || true
-    echo ""
-    ok "ETL session finished (any skipped phases can be run later)."
-else
-    info "Initial ETL skipped — run it when convenient (commands below)."
-fi
+# The Oracle install ended by walking 18 phases against the PACS database —
+# studies, series, 100M+ raw image rows, image locations, patients, orders,
+# rollups — paced one phase at a time so it would not overwhelm the source.
+# None of that happens here. The install finishes the moment the containers are
+# up, and the database fills itself as HL7 messages arrive.
+#
+# The practical consequence for the operator: this install starts EMPTY and
+# stays empty until the sending systems are pointed at port 6661. That is the
+# expected state, not a failed install.
 
 # ──────────────────────────────────────────────────────
 # DONE
@@ -555,17 +487,12 @@ echo "  Logs:     $COMPOSE logs -f"
 echo "  Restart:  $COMPOSE restart"
 echo "  Stop:     $COMPOSE down"
 echo ""
-echo "  ETL — phase by phase (asks before each phase, recommended):"
-echo "    $COMPOSE exec -e RAYD_ETL_INTERACTIVE=1 rayd-app python app.py -m"
+echo "  HL7 MLLP listener:  6661/tcp on this host"
+echo "    Verify it is listening:  $COMPOSE logs rayd-app | grep MLLP"
+echo "    Watch messages arrive:   $COMPOSE logs -f rayd-app | grep HL7"
 echo ""
-echo "  ETL — specific phases only (no prompts; good for off-hours/cron):"
-echo "    $COMPOSE exec -e RAYD_ETL_PHASES=1 rayd-app python app.py -m       # studies"
-echo "    $COMPOSE exec -e RAYD_ETL_PHASES=2,2b rayd-app python app.py -m    # series"
-echo "    $COMPOSE exec -e RAYD_ETL_PHASES=3 rayd-app python app.py -m       # raw images (heavy)"
-echo "    $COMPOSE exec -e RAYD_ETL_PHASES=4 rayd-app python app.py -m       # image locations (heavy)"
-echo "    $COMPOSE exec -e RAYD_ETL_PHASES=5,6 rayd-app python app.py -m     # patients + orders"
-echo "    $COMPOSE exec -e RAYD_ETL_PHASES=7,8 rayd-app python app.py -m     # rollups + lookups"
-echo ""
-echo "  ETL — everything at once (original behaviour, heaviest):"
-echo "    $COMPOSE exec rayd-app python app.py -m"
+echo "  This install has no ETL and no source-database credentials."
+echo "  It starts empty and fills as HL7 messages arrive. If nothing appears,"
+echo "  the question is whether the senders have been pointed at port 6661 —"
+echo "  check with the integration team before looking at the application."
 echo ""

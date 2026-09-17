@@ -36,7 +36,6 @@ services:
       # ── Core ─────────────────────────────────────────────────
       - TZ=${TZ:-Asia/Beirut}
       - SECRET_KEY=${SECRET_KEY}
-      - LD_LIBRARY_PATH=/opt/oracle/instantclient_21_13
 
       # ── Database ─────────────────────────────────────────────
       - POSTGRES_USER=${POSTGRES_USER}
@@ -51,20 +50,15 @@ services:
       # ── Feature Flags ─────────────────────────────────────────
       - PATIENT_PORTAL_ENABLED=${PATIENT_PORTAL_ENABLED:-false}
       - LIVE_FEED_ENABLED=${LIVE_FEED_ENABLED:-true}
-      # ETL Phase 8 auto-fills modalities/procedures from PACS. LAUMC sources these
-      # from the RIS (std_devices / std_procedure_codes) or manual import, so it sets
-      # this false in .env. Default '1' preserves the old behaviour for other sites.
-      - RAYD_ETL_LOOKUP_FROM_PACS=${RAYD_ETL_LOOKUP_FROM_PACS:-1}
+      # RAYD_ETL_LOOKUP_FROM_PACS dropped with ETL Phase 8 — there is no PACS
+      # database to mine modalities and procedures out of on this branch. That
+      # master data arrives by MFN message or CSV import instead.
 
     volumes:
       - /opt/rayd/logs:/opt/rayd/logs
       - ./static:/app/static
-      # Oracle Instant Client (installed on the host by install.sh Step 2).
-      # python-oracledb needs these libraries INSIDE the container to run in
-      # THICK mode — required for PACS accounts that still use a legacy 10g
-      # password verifier (thin mode fails with DPY-3015). LD_LIBRARY_PATH above
-      # and ORACLE_CLIENT_LIB_DIR both point here. Read-only: the app only reads.
-      - /opt/oracle/instantclient_21_13:/opt/oracle/instantclient_21_13:ro
+      # No Oracle Instant Client bind mount on the HL7 branch — the client is not
+      # installed on the host and the image no longer links against it.
 
     depends_on:
       db:

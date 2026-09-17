@@ -4,7 +4,10 @@ Flask-SQLAlchemy==3.1.1
 Flask-WTF==1.2.1
 Flask-Limiter==3.5.1
 psycopg2-binary==2.9.9
-oracledb==3.4.2
+# oracledb intentionally absent on the HL7 distribution branch — this install takes
+# all clinical data as HL7 v2 over MLLP and holds no database credentials for any
+# source system. Do not re-add it without also revisiting the compliance position
+# in The-HL7-Cutover.pdf; see the banner in db.py.
 APScheduler==3.10.4
 pytz==2024.1
 pandas==2.2.1

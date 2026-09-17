@@ -673,31 +673,25 @@ def trigger_phase9():
 @admin_bp.route('/etl/trigger', methods=['POST'])
 @login_required
 def trigger_etl():
+    """
+    HL7 BRANCH: disabled. This used to launch ETL_JOBS.etl_runner.execute_sync() —
+    the full 18-phase Oracle sync — in a background thread.
+
+    The route is kept rather than deleted so the existing admin button returns an
+    explanation instead of a 500 from a failed import. Note the two neighbouring
+    routes, /sync-mappings and /etl/trigger-phase9, are NOT disabled: both operate
+    purely on Postgres (lookup-table inference and procedure clustering), so they
+    are still valid work on this branch even though "ETL" is in their name.
+    """
     if current_user.role != 'admin':
         return abort(403)
 
-    # Block ETL when demo mode is active
-    demo_row = db.session.execute(
-        text("SELECT value FROM settings WHERE key = 'demo_mode'")
-    ).fetchone()
-    if demo_row and demo_row[0].lower() == 'true':
-        return jsonify({"status": "error", "message": "ETL is locked during demo mode."}), 403
-
-    try:
-        from flask import current_app
-        from ETL_JOBS.etl_runner import execute_sync
-        import threading
-
-        app = current_app._get_current_object()
-
-        def _run():
-            with app.app_context():
-                execute_sync(app)
-
-        threading.Thread(target=_run, daemon=True).start()
-        _admin_audit('etl_triggered', current_user.id, category='etl')
-        db.session.commit()
-        return jsonify({"status": "success"})
-
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+    return jsonify({
+        "status": "error",
+        "message": (
+            "There is no Oracle ETL on this install. Clinical data arrives as HL7 v2 "
+            "over MLLP on port 6661 and is written continuously as messages come in, "
+            "so there is no sync to trigger. To rebuild the reporting tables from "
+            "messages already received, use the projector replay."
+        ),
+    }), 409

@@ -5,23 +5,34 @@ SQLAlchemy setup, ORM models, and shared DB helpers.
 
 Exports used across the application:
   db                — the SQLAlchemy extension instance (init via init_db(app))
-  OracleConnector   — thin wrapper around oracledb for PACS Oracle connections
+  OracleConnector   — DISABLED on this branch, see the banner below
   get_pg_engine()   — returns db.engine (PostgreSQL)
-  get_etl_cutoff_date() / get_go_live_date() — earliest ETL date from go_live_config
+  get_etl_cutoff_date() / get_go_live_date() — earliest date we hold HL7 data for
   chunked_upsert()  — bulk upsert with automatic row-by-row fallback on type errors
 
-The cx_Oracle shim on line 8 lets legacy code that still imports cx_Oracle work
-without modification; oracledb is the modern drop-in replacement.
+╔══════════════════════════════════════════════════════════════════════════════╗
+║ HL7 DISTRIBUTION BRANCH — NO ORACLE                                          ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║ Philips does not permit direct database access to the PACS Oracle schema, so ║
+║ this branch takes all clinical data as HL7 v2 over MLLP instead. The Oracle  ║
+║ driver is NOT installed here: `oracledb` is out of requirements.txt and the  ║
+║ Instant Client is out of the Dockerfile and install.sh.                      ║
+║                                                                              ║
+║ That is deliberate. Commented-out Python still ships a working driver, and   ║
+║ the whole point of the cutover is that the capability is absent, not merely  ║
+║ unused. So the import, the cx_Oracle shim and the thick-mode initialiser are ║
+║ removed rather than commented — they would raise ImportError at startup.     ║
+║                                                                              ║
+║ OracleConnector is kept as a loud stub so that any caller we missed fails    ║
+║ with an explanatory error instead of an AttributeError three frames deep.    ║
+║ The original implementation is in git history on the LAUMC branch.           ║
+╚══════════════════════════════════════════════════════════════════════════════╝
 """
 import os
 import sys
 import logging
-import oracledb
+import time
 from datetime import datetime
-
-# oracledb is the modern replacement for the deprecated cx_Oracle package.
-# This shim lets any code that still imports cx_Oracle resolve to oracledb.
-sys.modules["cx_Oracle"] = oracledb
 
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
@@ -32,89 +43,6 @@ from sqlalchemy.orm import relationship
 
 logger = logging.getLogger("db")
 
-# ----------------------------------------------------------------
-# ORACLE THICK MODE
-# ----------------------------------------------------------------
-# python-oracledb runs in THIN mode by default (pure Python, no Oracle client
-# libraries). Thin mode only supports 11g/12c password verifiers. The PACS
-# Oracle accounts at some sites (e.g. LAUMC) still use the legacy 10g verifier
-# (type 0x939), which thin mode rejects with:
-#
-#     DPY-3015: password verifier type 0x939 is not supported by
-#               python-oracledb in thin mode
-#
-# The only client-side fix that does NOT require touching the production PACS
-# is to switch to THICK mode, which delegates authentication to the Oracle
-# Instant Client libraries — those DO support the old verifier. This must be
-# done ONCE per process, before the first oracledb.connect().
-_ORACLE_THICK_INIT_DONE = False
-
-
-def init_oracle_thick_mode():
-    """
-    Enable python-oracledb THICK mode using the Oracle Instant Client.
-
-    Idempotent and defensive:
-      * Safe to call any number of times — only the first call does work.
-      * NEVER raises. If the Instant Client can't be found/loaded it logs a
-        clear, actionable error and leaves the driver in thin mode. That way a
-        site that does not need Oracle (or hasn't installed the client yet)
-        still boots and serves its Postgres-backed dashboards; only the actual
-        Oracle/ETL calls will fail — and they fail with a message that points
-        straight at the fix instead of a cryptic traceback.
-
-    The client location is configurable via ORACLE_CLIENT_LIB_DIR and defaults
-    to /opt/oracle/instantclient_21_13 (where install.sh puts it on the host and
-    where docker-compose bind-mounts it into the container).
-    """
-    global _ORACLE_THICK_INIT_DONE
-    if _ORACLE_THICK_INIT_DONE:
-        return
-
-    lib_dir = os.getenv("ORACLE_CLIENT_LIB_DIR", "/opt/oracle/instantclient_21_13")
-
-    try:
-        if not os.path.isdir(lib_dir):
-            logger.error(
-                "Oracle Instant Client directory not found at '%s'. "
-                "python-oracledb will stay in THIN mode, which CANNOT authenticate "
-                "against the PACS Oracle when it uses a legacy 10g password verifier "
-                "(DPY-3015). Fix: install the Instant Client on the host (install.sh "
-                "Step 2 -> /opt/oracle/instantclient_21_13) and make sure it is "
-                "bind-mounted into the container, or point ORACLE_CLIENT_LIB_DIR at it.",
-                lib_dir,
-            )
-            return
-
-        oracledb.init_oracle_client(lib_dir=lib_dir)
-        _ORACLE_THICK_INIT_DONE = True
-        logger.info(
-            "python-oracledb THICK mode enabled via Oracle Instant Client at '%s'.",
-            lib_dir,
-        )
-
-    except Exception as exc:  # noqa: BLE001 — never let client init crash the app
-        msg = str(exc)
-        # Benign case: thick mode was already initialised earlier in this process
-        # (init_oracle_client raises if called twice). Treat as success.
-        if "already" in msg.lower():
-            _ORACLE_THICK_INIT_DONE = True
-            logger.debug("python-oracledb thick mode already initialised: %s", msg)
-            return
-        logger.error(
-            "Failed to enable python-oracledb THICK mode from '%s': %s. "
-            "Oracle connections will not work until the Instant Client is reachable "
-            "(verify the client dir is bind-mounted into the container and that "
-            "libaio / libaio.so.1 is installed).",
-            lib_dir, msg,
-        )
-
-
-# Attempt thick-mode init at import time so it runs once, before any Oracle
-# connection is opened, for BOTH the web process (gunicorn imports app -> db)
-# and the ETL process (python app.py -m -> app -> db). Wrapped so a missing
-# client never blocks application startup.
-init_oracle_thick_mode()
 
 db = SQLAlchemy()
 
@@ -123,49 +51,25 @@ db = SQLAlchemy()
 # ----------------------------------------------------------------
 
 class OracleConnector:
+    """
+    Disabled on the HL7 distribution branch — see the banner at the top of this file.
+
+    Kept as a loud stub rather than deleted so that any caller we missed fails with
+    an explanatory message instead of an AttributeError three frames deep. There is
+    no Oracle driver installed here to connect with.
+    """
+
+    _MESSAGE = (
+        "Oracle access is disabled on the HL7 distribution branch. This install "
+        "receives all clinical data as HL7 v2 over MLLP; python-oracledb is not "
+        "installed and no PACS credentials are stored. If you reached this from a "
+        "report or an admin screen, that code path still assumes the Oracle ETL and "
+        "needs to be routed through the HL7 projector instead."
+    )
+
     @staticmethod
     def get_connection(oracle_source=None, sysdba=False):
-        """
-        Open an oracledb connection to the PACS Oracle source stored in db_params.
-
-        oracle_source (optional): the db_params.name to connect as. ETL callers pass a
-            source label (e.g. "PROD_ORACLE"); if a row with that exact name exists it is
-            used, otherwise we fall back to the first row whose name contains 'oracle'.
-            This argument is NOT a privilege flag.
-
-        SYSDBA is decided ONLY by the stored connection's `mode` column (or a SYS
-        username), matching the Admin > DB Manager 'Test Connection' path. Pass
-        sysdba=True explicitly to force it.
-
-        History: get_connection() used to take `sysdba` as its first positional arg,
-        so every ETL call — OracleConnector.get_connection(oracle_source) with a truthy
-        source label — silently forced SYSDBA mode. A normal PACS reader account then
-        fails with ORA-01017, while 'Test Connection' (which honours `mode`) succeeds.
-        """
-        from utils.crypto import decrypt
-        # Ensure thick mode is active before the first connect (idempotent).
-        init_oracle_thick_mode()
-
-        params = None
-        if oracle_source:
-            params = DBParams.query.filter(DBParams.name == oracle_source).first()
-        if params is None:
-            params = DBParams.query.filter(DBParams.name.ilike('%oracle%')).first()
-        if not params:
-            raise RuntimeError("No Oracle configuration found in db_params table.")
-
-        dsn = oracledb.makedsn(params.host, params.port, sid=params.sid)
-        connect_kwargs = {
-            "user": params.username,
-            "password": decrypt(params.password),
-            "dsn": dsn
-        }
-
-        if sysdba or (params.mode and params.mode.upper() == 'SYSDBA') \
-                or (params.username and params.username.upper() == 'SYS'):
-            connect_kwargs["mode"] = oracledb.SYSDBA
-
-        return oracledb.connect(**connect_kwargs)
+        raise RuntimeError(OracleConnector._MESSAGE)
 
 def init_db(app):
     db.init_app(app)
@@ -173,16 +77,55 @@ def init_db(app):
 def get_pg_engine():
     return db.engine
 
-def get_etl_cutoff_date():
-    """Return the go-live date from go_live_config, or None if not yet configured."""
+# get_etl_cutoff_date() is called on most report page loads to seed the default
+# start date of the date picker. MIN() over an indexed column is an index scan, but
+# there is no reason to pay for it on every request: the value only moves when the
+# very oldest record we hold changes, which in practice means once, when the first
+# message arrives.
+_CUTOFF_CACHE = {"value": None, "at": 0.0}
+_CUTOFF_TTL = 600  # seconds
+
+
+def get_etl_cutoff_date(force_refresh=False):
+    """
+    Return the earliest date this install holds data for, or None if it holds none.
+
+    HL7 BRANCH: there is no go-live date here. The Oracle ETL needed one because it
+    had to be told how far back to pull from a PACS database containing years of
+    history it should ignore; an HL7 feed has no history to pull, so the installer
+    no longer asks for one and `go_live_config` is left empty.
+
+    The honest replacement is the floor of the data we actually have. Deriving it
+    from `etl_didb_studies.study_date` — rather than from the raw hl7_* tables —
+    means the date picker opens on the earliest date a report can genuinely display,
+    which is the question the caller is really asking. Before the projector has run
+    this returns None and each report falls back to its own hardcoded default, the
+    same as it always did when `go_live_config` was unset.
+
+    Every report reaches the go-live date through this one helper, so none of their
+    queries needed to change.
+    """
+    now = time.time()
+    if not force_refresh and _CUTOFF_CACHE["value"] is not None \
+            and (now - _CUTOFF_CACHE["at"]) < _CUTOFF_TTL:
+        return _CUTOFF_CACHE["value"]
+
     try:
         result = db.session.execute(
-            text("SELECT go_live_date FROM go_live_config ORDER BY id DESC LIMIT 1")
+            text("SELECT MIN(study_date) FROM etl_didb_studies")
         ).fetchone()
-        return result[0] if result else None
+        value = result[0] if result else None
     except Exception:
-        logger.exception("Could not read go_live_config")
+        logger.exception("Could not derive the data-floor date from etl_didb_studies")
         return None
+
+    # Only cache a real answer. Caching None would pin an empty install to its
+    # hardcoded fallbacks for TTL seconds after the first data actually lands.
+    if value is not None:
+        _CUTOFF_CACHE["value"] = value
+        _CUTOFF_CACHE["at"] = now
+    return value
+
 
 def get_go_live_date():
     return get_etl_cutoff_date()

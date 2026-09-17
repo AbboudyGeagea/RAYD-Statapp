@@ -1,11 +1,14 @@
 import sys
 import os
 import logging
-import oracledb
 from datetime import date, datetime
 from hl7_listener import start_mllp_listener
-# 1. ORACLE ALIAS (Must be before other imports)
-sys.modules["cx_Oracle"] = oracledb
+
+# HL7 BRANCH: `import oracledb` and the sys.modules["cx_Oracle"] alias that used to
+# sit here are deleted along with the driver itself. They had to stop executing one
+# way or another — once oracledb left requirements.txt, that import alone would stop
+# the container booting — and deleting them reads better than commenting them out.
+# See db.py's banner for the full rationale.
 
 from flask import (
     Flask, request, redirect, url_for,
@@ -65,8 +68,14 @@ CRITICAL_TABLES = [
 
 def is_db_empty():
     """
-    Returns True if ANY of the critical ETL tables has zero rows.
-    This covers a fresh environment or a partially failed previous sync.
+    Returns True if ANY of the critical tables has zero rows.
+
+    HL7 BRANCH: retained purely as a startup diagnostic. On the Oracle branches an
+    empty table meant "the ETL has not run yet, go run it"; here it means the HL7
+    feed has not delivered anything the projector could turn into rows, which is a
+    question about the interface — is the sender configured, is the firewall open,
+    is RAYD on the distribution list — and never something this process can fix by
+    itself. So we log it and carry on rather than triggering anything.
     """
     try:
         for table in CRITICAL_TABLES:
@@ -74,7 +83,7 @@ def is_db_empty():
                 text(f"SELECT COUNT(*) FROM {table}")
             ).scalar()
             if result == 0:
-                logger.warning(f"[Startup Check] Table '{table}' is empty — triggering initial ETL.")
+                logger.warning(f"[Startup Check] Table '{table}' is empty.")
                 return True
         return False
     except Exception as e:
@@ -82,26 +91,12 @@ def is_db_empty():
         return False
 
 
-def trigger_initial_etl(app):
-    """
-    Runs the full ETL in a background thread with app context.
-    Called once on startup if any critical table is empty.
-    """
-    import threading
-
-    def _run():
-        with app.app_context():
-            try:
-                from ETL_JOBS.etl_runner import execute_sync
-                logger.info("🚀 [Startup ETL] Empty DB detected — starting initial sync ...")
-                execute_sync(app)
-                logger.info("✅ [Startup ETL] Initial sync complete.")
-            except Exception as e:
-                logger.error(f"❌ [Startup ETL] Failed: {e}", exc_info=True)
-
-    t = threading.Thread(target=_run, daemon=True)
-    t.start()
-    logger.info("🔄 [Startup ETL] ETL thread launched in background.")
+# ── trigger_initial_etl() removed on the HL7 branch ──────────────────────────────
+# It ran ETL_JOBS.etl_runner.execute_sync() in a background thread whenever a
+# critical table was empty. There is no Oracle source to sync from here. The
+# equivalent recovery action is to replay the archived HL7 messages through the
+# projector, which is deliberately an explicit operator command and not something
+# that fires on its own at startup. See the LAUMC branch for the original.
 
 
 # ---------------------------------------------------------
@@ -675,84 +670,50 @@ def create_app():
             db.session.rollback()
             logger.warning(f"[Migration] permission_groups: {e}")
 
-    # --- STARTUP: AUTO-TRIGGER ETL IF DB IS EMPTY ---
-    # Skipped entirely in manual CLI mode ('python app.py -m') — the explicit MANUAL
-    # TRIGGER block further down already runs execute_sync() deliberately, honouring
-    # RAYD_ETL_PHASES / RAYD_ETL_INTERACTIVE. Without this guard, every `-m` invocation
-    # made while any critical table was still empty (e.g. mid a multi-day phased
-    # backfill, where etl_didb_raw_images stays empty until Phase 3 actually succeeds)
-    # ALSO launched a second, unrequested background execute_sync() thread racing the
-    # explicit one — doubling load on the Oracle PACS source and interleaving confusing
-    # duplicate log lines for every phase command run in the meantime.
+    # --- STARTUP: DATA-STATE REPORT ---
+    # `-m` still means "CLI invocation, not a server": it suppresses the scheduler and
+    # the MLLP listener further down, so a one-off command cannot bind port 6661 out
+    # from under the running service or fire scheduled jobs a second time.
     manual_mode = len(sys.argv) > 1 and sys.argv[1] == '-m'
 
     with app.app_context():
-        # Skip ETL entirely when demo mode is active (no Oracle available)
-        demo_mode = False
-        try:
-            demo_row = db.session.execute(
-                text("SELECT value FROM settings WHERE key = 'demo_mode'")
-            ).fetchone()
-            demo_mode = demo_row and demo_row[0].lower() == 'true'
-        except Exception:
-            pass
+        # HL7 BRANCH: this used to decide whether to auto-run the Oracle ETL. There
+        # is nothing to auto-run now, so it is a read-only startup report: say what
+        # state the data is in and leave it at that.
+        if not manual_mode:
+            if is_db_empty():
+                logger.warning(
+                    "⚠  [Startup Check] One or more core tables are empty. On this branch "
+                    "they are filled by the HL7 projector, so check that the MLLP listener "
+                    "is reachable and that this install is on the sender's distribution list."
+                )
+            else:
+                logger.info("✅ [Startup Check] Core tables have data.")
 
-        # Also skip if no Oracle source is configured in db_params
-        has_oracle = False
-        try:
-            ora_row = db.session.execute(
-                text("SELECT 1 FROM db_params WHERE db_type ILIKE '%oracle%' LIMIT 1")
-            ).fetchone()
-            has_oracle = ora_row is not None
-        except Exception:
-            pass
-
-        if manual_mode:
-            logger.info("⏸  [Startup Check] Manual ETL invocation ('-m') — skipping auto-trigger, the explicit run below already covers this.")
-        elif demo_mode:
-            logger.info("⏸  [Startup Check] Demo mode — skipping ETL.")
-        elif not has_oracle:
-            logger.info("⏸  [Startup Check] No Oracle source configured — skipping ETL.")
-        elif is_db_empty():
-            trigger_initial_etl(app)
-        else:
-            logger.info("✅ [Startup Check] All critical tables have data — skipping initial ETL.")
-
-    # --- SCHEDULER (5:00 AM AUTO-SYNC) ---
+    # ─── SCHEDULER ───────────────────────────────────────────────────────────────
+    #
+    # HL7 BRANCH — three of the original six jobs are gone, three remain. The
+    # distinction that matters is the direction of the data, not the word "ETL" in
+    # the job name:
+    #
+    #   REMOVED, they read Oracle:
+    #     daily_etl_sync      05:00  ETL_JOBS.etl_runner.execute_sync  (18 phases)
+    #     cd_surf_etl         hourly ETL_JOBS.etl_cd_surf              (CDSURF schema)
+    #
+    #   KEPT:
+    #     adapter_etl_runner        1 min   no-op until a mapping is configured;
+    #                                       see the block below.
+    #   KEPT, pure Postgres and still doing useful work:
+    #     daily_analytics_snapshot  05:30  reads etl_didb_studies/etl_orders and writes
+    #                                      analytics_snapshots for the daily briefing.
+    #                                      Its sources are now filled by the projector
+    #                                      rather than by Oracle, so it keeps working
+    #                                      unchanged — removing it would kill the home
+    #                                      dashboard for no reason.
+    #     purge_query_audit_log     03:15  housekeeping, unrelated to any source system.
+    #     crn_scan_and_escalate     5 min  critical-result notification scanning.
+    #
     scheduler = BackgroundScheduler(timezone=pytz.timezone("Asia/Beirut"))
-
-    def scheduled_etl():
-        with app.app_context():
-            # Skip ETL when demo mode is active
-            try:
-                demo_row = db.session.execute(
-                    text("SELECT value FROM settings WHERE key = 'demo_mode'")
-                ).fetchone()
-                if demo_row and demo_row[0].lower() == 'true':
-                    logger.info("⏸  [Scheduled ETL] Skipped — demo mode is active.")
-                    return
-            except Exception:
-                pass
-            try:
-                ora_row = db.session.execute(
-                    text("SELECT 1 FROM db_params WHERE db_type ILIKE '%oracle%' LIMIT 1")
-                ).fetchone()
-                if not ora_row:
-                    logger.info("⏸  [Scheduled ETL] Skipped — no Oracle source configured.")
-                    return
-            except Exception:
-                pass
-            from ETL_JOBS.etl_runner import execute_sync
-            logger.info(f"⏰ [5:00 AM] Scheduled ETL Start: {datetime.now()}")
-            execute_sync(app)
-
-    scheduler.add_job(
-        func=scheduled_etl,
-        trigger=CronTrigger(hour=5, minute=0),
-        id='daily_etl_sync',
-        name='Sync Data from Oracle',
-        replace_existing=True
-    )
 
     def scheduled_analytics():
         with app.app_context():
@@ -772,6 +733,14 @@ def create_app():
         replace_existing=True
     )
 
+    # ── adapter_etl_runner — KEPT (operator decision, 2026-09-17) ───────────────
+    # Not PACS ETL. This runs the "adapter mappings" configured through Admin > DB
+    # Manager and ships as the licensed `adapter_mapper` onboarding feature. It only
+    # does work when a mapping exists with status='confirmed' and etl_enabled=TRUE,
+    # so on an install that has none the job costs one indexed query a minute.
+    # ETL_JOBS.etl_adapter imports no Oracle driver, so it is unaffected by the
+    # driver removal; an Oracle-typed mapping would fail at connect time, but that
+    # is the same answer the rest of this branch gives.
     def scheduled_adapter_etl():
         """Run all confirmed adapter mappings whose etl_schedule matches the current time."""
         with app.app_context():
@@ -808,29 +777,11 @@ def create_app():
         replace_existing=True
     )
 
-    def scheduled_cd_surf_etl():
-        with app.app_context():
-            try:
-                row = db.session.execute(text(
-                    "SELECT 1 FROM db_params WHERE UPPER(owner) = 'CDSURF' LIMIT 1"
-                )).fetchone()
-                if not row:
-                    return
-                from ETL_JOBS.etl_cd_surf import run_cd_surf_etl
-                logger.info(f"⏰ [CD Surf ETL] Starting: {datetime.now()}")
-                n = run_cd_surf_etl(db.engine)
-                logger.info(f"✅ [CD Surf ETL] Done — {n} records.")
-            except Exception as e:
-                logger.error(f"🛑 [CD Surf ETL] Failed: {e}", exc_info=True)
-
-    scheduler.add_job(
-        func=scheduled_cd_surf_etl,
-        trigger='interval',
-        hours=1,
-        id='cd_surf_etl',
-        name='CD Surf ETL — hourly sync',
-        replace_existing=True
-    )
+    # ── cd_surf_etl — REMOVED ────────────────────────────────────────────────────
+    # Hourly sync from the CDSURF Oracle schema behind report 30 (CD/DVD
+    # distribution). Your own cutover note flags CDSURF as an unresolved open item:
+    # no HL7 message carries a "disc was burned" event, so report 30 has no source
+    # on this branch until that is scoped separately.
 
     def purge_old_audit_logs():
         with app.app_context():
@@ -882,8 +833,8 @@ def create_app():
         replace_existing=True
     )
 
-    # Only start scheduler and HL7 listener when running as server, not manual ETL
-    # (manual_mode computed earlier — see STARTUP: AUTO-TRIGGER ETL IF DB IS EMPTY)
+    # Only start the scheduler and the MLLP listener when running as a server, so a
+    # CLI invocation ('-m') does not try to bind port 6661 alongside the live service.
     if not manual_mode:
         scheduler.start()
         start_mllp_listener(app, host='0.0.0.0', port=6661)
@@ -897,14 +848,16 @@ if __name__ == '__main__':
     app = create_app()
 
     # MANUAL TRIGGER: python app.py -m
+    #
+    # HL7 BRANCH: this used to run the Oracle ETL. It is reserved for the projector
+    # replay — re-running the stored raw HL7 messages through the parsers to rebuild
+    # the etl_* tables after a parser fix, without asking the hospital to re-send
+    # anything. The replay itself lands in week 2; until then this reports honestly
+    # rather than silently doing nothing.
     if len(sys.argv) > 1 and sys.argv[1] == '-m':
-        with app.app_context():
-            try:
-                from ETL_JOBS.etl_runner import execute_sync
-                print("🚀 Manual ETL Trigger Detected...")
-                execute_sync(app)
-                print("✅ Manual Sync Finished.")
-            except Exception as e:
-                print(f"❌ Manual Sync Failed: {e}")
+        print("❌ There is no Oracle ETL on the HL7 distribution branch.")
+        print("   This entry point is reserved for the HL7 projector replay, which is")
+        print("   not implemented yet. Data arrives via the MLLP listener on port 6661.")
+        sys.exit(1)
     else:
         app.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)
