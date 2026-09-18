@@ -28,11 +28,23 @@ which is deterministic and gives the same answer no matter what order the archiv
 is walked in.
 
 ORDER OF REPLAY STILL MATTERS FOR FINDINGS, though. RAY7 screens each message
-against the state as it stood beforehand, so messages are replayed in archive id
-order — their true arrival order — and the state is rebuilt incrementally as they
-go. Replay therefore reproduces the findings the live run produced, rather than
-judging every message against the final state, which would make most of the
-sequence rules vacuous.
+against the state as it stood beforehand, so a full replay CLEARS ray7_study_state
+first and then walks the archive in id order — true arrival order — letting the
+state build up again as it goes. Judging every message against the final state
+would make most of the sequence rules vacuous.
+
+WHERE REPLAY LEGITIMATELY DIFFERS FROM THE LIVE RUN
+Two differences are inherent, not bugs, and worth knowing before comparing counts:
+
+  CONTROL_ID_REUSE flags BOTH sides on replay, one side live. Live, the first
+  message is screened before its twin exists, so only the second sees a conflict.
+  On replay the archive is already complete and both see each other. Arguably the
+  replayed answer is the better one — both messages are implicated in the reuse —
+  but the counts will not match.
+
+  EXACT_REDELIVERY is never regenerated. A redelivery has no archive row by
+  definition, so there is nothing to walk. Its existing findings are therefore
+  preserved rather than deleted and lost.
 """
 import logging
 
@@ -154,15 +166,48 @@ def replay(app, limit=None, since_id=0, rescreen=True, dry_run=False):
         # itself is never touched: a bad replay must not be able to destroy the one
         # copy of the source data.
         ids = [r[0] for r in rows]
+        full_replay = (since_id == 0 and not limit)
+
         if ids:
             try:
                 db.session.execute(
                     text("DELETE FROM hl7_study_events WHERE message_archive_id = ANY(:ids)"),
                     {'ids': ids})
+
                 if rescreen:
-                    db.session.execute(
-                        text("DELETE FROM ray7_findings WHERE message_archive_id = ANY(:ids)"),
-                        {'ids': ids})
+                    # EXACT_REDELIVERY is deliberately preserved. A redelivery has no
+                    # archive row of its own — that is the whole point, it collided —
+                    # so replay walks only the originals and can never recreate it.
+                    # Deleting it would silently erase the record that redeliveries
+                    # happened at all, and that rate is a real signal about the
+                    # interface. Verified the hard way: the first replay dropped it.
+                    db.session.execute(text("""
+                        DELETE FROM ray7_findings
+                         WHERE message_archive_id = ANY(:ids)
+                           AND rule_code <> 'EXACT_REDELIVERY'
+                    """), {'ids': ids})
+
+                if full_replay:
+                    # THE STATE MUST GO TOO, and this was missed the first time.
+                    #
+                    # RAY7 screens each message against the state as it stood
+                    # BEFORE that message. Leaving ray7_study_state populated means
+                    # every replayed event is judged against a state that already
+                    # contains itself, so every rung looks like a duplicate of
+                    # itself — the first replay produced five spurious
+                    # LOGICAL_DUPLICATE findings for exactly this reason.
+                    #
+                    # Only safe on a FULL replay. A partial one cannot legitimately
+                    # clear state that earlier, unreplayed messages built.
+                    db.session.execute(text("DELETE FROM ray7_study_state"))
+                elif rescreen:
+                    logger.warning(
+                        "Replay: partial range with re-screening. ray7_study_state "
+                        "still holds events from outside the range, including ones "
+                        "these messages produced, so the findings will not exactly "
+                        "reproduce the live run. Use a full replay, or --no-rescreen."
+                    )
+
                 db.session.commit()
             except Exception:
                 db.session.rollback()
