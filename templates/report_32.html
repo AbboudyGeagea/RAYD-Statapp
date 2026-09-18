@@ -176,10 +176,23 @@
                     <p class="text-3xl font-black text-white">{{ data.summary.dept_median_tat }}<span class="text-base text-slate-500">m</span></p>
                     <p class="text-[11px] text-slate-600 italic mt-2">Avg: {{ data.summary.dept_avg_tat }}m</p>
                 </div>
+                {# Two totals, never one. Summing clinical + technical double-counts the
+                   same money as if it were two revenue streams — see the convention note
+                   in routes/report_31.py. Kept in a single card so the KPI row stays a
+                   clean 4-up. #}
                 <div class="data-card p-6 border-l-4 border-l-emerald-500 !h-auto">
-                    <p class="text-xs font-bold text-slate-500 uppercase mb-1">Total RVU</p>
-                    <p class="text-3xl font-black text-white">{{ "{:,.1f}".format(data.summary.total_clinical_rvu + data.summary.total_technical_rvu) }}</p>
-                    <p class="text-[11px] text-slate-600 italic mt-2">Clinical {{ data.summary.total_clinical_rvu }} + Technical {{ data.summary.total_technical_rvu }}</p>
+                    <p class="text-xs font-bold text-slate-500 uppercase mb-1">Revenue Capture (RVU)</p>
+                    <div class="flex gap-6 mt-1">
+                        <div>
+                            <p class="text-[10px] font-black text-emerald-500 uppercase">Clinical</p>
+                            <p class="text-2xl font-black text-white">{{ "{:,.1f}".format(data.summary.total_clinical_rvu) }}</p>
+                        </div>
+                        <div>
+                            <p class="text-[10px] font-black text-emerald-500 uppercase">Technical</p>
+                            <p class="text-2xl font-black text-white">{{ "{:,.1f}".format(data.summary.total_technical_rvu) }}</p>
+                        </div>
+                    </div>
+                    <p class="text-[11px] text-slate-600 italic mt-2">Physician vs facility revenue &mdash; two separate streams, never added together.</p>
                 </div>
             </div>
 
