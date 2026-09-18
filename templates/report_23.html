@@ -190,12 +190,23 @@
 
 
             <!-- KPI -->
-            <div class="data-card p-6 border-l-4 border-l-indigo-500 !h-auto">
-                <p class="text-xs font-bold text-slate-500 uppercase mb-1">Total Analyzed Studies</p>
-                <p class="text-4xl font-black text-white">{{ "{:,}".format(metrics.total_count) }}</p>
-                <p class="text-sm text-slate-500 mt-2 italic">
-                    Total imaging studies matching the selected date range, drawn from the ETL studies table.
-                </p>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="data-card p-6 border-l-4 border-l-indigo-500 !h-auto">
+                    <p class="text-xs font-bold text-slate-500 uppercase mb-1">Total Analyzed Studies</p>
+                    <p class="text-4xl font-black text-white">{{ "{:,}".format(metrics.total_count) }}</p>
+                    <p class="text-sm text-slate-500 mt-2 italic">
+                        Total imaging studies matching the selected date range, drawn from the ETL studies table.
+                    </p>
+                </div>
+
+                <div class="data-card p-6 border-l-4 border-l-slate-500 !h-auto">
+                    <p class="text-xs font-bold text-slate-500 uppercase mb-1">Reports Without Images</p>
+                    <p class="text-4xl font-black text-white">{{ "{:,}".format(metrics.reports_without_images) }}</p>
+                    <p class="text-sm text-slate-500 mt-2 italic">
+                        Report-only records carrying no imaging data. Counted for the date range but
+                        excluded from the study total and from every chart below.
+                    </p>
+                </div>
             </div>
 
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">

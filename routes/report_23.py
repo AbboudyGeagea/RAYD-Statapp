@@ -11,6 +11,18 @@ from utils.site_resolver import default_site
 
 report_23_bp = Blueprint('report_23', __name__)
 
+# AE titles that carry reports with no images attached (operator, 2026-09-18).
+# Real PACS rows and worth knowing about, but not imaging studies — mixing them
+# into the study total inflates every volume chart and every modality breakdown,
+# while dropping them loses a number the operator wants to see. They get counted
+# separately and shown on their own tile.
+#
+# LAUMCWFM1AR also carries PACS SITE_ID '2', which is not in the `sites` table
+# ('0' = RH, '1' = SJH), so the site filter below would exclude it regardless —
+# the explicit exclusion here is what makes that intentional rather than
+# accidental, and keeps holding if the AE is ever re-stamped with a known site.
+_REPORTS_WITHOUT_IMAGES_AES = ('LAUMCWFM1AR',)
+
 def get_report_config(form):
     base_sql_query = text("SELECT report_sql_query FROM report_template WHERE report_id = 23")
     base_sql = db.session.execute(base_sql_query).scalar()
@@ -102,12 +114,42 @@ def get_report_config(form):
         # scenario. "radiologists" doesn't apply either — Report 23's base query has no
         # radiologist/physician column at all (verified against the live report_template
         # row and this file); nothing to filter for that dimension.
+        # SITE FILTER — anchored on the study's own PACS site marker, NOT on the
+        # device map.
+        #
+        # This used to be `AND m.site_id = :rh_site_id`. `m` is a LEFT join, so any
+        # study whose storing_ae had no aetitle_modality_map row got m.site_id =
+        # NULL, `NULL = 1` is NULL, and the row was dropped — silently turning the
+        # LEFT JOIN into an INNER JOIN. Measured against the live PACS Oracle on
+        # 2026-09-18 for 2026-01-01..2026-09-18: 41,101 real RH studies existed and
+        # the report showed 6,877. 34,224 studies — 83% — were deleted by this one
+        # clause, on devices the migration 0083 seed simply never listed
+        # (DEFINIUM1 6,967 · DEFINIUM2 6,480 · OPTIMAXR 4,436 · CT99 3,347 ...) or
+        # listed under a near-miss name (seeded GELUNAR11 vs real GELUNAR, SYMBIANET
+        # vs SYMBIA, AWCTHD1 vs CTHD).
+        #
+        # etl_didb_studies.pacs_site_id_raw is the raw PACS SITE_ID loaded straight
+        # by the studies ETL ('0' = RH, '1' = SJH — utils/site_resolver.py), so it
+        # needs no join and cannot be lost to an unmapped device. It is resolved
+        # through `sites` rather than hardcoded so the ~2027 PACS upgrade only has to
+        # change that table.
+        #
+        # NOT etl_didb_studies.site_id: migration 0049 adds the column and 0051
+        # documents an enrichment pass in ETL_JOBS/etl_site_enrichment.py, but that
+        # file has never existed — the column is NULL on every row, and filtering on
+        # it would return nothing at all.
+        #
+        # The five NOT LIKE '%SJH%' guards stay as defence in depth. They are
+        # NULL-safe by construction (COALESCE to '' before comparing), so unlike the
+        # old site_id check they never drop an unmapped device.
         rh_site_id = default_site()
         if rh_site_id is not None:
+            no_image_aes = ", ".join(f"'{ae}'" for ae in _REPORTS_WITHOUT_IMAGES_AES)
             base_sql = base_sql.replace(
                 "WHERE 1=1 AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')",
                 "WHERE 1=1 AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')"
-                " AND m.site_id = :rh_site_id"
+                " AND s.pacs_site_id_raw = (SELECT pacs_site_id FROM sites WHERE id = :rh_site_id)"
+                f" AND UPPER(TRIM(COALESCE(s.storing_ae, ''))) NOT IN ({no_image_aes})"
                 " AND UPPER(COALESCE(s.storing_ae, '')) NOT LIKE '%SJH%'"
                 " AND UPPER(COALESCE(m.description, '')) NOT LIKE '%SJH%'"
                 " AND UPPER(COALESCE(m.station_name, '')) NOT LIKE '%SJH%'"
@@ -180,11 +222,28 @@ def report_23():
         "age_max": request.values.get("f_age_max"),
     }
 
-    metrics    = {"total_count": 0}
+    metrics    = {"total_count": 0, "reports_without_images": 0}
     chart_json = {}
 
     if run_report and base_sql:
         cte_base = f"WITH base_data AS ({base_sql})"
+
+        # Reports with no images (operator, 2026-09-18). Deliberately outside
+        # base_data — these are excluded from the study total and every chart, and
+        # reported on their own tile. Only the date range applies: the demographic
+        # and modality filters describe imaging studies, and these rows have no
+        # imaging to describe.
+        try:
+            metrics["reports_without_images"] = int(db.session.execute(text("""
+                SELECT COUNT(*)
+                FROM etl_didb_studies s
+                WHERE UPPER(TRIM(COALESCE(s.storing_ae, ''))) = ANY(:aes)
+                  AND s.study_date BETWEEN :s AND :e
+            """), {"aes": list(_REPORTS_WITHOUT_IMAGES_AES),
+                   "s": start_date, "e": end_date}).scalar() or 0)
+        except Exception as e:
+            db.session.rollback()
+            print(f"Error counting reports without images: {e}")
 
         agg_sql = text(f"""
             {cte_base}
