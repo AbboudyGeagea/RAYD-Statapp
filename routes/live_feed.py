@@ -125,8 +125,10 @@ def live_status():
         device_rows = db.session.execute(text("""
             -- display label: manual override wins, then the RIS room name (MODALITY.STATION_NAME,
             -- populated by etl_ris_modality.py and otherwise only visible on the mapping
-            -- page), then the raw AE title as a last resort.
-            SELECT aetitle, modality, COALESCE(display_aetitle, room_name, aetitle) AS label,
+            -- page), then the raw AE title as a last resort. Both name columns are
+            -- checked because etl_ris_modality.py writes both while a manual
+            -- mapping-tab edit writes room_name only.
+            SELECT aetitle, modality, COALESCE(display_aetitle, room_name, station_name, aetitle) AS label,
                    floor_x, floor_y
             FROM aetitle_modality_map
             ORDER BY modality, aetitle

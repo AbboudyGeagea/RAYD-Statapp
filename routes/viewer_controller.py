@@ -469,7 +469,7 @@ def yesterday_overview():
         # of one device can never split into two bars.
         ae_rows = rows(f"""
             SELECT s.storing_ae AS ae,
-                   COALESCE(MAX(m.display_aetitle), MAX(m.room_name), s.storing_ae) AS label,
+                   COALESCE(MAX(m.display_aetitle), MAX(m.room_name), MAX(m.station_name), s.storing_ae) AS label,
                    COUNT(*)::int AS count
             FROM etl_didb_studies s
             LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))

@@ -110,7 +110,15 @@ def report_22():
                 s.age_at_exam,
                 COALESCE(NULLIF(TRIM(CONCAT_WS(' ', s.referring_physician_first_name, s.referring_physician_last_name)), ''), 'Unknown') as physician,
                 s.patient_location, p.fallback_id as patient_id,
-                COALESCE(NULLIF(TRIM(m.station_name),''), s.storing_ae) as ae_station_name,
+                -- Display label: manual override first, then the RIS room/station name, then
+                -- the raw AE. BOTH room_name and station_name are checked because the
+                -- two write paths disagree: etl_ris_modality.py populates both from
+                -- MODALITY.STATION_NAME, but a manual mapping-tab edit or CSV import
+                -- writes room_name ONLY (mapping_controller.py), so a hand-entered room
+                -- name is invisible to station_name alone -- which is what this report
+                -- used to do, while also ignoring display_aetitle entirely.
+                COALESCE(NULLIF(TRIM(m.display_aetitle),''), NULLIF(TRIM(m.room_name),''),
+                         NULLIF(TRIM(m.station_name),''), s.storing_ae) as ae_station_name,
                 COALESCE(NULLIF(TRIM(pm.procedure_name),''), s.procedure_code) as proc_display_name
             FROM etl_didb_studies s
             LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
@@ -468,7 +476,15 @@ def status_drilldown_22():
                 COALESCE(s.procedure_code, 'N/A') AS procedure_code,
                 COALESCE(s.study_description, '') AS description,
                 COALESCE(s.storing_ae, 'N/A') AS ae,
-                COALESCE(NULLIF(TRIM(m.station_name),''), s.storing_ae, 'N/A') AS ae_station_name,
+                -- Display label: manual override first, then the RIS room/station name, then
+                -- the raw AE. BOTH room_name and station_name are checked because the
+                -- two write paths disagree: etl_ris_modality.py populates both from
+                -- MODALITY.STATION_NAME, but a manual mapping-tab edit or CSV import
+                -- writes room_name ONLY (mapping_controller.py), so a hand-entered room
+                -- name is invisible to station_name alone -- which is what this report
+                -- used to do, while also ignoring display_aetitle entirely.
+                COALESCE(NULLIF(TRIM(m.display_aetitle),''), NULLIF(TRIM(m.room_name),''),
+                         NULLIF(TRIM(m.station_name),''), s.storing_ae, 'N/A') AS ae_station_name,
                 COALESCE(NULLIF(TRIM(pm.procedure_name),''), s.procedure_code, 'N/A') AS proc_display_name,
                 s.study_status, s.patient_class, p.sex,
                 COALESCE(NULLIF(TRIM(CONCAT_WS(' ',
