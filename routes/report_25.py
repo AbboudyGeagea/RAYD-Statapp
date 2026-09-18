@@ -42,6 +42,13 @@ report_25_bp = Blueprint("report_25", __name__)
 # reported alongside the sample, so a capped list never understates the finding.
 _CONFLICT_SAMPLE_LIMIT = 25
 
+# Care-team display order: the sequence the patient actually encounters these roles,
+# so the list reads as a pathway rather than an alphabetical dump. Codes are
+# std_resources_ris.role_code (migration 0085). Any role not listed still renders,
+# appended alphabetically — an unmapped role must never be silently dropped.
+_CARE_TEAM_ORDER = ['REC', 'CLERK', 'NUR', 'TEC', 'RES', 'RAD', 'ATT', 'VRAD',
+                    'TRA', 'DOC', 'CON', 'SPEC', 'CARD', 'PHYS', 'RADAD', 'RISAdmin']
+
 def _load_shift_config():
     defaults = {'morning_start': 7, 'morning_end': 15,
                 'afternoon_start': 15, 'afternoon_end': 23,
@@ -1565,28 +1572,57 @@ def patient_journey_api():
             except Exception:
                 db.session.rollback()
 
-        # Technologists on the performed procedure step. std_pps_person_reference is
-        # PPS-scoped, so it answers "who ran the scanner" — a different question from
-        # the report-chain signers above, and the only source for it. Same join
-        # report_35.py:268 already uses.
-        techs_map = {}
+        # The full care team per study, straight from the RIS.
+        #
+        # std_pps_person_reference is "one row per PPS per referenced person —
+        # technologist, but also receptionist/nurse/radiologist/etc." and is explicitly
+        # NOT technologist-only (migration 0097:12-15). report_35 filters it to
+        # role_code = 'TEC' because it only needs the technician; the journey wants
+        # everyone, so no role filter here — this is the RIS's own answer to "which
+        # resource handled this", and far better than inferring roles from PACS username
+        # strings like 'abdallah.noufaily@ad'.
+        #
+        # Per migration 0097's own warning, roles come from a role-level join to
+        # std_resources_ris, never from person_reference_type_key — that column is a
+        # mixed bucket with no single "this is the tech row" value.
+        #
+        # Grouped by (study, role) with names aggregated: a study can span several PPS
+        # rows and a role can involve several people, so a flat join would repeat the
+        # same person once per PPS.
+        people_map = {}   # study_db_uid -> {role_code: {'names': str, 'desc': str}}
         if study_ids:
             try:
-                tech_rows = db.session.execute(text("""
+                team_rows = db.session.execute(text("""
                     SELECT p.study_db_uid,
+                           r.role_code,
+                           MIN(r.role_description) AS role_description,
                            STRING_AGG(DISTINCT NULLIF(TRIM(CONCAT(
                                COALESCE(r.first_name,''), ' ', COALESCE(r.last_name,''))), ''),
-                               ', ') AS techs
+                               ', ') AS names
                     FROM std_pps p
                     JOIN std_pps_person_reference ppr ON ppr.pps_key = p.pps_key
                     JOIN std_resources_ris r          ON r.resource_id_key = ppr.resource_id_key
                     WHERE p.study_db_uid = ANY(:sids)
-                      AND r.role_code = 'TEC'
-                    GROUP BY p.study_db_uid
+                      AND r.role_code IS NOT NULL
+                    GROUP BY p.study_db_uid, r.role_code
                 """), {'sids': study_ids}).mappings().fetchall()
-                techs_map = {r['study_db_uid']: r['techs'] for r in tech_rows if r['techs']}
+                for r in team_rows:
+                    if not r['names']:
+                        continue
+                    people_map.setdefault(r['study_db_uid'], {})[r['role_code']] = {
+                        'names': r['names'],
+                        'desc':  r['role_description'] or r['role_code'],
+                    }
             except Exception:
                 db.session.rollback()
+
+        def _role_of(sid, *codes):
+            """First of `codes` present on this study's care team -> (names, role_code)."""
+            team = people_map.get(sid) or {}
+            for c in codes:
+                if c in team:
+                    return (team[c]['names'], c)
+            return (None, None)
 
         def _person(ident, fallback_name=None):
             """(display_name, role_label) for an identifier, or the raw value unresolved."""
@@ -1657,36 +1693,49 @@ def patient_journey_api():
             # this study) -- the reliable replacement for the old estimated
             # "true entry" time. Technologist comes from std_pps_person_reference,
             # the only source that says who actually ran the scanner.
-            tech_names = techs_map.get(study.get('study_db_uid'))
+            sid = study.get('study_db_uid')
+            tech_names, tech_role = _role_of(sid, 'TEC')
             _ev(events, pps.get('pps_start'), 'pps_start', 'Exam Started (RIS PPS)',
-                f"Modality: {study.get('modality','')}", tech_names, 'TEC' if tech_names else None)
+                f"Modality: {study.get('modality','')}", tech_names, tech_role)
             _ev(events, pps.get('pps_end'),   'pps_end',   'Exam Completed (RIS PPS)', '',
-                tech_names, 'TEC' if tech_names else None)
+                tech_names, tech_role)
 
             _ev(events, study.get('insert_time'),               'pacs_in',     'Arrived in PACS',
                 f"Modality: {study.get('modality','')}")
 
-            # Prelim and transcription carried no attribution at all before — the
-            # prelim signer is usually the resident, which is precisely the
-            # distinction the customer asked to see.
-            _prelim_by, _prelim_role = _person(study.get('rep_prelim_signed_by'))
+            # Each report-chain step prefers the RIS care team (a real role, from a real
+            # lookup) and falls back to the PACS signer string, which carries a person
+            # but no role. Prelim and transcription had no attribution at all before;
+            # prelim is typically the resident, the distinction the customer asked for.
+            _prelim_by, _prelim_role = _role_of(sid, 'RES')
+            if not _prelim_by:
+                _prelim_by, _prelim_role = _person(study.get('rep_prelim_signed_by'))
             _ev(events, study.get('rep_prelim_timestamp'), 'prelim', 'Preliminary Report', '',
                 _prelim_by, _prelim_role)
 
-            _trans_by, _trans_role = _person(study.get('rep_transcribed_by'))
+            _trans_by, _trans_role = _role_of(sid, 'TRA')
+            if not _trans_by:
+                _trans_by, _trans_role = _person(study.get('rep_transcribed_by'))
             _ev(events, study.get('rep_transcribed_timestamp'), 'transcribed', 'Transcribed', '',
                 _trans_by, _trans_role)
 
-            # Prefer the PACS name fields for display (already human-readable), but take
-            # the ROLE from whichever identifier resolves — signing_physician_id is the
-            # one migration 0063 documents as matching std_resources_ris.resource_id.
-            _final_name, _final_role = _person(study.get('signing_physician_id'))
+            # Display name still prefers the PACS name fields (already human-readable);
+            # only the ROLE comes from the care team / signing_physician_id, the
+            # identifier migration 0063 documents as matching std_resources_ris.resource_id.
+            _final_name, _final_role = _role_of(sid, 'RAD', 'ATT', 'VRAD')
+            if not _final_role:
+                _final_name, _final_role = _person(study.get('signing_physician_id'))
             if not _final_role:
                 _final_name, _final_role = _person(study.get('final_by'))
             _ev(events, study.get('final_ts'), 'final', 'Final Report Signed', '',
                 study.get('radiologist') or study.get('final_by_display')
                     or _final_name or study.get('final_by'),
                 _final_role)
+
+            # Reception/registration — the "secretary" step. No timestamp exists for it
+            # (hl7_orders has no created-by, and SITE_WORKLIST.REQUESTED_BY_* is not
+            # pulled into etl_orders), so it cannot be placed on the timeline. It is
+            # carried on the care team below instead of being dropped.
 
             events.sort(key=lambda x: x['ts'])
             for i in range(1, len(events)):
@@ -1726,6 +1775,20 @@ def patient_journey_api():
                 'events':           events,
                 'days':             days,
                 'day_count':        len(days),
+                # Everyone the RIS recorded against this study's performed step,
+                # including roles with no timeline event of their own (receptionist,
+                # nurse). Ordered by the care pathway, not alphabetically, so it reads
+                # in the order the patient met them.
+                'care_team':        [
+                    {'role': rc, 'role_desc': (people_map.get(sid, {}).get(rc) or {}).get('desc', rc),
+                     'names': (people_map.get(sid, {}).get(rc) or {}).get('names')}
+                    for rc in _CARE_TEAM_ORDER
+                    if rc in (people_map.get(sid) or {})
+                ] + [
+                    {'role': rc, 'role_desc': v.get('desc', rc), 'names': v.get('names')}
+                    for rc, v in sorted((people_map.get(sid) or {}).items())
+                    if rc not in _CARE_TEAM_ORDER
+                ],
             })
 
         results.sort(key=lambda x: x['study_date'], reverse=True)

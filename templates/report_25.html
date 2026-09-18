@@ -2015,6 +2015,22 @@
             const descLine = s.description
                 ? `<p style="font-size:11px;color:#52525b;font-style:italic;margin-top:4px">${esc(s.description)}</p>` : '';
 
+            // Care team — everyone the RIS recorded on this study, including roles with
+            // no timeline event of their own (receptionist, nurse), which would
+            // otherwise be invisible.
+            const careTeam = (s.care_team && s.care_team.length)
+                ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 2px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.05)">
+                     <span style="font-size:9px;font-weight:900;letter-spacing:0.06em;text-transform:uppercase;color:#52525b;align-self:center">Care Team</span>
+                     ${s.care_team.map(t => `
+                       <span title="${esc(t.role_desc || t.role)}"
+                             style="display:inline-flex;align-items:center;gap:5px;padding:2px 7px;border-radius:5px;
+                                    background:${ROLE_TINT[t.role] || 'rgba(148,163,184,0.15)'}">
+                         <span style="font-size:9px;font-weight:900;color:#e4e4e7">${esc(t.role)}</span>
+                         <span style="font-size:10px;color:#a1a1aa">${esc(t.names || '')}</span>
+                       </span>`).join('')}
+                   </div>`
+                : '';
+
             return `
             <div class="glass-card mb-4" style="border-left:3px solid ${accentClr};padding:20px 24px">
                 <!-- Header -->
@@ -2037,6 +2053,7 @@
                 <div style="margin-top:16px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.05)">
                     ${timeline || '<p style="font-size:11px;color:#52525b;font-style:italic;padding:8px 0">No timeline events found for this study.</p>'}
                 </div>
+                ${careTeam}
             </div>`;
         }
 
