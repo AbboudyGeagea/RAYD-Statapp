@@ -253,11 +253,16 @@ def update_study_state(msg):
         INSERT INTO ray7_study_state
             (accession_number, placer_order_number, patient_id, modality, aetitle,
              room_name, procedure_code, patient_class, {col},
-             current_rank, event_count, first_seen_at, last_event_at, updated_at)
+             current_rank, event_count, is_closed, first_seen_at, last_event_at, updated_at)
         VALUES
             (:accession, :placer, :patient_id, :modality, :aetitle,
              :room, :procedure_code, :patient_class, :event_time,
-             :rank, 1, NOW(), :event_time, NOW())
+             -- is_closed must be computed on INSERT too, not only on conflict.
+             -- A study whose FIRST event is the completion — an exam whose earlier
+             -- rungs never arrived, which is exactly the case the absence sweep
+             -- cares about — would otherwise stay open forever and be re-reported
+             -- as stalled every time the sweep ran.
+             :rank, 1, (:rank >= 100 OR :state = 'cancelled'), NOW(), :event_time, NOW())
         ON CONFLICT (accession_number) DO UPDATE SET
             {col}               = COALESCE(ray7_study_state.{col}, EXCLUDED.{col}),
             placer_order_number = COALESCE(ray7_study_state.placer_order_number, EXCLUDED.placer_order_number),
@@ -293,6 +298,7 @@ def update_study_state(msg):
                 'patient_class':  msg.patient_class,
                 'event_time':     msg.event_time,
                 'rank':           msg.ladder_rank,
+                'state':          msg.canonical_state,
             })
     except Exception:
         logger.exception("RAY7/ingest: ray7_study_state upsert failed | acc=%s",
