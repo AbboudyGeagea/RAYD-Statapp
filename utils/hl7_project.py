@@ -329,6 +329,41 @@ ON CONFLICT (pps_key) DO UPDATE SET
 """
 
 
+# Who performed this study, in the shape report 35 resolves names through.
+#
+# The report does not read a performer off the study. It goes
+# std_pps_person_reference -> std_resources_ris and filters role_code = 'TEC',
+# because the obvious column on std_pps was confirmed 100% NULL at this RIS and
+# person_reference_type_key mixes technologists with receptionists and nurses.
+# That indirection is preserved rather than short-circuited, so the report works
+# unmodified and an Oracle-sourced install and an HL7 one resolve identically.
+#
+# Only performers already in the roster are linked. An unknown ID is not invented
+# as a person: it stays unresolved, and RAY7's UNKNOWN_PERFORMER is the place
+# that gets reported. Inserting a placeholder would put a fictional member of
+# staff into the technician reports.
+_PERSON_REF_SQL = """
+WITH gone AS (
+    DELETE FROM std_pps_person_reference
+     WHERE pps_key = hl7_surrogate_id('pps', :acc)
+)
+INSERT INTO std_pps_person_reference
+    (pps_key, resource_id_key, display_sort_order, last_update)
+SELECT DISTINCT ON (r.resource_id_key)
+       hl7_surrogate_id('pps', :acc), r.resource_id_key,
+       -- Earliest rung first, so report 35's "lowest display_sort_order is the
+       -- primary" tie-break picks whoever actually ran the exam rather than
+       -- whoever last touched it.
+       MIN(e.ladder_rank), NOW()
+  FROM hl7_study_events e
+  JOIN std_resources_ris r
+    ON lower(r.resource_id) = lower(e.performed_by_id)
+ WHERE e.accession_number = :acc
+   AND e.performed_by_id IS NOT NULL
+ GROUP BY r.resource_id_key
+"""
+
+
 def project_worklist(accession_number):
     """Project the lifecycle into the RIS-shaped worklist tables."""
     if not accession_number:
@@ -336,7 +371,8 @@ def project_worklist(accession_number):
     done = []
     for label, sql in (('arrival', _WORKLIST_ARRIVAL_SQL),
                        ('exam_done', _WORKLIST_DONE_SQL),
-                       ('pps', _PPS_SQL)):
+                       ('pps', _PPS_SQL),
+                       ('person_ref', _PERSON_REF_SQL)):
         try:
             with db.session.begin_nested():
                 db.session.execute(text(sql), {'acc': accession_number})

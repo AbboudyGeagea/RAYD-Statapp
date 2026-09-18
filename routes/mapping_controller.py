@@ -1234,3 +1234,105 @@ def test_field_map():
     except Exception as e:
         logging.getLogger("MAPPING").exception("field map test failed")
         return jsonify({'error': str(e)[:300]}), 500
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MASTER DATA IMPORT — the reference data HL7 cannot carry
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Who the staff are, and how long each device is open. Neither travels on any
+# HL7 message, because both describe the organisation rather than the work. MFN
+# is the eventual source; this is the implementation-engineer path the operator
+# asked for alongside it, writing through the same contracts so MFN becomes a
+# second input rather than a parallel system.
+
+@mapping_bp.route('/master-data-tab')
+@login_required
+def master_data_tab():
+    """Lazy-loaded HTML fragment for the Master Data tab."""
+    if current_user.role not in ('admin', 'viewer', 'viewer2') \
+            and not user_has_page(current_user, 'mapping'):
+        return abort(403)
+    from utils.master_import import DATASETS
+
+    counts, unresolved = {}, []
+    log = logging.getLogger("MAPPING")
+    for key, ds in DATASETS.items():
+        try:
+            counts[key] = db.session.execute(
+                _t(f"SELECT count(*) FROM {ds.table}")).scalar() or 0
+        except Exception:
+            counts[key] = None
+
+    # The reason to import a roster, stated as evidence rather than instruction:
+    # these performer IDs have arrived on real messages and match nobody, so the
+    # work they did is currently attributed to no one.
+    try:
+        unresolved = [dict(r) for r in db.session.execute(_t("""
+            SELECT e.performed_by_id AS rid,
+                   MAX(COALESCE(e.performed_by_name, '')) AS seen_as,
+                   count(DISTINCT e.accession_number) AS studies
+              FROM hl7_study_events e
+             WHERE e.performed_by_id IS NOT NULL
+               AND NOT EXISTS (SELECT 1 FROM std_resources_ris r
+                                WHERE lower(r.resource_id) = lower(e.performed_by_id))
+             GROUP BY e.performed_by_id
+             ORDER BY 3 DESC LIMIT 30
+        """)).mappings().all()]
+    except Exception:
+        log.exception("could not list unresolved performers")
+
+    return render_template('_master_data_tab.html',
+                           datasets=DATASETS, counts=counts, unresolved=unresolved)
+
+
+@mapping_bp.route('/master-data/template/<key>')
+@login_required
+def master_data_template(key):
+    """Download a CSV template with the right header and a worked example."""
+    if current_user.role not in ('admin', 'viewer', 'viewer2') \
+            and not user_has_page(current_user, 'mapping'):
+        return abort(403)
+    from utils.master_import import DATASETS, template_csv
+    if key not in DATASETS:
+        return abort(404)
+    return Response(
+        template_csv(key), mimetype='text/csv',
+        headers={'Content-Disposition': f'attachment; filename={key}_template.csv'})
+
+
+@mapping_bp.route('/master-data/import/<key>', methods=['POST'])
+@login_required
+@permission_required('can_configure')
+def master_data_import(key):
+    """
+    Validate an uploaded CSV, and commit only when explicitly asked.
+
+    Two-step by design. Master data is small and rarely touched, so a mistake in
+    it survives for months and gets blamed on the reports rather than on the
+    import: a mistyped role code breaks nothing loudly, it just leaves a
+    technologist out of every technician report. A preview costs one click.
+    """
+    if current_user.role != 'admin':
+        return abort(403)
+    from utils.master_import import run_import
+
+    upload = request.files.get('file')
+    if upload:
+        try:
+            csv_text = upload.read().decode('utf-8-sig')
+        except UnicodeDecodeError:
+            # Spreadsheets exported on Windows are frequently cp1252, and failing
+            # on one accented surname is a poor reason to reject a whole roster.
+            upload.seek(0)
+            csv_text = upload.read().decode('cp1252', 'replace')
+    else:
+        csv_text = (request.form.get('csv_text') or '')
+
+    if not csv_text.strip():
+        return jsonify({'ok': False, 'errors': [[0, 'no file or pasted text']]}), 400
+
+    commit = request.form.get('commit') == 'true'
+    result = run_import(key, csv_text, commit=commit)
+    result['errors'] = [[line, msg] for line, msg in result.get('errors', [])]
+    return jsonify(result)

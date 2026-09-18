@@ -1,0 +1,148 @@
+{# ────────────────────────────────────────────────────────────────
+   Master Data — lazy-loaded fragment for the studio.
+
+   Unresolved performers come first. They are the evidence that an import is
+   needed: real IDs, off real messages, matching nobody in the roster — so the
+   work those people did is currently attributed to no one. Leading with the
+   datasets instead would make this a filing task rather than a fix.
+   ──────────────────────────────────────────────────────────────── #}
+
+<div class="space-y-8">
+
+  {% if unresolved %}
+  <div class="bg-[#1a1512] border border-amber-700/50 rounded-lg p-5">
+    <h3 class="text-amber-400 font-black uppercase text-[11px] tracking-widest mb-1">
+      <i class="bi bi-person-x mr-1"></i>
+      {{ unresolved|length }} performer{{ '' if unresolved|length == 1 else 's' }} not in the roster
+    </h3>
+    <p class="text-[11px] text-slate-400 mb-4 leading-relaxed">
+      These identifiers arrived on real messages and match nobody in the staff roster, so
+      the studies they performed are attributed to no one. Import a roster whose
+      <code class="text-slate-300">resource_id</code> column contains exactly these values.
+    </p>
+    <table class="w-full text-[11px]">
+      <thead>
+        <tr class="text-slate-500 uppercase tracking-wider text-[9px] border-b border-[#28332e]">
+          <th class="text-left py-2">Identifier on the wire</th>
+          <th class="text-left">Name sent with it</th>
+          <th class="text-right">Studies</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for u in unresolved %}
+        <tr class="border-b border-[#1c2620]">
+          <td class="py-2 font-mono text-amber-300">{{ u.rid }}</td>
+          <td class="text-slate-400">{{ u.seen_as or '—' }}</td>
+          <td class="text-right font-mono text-slate-400">{{ u.studies }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {% for key, ds in datasets.items() %}
+  <div class="bg-[#0f1613] border border-[#28332e] rounded-lg p-5">
+    <div class="flex items-baseline justify-between mb-1">
+      <h3 class="text-sky-400 font-black uppercase text-[11px] tracking-widest">
+        {{ ds.label }}
+      </h3>
+      <span class="text-[10px] text-slate-500 font-mono">
+        {{ ds.table }} · {{ counts.get(key) if counts.get(key) is not none else '?' }} rows
+      </span>
+    </div>
+    <p class="text-[11px] text-slate-400 mb-3 leading-relaxed">{{ ds.describe }}</p>
+
+    <div class="text-[10px] text-slate-500 mb-3 font-mono">
+      columns: {{ ds.columns|join(', ') }}
+      &nbsp;·&nbsp; required: {{ ds.required|join(', ') }}
+    </div>
+
+    <div class="flex gap-3 flex-wrap items-center">
+      <a href="/mapping/master-data/template/{{ key }}"
+         class="px-3 py-1 border border-[#28332e] rounded text-[11px] text-slate-300 hover:border-sky-700">
+        <i class="bi bi-download mr-1"></i> Template CSV
+      </a>
+      <input type="file" accept=".csv,text/csv" id="file-{{ key }}"
+             class="text-[11px] text-slate-400 file:mr-2 file:px-3 file:py-1 file:rounded
+                    file:border-0 file:bg-[#1c2620] file:text-slate-300 file:text-[11px]">
+      <button class="px-3 py-1 bg-sky-600 hover:bg-sky-500 text-white rounded text-[11px] font-bold"
+              onclick="mdCheck('{{ key }}')">Check</button>
+      <button id="apply-{{ key }}" disabled
+              class="px-3 py-1 bg-emerald-700 text-white rounded text-[11px] font-bold
+                     disabled:opacity-30 disabled:cursor-not-allowed"
+              onclick="mdApply('{{ key }}')">Apply</button>
+    </div>
+
+    <div id="result-{{ key }}" class="mt-3"></div>
+  </div>
+  {% endfor %}
+</div>
+
+<script>
+const mdEsc = s => String(s == null ? '' : s).replace(/[&<>]/g,
+  c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+async function mdPost(key, commit) {
+  const input = document.getElementById('file-' + key);
+  if (!input.files.length) { alert('Choose a CSV file first.'); return null; }
+  const fd = new FormData();
+  fd.append('file', input.files[0]);
+  fd.append('commit', commit ? 'true' : 'false');
+  const res = await fetch('/mapping/master-data/import/' + key, {method: 'POST', body: fd});
+  return await res.json().catch(() => ({ok: false, errors: [[0, 'server error']]}));
+}
+
+function mdRender(key, d) {
+  const box = document.getElementById('result-' + key);
+  const apply = document.getElementById('apply-' + key);
+
+  if (d.committed) {
+    apply.disabled = true;
+    box.innerHTML = `<div class="text-emerald-400 text-[11px]">
+        Imported ${d.written} row(s) into ${mdEsc(d.dataset)}. Reload to see the count update.</div>`;
+    return;
+  }
+
+  if (!d.ok) {
+    apply.disabled = true;
+    const shown = (d.errors || []).map(([line, msg]) =>
+      `<tr><td class="pr-3 text-slate-500 font-mono align-top">${line ? 'line ' + line : 'file'}</td>
+           <td class="text-red-400">${mdEsc(msg)}</td></tr>`).join('');
+    const more = d.error_count > (d.errors || []).length
+      ? `<div class="text-slate-500 mt-1">…and ${d.error_count - d.errors.length} more</div>` : '';
+    box.innerHTML = `<div class="text-[11px]">
+        <div class="text-red-400 font-bold mb-1">
+          ${d.error_count} problem(s) — nothing was written</div>
+        <table>${shown}</table>${more}</div>`;
+    return;
+  }
+
+  // Valid: show what would land, and only now enable Apply.
+  apply.disabled = false;
+  const rows = d.preview || [];
+  const cols = rows.length ? Object.keys(rows[0]) : [];
+  box.innerHTML = `<div class="text-[11px]">
+      <div class="text-emerald-400 mb-2">
+        ${d.rows} row(s) valid. Showing the first ${rows.length} — press Apply to write them.</div>
+      <table class="w-full">
+        <tr class="text-slate-500 uppercase text-[9px]">
+          ${cols.map(c => `<th class="text-left pr-3">${mdEsc(c)}</th>`).join('')}</tr>
+        ${rows.map(r => `<tr class="border-b border-[#1c2620]">
+          ${cols.map(c => `<td class="pr-3 font-mono text-slate-300">${mdEsc(r[c])}</td>`).join('')}
+        </tr>`).join('')}
+      </table></div>`;
+}
+
+async function mdCheck(key) {
+  const d = await mdPost(key, false);
+  if (d) mdRender(key, d);
+}
+
+async function mdApply(key) {
+  if (!confirm('Write these rows?\n\nExisting entries with the same key are updated. '
+             + 'Nothing derived from HL7 messages is touched.')) return;
+  const d = await mdPost(key, true);
+  if (d) mdRender(key, d);
+}
+</script>
