@@ -625,6 +625,7 @@ def _process_message(raw_message, segments, addr, app):
     from utils.hl7_parse import parse_message
     from utils.hl7_ingest import (archive, persist_parsed, mark_parsed,
                                   mark_quarantined, mark_parse_error)
+    from utils.hl7_project import project_message
 
     with app.app_context():
         msg = parse_message(raw_message, source_ip=addr[0] if addr else None)
@@ -653,6 +654,11 @@ def _process_message(raw_message, segments, addr, app):
             if verdict.may_project:
                 parts = [persist_parsed(msg, archive_id)]
                 parts += _legacy_writes(raw_message, segments, msg, app)
+                # Last, and the order is load-bearing: the projector reads
+                # ray7_study_state, which persist_parsed has just advanced, and
+                # hl7_oru_reports, which _legacy_writes has just written. Running
+                # it earlier would project the study as it was one event ago.
+                parts += project_message(msg)
                 written = ', '.join(p for p in parts if p and p != 'nothing') or 'nothing'
                 mark_parsed(archive_id, projected=True)
             else:
