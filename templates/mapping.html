@@ -111,18 +111,6 @@
                         <button class="tab-btn active" onclick="switchTab('modality', this)">
                             <i class="bi bi-hdd-network mr-1"></i> Modality & Capacity
                         </button>
-                        <button class="tab-btn" onclick="switchTab('masterdata', this)">
-                            <i class="bi bi-people mr-1"></i> Master Data
-                        </button>
-                        <button class="tab-btn" onclick="switchTab('explorer', this)">
-                            <i class="bi bi-search mr-1"></i> Message Explorer
-                        </button>
-                        <button class="tab-btn" onclick="switchTab('fieldmap', this)">
-                            <i class="bi bi-sliders mr-1"></i> HL7 Field Mapping
-                        </button>
-                        <button class="tab-btn" onclick="switchTab('statuscodes', this)">
-                            <i class="bi bi-diagram-3 mr-1"></i> HL7 Status Codes
-                        </button>
                         <button class="tab-btn" onclick="switchTab('procedures', this)">
                             <i class="bi bi-list-check mr-1"></i> Procedures
                             {% if review_count > 0 %}
@@ -271,10 +259,8 @@
                 <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
                      TAB: PROCEDURES
                 â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
-                <div id="tab-statuscodes" class="space-y-8 hidden"></div>
-                <div id="tab-explorer" class="space-y-8 hidden"></div>
-                <div id="tab-fieldmap" class="space-y-8 hidden"></div>
-                <div id="tab-masterdata" class="space-y-8 hidden"></div>
+                {# Message Explorer, Field Mapping, Status Codes and Master Data
+                   moved to their own page — mapping.hl7_mapping_page. #}
                 <div id="tab-procedures" class="space-y-8 hidden">
                     <div id="proc-tab-skeleton" class="flex flex-col items-center justify-center py-24 gap-4">
                         <div class="w-8 h-8 border-2 border-[#28332e] border-t-blue-400 rounded-full animate-spin"></div>
@@ -581,98 +567,14 @@
 
         // â”€â”€ Tab switching â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         let _procLoaded = false;
-        let _statusLoaded = false;
-        let _fieldmapLoaded = false;
-        let _masterLoaded = false;
-        let _explorerLoaded = false;
 
         function switchTab(name, btn) {
-            ['modality', 'procedures', 'statuscodes', 'fieldmap', 'masterdata', 'explorer'].forEach(t => {
+            ['modality', 'procedures'].forEach(t => {
                 document.getElementById('tab-' + t).classList.add('hidden');
             });
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
             document.getElementById('tab-' + name).classList.remove('hidden');
             btn.classList.add('active');
-
-            if (name === 'explorer' && !_explorerLoaded) {
-                _explorerLoaded = true;
-                const tab = document.getElementById('tab-explorer');
-                tab.innerHTML = '<p class="text-slate-500 text-xs p-8 text-center">Loading…</p>';
-                fetch('/mapping/explorer-tab')
-                    .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
-                    .then(html => {
-                        tab.innerHTML = html;
-                        tab.querySelectorAll('script').forEach(old => {
-                            const s = document.createElement('script');
-                            s.textContent = old.textContent;
-                            document.body.appendChild(s);
-                        });
-                    })
-                    .catch(() => {
-                        tab.innerHTML = '<p class="text-red-400 text-xs p-8 text-center">Failed to load the explorer. Please refresh.</p>';
-                    });
-            }
-
-            if (name === 'masterdata' && !_masterLoaded) {
-                _masterLoaded = true;
-                const tab = document.getElementById('tab-masterdata');
-                tab.innerHTML = '<p class="text-slate-500 text-xs p-8 text-center">Loading…</p>';
-                fetch('/mapping/master-data-tab')
-                    .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
-                    .then(html => {
-                        tab.innerHTML = html;
-                        tab.querySelectorAll('script').forEach(old => {
-                            const s = document.createElement('script');
-                            s.textContent = old.textContent;
-                            document.body.appendChild(s);
-                        });
-                    })
-                    .catch(() => {
-                        tab.innerHTML = '<p class="text-red-400 text-xs p-8 text-center">Failed to load master data. Please refresh.</p>';
-                    });
-            }
-
-            if (name === 'fieldmap' && !_fieldmapLoaded) {
-                _fieldmapLoaded = true;
-                const tab = document.getElementById('tab-fieldmap');
-                tab.innerHTML = '<p class="text-slate-500 text-xs p-8 text-center">Loading…</p>';
-                fetch('/mapping/field-map-tab')
-                    .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
-                    .then(html => {
-                        tab.innerHTML = html;
-                        // innerHTML does not execute <script>; re-inject so the
-                        // fragment's own handlers become live.
-                        tab.querySelectorAll('script').forEach(old => {
-                            const s = document.createElement('script');
-                            s.textContent = old.textContent;
-                            document.body.appendChild(s);
-                        });
-                    })
-                    .catch(() => {
-                        tab.innerHTML = '<p class="text-red-400 text-xs p-8 text-center">Failed to load field mappings. Please refresh.</p>';
-                    });
-            }
-
-            if (name === 'statuscodes' && !_statusLoaded) {
-                _statusLoaded = true;
-                const tab = document.getElementById('tab-statuscodes');
-                tab.innerHTML = '<p class="text-slate-500 text-xs p-8 text-center">Loading…</p>';
-                fetch('/mapping/status-codes-tab')
-                    .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
-                    .then(html => {
-                        tab.innerHTML = html;
-                        // The fragment ships its own handlers; re-run them after injection
-                        // because innerHTML does not execute <script> on its own.
-                        tab.querySelectorAll('script').forEach(old => {
-                            const s = document.createElement('script');
-                            s.textContent = old.textContent;
-                            document.body.appendChild(s);
-                        });
-                    })
-                    .catch(() => {
-                        tab.innerHTML = '<p class="text-red-400 text-xs p-8 text-center">Failed to load status codes. Please refresh.</p>';
-                    });
-            }
 
             if (name === 'procedures' && !_procLoaded) {
                 _procLoaded = true;

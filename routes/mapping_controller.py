@@ -10,6 +10,14 @@ import csv
 import io
 import logging
 
+# Module scope, because eleven functions in this file — every route behind the
+# HL7 → DB tabs — used _t while only the older handlers imported it locally.
+# The reads sit inside try/except and returned an empty list on the NameError,
+# so the tabs rendered and quietly showed nothing; the saves and deletes just
+# 500'd. Found by rendering the routes rather than querying the database under
+# them, which is the only way this was ever going to show up.
+from sqlalchemy import text as _t
+
 mapping_bp = Blueprint('mapping', __name__, url_prefix='/mapping')
 
 # --- HELPER FOR UPSERT LOGIC ---
@@ -111,6 +119,24 @@ def mapping_page():
         exceptions_json=json.dumps(exceptions_lookup),
         review_count=int(review_count),
     )
+
+
+@mapping_bp.route('/hl7', methods=['GET'])
+@login_required
+@permission_required('can_configure')
+def hl7_mapping_page():
+    """
+    HL7 → DB: the explorer, field mappings, status codes and master data.
+
+    Its own page rather than four more tabs on "Modality / Procedures Config",
+    which is what they had grown into and where nobody would look for them.
+    Carries no context of its own — every tab is a lazy-loaded fragment served
+    by the routes below, so the page is a frame and the permission gate.
+    """
+    if current_user.role not in ('admin', 'viewer', 'viewer2') \
+            and not user_has_page(current_user, 'mapping'):
+        return abort(403)
+    return render_template('hl7_mapping.html')
 
 
 @mapping_bp.route('/procedures-tab')

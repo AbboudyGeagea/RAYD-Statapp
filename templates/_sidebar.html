@@ -112,9 +112,16 @@
             </a>
             {% endif %}
             {% if current_user.role == 'admin' or current_user|user_has_page('mapping') %}
+            {# Two separate entries, and the active test is exact rather than a
+               prefix: ep.startswith('mapping.') matched BOTH, so whichever came
+               first lit up on both pages. #}
             <a href="{{ url_for('mapping.mapping_page') }}"
-               class="sidebar-item {% if ep.startswith('mapping.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
+               class="sidebar-item {% if ep == 'mapping.mapping_page' %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
                 <i class="bi bi-calendar-week flex-shrink-0" style="color:#a78bfa;"></i> Modality / Procedures
+            </a>
+            <a href="{{ url_for('mapping.hl7_mapping_page') }}"
+               class="sidebar-item {% if ep == 'mapping.hl7_mapping_page' %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
+                <i class="bi bi-diagram-2-fill flex-shrink-0" style="color:#38bdf8;"></i> HL7 &rarr; DB
             </a>
             {% endif %}
             {% if current_user.role == 'admin' %}

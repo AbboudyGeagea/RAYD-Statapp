@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+{# ────────────────────────────────────────────────────────────────
+   HL7 → DB — everything that decides what an incoming HL7 message
+   becomes in the database.
+
+   Split out of mapping.html, which is titled "Modality / Procedures
+   Config" and had grown four tabs that have nothing to do with either.
+   An implementation engineer wiring up a site works only here; the
+   modality/capacity grid and the procedure catalogue are a different
+   job on a different day.
+
+   Every tab is a lazy-loaded fragment served by mapping_controller and
+   shared with nothing else, so this page carries no state of its own —
+   it is a frame, a tab bar, and the same fetch-and-reinject dance the
+   old page used. The fragments were already written to be self-contained
+   (each ships its own <script>), which is what makes the move cheap.
+   ──────────────────────────────────────────────────────────────── #}
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | HL7 → DB</title>
+    <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
+    <style>
+        html { font-size: 110%; }
+        :root { --accent: #60a5fa; }
+        body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; transition: background 0.2s, color 0.2s; }
+        body.light { background: #f0f4f8 !important; color: #1a202c !important; }
+        body.light aside, body.light header { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        body.light .sidebar-item { color: #4a5568 !important; }
+        body.light .sidebar-item:hover, body.light .sidebar-item.active { background: #e2e8f0 !important; color: #2b6cb0 !important; }
+        .sidebar-item { transition: all 0.2s; border-radius: 0.75rem; margin-bottom: 0.25rem; cursor: pointer; text-decoration: none !important; color: #94a3b8; }
+        .sidebar-item:hover { background: #1d2522; color: var(--accent) !important; }
+        .sidebar-item.active { background: #1d2522; color: var(--accent) !important; border-left: 4px solid var(--accent); }
+        .card-custom { background: #232b28; border-radius: 1.5rem; border: 1px solid #28332e; }
+        .upload-zone { background: #1d2522; border: 2px dashed #28332e; border-radius: 1rem; transition: all 0.2s; cursor: pointer; }
+        .upload-zone:hover { border-color: var(--accent); background: #232b28; }
+
+        .tab-btn { padding: 10px 0; border-bottom: 3px solid transparent; color: #64748b; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.1em; cursor: pointer; transition: all 0.2s; background: none; border-left: none; border-right: none; border-top: none; }
+        .tab-btn.active { border-bottom-color: #60a5fa; color: #60a5fa; }
+        .tab-btn:hover:not(.active) { color: #94a3b8; }
+
+        [x-cloak] { display: none !important; }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+
+    {% include '_header.html' %}
+
+    <div class="flex flex-1 overflow-hidden">
+        {% include '_sidebar.html' %}
+
+        <main class="flex-1 overflow-y-auto p-10 bg-[#181f1c] custom-scrollbar">
+            <div class="max-w-7xl mx-auto space-y-12">
+
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                  {% if messages %}
+                    {% for category, message in messages %}
+                      <div class="p-4 rounded-xl mb-4 font-bold text-sm {% if category == 'danger' %}bg-red-900/50 text-red-200 border border-red-500{% else %}bg-green-900/50 text-green-200 border border-green-500{% endif %}">
+                        {{ message }}
+                      </div>
+                    {% endfor %}
+                  {% endif %}
+                {% endwith %}
+
+                <div>
+                    <h1 class="text-3xl font-black text-white uppercase tracking-tight mb-1">HL7 &rarr; DB</h1>
+                    <p class="text-slate-500 text-xs mb-6 max-w-3xl leading-relaxed">
+                        What an incoming message becomes once it is stored. Explore a real message
+                        field by field, point a field at a column, translate the sending system's
+                        status codes, and load the master data HL7 does not carry.
+                    </p>
+                    <div class="flex gap-8 border-b border-[#28332e]" id="main-tabs">
+                        <button class="tab-btn active" onclick="switchTab('explorer', this)">
+                            <i class="bi bi-search mr-1"></i> Message Explorer
+                        </button>
+                        <button class="tab-btn" onclick="switchTab('fieldmap', this)">
+                            <i class="bi bi-sliders mr-1"></i> Field Mapping
+                        </button>
+                        <button class="tab-btn" onclick="switchTab('statuscodes', this)">
+                            <i class="bi bi-diagram-3 mr-1"></i> Status Codes
+                        </button>
+                        <button class="tab-btn" onclick="switchTab('masterdata', this)">
+                            <i class="bi bi-people mr-1"></i> Master Data
+                        </button>
+                    </div>
+                </div>
+
+                <div id="tab-explorer" class="space-y-8"></div>
+                <div id="tab-fieldmap" class="space-y-8 hidden"></div>
+                <div id="tab-statuscodes" class="space-y-8 hidden"></div>
+                <div id="tab-masterdata" class="space-y-8 hidden"></div>
+
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // One loader for all four, because all four are the same shape: fetch a
+        // fragment, drop it in, then re-inject its <script> tags. innerHTML does
+        // not execute scripts, so without that last step the fragment renders and
+        // every button on it does nothing.
+        const TABS = {
+            explorer:    {url: '/mapping/explorer-tab',     label: 'the explorer'},
+            fieldmap:    {url: '/mapping/field-map-tab',    label: 'field mappings'},
+            statuscodes: {url: '/mapping/status-codes-tab', label: 'status codes'},
+            masterdata:  {url: '/mapping/master-data-tab',  label: 'master data'},
+        };
+        const loaded = {};
+
+        function loadTab(name) {
+            if (loaded[name]) return;
+            loaded[name] = true;
+            const spec = TABS[name];
+            const el = document.getElementById('tab-' + name);
+            el.innerHTML = '<p class="text-slate-500 text-xs p-8 text-center">Loading…</p>';
+            fetch(spec.url)
+                .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
+                .then(html => {
+                    el.innerHTML = html;
+                    el.querySelectorAll('script').forEach(old => {
+                        const s = document.createElement('script');
+                        s.textContent = old.textContent;
+                        document.body.appendChild(s);
+                    });
+                })
+                .catch(() => {
+                    loaded[name] = false;   // let a retry actually retry
+                    el.innerHTML = '<p class="text-red-400 text-xs p-8 text-center">Failed to load '
+                                 + spec.label + '. Please refresh.</p>';
+                });
+        }
+
+        function switchTab(name, btn) {
+            Object.keys(TABS).forEach(t =>
+                document.getElementById('tab-' + t).classList.add('hidden'));
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById('tab-' + name).classList.remove('hidden');
+            if (btn) btn.classList.add('active');
+            // Deep-linkable, and survives a refresh — an engineer configuring a
+            // site lives on one of these tabs for an hour at a time.
+            history.replaceState(null, '', '#' + name);
+            loadTab(name);
+        }
+
+        (function () {
+            const want = (location.hash || '').replace('#', '');
+            const name = TABS[want] ? want : 'explorer';
+            const btn = document.querySelector(`.tab-btn[onclick*="'${name}'"]`);
+            switchTab(name, btn);
+        })();
+    </script>
+
+</body>
+</html>

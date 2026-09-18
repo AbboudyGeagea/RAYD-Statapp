@@ -127,7 +127,9 @@ def _get_user_page_columns():
         ('oru',             'Report Intelligence'),
         ('referring_intel', 'Referring Intel'),
         ('custom_reports',  'Custom Reports'),
-        ('mapping',         'Modality / Procedures'),
+        # One key, two pages: Modality / Procedures and HL7 → DB. Named so an
+        # admin granting it can see it covers both.
+        ('mapping',         'Modality / Procedures + HL7 → DB'),
         ('report_ai',       'AI Reports'),
         ('financial',       'Revenue Intelligence'),
     ]
