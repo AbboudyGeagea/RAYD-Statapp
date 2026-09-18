@@ -348,9 +348,14 @@ WITH gone AS (
      WHERE pps_key = hl7_surrogate_id('pps', :acc)
 )
 INSERT INTO std_pps_person_reference
-    (pps_key, resource_id_key, display_sort_order, last_update)
-SELECT DISTINCT ON (r.resource_id_key)
-       hl7_surrogate_id('pps', :acc), r.resource_id_key,
+    (pps_person_reference_key, pps_key, resource_id_key, display_sort_order, last_update)
+SELECT
+       -- NOT NULL with no default or sequence: it is the RIS's own key, so an
+       -- HL7 install mints it like every other foreign identity. Keyed on the
+       -- pair, so re-projecting the same study reuses the same row identity.
+       hl7_surrogate_id('pps_ref', :acc || ':' || r.resource_id_key),
+       hl7_surrogate_id('pps', :acc),
+       r.resource_id_key,
        -- Earliest rung first, so report 35's "lowest display_sort_order is the
        -- primary" tie-break picks whoever actually ran the exam rather than
        -- whoever last touched it.
