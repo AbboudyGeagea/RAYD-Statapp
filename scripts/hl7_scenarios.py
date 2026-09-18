@@ -92,7 +92,11 @@ def send(label, segments, quiet=False):
     _sent['ok' if code == 'AA' else 'nak'] += 1
     if not quiet:
         print(f"  {code}  {label}")
-    time.sleep(0.12)
+        # Pace only the narrated scenarios, so their output stays readable. The
+        # load mode runs quiet and must NOT sleep: a throughput figure that is
+        # mostly this sleep measures the harness, not the server. The first load
+        # run reported 144ms per message, of which 120ms was this line.
+        time.sleep(0.12)
     return code
 
 
