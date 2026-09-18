@@ -139,7 +139,7 @@ for code, state, rank in (('SC', 'scheduled', 40), ('AR', 'arrived', 60),
                 segment('PID', {3: '00301796^^^HIS'}),
                 segment('ORC', {1: 'SC', 3: '249389^HIS', 5: code,
                                   9: '20260918101500', 19: 'TECH01^HADDAD^RIMA'}),
-                segment('OBR', {4: 'ECABDPEL^CT ABDO', 24: 'CT64_RH'}),
+                segment('OBR', {4: 'ECABDPEL^CT ABDO', 21: 'CT64_RH', 24: 'CT'}),
                 segment('PV1', {2: 'O', 3: 'RAD^CT-ROOM-2^^RH'}))
     m = hp.parse_message(msg)
     check(f"{code} -> kind=status", m.kind, 'status')
@@ -150,7 +150,8 @@ check("accession from ORC-3", m.accession_number, '249389')
 check("event_time from ORC-9", m.event_time, dt.datetime(2026, 9, 18, 10, 15))
 check("performer id (ORC-19, provisional)", m.performed_by_id, 'TECH01')
 check("performer name", m.performed_by_name, 'RIMA HADDAD')
-check("aetitle (OBR-24, provisional)", m.aetitle, 'CT64_RH')
+check("aetitle (OBR-21, provisional)", m.aetitle, 'CT64_RH')
+check("modality stays OBR-24, not the AE title", m.modality, 'CT')
 check("room name (PV1-3.2, provisional)", m.room_name, 'CT-ROOM-2')
 check("raw ORC values kept", (m.raw_order_control, m.raw_order_status), ('SC', 'CM'))
 

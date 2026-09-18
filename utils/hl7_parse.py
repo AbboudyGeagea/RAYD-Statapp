@@ -225,16 +225,28 @@ def parse_birth_date(raw, placeholders):
 #               action a status change reports. ORC-10 (Entered By) and ORC-12
 #               (Ordering Provider) are the plausible alternatives if the RIS
 #               populates those instead.
-#   aetitle     No standard field carries a DICOM AE title. OBR-24 is the closest
-#               conventional home (Diagnostic Service Section ID) and several
-#               vendors put the performing station there.
+#   aetitle     NOT OBR-24, though that was the first guess and it was wrong.
+#               OBR-24 is Diagnostic Service Section ID, whose conventional value
+#               is the MODALITY, and _clinical() above already reads it as exactly
+#               that. Using one field for two different things produced study rows
+#               whose study_modality read "CT64_RH" — an AE title sitting in the
+#               modality column, which would have grouped every report by device
+#               instead of by modality. Caught on the first live run.
+#
+#               No standard HL7 v2.3/2.4 field carries a DICOM AE title at all.
+#               OBR-21 (Filler Field 2) is a vendor-extensible slot several PACS
+#               use for the performing station, so it is the default here — still
+#               a guess, but at least one that cannot corrupt another field.
+#               Expect this to be absent until a real sample confirms the position;
+#               RAY7 reports that honestly as UNKNOWN_AETITLE rather than the
+#               pipeline inventing a device.
 #   room        PV1-3 is the assigned patient location, whose second component is
 #               the room by definition: point-of-care^room^bed^facility.
 _STATUS_FIELDS = {
     'performer_seg':   'ORC',
     'performer_field': 19,
     'aetitle_seg':     'OBR',
-    'aetitle_field':   24,
+    'aetitle_field':   21,
     'room_seg':        'PV1',
     'room_field':      3,
     'room_component':  1,
