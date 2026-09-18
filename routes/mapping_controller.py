@@ -801,3 +801,168 @@ def rename_cluster():
     except Exception as e:
         db.session.rollback()
         return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# HL7 STATUS CODES — the studio surface for hl7_status_map
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# On the HL7 branch the exam lifecycle arrives as status codes in ORC, and which
+# codes mean what varies by hospital. The seeded defaults (SC/AR/IP/CM) came from
+# one integration; a site using anything else would previously have needed a
+# migration or psql to be understood at all, because an unmapped code is rated
+# CRITICAL by RAY7 and its message quarantined. That is the right behaviour — an
+# unclassified transition silently dropped would be far worse — but it does mean
+# the mapping has to be editable by an operator, not only by a developer.
+#
+# The part that makes this more than a CRUD screen is _unmapped_codes(). RAY7
+# already records every code it could not classify, so rather than asking someone
+# to guess what their RIS emits, the page lists the codes the site has actually
+# sent, with counts and a first/last-seen window. Mapping becomes a response to
+# evidence instead of documentation archaeology.
+
+_CANONICAL_STATES = ['scheduled', 'arrived', 'started', 'completed', 'cancelled']
+
+# Rank is derived from the state, never typed in. It is not a free choice — it is
+# what makes RAY7's sequence rules and the projector agree on what "further along"
+# means, and letting someone put arrived above completed would invert the
+# lifecycle everywhere downstream. Cancellation is off the ladder, hence -1.
+_STATE_RANK = {'scheduled': 40, 'arrived': 60, 'started': 70,
+               'completed': 100, 'cancelled': -1}
+
+
+def _invalidate_status_cache():
+    """RAY7 caches the map for five minutes; drop it so an edit takes effect on
+    the next message rather than whenever the TTL happens to lapse."""
+    try:
+        from utils.ray7 import _cache
+        _cache['status_map'] = (0.0, None)
+    except Exception:
+        pass
+
+
+def _unmapped_codes():
+    """
+    Codes RAY7 has seen and could not classify, newest first.
+
+    Read from the findings rather than a separate log: UNKNOWN_STATUS_CODE already
+    carries the sending app and both ORC values in its detail payload, so there is
+    nothing extra to record and nothing that can drift out of step with what the
+    engine actually did.
+    """
+    try:
+        return [dict(r) for r in db.session.execute(_t("""
+            SELECT detail ->> 'sending_app'   AS sending_app,
+                   detail ->> 'order_control' AS order_control,
+                   detail ->> 'order_status'  AS order_status,
+                   COUNT(*)                   AS seen,
+                   MIN(created_at)            AS first_seen,
+                   MAX(created_at)            AS last_seen
+              FROM ray7_findings
+             WHERE rule_code = 'UNKNOWN_STATUS_CODE'
+               AND detail ->> 'order_status' IS NOT NULL
+             GROUP BY 1, 2, 3
+             ORDER BY MAX(created_at) DESC
+             LIMIT 50
+        """)).mappings().all()]
+    except Exception:
+        logging.getLogger("MAPPING").exception("could not read unmapped status codes")
+        return []
+
+
+@mapping_bp.route('/status-codes-tab')
+@login_required
+def status_codes_tab():
+    """Lazy-loaded HTML fragment for the HL7 Status Codes tab."""
+    if current_user.role not in ('admin', 'viewer', 'viewer2') \
+            and not user_has_page(current_user, 'mapping'):
+        return abort(403)
+    try:
+        rows = [dict(r) for r in db.session.execute(_t("""
+            SELECT id, sending_app, order_control, order_status, canonical_state,
+                   ladder_rank, active, notes
+              FROM hl7_status_map
+             ORDER BY ladder_rank DESC, order_status
+        """)).mappings().all()]
+    except Exception:
+        logging.getLogger("MAPPING").exception("could not load hl7_status_map")
+        rows = []
+    return render_template('_status_codes_tab.html', rows=rows,
+                           unmapped=_unmapped_codes(), states=_CANONICAL_STATES)
+
+
+@mapping_bp.route('/status-code/save', methods=['POST'])
+@login_required
+@permission_required('can_configure')
+def save_status_code():
+    """Create or update one mapping row."""
+    if current_user.role != 'admin':
+        return abort(403)
+    d = request.get_json() or {}
+    state = (d.get('canonical_state') or '').strip()
+    if state not in _CANONICAL_STATES:
+        return jsonify({'error': 'unknown canonical state'}), 400
+    code = (d.get('order_status') or '').strip().upper()
+    if not code:
+        return jsonify({'error': 'order status code is required'}), 400
+
+    try:
+        db.session.execute(_t("""
+            INSERT INTO hl7_status_map
+                (sending_app, order_control, order_status, canonical_state,
+                 ladder_rank, active, notes, updated_at)
+            VALUES (:app, :ctl, :status, :state, :rank, :active, :notes, NOW())
+            ON CONFLICT (sending_app, order_control, order_status) DO UPDATE SET
+                canonical_state = EXCLUDED.canonical_state,
+                ladder_rank     = EXCLUDED.ladder_rank,
+                active          = EXCLUDED.active,
+                notes           = EXCLUDED.notes,
+                updated_at      = NOW()
+        """), {
+            'app':    (d.get('sending_app') or '').strip(),
+            'ctl':    (d.get('order_control') or '').strip(),
+            'status': code,
+            'state':  state,
+            'rank':   _STATE_RANK[state],
+            'active': bool(d.get('active', True)),
+            'notes':  (d.get('notes') or '').strip() or None,
+        })
+        db.session.commit()
+        _invalidate_status_cache()
+        return jsonify({
+            'status': 'ok',
+            'note': 'Mapping saved. Messages already quarantined for this code are not '
+                    're-admitted automatically — replay them with: python app.py -m',
+        })
+    except Exception as e:
+        db.session.rollback()
+        logging.getLogger("MAPPING").exception("status map save failed")
+        return jsonify({'error': str(e)[:200]}), 500
+
+
+@mapping_bp.route('/status-code/delete', methods=['POST'])
+@login_required
+@permission_required('can_configure')
+def delete_status_code():
+    """
+    Remove a mapping.
+
+    Worth understanding before clicking: any future message carrying this code
+    becomes UNKNOWN_STATUS_CODE, which RAY7 rates critical and quarantines. To
+    retire a code without that consequence, set it inactive instead — the row
+    stays and history keeps the meaning it was ingested with.
+    """
+    if current_user.role != 'admin':
+        return abort(403)
+    row_id = (request.get_json() or {}).get('id')
+    if not row_id:
+        return jsonify({'error': 'id required'}), 400
+    try:
+        db.session.execute(_t("DELETE FROM hl7_status_map WHERE id = :id"), {'id': row_id})
+        db.session.commit()
+        _invalidate_status_cache()
+        return jsonify({'status': 'ok'})
+    except Exception as e:
+        db.session.rollback()
+        logging.getLogger("MAPPING").exception("status map delete failed")
+        return jsonify({'error': str(e)[:200]}), 500

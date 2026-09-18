@@ -1,0 +1,225 @@
+{# ────────────────────────────────────────────────────────────────
+   HL7 Status Codes — lazy-loaded fragment for the studio.
+
+   Two panels, and the order is deliberate. "Seen but not mapped" comes FIRST
+   because it is the actionable one: those codes are being quarantined right now,
+   and every row is a real message this site sent that RAY7 could not classify.
+   The mapping table below it is reference.
+   ──────────────────────────────────────────────────────────────── #}
+
+<div class="space-y-8">
+
+  {% if unmapped %}
+  <div class="bg-[#1a1512] border border-amber-700/50 rounded-lg p-5">
+    <h3 class="text-amber-400 font-black uppercase text-[11px] tracking-widest mb-1">
+      <i class="bi bi-exclamation-triangle mr-1"></i>
+      Seen but not mapped — {{ unmapped|length }} code{{ '' if unmapped|length == 1 else 's' }}
+    </h3>
+    <p class="text-[11px] text-slate-400 mb-4 leading-relaxed">
+      RAY7 received these status codes and could not classify them, so those messages were
+      rated critical and <strong class="text-amber-300">held out of the reporting tables</strong>.
+      Map each one to a lifecycle state below. Mapping does not release the messages already
+      quarantined — replay them afterwards with <code class="text-slate-300">python app.py -m</code>.
+    </p>
+    <table class="w-full text-[11px]">
+      <thead>
+        <tr class="text-slate-500 uppercase tracking-wider text-[9px] border-b border-[#28332e]">
+          <th class="text-left py-2">Sender</th>
+          <th class="text-left">ORC-1</th>
+          <th class="text-left">ORC-5</th>
+          <th class="text-right">Seen</th>
+          <th class="text-left pl-4">Last seen</th>
+          <th class="text-left">Map to</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for u in unmapped %}
+        <tr class="border-b border-[#1c2620]" data-unmapped-row>
+          <td class="py-2 font-mono text-slate-300">{{ u.sending_app or '—' }}</td>
+          <td class="font-mono text-slate-400">{{ u.order_control or '—' }}</td>
+          <td class="font-mono text-amber-300 font-bold">{{ u.order_status }}</td>
+          <td class="text-right font-mono text-slate-400">{{ u.seen }}</td>
+          <td class="pl-4 font-mono text-slate-500">
+            {{ u.last_seen.strftime('%m-%d %H:%M') if u.last_seen else '—' }}</td>
+          <td>
+            <select class="bg-[#0f1613] border border-[#28332e] rounded px-2 py-1 text-slate-200"
+                    data-field="state">
+              <option value="">choose…</option>
+              {% for st in states %}<option value="{{ st }}">{{ st }}</option>{% endfor %}
+            </select>
+          </td>
+          <td class="text-right">
+            <button class="px-3 py-1 bg-amber-600 hover:bg-amber-500 text-black rounded font-bold"
+                    onclick="mapUnmapped(this,
+                      '{{ u.sending_app|default('', true) }}',
+                      '{{ u.order_control|default('', true) }}',
+                      '{{ u.order_status }}')">Map</button>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="bg-[#101a14] border border-[#1f3328] rounded-lg p-4 text-[11px] text-emerald-400">
+    <i class="bi bi-check-circle mr-1"></i>
+    Every status code received so far has been classified. Nothing is being quarantined
+    for an unknown code.
+  </div>
+  {% endif %}
+
+  <div>
+    <div class="flex items-baseline justify-between mb-3">
+      <h3 class="text-slate-300 font-black uppercase text-[11px] tracking-widest">
+        Status code mappings
+      </h3>
+      <button class="text-[10px] px-3 py-1 border border-[#28332e] rounded text-slate-400
+                     hover:text-sky-400 hover:border-sky-700"
+              onclick="document.getElementById('newStatusRow').classList.toggle('hidden')">
+        + Add mapping
+      </button>
+    </div>
+
+    <p class="text-[11px] text-slate-500 mb-4 leading-relaxed">
+      Blank sender or ORC-1 means <em>any</em>. Lookup is most-specific first, so a rule for one
+      sender beats the general one. The lifecycle rank is set from the state — it is what makes
+      RAY7's sequence checks and the projector agree on what "further along" means, so it is not
+      editable here.
+    </p>
+
+    <table class="w-full text-[11px]">
+      <thead>
+        <tr class="text-slate-500 uppercase tracking-wider text-[9px] border-b border-[#28332e]">
+          <th class="text-left py-2">Sender</th>
+          <th class="text-left">ORC-1</th>
+          <th class="text-left">ORC-5</th>
+          <th class="text-left">Lifecycle state</th>
+          <th class="text-right">Rank</th>
+          <th class="text-center">Active</th>
+          <th class="text-left pl-4">Notes</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr id="newStatusRow" class="hidden bg-[#121a16] border-b border-[#28332e]">
+          <td class="py-2"><input data-new="app" placeholder="any"
+              class="w-20 bg-[#0f1613] border border-[#28332e] rounded px-2 py-1 font-mono"></td>
+          <td><input data-new="ctl" placeholder="any"
+              class="w-16 bg-[#0f1613] border border-[#28332e] rounded px-2 py-1 font-mono"></td>
+          <td><input data-new="status" placeholder="e.g. AR"
+              class="w-20 bg-[#0f1613] border border-[#28332e] rounded px-2 py-1 font-mono uppercase"></td>
+          <td>
+            <select data-new="state"
+                    class="bg-[#0f1613] border border-[#28332e] rounded px-2 py-1">
+              {% for st in states %}<option value="{{ st }}">{{ st }}</option>{% endfor %}
+            </select>
+          </td>
+          <td class="text-right text-slate-600">auto</td>
+          <td class="text-center">—</td>
+          <td class="pl-4"><input data-new="notes" placeholder="optional"
+              class="w-full bg-[#0f1613] border border-[#28332e] rounded px-2 py-1"></td>
+          <td class="text-right">
+            <button class="px-3 py-1 bg-sky-600 hover:bg-sky-500 text-white rounded font-bold"
+                    onclick="saveNewStatus(this)">Save</button>
+          </td>
+        </tr>
+
+      {% for r in rows %}
+        <tr class="border-b border-[#1c2620] {{ 'opacity-40' if not r.active }}">
+          <td class="py-2 font-mono text-slate-300">{{ r.sending_app or 'any' }}</td>
+          <td class="font-mono text-slate-400">{{ r.order_control or 'any' }}</td>
+          <td class="font-mono text-sky-300 font-bold">{{ r.order_status }}</td>
+          <td>
+            <select class="bg-[#0f1613] border border-[#28332e] rounded px-2 py-1 text-slate-200"
+                    onchange="updateStatus(this, {{ r.id }},
+                              '{{ r.sending_app|default('', true) }}',
+                              '{{ r.order_control|default('', true) }}',
+                              '{{ r.order_status }}', {{ 'true' if r.active else 'false' }})">
+              {% for st in states %}
+              <option value="{{ st }}" {% if st == r.canonical_state %}selected{% endif %}>{{ st }}</option>
+              {% endfor %}
+            </select>
+          </td>
+          <td class="text-right font-mono text-slate-400">{{ r.ladder_rank }}</td>
+          <td class="text-center">
+            <input type="checkbox" {% if r.active %}checked{% endif %}
+                   onchange="toggleStatus(this, {{ r.id }},
+                             '{{ r.sending_app|default('', true) }}',
+                             '{{ r.order_control|default('', true) }}',
+                             '{{ r.order_status }}', '{{ r.canonical_state }}')">
+          </td>
+          <td class="pl-4 text-slate-500">{{ r.notes or '' }}</td>
+          <td class="text-right">
+            <button class="text-red-500 hover:text-red-300"
+                    onclick="deleteStatus({{ r.id }}, '{{ r.order_status }}')"
+                    title="Delete">&times;</button>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+async function _postStatus(url, payload) {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) { alert(data.error || 'Save failed'); return null; }
+  return data;
+}
+
+async function saveNewStatus(btn) {
+  const row = btn.closest('tr');
+  const get = k => row.querySelector(`[data-new="${k}"]`).value.trim();
+  if (!get('status')) { alert('An ORC-5 code is required.'); return; }
+  btn.disabled = true;
+  const d = await _postStatus('/mapping/status-code/save', {
+    sending_app: get('app'), order_control: get('ctl'),
+    order_status: get('status'), canonical_state: get('state'),
+    notes: get('notes'), active: true
+  });
+  if (d) { if (d.note) alert(d.note); location.reload(); } else { btn.disabled = false; }
+}
+
+async function updateStatus(sel, id, app, ctl, status, active) {
+  const d = await _postStatus('/mapping/status-code/save', {
+    sending_app: app, order_control: ctl, order_status: status,
+    canonical_state: sel.value, active: active
+  });
+  if (d) location.reload();
+}
+
+async function toggleStatus(cb, id, app, ctl, status, state) {
+  const d = await _postStatus('/mapping/status-code/save', {
+    sending_app: app, order_control: ctl, order_status: status,
+    canonical_state: state, active: cb.checked
+  });
+  if (!d) cb.checked = !cb.checked;
+}
+
+async function mapUnmapped(btn, app, ctl, status) {
+  const state = btn.closest('tr').querySelector('[data-field="state"]').value;
+  if (!state) { alert('Choose a lifecycle state first.'); return; }
+  btn.disabled = true;
+  const d = await _postStatus('/mapping/status-code/save', {
+    sending_app: app, order_control: ctl, order_status: status,
+    canonical_state: state, active: true,
+    notes: 'mapped from an unclassified code seen in traffic'
+  });
+  if (d) { if (d.note) alert(d.note); location.reload(); } else { btn.disabled = false; }
+}
+
+async function deleteStatus(id, code) {
+  if (!confirm(`Delete the mapping for "${code}"?\n\nAny future message carrying this code `
+             + `becomes UNKNOWN_STATUS_CODE — rated critical and quarantined. To retire a code `
+             + `without that, untick Active instead.`)) return;
+  const d = await _postStatus('/mapping/status-code/delete', {id: id});
+  if (d) location.reload();
+}
+</script>
