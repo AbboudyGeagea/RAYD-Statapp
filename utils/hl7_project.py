@@ -342,11 +342,18 @@ ON CONFLICT (pps_key) DO UPDATE SET
 # as a person: it stays unresolved, and RAY7's UNKNOWN_PERFORMER is the place
 # that gets reported. Inserting a placeholder would put a fictional member of
 # staff into the technician reports.
+# Upsert, NOT delete-then-insert in one statement.
+#
+# The first version used `WITH gone AS (DELETE ...) INSERT ...` and failed on
+# every re-projection. Data-modifying CTEs all see the same snapshot, so the
+# INSERT cannot observe the DELETE's effect: it collided with the very row the
+# DELETE was removing, because the key here is deterministic. The exam-done
+# projection gets away with the same pattern only because its key comes from a
+# sequence, so the new row never collides with an old one.
+#
+# A deterministic key makes ON CONFLICT the honest tool — re-projecting a study
+# updates its person references in place rather than churning rows.
 _PERSON_REF_SQL = """
-WITH gone AS (
-    DELETE FROM std_pps_person_reference
-     WHERE pps_key = hl7_surrogate_id('pps', :acc)
-)
 INSERT INTO std_pps_person_reference
     (pps_person_reference_key, pps_key, resource_id_key, display_sort_order, last_update)
 SELECT
@@ -366,6 +373,11 @@ SELECT
  WHERE e.accession_number = :acc
    AND e.performed_by_id IS NOT NULL
  GROUP BY r.resource_id_key
+ON CONFLICT (pps_person_reference_key) DO UPDATE SET
+    pps_key            = EXCLUDED.pps_key,
+    resource_id_key    = EXCLUDED.resource_id_key,
+    display_sort_order = EXCLUDED.display_sort_order,
+    last_update        = NOW()
 """
 
 
