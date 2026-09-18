@@ -482,3 +482,19 @@ def parse_message(raw_message, source_ip=None):
                          msg.control_id, msg.message_type)
         msg.kind = 'other'
         return msg
+    finally:
+        # Overlay whatever this site has configured, AFTER the built-in logic and
+        # regardless of how it went. Overlay rather than replace: a mapping that
+        # yields nothing leaves the product's answer intact, so an empty
+        # hl7_field_mappings table behaves exactly as this module did before
+        # configuration existed, and a half-configured site still gets sensible
+        # values everywhere it has not expressed an opinion.
+        #
+        # Imported here rather than at module scope because utils.hl7_fieldmap
+        # imports back into this module for its transforms; a top-level import
+        # would be circular.
+        try:
+            from utils.hl7_fieldmap import apply_to_message
+            apply_to_message(msg, segments)
+        except Exception:
+            logger.exception("field-map overlay failed; keeping built-in parse")

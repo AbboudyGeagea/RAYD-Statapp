@@ -659,6 +659,10 @@ def _process_message(raw_message, segments, addr, app):
                 # hl7_oru_reports, which _legacy_writes has just written. Running
                 # it earlier would project the study as it was one event ago.
                 parts += project_message(msg)
+                # Operator-configured direct writes run last, so an override
+                # genuinely overrides the projected value rather than racing it.
+                from utils.hl7_project import apply_direct_overrides
+                parts += apply_direct_overrides(msg, segments)
                 written = ', '.join(p for p in parts if p and p != 'nothing') or 'nothing'
                 mark_parsed(archive_id, projected=True)
             else:

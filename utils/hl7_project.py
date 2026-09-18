@@ -255,6 +255,96 @@ def project_patient(patient_id):
         return []
 
 
+_OVERRIDE_TARGETS = {
+    'study':   ('etl_didb_studies', 'study_db_uid',   'study'),
+    'patient': ('etl_patient_view', 'patient_db_uid', 'patient'),
+    'order':   ('etl_orders',       'order_dbid',     'order'),
+}
+
+
+def _override_whitelist():
+    """
+    Column names the catalogue actually permits, per target kind.
+
+    Not decoration. A mapping's target_field is operator-supplied text that has to
+    be interpolated as a column name — it cannot be bound as a parameter — so it
+    is checked against hl7_field_targets before it reaches any SQL string. The
+    table also has a CHECK on target_kind, but defence at the point of
+    interpolation is the one that matters.
+    """
+    try:
+        rows = db.session.execute(text(
+            "SELECT target_kind, target_field FROM hl7_field_targets")).fetchall()
+        allowed = {}
+        for kind, field in rows:
+            allowed.setdefault(kind, set()).add(field)
+        return allowed
+    except Exception:
+        logger.exception("projector: could not read the target catalogue; "
+                         "refusing all direct overrides")
+        return {}
+
+
+def apply_direct_overrides(msg, segments):
+    """
+    Write operator-configured values straight into the etl_* tables.
+
+    The deliberately risky half of the field-mapping feature, enabled by operator
+    decision. A value written here is indistinguishable downstream from one the
+    lifecycle produced, so a wrong mapping corrupts a report with no error
+    anywhere — which is why the catalogue marks every one of these targets
+    dangerous and the editor warns before saving.
+
+    Runs LAST, after the normal projection, so an override genuinely overrides
+    rather than racing it.
+    """
+    try:
+        from utils.hl7_fieldmap import direct_overrides
+        overrides = direct_overrides(msg, segments)
+    except Exception:
+        logger.exception("projector: could not evaluate direct overrides")
+        return []
+
+    if not any(overrides.values()):
+        return []
+
+    allowed = _override_whitelist()
+    done = []
+
+    for kind, values in overrides.items():
+        if not values or kind not in _OVERRIDE_TARGETS:
+            continue
+        table, key_col, entity = _OVERRIDE_TARGETS[kind]
+
+        natural = msg.patient_id if kind == 'patient' else msg.accession_number
+        if kind == 'order':
+            natural = msg.placer_order_number or msg.accession_number
+        if not natural:
+            continue
+
+        safe = {c: v for c, v in values.items() if c in allowed.get(kind, set())}
+        for rejected in set(values) - set(safe):
+            logger.warning("projector: refusing override of unknown column %s.%s",
+                           table, rejected)
+        if not safe:
+            continue
+
+        sets = ', '.join(f"{c} = :v_{i}" for i, c in enumerate(safe))
+        params = {f'v_{i}': v for i, v in enumerate(safe.values())}
+        params['nat'] = natural
+        try:
+            with db.session.begin_nested():
+                db.session.execute(text(
+                    f"UPDATE {table} SET {sets} "
+                    f"WHERE {key_col} = hl7_surrogate_id('{entity}', :nat)"
+                ), params)
+            done.append(f"override:{table}({','.join(safe)})")
+        except Exception:
+            logger.exception("projector: direct override failed | %s | %s",
+                             table, list(safe))
+    return done
+
+
 def project_message(msg):
     """
     Project whatever the message just changed.
