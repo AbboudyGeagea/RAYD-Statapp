@@ -134,16 +134,42 @@ UPDATE ray7_findings f
        resolution  = 'cleared',
        resolution_note = 'auto: the awaited event arrived'
   FROM ray7_study_state s
- WHERE f.message_archive_id IS NULL
-   AND f.resolved_at IS NULL
+ WHERE f.resolved_at IS NULL
    AND f.accession_number = s.accession_number
    AND (
-        (f.rule_code = 'STALLED_SCHEDULED' AND s.arrived_at   IS NOT NULL) OR
-        (f.rule_code = 'STALLED_ARRIVED'   AND s.started_at   IS NOT NULL) OR
-        (f.rule_code = 'STALLED_STARTED'   AND s.completed_at IS NOT NULL) OR
-        (f.rule_code = 'UNREPORTED'        AND s.reported_at  IS NOT NULL) OR
-        (f.rule_code = 'ORPHAN_ORDER'      AND s.scheduled_at IS NOT NULL) OR
-        s.cancelled_at IS NOT NULL
+        -- Absence findings: the rung we were waiting for turned up.
+        (f.message_archive_id IS NULL AND (
+            (f.rule_code = 'STALLED_SCHEDULED' AND s.arrived_at   IS NOT NULL) OR
+            (f.rule_code = 'STALLED_ARRIVED'   AND s.started_at   IS NOT NULL) OR
+            (f.rule_code = 'STALLED_STARTED'   AND s.completed_at IS NOT NULL) OR
+            (f.rule_code = 'UNREPORTED'        AND s.reported_at  IS NOT NULL) OR
+            (f.rule_code = 'ORPHAN_ORDER'      AND s.scheduled_at IS NOT NULL) OR
+            s.cancelled_at IS NOT NULL
+        ))
+        OR
+        -- PREMATURE message findings: true when raised, overtaken since.
+        --
+        -- SKIPPED_RUNG and ORPHAN_EVENT are judged against the state as it stood
+        -- when the message arrived. If a study's completion is delivered FIRST
+        -- and its earlier rungs follow moments later — ordinary out-of-order
+        -- delivery on this interface — both fire truthfully and then become
+        -- wrong, because the rungs were not missing, merely late.
+        --
+        -- At the moment of judgement that case is indistinguishable from a study
+        -- that completes and genuinely never reports an arrival. The engine
+        -- cannot know which it is looking at, so it says what it sees and this
+        -- closes the finding once the rest arrives. Raising nothing instead would
+        -- mean never reporting the genuine case; leaving it open forever would
+        -- fill the queue with studies that turned out fine.
+        --
+        -- Caught by the out_of_order scenario, which is documented as having to
+        -- produce no findings and produced two.
+        (f.message_archive_id IS NOT NULL AND (
+            (f.rule_code = 'SKIPPED_RUNG'
+                 AND s.arrived_at IS NOT NULL AND s.started_at IS NOT NULL) OR
+            (f.rule_code = 'ORPHAN_EVENT'
+                 AND (s.scheduled_at IS NOT NULL OR s.ordered_at IS NOT NULL))
+        ))
    )
 """
 
