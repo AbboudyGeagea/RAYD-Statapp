@@ -114,6 +114,9 @@
                         <button class="tab-btn" onclick="switchTab('masterdata', this)">
                             <i class="bi bi-people mr-1"></i> Master Data
                         </button>
+                        <button class="tab-btn" onclick="switchTab('explorer', this)">
+                            <i class="bi bi-search mr-1"></i> Message Explorer
+                        </button>
                         <button class="tab-btn" onclick="switchTab('fieldmap', this)">
                             <i class="bi bi-sliders mr-1"></i> HL7 Field Mapping
                         </button>
@@ -269,6 +272,7 @@
                      TAB: PROCEDURES
                 â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
                 <div id="tab-statuscodes" class="space-y-8 hidden"></div>
+                <div id="tab-explorer" class="space-y-8 hidden"></div>
                 <div id="tab-fieldmap" class="space-y-8 hidden"></div>
                 <div id="tab-masterdata" class="space-y-8 hidden"></div>
                 <div id="tab-procedures" class="space-y-8 hidden">
@@ -580,14 +584,34 @@
         let _statusLoaded = false;
         let _fieldmapLoaded = false;
         let _masterLoaded = false;
+        let _explorerLoaded = false;
 
         function switchTab(name, btn) {
-            ['modality', 'procedures', 'statuscodes', 'fieldmap', 'masterdata'].forEach(t => {
+            ['modality', 'procedures', 'statuscodes', 'fieldmap', 'masterdata', 'explorer'].forEach(t => {
                 document.getElementById('tab-' + t).classList.add('hidden');
             });
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
             document.getElementById('tab-' + name).classList.remove('hidden');
             btn.classList.add('active');
+
+            if (name === 'explorer' && !_explorerLoaded) {
+                _explorerLoaded = true;
+                const tab = document.getElementById('tab-explorer');
+                tab.innerHTML = '<p class="text-slate-500 text-xs p-8 text-center">Loading…</p>';
+                fetch('/mapping/explorer-tab')
+                    .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
+                    .then(html => {
+                        tab.innerHTML = html;
+                        tab.querySelectorAll('script').forEach(old => {
+                            const s = document.createElement('script');
+                            s.textContent = old.textContent;
+                            document.body.appendChild(s);
+                        });
+                    })
+                    .catch(() => {
+                        tab.innerHTML = '<p class="text-red-400 text-xs p-8 text-center">Failed to load the explorer. Please refresh.</p>';
+                    });
+            }
 
             if (name === 'masterdata' && !_masterLoaded) {
                 _masterLoaded = true;

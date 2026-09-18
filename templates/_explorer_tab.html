@@ -1,0 +1,230 @@
+{# ────────────────────────────────────────────────────────────────
+   Mapping explorer — click a field in a real message, click where it goes.
+
+   Three panes, mirroring how the work actually goes: pick a message, find the
+   value in it, say where it belongs. The form-based tab asks for a segment and
+   a field number, which assumes you already know the answer.
+   ──────────────────────────────────────────────────────────────── #}
+
+<div class="space-y-4">
+
+  <div class="flex gap-3 flex-wrap items-center">
+    <select id="exArchive" class="bg-[#0d1210] border border-[#28332e] rounded px-2 py-1 text-[11px] min-w-[340px]">
+      <option value="">— a message this site received —</option>
+      {% for r in recent %}
+      <option value="{{ r.id }}">#{{ r.id }} · {{ r.message_type or '?' }} ·
+        {{ r.sending_app or '?' }} · {{ r.received_at.strftime('%m-%d %H:%M') if r.received_at }}</option>
+      {% endfor %}
+    </select>
+    <button class="px-3 py-1 bg-sky-600 hover:bg-sky-500 text-white rounded text-[11px] font-bold"
+            onclick="exLoad('archive')">Load</button>
+    <span class="text-slate-600 text-[11px]">or</span>
+    <button class="px-3 py-1 border border-[#28332e] rounded text-[11px] text-slate-300 hover:border-sky-700"
+            onclick="document.getElementById('exPasteWrap').classList.toggle('hidden')">Paste a message</button>
+    <span id="exScope" class="text-[11px] text-slate-500 ml-auto"></span>
+  </div>
+
+  <div id="exPasteWrap" class="hidden">
+    <textarea id="exPaste" rows="5" spellcheck="false"
+      class="w-full bg-[#0d1210] border border-[#28332e] rounded p-2 font-mono text-[11px] text-slate-200"
+      placeholder="MSH|^~\&|RIS|SITE|RAYD||20260918123540||ORM^O01|MSG1|P|2.4&#10;PID|||...&#10;ORC|SC||..."></textarea>
+    <button class="mt-2 px-3 py-1 bg-sky-600 hover:bg-sky-500 text-white rounded text-[11px] font-bold"
+            onclick="exLoad('paste')">Load pasted</button>
+  </div>
+
+  <div id="exRaw" class="hidden font-mono text-[11px] bg-[#0d1210] border border-[#28332e]
+                          rounded p-3 overflow-x-auto leading-relaxed"></div>
+
+  <div id="exPanes" class="hidden grid gap-3" style="grid-template-columns: 130px 1fr 300px;">
+
+    <div class="bg-[#0f1613] border border-[#28332e] rounded">
+      <div class="px-3 py-2 text-[9px] uppercase tracking-widest text-slate-500
+                  border-b border-[#28332e]">Segments</div>
+      <div id="exSegs" class="p-1"></div>
+    </div>
+
+    <div class="bg-[#0f1613] border border-[#28332e] rounded overflow-hidden">
+      <div class="px-3 py-2 text-[9px] uppercase tracking-widest text-slate-500
+                  border-b border-[#28332e]" id="exFieldsTitle">Fields</div>
+      <div id="exFields" class="text-[11px]"></div>
+    </div>
+
+    <div class="bg-[#0f1613] border border-[#28332e] rounded overflow-hidden">
+      <div class="px-3 py-2 text-[9px] uppercase tracking-widest text-slate-500
+                  border-b border-[#28332e]">Map to</div>
+      <div id="exTargets" class="text-[11px]">
+        <div class="p-3 text-slate-600">Select a field on the left.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const exEsc = s => String(s == null ? '' : s).replace(/[&<>"]/g,
+  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+const EX_TARGETS = {{ targets|tojson }};
+const EX_EXISTING = {{ existing|tojson }};
+
+let exData = null, exSeg = null, exPick = null;
+
+function exKey(seg, field, comp) {
+  return seg + '-' + field + (comp ? '.' + comp : '');
+}
+
+// Mappings already pointing at this source, so an engineer can see a field is
+// spoken for before adding a second rule that silently competes with it.
+function exMapped(seg, field, comp) {
+  return EX_EXISTING.filter(m =>
+    m.segment === seg && m.field_index === field &&
+    ((m.component_index || null) === (comp || null)));
+}
+
+async function exLoad(mode) {
+  const body = mode === 'paste'
+    ? {raw_message: document.getElementById('exPaste').value}
+    : {archive_id: document.getElementById('exArchive').value};
+  if (mode === 'archive' && !body.archive_id) { alert('Pick a message first.'); return; }
+
+  const res = await fetch('/mapping/explorer/message', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)});
+  const d = await res.json();
+  if (d.error) { alert(d.error); return; }
+
+  exData = d; exPick = null;
+  document.getElementById('exScope').textContent =
+    `${d.message_type || '?'} · from ${d.sending_app || '?'} · parsed as "${d.message_kind}"`;
+  document.getElementById('exRaw').classList.remove('hidden');
+  document.getElementById('exPanes').classList.remove('hidden');
+  document.getElementById('exRaw').innerHTML =
+    d.segments.map(s => `<div class="text-slate-400">${exEsc(s.raw)}</div>`).join('');
+
+  document.getElementById('exSegs').innerHTML = d.segments.map((s, i) =>
+    `<div class="px-2 py-1 rounded cursor-pointer font-mono ${s.known ? 'text-slate-200' : 'text-amber-500'}"
+          id="exseg-${i}" onclick="exShow(${i})"
+          title="${exEsc(s.description)}">${exEsc(s.name)}
+       <span class="text-slate-600">${s.fields.length}</span></div>`).join('');
+  exShow(0);
+}
+
+function exShow(i) {
+  exSeg = i;
+  const seg = exData.segments[i];
+  exData.segments.forEach((_, j) => {
+    const el = document.getElementById('exseg-' + j);
+    if (el) el.style.background = j === i ? '#1c2620' : '';
+  });
+  document.getElementById('exFieldsTitle').textContent = seg.name + ' — ' + seg.description;
+
+  if (!seg.fields.length) {
+    document.getElementById('exFields').innerHTML =
+      '<div class="p-3 text-slate-600">This segment has no populated fields.</div>';
+    return;
+  }
+
+  document.getElementById('exFields').innerHTML = seg.fields.map(f => {
+    const label = f.name
+      ? `${f.number}-${exEsc(f.name)} <span class="text-slate-600">[${exEsc(f.type)}]</span>`
+      : `${f.number}-<span class="text-slate-600">unnamed</span>`;
+    const used = f.in_use
+      ? `<div class="text-[9px] text-emerald-600 mt-0.5">in use: ${exEsc(f.in_use)}</div>` : '';
+    const mapped = exMapped(seg.name, f.number, null);
+    const mapNote = mapped.length
+      ? `<span class="text-[9px] text-sky-500 ml-1">→ ${mapped.map(m => exEsc(m.target_field)).join(', ')}</span>` : '';
+
+    const comps = (f.components || []).map(c => {
+      const cm = exMapped(seg.name, f.number, c.index);
+      const cn = cm.length
+        ? `<span class="text-[9px] text-sky-500 ml-1">→ ${cm.map(m => exEsc(m.target_field)).join(', ')}</span>` : '';
+      return `<tr class="cursor-pointer hover:bg-[#1c2620]"
+                  onclick="exSelect(${f.number}, ${c.index})">
+          <td class="py-1 pl-8 pr-2 text-slate-500">
+            ${c.index}-${exEsc(c.label || 'component ' + c.index)}${cn}</td>
+          <td class="py-1 pr-3 font-mono text-slate-300">${exEsc(c.value)}</td></tr>`;
+    }).join('');
+
+    return `<tr class="cursor-pointer hover:bg-[#1c2620] border-t border-[#1c2620]"
+                onclick="exSelect(${f.number}, null)">
+        <td class="py-1.5 pl-3 pr-2 align-top">${label}${mapNote}${used}</td>
+        <td class="py-1.5 pr-3 font-mono text-slate-200 align-top">${exEsc(f.value)}</td>
+      </tr>${comps}`;
+  }).join('');
+
+  document.getElementById('exFields').innerHTML =
+    `<table class="w-full">${document.getElementById('exFields').innerHTML}</table>`;
+}
+
+function exSelect(field, comp) {
+  const seg = exData.segments[exSeg];
+  const f = seg.fields.find(x => x.number === field);
+  const value = comp
+    ? (f.components.find(c => c.index === comp) || {}).value
+    : f.value;
+  exPick = {segment: seg.name, field: field, component: comp, value: value,
+            type: f.type, name: f.name};
+
+  const groups = {parsed: [], study: [], patient: [], order: []};
+  EX_TARGETS.forEach(t => (groups[t.target_kind] || groups.parsed).push(t));
+
+  const btn = t => `<div class="px-3 py-1.5 cursor-pointer hover:bg-[#1c2620] border-t border-[#1c2620]"
+        onclick="exMap('${t.target_kind}','${t.target_field}')">
+        <span class="${t.is_dangerous && t.target_kind !== 'parsed' ? 'text-amber-400' : 'text-slate-200'}">
+          ${t.target_kind === 'parsed' ? '' : '⚠ '}${exEsc(t.label)}</span>
+        <span class="text-[9px] text-slate-600 ml-1">${exEsc(t.data_type)}</span></div>`;
+
+  document.getElementById('exTargets').innerHTML = `
+    <div class="px-3 py-2 bg-[#141c17] border-b border-[#28332e]">
+      <div class="font-mono text-sky-300">${exEsc(exKey(seg.name, field, comp))}</div>
+      <div class="font-mono text-slate-300 text-[10.5px] mt-0.5">${exEsc(value)}</div>
+    </div>
+    <div class="px-3 py-1.5 text-[9px] uppercase tracking-widest text-slate-500 bg-[#121a16]">
+      RAYD fields — screened and projected normally</div>
+    ${groups.parsed.map(btn).join('')}
+    <div class="px-3 py-1.5 text-[9px] uppercase tracking-widest text-amber-700 bg-[#1a1512] mt-1">
+      Direct to table — bypasses screening</div>
+    <div class="px-3 pb-1 text-[9.5px] text-slate-500 bg-[#1a1512] leading-snug">
+      Writes straight into a reporting column. RAY7 never sees it and the lifecycle
+      does not know about it.</div>
+    ${[...groups.study, ...groups.patient, ...groups.order].map(btn).join('')}`;
+}
+
+async function exMap(kind, field) {
+  if (!exPick) return;
+  const scoped = confirm(
+    `Map ${exKey(exPick.segment, exPick.field, exPick.component)} → ${kind}.${field}\n\n`
+  + `Value in this message: ${exPick.value}\n\n`
+  + `OK   = only for ${exData.sending_app || 'this sender'} / ${exData.message_kind} messages\n`
+  + `Cancel = stop`);
+  if (!scoped) return;
+
+  // Transform inferred from the target's declared type, so the engineer is not
+  // asked a question the catalogue can already answer.
+  const t = EX_TARGETS.find(x => x.target_kind === kind && x.target_field === field) || {};
+  const transform = t.data_type === 'datetime' ? 'datetime'
+                  : t.data_type === 'date' ? 'date'
+                  : (exPick.type === 'XCN' && field.includes('name')) ? 'name_xcn'
+                  : (exPick.type === 'XPN' && field.includes('name')) ? 'name_xpn'
+                  : 'text';
+
+  const res = await fetch('/mapping/field-map/save', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      target_kind: kind, target_field: field,
+      segment: exPick.segment, field_index: exPick.field,
+      component_index: exPick.component, transform: transform,
+      sending_app: exData.sending_app || '',
+      message_kind: exData.message_kind || '',
+      priority: 50, active: true,
+      notes: `mapped from ${exData.message_type || 'a message'} in the explorer`
+    })});
+  const d = await res.json();
+  if (!res.ok) { alert(d.error || 'Save failed'); return; }
+  if (d.warning) alert(d.warning);
+  alert('Mapped. Reload the tab to see it in the mapping list.');
+  EX_EXISTING.push({segment: exPick.segment, field_index: exPick.field,
+                    component_index: exPick.component, target_field: field,
+                    target_kind: kind});
+  exShow(exSeg);
+}
+</script>

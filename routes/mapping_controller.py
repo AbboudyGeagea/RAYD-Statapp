@@ -1336,3 +1336,98 @@ def master_data_import(key):
     result = run_import(key, csv_text, commit=commit)
     result['errors'] = [[line, msg] for line, msg in result.get('errors', [])]
     return jsonify(result)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MAPPING EXPLORER — click a field in a real message, click where it goes
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# The form-based editor asks for a segment and a field number. Knowing it is
+# OBR-24 is the hard part, so the form assumes the answer before you can enter
+# it. This inverts that: load a message the site actually sent, see its fields
+# named with their values, click the one you want.
+#
+# Writes the same hl7_field_mappings rows the form writes — this is a different
+# way to author a mapping, not a different mapping system.
+
+@mapping_bp.route('/explorer-tab')
+@login_required
+def explorer_tab():
+    """Lazy-loaded HTML fragment for the mapping explorer."""
+    if current_user.role not in ('admin', 'viewer', 'viewer2') \
+            and not user_has_page(current_user, 'mapping'):
+        return abort(403)
+    recent, targets, existing = [], [], []
+    try:
+        recent = [dict(r) for r in db.session.execute(_t("""
+            SELECT id, message_type, sending_app, message_control_id, received_at
+              FROM hl7_message_archive ORDER BY id DESC LIMIT 60
+        """)).mappings().all()]
+
+        # RAYD's own fields first, raw etl_* columns after. The grouping is the
+        # point: mapping onto a RAYD field flows through RAY7's screening and the
+        # lifecycle, mapping straight at a table bypasses both. The UI has to
+        # make that visible while choosing, not afterwards.
+        targets = [dict(r) for r in db.session.execute(_t("""
+            SELECT target_kind, target_field, data_type, label, description, is_dangerous
+              FROM hl7_field_targets
+             ORDER BY CASE WHEN target_kind = 'parsed' THEN 0 ELSE 1 END,
+                      sort_order, target_field
+        """)).mappings().all()]
+
+        existing = [dict(r) for r in db.session.execute(_t("""
+            SELECT target_kind, target_field, segment, field_index, component_index,
+                   sending_app, message_kind, priority, active
+              FROM hl7_field_mappings ORDER BY segment, field_index
+        """)).mappings().all()]
+    except Exception:
+        logging.getLogger("MAPPING").exception("explorer tab load failed")
+
+    return render_template('_explorer_tab.html', recent=recent, targets=targets,
+                           existing=existing)
+
+
+@mapping_bp.route('/explorer/message', methods=['POST'])
+@login_required
+def explorer_message():
+    """
+    Explode one message into segments, named fields, and components.
+
+    Source is either an archived message or pasted text — the same two the
+    operator asked for on the field-map tester, for the same reason: real
+    traffic is the better evidence, and a pasted sample is all there is before
+    any traffic has arrived.
+    """
+    if current_user.role not in ('admin', 'viewer', 'viewer2') \
+            and not user_has_page(current_user, 'mapping'):
+        return abort(403)
+    d = request.get_json() or {}
+    raw = d.get('raw_message')
+    try:
+        if not raw and d.get('archive_id'):
+            row = db.session.execute(
+                _t("SELECT raw_message FROM hl7_message_archive WHERE id = :id"),
+                {'id': int(d['archive_id'])}).first()
+            if not row:
+                return jsonify({'error': 'no archived message with that id'}), 404
+            raw = row[0]
+        if not raw or not raw.strip():
+            return jsonify({'error': 'pick a message or paste one'}), 400
+
+        from utils.hl7_dictionary import explode
+        from utils.hl7_parse import parse_message
+
+        msg = parse_message(raw)
+        return jsonify({
+            'segments': explode(raw),
+            # Scope defaults, so a mapping created here is automatically narrowed
+            # to the sender and message kind it was authored against. Authoring a
+            # rule from a RIS status message and having it silently apply to ADT
+            # is the obvious way this feature would go wrong.
+            'sending_app': msg.sending_app,
+            'message_kind': msg.kind,
+            'message_type': msg.message_type,
+        })
+    except Exception as exc:
+        logging.getLogger("MAPPING").exception("explorer explode failed")
+        return jsonify({'error': str(exc)[:300]}), 500
