@@ -174,7 +174,7 @@ def get_tat_ris_exam_done(form_data):
     TAT (exam done -> signed) anchored on the RIS's own "Exam Done" status
     transition — WORKLIST_STATUS_HISTORY status_key=100, ETL'd via
     ETL_JOBS/etl_ris_worklist_exam_done.py into std_worklist_exam_done, joined
-    through std_pps.pps_key -> study_instance_uid -> etl_didb_studies (same
+    through std_pps.pps_key -> study_db_uid -> etl_didb_studies (same
     join path routes/report_36.py's get_patient_wait_time uses for arrivals).
 
     Companion to get_tat_pacs_insert_time — same shape, a RIS-side anchor
@@ -186,13 +186,19 @@ def get_tat_ris_exam_done(form_data):
     """
     params, filter_clause, _start, _end = _sidebar_filters(form_data)
 
+    # Joined on study_db_uid, not study_instance_uid. On the Oracle branch the PPS
+    # row and the study row were written by two unrelated ETLs and the DICOM UID was
+    # the only key they shared. Here both sides are projected from the same HL7
+    # messages and both carry the surrogate study_db_uid, while study_instance_uid is
+    # NULL on both — and NULL = NULL is never true, so this section returned zero
+    # rows. The surrogate is the real key on this branch; the UID has no source.
     base_cte = f"""
         WITH exam_done_ris AS (
-            SELECT p.study_instance_uid, MAX(ed.exam_done_at) AS exam_done_time
+            SELECT p.study_db_uid, MAX(ed.exam_done_at) AS exam_done_time
             FROM std_worklist_exam_done ed
             JOIN std_pps p ON p.pps_key = ed.pps_key
-            WHERE p.study_instance_uid IS NOT NULL
-            GROUP BY p.study_instance_uid
+            WHERE p.study_db_uid IS NOT NULL
+            GROUP BY p.study_db_uid
         ),
         tat AS (
             SELECT
@@ -207,7 +213,7 @@ def get_tat_ris_exam_done(form_data):
                 END AS patient_class_bucket,
                 EXTRACT(EPOCH FROM (COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) - ed.exam_done_time)) / 3600.0 AS tat_hours
             FROM etl_didb_studies s
-            JOIN exam_done_ris ed ON ed.study_instance_uid = s.study_instance_uid
+            JOIN exam_done_ris ed ON ed.study_db_uid = s.study_db_uid
             LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
             WHERE s.study_date BETWEEN :start AND :end
               AND COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) IS NOT NULL

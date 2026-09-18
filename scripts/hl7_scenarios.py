@@ -322,11 +322,17 @@ SCENARIOS = {
 # those are seeded CONFIGURATION, not data. Wiping them would silently disable
 # screening and field mapping, and the install would look fine while quietly
 # classifying nothing.
+# Keep this in step with everything utils/hl7_project.py writes. A reset that
+# misses a table is worse than no reset: std_pps_person_reference was absent here
+# and has no FK to std_pps, so TRUNCATE ... CASCADE did not reach it either, and a
+# "clean" database kept 215 rows pointing at pps_keys that no longer existed.
+# Technologist attribution on report 35 then read from a mix of two runs.
 _RESET_TABLES = [
     'hl7_message_archive', 'ray7_findings', 'hl7_study_events', 'hl7_patients',
     'ray7_study_state', 'hl7_surrogate_keys', 'hl7_orders', 'hl7_oru_reports',
     'hl7_scn_studies', 'etl_didb_studies', 'etl_patient_view', 'etl_orders',
-    'std_worklist_arrivals', 'std_worklist_exam_done', 'std_pps',
+    'std_worklist_arrivals', 'std_worklist_exam_done', 'std_worklist_scheduled',
+    'std_pps', 'std_pps_person_reference',
 ]
 
 

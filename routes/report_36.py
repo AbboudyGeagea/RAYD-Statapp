@@ -54,11 +54,11 @@ report_36_bp = Blueprint("report_36", __name__)
 
 _RES_RAD_TAT_SQL_TEMPLATE = """
     WITH exam_done_anchor AS (
-        SELECT p.study_instance_uid, MAX(w.exam_done_at) AS exam_done_time
+        SELECT p.study_db_uid, MAX(w.exam_done_at) AS exam_done_time
         FROM std_worklist_exam_done w
         JOIN std_pps p ON p.pps_key = w.pps_key
-        WHERE p.study_instance_uid IS NOT NULL
-        GROUP BY p.study_instance_uid
+        WHERE p.study_db_uid IS NOT NULL
+        GROUP BY p.study_db_uid
     ),
     role_lookup AS (
         SELECT DISTINCT UPPER(login_id) AS login_id, group_name AS role
@@ -103,7 +103,7 @@ _RES_RAD_TAT_SQL_TEMPLATE = """
             CASE WHEN se.insert_time IS NOT NULL AND se.sign_time > se.insert_time
                  THEN EXTRACT(EPOCH FROM (se.sign_time - se.insert_time)) / 3600.0 END AS tat_hours_pacs
         FROM signed_events se
-        LEFT JOIN exam_done_anchor ed ON ed.study_instance_uid = se.study_instance_uid
+        LEFT JOIN exam_done_anchor ed ON ed.study_db_uid = se.study_db_uid
         LEFT JOIN role_lookup rl ON rl.login_id = SPLIT_PART(se.signer, '@', 1)
         WHERE (ed.exam_done_time IS NOT NULL AND se.sign_time > ed.exam_done_time)
            OR (se.insert_time IS NOT NULL AND se.sign_time > se.insert_time)
@@ -214,11 +214,11 @@ def get_resident_radiologist_tat(form_data):
 
 _MODALITY_TAT_SQL_TEMPLATE = """
     WITH exam_done_anchor AS (
-        SELECT p.study_instance_uid, MAX(w.exam_done_at) AS exam_done_time
+        SELECT p.study_db_uid, MAX(w.exam_done_at) AS exam_done_time
         FROM std_worklist_exam_done w
         JOIN std_pps p ON p.pps_key = w.pps_key
-        WHERE p.study_instance_uid IS NOT NULL
-        GROUP BY p.study_instance_uid
+        WHERE p.study_db_uid IS NOT NULL
+        GROUP BY p.study_db_uid
     ),
     signed_events AS (
         SELECT s.study_db_uid, s.study_instance_uid, s.patient_class, s.patient_location,
@@ -257,7 +257,7 @@ _MODALITY_TAT_SQL_TEMPLATE = """
             CASE WHEN se.insert_time IS NOT NULL AND se.sign_time > se.insert_time
                  THEN EXTRACT(EPOCH FROM (se.sign_time - se.insert_time)) / 3600.0 END AS tat_hours_pacs
         FROM signed_events se
-        LEFT JOIN exam_done_anchor ed ON ed.study_instance_uid = se.study_instance_uid
+        LEFT JOIN exam_done_anchor ed ON ed.study_db_uid = se.study_db_uid
         WHERE (ed.exam_done_time IS NOT NULL AND se.sign_time > ed.exam_done_time)
            OR (se.insert_time IS NOT NULL AND se.sign_time > se.insert_time)
     )
@@ -330,7 +330,7 @@ def get_patient_wait_time(form_data):
     Both ends are RIS status transitions off WORKLIST_STATUS_HISTORY:
     "Scheduled" (status_key=40 -> std_worklist_scheduled, ETL_JOBS/etl_ris_worklist_scheduled.py)
     and "Arrived" (status_key=60 -> std_worklist_arrivals), joined via std_pps.pps_key
-    -> study_instance_uid -> etl_didb_studies. PACS has no equivalent concept of a
+    -> study_db_uid -> etl_didb_studies. PACS has no equivalent concept of a
     scheduling status, so there is no RIS/PACS toggle for this one.
 
     Full left-sidebar filter set applies.
@@ -341,18 +341,18 @@ def get_patient_wait_time(form_data):
     try:
         rows = db.session.execute(text(f"""
             WITH scheduled AS (
-                SELECT p.study_instance_uid, MIN(sc.scheduled_at) AS scheduled_at
+                SELECT p.study_db_uid, MIN(sc.scheduled_at) AS scheduled_at
                 FROM std_worklist_scheduled sc
                 JOIN std_pps p ON p.pps_key = sc.pps_key
-                WHERE p.study_instance_uid IS NOT NULL
-                GROUP BY p.study_instance_uid
+                WHERE p.study_db_uid IS NOT NULL
+                GROUP BY p.study_db_uid
             ),
             arrival AS (
-                SELECT p.study_instance_uid, MIN(wa.arrived_at) AS arrived_at
+                SELECT p.study_db_uid, MIN(wa.arrived_at) AS arrived_at
                 FROM std_worklist_arrivals wa
                 JOIN std_pps p ON p.pps_key = wa.pps_key
-                WHERE p.study_instance_uid IS NOT NULL
-                GROUP BY p.study_instance_uid
+                WHERE p.study_db_uid IS NOT NULL
+                GROUP BY p.study_db_uid
             ),
             wait AS (
                 SELECT
@@ -366,8 +366,8 @@ def get_patient_wait_time(form_data):
                     END AS patient_class_bucket,
                     EXTRACT(EPOCH FROM (ar.arrived_at - sc.scheduled_at)) / 60.0 AS wait_minutes
                 FROM etl_didb_studies s
-                JOIN scheduled sc ON sc.study_instance_uid = s.study_instance_uid
-                JOIN arrival ar ON ar.study_instance_uid = s.study_instance_uid
+                JOIN scheduled sc ON sc.study_db_uid = s.study_db_uid
+                JOIN arrival ar ON ar.study_db_uid = s.study_db_uid
                 LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
                 WHERE ar.arrived_at > sc.scheduled_at
                   AND s.study_date BETWEEN :start AND :end

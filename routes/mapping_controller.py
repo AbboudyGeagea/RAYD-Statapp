@@ -985,7 +985,11 @@ def delete_status_code():
 # sample when no traffic has arrived yet (a first install, or a vendor's spec
 # document).
 
-_TRANSFORMS = ['text', 'upper', 'datetime', 'date', 'name_xpn', 'name_xcn', 'number']
+# 'birth_date' is 'date' plus the quick-registration sentinel filter — see
+# migration 0129. It is the right choice for any date-of-birth column; plain
+# 'date' will happily store 9999-11-11 and poison every age-banded report.
+_TRANSFORMS = ['text', 'upper', 'datetime', 'date', 'birth_date',
+               'name_xpn', 'name_xcn', 'number']
 _MESSAGE_KINDS = ['', 'adt', 'order', 'status', 'result']
 
 
@@ -1085,7 +1089,8 @@ def save_field_map():
         # mistake, but "almost always" is not "always", and the operator asked for
         # freedom here. Say so and save it.
         warning = None
-        if tgt['data_type'] in ('datetime', 'date') and transform not in ('datetime', 'date'):
+        if tgt['data_type'] in ('datetime', 'date') \
+                and transform not in ('datetime', 'date', 'birth_date'):
             warning = (f"{field} expects a {tgt['data_type']} but the transform is "
                        f"'{transform}'. The value will most likely be rejected at "
                        f"ingest. Consider the '{tgt['data_type']}' transform.")

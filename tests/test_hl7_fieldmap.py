@@ -166,6 +166,50 @@ check("study override captured", ov['study'], {'study_modality': 'CT64_RH'})
 check("parsed mapping did not leak into overrides", ov['patient'], {})
 check("parsed target still applied to the message", m.modality, 'CT')
 
+print("\nTHE OVERLAY MUST NOT UNDO THE PARSER")
+# The overlay runs in parse_message()'s finally block — AFTER the hardcoded parse.
+# So a mapping is not only an addition, it can overwrite a value the parser
+# deliberately rejected. It did: 0123 seeded parsed.birth_date <- PID-7 with the
+# generic 'date' transform, parse_birth_date() dropped the 9999-11-11
+# quick-registration sentinel, and the overlay put it straight back. hl7_patients
+# CHECKs birth_date into 1880..2100, so the patient row was rejected and the study
+# was left pointing at a patient that did not exist.
+#
+# Every test here passed throughout. Each half was right on its own; the defect was
+# the ordering. These check the composition, which is where it actually lived.
+QR = '\r'.join([
+    MSH,
+    seg('PID', {3: 'QR001^^^HIS', 5: 'PATIENT^UNKNOWN', 7: '99991111', 8: 'U'}),
+    seg('ORC', {1: 'SC', 3: '249390^HIS', 5: 'CM'}),
+    seg('OBR', {3: '249390^HIS', 4: 'ECABDPEL^CT ABDOMEN', 24: 'CT'}),
+]) + '\r'
+
+fm._cache['rows'] = [mapping('birth_date', 'PID', 7, transform='birth_date')]
+check("sentinel DOB stays dropped when the overlay re-applies PID-7",
+      hp.parse_message(QR).birth_date, None)
+
+fm._cache['rows'] = [mapping('birth_date', 'PID', 7, transform='date')]
+check("plain 'date' transform also refuses 9999-11-11",
+      hp.parse_message(QR).birth_date, None)
+
+REAL = '\r'.join([
+    MSH,
+    seg('PID', {3: 'P7^^^HIS', 5: 'KHALIL^ROUAIDA', 7: '19850312', 8: 'F'}),
+    seg('ORC', {1: 'SC', 3: '249391^HIS', 5: 'CM'}),
+    seg('OBR', {3: '249391^HIS', 4: 'ECABDPEL^CT ABDOMEN', 24: 'CT'}),
+]) + '\r'
+fm._cache['rows'] = [mapping('birth_date', 'PID', 7, transform='birth_date')]
+check("a real DOB still comes through",
+      hp.parse_message(REAL).birth_date, dt.date(1985, 3, 12))
+
+check("_plausible_date passes a normal date",
+      fm._plausible_date(dt.date(1985, 3, 12)), dt.date(1985, 3, 12))
+check("_plausible_date rejects the year 9999", fm._plausible_date(dt.date(9999, 11, 11)), None)
+check("_plausible_date rejects a pre-1880 date", fm._plausible_date(dt.date(1799, 1, 1)), None)
+check("_plausible_date passes None through", fm._plausible_date(None), None)
+
+fm._cache['rows'] = []
+
 print("\nA broken configuration must not break ingestion")
 fm._cache['rows'] = [{'bogus': 'row'}]
 try:

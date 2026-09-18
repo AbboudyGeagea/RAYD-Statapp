@@ -181,7 +181,19 @@ def persist_parsed(msg, archive_id):
 
     written = []
 
-    if msg.kind == 'adt' and msg.patient_id:
+    # ANY message that names a patient, not just ADT. This used to be ADT-only, on
+    # the reasoning that ADT is the demographics feed — true, but the patient ROW is
+    # not the same thing as the demographics. Every ORM, status and ORU carries PID-3,
+    # and etl_didb_studies.patient_db_uid is minted from it whether or not an ADT ever
+    # arrived. Restricting the write to ADT left 106 of 108 studies pointing at a
+    # patient row that did not exist, so every report joining studies to
+    # etl_patient_view lost them. A site that sends no ADT at all is a supported
+    # configuration; it must still get patients.
+    #
+    # Safe because the upsert COALESCEs on the INCOMING value: a status message
+    # carrying nothing but the ID creates the row, then leaves every demographic
+    # field alone. last_adt_event stays ADT-only — it means what it says.
+    if msg.patient_id:
         try:
             with db.session.begin_nested():
                 db.session.execute(text(_PATIENT_SQL), {
@@ -191,7 +203,7 @@ def persist_parsed(msg, archive_id):
                     'sex':              msg.sex,
                     'patient_class':    msg.patient_class,
                     'patient_location': msg.patient_location,
-                    'last_adt_event':   msg.message_type,
+                    'last_adt_event':   msg.message_type if msg.kind == 'adt' else None,
                     'last_message_at':  msg.message_datetime,
                     'archive_id':       archive_id,
                 })

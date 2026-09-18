@@ -25,6 +25,7 @@ know that, and would get it wrong if asked to.
 """
 import logging
 import time
+from datetime import date
 
 from sqlalchemy import text
 from db import db
@@ -74,7 +75,8 @@ def _applies(m, sending_app, kind):
 
 def _extract(segments_by_name, m):
     """Pull one configured value out of the message, or None."""
-    from utils.hl7_parse import (parse_hl7_datetime, format_name, xcn_name)
+    from utils.hl7_parse import (parse_hl7_datetime, format_name, xcn_name,
+                                 parse_birth_date)
 
     raw_segments = segments_by_name.get(m['segment'])
     if not raw_segments:
@@ -108,7 +110,16 @@ def _extract(segments_by_name, m):
             return parse_hl7_datetime(value)
         if t == 'date':
             dtv = parse_hl7_datetime(value)
-            return dtv.date() if dtv else None
+            return _plausible_date(dtv.date()) if dtv else None
+        if t == 'birth_date':
+            # Routed through the real parser, which drops the quick-registration
+            # sentinels (99991111, 00000000, 18000101) and anything outside living
+            # memory. The generic 'date' transform above is a dumber thing, and the
+            # seeded PID-7 mapping used to point at it — so the overlay ran AFTER
+            # parse_birth_date had correctly returned None and put 9999-11-11 back.
+            # hl7_patients has a CHECK for exactly that date range, so the patient
+            # row was rejected outright and the study lost its patient.
+            return parse_birth_date(value, [])
         if t == 'upper':
             return value.upper()
         if t == 'name_xpn':
@@ -122,6 +133,22 @@ def _extract(segments_by_name, m):
                        t, m['segment'], m['field_index'], value[:40])
         return None
     return value
+
+
+# The same window hl7_patients' CHECK constraint enforces. A mapped date landing
+# outside it is a sentinel, not a date — HL7 senders use 9999 and 0000 to mean
+# "unknown" — and writing one poisons every age-banded and date-bucketed report
+# downstream. Dropping it to NULL says "unknown", which is what the sender meant.
+_DATE_FLOOR = date(1880, 1, 1)
+_DATE_CEILING = date(2100, 1, 1)
+
+
+def _plausible_date(value):
+    if value is None or _DATE_FLOOR < value < _DATE_CEILING:
+        return value
+    logger.warning("mapped date %s outside %s..%s — treated as unknown",
+                   value, _DATE_FLOOR, _DATE_CEILING)
+    return None
 
 
 def _index_segments(segments):

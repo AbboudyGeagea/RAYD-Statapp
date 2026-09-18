@@ -201,8 +201,12 @@ async function exMap(kind, field) {
   // Transform inferred from the target's declared type, so the engineer is not
   // asked a question the catalogue can already answer.
   const t = EX_TARGETS.find(x => x.target_kind === kind && x.target_field === field) || {};
+  // A date-of-birth column gets 'birth_date', not plain 'date': it additionally
+  // drops the quick-registration sentinels (9999-11-11 and friends) that would
+  // otherwise be stored verbatim and wreck every age-banded report. See 0129.
+  const isDob = /birth|dob/i.test(field);
   const transform = t.data_type === 'datetime' ? 'datetime'
-                  : t.data_type === 'date' ? 'date'
+                  : t.data_type === 'date' ? (isDob ? 'birth_date' : 'date')
                   : (exPick.type === 'XCN' && field.includes('name')) ? 'name_xcn'
                   : (exPick.type === 'XPN' && field.includes('name')) ? 'name_xpn'
                   : 'text';

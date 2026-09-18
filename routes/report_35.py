@@ -250,7 +250,10 @@ def get_technician_tat_data(form_data):
                     pri.code AS priority_code, pri.description AS priority_desc
                 FROM arrival ar
                 LEFT JOIN std_pps pps            ON pps.pps_key = ar.pps_key
-                LEFT JOIN etl_didb_studies s      ON s.study_instance_uid = pps.study_instance_uid
+                -- study_db_uid, not study_instance_uid: the UID has no HL7 source and
+                -- is NULL on both sides, so this join never matched and pacs_insert_time
+                -- and storing_ae silently stayed empty.
+                LEFT JOIN etl_didb_studies s      ON s.study_db_uid = pps.study_db_uid
                 LEFT JOIN aetitle_modality_map m  ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(COALESCE(s.storing_ae, pps.performing_ae_title)))
                 LEFT JOIN std_procedure_priorities pri ON pri.priority_key = pps.priority_key
                 LEFT JOIN LATERAL (

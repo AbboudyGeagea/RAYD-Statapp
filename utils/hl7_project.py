@@ -153,26 +153,45 @@ ON CONFLICT (study_db_uid) DO UPDATE SET
     last_update          = NOW()
 """
 
+# fallback_id carries the same PID-3 as `id`. On the Oracle branch these were two
+# different DIDB columns (id and fallback_pid) and reports 22/23 settled on
+# fallback_id as the one to display — `p.fallback_id AS patient_id`. HL7 gives one
+# patient identifier, not two, so both columns get it; leaving fallback_id NULL
+# rendered a blank Patient ID column on two reports and broke report 23's
+# duplicate-MRN scan, which searches fallback_id for the '$$$' merge marker.
+#
+# age_group reproduces Oracle's FLOOR(MONTHS_BETWEEN(SYSDATE, birth_date)/12):
+# current age in whole years, as text, NOT a bucket label. report_22 groups on it
+# directly and super_report offers it as a filter dimension, so the shape has to
+# match what those already expect. age_at_exam on the study row stays the separate,
+# exam-time figure.
 _PATIENT_SQL = """
 INSERT INTO etl_patient_view (
-    patient_db_uid, id, birth_date, sex, gender, last_update,
-    number_of_patient_studies
+    patient_db_uid, id, fallback_id, birth_date, sex, gender, age_group,
+    last_update, number_of_patient_studies
 )
 SELECT
     hl7_surrogate_id('patient', p.patient_id),
     p.patient_id,
+    p.patient_id,
     p.birth_date,
     p.sex,
     p.sex,
+    -- date - date yields an integer number of days in Postgres, not an interval.
+    CASE WHEN p.birth_date IS NOT NULL AND p.birth_date <= CURRENT_DATE
+         THEN FLOOR((CURRENT_DATE - p.birth_date) / 365.25)::int::text
+    END,
     NOW(),
     (SELECT count(*) FROM ray7_study_state s WHERE s.patient_id = p.patient_id)
 FROM hl7_patients p
 WHERE p.patient_id = :pid
 ON CONFLICT (patient_db_uid) DO UPDATE SET
-    id                        = COALESCE(EXCLUDED.id,         etl_patient_view.id),
-    birth_date                = COALESCE(EXCLUDED.birth_date, etl_patient_view.birth_date),
-    sex                       = COALESCE(EXCLUDED.sex,        etl_patient_view.sex),
-    gender                    = COALESCE(EXCLUDED.gender,     etl_patient_view.gender),
+    id                        = COALESCE(EXCLUDED.id,          etl_patient_view.id),
+    fallback_id               = COALESCE(EXCLUDED.fallback_id, etl_patient_view.fallback_id),
+    birth_date                = COALESCE(EXCLUDED.birth_date,  etl_patient_view.birth_date),
+    sex                       = COALESCE(EXCLUDED.sex,         etl_patient_view.sex),
+    gender                    = COALESCE(EXCLUDED.gender,      etl_patient_view.gender),
+    age_group                 = COALESCE(EXCLUDED.age_group,   etl_patient_view.age_group),
     number_of_patient_studies = EXCLUDED.number_of_patient_studies,
     last_update               = NOW()
 """
@@ -313,6 +332,22 @@ WHERE s.accession_number = :acc AND s.completed_at IS NOT NULL
 ON CONFLICT (site_worklist_key, exam_done_at) DO NOTHING
 """
 
+# The scheduled rung, projected for the same reason as the other two — and it was
+# the one missing. ray7_study_state.scheduled_at was being captured from the RIS
+# "Scheduled" status all along, but nothing carried it into std_worklist_scheduled,
+# so the table sat empty and report 36's patient wait time (scheduled -> arrived)
+# had no left-hand anchor and could never return a row, whatever the join said.
+_WORKLIST_SCHEDULED_SQL = """
+INSERT INTO std_worklist_scheduled (site_worklist_key, pps_key, scheduled_at, last_update)
+SELECT hl7_surrogate_id('worklist', s.accession_number),
+       hl7_surrogate_id('pps', s.accession_number),
+       s.scheduled_at,
+       NOW()
+FROM ray7_study_state s
+WHERE s.accession_number = :acc AND s.scheduled_at IS NOT NULL
+ON CONFLICT (site_worklist_key, scheduled_at) DO NOTHING
+"""
+
 _PPS_SQL = """
 INSERT INTO std_pps (pps_key, study_db_uid, procedure_code, procedure_name,
                      start_datetime, end_datetime, performing_ae_title)
@@ -391,7 +426,8 @@ def project_worklist(accession_number):
     if not accession_number:
         return []
     done = []
-    for label, sql in (('arrival', _WORKLIST_ARRIVAL_SQL),
+    for label, sql in (('worklist_scheduled', _WORKLIST_SCHEDULED_SQL),
+                       ('arrival', _WORKLIST_ARRIVAL_SQL),
                        ('exam_done', _WORKLIST_DONE_SQL),
                        ('pps', _PPS_SQL),
                        ('person_ref', _PERSON_REF_SQL)):
