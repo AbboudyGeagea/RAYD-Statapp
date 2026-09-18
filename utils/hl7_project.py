@@ -290,15 +290,19 @@ WHERE s.accession_number = :acc AND s.arrived_at IS NOT NULL
 ON CONFLICT (site_worklist_key, arrived_at) DO NOTHING
 """
 
-# No natural unique constraint here, so re-projection is delete-then-insert rather
-# than an upsert. Scoped to the one study, and the projector runs after every
-# event for that study, so without this a four-event lifecycle would leave four
-# identical exam-done rows and double-count every completion.
+# Upsert on the table's own unique key.
+#
+# I previously wrote that this table had "no natural unique constraint" and used
+# delete-then-insert in a single statement. Both halves were wrong: it carries
+# uq_worklist_exam_done_site_time on (site_worklist_key, exam_done_at), and a
+# data-modifying CTE cannot see its own DELETE — every re-projection collided
+# with the row it was in the middle of removing. Checking the schema would have
+# taken less time than the assertion did.
+#
+# The projector runs after every event for a study, so this executes four times
+# for a four-event lifecycle. ON CONFLICT DO NOTHING makes the repeats free and
+# keeps one row per completion instead of four.
 _WORKLIST_DONE_SQL = """
-WITH gone AS (
-    DELETE FROM std_worklist_exam_done
-     WHERE site_worklist_key = hl7_surrogate_id('worklist', :acc)
-)
 INSERT INTO std_worklist_exam_done (site_worklist_key, pps_key, exam_done_at, last_update)
 SELECT hl7_surrogate_id('worklist', s.accession_number),
        hl7_surrogate_id('pps', s.accession_number),
@@ -306,6 +310,7 @@ SELECT hl7_surrogate_id('worklist', s.accession_number),
        NOW()
 FROM ray7_study_state s
 WHERE s.accession_number = :acc AND s.completed_at IS NOT NULL
+ON CONFLICT (site_worklist_key, exam_done_at) DO NOTHING
 """
 
 _PPS_SQL = """
