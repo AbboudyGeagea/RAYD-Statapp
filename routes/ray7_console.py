@@ -3,27 +3,30 @@ routes/ray7_console.py
 ────────────────────────────────────────────────────────────────
 The RAY7 console — the operator's window onto the screening engine.
 
-Seventeen rules write findings into ray7_findings, and until this page existed the
-only way to read any of it was psql. An engine whose output nobody can see is an
-engine nobody trusts, and a quarantine queue nobody can open is worse than no
-quarantine at all: data stops reaching the reports and there is no visible reason
-why.
+Seventeen rules write findings into ray7_findings, and without this the only way
+to read any of it was psql. An engine whose output nobody can see is an engine
+nobody trusts, and a held-back queue nobody can open is worse than none at all:
+studies stop reaching the reports and there is no visible reason why.
 
-Four things this has to answer, because they are the questions actually asked when
-a feed misbehaves:
+FOUR VIEWS, NOT ONE LONG LIST.
+The first version rendered up to 300 findings and 100 held messages in two flat
+tables. On a real feed that is thousands of rows of which perhaps five matter,
+and a page that shows everything shows nothing — the reader cannot tell a
+recurring known issue from today's new one.
 
-    Is anything wrong right now?        the severity tiles
-    What exactly is wrong?              the findings queue
-    What data is being withheld?        the quarantine list
-    What did the sender actually send?  the raw message, verbatim
+    summary     one row per rule: how many, how bad, when last seen
+    findings    the flat list, paginated, filtered
+    held        studies not reaching the reports, and why
+    messages    browse the archive itself
 
-ADMIN-ONLY, and gated on the existing 'can_view_etl' permission rather than a new
-key. RAY7 occupies the position the ETL used to, the people who would have been
-given ETL visibility are the same people who need this, and adding a permission
-key means touching the role defaults and every existing user's grants for no gain.
+Summary is the default because the first question is always "is anything wrong",
+not "show me everything". Every count on it links through to the filtered detail,
+so the long list is somewhere you arrive deliberately rather than somewhere you
+land.
 
-Raw messages contain patient identifiers, which is the other reason this is not a
-viewer-level page.
+Admin-only, gated on the existing 'can_view_etl' permission rather than a new
+key: RAY7 occupies the position the ETL used to, and raw messages carry patient
+identifiers.
 """
 import json
 import logging
@@ -38,6 +41,8 @@ logger = logging.getLogger("RAY7_CONSOLE")
 
 ray7_bp = Blueprint('ray7_console', __name__)
 
+PER_PAGE = 50
+
 
 def _require_access():
     if not current_user.is_authenticated:
@@ -46,37 +51,49 @@ def _require_access():
         abort(403)
 
 
-def _summary():
-    """The tiles. One query per concern, each hitting an index."""
-    out = {}
+def _rows(sql, params=None):
     try:
-        row = db.session.execute(text("""
-            SELECT
-              COUNT(*) FILTER (WHERE severity = 'critical' AND resolved_at IS NULL) AS open_critical,
-              COUNT(*) FILTER (WHERE severity = 'warning'  AND resolved_at IS NULL) AS open_warning,
-              COUNT(*) FILTER (WHERE severity = 'info'     AND resolved_at IS NULL) AS open_info,
-              COUNT(*) FILTER (WHERE resolved_at IS NOT NULL)                       AS resolved
-            FROM ray7_findings
-        """)).mappings().first()
-        out.update(dict(row or {}))
-
-        row = db.session.execute(text("""
-            SELECT
-              COUNT(*)                                                    AS messages,
-              COUNT(*) FILTER (WHERE ray7_status = 'quarantined')         AS quarantined,
-              COUNT(*) FILTER (WHERE received_at > NOW() - INTERVAL '24 hours') AS last_24h,
-              MAX(received_at)                                            AS newest
-            FROM hl7_message_archive
-        """)).mappings().first()
-        out.update(dict(row or {}))
-
-        # Deliberately surfaced as a tile: an install that has received nothing is
-        # the single most common "RAY7 is broken" report, and it is almost always
-        # the interface, not the engine.
-        out['studies'] = db.session.execute(
-            text("SELECT COUNT(*) FROM ray7_study_state")).scalar()
+        return [dict(r) for r in db.session.execute(text(sql), params or {}).mappings().all()]
     except Exception:
-        logger.exception("RAY7 console: summary failed")
+        logger.exception("RAY7 console query failed")
+        return []
+
+
+def _scalar(sql, params=None, default=0):
+    try:
+        v = db.session.execute(text(sql), params or {}).scalar()
+        return default if v is None else v
+    except Exception:
+        logger.exception("RAY7 console scalar failed")
+        return default
+
+
+def _summary():
+    out = {}
+    row = _rows("""
+        SELECT COUNT(*) FILTER (WHERE severity='critical' AND resolved_at IS NULL) AS open_critical,
+               COUNT(*) FILTER (WHERE severity='warning'  AND resolved_at IS NULL) AS open_warning,
+               COUNT(*) FILTER (WHERE severity='info'     AND resolved_at IS NULL) AS open_info,
+               COUNT(*) FILTER (WHERE resolved_at IS NOT NULL)                     AS resolved
+          FROM ray7_findings
+    """)
+    out.update(row[0] if row else {})
+    row = _rows("""
+        SELECT COUNT(*) AS messages,
+               COUNT(*) FILTER (WHERE ray7_status='quarantined') AS held,
+               COUNT(*) FILTER (WHERE received_at > NOW() - INTERVAL '24 hours') AS last_24h
+          FROM hl7_message_archive
+    """)
+    out.update(row[0] if row else {})
+    out['studies'] = _scalar("SELECT COUNT(*) FROM ray7_study_state")
+    # The consequence, stated as a number: studies whose data is incomplete in the
+    # reports because a message about them was held back.
+    out['studies_affected'] = _scalar("""
+        SELECT COUNT(DISTINCT f.accession_number)
+          FROM ray7_findings f
+          JOIN hl7_message_archive a ON a.id = f.message_archive_id
+         WHERE a.ray7_status = 'quarantined' AND f.accession_number IS NOT NULL
+    """)
     return out
 
 
@@ -84,69 +101,129 @@ def _summary():
 @login_required
 def console():
     _require_access()
+    view     = request.args.get('view', 'summary')
     severity = request.args.get('severity', '')
     rule     = request.args.get('rule', '')
-    show     = request.args.get('show', 'open')      # open | resolved | all
+    show     = request.args.get('show', 'open')
     search   = (request.args.get('q', '') or '').strip()
-
-    where, params = [], {}
-    if show == 'open':
-        where.append("f.resolved_at IS NULL")
-    elif show == 'resolved':
-        where.append("f.resolved_at IS NOT NULL")
-    if severity:
-        where.append("f.severity = :severity"); params['severity'] = severity
-    if rule:
-        where.append("f.rule_code = :rule"); params['rule'] = rule
-    if search:
-        where.append("(f.accession_number ILIKE :q OR f.patient_id ILIKE :q "
-                     "OR a.message_control_id ILIKE :q)")
-        params['q'] = f'%{search}%'
-    clause = ('WHERE ' + ' AND '.join(where)) if where else ''
-
-    findings, rules, quarantine = [], [], []
     try:
-        findings = [dict(r) for r in db.session.execute(text(f"""
+        page = max(1, int(request.args.get('page', 1)))
+    except ValueError:
+        page = 1
+    offset = (page - 1) * PER_PAGE
+
+    ctx = {'view': view, 'severity': severity, 'rule': rule, 'show': show,
+           'search': search, 'page': page, 'per_page': PER_PAGE,
+           'summary': _summary(), 'rows': [], 'total': 0}
+
+    if view == 'summary':
+        # One row per rule. This is the whole point of the redesign: a reader can
+        # see at a glance that UNKNOWN_AETITLE has fired 4,000 times and is
+        # cosmetic, while CONTROL_ID_REUSE has fired twice and is not.
+        ctx['rows'] = _rows("""
+            SELECT f.rule_code, f.severity,
+                   COUNT(*)                                   AS total,
+                   COUNT(*) FILTER (WHERE f.resolved_at IS NULL) AS open,
+                   COUNT(DISTINCT f.accession_number)          AS studies,
+                   MAX(f.created_at)                           AS last_seen,
+                   r.title, r.category, r.description
+              FROM ray7_findings f
+              LEFT JOIN ray7_rules r ON r.rule_code = f.rule_code AND r.modality = ''
+             GROUP BY f.rule_code, f.severity, r.title, r.category, r.description
+             ORDER BY CASE f.severity WHEN 'critical' THEN 1
+                                      WHEN 'warning'  THEN 2 ELSE 3 END,
+                      COUNT(*) FILTER (WHERE f.resolved_at IS NULL) DESC
+        """)
+
+    elif view == 'findings':
+        where, params = [], {'lim': PER_PAGE, 'off': offset}
+        if show == 'open':
+            where.append("f.resolved_at IS NULL")
+        elif show == 'resolved':
+            where.append("f.resolved_at IS NOT NULL")
+        if severity:
+            where.append("f.severity = :severity"); params['severity'] = severity
+        if rule:
+            where.append("f.rule_code = :rule"); params['rule'] = rule
+        if search:
+            where.append("(f.accession_number ILIKE :q OR f.patient_id ILIKE :q "
+                         "OR a.message_control_id ILIKE :q)")
+            params['q'] = f'%{search}%'
+        clause = ('WHERE ' + ' AND '.join(where)) if where else ''
+
+        ctx['total'] = _scalar(f"""
+            SELECT COUNT(*) FROM ray7_findings f
+            LEFT JOIN hl7_message_archive a ON a.id = f.message_archive_id {clause}
+        """, {k: v for k, v in params.items() if k not in ('lim', 'off')})
+
+        ctx['rows'] = _rows(f"""
             SELECT f.id, f.rule_code, f.severity, f.accession_number, f.patient_id,
                    f.detail, f.created_at, f.resolved_at, f.resolution,
-                   f.message_archive_id,
-                   a.message_type, a.sending_app, a.message_control_id,
-                   r.title, r.category
+                   f.message_archive_id, a.message_type, a.sending_app,
+                   a.message_control_id, r.title
               FROM ray7_findings f
               LEFT JOIN hl7_message_archive a ON a.id = f.message_archive_id
               LEFT JOIN ray7_rules r ON r.rule_code = f.rule_code AND r.modality = ''
               {clause}
-             ORDER BY CASE f.severity WHEN 'critical' THEN 1 WHEN 'warning' THEN 2 ELSE 3 END,
+             ORDER BY CASE f.severity WHEN 'critical' THEN 1
+                                      WHEN 'warning' THEN 2 ELSE 3 END,
                       f.created_at DESC
-             LIMIT 300
-        """), params).mappings().all()]
+             LIMIT :lim OFFSET :off
+        """, params)
 
-        rules = [dict(r) for r in db.session.execute(text("""
-            SELECT f.rule_code, COUNT(*) AS n
-              FROM ray7_findings f WHERE f.resolved_at IS NULL
-             GROUP BY f.rule_code ORDER BY 1
-        """)).mappings().all()]
-
-        # Quarantine is the consequential list: these messages exist, parsed fine,
-        # and are being deliberately withheld from the reporting tables.
-        quarantine = [dict(r) for r in db.session.execute(text("""
-            SELECT a.id, a.message_control_id, a.sending_app, a.message_type,
-                   a.received_at, a.ray7_severity,
-                   (SELECT string_agg(rule_code, ', ')
-                      FROM ray7_findings x
-                     WHERE x.message_archive_id = a.id AND x.severity = 'critical') AS reasons
+    elif view == 'held':
+        # Grouped by STUDY, not by message. The operator's question is "which
+        # studies are wrong in the reports", and one study can have several held
+        # messages; listing messages makes them count the same study repeatedly.
+        ctx['total'] = _scalar("""
+            SELECT COUNT(*) FROM hl7_message_archive WHERE ray7_status = 'quarantined'
+        """)
+        ctx['rows'] = _rows("""
+            SELECT COALESCE(f.accession_number, '(no accession)') AS accession,
+                   COUNT(DISTINCT a.id)              AS messages,
+                   MIN(a.received_at)                AS first_held,
+                   MAX(a.received_at)                AS last_held,
+                   string_agg(DISTINCT f.rule_code, ', ') AS reasons,
+                   string_agg(DISTINCT a.message_type, ', ') AS types,
+                   MAX(a.id)                         AS sample_archive_id,
+                   BOOL_OR(s.accession_number IS NOT NULL) AS study_exists
               FROM hl7_message_archive a
+              JOIN ray7_findings f ON f.message_archive_id = a.id AND f.severity = 'critical'
+              LEFT JOIN ray7_study_state s ON s.accession_number = f.accession_number
              WHERE a.ray7_status = 'quarantined'
-             ORDER BY a.received_at DESC LIMIT 100
-        """)).mappings().all()]
-    except Exception:
-        logger.exception("RAY7 console: query failed")
+             GROUP BY COALESCE(f.accession_number, '(no accession)')
+             ORDER BY MAX(a.received_at) DESC
+             LIMIT :lim OFFSET :off
+        """, {'lim': PER_PAGE, 'off': offset})
 
-    return render_template(
-        'ray7_console.html',
-        summary=_summary(), findings=findings, rule_counts=rules,
-        quarantine=quarantine, severity=severity, rule=rule, show=show, search=search,
-    )
+    elif view == 'messages':
+        where, params = [], {'lim': PER_PAGE, 'off': offset}
+        if search:
+            where.append("(a.message_control_id ILIKE :q OR a.sending_app ILIKE :q "
+                         "OR a.message_type ILIKE :q)")
+            params['q'] = f'%{search}%'
+        if severity:      # reused as the status filter on this view
+            where.append("a.ray7_status = :st"); params['st'] = severity
+        clause = ('WHERE ' + ' AND '.join(where)) if where else ''
+
+        ctx['total'] = _scalar(f"SELECT COUNT(*) FROM hl7_message_archive a {clause}",
+                               {k: v for k, v in params.items() if k not in ('lim', 'off')})
+        ctx['rows'] = _rows(f"""
+            SELECT a.id, a.message_control_id, a.sending_app, a.message_type,
+                   a.received_at, a.ray7_status, a.ray7_severity,
+                   (a.projected_at IS NOT NULL) AS projected,
+                   (SELECT COUNT(*) FROM ray7_findings x WHERE x.message_archive_id = a.id)
+                     AS findings
+              FROM hl7_message_archive a {clause}
+             ORDER BY a.id DESC LIMIT :lim OFFSET :off
+        """, params)
+
+    ctx['rule_options'] = _rows("""
+        SELECT rule_code, COUNT(*) FILTER (WHERE resolved_at IS NULL) AS open
+          FROM ray7_findings GROUP BY rule_code ORDER BY 1
+    """)
+    ctx['pages'] = max(1, -(-ctx['total'] // PER_PAGE)) if ctx['total'] else 1
+    return render_template('ray7_console.html', **ctx)
 
 
 @ray7_bp.route('/ray7/message/<int:archive_id>')
@@ -155,9 +232,9 @@ def message_detail(archive_id):
     """
     The raw message, verbatim, plus every finding against it.
 
-    Verbatim matters: when a field position turns out to be wrong — and several in
-    the status parser are still educated guesses — this is where you confirm what
-    the sender actually put where, without asking them to resend anything.
+    Verbatim matters: several field positions in the status parser are still
+    educated guesses, and this is where an engineer confirms what a sender
+    actually put where, without asking anyone to resend.
     """
     _require_access()
     try:
@@ -171,16 +248,16 @@ def message_detail(archive_id):
         if not msg:
             return jsonify({'error': 'not found'}), 404
 
-        findings = [dict(r) for r in db.session.execute(text("""
+        findings = _rows("""
             SELECT rule_code, severity, detail, created_at, resolved_at
               FROM ray7_findings WHERE message_archive_id = :id
-             ORDER BY CASE severity WHEN 'critical' THEN 1 WHEN 'warning' THEN 2 ELSE 3 END
-        """), {'id': archive_id}).mappings().all()]
+             ORDER BY CASE severity WHEN 'critical' THEN 1
+                                    WHEN 'warning' THEN 2 ELSE 3 END
+        """, {'id': archive_id})
 
         out = dict(msg)
-        # Split on CR so each HL7 segment is its own line in the viewer. The wire
-        # format is carriage-return delimited, which a browser renders as one
-        # unreadable line.
+        # One HL7 segment per line. The wire format is carriage-return delimited,
+        # which a browser renders as one unreadable line.
         out['segments'] = [s for s in (out.pop('raw_message') or '')
                            .replace('\r\n', '\r').replace('\n', '\r').split('\r') if s]
         out['findings'] = findings
@@ -196,16 +273,16 @@ def resolve(finding_id):
     """
     Close a finding.
 
-    Resolving does NOT re-admit a quarantined message's data on its own — the
-    projection already happened or did not. Re-admitting means fixing the cause
-    (map the status code, correct the field position) and replaying, which is what
-    the archive exists for. Saying so in the response keeps the button from
-    implying a power it does not have.
+    Resolving does NOT put the held-back data into the reports. The projection
+    either happened or it did not; clearing the flag changes neither. Getting the
+    data in means fixing the cause and replaying, which is what the archive
+    exists for — said in the response so the button cannot imply a power it does
+    not have.
     """
     _require_access()
-    resolution = (request.form.get('resolution') or
-                  (request.json or {}).get('resolution') or 'cleared')
-    note = (request.form.get('note') or (request.json or {}).get('note') or '')[:2000]
+    body = request.json or {}
+    resolution = request.form.get('resolution') or body.get('resolution') or 'cleared'
+    note = (request.form.get('note') or body.get('note') or '')[:2000]
     if resolution not in ('cleared', 'ignored', 'fixed_upstream'):
         return jsonify({'error': 'invalid resolution'}), 400
     try:
@@ -216,11 +293,10 @@ def resolve(finding_id):
              WHERE id = :id AND resolved_at IS NULL
         """), {'id': finding_id, 'uid': current_user.id, 'res': resolution, 'note': note})
         db.session.commit()
-        return jsonify({
-            'status': 'ok',
-            'note': 'Finding closed. To re-admit withheld data, fix the cause and '
-                    'replay: python app.py -m',
-        })
+        return jsonify({'status': 'ok',
+                        'note': 'Finding closed. This does not add the held-back data '
+                                'to the reports — fix the cause, then replay with '
+                                'python app.py -m'})
     except Exception:
         db.session.rollback()
         logger.exception("RAY7 console: resolve failed | id=%s", finding_id)
