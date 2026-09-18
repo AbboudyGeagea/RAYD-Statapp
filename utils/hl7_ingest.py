@@ -205,6 +205,26 @@ def persist_parsed(msg, archive_id):
             # so it saw the state as it was before this event.
             update_study_state(msg)
 
+    # A report closes the loop. Without this, ray7_study_state.reported_at stays
+    # NULL forever and the UNREPORTED sweep rule fires on every completed study —
+    # the rule would be pure noise rather than a signal. The report itself lives in
+    # hl7_oru_reports; this only records THAT one exists, so the absence sweep can
+    # answer "completed but never reported" from one indexed table.
+    if msg.kind == 'result' and msg.accession_number and msg.event_time:
+        try:
+            with db.session.begin_nested():
+                db.session.execute(text("""
+                    UPDATE ray7_study_state
+                       SET reported_at = COALESCE(reported_at, :reported_at),
+                           is_closed   = TRUE,
+                           updated_at  = NOW()
+                     WHERE accession_number = :acc
+                """), {'acc': msg.accession_number, 'reported_at': msg.event_time})
+            written.append('reported')
+        except Exception:
+            logger.exception("RAY7/ingest: reported_at update failed | acc=%s",
+                             msg.accession_number)
+
     return ', '.join(written) if written else 'nothing'
 
 

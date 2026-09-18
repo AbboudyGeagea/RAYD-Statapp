@@ -833,6 +833,36 @@ def create_app():
         replace_existing=True
     )
 
+    def ray7_absence_sweep():
+        """
+        RAY7's absence rules — the findings no message can produce.
+
+        Everything else RAY7 does runs inline on the ACK path, because it inspects
+        a message that just arrived. These inspect the absence of one: the entire
+        content of STALLED_ARRIVED is that the next message never came, which is
+        only observable by waiting.
+
+        Fifteen minutes is chosen against the tightest seeded threshold (3h for a
+        started-but-never-completed exam). Finer buys nothing — the thresholds are
+        hours — and the pass is cheap regardless, reading only the stalled set via
+        the partial indexes rather than scanning every study ever received.
+        """
+        with app.app_context():
+            try:
+                from utils.ray7_sweep import run_sweep
+                run_sweep()
+            except Exception as e:
+                logger.error(f"🛑 [RAY7 sweep] Failed: {e}", exc_info=True)
+
+    scheduler.add_job(
+        func=ray7_absence_sweep,
+        trigger='interval',
+        minutes=15,
+        id='ray7_absence_sweep',
+        name='RAY7 — absence sweep (stalled studies, unreported exams)',
+        replace_existing=True
+    )
+
     # Only start the scheduler and the MLLP listener when running as a server, so a
     # CLI invocation ('-m') does not try to bind port 6661 alongside the live service.
     if not manual_mode:
