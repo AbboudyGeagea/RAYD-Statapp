@@ -112,6 +112,7 @@ from etl_analytics_refresh import refresh_storage_summary
 from etl_ris_reports       import run_ris_reports_etl
 from etl_ris_modality      import run_ris_modality_etl
 from etl_ris_procedures    import run_ris_procedures_etl
+from etl_ris_procedure_rvu import run_ris_procedure_rvu_etl
 from etl_ris_modality_schedule import (
     run_ris_modality_schedule_etl, run_ris_schedule_template_etl,
     run_ris_schedule_template_version_etl,
@@ -550,7 +551,10 @@ def _perform_migration(engine):
                 try:
                     run_ris_modality_etl(engine, ris_src)
                     run_ris_procedures_etl(engine, ris_src)
-                    # Must run after the two calls above — joins through the ris_modality_key /
+                    # Must run after run_ris_procedures_etl — updates the rows it just
+                    # created, matched on the ris_sps_code_key back-reference it sets.
+                    run_ris_procedure_rvu_etl(engine, ris_src)
+                    # Must run after the calls above — joins through the ris_modality_key /
                     # ris_sps_code_key back-references they just populated.
                     run_ris_modality_schedule_etl(engine, ris_src)
                     # Must run after run_ris_modality_schedule_etl — reuses the stage table
