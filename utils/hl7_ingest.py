@@ -252,11 +252,13 @@ def update_study_state(msg):
     sql = """
         INSERT INTO ray7_study_state
             (accession_number, placer_order_number, patient_id, modality, aetitle,
-             room_name, procedure_code, patient_class, {col},
+             room_name, procedure_code, procedure_text, patient_class,
+             patient_location, {col},
              current_rank, event_count, is_closed, first_seen_at, last_event_at, updated_at)
         VALUES
             (:accession, :placer, :patient_id, :modality, :aetitle,
-             :room, :procedure_code, :patient_class, :event_time,
+             :room, :procedure_code, :procedure_text, :patient_class,
+             :patient_location, :event_time,
              -- is_closed must be computed on INSERT too, not only on conflict.
              -- A study whose FIRST event is the completion — an exam whose earlier
              -- rungs never arrived, which is exactly the case the absence sweep
@@ -271,6 +273,8 @@ def update_study_state(msg):
             aetitle             = COALESCE(EXCLUDED.aetitle,  ray7_study_state.aetitle),
             room_name           = COALESCE(EXCLUDED.room_name, ray7_study_state.room_name),
             procedure_code      = COALESCE(ray7_study_state.procedure_code, EXCLUDED.procedure_code),
+            procedure_text      = COALESCE(ray7_study_state.procedure_text, EXCLUDED.procedure_text),
+            patient_location    = COALESCE(EXCLUDED.patient_location, ray7_study_state.patient_location),
             patient_class       = COALESCE(EXCLUDED.patient_class, ray7_study_state.patient_class),
             current_rank        = GREATEST(ray7_study_state.current_rank, EXCLUDED.current_rank),
             event_count         = ray7_study_state.event_count + 1,
@@ -295,7 +299,9 @@ def update_study_state(msg):
                 'aetitle':        msg.aetitle,
                 'room':           msg.room_name,
                 'procedure_code': msg.procedure_code,
+                'procedure_text': msg.procedure_text,
                 'patient_class':  msg.patient_class,
+                'patient_location': msg.patient_location,
                 'event_time':     msg.event_time,
                 'rank':           msg.ladder_rank,
                 'state':          msg.canonical_state,
