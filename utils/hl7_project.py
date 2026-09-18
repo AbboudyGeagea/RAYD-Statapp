@@ -413,23 +413,27 @@ _OVERRIDE_TARGETS = {
 
 def _override_whitelist():
     """
-    Column names the catalogue actually permits, per target kind.
+    Column names permitted as direct write targets, per kind.
 
-    Not decoration. A mapping's target_field is operator-supplied text that has to
-    be interpolated as a column name — it cannot be bound as a parameter — so it
-    is checked against hl7_field_targets before it reaches any SQL string. The
-    table also has a CHECK on target_kind, but defence at the point of
-    interpolation is the one that matters.
+    Not decoration. A mapping's target_field is operator-supplied text that has
+    to be interpolated as a column name — it cannot be bound as a parameter — so
+    it is checked before it reaches any SQL string.
+
+    Sourced from utils.hl7_fieldmap.available_targets(), which derives the etl_*
+    half from information_schema rather than from the seeded catalogue. That
+    matters here as well as in the UI: while the whitelist came from the seed,
+    the projector would silently refuse any override onto one of the 85 columns
+    the seed never listed, so a mapping an operator created would appear saved
+    and simply never apply.
     """
     try:
-        rows = db.session.execute(text(
-            "SELECT target_kind, target_field FROM hl7_field_targets")).fetchall()
+        from utils.hl7_fieldmap import available_targets
         allowed = {}
-        for kind, field in rows:
-            allowed.setdefault(kind, set()).add(field)
+        for t in available_targets():
+            allowed.setdefault(t['target_kind'], set()).add(t['target_field'])
         return allowed
     except Exception:
-        logger.exception("projector: could not read the target catalogue; "
+        logger.exception("projector: could not build the target whitelist; "
                          "refusing all direct overrides")
         return {}
 

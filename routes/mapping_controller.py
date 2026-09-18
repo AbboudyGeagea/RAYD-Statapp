@@ -1011,11 +1011,8 @@ def field_map_tab():
              ORDER BY m.target_kind, m.target_field, m.priority
         """)).mappings().all()]
 
-        targets = [dict(r) for r in db.session.execute(_t("""
-            SELECT target_kind, target_field, data_type, label, description,
-                   is_dangerous, sort_order
-              FROM hl7_field_targets ORDER BY target_kind, sort_order, target_field
-        """)).mappings().all()]
+        from utils.hl7_fieldmap import available_targets
+        targets = available_targets()
 
         # Offered for the "test against real traffic" picker. Newest first, and
         # labelled by type and sender so an engineer can find the message shape
@@ -1077,10 +1074,9 @@ def save_field_map():
         return iv if iv > 0 else None
 
     try:
-        tgt = db.session.execute(_t("""
-            SELECT data_type, is_dangerous FROM hl7_field_targets
-             WHERE target_kind = :k AND target_field = :f
-        """), {'k': kind, 'f': field}).mappings().first()
+        from utils.hl7_fieldmap import available_targets
+        tgt = next((t for t in available_targets()
+                    if t['target_kind'] == kind and t['target_field'] == field), None)
         if not tgt:
             return jsonify({'error': f'unknown target {kind}.{field}'}), 400
 
@@ -1368,12 +1364,11 @@ def explorer_tab():
         # point: mapping onto a RAYD field flows through RAY7's screening and the
         # lifecycle, mapping straight at a table bypasses both. The UI has to
         # make that visible while choosing, not afterwards.
-        targets = [dict(r) for r in db.session.execute(_t("""
-            SELECT target_kind, target_field, data_type, label, description, is_dangerous
-              FROM hl7_field_targets
-             ORDER BY CASE WHEN target_kind = 'parsed' THEN 0 ELSE 1 END,
-                      sort_order, target_field
-        """)).mappings().all()]
+        # Derived from the live schema, not a seeded list. The seed described 11
+        # columns; the tables have 96, which made the explorer look like it could
+        # not see the database.
+        from utils.hl7_fieldmap import available_targets
+        targets = available_targets()
 
         existing = [dict(r) for r in db.session.execute(_t("""
             SELECT target_kind, target_field, segment, field_index, component_index,

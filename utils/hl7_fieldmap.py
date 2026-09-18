@@ -199,6 +199,126 @@ def direct_overrides(msg, segments):
     return out
 
 
+# The etl_* tables a mapping may write straight into, and the key column each is
+# addressed by. Anything not listed is not reachable as a direct target.
+_TARGET_TABLES = {
+    'study':   ('etl_didb_studies', 'study_db_uid'),
+    'patient': ('etl_patient_view', 'patient_db_uid'),
+    'order':   ('etl_orders',       'order_dbid'),
+}
+
+# Columns that cannot be mapped, for mechanical reasons rather than policy.
+#
+# The surrogate primary keys are how the projector FINDS the row to update — the
+# UPDATE reads `WHERE study_db_uid = hl7_surrogate_id(...)` — so a mapping onto
+# one would be self-contradictory, not merely unwise. last_update is stamped by
+# the writer on every pass and any mapped value would be overwritten within
+# milliseconds, which looks like the mapping silently not working.
+_UNMAPPABLE = {'study_db_uid', 'patient_db_uid', 'order_dbid', 'last_update'}
+
+_PG_TO_TRANSFORM = {
+    'timestamp without time zone': 'datetime',
+    'timestamp with time zone':    'datetime',
+    'date':                        'date',
+    'integer':                     'number',
+    'bigint':                      'number',
+    'numeric':                     'number',
+    'double precision':            'number',
+    'boolean':                     'text',
+}
+
+_targets_cache = {'at': 0.0, 'rows': None}
+
+
+def available_targets():
+    """
+    Every field a mapping can point at: RAYD's own vocabulary, plus every real
+    column of the etl_* tables.
+
+    THE etl_* HALF IS READ FROM information_schema, NOT FROM A SEED.
+
+    Migration 0123 seeded a hand-picked list of eleven columns. The tables
+    actually have ninety-six between them, so the explorer was offering a tenth
+    of the destinations that exist and looked, reasonably, like it could not see
+    the database at all. A hand-maintained mirror of a schema is also guaranteed
+    to drift: every migration that adds a column would need someone to remember
+    to add a catalogue row, and nothing would report it when they did not.
+
+    hl7_field_targets is still the source for the 'parsed' targets, because those
+    are RAYD's own field names and exist nowhere else. It also still supplies the
+    curated labels, descriptions and is_dangerous notes for the columns it does
+    describe — a derived entry keeps the documentation where one exists and falls
+    back to the column name where it does not.
+
+    Every direct-to-table target is dangerous by definition: it bypasses RAY7's
+    screening and the lifecycle entirely, so it is marked so whether or not
+    anyone wrote a note about it.
+    """
+    now = time.time()
+    if _targets_cache['rows'] is not None and (now - _targets_cache['at']) < _CACHE_TTL:
+        return _targets_cache['rows']
+
+    out, curated = [], {}
+    try:
+        for r in db.session.execute(text("""
+            SELECT target_kind, target_field, data_type, label, description,
+                   is_dangerous, sort_order
+              FROM hl7_field_targets
+        """)).mappings().all():
+            if r['target_kind'] == 'parsed':
+                out.append(dict(r))
+            else:
+                curated[(r['target_kind'], r['target_field'])] = dict(r)
+    except Exception:
+        logger.exception("could not read hl7_field_targets")
+
+    out.sort(key=lambda t: (t.get('sort_order') or 999, t['target_field']))
+
+    for kind, (table, _key) in _TARGET_TABLES.items():
+        try:
+            cols = db.session.execute(text("""
+                SELECT column_name, data_type
+                  FROM information_schema.columns
+                 WHERE table_schema = 'public' AND table_name = :t
+                 ORDER BY ordinal_position
+            """), {'t': table}).mappings().all()
+        except Exception:
+            logger.exception("could not read columns of %s", table)
+            continue
+
+        for c in cols:
+            name = c['column_name']
+            if name in _UNMAPPABLE:
+                continue
+            note = curated.get((kind, name), {})
+            out.append({
+                'target_kind':  kind,
+                'target_field': name,
+                'data_type':    _PG_TO_TRANSFORM.get(c['data_type'], 'text'),
+                'pg_type':      c['data_type'],
+                'table':        table,
+                'label':        note.get('label') or f'{table}.{name}',
+                'description':  note.get('description'),
+                'is_dangerous': True,
+                'sort_order':   note.get('sort_order') or 999,
+            })
+
+    _targets_cache['rows'] = out
+    _targets_cache['at'] = now
+    return out
+
+
+def invalidate_targets():
+    _targets_cache['at'] = 0.0
+    _targets_cache['rows'] = None
+
+
+def is_valid_target(kind, field):
+    """Used by the save path, which must not trust a posted target name."""
+    return any(t['target_kind'] == kind and t['target_field'] == field
+               for t in available_targets())
+
+
 def preview(raw_message, sending_app=None, kind=None):
     """
     What every applicable mapping would extract from one message.
