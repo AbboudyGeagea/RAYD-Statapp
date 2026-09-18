@@ -180,109 +180,29 @@ PACS_NEIGHBOUR_SQL = """
 """
 
 # ── HL7 helpers ───────────────────────────────────────────────────────────────
-
-def _seg(segments, name):
-    """Return first matching segment as a list of fields, or []."""
-    for s in segments:
-        if s.startswith(name + '|'):
-            return s.split('|')
-    return []
-
-def _field(seg, index, default=None):
-    """Safely get a field from a segment by index."""
-    try:
-        val = seg[index].strip()
-        return val if val else default
-    except IndexError:
-        return default
-
-def _parse_hl7_datetime(val):
-    """Parse HL7 datetime string (YYYYMMDDHHMMSS or YYYYMMDD) to datetime."""
-    if not val:
-        return None
-    val = val.strip().split('+')[0].split('-')[0]  # strip timezone
-    try:
-        if len(val) >= 14: return datetime.strptime(val[:14], '%Y%m%d%H%M%S')
-        if len(val) >= 12: return datetime.strptime(val[:12], '%Y%m%d%H%M')
-        if len(val) >= 8:  return datetime.strptime(val[:8],  '%Y%m%d')
-    except Exception:
-        pass
-    return None
-
-def _format_name(raw):
-    """
-    Convert HL7 XPN to readable name.
-    Handles: Last^First^Mid  and  ID^^Full Name  formats.
-    """
-    if not raw:
-        return None
-    parts = [p.strip() for p in raw.split('^')]
-    # Format: ID^^Full Name (e.g. ORC-12: ID2^^Jihad Falou)
-    if len(parts) >= 3 and not parts[1] and parts[2]:
-        return parts[2]
-    # Format: Last^First^Mid (e.g. PID-5: KHALIL^ROUAIDA^FAYSAL)
-    last  = parts[0] if len(parts) > 0 else ''
-    first = parts[1] if len(parts) > 1 else ''
-    mid   = parts[2] if len(parts) > 2 else ''
-    name  = ' '.join(filter(None, [first, mid, last]))
-    return name or None
-
-def _component(field_val, index, default=None):
-    """Get a sub-component from a field value (split by ^)."""
-    if not field_val:
-        return default
-    parts = field_val.split('^')
-    try:
-        val = parts[index].strip()
-        return val if val else default
-    except IndexError:
-        return default
-
-# Matches Carestream's vendor-specific "email&First&Last^^timestamp" physician-stamp
-# shape seen in OBR's trailing fields (e.g.
-# "DANY.ABOUCHEDID@SJH.LAUMCSJH.COM&Dany&Abou Chedid^^20260727140246") — see
-# _extract_signing_physician() below for why this is matched by content, not a fixed
-# OBR field index.
-_PHYSICIAN_STAMP_RE = re.compile(r'^([^&^]+@[^&^]+)&([^&^]*)&([^^]*)\^+(\d{8,14})')
-
-
-def _extract_signing_physician(obr_fields, result_dt_raw):
-    """
-    Scan every OBR field for a Carestream physician-stamp value and return the one
-    whose embedded timestamp matches the report's own result date/time (OBR-22) —
-    the person who signed THIS report, not whoever else touched the order earlier.
-
-    Why content-based instead of a fixed OBR index: tested against a real ORU sample
-    (2026-07-27) where OBR-32 (Principal Result Interpreter, the standard HL7 2.3
-    field for this) was empty ("&&^^") — Carestream extends OBR well past the base
-    spec's ~47 fields with its own trailing fields, and this integration puts several
-    named people in there (e.g. a technologist logged earlier in the day, then the
-    signing radiologist) at positions that aren't documented anywhere. The one
-    correctly reading as the signer here was OBR-57, but trusting that exact index
-    on the next message risks silently picking the wrong person if the field count
-    ever shifts — matching by "whose timestamp equals the sign time" is robust to
-    that in a way an index number isn't.
-
-    Falls back to the first stamp found if none match the timestamp exactly (still
-    better than the previous behavior, which read one specific empty field and
-    produced garbage like "&&").
-
-    Returns (email, display_name) or (None, None).
-    """
-    fallback = None
-    for field_val in obr_fields:
-        if not field_val:
-            continue
-        m = _PHYSICIAN_STAMP_RE.match(field_val)
-        if not m:
-            continue
-        email, first, last, ts = m.groups()
-        name = ' '.join(filter(None, [first.strip(), last.strip()])) or None
-        if result_dt_raw and ts[:14] == result_dt_raw[:14]:
-            return email, name
-        if fallback is None:
-            fallback = (email, name)
-    return fallback if fallback else (None, None)
+#
+# These used to be defined here. They now live in utils/hl7_parse.py, which is the
+# canonical home for HL7 parsing, and are imported under their original private
+# names so the rest of this file reads unchanged.
+#
+# The point is to have ONE answer to "what is field 5 of the PID". Two copies of
+# segment-splitting logic in a codebase whose whole job is reading HL7 is how the
+# listener and the projector end up disagreeing about the same message, and that
+# disagreement would surface as inconsistent data rather than as an error.
+#
+# One behavioural improvement comes with the move: the shared _parse_hl7_datetime
+# strips a timezone offset with an anchored regex instead of splitting on the first
+# '-' it finds. The old version truncated any value containing a hyphen — harmless
+# for the compact HL7 timestamps seen so far, wrong the moment a sender emits an
+# ISO-style date.
+from utils.hl7_parse import (      # noqa: E402  (kept beside the other HL7 code)
+    seg as _seg,
+    field as _field,
+    component as _component,
+    parse_hl7_datetime as _parse_hl7_datetime,
+    format_name as _format_name,
+    extract_signing_physician as _extract_signing_physician,
+)
 
 
 ORU_INSERT_SQL = """
