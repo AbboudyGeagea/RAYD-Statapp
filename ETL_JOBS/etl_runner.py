@@ -128,6 +128,7 @@ from etl_ris_modality_availability import (
     run_ris_modality_exceptions_etl, run_ris_schedule_template_items_etl,
     run_ris_schedule_schemes_etl, run_ris_availability_indicators_etl,
     run_schedule_template_device_link, run_device_weekly_availability_etl,
+    run_device_weekly_windows_etl,
 )
 from etl_pacs_user_groups     import run_pacs_user_groups_etl
 from etl_ris_worklist_arrivals import run_ris_worklist_arrivals_etl
@@ -770,6 +771,11 @@ def _perform_migration(engine):
                     ("versions",      lambda: run_ris_schedule_template_version_etl(engine, ris_src)),
                     ("device_link",   lambda: run_schedule_template_device_link(engine)),
                     ("availability",  lambda: run_device_weekly_availability_etl(engine)),
+                    # Same sweep as 'availability', keeping the resolved slots instead of
+                    # summing them — feeds Report 25's in-hours / after-hours split.
+                    # Listed separately so a failure here cannot take down the utilization
+                    # denominator the capacity ladder depends on.
+                    ("windows",       lambda: run_device_weekly_windows_etl(engine)),
                 ]
                 _phase18_failed = []
                 for _name, _fn in _phase18_substeps:

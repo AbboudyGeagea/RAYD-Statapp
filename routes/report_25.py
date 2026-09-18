@@ -343,6 +343,12 @@ def get_gold_standard_data(form_data):
         if 'aetitle_display' in df.columns else {}
     )
 
+    # Initialised before the branch below so the opening-hours split further down can
+    # read them unconditionally — it degrades to minutes-without-percentages when there
+    # is no schedule, rather than raising NameError into its own except block.
+    schedule_lookup: dict = {}
+    weekday_counts: dict = {}
+
     if 'aetitle' in df.columns:
         date_range = pd.date_range(start, end)
         weekday_counts = date_range.dayofweek.value_counts().to_dict()
@@ -433,6 +439,113 @@ def get_gold_standard_data(form_data):
                 "total_rvu": round(ae_df['technical_rvu'].sum(), 1),
                 "total_cap": ae_total_cap,
             })
+
+    # ── Opening-hours vs after-hours utilisation, per modality ───────────────
+    # Operator request 2026-09-18. Two deliberate choices, both operator-decided:
+    #
+    #  1. An exam is classified by its START time. An exam running 16:50-18:10 on a
+    #     device closing at 18:00 counts entirely as in-hours. Simpler than splitting
+    #     the minutes at the boundary; the trade-off is that a long exam starting just
+    #     before closing is fully attributed to opening hours.
+    #  2. The after-hours figure is a percentage of the CLOSED window —
+    #     outside_minutes / ((1440 - opening_minutes) * occurrences) — not a share of
+    #     the modality's workload. The denominator is mostly overnight, so expect small
+    #     percentages; a modality reading 2% after-hours is doing real volume.
+    #
+    # Only std_pps (RIS Performed Procedure Step) carries a real exam start time. The
+    # proc_duration fallback used elsewhere in this function is a per-procedure ESTIMATE
+    # with no time of day, so it cannot be classified at all — devices with no PPS
+    # coverage are reported as unclassified rather than silently counted as in-hours.
+    hours_split = []
+    hours_unclassified_aes = 0
+    try:
+        hs_rows = db.session.execute(text(f"""
+            WITH exams AS (
+                SELECT UPPER(TRIM(pps.performing_ae_title))        AS ae,
+                       COALESCE({"m.modality, " if _sec_needs_mod_join else ""}s.study_modality, 'Unknown') AS modality,
+                       pps.start_datetime,
+                       EXTRACT(EPOCH FROM (pps.end_datetime - pps.start_datetime)) / 60 AS mins
+                FROM std_pps pps
+                JOIN etl_didb_studies s ON s.study_db_uid = pps.study_db_uid
+                {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
+                WHERE pps.start_datetime BETWEEN :start AND :end
+                  AND pps.end_datetime IS NOT NULL
+                  AND pps.end_datetime > pps.start_datetime
+                  AND pps.performing_ae_title IS NOT NULL
+                  AND COALESCE({"m.modality, " if _sec_needs_mod_join else ""}s.study_modality, '') != 'SR'
+                  {_sec_filters}
+            ),
+            classified AS (
+                SELECT e.modality,
+                       e.mins,
+                       EXISTS (
+                           SELECT 1
+                           FROM std_device_weekly_windows w
+                           WHERE w.aetitle     = e.ae
+                             AND w.day_of_week = EXTRACT(ISODOW FROM e.start_datetime)::INT - 1
+                             AND w.is_available
+                             AND e.start_datetime::time >= w.from_time
+                             AND e.start_datetime::time <  w.to_time
+                       ) AS in_hours
+                FROM exams e
+            )
+            SELECT modality,
+                   SUM(CASE WHEN in_hours THEN mins ELSE 0 END)     AS inside_mins,
+                   SUM(CASE WHEN in_hours THEN 0 ELSE mins END)     AS outside_mins,
+                   COUNT(*) FILTER (WHERE NOT in_hours)             AS outside_exams,
+                   COUNT(*)                                        AS total_exams
+            FROM classified
+            GROUP BY modality
+        """), params).mappings().all()
+
+        # Denominators come from the same schedule_lookup the matrix above uses, so the
+        # in-hours percentage here and the matrix's Avg Util cannot drift apart.
+        # Each AE contributes opening_mins*occ to its modality's open capacity and
+        # (1440-opening_mins)*occ to its closed capacity.
+        ae_modality = {}
+        if 'modality' in df.columns:
+            for ae_val, sub in df.groupby('aetitle'):
+                mode_mod = sub['modality'].mode()
+                ae_modality[str(ae_val).upper().strip()] = (
+                    mode_mod.iloc[0] if len(mode_mod) else 'Unknown'
+                )
+
+        open_cap, closed_cap = {}, {}
+        for ae_upper, mod in ae_modality.items():
+            has_schedule = False
+            for i in range(7):
+                opening_mins = schedule_lookup.get((ae_upper, i), 0)
+                occ = weekday_counts.get(i, 0)
+                if not occ:
+                    continue
+                if opening_mins:
+                    has_schedule = True
+                open_cap[mod]   = open_cap.get(mod, 0) + opening_mins * occ
+                closed_cap[mod] = closed_cap.get(mod, 0) + (1440 - opening_mins) * occ
+            if not has_schedule:
+                hours_unclassified_aes += 1
+
+        for r in hs_rows:
+            mod  = r['modality'] or 'Unknown'
+            ins  = float(r['inside_mins']  or 0)
+            outs = float(r['outside_mins'] or 0)
+            oc   = open_cap.get(mod, 0)
+            cc   = closed_cap.get(mod, 0)
+            hours_split.append({
+                "modality":       mod,
+                "inside_mins":    int(round(ins)),
+                "outside_mins":   int(round(outs)),
+                "outside_exams":  int(r['outside_exams'] or 0),
+                "total_exams":    int(r['total_exams'] or 0),
+                # None, not 0 — "no schedule for this modality" must not render as
+                # "0% utilised", which would read as an idle device.
+                "inside_util":    round(ins / oc * 100, 1) if oc > 0 else None,
+                "outside_util":   round(outs / cc * 100, 1) if cc > 0 else None,
+            })
+        hours_split.sort(key=lambda r: r['outside_mins'], reverse=True)
+    except Exception:
+        logger.exception("Failed to build opening-hours utilisation split")
+        db.session.rollback()
 
     # TAT percentiles for the whole dataset
     tat_vals_all = df[df['total_tat_min'] > 0]['total_tat_min'] if 'total_tat_min' in df.columns else pd.Series([], dtype=float)
@@ -895,6 +1008,8 @@ def get_gold_standard_data(form_data):
         "ae_tat": ae_tat,
         "rvu_tat": rvu_tat,
         "rvu_tat_technical": rvu_tat_technical,
+        "hours_split": hours_split,
+        "hours_unclassified_aes": hours_unclassified_aes,
         "outlier_studies": outlier_studies,
         "global_mean_tat": global_mean_tat,
         "modality_tat":    modality_tat,

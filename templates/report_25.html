@@ -500,6 +500,66 @@
                     </table>
                 </div>
 
+                <!-- Opening Hours vs After Hours, per modality -->
+                <div class="glass-card !p-0 overflow-hidden">
+                    <div class="flex items-center justify-between p-6 pb-2">
+                        <p class="text-xs font-black text-zinc-500 uppercase">Opening Hours vs After Hours</p>
+                        {% if data.hours_unclassified_aes %}
+                        <span class="outlier-badge">⚠ {{ data.hours_unclassified_aes }} device(s) without a schedule<span class="tooltip">These devices have no opening-hours definition, so their exams cannot be classified and are excluded from the percentages below.</span></span>
+                        {% endif %}
+                    </div>
+                    <p class="px-6 pb-4 text-[11px] text-zinc-500 italic">
+                        Exams are attributed by <span class="not-italic font-bold">start time</span>.
+                        <span class="text-emerald-400 not-italic font-bold">In-hours %</span> is workload against open capacity;
+                        <span class="text-amber-400 not-italic font-bold">after-hours %</span> is workload against the closed window
+                        (24h minus opening hours) &mdash; that denominator is mostly overnight, so a
+                        modality showing even 2&ndash;3% is running real after-hours volume.
+                        Requires RIS exam timestamps; devices without them are excluded, not counted as in-hours.
+                    </p>
+                    {% if data.hours_split %}
+                    <table class="w-full text-sm text-left border-t border-white/5">
+                        <thead class="bg-white/5 text-zinc-500 uppercase font-black text-[11px]">
+                            <tr>
+                                <th class="p-4">Modality</th>
+                                <th class="p-4 text-center text-emerald-500">In-Hours %</th>
+                                <th class="p-4 text-center text-amber-500">After-Hours %</th>
+                                <th class="p-4 text-center">In-Hours Mins</th>
+                                <th class="p-4 text-center">After-Hours Mins</th>
+                                <th class="p-4 text-center">After-Hours Exams</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in data.hours_split %}
+                            <tr class="border-b border-white/5 hover:bg-white/[0.02]">
+                                <td class="p-4 font-bold text-white text-sm">{{ row.modality }}</td>
+                                <td class="p-4 text-center font-black text-sm
+                                    {% if row.inside_util is none %}text-zinc-700
+                                    {% elif row.inside_util > 85 %}text-rose-400
+                                    {% elif row.inside_util > 30 %}text-emerald-400
+                                    {% else %}text-zinc-500{% endif %}">
+                                    {% if row.inside_util is none %}&mdash;{% else %}{{ row.inside_util }}%{% endif %}
+                                </td>
+                                <td class="p-4 text-center font-black text-sm
+                                    {% if row.outside_util is none %}text-zinc-700{% else %}text-amber-400{% endif %}">
+                                    {% if row.outside_util is none %}&mdash;{% else %}{{ row.outside_util }}%{% endif %}
+                                </td>
+                                <td class="p-4 text-center font-mono text-zinc-400 text-sm">{{ "{:,}".format(row.inside_mins) }}</td>
+                                <td class="p-4 text-center font-mono text-amber-500 text-sm">{{ "{:,}".format(row.outside_mins) }}</td>
+                                <td class="p-4 text-center font-mono text-zinc-400 text-sm">
+                                    {{ "{:,}".format(row.outside_exams) }}
+                                    <span class="text-zinc-600 text-[11px]">/ {{ "{:,}".format(row.total_exams) }}</span>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    {% else %}
+                    <p class="px-6 pb-6 text-sm text-zinc-600 italic">
+                        No RIS exam timestamps in this period, so opening-hours attribution is unavailable.
+                    </p>
+                    {% endif %}
+                </div>
+
                 <!-- Best vs Worst AE by Average TAT -->
                 <div class="glass-card">
                     <div class="flex items-center justify-between mb-4">

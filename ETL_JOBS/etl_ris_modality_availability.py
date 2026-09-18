@@ -544,6 +544,96 @@ _COMPUTE_WEEKLY_AVAILABILITY_SQL = text("""
 """)
 
 
+_TRUNCATE_WEEKLY_WINDOWS_SQL = text("TRUNCATE TABLE std_device_weekly_windows")
+
+# Same interval sweep as _COMPUTE_WEEKLY_AVAILABILITY_SQL above, stopping one step
+# earlier: it keeps the resolved non-overlapping slots instead of summing them away.
+# Report 25's opening-hours / after-hours split classifies each exam's start time
+# against these (migration 0113).
+#
+# Both non-available and available slots are stored — is_available carries the
+# distinction — so "closed" stays separable from "reserved for inpatients" later
+# without a schema change.
+_COMPUTE_WEEKLY_WINDOWS_SQL = text("""
+    WITH resolved_items AS (
+        SELECT aetitle, day_of_week, from_time_of_day, to_time_of_day,
+               availability_indicator_key, source_last_updated, schedule_template_item_key
+        FROM std_schedule_template_items
+        WHERE aetitle IS NOT NULL
+          AND from_time_of_day IS NOT NULL AND to_time_of_day IS NOT NULL
+          AND to_time_of_day > from_time_of_day
+    ),
+    breakpoints AS (
+        SELECT aetitle, day_of_week, from_time_of_day AS t FROM resolved_items
+        UNION
+        SELECT aetitle, day_of_week, to_time_of_day AS t FROM resolved_items
+    ),
+    intervals AS (
+        SELECT aetitle, day_of_week, t AS t_start,
+               LEAD(t) OVER (PARTITION BY aetitle, day_of_week ORDER BY t) AS t_end
+        FROM breakpoints
+    ),
+    intervals_clean AS (
+        SELECT * FROM intervals WHERE t_end IS NOT NULL AND t_end > t_start
+    ),
+    winning AS (
+        SELECT ic.aetitle, ic.day_of_week, ic.t_start, ic.t_end, w.availability_indicator_key
+        FROM intervals_clean ic
+        CROSS JOIN LATERAL (
+            SELECT ri.availability_indicator_key
+            FROM resolved_items ri
+            WHERE ri.aetitle = ic.aetitle
+              AND ri.day_of_week = ic.day_of_week
+              AND ri.from_time_of_day <= ic.t_start
+              AND ri.to_time_of_day >= ic.t_end
+            ORDER BY ri.source_last_updated DESC NULLS LAST, ri.schedule_template_item_key DESC
+            LIMIT 1
+        ) w
+    )
+    INSERT INTO std_device_weekly_windows
+        (aetitle, day_of_week, from_time, to_time, is_available, last_update)
+    SELECT aetitle,
+           (day_of_week + 6) % 7 AS rayd_day_of_week,
+           t_start,
+           t_end,
+           (availability_indicator_key = 1) AS is_available,
+           NOW()
+    FROM winning
+    ON CONFLICT (aetitle, day_of_week, from_time) DO NOTHING
+""")
+
+
+def run_device_weekly_windows_etl(pg_engine):
+    """
+    Rebuilds std_device_weekly_windows — the resolved opening-hour slots per device and
+    weekday (migration 0113), which is what lets Report 25 tell an in-hours exam from an
+    after-hours one.
+
+    Split from run_device_weekly_availability_etl rather than folded into it: that job
+    owns the utilization DENOMINATOR (minutes per day) and is depended on by the capacity
+    ladder, so a failure here must not take it down with it. Both run off the identical
+    sweep, so they cannot disagree about what "available" means.
+
+    Full TRUNCATE + rebuild every pass, same reason as its sibling — schedules change
+    almost weekly and a stale window would silently misclassify exams.
+    """
+    log_id, start_time = _log_job(pg_engine, "DEVICE_WEEKLY_WINDOWS_ETL")
+    total, status, error_msg = 0, "SUCCESS", None
+    try:
+        with pg_engine.begin() as conn:
+            conn.execute(_TRUNCATE_WEEKLY_WINDOWS_SQL)
+            r = conn.execute(_COMPUTE_WEEKLY_WINDOWS_SQL)
+            total = r.rowcount
+        print(f"[Device Weekly Windows ETL] ✅ Done — {total:,} device/day windows computed")
+    except Exception as e:
+        status, error_msg = "FAILED", str(e)
+        logging.error(f"Device Weekly Windows ETL error: {error_msg}")
+        raise
+    finally:
+        _close_job(pg_engine, log_id, start_time, status, total, error_msg)
+    return total
+
+
 def run_device_weekly_availability_etl(pg_engine):
     """
     Computes std_device_weekly_availability — simple Available-minutes-per-weekday per
