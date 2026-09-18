@@ -1817,6 +1817,28 @@
                 });
         }
 
+        // Role badge tints. Keys are std_resources_ris.role_code (migration 0085).
+        // Anything not listed falls back to a neutral slate tint rather than being
+        // hidden — an unmapped role still tells the reader who did the step.
+        const ROLE_TINT = {
+            REC:   'rgba(56,189,248,0.22)',   // Receptionist
+            CLERK: 'rgba(56,189,248,0.22)',
+            TEC:   'rgba(16,185,129,0.22)',   // Technologist
+            NUR:   'rgba(16,185,129,0.22)',
+            TRA:   'rgba(168,85,247,0.22)',   // Transcriptionist
+            RES:   'rgba(251,191,36,0.22)',   // Resident
+            RAD:   'rgba(99,102,241,0.28)',   // Radiologist
+            ATT:   'rgba(99,102,241,0.28)',   // Attending
+            VRAD:  'rgba(99,102,241,0.28)',
+        };
+
+        function fmtDay(d) {
+            try {
+                return new Date(d + 'T00:00:00').toLocaleDateString(undefined,
+                    { weekday: 'short', day: '2-digit', month: 'short' });
+            } catch (e) { return d; }
+        }
+
         const JOURNEY_META = {
             order_received: { icon: 'bi-file-earmark-text',  color: 'text-zinc-400',   bg: 'bg-zinc-500/15',   label: 'Order Received'         },
             scheduled:      { icon: 'bi-calendar-check',     color: 'text-sky-400',    bg: 'bg-sky-500/15',    label: 'Exam Scheduled'         },
@@ -1932,7 +1954,10 @@
             }
 
             // ── Timeline ──────────────────────────────────────────────────
-            const timeline = s.events.map((ev, i) => {
+            // renderEvent takes the index within the FLAT event list, because the gap
+            // badge means "time since the previous event" and must stay continuous
+            // across a day boundary rather than restarting inside each group.
+            const renderEvent = (ev, i) => {
                 const m = JOURNEY_META[ev.type] || { icon:'bi-dot', color:'text-zinc-500', bg:'bg-zinc-700/30', label: ev.label || ev.type };
                 const gapBig  = ev.gap_min > 240;
                 const gapWarn = ev.gap_min > 60;
@@ -1956,12 +1981,36 @@
                         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                             <span class="text-xs font-black ${m.color}">${esc(ev.label || m.label)}</span>
                             ${ev.by ? `<span style="font-size:10px;color:#71717a">· <span style="color:#a1a1aa;font-weight:700">${esc(ev.by)}</span></span>` : ''}
+                            ${ev.role ? `<span style="font-size:9px;font-weight:900;letter-spacing:0.04em;padding:1px 5px;border-radius:4px;
+                                   background:${ROLE_TINT[ev.role] || 'rgba(148,163,184,0.15)'};color:#e4e4e7">${esc(ev.role)}</span>` : ''}
                             ${ev.detail ? `<span style="font-size:10px;padding:1px 6px;border-radius:4px;background:rgba(255,255,255,0.04);color:#52525b">${esc(ev.detail)}</span>` : ''}
                         </div>
                         <span style="font-size:10px;font-family:monospace;color:#52525b">${fmtTs(ev.ts)}</span>
                     </div>
                 </div>`;
-            }).join('');
+            };
+
+            // Group under date headers when the journey spans more than one day.
+            // Single-day journeys keep the original flat look — a lone date header
+            // above one block is noise.
+            let timeline;
+            if (s.days && s.days.length > 1) {
+                let idx = 0;
+                timeline = s.days.map(d => {
+                    const body = d.events.map(ev => renderEvent(ev, idx++)).join('');
+                    const carried = (d.carried_gap_min !== null && d.carried_gap_min !== undefined)
+                        ? `<span style="font-size:9px;font-family:monospace;color:#52525b">+${fmtGap(d.carried_gap_min)} since previous</span>` : '';
+                    return `
+                        <div style="display:flex;align-items:center;gap:8px;margin:14px 0 8px">
+                            <span style="font-size:10px;font-weight:900;letter-spacing:0.06em;text-transform:uppercase;color:#a1a1aa">${esc(fmtDay(d.day))}</span>
+                            <div style="flex:1;height:1px;background:rgba(255,255,255,0.07)"></div>
+                            ${carried}
+                        </div>
+                        ${body}`;
+                }).join('');
+            } else {
+                timeline = s.events.map(renderEvent).join('');
+            }
 
             const descLine = s.description
                 ? `<p style="font-size:11px;color:#52525b;font-style:italic;margin-top:4px">${esc(s.description)}</p>` : '';

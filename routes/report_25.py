@@ -1480,7 +1480,16 @@ def patient_journey_api():
                 NULLIF(TRIM(CONCAT(
                     COALESCE(s.signing_physician_first_name,''), ' ',
                     COALESCE(s.signing_physician_last_name,'')
-                )), '')                                                            AS radiologist
+                )), '')                                                            AS radiologist,
+                -- Identifiers for role resolution below. signing/reading_physician_id are
+                -- the ones migration 0063 documents as matching std_resources_ris
+                -- .resource_id; the *_signed_by / *_composed_by / *_transcribed_by values
+                -- are PACS username strings that may or may not, so they are resolved
+                -- best-effort and fall back to showing the raw value.
+                s.signing_physician_id,
+                s.reading_physician_id,
+                s.rep_prelim_signed_by,
+                s.rep_transcribed_by
             FROM etl_didb_studies s
             LEFT JOIN aetitle_modality_map m
                 ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
@@ -1517,6 +1526,77 @@ def patient_journey_api():
             except Exception:
                 db.session.rollback()
 
+        # ── Resource / role resolution ───────────────────────────────────────
+        # "Who did this step, and in what capacity" (operator request 2026-09-18).
+        # std_resources_ris.role_code is already resolved from the vendor RESOURCE_ROLE
+        # map (migration 0085 / etl_ris_resources.py): REC Receptionist, CLERK, TEC
+        # Technologist, TRA Transcriptionist, RES Resident, RAD Radiologist, ATT
+        # Attending, NUR Nurse, and eight more.
+        #
+        # A person carries MULTIPLE resource rows — one per role/site/assignment
+        # (migration 0085:10-13) — so resource_id is NOT unique and a plain join here
+        # would duplicate journey events for anyone holding two roles. Roles are
+        # aggregated per identifier instead, which both removes the fan-out and is more
+        # honest than picking one arbitrarily: a resident who also signs as a
+        # radiologist shows "RES/RAD" rather than whichever row sorted first.
+        ident_pool = set()
+        for r in study_rows:
+            for k in ('signing_physician_id', 'reading_physician_id',
+                      'rep_prelim_signed_by', 'rep_transcribed_by', 'final_by'):
+                v = (r.get(k) or '').strip()
+                if v:
+                    ident_pool.add(v.upper())
+
+        people = {}   # UPPER(identifier) -> {'name': ..., 'roles': 'RES/RAD'}
+        if ident_pool:
+            try:
+                res_rows = db.session.execute(text("""
+                    SELECT UPPER(TRIM(resource_id)) AS ident,
+                           MIN(NULLIF(TRIM(CONCAT(COALESCE(first_name,''), ' ',
+                                                  COALESCE(last_name,''))), '')) AS name,
+                           STRING_AGG(DISTINCT role_code, '/' ORDER BY role_code)  AS roles,
+                           STRING_AGG(DISTINCT role_description, ', ' ORDER BY role_description) AS role_desc
+                    FROM std_resources_ris
+                    WHERE resource_id IS NOT NULL
+                      AND UPPER(TRIM(resource_id)) = ANY(:idents)
+                    GROUP BY UPPER(TRIM(resource_id))
+                """), {'idents': list(ident_pool)}).mappings().fetchall()
+                people = {r['ident']: dict(r) for r in res_rows}
+            except Exception:
+                db.session.rollback()
+
+        # Technologists on the performed procedure step. std_pps_person_reference is
+        # PPS-scoped, so it answers "who ran the scanner" — a different question from
+        # the report-chain signers above, and the only source for it. Same join
+        # report_35.py:268 already uses.
+        techs_map = {}
+        if study_ids:
+            try:
+                tech_rows = db.session.execute(text("""
+                    SELECT p.study_db_uid,
+                           STRING_AGG(DISTINCT NULLIF(TRIM(CONCAT(
+                               COALESCE(r.first_name,''), ' ', COALESCE(r.last_name,''))), ''),
+                               ', ') AS techs
+                    FROM std_pps p
+                    JOIN std_pps_person_reference ppr ON ppr.pps_key = p.pps_key
+                    JOIN std_resources_ris r          ON r.resource_id_key = ppr.resource_id_key
+                    WHERE p.study_db_uid = ANY(:sids)
+                      AND r.role_code = 'TEC'
+                    GROUP BY p.study_db_uid
+                """), {'sids': study_ids}).mappings().fetchall()
+                techs_map = {r['study_db_uid']: r['techs'] for r in tech_rows if r['techs']}
+            except Exception:
+                db.session.rollback()
+
+        def _person(ident, fallback_name=None):
+            """(display_name, role_label) for an identifier, or the raw value unresolved."""
+            if not ident:
+                return (fallback_name, None)
+            p = people.get(str(ident).strip().upper())
+            if not p:
+                return (fallback_name or str(ident), None)
+            return (p.get('name') or fallback_name or str(ident), p.get('roles'))
+
         # ── Batch fetch hl7_orders (1 query for all accessions) ──────────────
         orders_map = {}  # accn -> list of order dicts
         try:
@@ -1541,7 +1621,7 @@ def patient_journey_api():
             db.session.rollback()
 
         # ── Build timeline per accession (pure Python, no more DB calls) ─────
-        def _ev(events, ts, ev_type, label, detail='', by=None):
+        def _ev(events, ts, ev_type, label, detail='', by=None, role=None):
             if ts is None:
                 return
             events.append({
@@ -1550,6 +1630,7 @@ def patient_journey_api():
                 'label':  label,
                 'detail': detail,
                 'by':     str(by) if by else None,
+                'role':   role,
             })
 
         results = []
@@ -1574,17 +1655,38 @@ def patient_journey_api():
 
             # Real RIS PPS timestamps (when the PPS enrichment job has matched
             # this study) -- the reliable replacement for the old estimated
-            # "true entry" time.
+            # "true entry" time. Technologist comes from std_pps_person_reference,
+            # the only source that says who actually ran the scanner.
+            tech_names = techs_map.get(study.get('study_db_uid'))
             _ev(events, pps.get('pps_start'), 'pps_start', 'Exam Started (RIS PPS)',
-                f"Modality: {study.get('modality','')}")
-            _ev(events, pps.get('pps_end'),   'pps_end',   'Exam Completed (RIS PPS)', '')
+                f"Modality: {study.get('modality','')}", tech_names, 'TEC' if tech_names else None)
+            _ev(events, pps.get('pps_end'),   'pps_end',   'Exam Completed (RIS PPS)', '',
+                tech_names, 'TEC' if tech_names else None)
 
             _ev(events, study.get('insert_time'),               'pacs_in',     'Arrived in PACS',
                 f"Modality: {study.get('modality','')}")
-            _ev(events, study.get('rep_prelim_timestamp'),      'prelim',      'Preliminary Report', '')
-            _ev(events, study.get('rep_transcribed_timestamp'), 'transcribed', 'Transcribed', '')
-            _ev(events, study.get('final_ts'),                  'final',       'Final Report Signed',
-                '', study.get('radiologist') or study.get('final_by_display') or study.get('final_by'))
+
+            # Prelim and transcription carried no attribution at all before — the
+            # prelim signer is usually the resident, which is precisely the
+            # distinction the customer asked to see.
+            _prelim_by, _prelim_role = _person(study.get('rep_prelim_signed_by'))
+            _ev(events, study.get('rep_prelim_timestamp'), 'prelim', 'Preliminary Report', '',
+                _prelim_by, _prelim_role)
+
+            _trans_by, _trans_role = _person(study.get('rep_transcribed_by'))
+            _ev(events, study.get('rep_transcribed_timestamp'), 'transcribed', 'Transcribed', '',
+                _trans_by, _trans_role)
+
+            # Prefer the PACS name fields for display (already human-readable), but take
+            # the ROLE from whichever identifier resolves — signing_physician_id is the
+            # one migration 0063 documents as matching std_resources_ris.resource_id.
+            _final_name, _final_role = _person(study.get('signing_physician_id'))
+            if not _final_role:
+                _final_name, _final_role = _person(study.get('final_by'))
+            _ev(events, study.get('final_ts'), 'final', 'Final Report Signed', '',
+                study.get('radiologist') or study.get('final_by_display')
+                    or _final_name or study.get('final_by'),
+                _final_role)
 
             events.sort(key=lambda x: x['ts'])
             for i in range(1, len(events)):
@@ -1595,6 +1697,24 @@ def patient_journey_api():
                 except Exception:
                     events[i]['gap_min'] = None
 
+            # Day grouping (operator request 2026-09-18). An inpatient journey routinely
+            # spans several days, and a flat timeline makes "ordered Monday, scanned
+            # Tuesday, reported Thursday" hard to see. Days are derived from the sorted
+            # events, so the grouping cannot disagree with the timeline; `events` is
+            # still returned flat so nothing already reading it breaks.
+            days = []
+            for ev in events:
+                day_key = str(ev['ts'])[:10]
+                if not days or days[-1]['day'] != day_key:
+                    days.append({'day': day_key, 'events': []})
+                days[-1]['events'].append(ev)
+            # The gap carried on the first event of a day is the gap from the PREVIOUS
+            # day's last event — useful, but it reads as an intra-day delay once the
+            # events are split under date headers, so it is surfaced separately.
+            for d in days[1:]:
+                if d['events']:
+                    d['carried_gap_min'] = d['events'][0].get('gap_min')
+
             results.append({
                 'accession':        accn,
                 'study_date':       study.get('study_date', ''),
@@ -1604,6 +1724,8 @@ def patient_journey_api():
                 'patient_location': study.get('patient_location', ''),
                 'description':      study.get('study_description', ''),
                 'events':           events,
+                'days':             days,
+                'day_count':        len(days),
             })
 
         results.sort(key=lambda x: x['study_date'], reverse=True)
