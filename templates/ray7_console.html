@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RAY7 — HL7 Screening Console</title>
+<style>
+  :root {
+    --bg:#0d0f14; --surface:#13161e; --surface2:#171b25; --border:#1e2330;
+    --border2:#252a38; --text:#c8cdd8; --text-dim:#5a6070; --text-bright:#eef0f5;
+    --accent:#00b4d8; --green:#00c896; --yellow:#f4b942; --red:#e05c5c;
+    --mono:'IBM Plex Mono',ui-monospace,Consolas,monospace;
+    --sans:'IBM Plex Sans',system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px}
+  a{color:var(--accent);text-decoration:none}
+  header{padding:18px 24px;border-bottom:1px solid var(--border);display:flex;
+         align-items:baseline;gap:14px;flex-wrap:wrap}
+  h1{margin:0;font-size:19px;color:var(--text-bright);letter-spacing:.5px}
+  .sub{color:var(--text-dim);font-size:12px}
+  .wrap{padding:20px 24px;max-width:1500px}
+
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:22px}
+  .tile{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:14px 16px}
+  .tile .n{font-size:26px;font-weight:600;font-family:var(--mono);color:var(--text-bright);line-height:1.1}
+  .tile .l{font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.7px;margin-top:5px}
+  .tile.crit .n{color:var(--red)} .tile.warn .n{color:var(--yellow)}
+  .tile.ok .n{color:var(--green)} .tile.q .n{color:var(--red)}
+
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:1px;color:var(--text-dim);
+     margin:26px 0 10px;font-weight:600}
+  table{width:100%;border-collapse:collapse;background:var(--surface);
+        border:1px solid var(--border);border-radius:6px;overflow:hidden}
+  th{text-align:left;padding:9px 12px;font-size:11px;text-transform:uppercase;
+     letter-spacing:.6px;color:var(--text-dim);background:var(--surface2);
+     border-bottom:1px solid var(--border2);font-weight:600}
+  td{padding:9px 12px;border-bottom:1px solid var(--border);vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  tr:hover td{background:var(--surface2)}
+  .mono{font-family:var(--mono);font-size:12px}
+  .dim{color:var(--text-dim)}
+
+  .sev{display:inline-block;padding:2px 8px;border-radius:3px;font-size:10px;
+       text-transform:uppercase;letter-spacing:.6px;font-weight:600}
+  .sev.critical{background:rgba(224,92,92,.15);color:var(--red);border:1px solid rgba(224,92,92,.35)}
+  .sev.warning{background:rgba(244,185,66,.12);color:var(--yellow);border:1px solid rgba(244,185,66,.3)}
+  .sev.info{background:rgba(90,96,112,.15);color:var(--text-dim);border:1px solid var(--border2)}
+
+  .filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+  select,input[type=search],button{background:var(--surface);color:var(--text);
+     border:1px solid var(--border2);border-radius:4px;padding:6px 10px;font-family:var(--sans);font-size:13px}
+  button{cursor:pointer}
+  button:hover{border-color:var(--accent);color:var(--text-bright)}
+  .pill{padding:3px 9px;border:1px solid var(--border2);border-radius:11px;font-size:11px;
+        color:var(--text-dim);cursor:pointer}
+  .pill:hover,.pill.on{border-color:var(--accent);color:var(--accent)}
+
+  .detail{font-family:var(--mono);font-size:11px;color:var(--text-dim);
+          max-width:520px;word-break:break-word;line-height:1.5}
+  .empty{padding:26px;text-align:center;color:var(--text-dim);background:var(--surface);
+         border:1px dashed var(--border2);border-radius:6px}
+
+  dialog{background:var(--surface);color:var(--text);border:1px solid var(--border2);
+         border-radius:8px;max-width:940px;width:92%;padding:0}
+  dialog::backdrop{background:rgba(0,0,0,.72)}
+  .dh{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;
+      justify-content:space-between;align-items:center}
+  .db{padding:16px 18px;max-height:66vh;overflow:auto}
+  pre{background:var(--bg);border:1px solid var(--border);border-radius:5px;
+      padding:12px;font-family:var(--mono);font-size:11.5px;line-height:1.65;
+      overflow-x:auto;color:var(--text);margin:0}
+  .kv{display:grid;grid-template-columns:150px 1fr;gap:5px 14px;font-size:12px;margin-bottom:14px}
+  .kv .k{color:var(--text-dim)}
+</style>
+</head>
+<body>
+<header>
+  <h1>RAY7</h1>
+  <span class="sub">HL7 screening — every message is inspected before it reaches the reporting tables</span>
+</header>
+
+<div class="wrap">
+
+  {% set s = summary %}
+  <div class="tiles">
+    <div class="tile {% if s.open_critical %}crit{% else %}ok{% endif %}">
+      <div class="n">{{ s.open_critical or 0 }}</div><div class="l">Open critical</div></div>
+    <div class="tile {% if s.open_warning %}warn{% endif %}">
+      <div class="n">{{ s.open_warning or 0 }}</div><div class="l">Open warning</div></div>
+    <div class="tile"><div class="n">{{ s.open_info or 0 }}</div><div class="l">Open info</div></div>
+    <div class="tile {% if s.quarantined %}q{% endif %}">
+      <div class="n">{{ s.quarantined or 0 }}</div><div class="l">Quarantined</div></div>
+    <div class="tile"><div class="n">{{ s.messages or 0 }}</div><div class="l">Messages archived</div></div>
+    <div class="tile"><div class="n">{{ s.last_24h or 0 }}</div><div class="l">Last 24 hours</div></div>
+    <div class="tile"><div class="n">{{ s.studies or 0 }}</div><div class="l">Studies tracked</div></div>
+    <div class="tile"><div class="n">{{ s.resolved or 0 }}</div><div class="l">Resolved</div></div>
+  </div>
+
+  {% if not s.messages %}
+    <div class="empty">
+      <strong>No messages have ever been received.</strong><br>
+      RAY7 is running and has nothing to screen. On this branch that is almost always the
+      interface rather than the application: confirm the senders are pointed at port 6661
+      on this host and that the firewall allows them.
+    </div>
+  {% endif %}
+
+  {% if quarantine %}
+  <h2>Quarantined — data withheld from the reporting tables</h2>
+  <table>
+    <tr><th>Received</th><th>Source</th><th>Type</th><th>Control ID</th><th>Reason</th><th></th></tr>
+    {% for q in quarantine %}
+    <tr>
+      <td class="mono dim">{{ q.received_at.strftime('%Y-%m-%d %H:%M') if q.received_at }}</td>
+      <td class="mono">{{ q.sending_app }}</td>
+      <td class="mono dim">{{ q.message_type }}</td>
+      <td class="mono">{{ q.message_control_id }}</td>
+      <td><span class="sev critical">{{ q.reasons or 'critical' }}</span></td>
+      <td><button onclick="showMessage({{ q.id }})">Raw message</button></td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+
+  <h2>Findings</h2>
+  <form class="filters" method="get">
+    <input type="search" name="q" placeholder="accession, patient or control ID" value="{{ search }}">
+    <select name="severity">
+      <option value="">All severities</option>
+      {% for sv in ['critical','warning','info'] %}
+      <option value="{{ sv }}" {% if severity==sv %}selected{% endif %}>{{ sv }}</option>
+      {% endfor %}
+    </select>
+    <select name="rule">
+      <option value="">All rules</option>
+      {% for r in rule_counts %}
+      <option value="{{ r.rule_code }}" {% if rule==r.rule_code %}selected{% endif %}>
+        {{ r.rule_code }} ({{ r.n }})</option>
+      {% endfor %}
+    </select>
+    <select name="show">
+      {% for v,l in [('open','Open only'),('resolved','Resolved only'),('all','Everything')] %}
+      <option value="{{ v }}" {% if show==v %}selected{% endif %}>{{ l }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit">Filter</button>
+    <a class="pill" href="/ray7">Reset</a>
+  </form>
+
+  {% if findings %}
+  <table>
+    <tr><th>Severity</th><th>Rule</th><th>Accession</th><th>Detail</th>
+        <th>When</th><th>Status</th><th></th></tr>
+    {% for f in findings %}
+    <tr>
+      <td><span class="sev {{ f.severity }}">{{ f.severity }}</span></td>
+      <td><span class="mono">{{ f.rule_code }}</span>
+          {% if f.title %}<div class="dim" style="font-size:11px">{{ f.title }}</div>{% endif %}</td>
+      <td class="mono">{{ f.accession_number or '—' }}</td>
+      <td class="detail">{{ f.detail }}</td>
+      <td class="mono dim">{{ f.created_at.strftime('%m-%d %H:%M') if f.created_at }}</td>
+      <td>{% if f.resolved_at %}<span class="dim">{{ f.resolution }}</span>
+          {% else %}<span style="color:var(--yellow)">open</span>{% endif %}</td>
+      <td>
+        {% if f.message_archive_id %}
+          <button onclick="showMessage({{ f.message_archive_id }})">Message</button>
+        {% endif %}
+        {% if not f.resolved_at %}
+          <button onclick="resolveFinding({{ f.id }})">Resolve</button>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+    <div class="empty">No findings match these filters.</div>
+  {% endif %}
+</div>
+
+<dialog id="dlg">
+  <div class="dh">
+    <strong id="dlgTitle" class="mono">Message</strong>
+    <button onclick="document.getElementById('dlg').close()">Close</button>
+  </div>
+  <div class="db" id="dlgBody"></div>
+</dialog>
+
+<script>
+const esc = s => String(s == null ? '' : s).replace(/[&<>]/g,
+  c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+async function showMessage(id) {
+  const dlg = document.getElementById('dlg');
+  document.getElementById('dlgTitle').textContent = 'Archive #' + id;
+  document.getElementById('dlgBody').innerHTML = '<div class="dim">Loading…</div>';
+  dlg.showModal();
+  try {
+    const r = await fetch('/ray7/message/' + id);
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+
+    const meta = [
+      ['Control ID', d.message_control_id], ['Sending app', d.sending_app],
+      ['Facility', d.sending_facility], ['Type', d.message_type],
+      ['HL7 version', d.hl7_version], ['Sender clock', d.message_datetime],
+      ['Received', d.received_at], ['Source IP', d.source_ip],
+      ['RAY7 status', d.ray7_status], ['Projected at', d.projected_at || 'not projected'],
+      ['Parse status', d.parse_status], ['Parse error', d.parse_error || '—'],
+    ].map(([k, v]) => `<div class="k">${esc(k)}</div><div class="mono">${esc(v)}</div>`).join('');
+
+    const findings = (d.findings || []).map(f =>
+      `<div style="margin-bottom:7px">
+         <span class="sev ${esc(f.severity)}">${esc(f.severity)}</span>
+         <span class="mono"> ${esc(f.rule_code)}</span>
+         <div class="detail">${esc(JSON.stringify(f.detail))}</div>
+       </div>`).join('') || '<div class="dim">No findings.</div>';
+
+    // One segment per line. The wire format is CR-delimited, which a browser
+    // would otherwise render as a single unreadable line.
+    const segs = (d.segments || []).map(esc).join('\n');
+
+    document.getElementById('dlgBody').innerHTML =
+      `<div class="kv">${meta}</div>
+       <h2 style="margin-top:0">Findings</h2>${findings}
+       <h2>Raw message, exactly as received</h2><pre>${segs}</pre>`;
+  } catch (e) {
+    document.getElementById('dlgBody').innerHTML =
+      '<div class="dim">Could not load message: ' + esc(e.message) + '</div>';
+  }
+}
+
+async function resolveFinding(id) {
+  if (!confirm('Close this finding?\n\nThis does not re-admit withheld data. To do that, '
+             + 'fix the cause and replay: python app.py -m')) return;
+  const r = await fetch('/ray7/finding/' + id + '/resolve', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({resolution: 'cleared'})
+  });
+  if (r.ok) location.reload();
+  else alert('Could not resolve that finding.');
+}
+</script>
+</body>
+</html>

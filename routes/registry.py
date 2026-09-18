@@ -338,6 +338,15 @@ def register_blueprints(app):
     app.register_blueprint(ai_alerts_bp)
     logger.info("  ai_alerts: enabled")
 
+    # ── RAY7 console (always on — operational, not a licensed feature) ────
+    # Deliberately not license-gated. RAY7 screens every inbound message and can
+    # withhold data from the reporting tables; an install that cannot see WHY its
+    # numbers are short is an install nobody can support. Access is restricted
+    # inside the blueprint instead — admin, or the existing can_view_etl grant.
+    from routes.ray7_console import ray7_bp
+    app.register_blueprint(ray7_bp)
+    logger.info("  ray7_console: enabled")
+
     # ── Inject license into templates ─────────────────────────
     @app.context_processor
     def inject_license():
