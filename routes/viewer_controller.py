@@ -461,18 +461,26 @@ def yesterday_overview():
         physicians = [{"name": r[0], "count": r[1]} for r in phys_rows]
 
         # ── Query 2b: AE by study count ────────────────────────────────
+        # Labelled, unlike before: this tab showed the bare storing_ae while every
+        # other surface at least tried COALESCE(display_aetitle, aetitle). room_name
+        # is the RIS MODALITY.STATION_NAME that etl_ris_modality.py already loads and
+        # that was, until now, only ever visible on the mapping page.
+        # Grouped by the AE (the identity) and labelled separately, so two spellings
+        # of one device can never split into two bars.
         ae_rows = rows(f"""
-            SELECT s.storing_ae AS ae, COUNT(*)::int AS count
+            SELECT s.storing_ae AS ae,
+                   COALESCE(MAX(m.display_aetitle), MAX(m.room_name), s.storing_ae) AS label,
+                   COUNT(*)::int AS count
             FROM etl_didb_studies s
             LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
             WHERE s.study_date = CURRENT_DATE - 1
               AND s.storing_ae IS NOT NULL
               AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
               {site_clause}
-            GROUP BY 1
-            ORDER BY 2 DESC
+            GROUP BY s.storing_ae
+            ORDER BY 3 DESC
         """, site_params)
-        ae_by_count_raw = [{"ae": r[0], "count": r[1]} for r in ae_rows]
+        ae_by_count_raw = [{"ae": r[0], "label": r[1], "count": r[2]} for r in ae_rows]
 
         # ── Query 3: AE utilisation (join-heavy, kept separate) ────────
         ae_by_util = rows(f"""
@@ -500,8 +508,12 @@ def yesterday_overview():
                 DESC
         """, site_params)
 
+        # Same label resolution as the count list above, so the Procedures and
+        # Utilization toggles can never show the same device under two different names.
+        _ae_labels = {r["ae"]: r["label"] for r in ae_by_count_raw}
         util_list = [
-            {"ae": r[0], "used_min": int(r[1] or 0), "cap_min": int(r[2] or 0),
+            {"ae": r[0], "label": _ae_labels.get(r[0], r[0]),
+             "used_min": int(r[1] or 0), "cap_min": int(r[2] or 0),
              "util_pct": round(int(r[1] or 0) / int(r[2]) * 100, 1) if r[2] else 0}
             for r in ae_by_util
         ]

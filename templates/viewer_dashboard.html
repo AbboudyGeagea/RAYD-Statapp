@@ -96,7 +96,9 @@
                     <div id="yest-content" class="hidden space-y-6">
 
                         <!-- KPI Row -->
-                        <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4" id="yest-kpis"></div>
+                        <!-- 8 cards since peak hour split into PACS + RIS; 2/4/8 divides
+                             evenly at every breakpoint so no card ever wraps alone. -->
+                        <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4" id="yest-kpis"></div>
 
                         <!-- Middle row: Physicians + AE tabs -->
                         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -404,11 +406,11 @@
             // AE by count
             const maxAeCount = d.ae_by_count.length ? d.ae_by_count[0].count : 1;
             document.getElementById('yest-ae-count').innerHTML =
-                d.ae_by_count.map(a => bar(a.ae, a.count, maxAeCount, '#22c55e', ' studies')).join('') || '<p style="color:#64748b;font-size:13px;">No data</p>';
+                d.ae_by_count.map(a => bar(a.label || a.ae, a.count, maxAeCount, '#22c55e', ' studies')).join('') || '<p style="color:#64748b;font-size:13px;">No data</p>';
 
             // AE by utilization
             document.getElementById('yest-ae-util').innerHTML =
-                d.ae_by_util.map(a => bar(a.ae, a.util_pct, 100, '#22c55e', '%')).join('') || '<p style="color:#64748b;font-size:13px;">No utilization data</p>';
+                d.ae_by_util.map(a => bar(a.label || a.ae, a.util_pct, 100, '#22c55e', '%')).join('') || '<p style="color:#64748b;font-size:13px;">No utilization data</p>';
 
             // Orders vs PACS reconciliation
             if (d.orders_link) {
