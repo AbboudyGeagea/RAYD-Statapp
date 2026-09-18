@@ -879,15 +879,38 @@ if __name__ == '__main__':
 
     # MANUAL TRIGGER: python app.py -m
     #
-    # HL7 BRANCH: this used to run the Oracle ETL. It is reserved for the projector
-    # replay — re-running the stored raw HL7 messages through the parsers to rebuild
-    # the etl_* tables after a parser fix, without asking the hospital to re-send
-    # anything. The replay itself lands in week 2; until then this reports honestly
-    # rather than silently doing nothing.
+    # HL7 BRANCH: this used to run the Oracle ETL. It now runs the projector replay
+    # — re-reading the archived raw messages and rebuilding everything derived from
+    # them, so a parser fix applies retroactively instead of only to future traffic.
+    #
+    #   python app.py -m                     replay everything
+    #   python app.py -m --since 1500        only archive ids above 1500
+    #   python app.py -m --limit 200         only the first 200
+    #   python app.py -m --dry-run           count what would be replayed
+    #   python app.py -m --no-rescreen       rebuild data, keep existing findings
     if len(sys.argv) > 1 and sys.argv[1] == '-m':
-        print("❌ There is no Oracle ETL on the HL7 distribution branch.")
-        print("   This entry point is reserved for the HL7 projector replay, which is")
-        print("   not implemented yet. Data arrives via the MLLP listener on port 6661.")
-        sys.exit(1)
+        args = sys.argv[2:]
+
+        def _opt(name, cast=int, default=None):
+            if name in args:
+                try:
+                    return cast(args[args.index(name) + 1])
+                except (IndexError, ValueError):
+                    print(f"❌ {name} needs a value")
+                    sys.exit(2)
+            return default
+
+        from utils.hl7_replay import replay
+        print("🔁 HL7 projector replay")
+        stats = replay(
+            app,
+            limit=_opt('--limit'),
+            since_id=_opt('--since', default=0),
+            rescreen='--no-rescreen' not in args,
+            dry_run='--dry-run' in args,
+        )
+        for k, v in stats.items():
+            print(f"   {k:12} {v}")
+        sys.exit(0 if not stats.get('failed') else 1)
     else:
         app.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)
