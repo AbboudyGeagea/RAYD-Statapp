@@ -27,11 +27,46 @@ cancellation: those are the transitions with no home anywhere else.
 """
 import json
 import logging
+import time
 
 from sqlalchemy import text
 from db import db
 
 logger = logging.getLogger("HL7_INGEST")
+
+
+_PACS_APP = {'at': 0.0, 'value': None}
+
+
+def is_pacs_sender(sending_app):
+    """
+    Is this message from the PACS rather than the RIS?
+
+    The two send byte-identical completion messages — ORM^O01, ORC-1=SC,
+    ORC-5=CM — that mean entirely different things: the RIS means the exam
+    finished, the PACS means the images arrived. Nothing in the message
+    distinguishes them, so settings.hl7_pacs_sending_app names the PACS by MSH-3.
+
+    Unset returns False, so an unconfigured install treats every completion as a
+    RIS exam-done. That is the conservative direction: turnaround time stays
+    correct and the PACS transfer-lag figure is simply absent, rather than
+    turnaround being silently computed from an image-arrival timestamp.
+    """
+    now = time.time()
+    if _PACS_APP['value'] is not None and (now - _PACS_APP['at']) < 300:
+        configured = _PACS_APP['value']
+    else:
+        try:
+            row = db.session.execute(text(
+                "SELECT value FROM settings WHERE key = 'hl7_pacs_sending_app'")).first()
+            configured = (row[0] if row else '') or ''
+            _PACS_APP['value'] = configured
+            _PACS_APP['at'] = now
+        except Exception:
+            configured = _PACS_APP['value'] or ''
+    if not configured:
+        return False
+    return (sending_app or '').strip().upper() == configured.strip().upper()
 
 
 _ARCHIVE_SQL = """
@@ -269,6 +304,14 @@ def update_study_state(msg):
     if not column or msg.ladder_rank is None:
         return
 
+    # A completion from the PACS means "images stored", not "exam done". Both
+    # arrive as ORC-5=CM and only the sender tells them apart, so it is redirected
+    # to its own column here. Without this the PACS timestamp would overwrite the
+    # clinical one and every turnaround figure would quietly be measuring image
+    # transfer instead of radiology.
+    if column == 'completed_at' and is_pacs_sender(msg.sending_app):
+        column = 'pacs_completed_at'
+
     sql = """
         INSERT INTO ray7_study_state
             (accession_number, placer_order_number, patient_id, modality, aetitle,
@@ -284,7 +327,8 @@ def update_study_state(msg):
              -- rungs never arrived, which is exactly the case the absence sweep
              -- cares about — would otherwise stay open forever and be re-reported
              -- as stalled every time the sweep ran.
-             :rank, 1, (:rank >= 100 OR :state = 'cancelled'), NOW(), :event_time, NOW())
+             :rank, 1, (:rank >= 100 AND :col <> 'pacs_completed_at')
+                       OR :state = 'cancelled', NOW(), :event_time, NOW())
         ON CONFLICT (accession_number) DO UPDATE SET
             {col}               = COALESCE(ray7_study_state.{col}, EXCLUDED.{col}),
             placer_order_number = COALESCE(ray7_study_state.placer_order_number, EXCLUDED.placer_order_number),
@@ -301,7 +345,8 @@ def update_study_state(msg):
             last_event_at       = GREATEST(COALESCE(ray7_study_state.last_event_at, EXCLUDED.last_event_at),
                                            COALESCE(EXCLUDED.last_event_at, ray7_study_state.last_event_at)),
             is_closed           = ray7_study_state.is_closed
-                                  OR EXCLUDED.current_rank >= 100
+                                  OR (EXCLUDED.current_rank >= 100
+                                      AND '{col}' <> 'pacs_completed_at')
                                   OR EXCLUDED.cancelled_at IS NOT NULL,
             updated_at          = NOW()
     """.replace('{col}', column)
@@ -325,6 +370,7 @@ def update_study_state(msg):
                 'event_time':     msg.event_time,
                 'rank':           msg.ladder_rank,
                 'state':          msg.canonical_state,
+                'col':            column,
             })
     except Exception:
         logger.exception("RAY7/ingest: ray7_study_state upsert failed | acc=%s",

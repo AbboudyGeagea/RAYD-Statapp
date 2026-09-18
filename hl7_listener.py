@@ -526,6 +526,33 @@ def _build_ack(msh, ack_code, error_msg=None):
     return MLLP_START + ack.encode('utf-8') + MLLP_END
 
 
+def _is_pacs_completion(msg, app):
+    """
+    Is this the PACS saying "images stored", or the RIS saying "exam done"?
+
+    Nothing in the message itself answers that — both are ORM^O01 with ORC-1=SC
+    and ORC-5=CM — so the only honest discriminator is which system sent it.
+    settings.hl7_pacs_sending_app names the PACS by its MSH-3.
+
+    Unset means no PACS completion feed is configured and the path stays off. A
+    deliberately conservative default: previously ANY completion-shaped message
+    triggered it, so a RIS exam-done was recorded as a PACS event and updated
+    orders that had nothing to do with the PACS.
+    """
+    try:
+        from sqlalchemy import text as _t
+        from db import db as _db
+        row = _db.session.execute(
+            _t("SELECT value FROM settings WHERE key = 'hl7_pacs_sending_app'")
+        ).first()
+        configured = (row[0] if row else '') or ''
+    except Exception:
+        configured = ''
+    if not configured:
+        return False
+    return (msg.sending_app or '').strip().upper() == configured.strip().upper()
+
+
 def _legacy_writes(raw_message, segments, msg, app):
     """
     The type-specific writes that predate this pipeline: hl7_oru_reports,
@@ -564,7 +591,34 @@ def _legacy_writes(raw_message, segments, msg, app):
                 logger.exception("hl7_oru_reports insert failed | acc=%s",
                                  parsed_oru.get('accession_number'))
 
-    elif not mtype.startswith('ADT'):
+    elif msg.kind == 'order':
+        # ORDERS ONLY. This branch used to take every non-ADT, non-ORU message,
+        # which meant the four RIS lifecycle messages were each written as an
+        # order: one real order became four, and routes/hl7_orders.py counts rows.
+        # Lifecycle now has its own home in hl7_study_events, so it does not
+        # belong here as well.
+        parsed = parse_orm_o01(raw_message)
+        if parsed:
+            field_map = _get_field_map(app)
+            if field_map:
+                seg_dict = {s.split('|')[0]: s for s in segments}
+                parsed = _apply_field_map(seg_dict, parsed, field_map)
+            try:
+                with db.session.begin_nested():
+                    db.session.execute(text(INSERT_SQL), parsed)
+                    db.session.execute(
+                        text("SELECT pg_notify('hl7_new_order', :mid)"),
+                        {"mid": str(parsed.get("message_id") or "")},
+                    )
+                written.append('order')
+            except Exception:
+                logger.exception("hl7_orders insert failed | acc=%s",
+                                 parsed.get('accession_number'))
+
+    elif _is_pacs_completion(msg, app):
+        # The PACS "images stored" event. Distinguished from a RIS "exam done" by
+        # the SENDER, because the two are byte-identical in shape and mean
+        # different things. See migration 0125.
         pacs = parse_pacs_completion(raw_message)
         if pacs:
             try:
@@ -583,25 +637,6 @@ def _legacy_writes(raw_message, segments, msg, app):
                 written.append('pacs_done(+%d neighbours)' % neighbours)
             except Exception:
                 logger.exception("PACS auto-done failed | acc=%s", pacs.get('accession_number'))
-        else:
-            parsed = parse_orm_o01(raw_message)
-            if parsed:
-                field_map = _get_field_map(app)
-                if field_map:
-                    seg_dict = {s.split('|')[0]: s for s in segments}
-                    parsed = _apply_field_map(seg_dict, parsed, field_map)
-                try:
-                    with db.session.begin_nested():
-                        db.session.execute(text(INSERT_SQL), parsed)
-                        db.session.execute(
-                            text("SELECT pg_notify('hl7_new_order', :mid)"),
-                            {"mid": str(parsed.get("message_id") or "")},
-                        )
-                    written.append('order')
-                except Exception:
-                    logger.exception("hl7_orders insert failed | acc=%s",
-                                     parsed.get('accession_number'))
-
     return written
 
 

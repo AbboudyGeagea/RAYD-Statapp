@@ -58,7 +58,7 @@ _REBUILD_STATE_SQL = """
 INSERT INTO ray7_study_state (
     accession_number, placer_order_number, patient_id, modality, aetitle,
     room_name, procedure_code, procedure_text, patient_class, patient_location,
-    scheduled_at, arrived_at, started_at, completed_at, cancelled_at,
+    scheduled_at, arrived_at, started_at, completed_at, pacs_completed_at, cancelled_at,
     current_rank, event_count, is_closed, first_seen_at, last_event_at, updated_at
 )
 SELECT
@@ -79,15 +79,31 @@ SELECT
     MIN(e.event_time) FILTER (WHERE e.canonical_state = 'scheduled'),
     MIN(e.event_time) FILTER (WHERE e.canonical_state = 'arrived'),
     MIN(e.event_time) FILTER (WHERE e.canonical_state = 'started'),
-    MIN(e.event_time) FILTER (WHERE e.canonical_state = 'completed'),
+    -- A completion from the PACS means "images stored", not "exam done", and the
+    -- two are only distinguishable by sender. hl7_study_events does not record
+    -- the sender, but it links to the archive row, which does — so the split is
+    -- recoverable on replay without adding a column. The sentinel keeps an
+    -- unconfigured install from matching every sender against the empty string.
+    MIN(e.event_time) FILTER (
+        WHERE e.canonical_state = 'completed' AND NOT _is_pacs) AS completed_at,
+    MIN(e.event_time) FILTER (
+        WHERE e.canonical_state = 'completed' AND _is_pacs) AS pacs_completed_at,
     MIN(e.event_time) FILTER (WHERE e.canonical_state = 'cancelled'),
     MAX(e.ladder_rank),
     COUNT(*),
-    (MAX(e.ladder_rank) >= 100 OR bool_or(e.canonical_state = 'cancelled')),
+    (bool_or(e.canonical_state = 'completed' AND NOT e._is_pacs)
+     OR bool_or(e.canonical_state = 'cancelled')),
     MIN(e.received_at),
     MAX(e.event_time),
     NOW()
-FROM hl7_study_events e
+FROM (
+    SELECT ev.*,
+           upper(COALESCE(ar.sending_app, '')) = upper(COALESCE(NULLIF(
+               (SELECT value FROM settings WHERE key = 'hl7_pacs_sending_app'), ''
+           ), '<<no-pacs-configured>>')) AS _is_pacs
+      FROM hl7_study_events ev
+      LEFT JOIN hl7_message_archive ar ON ar.id = ev.message_archive_id
+) e
 WHERE e.accession_number IS NOT NULL
 GROUP BY e.accession_number
 ON CONFLICT (accession_number) DO UPDATE SET
@@ -104,6 +120,7 @@ ON CONFLICT (accession_number) DO UPDATE SET
     arrived_at          = EXCLUDED.arrived_at,
     started_at          = EXCLUDED.started_at,
     completed_at        = EXCLUDED.completed_at,
+    pacs_completed_at   = EXCLUDED.pacs_completed_at,
     cancelled_at        = EXCLUDED.cancelled_at,
     current_rank        = EXCLUDED.current_rank,
     event_count         = EXCLUDED.event_count,
