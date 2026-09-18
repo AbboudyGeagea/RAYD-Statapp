@@ -560,6 +560,89 @@
                     {% endif %}
                 </div>
 
+                <!-- 24h usage heatmap, per modality -->
+                {% if data.hours_heatmap %}
+                <div class="glass-card">
+                    <div class="flex items-center justify-between mb-2">
+                        <p class="text-xs font-black text-zinc-500 uppercase">When Is This Modality Actually Used</p>
+                        <select id="hm-modality" class="bg-zinc-900 border border-white/10 rounded-lg px-3 py-1 text-xs text-white">
+                            {% for mod in data.hours_heatmap.keys()|sort %}
+                            <option value="{{ mod }}">{{ mod }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <p class="mb-4 text-[11px] text-zinc-500 italic">
+                        Exam minutes by weekday and hour of day, attributed by start time. Cells
+                        <span class="not-italic font-bold text-amber-400">outlined in amber</span> fall outside
+                        that modality's opening hours. A modality with no schedule defined shows no outlines at all
+                        &mdash; that means "hours unknown", not "always open".
+                    </p>
+                    <div id="chart-hours-heatmap" class="w-full" style="height:320px;"></div>
+                </div>
+                {% endif %}
+
+                <!-- Assignment discrepancies -->
+                {% if data.hours_conflicts %}
+                <div class="glass-card !p-0 overflow-hidden">
+                    <p class="p-6 pb-2 text-xs font-black text-zinc-500 uppercase">Assignment Discrepancies</p>
+                    <p class="px-6 pb-4 text-[11px] text-zinc-500 italic">
+                        Exams whose patient class contradicts what the schedule reserved that slot for &mdash;
+                        e.g. an outpatient scanned during inpatient-reserved time. Each row expands to the
+                        {{ data.conflict_sample_limit }} most recent examples; the count is the full total.
+                    </p>
+                    <table class="w-full text-sm text-left border-t border-white/5">
+                        <thead class="bg-white/5 text-zinc-500 uppercase font-black text-[11px]">
+                            <tr>
+                                <th class="p-4">Modality</th>
+                                <th class="p-4">Conflict</th>
+                                <th class="p-4 text-center">Exams</th>
+                                <th class="p-4"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for g in data.hours_conflicts %}
+                            <tr class="border-b border-white/5 hover:bg-white/[0.02] cursor-pointer"
+                                onclick="document.getElementById('cf-{{ loop.index }}').classList.toggle('hidden')">
+                                <td class="p-4 font-bold text-white text-sm">{{ g.modality }}</td>
+                                <td class="p-4 text-rose-400 text-sm">{{ g.conflict }}</td>
+                                <td class="p-4 text-center font-mono font-black text-white">{{ "{:,}".format(g.total) }}</td>
+                                <td class="p-4 text-right text-zinc-600 text-xs">show examples ▾</td>
+                            </tr>
+                            <tr id="cf-{{ loop.index }}" class="hidden bg-black/20">
+                                <td colspan="4" class="px-6 py-3">
+                                    <table class="w-full text-[12px]">
+                                        <thead class="text-zinc-600 uppercase text-[10px]">
+                                            <tr>
+                                                <th class="py-1 text-left">When</th>
+                                                <th class="py-1 text-left">Device</th>
+                                                <th class="py-1 text-left">Patient Class</th>
+                                                <th class="py-1 text-left">Accession</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for s in g.samples %}
+                                            <tr class="text-zinc-400">
+                                                <td class="py-1 font-mono">{{ s.when }}</td>
+                                                <td class="py-1">{{ s.ae }}</td>
+                                                <td class="py-1">{{ s.patient_class }}</td>
+                                                <td class="py-1 font-mono text-zinc-600">{{ s.accession or '—' }}</td>
+                                            </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                    {% if g.total > g.samples|length %}
+                                    <p class="mt-2 text-[11px] text-zinc-600 italic">
+                                        Showing {{ g.samples|length }} of {{ "{:,}".format(g.total) }} — narrow the date range to see more.
+                                    </p>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% endif %}
+
                 <!-- Best vs Worst AE by Average TAT -->
                 <div class="glass-card">
                     <div class="flex items-center justify-between mb-4">
@@ -1415,6 +1498,76 @@
                         }]
                     });
                     registerChart('chart-tat-hist', cTH);
+                }
+
+                // 24h usage heatmap — weekday x hour, one modality at a time.
+                // Out-of-hours cells get an amber border rather than a different colour
+                // ramp, so volume stays readable on one scale and "when" and "should it
+                // be open" are two independent visual channels instead of one confused
+                // one. open === null means no schedule exists for that modality, so
+                // nothing is outlined — "unknown hours" must not look like "in hours".
+                if (document.getElementById('chart-hours-heatmap') && d.hours_heatmap) {
+                    const DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+                    const HOURS = Array.from({length: 24}, (_, i) => String(i).padStart(2, '0'));
+                    const cHM = echarts.init(document.getElementById('chart-hours-heatmap'));
+                    const sel = document.getElementById('hm-modality');
+
+                    const drawHeatmap = mod => {
+                        const m = d.hours_heatmap[mod];
+                        if (!m) return;
+                        cHM.setOption({
+                            tooltip: {
+                                position: 'top',
+                                formatter: p => {
+                                    const c = m.cells[p.dataIndex];
+                                    const state = c.open === null ? 'hours unknown'
+                                                : (c.open ? 'in hours' : 'OUT OF HOURS');
+                                    return `${DAYS[c.dow]} ${String(c.hr).padStart(2,'0')}:00<br>`
+                                         + `${c.mins.toLocaleString()} min · ${c.exams} exam(s)<br>`
+                                         + `<span style="color:#94a3b8">${state}</span>`;
+                                }
+                            },
+                            grid: { left: 60, right: 20, top: 10, bottom: 50 },
+                            xAxis: { type: 'category', data: HOURS, splitArea: { show: true },
+                                     axisLabel: { color: '#71717a', fontSize: 10 } },
+                            yAxis: { type: 'category', data: DAYS, splitArea: { show: true },
+                                     axisLabel: { color: '#71717a', fontSize: 11 } },
+                            visualMap: {
+                                min: 0, max: m.max_mins || 1, calculable: true, orient: 'horizontal',
+                                left: 'center', bottom: 0, itemHeight: 90,
+                                textStyle: { color: '#71717a', fontSize: 10 },
+                                inRange: { color: ['#18181b', '#1e3a5f', '#2563eb', '#60a5fa', '#bfdbfe'] }
+                            },
+                            series: [{
+                                type: 'heatmap',
+                                data: m.cells.map(c => [c.hr, c.dow, c.mins]),
+                                itemStyle: {
+                                    borderWidth: 0,
+                                    borderColor: 'transparent'
+                                },
+                                // Per-cell border for the out-of-hours markers
+                                emphasis: { itemStyle: { borderColor: '#fff', borderWidth: 1 } }
+                            }]
+                        }, true);
+                        // ECharts cannot style individual heatmap cells through the series
+                        // config, so the out-of-hours outline is applied per data item.
+                        cHM.setOption({
+                            series: [{
+                                data: m.cells.map(c => ({
+                                    value: [c.hr, c.dow, c.mins],
+                                    itemStyle: (c.open === false)
+                                        ? { borderColor: '#f59e0b', borderWidth: 1.5 }
+                                        : { borderWidth: 0 }
+                                }))
+                            }]
+                        });
+                    };
+
+                    if (sel) {
+                        drawHeatmap(sel.value);
+                        sel.addEventListener('change', () => drawHeatmap(sel.value));
+                    }
+                    registerChart('chart-hours-heatmap', cHM);
                 }
 
                 // RVU vs TAT scatter — clinical and technical as two series against the

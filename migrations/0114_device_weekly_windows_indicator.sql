@@ -1,0 +1,39 @@
+-- Migration 0114: carry the availability REASON on std_device_weekly_windows.
+--
+-- Migration 0113 stored is_available as a bare BOOLEAN and its own comment claimed that
+-- keeping the non-available slots would let a later report tell "closed" from "reserved
+-- for inpatients" without another migration. That was wrong: the rows were kept but the
+-- reason was collapsed away, so every kind of closure looked identical.
+--
+-- Report 25's assignment-discrepancy panel (operator request 2026-09-18) needs the
+-- distinction -- "an outpatient was scanned during inpatient-reserved time" is a finding,
+-- "an outpatient was scanned at 22:00 when the device is simply shut" is not the same
+-- finding. availability_indicator_key resolves through std_availability_indicators
+-- (migration 0068, already imported by run_ris_availability_indicators_etl in Phase 15).
+--
+-- Confirmed key meanings (docs/LAUMC_RIS_TABLES.md, 2026-08-01):
+--     1    Available
+--     2    Unavailable
+--     8    Emergency Department
+--     4    Reserved mainly for IP
+--     2100 Closed
+--     2322 Maintenance
+--     2040 Holiday
+--     1940 Over Time
+--
+-- The key is stored raw rather than a resolved label: std_availability_indicators is the
+-- lookup, labels can be re-worded upstream, and the full table is already loaded.
+--
+-- NOTE the docs disagree about which keys actually occur on schedule items.
+-- LAUMC_RIS_TABLES.md records 1/2/8/2100 as the values OBSERVED in the
+-- SCHEDULE_TEMPLATE_ITEM sample, while migration 0108's comment describes a real
+-- 13:00-14:59 Reserved-for-IP (key 4) block on RH-CT64. Report 25's conflict rules are
+-- therefore written to degrade: a rule for a key that never appears simply yields no
+-- rows, and any unrecognised non-available key is still surfaced generically rather than
+-- being silently dropped.
+--
+-- Nullable, no backfill: std_device_weekly_windows is TRUNCATE + rebuilt on every ETL
+-- pass, so the next run populates it.
+
+ALTER TABLE std_device_weekly_windows
+    ADD COLUMN IF NOT EXISTS availability_indicator_key BIGINT;

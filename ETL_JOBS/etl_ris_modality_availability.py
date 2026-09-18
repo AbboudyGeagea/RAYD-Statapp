@@ -591,12 +591,17 @@ _COMPUTE_WEEKLY_WINDOWS_SQL = text("""
         ) w
     )
     INSERT INTO std_device_weekly_windows
-        (aetitle, day_of_week, from_time, to_time, is_available, last_update)
+        (aetitle, day_of_week, from_time, to_time, is_available,
+         availability_indicator_key, last_update)
     SELECT aetitle,
            (day_of_week + 6) % 7 AS rayd_day_of_week,
            t_start,
            t_end,
            (availability_indicator_key = 1) AS is_available,
+           -- The raw key too (migration 0114): is_available alone cannot tell
+           -- "reserved for inpatients" from "shut for the night", and Report 25's
+           -- discrepancy panel needs exactly that distinction.
+           availability_indicator_key,
            NOW()
     FROM winning
     ON CONFLICT (aetitle, day_of_week, from_time) DO NOTHING

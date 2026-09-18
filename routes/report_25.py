@@ -37,6 +37,11 @@ logger = logging.getLogger("report_25")
 
 report_25_bp = Blueprint("report_25", __name__)
 
+# Assignment-discrepancy drill-down: rows shown per (modality, conflict) group.
+# Operator instruction 2026-09-18 — no endless scrolling lists. The true total is
+# reported alongside the sample, so a capped list never understates the finding.
+_CONFLICT_SAMPLE_LIMIT = 25
+
 def _load_shift_config():
     defaults = {'morning_start': 7, 'morning_end': 15,
                 'afternoon_start': 15, 'afternoon_end': 23,
@@ -456,6 +461,18 @@ def get_gold_standard_data(form_data):
     # proc_duration fallback used elsewhere in this function is a per-procedure ESTIMATE
     # with no time of day, so it cannot be classified at all — devices with no PPS
     # coverage are reported as unclassified rather than silently counted as in-hours.
+    # AE -> modality, by the dominant modality actually seen on that device in range.
+    # Hoisted above the three panels below because all of them key off it, and burying
+    # it inside one panel's try block would let that panel's failure silently take the
+    # other two down with a NameError.
+    ae_modality = {}
+    if 'aetitle' in df.columns and 'modality' in df.columns:
+        for ae_val, sub in df.groupby('aetitle'):
+            mode_mod = sub['modality'].mode()
+            ae_modality[str(ae_val).upper().strip()] = (
+                mode_mod.iloc[0] if len(mode_mod) else 'Unknown'
+            )
+
     hours_split = []
     hours_unclassified_aes = 0
     try:
@@ -502,14 +519,6 @@ def get_gold_standard_data(form_data):
         # in-hours percentage here and the matrix's Avg Util cannot drift apart.
         # Each AE contributes opening_mins*occ to its modality's open capacity and
         # (1440-opening_mins)*occ to its closed capacity.
-        ae_modality = {}
-        if 'modality' in df.columns:
-            for ae_val, sub in df.groupby('aetitle'):
-                mode_mod = sub['modality'].mode()
-                ae_modality[str(ae_val).upper().strip()] = (
-                    mode_mod.iloc[0] if len(mode_mod) else 'Unknown'
-                )
-
         open_cap, closed_cap = {}, {}
         for ae_upper, mod in ae_modality.items():
             has_schedule = False
@@ -545,6 +554,196 @@ def get_gold_standard_data(form_data):
         hours_split.sort(key=lambda r: r['outside_mins'], reverse=True)
     except Exception:
         logger.exception("Failed to build opening-hours utilisation split")
+        db.session.rollback()
+
+    # ── 24h usage heatmap + assignment discrepancies, per modality ───────────
+    # Operator request 2026-09-18. Two panels off one idea: everything else in this
+    # report aggregates by weekday across the whole period, so nothing shows WHEN in
+    # the day a device is actually used, or whether that matches what its schedule
+    # reserved the time for.
+    #
+    # Both need a real exam start time, so both are std_pps-only for the same reason
+    # the in-hours split is (proc_duration is a per-procedure estimate with no time of
+    # day). Devices without PPS coverage are absent, not zero.
+    hours_heatmap, hours_conflicts = {}, []
+    try:
+        hm_rows = db.session.execute(text(f"""
+            SELECT COALESCE({"m.modality, " if _sec_needs_mod_join else ""}s.study_modality, 'Unknown') AS modality,
+                   EXTRACT(ISODOW FROM pps.start_datetime)::INT - 1 AS dow,
+                   EXTRACT(HOUR  FROM pps.start_datetime)::INT      AS hr,
+                   SUM(EXTRACT(EPOCH FROM (pps.end_datetime - pps.start_datetime)) / 60) AS mins,
+                   COUNT(*) AS exams
+            FROM std_pps pps
+            JOIN etl_didb_studies s ON s.study_db_uid = pps.study_db_uid
+            {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
+            WHERE pps.start_datetime BETWEEN :start AND :end
+              AND pps.end_datetime IS NOT NULL
+              AND pps.end_datetime > pps.start_datetime
+              AND pps.performing_ae_title IS NOT NULL
+              AND COALESCE({"m.modality, " if _sec_needs_mod_join else ""}s.study_modality, '') != 'SR'
+              {_sec_filters}
+            GROUP BY 1, 2, 3
+        """), params).mappings().all()
+
+        # Which (modality, weekday, hour) cells are open: a modality's devices can run
+        # different schedules, so an hour counts as open when ANY device of that
+        # modality has an available window overlapping it. Overlap, not containment —
+        # a window of 08:30-17:00 leaves hour 8 genuinely half-open, and calling it
+        # closed would flag every 08:45 exam as after-hours.
+        win_rows = db.session.execute(text("""
+            SELECT UPPER(TRIM(aetitle)) AS ae, day_of_week, from_time, to_time, is_available
+            FROM std_device_weekly_windows
+        """)).mappings().all()
+
+        open_cells = {}
+        for w in win_rows:
+            if not w['is_available']:
+                continue
+            mod = ae_modality.get(w['ae'])
+            if not mod:
+                continue
+            start_h = w['from_time'].hour
+            # An exclusive end exactly on the hour (17:00) must not light up hour 17.
+            end_h = w['to_time'].hour if (w['to_time'].minute or w['to_time'].second) else w['to_time'].hour - 1
+            for h in range(start_h, min(end_h, 23) + 1):
+                open_cells.setdefault(mod, set()).add((int(w['day_of_week']), h))
+
+        by_mod = {}
+        for r in hm_rows:
+            mod = r['modality'] or 'Unknown'
+            by_mod.setdefault(mod, []).append(r)
+
+        for mod, rows in by_mod.items():
+            cells = []
+            for r in rows:
+                dow, hr = int(r['dow']), int(r['hr'])
+                cells.append({
+                    "dow":  dow,
+                    "hr":   hr,
+                    "mins": int(round(float(r['mins'] or 0))),
+                    "exams": int(r['exams'] or 0),
+                    # None where no schedule exists for this modality at all — the
+                    # template renders that differently from a known-closed cell, so
+                    # "we don't know the hours" never masquerades as "out of hours".
+                    "open": ((dow, hr) in open_cells[mod]) if mod in open_cells else None,
+                })
+            hours_heatmap[mod] = {
+                "cells":        cells,
+                "max_mins":     max((c['mins'] for c in cells), default=0),
+                "has_schedule": mod in open_cells,
+            }
+    except Exception:
+        logger.exception("Failed to build 24h usage heatmap")
+        db.session.rollback()
+
+    # Assignment discrepancies — an exam whose patient class contradicts what the
+    # schedule reserved that slot for. Conflict labels are driven by the window's
+    # availability_indicator_key (migration 0114) resolved through
+    # std_availability_indicators, NOT by hardcoded time ranges.
+    #
+    # The docs disagree on which indicator keys actually occur on schedule items
+    # (LAUMC_RIS_TABLES.md observed only 1/2/8/2100; migration 0108 describes a real
+    # key-4 Reserved-for-IP block), so the CASE below degrades both ways: a rule for a
+    # key that never appears simply matches nothing, and any other non-available key
+    # still surfaces generically instead of being dropped.
+    #
+    # Capped at _CONFLICT_SAMPLE_LIMIT rows per group with the true total alongside
+    # (operator: no endless scrolling lists) — ROW_NUMBER and COUNT in one pass, so
+    # the cap costs nothing and the count is never a lie about how many were found.
+    try:
+        cf_rows = db.session.execute(text(f"""
+            WITH exams AS (
+                SELECT UPPER(TRIM(pps.performing_ae_title)) AS ae,
+                       COALESCE({"m.modality, " if _sec_needs_mod_join else ""}s.study_modality, 'Unknown') AS modality,
+                       pps.start_datetime,
+                       s.accession_number,
+                       CASE
+                           WHEN s.patient_location = 'ER' THEN 'ER'
+                           WHEN s.patient_class    = 'I'  THEN 'Inpatient'
+                           WHEN s.patient_class    = 'O'  THEN 'Outpatient'
+                           ELSE 'Other'
+                       END AS patient_class
+                FROM std_pps pps
+                JOIN etl_didb_studies s ON s.study_db_uid = pps.study_db_uid
+                {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
+                WHERE pps.start_datetime BETWEEN :start AND :end
+                  AND pps.end_datetime IS NOT NULL
+                  AND pps.end_datetime > pps.start_datetime
+                  AND pps.performing_ae_title IS NOT NULL
+                  AND COALESCE({"m.modality, " if _sec_needs_mod_join else ""}s.study_modality, '') != 'SR'
+                  {_sec_filters}
+            ),
+            matched AS (
+                SELECT e.*, w.availability_indicator_key AS ind_key,
+                       COALESCE(ai.description, ai.code, 'Indicator ' || w.availability_indicator_key) AS window_reason
+                FROM exams e
+                JOIN LATERAL (
+                    SELECT w.availability_indicator_key
+                    FROM std_device_weekly_windows w
+                    WHERE w.aetitle     = e.ae
+                      AND w.day_of_week = EXTRACT(ISODOW FROM e.start_datetime)::INT - 1
+                      AND e.start_datetime::time >= w.from_time
+                      AND e.start_datetime::time <  w.to_time
+                    LIMIT 1
+                ) w ON TRUE
+                LEFT JOIN std_availability_indicators ai
+                       ON ai.availability_indicator_key = w.availability_indicator_key
+            ),
+            flagged AS (
+                SELECT m.*,
+                       CASE
+                           WHEN m.ind_key = 4    AND m.patient_class <> 'Inpatient'
+                                THEN 'Non-inpatient in IP-reserved time'
+                           WHEN m.ind_key = 8    AND m.patient_class <> 'ER'
+                                THEN 'Non-ER in ED-reserved time'
+                           -- Reached only when the two rules above did NOT fire, i.e.
+                           -- the right patient class for that reservation. Must short
+                           -- circuit to NULL here or the generic catch-all below flags
+                           -- every correctly-assigned inpatient and ER case as a
+                           -- discrepancy — which is the opposite of the finding.
+                           WHEN m.ind_key IN (4, 8) THEN NULL
+                           WHEN m.ind_key = 2322 THEN 'Scanned during Maintenance'
+                           WHEN m.ind_key = 2040 THEN 'Scanned on a Holiday slot'
+                           WHEN m.ind_key IN (2, 2100) THEN 'Scanned while Closed/Unavailable'
+                           WHEN m.ind_key IS NOT NULL AND m.ind_key <> 1
+                                THEN 'Scanned during: ' || m.window_reason
+                           ELSE NULL
+                       END AS conflict
+                FROM matched m
+            )
+            SELECT modality, conflict, window_reason, patient_class,
+                   start_datetime, ae, accession_number, total_exams
+            FROM (
+                SELECT f.*,
+                       ROW_NUMBER() OVER (PARTITION BY f.modality, f.conflict
+                                          ORDER BY f.start_datetime DESC) AS rn,
+                       COUNT(*)     OVER (PARTITION BY f.modality, f.conflict) AS total_exams
+                FROM flagged f
+                WHERE f.conflict IS NOT NULL
+            ) ranked
+            WHERE rn <= :cap
+            ORDER BY total_exams DESC, modality, conflict, start_datetime DESC
+        """), {**params, "cap": _CONFLICT_SAMPLE_LIMIT}).mappings().all()
+
+        grouped = {}
+        for r in cf_rows:
+            key = (r['modality'], r['conflict'])
+            g = grouped.setdefault(key, {
+                "modality":     r['modality'],
+                "conflict":     r['conflict'],
+                "total":        int(r['total_exams'] or 0),
+                "window_reason": r['window_reason'],
+                "samples":      [],
+            })
+            g['samples'].append({
+                "when":          r['start_datetime'].strftime('%Y-%m-%d %H:%M') if r['start_datetime'] else '',
+                "ae":            r['ae'],
+                "patient_class": r['patient_class'],
+                "accession":     r['accession_number'],
+            })
+        hours_conflicts = sorted(grouped.values(), key=lambda g: g['total'], reverse=True)
+    except Exception:
+        logger.exception("Failed to build assignment-discrepancy panel")
         db.session.rollback()
 
     # TAT percentiles for the whole dataset
@@ -1010,6 +1209,9 @@ def get_gold_standard_data(form_data):
         "rvu_tat_technical": rvu_tat_technical,
         "hours_split": hours_split,
         "hours_unclassified_aes": hours_unclassified_aes,
+        "hours_heatmap": hours_heatmap,
+        "hours_conflicts": hours_conflicts,
+        "conflict_sample_limit": _CONFLICT_SAMPLE_LIMIT,
         "outlier_studies": outlier_studies,
         "global_mean_tat": global_mean_tat,
         "modality_tat":    modality_tat,
