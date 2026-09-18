@@ -499,17 +499,188 @@ def parse_pacs_completion(raw_message):
 
 
 def _build_ack(msh, ack_code, error_msg=None):
-    """Build a minimal HL7 ACK response."""
+    """
+    Build an HL7 ACK.
+
+    MSA-2 MUST echo the original MSH-10, the message control ID, because that is
+    the only way a sender can match our acknowledgement to the message it sent.
+
+    This was reading _field(msh, 10), which is MSH-11 — the processing ID — so
+    every ACK this listener has ever sent returned a literal "P". Senders that
+    correlate on MSA-2 could not match any of them. The off-by-one is the MSH quirk
+    the rest of this codebase is careful about: MSH-1 IS the field separator, so
+    after splitting, MSH-10 lands at index 9, not 10. The two lines below it had the
+    same bug in the other direction — they were reading MSH-4 and MSH-6, the
+    facilities, where an ACK should swap the APPLICATIONS: our MSH-3 becomes the
+    sender's, theirs becomes the receiver's.
+    """
     now      = datetime.now().strftime('%Y%m%d%H%M%S')
-    msg_id   = _field(msh, 10, 'UNKNOWN')
-    send_app = _field(msh, 3, 'STATSAPP')
-    recv_app = _field(msh, 5, 'SENDER')
+    msg_id   = _field(msh, 9, 'UNKNOWN')     # MSH-10, message control ID
+    their_app = _field(msh, 2, 'SENDER')     # MSH-3, sending application
+    their_fac = _field(msh, 3, '')           # MSH-4, sending facility
     err_text = error_msg or ''
     ack = (
-        f"MSH|^~\\&|{send_app}||{recv_app}||{now}||ACK^O01|ACK{now}|P|2.3\r"
+        f"MSH|^~\\&|RAYD||{their_app}|{their_fac}|{now}||ACK|ACK{now}|P|2.3\r"
         f"MSA|{ack_code}|{msg_id}|{err_text}\r"
     )
     return MLLP_START + ack.encode('utf-8') + MLLP_END
+
+
+def _legacy_writes(raw_message, segments, msg, app):
+    """
+    The type-specific writes that predate this pipeline: hl7_oru_reports,
+    hl7_orders, and the PACS auto-done into hl7_scn_studies.
+
+    Left as they were, on purpose. Orders and reports were never the gap — the
+    lifecycle was — and re-routing two working inserts through the new path would
+    risk live behaviour for no benefit. Each now runs in its own SAVEPOINT so one
+    failing cannot take down the archive row or the others, which is the one thing
+    that did change: previously each committed separately, so a message could end
+    up half-written with no record of why.
+
+    Returns labels describing what was written.
+    """
+    from sqlalchemy import text
+    from db import db
+
+    written = []
+    mtype = (msg.message_type or '').upper()
+
+    if 'ORU' in mtype:
+        parsed_oru = parse_oru_r01(raw_message)
+        if parsed_oru is None:
+            logger.warning("ORU parse returned None | control_id=%s", msg.control_id)
+        elif not parsed_oru.get('report_text'):
+            obx_types = [s.split('|')[2] if len(s.split('|')) > 2 else '?'
+                         for s in segments if s.startswith('OBX|')]
+            logger.warning("ORU with no report_text | proc=%s | OBX types=%s | count=%d",
+                           parsed_oru.get('procedure_code'), obx_types, len(obx_types))
+        else:
+            try:
+                with db.session.begin_nested():
+                    db.session.execute(text(ORU_INSERT_SQL), parsed_oru)
+                written.append('oru_report')
+            except Exception:
+                logger.exception("hl7_oru_reports insert failed | acc=%s",
+                                 parsed_oru.get('accession_number'))
+
+    elif not mtype.startswith('ADT'):
+        pacs = parse_pacs_completion(raw_message)
+        if pacs:
+            try:
+                with db.session.begin_nested():
+                    row = db.session.execute(text(PACS_AUTODONE_SQL), pacs).fetchone()
+                    neighbours = 0
+                    if row and row.modality and row.patient_id:
+                        nb = db.session.execute(text(PACS_NEIGHBOUR_SQL), {
+                            'pacs_done_at':     pacs['pacs_done_at'],
+                            'patient_id':       row.patient_id,
+                            'modality':         row.modality,
+                            'accession_number': pacs['accession_number'],
+                        })
+                        neighbours = nb.rowcount
+                    db.session.execute(text(SCN_INSERT_SQL), pacs)
+                written.append('pacs_done(+%d neighbours)' % neighbours)
+            except Exception:
+                logger.exception("PACS auto-done failed | acc=%s", pacs.get('accession_number'))
+        else:
+            parsed = parse_orm_o01(raw_message)
+            if parsed:
+                field_map = _get_field_map(app)
+                if field_map:
+                    seg_dict = {s.split('|')[0]: s for s in segments}
+                    parsed = _apply_field_map(seg_dict, parsed, field_map)
+                try:
+                    with db.session.begin_nested():
+                        db.session.execute(text(INSERT_SQL), parsed)
+                        db.session.execute(
+                            text("SELECT pg_notify('hl7_new_order', :mid)"),
+                            {"mid": str(parsed.get("message_id") or "")},
+                        )
+                    written.append('order')
+                except Exception:
+                    logger.exception("hl7_orders insert failed | acc=%s",
+                                     parsed.get('accession_number'))
+
+    return written
+
+
+def _process_message(raw_message, segments, addr, app):
+    """
+    One message, end to end. Returns True when it was safely archived.
+
+        parse -> archive -> RAY7.screen -> persist events -> legacy writes -> commit
+
+    Archiving comes FIRST and everything else derives from it, because the archive
+    is the only copy this branch will ever have. Everything after it is replayable;
+    nothing after it may lose the message.
+
+    The whole thing is ONE transaction. RAY7 and the ingest writers use savepoints
+    internally, so an individual failure rolls back only to its own savepoint while
+    the archive row, the findings and the events still commit together. A message
+    can never end up archived without its verdict, or screened without being stored.
+    """
+    from db import db
+    from utils import ray7
+    from utils.hl7_parse import parse_message
+    from utils.hl7_ingest import (archive, persist_parsed, mark_parsed,
+                                  mark_quarantined, mark_parse_error)
+
+    with app.app_context():
+        msg = parse_message(raw_message, source_ip=addr[0] if addr else None)
+        archive_id, redelivered = archive(msg)
+
+        if redelivered:
+            # Expected, not a fault: the SAP Mirth hub redelivers and there is no
+            # fix coming. Counted on the original finding rather than logged per
+            # occurrence, so the rate stays measurable without flooding anything.
+            ray7.note_redelivery(msg.sending_app, msg.control_id, msg.content_hash)
+            db.session.commit()
+            logger.info("HL7 redelivery | type=%s | control_id=%s | from=%s",
+                        msg.message_type, msg.control_id, addr[0] if addr else '?')
+            return True
+
+        if archive_id is None:
+            db.session.rollback()
+            logger.error("HL7 ARCHIVE FAILED — message NOT stored | type=%s | from=%s",
+                         msg.message_type, addr[0] if addr else '?')
+            return False
+
+        try:
+            verdict = ray7.screen(msg, archive_id)
+            ray7.persist(verdict, msg, archive_id)
+
+            if verdict.may_project:
+                parts = [persist_parsed(msg, archive_id)]
+                parts += _legacy_writes(raw_message, segments, msg, app)
+                written = ', '.join(p for p in parts if p and p != 'nothing') or 'nothing'
+                mark_parsed(archive_id, projected=True)
+            else:
+                written = 'QUARANTINED, held out of the reporting tables'
+                mark_quarantined(archive_id)
+
+            db.session.commit()
+            logger.info("HL7 %s | type=%s | acc=%s | %s | wrote: %s",
+                        verdict.status, msg.message_type, msg.accession_number,
+                        ray7.summary(verdict), written)
+            return True
+
+        except Exception as exc:
+            # The archive row rolled back with everything else, so re-archive the
+            # raw message on its own and dead-letter it. Losing the verdict is
+            # acceptable; losing the message is not.
+            db.session.rollback()
+            logger.exception("HL7 processing failed after archive | control_id=%s",
+                             msg.control_id)
+            try:
+                retry_id, _ = archive(msg)
+                mark_parse_error(retry_id, exc)
+                db.session.commit()
+                return retry_id is not None
+            except Exception:
+                db.session.rollback()
+                logger.exception("HL7 could not dead-letter | control_id=%s", msg.control_id)
+                return False
 
 
 def _handle_client(conn, addr, app):
@@ -543,126 +714,18 @@ def _handle_client(conn, addr, app):
                 msh         = _seg(segments, 'MSH')
 
                 try:
-                    msg_type_raw = _field(msh, 8, '')
-
-                    if msg_type_raw.upper().startswith('ADT'):
-                        # ADT (Admit/Discharge/Transfer) — not a radiology order.
-                        # ACK it so the sender doesn't retry, but do not store.
-                        logger.info(f"⏭ ADT skipped | type={msg_type_raw} | from={addr[0]}")
-
-                    elif 'ORU' in msg_type_raw:
-                        # ── ORU^R01: radiology result ─────────────────────
-                        logger.info(f"📨 ORU received | type={msg_type_raw} | from={addr[0]}")
-                        parsed_oru = parse_oru_r01(raw_message)
-                        if parsed_oru is None:
-                            logger.warning("⚠ ORU parse_oru_r01 returned None — message type check failed")
-                        elif not parsed_oru.get('report_text'):
-                            # Log OBX types present so we can diagnose filter issues
-                            obx_types = [
-                                seg.split('|')[2] if len(seg.split('|')) > 2 else '?'
-                                for seg in raw_message.replace('\r\n','\r').replace('\n','\r').split('\r')
-                                if seg.startswith('OBX|')
-                            ]
-                            logger.warning(
-                                f"⚠ ORU received but no report_text extracted "
-                                f"| proc={parsed_oru.get('procedure_code')} "
-                                f"| OBX types seen={obx_types} "
-                                f"| OBX count={len(obx_types)}"
-                            )
-                        else:
-                            with app.app_context():
-                                from sqlalchemy import text
-                                from db import db
-                                try:
-                                    db.session.execute(text(ORU_INSERT_SQL), parsed_oru)
-                                    db.session.commit()
-                                except Exception:
-                                    db.session.rollback()
-                                    raise
-                            logger.info(
-                                f"✅ ORU stored | proc={parsed_oru['procedure_code']} "
-                                f"| physician={parsed_oru['physician_id']}"
-                            )
-
+                    archived_ok = _process_message(raw_message, segments, addr, app)
+                    # AA once the message is safely archived, even if screening
+                    # quarantined it or a downstream write failed: we hold the
+                    # message, so a retry would only duplicate what we already have.
+                    # AE only when archiving itself failed, because then we
+                    # genuinely do not have it and a resend is the only recovery.
+                    if archived_ok:
+                        ack = _build_ack(msh, ACK_AA)
                     else:
-                        # ── ORM^O01 — check PACS completion first ────────
-                        pacs = parse_pacs_completion(raw_message)
-
-                        if pacs:
-                            # PACS study-complete: auto-done the matching order and any
-                            # neighbour orders (same patient + modality, accession ±5).
-                            # Also write to hl7_scn_studies for real-time today count.
-                            with app.app_context():
-                                from sqlalchemy import text
-                                from db import db
-                                try:
-                                    result = db.session.execute(
-                                        text(PACS_AUTODONE_SQL), pacs
-                                    )
-                                    row = result.fetchone()
-                                    neighbour_count = 0
-                                    if row and row.modality and row.patient_id:
-                                        nb = db.session.execute(
-                                            text(PACS_NEIGHBOUR_SQL),
-                                            {
-                                                'pacs_done_at':     pacs['pacs_done_at'],
-                                                'patient_id':       row.patient_id,
-                                                'modality':         row.modality,
-                                                'accession_number': pacs['accession_number'],
-                                            },
-                                        )
-                                        neighbour_count = nb.rowcount
-                                    db.session.execute(text(SCN_INSERT_SQL), pacs)
-                                    db.session.commit()
-                                except Exception:
-                                    db.session.rollback()
-                                    raise
-                            logger.info(
-                                f"✅ PACS auto-done | accession={pacs['accession_number']} "
-                                f"| pacs_done_at={pacs['pacs_done_at']} "
-                                f"| neighbours_cleaned={neighbour_count}"
-                            )
-
-                        else:
-                            # ── Regular ORM^O01: new/updated HIS order ───
-                            parsed = parse_orm_o01(raw_message)
-
-                            if parsed:
-                                # Apply any admin-saved field-map overrides.
-                                field_map = _get_field_map(app)
-                                if field_map:
-                                    seg_dict = {
-                                        s.split('|')[0]: s
-                                        for s in segments
-                                    }
-                                    parsed = _apply_field_map(seg_dict, parsed, field_map)
-
-                                with app.app_context():
-                                    from sqlalchemy import text
-                                    from db import db
-                                    try:
-                                        db.session.execute(text(INSERT_SQL), parsed)
-                                        db.session.execute(
-                                            text("SELECT pg_notify('hl7_new_order', :mid)"),
-                                            {"mid": str(parsed.get("message_id") or "")}
-                                        )
-                                        db.session.commit()
-                                    except Exception:
-                                        db.session.rollback()
-                                        raise
-
-                                logger.info(
-                                    f"✅ HL7 stored | msg_id={parsed['message_id']} "
-                                    f"| patient={parsed['patient_id']} "
-                                    f"| accession={parsed['accession_number']}"
-                                )
-
-                                # (patient portal hook removed — module absent at LAUMC)
-
-                    ack = _build_ack(msh, ACK_AA)
-
+                        ack = _build_ack(msh, ACK_AE, 'archive failed, please resend')
                 except Exception as e:
-                    logger.error(f"HL7 processing error: {e}")
+                    logger.error(f"HL7 processing error: {e}", exc_info=True)
                     ack = _build_ack(msh, ACK_AE, str(e)[:80])
 
                 conn.sendall(ack)
@@ -679,6 +742,17 @@ def start_mllp_listener(app, host='0.0.0.0', port=6661):
     Start the MLLP listener in a background daemon thread.
     Called once during Flask app startup.
     """
+    # Warm RAY7's caches before the first message rather than on it. RAY7 screens
+    # inline, inside the sender's ACK window, so a cold cache would make whichever
+    # message happens to arrive first pay three extra queries — and the same again
+    # every time the TTL lapses. Failure here is not fatal: the caches fill lazily.
+    try:
+        with app.app_context():
+            from utils.ray7 import warm_caches
+            warm_caches()
+    except Exception:
+        logger.exception("RAY7 cache warm failed at startup; caches will fill lazily")
+
     def _server_loop():
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
