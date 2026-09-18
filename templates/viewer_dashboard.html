@@ -373,8 +373,16 @@
             const vsAvg = d.vs_avg_pct !== null
                 ? `<span style="color:${d.vs_avg_pct >= 0 ? '#22c55e':'#ef4444'}">${d.vs_avg_pct >= 0 ? '▲':'▼'} ${Math.abs(d.vs_avg_pct)}% vs 7d avg</span>`
                 : '';
-            const peakTxt = d.peak_hour ? `Peak: ${String(d.peak_hour.hour).padStart(2,'0')}:00 (${d.peak_hour.count} orders)` : '';
             const cancelTxt = d.orders_total ? `${d.cancel_rate}% cancel rate` : '';
+
+            // Two peak hours, deliberately side by side: RIS is when exams were BOOKED
+            // (demand), PACS is when studies actually ARRIVED (workload). They routinely
+            // disagree, and the gap between them is itself the useful signal.
+            const hh = h => String(h).padStart(2, '0') + ':00';
+            const peakRisVal = d.peak_hour_ris  ? hh(d.peak_hour_ris.hour)  : '—';
+            const peakRisSub = d.peak_hour_ris  ? `${d.peak_hour_ris.count} orders scheduled`  : '';
+            const peakPacsVal = d.peak_hour_pacs ? hh(d.peak_hour_pacs.hour) : '—';
+            const peakPacsSub = d.peak_hour_pacs ? `${d.peak_hour_pacs.count} studies received` : '';
 
             document.getElementById('yest-kpis').innerHTML =
                 kpiCard('Orders',         d.orders_total,       cancelTxt,                               'blue')   +
@@ -383,7 +391,8 @@
                 kpiCard('Unique Patients',d.unique_patients,    `${d.new_patients} new · ${d.returning_patients} returning`, 'green') +
                 kpiCard('ER Patients',    d.er_patients,        d.unique_patients ? `${Math.round(d.er_patients/d.unique_patients*100)}% of total` : '', 'orange') +
                 kpiCard('7d Avg Studies', d.avg_7d,             'daily average',                         'purple') +
-                kpiCard('Peak Hour',      d.peak_hour ? String(d.peak_hour.hour).padStart(2,'0')+':00' : '—', peakTxt, 'amber');
+                kpiCard('Peak Hour · PACS', peakPacsVal,        peakPacsSub,                             'amber')  +
+                kpiCard('Peak Hour · RIS',  peakRisVal,         peakRisSub,                              'amber');
 
             // Physicians
             const maxPhys = d.physicians.length ? d.physicians[0].count : 1;

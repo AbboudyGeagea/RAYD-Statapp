@@ -344,7 +344,8 @@ def yesterday_overview():
             WITH
             s AS MATERIALIZED (
                 SELECT s.patient_db_uid, s.storing_ae, s.patient_location,
-                       s.referring_physician_first_name, s.referring_physician_last_name
+                       s.referring_physician_first_name, s.referring_physician_last_name,
+                       s.insert_time
                 FROM etl_didb_studies s
                 LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
                 WHERE s.study_date = CURRENT_DATE - 1
@@ -376,9 +377,33 @@ def yesterday_overview():
                   AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
                   {site_clause}
             ),
-            peak AS (
+            -- TWO peak hours (operator request 2026-09-18), because they answer
+            -- different questions and routinely disagree:
+            --
+            --   RIS  = the hour most exams were SCHEDULED for. Demand/booking shape.
+            --          This is what the single "Peak Hour" card has always shown --
+            --          it reads etl_orders.scheduled_datetime, i.e. RIS data, despite
+            --          being presented as a general peak.
+            --   PACS = the hour studies actually LANDED in PACS. Real workload shape.
+            --
+            -- PACS uses insert_time, not an acquisition timestamp, because RAYD has
+            -- none: etl_didb_studies.study_date is date-only (the ETL truncates
+            -- Oracle's STUDY_DATE, which does carry a time), and study_time exists as
+            -- a column but is never written by any job. insert_time is the same anchor
+            -- report_25 adopted for its TAT calculation for this exact reason -- on a
+            -- live PACS it trails acquisition by minutes. It also avoids a real
+            -- artifact in the source: a chunk of studies carry STUDY_DATE at exactly
+            -- 00:00:00, which would invent a phantom midnight peak.
+            --
+            -- ORDER BY ... , 1 breaks ties on the earlier hour instead of letting the
+            -- planner pick, so the card does not flicker between two equally-busy hours.
+            peak_ris AS (
                 SELECT EXTRACT(HOUR FROM scheduled_datetime)::int AS hr, COUNT(*) AS cnt
-                FROM o GROUP BY 1 ORDER BY 2 DESC LIMIT 1
+                FROM o GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 1
+            ),
+            peak_pacs AS (
+                SELECT EXTRACT(HOUR FROM insert_time)::int AS hr, COUNT(*) AS cnt
+                FROM s WHERE insert_time IS NOT NULL GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 1
             ),
             nr AS (
                 SELECT
@@ -395,8 +420,10 @@ def yesterday_overview():
                 (SELECT new_pts::int             FROM nr)                                             AS new_patients,
                 (SELECT ret_pts::int             FROM nr)                                             AS returning_patients,
                 (SELECT COUNT(*)::int            FROM s WHERE UPPER(COALESCE(patient_location,''))='ER') AS er_patients,
-                (SELECT hr                       FROM peak)                                           AS peak_hr,
-                (SELECT cnt::int                 FROM peak)                                           AS peak_cnt
+                (SELECT hr                       FROM peak_ris)                                       AS peak_ris_hr,
+                (SELECT cnt::int                 FROM peak_ris)                                       AS peak_ris_cnt,
+                (SELECT hr                       FROM peak_pacs)                                      AS peak_pacs_hr,
+                (SELECT cnt::int                 FROM peak_pacs)                                      AS peak_pacs_cnt
         """, site_params)
 
         orders_total       = kpi[0] or 0
@@ -407,7 +434,11 @@ def yesterday_overview():
         new_patients       = kpi[5] or 0
         returning_patients = kpi[6] or 0
         er_patients        = kpi[7] or 0
-        peak_hour          = {"hour": kpi[8], "count": kpi[9]} if kpi[8] is not None else None
+        # peak_hour kept as an alias of the RIS peak so any existing consumer of the
+        # old single field keeps working unchanged.
+        peak_hour_ris      = {"hour": kpi[8],  "count": kpi[9]}  if kpi[8]  is not None else None
+        peak_hour_pacs     = {"hour": kpi[10], "count": kpi[11]} if kpi[10] is not None else None
+        peak_hour          = peak_hour_ris
         vs_avg             = round((studies_total - avg_7d) / avg_7d * 100, 1) if avg_7d else None
 
         # ── Query 2a: top referring physicians ─────────────────────────
@@ -555,6 +586,8 @@ def yesterday_overview():
             "returning_patients":returning_patients,
             "er_patients":       er_patients,
             "peak_hour":         peak_hour,
+            "peak_hour_ris":     peak_hour_ris,
+            "peak_hour_pacs":    peak_hour_pacs,
             "physicians":        physicians,
             "ae_by_count":       ae_by_count_raw,
             "ae_by_util":        util_list,
