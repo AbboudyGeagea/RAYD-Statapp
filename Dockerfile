@@ -2,18 +2,32 @@
 FROM python:3.11-slim
 
 # 1. Install system dependencies
-# libpq-dev is required for the PostgreSQL connection.
 #
 # HL7 BRANCH: the Oracle Instant Client and its libaio dependencies are gone. The
 # image cannot reach an Oracle database even if code tried to — that absence is the
 # point, not an oversight. Removed with it: libaio1t64, libaio-dev, and the
 # libaio.so.1 SONAME symlink the 21.x client needed on Debian's time_t transition.
-RUN apt-get update && apt-get install -y \
-    libpq-dev \
-    gcc \
+#
+# ALSO GONE: gcc, libpq-dev and wget, none of which this image needs.
+#
+# They were there to build psycopg2 from source — but requirements.txt pins
+# psycopg2-BINARY, a manylinux wheel that ships its own statically-linked libpq and
+# compiles nothing. Every other dependency (pandas, scikit-learn, cryptography,
+# psutil) also resolves to a cp311 wheel. So the image was installing a C toolchain
+# it never invoked. wget existed only to download the Oracle client.
+#
+# --no-install-recommends matters as much as the removals: without it apt pulled
+# recommended extras for the toolchain, turning this into 75 packages and 263 MB
+# installed, including libssl-dev and manpages-dev. That unpack step is also where
+# the build kept dying with "cannot allocate memory" on a host with 931 GB of disk
+# and 6.7 GiB of RAM free, which is a strong hint the step was doing far more work
+# than anything here required.
+#
+# If a future dependency genuinely needs to compile, add build-essential to a
+# builder stage rather than reinstating a compiler in the runtime image.
+RUN apt-get update && apt-get install -y --no-install-recommends \
     tzdata \
     curl \
-    wget \
     && rm -rf /var/lib/apt/lists/*
 
 # 2. Set the working directory inside the container
