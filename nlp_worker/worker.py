@@ -166,6 +166,12 @@ _POLL_SECONDS      = 60
 _JOB_POLL_SECONDS  = 5
 _BATCH_EVERY_TICKS = _POLL_SECONDS // _JOB_POLL_SECONDS
 
+# On-demand TF-IDF/K-means clustering jobs (oru_nlp_jobs, /oru/nlp/process).
+# Was 500 -- on an install with a large historical HL7 backlog that meant
+# ~1000 button clicks to clear a ~500k-report queue. A single clustering call
+# over this many short reports still finishes in well under a minute.
+_JOB_LIMIT = 5000
+
 
 # ── medspaCy ──────────────────────────────────────────────────────────────────
 
@@ -363,18 +369,20 @@ def run_pending_jobs():
 
 def _process_job(conn, job_id, days):
     try:
+        date_filter = "AND o.received_at >= NOW() - (%s || ' days')::INTERVAL" if days is not None else ""
+        params = (days, _JOB_LIMIT) if days is not None else (_JOB_LIMIT,)
         with conn.cursor(cursor_factory=psycopg2.extras.NamedTupleCursor) as cur:
-            cur.execute("""
+            cur.execute(f"""
                 SELECT o.id, o.report_text, o.impression_text
                 FROM hl7_oru_reports o
                 LEFT JOIN ai_nlp_cache c ON c.source_id = o.id
                 WHERE c.id IS NULL
-                  AND o.received_at >= NOW() - (%s || ' days')::INTERVAL
+                  {date_filter}
                   AND o.report_text IS NOT NULL
                   AND TRIM(o.report_text) != ''
                 ORDER BY o.received_at DESC
-                LIMIT 500
-            """, (days,))
+                LIMIT %s
+            """, params)
             rows = cur.fetchall()
 
         if not rows:
@@ -432,16 +440,38 @@ def _process_job(conn, job_id, days):
                 conn.rollback()
                 continue
 
+        # Backfill jobs (days IS NULL) have no date window to exhaust, so one
+        # _JOB_LIMIT-sized chunk is never "the whole backlog" -- chain another
+        # pending job to pick up where this one left off. Only chain on real
+        # progress (saved > 0): a poison row that fails every attempt would
+        # otherwise reproduce itself in the next chunk's WHERE c.id IS NULL
+        # filter forever.
+        next_job_id = None
+        if days is None and len(rows) == _JOB_LIMIT and saved > 0:
+            with conn.cursor(cursor_factory=psycopg2.extras.NamedTupleCursor) as cur:
+                cur.execute("""
+                    INSERT INTO oru_nlp_jobs (status, days, requested_by)
+                    VALUES ('pending', NULL, (SELECT requested_by FROM oru_nlp_jobs WHERE id = %s))
+                    RETURNING id
+                """, (job_id,))
+                next_job_id = cur.fetchone().id
+
+        message = f'Processed {saved} reports into {len(cluster_labels)} clusters.'
+        if next_job_id:
+            message += ' More pending — next batch queued.'
+        elif saved == 0:
+            message += ' All rows in this batch failed — see worker logs.'
+
         with conn.cursor() as cur:
             cur.execute("""
                 UPDATE oru_nlp_jobs
                 SET status = 'done', processed_count = %s, cluster_count = %s,
-                    message = %s, finished_at = NOW()
+                    message = %s, next_job_id = %s, finished_at = NOW()
                 WHERE id = %s
-            """, (saved, len(cluster_labels),
-                  f'Processed {saved} reports into {len(cluster_labels)} clusters.', job_id))
+            """, (saved, len(cluster_labels), message, next_job_id, job_id))
         conn.commit()
-        print(f"[NLP Worker] Job {job_id} done — {saved} reports, {len(cluster_labels)} clusters.")
+        print(f"[NLP Worker] Job {job_id} done — {saved} reports, {len(cluster_labels)} clusters."
+              + (f" Chained job {next_job_id}." if next_job_id else ""))
 
     except Exception as e:
         conn.rollback()

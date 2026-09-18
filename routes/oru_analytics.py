@@ -876,7 +876,16 @@ def nlp_process():
         abort(403)
 
     data = request.get_json(force=True) or {}
-    days = min(int(data.get('days', 90)), 365)
+
+    # backfill=true ignores the date window entirely and processes the full
+    # historical queue, auto-chaining batches in nlp_worker/worker.py until
+    # nothing pending is left -- the day-limited mode below can never reach
+    # reports older than 365 days, which stranded most of the backlog on
+    # installs with years of HL7 history.
+    if data.get('backfill'):
+        days = None
+    else:
+        days = min(int(data.get('days', 90)), 365)
 
     row = db.session.execute(text("""
         INSERT INTO oru_nlp_jobs (status, days, requested_by)
@@ -896,7 +905,8 @@ def nlp_job_status(job_id):
         abort(403)
 
     row = db.session.execute(text("""
-        SELECT id, status, processed_count, cluster_count, message, error_message, finished_at
+        SELECT id, status, processed_count, cluster_count, message, error_message,
+               finished_at, next_job_id
         FROM oru_nlp_jobs WHERE id = :id
     """), {'id': job_id}).fetchone()
     if not row:
@@ -910,7 +920,142 @@ def nlp_job_status(job_id):
         'message':         row.message,
         'error_message':   row.error_message,
         'finished_at':     row.finished_at.strftime('%Y-%m-%d %H:%M:%S') if row.finished_at else None,
+        'next_job_id':     row.next_job_id,
     })
+
+
+# ── Classification Review (one-time end-user labeling) ────────────────────────
+# ai_nlp_cache.classification comes from a fixed keyword-score threshold
+# (nlp_worker/clustering.py classify_report) that has never been checked
+# against a real reviewer's read. These routes let an end user confirm or
+# reject the predicted label for a sampled report exactly once (enforced by
+# the UNIQUE(report_id) in oru_classification_reviews + the reviewed_at IS
+# NULL filter below), building a ground-truth set to recalibrate the
+# threshold against instead of guessing.
+
+_REVIEW_SAMPLE_PER_BUCKET = 150
+
+
+@oru_bp.route('/nlp/review/seed', methods=['POST'])
+@login_required
+def review_seed():
+    if current_user.role != 'admin':
+        abort(403)
+
+    data = request.get_json(silent=True) or {}
+    per_bucket = min(max(int(data.get('per_bucket', _REVIEW_SAMPLE_PER_BUCKET)), 1), 1000)
+
+    inserted = {}
+    for bucket_name, class_filter in (
+        ('critical',     "c.classification = 'critical'"),
+        ('not_critical', "c.classification IN ('normal', 'borderline')"),
+    ):
+        rows = db.session.execute(text(f"""
+            SELECT c.source_id, c.classification
+            FROM ai_nlp_cache c
+            LEFT JOIN oru_classification_reviews r ON r.report_id = c.source_id
+            WHERE r.id IS NULL AND {class_filter}
+            ORDER BY RANDOM()
+            LIMIT :n
+        """), {'n': per_bucket}).fetchall()
+
+        for r in rows:
+            db.session.execute(text("""
+                INSERT INTO oru_classification_reviews (report_id, predicted_classification)
+                VALUES (:rid, :cls)
+                ON CONFLICT (report_id) DO NOTHING
+            """), {'rid': r.source_id, 'cls': r.classification})
+        inserted[bucket_name] = len(rows)
+
+    db.session.commit()
+    return jsonify({'ok': True, 'inserted': inserted})
+
+
+@oru_bp.route('/nlp/review/queue')
+@login_required
+def review_queue():
+    if current_user.role not in ('admin', 'viewer', 'viewer2'):
+        abort(403)
+
+    row = db.session.execute(text("""
+        SELECT r.id AS review_id, r.report_id, r.predicted_classification,
+               o.report_text, o.impression_text, o.procedure_name, o.modality,
+               o.result_datetime
+        FROM oru_classification_reviews r
+        JOIN hl7_oru_reports o ON o.id = r.report_id
+        WHERE r.reviewed_at IS NULL
+        ORDER BY r.queued_at
+        LIMIT 1
+    """)).fetchone()
+
+    pending = db.session.execute(text("""
+        SELECT COUNT(*) FROM oru_classification_reviews WHERE reviewed_at IS NULL
+    """)).scalar() or 0
+
+    if not row:
+        return jsonify({'item': None, 'pending': 0})
+
+    return jsonify({
+        'pending': pending,
+        'item': {
+            'review_id':               row.review_id,
+            'predicted_classification': row.predicted_classification,
+            'report_text':             row.report_text,
+            'impression_text':         row.impression_text,
+            'procedure_name':          row.procedure_name,
+            'modality':                row.modality,
+            'result_datetime':         row.result_datetime.strftime('%Y-%m-%d') if row.result_datetime else None,
+        },
+    })
+
+
+@oru_bp.route('/nlp/review/<int:review_id>', methods=['POST'])
+@login_required
+def review_submit(review_id):
+    if current_user.role not in ('admin', 'viewer', 'viewer2'):
+        abort(403)
+
+    data = request.get_json(silent=True) or {}
+    correct = bool(data.get('correct'))
+    corrected = (data.get('corrected_classification') or '').strip().lower() or None
+    if corrected not in (None, 'normal', 'borderline', 'critical'):
+        return jsonify({'error': 'Invalid corrected_classification'}), 400
+
+    db.session.execute(text("""
+        UPDATE oru_classification_reviews
+        SET confirmed_correct = :correct,
+            corrected_classification = :corrected,
+            reviewed_by = :uid,
+            reviewed_at = NOW()
+        WHERE id = :id AND reviewed_at IS NULL
+    """), {'correct': correct, 'corrected': corrected, 'uid': current_user.id, 'id': review_id})
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@oru_bp.route('/nlp/review/stats')
+@login_required
+def review_stats():
+    if current_user.role not in ('admin', 'viewer', 'viewer2'):
+        abort(403)
+
+    rows = db.session.execute(text("""
+        SELECT predicted_classification,
+               COUNT(*) AS n,
+               SUM(CASE WHEN confirmed_correct THEN 1 ELSE 0 END) AS correct_n
+        FROM oru_classification_reviews
+        WHERE reviewed_at IS NOT NULL
+        GROUP BY predicted_classification
+        ORDER BY predicted_classification
+    """)).fetchall()
+
+    buckets = [{
+        'predicted_classification': r.predicted_classification,
+        'n':                        r.n,
+        'accuracy_pct':             round(100 * (r.correct_n or 0) / r.n, 1) if r.n else 0,
+    } for r in rows]
+
+    return jsonify({'buckets': buckets})
 
 
 # ── NLP analytics results ─────────────────────────────────────────────────────

@@ -49,7 +49,24 @@
       "Bash(python -c \"import ast,sys; ast.parse\\(open\\('ETL_JOBS/system_type_registry.py',encoding='utf-8'\\).read\\(\\)\\); print\\('registry: OK'\\)\")",
       "Bash(python -c ' *)",
       "Bash(git commit -m 'feat\\(LAUMC\\): multi-site foundation — sites map, status lifecycle map, status-history, site_id columns, RIS worklist adapter schema *)",
-      "Bash(git commit -m 'feat\\(LAUMC\\): add RIS std_visits table to registry — IP/OP/ER mix, ward/room/bed, TPA/insurance, length-of-stay stats *)"
+      "Bash(git commit -m 'feat\\(LAUMC\\): add RIS std_visits table to registry — IP/OP/ER mix, ward/room/bed, TPA/insurance, length-of-stay stats *)",
+      "Bash(MSYS_NO_PATHCONV=1 docker rm -f crn_test_pg2)",
+      "Bash(python3 -)",
+      "Bash(export MSYS_NO_PATHCONV=1)",
+      "Bash(cat)",
+      "Bash(docker cp *)",
+      "Bash(docker exec *)",
+      "Bash(docker compose *)",
+      "Bash(python3 -c ' *)",
+      "Bash(awk '/CREATE TABLE public.hl7_orders/,/\\\\\\);/' init-db/schema.sql)",
+      "Bash(awk '/CREATE TABLE public.hl7_scn_studies/,/\\\\\\);/' init-db/schema.sql)",
+      "Bash(python -W ignore -c ' *)",
+      "Bash(git commit -q -m ' *)",
+      "Bash(timeout 90 git ls-remote origin HL7)",
+      "Read(//d/Intermedic/RAYD-HL7-test/**)",
+      "Bash(MSYS_NO_PATHCONV=1 timeout 300 docker exec -e RAYD_NO_LISTENER=1 raydtest_service python -c ' *)",
+      "Bash(git status *)",
+      "Bash(MSYS_NO_PATHCONV=1 timeout 180 docker exec -e RAYD_NO_LISTENER=1 raydtest_service python -c ' *)"
     ]
   }
 }

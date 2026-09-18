@@ -207,6 +207,11 @@
             <button id="run-nlp-btn" onclick="runNLP()" class="btn-primary" type="button">
               <i class="bi bi-cpu" aria-hidden="true"></i> Process Reports
             </button>
+            {% if current_user.role == 'admin' %}
+            <button id="backfill-nlp-btn" onclick="runBackfill()" class="export-btn" type="button" title="Process the entire historical backlog, ignoring the date filter — runs in automatic batches until nothing is pending.">
+              <i class="bi bi-database-fill-gear" aria-hidden="true"></i> Backfill All
+            </button>
+            {% endif %}
           </div>
         </div>
 
@@ -579,6 +584,41 @@
                   <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;">from NLP keyword extraction · not raw word count</span>
                 </div>
                 <div id="nlp-kw-bars"></div>
+              </div>
+
+              <div class="card" id="review-card" style="grid-column:1/-1;">
+                <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
+                  <div class="section-label" style="margin-bottom:0;"><i class="bi bi-clipboard-check-fill" style="color:var(--primary);" aria-hidden="true"></i>Classification Review
+                    <span id="review-progress" style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;margin-left:8px;"></span>
+                  </div>
+                  {% if current_user.role == 'admin' %}
+                  <button id="review-seed-btn" onclick="seedReviewSample()" class="export-btn" type="button" title="Sample unreviewed reports for one-time confirmation, balanced between predicted-critical and predicted-not.">
+                    <i class="bi bi-shuffle" aria-hidden="true"></i> Generate Review Sample
+                  </button>
+                  {% endif %}
+                </div>
+
+                <div id="review-empty" style="font-size:12px;color:var(--muted);font-weight:600;">Loading…</div>
+
+                <div id="review-item" style="display:none;">
+                  <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
+                    <span id="review-predicted" style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;color:#fff;"></span>
+                    <span id="review-meta" style="font-size:11px;color:var(--muted);font-weight:600;"></span>
+                  </div>
+                  <div id="review-text" style="font-size:12px;line-height:1.5;background:rgba(127,127,127,.08);border-radius:8px;padding:10px 12px;max-height:180px;overflow-y:auto;white-space:pre-wrap;margin-bottom:12px;"></div>
+                  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                    <button class="btn-primary" type="button" onclick="submitReview(true)"><i class="bi bi-check-lg" aria-hidden="true"></i> Correct</button>
+                    <button class="export-btn" type="button" onclick="submitReview(false)"><i class="bi bi-x-lg" aria-hidden="true"></i> Incorrect</button>
+                    <select id="review-corrected" style="display:none;font-size:12px;padding:5px 8px;border-radius:6px;">
+                      <option value="">Should actually be…</option>
+                      <option value="normal">Normal</option>
+                      <option value="borderline">Borderline</option>
+                      <option value="critical">Critical</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div id="review-stats" style="font-size:11px;color:var(--muted);font-weight:600;margin-top:12px;"></div>
               </div>
             </div>
 
@@ -1348,11 +1388,35 @@ function runNLP() {
   const f    = document.getElementById('date-from').value;
   const t    = document.getElementById('date-to').value;
   const days = f && t ? Math.max(1, Math.round((new Date(t) - new Date(f)) / 86400000)) : 30;
-  const btn  = document.getElementById('run-nlp-btn');
+  _startNLPJob({days: parseInt(days)}, 'run-nlp-btn', 'Process Reports', 'bi-cpu');
+}
+
+// Ignores the date window entirely and works through the full historical
+// backlog. A single job caps at _JOB_LIMIT reports (nlp_worker/worker.py),
+// so the worker auto-chains follow-up jobs (next_job_id) until nothing is
+// pending — this just keeps following that chain instead of stopping after
+// one batch.
+function runBackfill() {
+  if (!confirm('This processes the entire historical backlog, ignoring the date filter, in automatic batches until nothing is pending. It can take a while on a large backlog — you can navigate away and check back later. Continue?')) {
+    return;
+  }
+  _startNLPJob({backfill: true}, 'backfill-nlp-btn', 'Backfill All', 'bi-database-fill-gear');
+}
+
+let _nlpActiveBtnId = null, _nlpActiveLabel = '', _nlpActiveIcon = '';
+
+function _startNLPJob(body, btnId, label, icon) {
   const toast = document.getElementById('nlp-toast');
 
-  btn.disabled = true;
-  btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Processing...';
+  _nlpActiveBtnId = btnId;
+  _nlpActiveLabel = label;
+  _nlpActiveIcon  = icon;
+
+  ['run-nlp-btn', 'backfill-nlp-btn'].forEach(id => {
+    const b = document.getElementById(id);
+    if (b) b.disabled = true;
+  });
+  document.getElementById(btnId).innerHTML = '<i class="bi bi-hourglass-split"></i> Processing...';
   toast.style.display = 'flex';
   toast.style.background = '';
   toast.style.borderColor = '';
@@ -1362,7 +1426,7 @@ function runNLP() {
   fetch('/oru/nlp/process', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({days: parseInt(days)})
+    body: JSON.stringify(body)
   })
   .then(r => r.json())
   .then(d => {
@@ -1371,7 +1435,7 @@ function runNLP() {
       resetNLPButton();
       return;
     }
-    pollNLPJob(d.job_id);
+    pollNLPJob(d.job_id, 0);
   })
   .catch(err => {
     showNLPError('Request failed: ' + err);
@@ -1379,17 +1443,30 @@ function runNLP() {
   });
 }
 
-function pollNLPJob(jobId) {
+function pollNLPJob(jobId, totalSoFar) {
+  totalSoFar = totalSoFar || 0;
   if (_nlpPollTimer) clearInterval(_nlpPollTimer);
   _nlpPollTimer = setInterval(() => {
     fetch(`/oru/nlp/job/${jobId}`)
       .then(r => r.json())
       .then(d => {
         if (d.status === 'running') {
-          document.getElementById('nlp-toast-text').textContent = 'Running TF-IDF + K-means…';
+          document.getElementById('nlp-toast-text').textContent = totalSoFar > 0
+            ? `Running TF-IDF + K-means… (${fmt(totalSoFar)} processed so far)`
+            : 'Running TF-IDF + K-means…';
         } else if (d.status === 'done') {
           clearInterval(_nlpPollTimer);
-          document.getElementById('nlp-toast-text').textContent = `✓ ${d.message || 'Processing complete.'}`;
+          const runningTotal = totalSoFar + (d.processed_count || 0);
+          if (d.next_job_id) {
+            // Backfill chain isn't finished — follow the next batch instead
+            // of resetting the button.
+            document.getElementById('nlp-toast-text').textContent =
+              `${fmt(runningTotal)} processed so far — next batch queued…`;
+            pollNLPJob(d.next_job_id, runningTotal);
+            return;
+          }
+          const prefix = totalSoFar > 0 ? `${fmt(runningTotal)} total — ` : '';
+          document.getElementById('nlp-toast-text').textContent = `✓ ${prefix}${d.message || 'Processing complete.'}`;
           setTimeout(() => { document.getElementById('nlp-toast').style.display = 'none'; }, 3000);
           checkNLPStatus();
           loadNLPResults();
@@ -1418,10 +1495,109 @@ function showNLPError(msg) {
 }
 
 function resetNLPButton() {
-  const btn = document.getElementById('run-nlp-btn');
-  btn.disabled = false;
-  btn.innerHTML = '<i class="bi bi-cpu"></i> Process Reports';
+  const activeBtn = document.getElementById(_nlpActiveBtnId || 'run-nlp-btn');
+  if (activeBtn) activeBtn.innerHTML = `<i class="bi ${_nlpActiveIcon || 'bi-cpu'}"></i> ${_nlpActiveLabel || 'Process Reports'}`;
+  ['run-nlp-btn', 'backfill-nlp-btn'].forEach(id => {
+    const b = document.getElementById(id);
+    if (b) b.disabled = false;
+  });
+  _nlpActiveBtnId = null;
 }
+
+// ── Classification Review (one-time end-user labeling) ─────────────────────
+// One report at a time: fetch the oldest unreviewed sample, show its
+// predicted classification + text, take a Correct/Incorrect answer, then
+// fetch the next one. Reviewing a report is one-shot server-side (WHERE
+// reviewed_at IS NULL), so there's no local state to reconcile beyond
+// "what's currently on screen."
+let _reviewId = null;
+
+const REVIEW_BADGE_COLOR = {normal: 'var(--success)', borderline: 'var(--warning)', critical: 'var(--critical)'};
+
+function seedReviewSample() {
+  const btn = document.getElementById('review-seed-btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Sampling…'; }
+  fetch('/oru/nlp/review/seed', {method: 'POST'})
+    .then(r => r.json())
+    .then(() => { loadNextReview(); loadReviewStats(); })
+    .catch(() => {})
+    .finally(() => {
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-shuffle"></i> Generate Review Sample'; }
+    });
+}
+
+function loadNextReview() {
+  fetch('/oru/nlp/review/queue')
+    .then(r => r.json())
+    .then(d => {
+      const empty = document.getElementById('review-empty');
+      const item  = document.getElementById('review-item');
+      const prog  = document.getElementById('review-progress');
+      if (!d.item) {
+        empty.textContent = 'No reports queued for review.';
+        empty.style.display = '';
+        item.style.display = 'none';
+        prog.textContent = '';
+        _reviewId = null;
+        return;
+      }
+      _reviewId = d.item.review_id;
+      empty.style.display = 'none';
+      item.style.display = '';
+      prog.textContent = `${d.pending.toLocaleString()} remaining`;
+
+      const badge = document.getElementById('review-predicted');
+      badge.textContent = 'Predicted: ' + d.item.predicted_classification;
+      badge.style.background = REVIEW_BADGE_COLOR[d.item.predicted_classification] || 'var(--muted)';
+
+      document.getElementById('review-meta').textContent =
+        [d.item.procedure_name, d.item.modality, d.item.result_datetime].filter(Boolean).join(' · ');
+      document.getElementById('review-text').textContent =
+        d.item.impression_text || d.item.report_text || '(no text)';
+
+      const sel = document.getElementById('review-corrected');
+      sel.style.display = 'none';
+      sel.value = '';
+    })
+    .catch(() => {});
+}
+
+function submitReview(correct, corrected) {
+  if (!_reviewId) return;
+  if (!correct && corrected === undefined) {
+    // First click on "Incorrect" just reveals the optional corrected-label
+    // picker; the actual submit happens on Correct or on picking a value.
+    document.getElementById('review-corrected').style.display = 'inline-block';
+    return;
+  }
+  const id = _reviewId;
+  fetch(`/oru/nlp/review/${id}`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({correct: correct, corrected_classification: corrected || null}),
+  })
+    .then(() => { loadNextReview(); loadReviewStats(); })
+    .catch(() => {});
+}
+
+function loadReviewStats() {
+  fetch('/oru/nlp/review/stats')
+    .then(r => r.json())
+    .then(d => {
+      const el = document.getElementById('review-stats');
+      if (!d.buckets || !d.buckets.length) { el.textContent = ''; return; }
+      el.textContent = 'So far — ' + d.buckets
+        .map(b => `${b.predicted_classification}: ${b.accuracy_pct}% confirmed correct (${b.n} reviewed)`)
+        .join('  ·  ');
+    })
+    .catch(() => {});
+}
+
+document.addEventListener('change', function (e) {
+  if (e.target && e.target.id === 'review-corrected' && e.target.value) {
+    submitReview(false, e.target.value);
+  }
+});
 
 // ── Load / render NLP results ────────────────────────────────────────────────
 function loadNLPResults() {
@@ -1668,6 +1844,8 @@ const GO_LIVE_DATE = {{ go_live_date|tojson }};
 loadData();
 checkNLPStatus();
 loadNLPResults();
+loadNextReview();
+loadReviewStats();
 
 // ── Theme ─────────────────────────────────────────────────────────────────────
 function applyTheme(theme) {
