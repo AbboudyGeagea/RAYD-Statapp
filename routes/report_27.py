@@ -14,11 +14,85 @@ def calculate_age(birth_date):
     today = date.today()
     return today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
 
+
+# ── Order Status Mix ──────────────────────────────────────────────────────────
+# etl_orders.order_status is a lossy translation of the RIS status: 42 codes
+# collapse into 'CM' / 'CA' plus four stage names (ETL_JOBS/etl_orders.py
+# _translate_order_status). Those codes are meaningless to a reader, and the
+# card used to promise "current RIS status (e.g. Scheduled, Completed...)" while
+# the axis said 'CM'.
+#
+# The bar stays aggregated rather than becoming one bar per RIS status: at LAUMC
+# 'CM' is 99.5% "Approved" (82,013 of 82,413), so a flat per-status chart is two
+# readable bars and five invisible slivers. The real status names ride along in
+# the breakdown, which the tooltip renders -- that is the part the customer can
+# tick off against their own worklist.
+_STATUS_BAR_LABELS = {
+    'requested':   'Requested',
+    'scheduled':   'Scheduled',
+    'arrived':     'Arrived',
+    'in_progress': 'In Progress',
+    'CM':          'Completed / Reported',
+    'CA':          'Cancelled',
+}
+
+# Lifecycle order, not count order — a status chart that reorders itself run to
+# run is hard to compare against last month's export. 'Unknown' is last and is
+# only ever non-empty when something upstream needs fixing.
+_STATUS_BAR_ORDER = ['Requested', 'Scheduled', 'Arrived', 'In Progress',
+                     'Completed / Reported', 'Cancelled', 'Unknown']
+
+
+def _build_status_mix(df):
+    """[{label, total, breakdown: [{name, count}]}] in lifecycle order.
+
+    'Unknown' collects two different failures, deliberately in one visible bucket
+    rather than dropped: an order_status that is NULL (a RIS status_key missing
+    from worklist_status_map — migration 0047 requires these be surfaced, but
+    value_counts() used to drop them silently), and a status_key that is itself
+    NULL because migration 0112's backfill has not run yet.
+    """
+    work = df[['order_status', 'ris_status_name']].copy()
+    work['bar'] = work['order_status'].map(_STATUS_BAR_LABELS).fillna('Unknown')
+    work['ris_status_name'] = work['ris_status_name'].fillna('Unknown')
+
+    mix = []
+    for label in _STATUS_BAR_ORDER:
+        grp = work[work['bar'] == label]
+        if grp.empty:
+            continue
+        counts = grp['ris_status_name'].value_counts()
+        mix.append({
+            'label':     label,
+            'total':     int(len(grp)),
+            'breakdown': [{'name': str(n), 'count': int(c)} for n, c in counts.items()],
+        })
+    return mix
+
 def get_report_data(start, end):
+    # The duration-map join is LATERAL / LIMIT 1 rather than the obvious
+    # "ON m.procedure_code = s.procedure_code OR m.procedure_code = o.proc_id".
+    # procedure_code is UNIQUE, so each side of that OR matched at most one row --
+    # but BOTH sides matched whenever the PACS procedure code differed from the
+    # RIS proc code, returning the order twice. Everything downstream counts rows
+    # (value_counts / len / groupby.size), so those orders were counted twice.
+    #
+    # The skew was not uniform: fan-out needs s.procedure_code to be non-NULL,
+    # which only happens once an order resolves to a PACS study -- i.e. exam-done
+    # or later -- so it inflated the 'CM' bar and almost nothing else. Measured on
+    # LAUMC 2026-09-18: 'CM' read 90,108 against a true 82,071 (+9.8%), while
+    # in_progress was exact and scheduled/CA/arrived were off by 6-13 rows.
+    #
+    # LIMIT 1 restores one-row-per-order. The ORDER BY keeps the old preference
+    # (PACS procedure code first, RIS proc_id as fallback) so a code present in
+    # only one of the two still resolves a duration -- COALESCE would have
+    # silently dropped those.
     sql = text("""
         SELECT
             o.order_dbid,
             o.order_status,
+            o.status_key,
+            COALESCE(wsm.status_name, 'Unknown') AS ris_status_name,
             o.proc_id,
             o.proc_text,
             o.scheduled_datetime,
@@ -30,15 +104,22 @@ def get_report_data(start, end):
             p.gender_code AS sex,
             m.duration_minutes
         FROM etl_orders o
+        LEFT JOIN worklist_status_map wsm
+            ON wsm.status_key = o.status_key
         LEFT JOIN etl_didb_studies s
             ON s.study_db_uid::TEXT = o.study_db_uid::TEXT
         LEFT JOIN std_patients_ris p
             ON p.patient_person_key = CASE WHEN o.patient_dbid ~ '^[0-9]+$'
                                             THEN o.patient_dbid::BIGINT END
-        LEFT JOIN procedure_duration_map m
-            ON m.procedure_code::TEXT = s.procedure_code::TEXT 
-            OR m.procedure_code::TEXT = o.proc_id::TEXT
-        WHERE o.scheduled_datetime BETWEEN :start AND :end
+        LEFT JOIN LATERAL (
+            SELECT dm.duration_minutes
+            FROM procedure_duration_map dm
+            WHERE dm.procedure_code::TEXT IN (s.procedure_code::TEXT, o.proc_id::TEXT)
+            ORDER BY (dm.procedure_code::TEXT IS NOT DISTINCT FROM s.procedure_code::TEXT) DESC
+            LIMIT 1
+        ) m ON TRUE
+        WHERE o.scheduled_datetime >= :start
+          AND o.scheduled_datetime <  (CAST(:end AS DATE) + INTERVAL '1 day')
     """)
     res = db.session.execute(sql, {"start": start, "end": end}).fetchall()
     df = pd.DataFrame(res)
@@ -90,7 +171,8 @@ def report_27():
                     DATE(scheduled_datetime) AS sched_date,
                     COUNT(*) AS cnt
                 FROM etl_orders
-                WHERE scheduled_datetime BETWEEN :start AND :end
+                WHERE scheduled_datetime >= :start
+                  AND scheduled_datetime <  (CAST(:end AS DATE) + INTERVAL '1 day')
                 GROUP BY patient_dbid, proc_id, DATE(scheduled_datetime)
                 HAVING COUNT(*) > 1
             )
@@ -128,7 +210,7 @@ def report_27():
                 "avg_duration":              avg_duration,
                 "duration_outliers_removed": duration_outliers_removed,
                 "hourly":                    df_a['scheduled_datetime'].dt.hour.value_counts().sort_index().to_dict(),
-                "status_mix":                df_a['order_status'].value_counts().to_dict(),
+                "status_mix":                _build_status_mix(df_a),
                 "ae_mix":                    df_a['storing_ae'].fillna('Unknown').value_counts().to_dict(),
                 "demo":                      df_a.groupby(['age_group', 'sex'], observed=False).size().unstack(fill_value=0).to_dict('index'),
             }

@@ -90,6 +90,17 @@ def _safe_str(val, max_len=None):
     return s[:max_len] if max_len else s
 
 
+def _safe_int(val):
+    """None for anything non-numeric, so a junk STATUS_KEY degrades to an
+    unresolved breakdown rather than failing the whole batch insert."""
+    if val is None:
+        return None
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return None
+
+
 def _load_status_map(pg_engine):
     """Preload RIS status_key -> {stage, is_cancel} from worklist_status_map (migration
     0047). Small table (~40 rows); loaded once per run, same pattern as the valid-ID
@@ -212,7 +223,7 @@ def run_orders_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_l
     col_names = [
         'order_dbid', 'patient_dbid', 'study_db_uid', 'visit_dbid',
         'study_instance_uid', 'proc_id', 'proc_text', 'scheduled_datetime',
-        'order_status', 'modality', 'has_study', 'order_control',
+        'order_status', 'status_key', 'modality', 'has_study', 'order_control',
         'accession_number', 'linked_id', 'last_update'
     ]
 
@@ -299,6 +310,10 @@ def run_orders_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_l
                     _safe_str(proc_text, 4000),                 # proc_text
                     _safe_date(scheduled_date),                 # scheduled_datetime
                     _translate_order_status(status_key, status_map),  # order_status
+                    _safe_int(status_key),                      # status_key — raw RIS code,
+                                                                # kept so report 27 can show the
+                                                                # real status names the collapse
+                                                                # above throws away (migration 0112)
                     _safe_str(modality_type),                   # modality
                     False,                                       # has_study — set TRUE by enrichment pass
                     _safe_str(issuer),                          # order_control — raw RIS site issuer (traceability)

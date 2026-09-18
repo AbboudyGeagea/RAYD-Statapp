@@ -284,7 +284,9 @@
                         </button>
                     </div>
                     <div class="card-desc">
-                        Breakdown of orders by their current RIS status (e.g. Scheduled, Completed, Cancelled, In Progress). A large Cancelled or Pending bar may indicate workflow issues.
+                        Orders by lifecycle stage. Each bar groups several RIS statuses &mdash; hover to see
+                        exactly which ones, so the figures can be reconciled against the RIS worklist.
+                        A large Cancelled bar may indicate workflow issues.
                     </div>
                     <div id="chart_status" class="flex-1 p-2"></div>
                 </div>
@@ -415,15 +417,44 @@
             });
             registerChart('chart_demo', cDemo);
 
-            // Status Mix
+            // Status Mix — bars are lifecycle stages; the RIS statuses each one groups
+            // are in the tooltip, because that is what reconciles against the RIS worklist.
+            // Reversed: ECharts draws the first category at the BOTTOM, and the server
+            // sends lifecycle order, so this makes it read top-to-bottom.
+            const statusMix = (raw.audit.status_mix || []).slice().reverse();
+            const escHtml = s => String(s).replace(/[&<>"']/g,
+                c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
             const cStatus = echarts.init(document.getElementById('chart_status'));
             cStatus.setOption({
-                tooltip: { trigger: 'axis' },
-                grid: { left: '3%', right: '12%', bottom: '5%', top: '5%', containLabel: true },
+                tooltip: {
+                    trigger: 'item',
+                    formatter: p => {
+                        const row = statusMix[p.dataIndex];
+                        if (!row) return '';
+                        let html = '<div style="font-weight:700;margin-bottom:2px">'
+                                 + escHtml(row.label) + ' — ' + row.total.toLocaleString() + '</div>'
+                                 + '<div style="font-size:10px;color:#94a3b8;margin-bottom:6px">'
+                                 + 'RIS statuses in this bar</div>';
+                        row.breakdown.forEach(b => {
+                            html += '<div style="display:flex;justify-content:space-between;gap:20px">'
+                                  + '<span>' + escHtml(b.name) + '</span>'
+                                  + '<span style="font-weight:600">' + b.count.toLocaleString() + '</span>'
+                                  + '</div>';
+                        });
+                        return html;
+                    }
+                },
+                grid: { left: '3%', right: '14%', bottom: '5%', top: '5%', containLabel: true },
                 xAxis: { type: 'value', show: false },
-                yAxis: { type: 'category', data: Object.keys(raw.audit.status_mix), axisLabel: { color: '#94a3b8', fontSize: 12 } },
+                yAxis: {
+                    type: 'category',
+                    data: statusMix.map(d => d.label),
+                    axisLabel: { color: '#94a3b8', fontSize: 12 }
+                },
                 series: [{
-                    type: 'bar', data: Object.values(raw.audit.status_mix),
+                    type: 'bar',
+                    data: statusMix.map(d => d.total),
                     itemStyle: { color: '#6366f1', borderRadius: [0, 4, 4, 0] },
                     label: { show: true, position: 'right', color: '#fff', fontSize: 12 }
                 }]
