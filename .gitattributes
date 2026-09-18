@@ -1,0 +1,45 @@
+# Line-ending policy.
+#
+# This repository stores LF, but this machine has core.autocrlf=true, so a Windows
+# checkout rewrites text files to CRLF in the working tree. For most files that is
+# harmless. For a shell script copied into a Linux container it is fatal, and the
+# error tells you nothing useful:
+#
+#     exec /app/scripts/entrypoint.sh: no such file or directory
+#
+# The file is plainly there. What is missing is the interpreter — a CRLF shebang
+# reads as "#!/bin/bash\r", so Linux looks for a program literally named
+# "/bin/bash\r" and reports the SCRIPT as not found. That cost a full debugging
+# round on 2026-09-18 when the HL7 test container crash-looped on startup.
+#
+# eol=lf pins the WORKING TREE, not just the index. The index was always correct;
+# checkout was the step doing the damage, so normalising on commit would have fixed
+# nothing.
+
+# Let git decide what is text, and store LF for all of it.
+* text=auto
+
+# Consumed by Linux at runtime — must be LF on disk, on every platform.
+*.sh            text eol=lf
+Dockerfile      text eol=lf
+*.Dockerfile    text eol=lf
+.dockerignore   text eol=lf
+
+# Systemd unit read inside the container/host Linux side.
+*.service       text eol=lf
+
+# Binary: never touch these, and never try to diff them as text.
+*.png           binary
+*.jpg           binary
+*.jpeg          binary
+*.gif           binary
+*.ico           binary
+*.pdf           binary
+*.xlsx          binary
+*.docx          binary
+*.odt           binary
+*.doc           binary
+*.zip           binary
+*.pem           binary
+*.crt           binary
+*.key           binary
