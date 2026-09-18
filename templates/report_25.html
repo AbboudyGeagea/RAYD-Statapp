@@ -454,7 +454,7 @@
             <div id="tab-infra" class="tab-content hidden space-y-6">
 
                 <p class="section-desc">
-                    Weekly device utilization matrix for every AE title (imaging device) in the fleet. Each cell shows the percentage of scheduled capacity consumed on that weekday. <span class="text-rose-400 not-italic font-bold">Red (&gt;85%)</span> = overloaded, <span class="text-emerald-400 not-italic font-bold">Green (30–85%)</span> = healthy, <span class="text-amber-400 not-italic font-bold">Amber (&lt;30%)</span> = under-utilized. The final column shows total RVU generated per device.
+                    Weekly device utilization matrix for every AE title (imaging device) in the fleet. Each cell shows the percentage of scheduled capacity consumed on that weekday. <span class="text-rose-400 not-italic font-bold">Red (&gt;85%)</span> = overloaded, <span class="text-emerald-400 not-italic font-bold">Green (30–85%)</span> = healthy, <span class="text-amber-400 not-italic font-bold">Amber (&lt;30%)</span> = under-utilized. The last two columns split the revenue each device generates: <span class="text-amber-500 not-italic font-bold">Clinical RVU</span> (physician work reading its studies) and <span class="text-amber-500 not-italic font-bold">Technical RVU</span> (facility/device revenue). They are two separate streams &mdash; never add them together.
                 </p>
 
                 <div class="glass-card !p-0 overflow-hidden">
@@ -465,7 +465,8 @@
                                 <th class="p-4">Infrastructure (AE)</th>
                                 {% for d in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}<th class="p-4 text-center">{{d}}</th>{% endfor %}
                                 <th class="p-4 text-center">Avg Util</th>
-                                <th class="p-4 text-center text-amber-500">Device RVU</th>
+                                <th class="p-4 text-center text-amber-500">Clinical RVU</th>
+                                <th class="p-4 text-center text-amber-500">Technical RVU</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -488,7 +489,10 @@
                                     {{ row.avg }}%
                                 </td>
                                 <td class="p-4 text-center font-mono text-amber-500 bg-white/[0.02] border-l border-white/5 text-sm">
-                                    {{ row.total_rvu }}
+                                    {{ row.clinical_rvu }}
+                                </td>
+                                <td class="p-4 text-center font-mono text-amber-500 bg-white/[0.02] text-sm">
+                                    {{ row.technical_rvu }}
                                 </td>
                             </tr>
                             {% endfor %}
@@ -528,7 +532,7 @@
                     <div class="glass-card text-center">
                         <p class="text-[9px] font-black text-blue-500 uppercase tracking-widest mb-1">Top Efficient AE</p>
                         <p class="text-2xl font-black text-white" id="kpi-top-ae">—</p>
-                        <p class="text-[10px] text-zinc-500 mt-1">Highest RVU/Util ratio</p>
+                        <p class="text-[10px] text-zinc-500 mt-1">Highest technical RVU/Util ratio</p>
                     </div>
                     <div class="glass-card text-center">
                         <p class="text-[9px] font-black text-amber-500 uppercase tracking-widest mb-1">TAT Outliers</p>
@@ -546,7 +550,7 @@
                 <div class="glass-card">
                     <div class="flex items-center justify-between mb-4">
                         <p class="text-xs font-black text-blue-500 uppercase">Modality Efficiency Score</p>
-                        <p class="text-[9px] text-zinc-500 uppercase">RVU per 1% Utilization</p>
+                        <p class="text-[9px] text-zinc-500 uppercase">Technical RVU per 1% Utilization</p>
                     </div>
                     <div id="chart-eff-bar" class="w-full" style="height:600px;"></div>
                 </div>
@@ -555,7 +559,7 @@
                 <div class="glass-card">
                     <div class="flex items-center justify-between mb-4">
                         <p class="text-xs font-black text-blue-500 uppercase">Stress vs Output</p>
-                        <p class="text-[9px] text-zinc-500 uppercase">Util % vs RVU per AE</p>
+                        <p class="text-[9px] text-zinc-500 uppercase">Util % vs Technical RVU per AE</p>
                     </div>
                     <div id="chart-stress-scatter" class="w-full" style="height:300px;"></div>
                 </div>
@@ -1291,7 +1295,7 @@
                     cScatter.setOption({
                         tooltip: {
                             trigger: 'item',
-                            formatter: p => `<b>${p.value[2]}</b><br>Util: ${p.value[0]}%<br>RVU: ${p.value[1]}`
+                            formatter: p => `<b>${p.value[2]}</b><br>Util: ${p.value[0]}%<br>Technical RVU: ${p.value[1]}`
                         },
                         grid: { left: 60, right: 20, top: 20, bottom: 40 },
                         xAxis: {
@@ -1301,7 +1305,7 @@
                             ...axisStyle
                         },
                         yAxis: {
-                            type: 'value', name: 'Total RVU',
+                            type: 'value', name: 'Technical RVU',
                             nameTextStyle: { color: '#52525b', fontSize: 11 },
                             ...axisStyle
                         },
@@ -1353,14 +1357,26 @@
                     registerChart('chart-tat-hist', cTH);
                 }
 
-                // RVU vs TAT scatter
+                // RVU vs TAT scatter — clinical and technical as two series against the
+                // same TAT axis, toggleable via the legend. Not stacked or summed: they
+                // are separate revenue streams, and adding them double-counts.
                 if (document.getElementById('chart-rvu-tat') && d.rvu_tat) {
                     const cRT = echarts.init(document.getElementById('chart-rvu-tat'));
                     cRT.setOption({
-                        tooltip: { trigger: 'item', formatter: p => `RVU: ${p.value[0]}<br>TAT: ${p.value[1]}m` },
+                        tooltip: { trigger: 'item',
+                                   formatter: p => `${p.seriesName}: ${p.value[0]}<br>TAT: ${p.value[1]}m` },
+                        legend: { data: ['Clinical RVU', 'Technical RVU'], top: 0,
+                                  textStyle: { color: '#71717a', fontSize: 10 }, icon: 'circle',
+                                  itemWidth: 8, itemHeight: 8 },
+                        grid: { top: 28 },
                         xAxis: { name: 'RVU', nameTextStyle: { color: '#52525b', fontSize: 11 }, ...axisStyle },
                         yAxis: { name: 'TAT (min)', nameTextStyle: { color: '#52525b', fontSize: 11 }, ...axisStyle },
-                        series: [{ type: 'scatter', data: d.rvu_tat, itemStyle: { color: '#f59e0b', opacity: 0.5 }, symbolSize: 5 }]
+                        series: [
+                            { name: 'Clinical RVU', type: 'scatter', data: d.rvu_tat,
+                              itemStyle: { color: '#f59e0b', opacity: 0.5 }, symbolSize: 5 },
+                            { name: 'Technical RVU', type: 'scatter', data: d.rvu_tat_technical || [],
+                              itemStyle: { color: '#38bdf8', opacity: 0.45 }, symbolSize: 5 }
+                        ]
                     });
                     registerChart('chart-rvu-tat', cRT);
                 }
