@@ -200,7 +200,103 @@ def persist_parsed(msg, archive_id):
                 logger.exception("RAY7/ingest: hl7_study_events insert failed for %s",
                                  msg.accession_number)
 
+            # Roll the event into the per-study state RAY7 screens the NEXT message
+            # against. Order matters: screening has already happened by this point,
+            # so it saw the state as it was before this event.
+            update_study_state(msg)
+
     return ', '.join(written) if written else 'nothing'
+
+
+# Which ray7_study_state column each rung stamps. Values come from a CHECK-
+# constrained set, so this can be interpolated into SQL safely — but it is a
+# whitelist lookup rather than a format of the incoming value, and must stay that
+# way.
+_RUNG_COLUMN = {
+    'scheduled': 'scheduled_at',
+    'arrived':   'arrived_at',
+    'started':   'started_at',
+    'completed': 'completed_at',
+    'cancelled': 'cancelled_at',
+}
+
+
+def update_study_state(msg):
+    """
+    Maintain ray7_study_state — the per-accession lifecycle RAY7's sequence rules
+    read.
+
+    WITHOUT THIS THE SEQUENCE RULES ARE NOT MERELY BLIND, THEY ARE WRONG. Confirmed
+    on the first live run: with the table unpopulated, every study looked unknown,
+    so SKIPPED_RUNG reported "arrived and started missing" on a study whose arrived
+    and started events were sitting in hl7_study_events two rows away, and
+    ORPHAN_EVENT fired on every message. False positives on everything are worse
+    than silence, because they train people to stop reading the queue.
+
+    Called AFTER RAY7 has screened, never before: screening the current message
+    must see the state as it was BEFORE that message, or every event would find
+    itself already recorded and the comparisons would be meaningless.
+
+    Each rung keeps its FIRST timestamp (COALESCE on the stored value), because a
+    repeated Arrived is a real occurrence here and the clinically meaningful moment
+    is when the patient first arrived. current_rank only ever moves forward via
+    GREATEST, so a late-delivered earlier event cannot walk the study backwards —
+    the ladder records the furthest point reached, not the most recent message.
+    """
+    if not msg.accession_number:
+        return
+    column = _RUNG_COLUMN.get(msg.canonical_state or '')
+    if not column or msg.ladder_rank is None:
+        return
+
+    sql = """
+        INSERT INTO ray7_study_state
+            (accession_number, placer_order_number, patient_id, modality, aetitle,
+             room_name, procedure_code, patient_class, {col},
+             current_rank, event_count, first_seen_at, last_event_at, updated_at)
+        VALUES
+            (:accession, :placer, :patient_id, :modality, :aetitle,
+             :room, :procedure_code, :patient_class, :event_time,
+             :rank, 1, NOW(), :event_time, NOW())
+        ON CONFLICT (accession_number) DO UPDATE SET
+            {col}               = COALESCE(ray7_study_state.{col}, EXCLUDED.{col}),
+            placer_order_number = COALESCE(ray7_study_state.placer_order_number, EXCLUDED.placer_order_number),
+            patient_id          = COALESCE(ray7_study_state.patient_id,     EXCLUDED.patient_id),
+            modality            = COALESCE(ray7_study_state.modality,       EXCLUDED.modality),
+            aetitle             = COALESCE(EXCLUDED.aetitle,  ray7_study_state.aetitle),
+            room_name           = COALESCE(EXCLUDED.room_name, ray7_study_state.room_name),
+            procedure_code      = COALESCE(ray7_study_state.procedure_code, EXCLUDED.procedure_code),
+            patient_class       = COALESCE(EXCLUDED.patient_class, ray7_study_state.patient_class),
+            current_rank        = GREATEST(ray7_study_state.current_rank, EXCLUDED.current_rank),
+            event_count         = ray7_study_state.event_count + 1,
+            last_event_at       = GREATEST(COALESCE(ray7_study_state.last_event_at, EXCLUDED.last_event_at),
+                                           COALESCE(EXCLUDED.last_event_at, ray7_study_state.last_event_at)),
+            is_closed           = ray7_study_state.is_closed
+                                  OR EXCLUDED.current_rank >= 100
+                                  OR EXCLUDED.cancelled_at IS NOT NULL,
+            updated_at          = NOW()
+    """.replace('{col}', column)
+
+    try:
+        with db.session.begin_nested():
+            db.session.execute(text(sql), {
+                'accession':      msg.accession_number,
+                'placer':         msg.placer_order_number,
+                'patient_id':     msg.patient_id,
+                'modality':       msg.modality,
+                # aetitle and room come from the Started event and should win when
+                # present — they describe where the exam actually happened, which a
+                # later message has no reason to overwrite with nothing.
+                'aetitle':        msg.aetitle,
+                'room':           msg.room_name,
+                'procedure_code': msg.procedure_code,
+                'patient_class':  msg.patient_class,
+                'event_time':     msg.event_time,
+                'rank':           msg.ladder_rank,
+            })
+    except Exception:
+        logger.exception("RAY7/ingest: ray7_study_state upsert failed | acc=%s",
+                         msg.accession_number)
 
 
 def mark_quarantined(archive_id):
