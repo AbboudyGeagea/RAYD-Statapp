@@ -20,6 +20,17 @@
         .input-dark { background: #181f1c; border: 1px solid #28332e; color: #e2e8f0; border-radius: 8px; padding: 8px 10px; font-size: 12px; width: 100%; outline: none; transition: border 0.15s; }
         .input-dark:focus { border-color: #60a5fa; }
         .input-dark:disabled { opacity: 0.3; cursor: not-allowed; }
+        /* Multi-select filters. height:auto lets size="5" govern instead of the
+           single-line padding above. The explicit option:checked background is not
+           cosmetic -- most browsers grey out the selection once a multi-select loses
+           focus, so without it the user cannot see what they picked after clicking
+           elsewhere. */
+        select.input-dark[multiple] { padding: 4px; height: auto; }
+        select.input-dark[multiple] option { padding: 3px 6px; border-radius: 4px; }
+        select.input-dark[multiple] option:checked {
+            background: #60a5fa linear-gradient(0deg, #60a5fa, #60a5fa);
+            color: #0a1628; font-weight: 700;
+        }
         .card { background: #232b28; border: 1px solid #28332e; border-radius: 12px; margin-bottom: 24px; transition: all 0.3s ease; overflow: hidden; }
         .card:hover { border-color: #60a5fa; }
         .card-header { padding: 14px 20px; border-bottom: 1px solid #28332e; font-size: 10px; font-weight: 900; color: #60a5fa; text-transform: uppercase; letter-spacing: 1px; }
@@ -60,14 +71,20 @@
 
             <hr class="border-slate-800">
 
+            <p class="text-[9px] text-slate-500 italic leading-snug -mb-1">
+                Hold <kbd style="background:#28332e;border-radius:3px;padding:0 3px;font-style:normal;">Ctrl</kbd>
+                (<kbd style="background:#28332e;border-radius:3px;padding:0 3px;font-style:normal;">⌘</kbd> on Mac)
+                to pick several values in a filter.
+            </p>
+
             <div class="space-y-4">
                 <div class="flex flex-col gap-1">
                     <div class="flex justify-between items-center"><label class="mb-0">Study Status</label>
                         <input type="checkbox" name="f_status_active" onchange="document.getElementById('f_status').disabled = !this.checked" {% if filters.f_status_active %}checked{% endif %}>
                     </div>
-                    <select name="f_status" id="f_status" class="input-dark" {% if not filters.f_status_active %}disabled{% endif %}
+                    <select name="f_status" id="f_status" multiple size="5" class="input-dark" {% if not filters.f_status_active %}disabled{% endif %}
                             data-filter-key="statuses"
-                            data-selected="{{ filters.status or '' }}">
+                            data-selected="{{ filters.status | join('||') }}">
                     </select>
                 </div>
 
@@ -75,9 +92,9 @@
                     <div class="flex justify-between items-center"><label class="mb-0">Modality</label>
                         <input type="checkbox" name="f_mod_active" onchange="document.getElementById('f_mod').disabled = !this.checked" {% if filters.f_mod_active %}checked{% endif %}>
                     </div>
-                    <select name="f_mod" id="f_mod" class="input-dark" {% if not filters.f_mod_active %}disabled{% endif %}
+                    <select name="f_mod" id="f_mod" multiple size="5" class="input-dark" {% if not filters.f_mod_active %}disabled{% endif %}
                             data-filter-key="modalities"
-                            data-selected="{{ filters.mod or '' }}">
+                            data-selected="{{ filters.mod | join('||') }}">
                     </select>
                 </div>
 
@@ -85,9 +102,9 @@
                     <div class="flex justify-between items-center"><label class="mb-0">Storing AE</label>
                         <input type="checkbox" name="f_ae_active" onchange="document.getElementById('f_ae').disabled = !this.checked" {% if filters.f_ae_active %}checked{% endif %}>
                     </div>
-                    <select name="f_ae" id="f_ae" class="input-dark" {% if not filters.f_ae_active %}disabled{% endif %}
+                    <select name="f_ae" id="f_ae" multiple size="5" class="input-dark" {% if not filters.f_ae_active %}disabled{% endif %}
                             data-filter-key="aetitles"
-                            data-selected="{{ filters.ae or '' }}">
+                            data-selected="{{ filters.ae | join('||') }}">
                     </select>
                 </div>
             </div>

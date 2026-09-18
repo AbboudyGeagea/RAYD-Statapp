@@ -20,25 +20,37 @@ def get_where_params(form):
     # columns and are TRIM'd the same way, so values round-trip correctly even
     # when the underlying ETL data carries incidental case/whitespace variance
     # (e.g. Oracle CHAR-padding on study_status, or mixed-case storing_ae).
-    if form.get("f_class_active") == "on" and form.get("f_class"):
-        where += " AND UPPER(TRIM(patient_class)) = UPPER(TRIM(:p_class))"
-        params["p_class"] = form.get("f_class")
+    # Multi-select (operator request 2026-09-18): each sidebar filter is a
+    # <select multiple>, so the user ctrl-clicks several values and they are OR'd
+    # together. Same convention report_25 already uses -- getlist() + IN :tuple --
+    # rather than a second, different way of doing it.
+    #
+    # The values are upper/trimmed HERE instead of in SQL because `UPPER(TRIM(col))
+    # IN :param` can only normalise the column side; the tuple has to arrive already
+    # normalised or a lowercase pick silently matches nothing. That preserves the
+    # case-insensitive round-trip the single-value version had.
+    #
+    # getlist() on a plain string value returns a 1-element list, so a bookmarked URL
+    # from before this change (?f_ae=CT99) keeps working untouched.
+    def _multi(field):
+        return tuple(sorted({
+            (v or "").strip().upper() for v in form.getlist(field) if (v or "").strip()
+        }))
 
-    if form.get("f_sex_active") == "on" and form.get("f_sex"):
-        where += " AND UPPER(TRIM(sex)) = UPPER(TRIM(:sex))"
-        params["sex"] = form.get("f_sex")
-
-    if form.get("f_status_active") == "on" and form.get("f_status"):
-        where += " AND UPPER(TRIM(study_status)) = UPPER(TRIM(:status))"
-        params["status"] = form.get("f_status")
-
-    if form.get("f_mod_active") == "on" and form.get("f_mod"):
-        where += " AND UPPER(TRIM(modality)) = UPPER(TRIM(:mod))"
-        params["mod"] = form.get("f_mod")
-
-    if form.get("f_ae_active") == "on" and form.get("f_ae"):
-        where += " AND UPPER(TRIM(storing_ae)) = UPPER(TRIM(:ae))"
-        params["ae"] = form.get("f_ae")
+    for field, active, col, bind in (
+        ("f_class",  "f_class_active",  "patient_class", "p_classes"),
+        ("f_sex",    "f_sex_active",    "sex",           "sexes"),
+        ("f_status", "f_status_active", "study_status",  "statuses"),
+        ("f_mod",    "f_mod_active",    "modality",      "modalities"),
+        ("f_ae",     "f_ae_active",     "storing_ae",    "aetitles"),
+    ):
+        if form.get(active) != "on":
+            continue
+        chosen = _multi(field)
+        if not chosen:
+            continue
+        where += f" AND UPPER(TRIM({col})) IN :{bind}"
+        params[bind] = chosen
 
     # LAUMC site rule (operator instruction, 2026-07-26): reports show RH (main
     # site) only, SJH excluded, for now. etl_didb_studies.site_id is never
@@ -73,11 +85,13 @@ def report_22():
         "f_status_active": request.values.get("f_status_active") == "on",
         "f_mod_active": request.values.get("f_mod_active") == "on",
         "f_ae_active": request.values.get("f_ae_active") == "on",
-        "p_class": request.values.get("f_class"),
-        "sex": request.values.get("f_sex"),
-        "status": request.values.get("f_status"),
-        "mod": request.values.get("f_mod"),
-        "ae": request.values.get("f_ae")
+        # Lists now, joined with '||' in the template for data-selected — the
+        # delimiter the shared loader in _header.html already splits on.
+        "p_class": request.values.getlist("f_class"),
+        "sex": request.values.getlist("f_sex"),
+        "status": request.values.getlist("f_status"),
+        "mod": request.values.getlist("f_mod"),
+        "ae": request.values.getlist("f_ae"),
     }
 
     run_report = 'start_date' in request.values
