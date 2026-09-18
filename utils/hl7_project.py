@@ -255,6 +255,97 @@ def project_patient(patient_id):
         return []
 
 
+# ── The RIS worklist tables ───────────────────────────────────────────────────
+#
+# Reports 35 and 36 (technician TAT), and parts of 25, 33 and 34, read the RIS
+# worklist tables rather than etl_didb_studies. On the Oracle branches those were
+# filled by ETL phases 14 and 17 from WORKLIST_STATUS_HISTORY and PPS. With Oracle
+# gone they have no source — which is why those reports were on the "blank until
+# further notice" list.
+#
+# They do not need importing. The lifecycle events already carry arrived, started
+# and completed with the performing device, which is precisely what those tables
+# hold; the data has been arriving all along, just not in the shape the reports
+# read. So this projects it rather than asking a site to supply what it has
+# already sent.
+#
+# WHAT THIS RECOVERS AND WHAT IT DOES NOT. Arrived -> exam-done turnaround comes
+# back in full. The technologist NAME does not: report 35 resolves that through
+# std_pps_person_reference joined to std_resources_ris.role_code = 'TEC', and the
+# staff roster is import-only master data. So the timings return now and the names
+# return when the roster is loaded — the event does carry performed_by_id, so
+# nothing is lost in the meantime, it is simply unresolved.
+
+_WORKLIST_ARRIVAL_SQL = """
+INSERT INTO std_worklist_arrivals (site_worklist_key, pps_key, arrived_at, sps_id, last_update)
+SELECT hl7_surrogate_id('worklist', s.accession_number),
+       hl7_surrogate_id('pps', s.accession_number),
+       s.arrived_at,
+       -- sps_id IS the accession at this site, per the RIS documentation, so the
+       -- reports' accession COALESCE chain resolves without the 'WL#' fallback.
+       s.accession_number,
+       NOW()
+FROM ray7_study_state s
+WHERE s.accession_number = :acc AND s.arrived_at IS NOT NULL
+ON CONFLICT (site_worklist_key, arrived_at) DO NOTHING
+"""
+
+# No natural unique constraint here, so re-projection is delete-then-insert rather
+# than an upsert. Scoped to the one study, and the projector runs after every
+# event for that study, so without this a four-event lifecycle would leave four
+# identical exam-done rows and double-count every completion.
+_WORKLIST_DONE_SQL = """
+WITH gone AS (
+    DELETE FROM std_worklist_exam_done
+     WHERE site_worklist_key = hl7_surrogate_id('worklist', :acc)
+)
+INSERT INTO std_worklist_exam_done (site_worklist_key, pps_key, exam_done_at, last_update)
+SELECT hl7_surrogate_id('worklist', s.accession_number),
+       hl7_surrogate_id('pps', s.accession_number),
+       s.completed_at,
+       NOW()
+FROM ray7_study_state s
+WHERE s.accession_number = :acc AND s.completed_at IS NOT NULL
+"""
+
+_PPS_SQL = """
+INSERT INTO std_pps (pps_key, study_db_uid, procedure_code, procedure_name,
+                     start_datetime, end_datetime, performing_ae_title)
+SELECT hl7_surrogate_id('pps', s.accession_number),
+       hl7_surrogate_id('study', s.accession_number),
+       s.procedure_code, s.procedure_text,
+       -- The MPPS equivalents: the exam ran from started to completed.
+       s.started_at, s.completed_at, s.aetitle
+FROM ray7_study_state s
+WHERE s.accession_number = :acc
+  AND (s.started_at IS NOT NULL OR s.completed_at IS NOT NULL)
+ON CONFLICT (pps_key) DO UPDATE SET
+    study_db_uid        = COALESCE(EXCLUDED.study_db_uid,        std_pps.study_db_uid),
+    procedure_code      = COALESCE(EXCLUDED.procedure_code,      std_pps.procedure_code),
+    procedure_name      = COALESCE(EXCLUDED.procedure_name,      std_pps.procedure_name),
+    start_datetime      = COALESCE(EXCLUDED.start_datetime,      std_pps.start_datetime),
+    end_datetime        = COALESCE(EXCLUDED.end_datetime,        std_pps.end_datetime),
+    performing_ae_title = COALESCE(EXCLUDED.performing_ae_title, std_pps.performing_ae_title)
+"""
+
+
+def project_worklist(accession_number):
+    """Project the lifecycle into the RIS-shaped worklist tables."""
+    if not accession_number:
+        return []
+    done = []
+    for label, sql in (('arrival', _WORKLIST_ARRIVAL_SQL),
+                       ('exam_done', _WORKLIST_DONE_SQL),
+                       ('pps', _PPS_SQL)):
+        try:
+            with db.session.begin_nested():
+                db.session.execute(text(sql), {'acc': accession_number})
+            done.append('std_' + label)
+        except Exception:
+            logger.exception("projector: std_%s failed | acc=%s", label, accession_number)
+    return done
+
+
 _OVERRIDE_TARGETS = {
     'study':   ('etl_didb_studies', 'study_db_uid',   'study'),
     'patient': ('etl_patient_view', 'patient_db_uid', 'patient'),
@@ -358,6 +449,7 @@ def project_message(msg):
 
     if msg.accession_number:
         done += project_study(msg.accession_number)
+        done += project_worklist(msg.accession_number)
         if msg.patient_id:
             done += project_patient(msg.patient_id)
 
