@@ -1,0 +1,257 @@
+{# ────────────────────────────────────────────────────────────────
+   HL7 Field Mapping — lazy-loaded fragment for the studio.
+
+   Test panel first, editor second. Tuning a field position is a loop — try a
+   source, see what it extracts, adjust — and the test is the part of that loop
+   an engineer runs most. Burying it under a long mapping table would put the
+   slow half on top.
+   ──────────────────────────────────────────────────────────────── #}
+
+<div class="space-y-8">
+
+  <div class="bg-[#0f1613] border border-[#28332e] rounded-lg p-5">
+    <h3 class="text-sky-400 font-black uppercase text-[11px] tracking-widest mb-1">
+      <i class="bi bi-play-circle mr-1"></i> Test a mapping
+    </h3>
+    <p class="text-[11px] text-slate-400 mb-4 leading-relaxed">
+      Run every mapping against one message and see exactly what each one extracts.
+      Read-only — nothing is stored, nothing is screened, and no findings are raised,
+      so experiment freely.
+    </p>
+
+    <div class="flex gap-3 flex-wrap items-center mb-3">
+      <select id="fmArchive" class="bg-[#0d1210] border border-[#28332e] rounded px-2 py-1 text-[11px] min-w-[320px]">
+        <option value="">— a message this site received —</option>
+        {% for r in recent %}
+        <option value="{{ r.id }}">
+          #{{ r.id }} · {{ r.message_type or '?' }} · {{ r.sending_app or '?' }} ·
+          {{ r.received_at.strftime('%m-%d %H:%M') if r.received_at }}
+        </option>
+        {% endfor %}
+      </select>
+      <button class="px-3 py-1 bg-sky-600 hover:bg-sky-500 text-white rounded text-[11px] font-bold"
+              onclick="fmTest('archive')">Test this message</button>
+      <span class="text-slate-600 text-[11px]">or</span>
+      <button class="px-3 py-1 border border-[#28332e] rounded text-[11px] text-slate-300 hover:border-sky-700"
+              onclick="document.getElementById('fmPasteWrap').classList.toggle('hidden')">
+        Paste a sample
+      </button>
+    </div>
+
+    <div id="fmPasteWrap" class="hidden mb-3">
+      <textarea id="fmPaste" rows="6" spellcheck="false"
+        class="w-full bg-[#0d1210] border border-[#28332e] rounded p-2 font-mono text-[11px] text-slate-200"
+        placeholder="MSH|^~\&|RIS|SITE|RAYD|...&#10;PID|||123^^^HIS|...&#10;ORC|SC||249389^HIS||CM|...&#10;&#10;Paste segments on separate lines. Use this before any traffic has arrived, or to check a layout from a vendor's interface spec."></textarea>
+      <button class="mt-2 px-3 py-1 bg-sky-600 hover:bg-sky-500 text-white rounded text-[11px] font-bold"
+              onclick="fmTest('paste')">Test pasted message</button>
+    </div>
+
+    <div id="fmResult"></div>
+  </div>
+
+  <div>
+    <div class="flex items-baseline justify-between mb-3">
+      <h3 class="text-slate-300 font-black uppercase text-[11px] tracking-widest">
+        Field mappings
+      </h3>
+      <button class="text-[10px] px-3 py-1 border border-[#28332e] rounded text-slate-400
+                     hover:text-sky-400 hover:border-sky-700"
+              onclick="document.getElementById('fmNewRow').classList.toggle('hidden')">
+        + Add mapping
+      </button>
+    </div>
+
+    <p class="text-[11px] text-slate-500 mb-4 leading-relaxed">
+      Field numbers are the ones in the HL7 spec — <strong class="text-slate-300">OBR-24 is
+      simply 24</strong>, and MSH is handled for you. Components start at 1. Blank sender or
+      message kind means <em>any</em>. Lower priority is tried first, so two rows for the same
+      target form a fallback chain. A mapping that finds nothing leaves the built-in value
+      alone, and deleting one restores the product default.
+    </p>
+
+    <table class="w-full text-[11px]">
+      <thead>
+        <tr class="text-slate-500 uppercase tracking-wider text-[9px] border-b border-[#28332e]">
+          <th class="text-left py-2">Target</th><th class="text-left">Sender</th>
+          <th class="text-left">Kind</th><th class="text-left">Source</th>
+          <th class="text-left">Transform</th><th class="text-right">Prio</th>
+          <th class="text-center">On</th><th class="text-left pl-3">Notes</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr id="fmNewRow" class="hidden bg-[#121a16] border-b border-[#28332e]">
+          <td class="py-2">
+            <select data-n="target" class="bg-[#0d1210] border border-[#28332e] rounded px-1 py-1 max-w-[210px]">
+              {% for t in targets %}
+              <option value="{{ t.target_kind }}|{{ t.target_field }}">
+                {{ '⚠ ' if t.is_dangerous }}{{ t.label }}
+              </option>
+              {% endfor %}
+            </select>
+          </td>
+          <td><input data-n="app" placeholder="any" class="w-16 bg-[#0d1210] border border-[#28332e] rounded px-1 py-1 font-mono"></td>
+          <td>
+            <select data-n="kind" class="bg-[#0d1210] border border-[#28332e] rounded px-1 py-1">
+              {% for k in message_kinds %}<option value="{{ k }}">{{ k or 'any' }}</option>{% endfor %}
+            </select>
+          </td>
+          <td class="font-mono whitespace-nowrap">
+            <input data-n="seg" placeholder="OBR" class="w-12 bg-[#0d1210] border border-[#28332e] rounded px-1 py-1 uppercase">-<input
+                   data-n="fidx" placeholder="24" class="w-10 bg-[#0d1210] border border-[#28332e] rounded px-1 py-1">.<input
+                   data-n="cidx" placeholder="—" class="w-8 bg-[#0d1210] border border-[#28332e] rounded px-1 py-1">
+          </td>
+          <td>
+            <select data-n="transform" class="bg-[#0d1210] border border-[#28332e] rounded px-1 py-1">
+              {% for tr in transforms %}<option value="{{ tr }}">{{ tr }}</option>{% endfor %}
+            </select>
+          </td>
+          <td><input data-n="prio" value="100" class="w-12 bg-[#0d1210] border border-[#28332e] rounded px-1 py-1 text-right"></td>
+          <td class="text-center">—</td>
+          <td class="pl-3"><input data-n="notes" placeholder="why" class="w-full bg-[#0d1210] border border-[#28332e] rounded px-1 py-1"></td>
+          <td class="text-right">
+            <button class="px-2 py-1 bg-sky-600 hover:bg-sky-500 text-white rounded font-bold"
+                    onclick="fmSaveNew(this)">Save</button>
+          </td>
+        </tr>
+
+      {% for r in rows %}
+        <tr class="border-b border-[#1c2620] {{ 'opacity-40' if not r.active }}">
+          <td class="py-2">
+            <span class="{{ 'text-amber-400' if r.is_dangerous else 'text-slate-200' }}">
+              {{ '⚠ ' if r.is_dangerous }}{{ r.label or (r.target_kind ~ '.' ~ r.target_field) }}
+            </span>
+            {% if r.target_kind != 'parsed' %}
+            <div class="text-[9px] text-amber-600 uppercase tracking-wider">direct write</div>
+            {% endif %}
+          </td>
+          <td class="font-mono text-slate-400">{{ r.sending_app or 'any' }}</td>
+          <td class="font-mono text-slate-400">{{ r.message_kind or 'any' }}</td>
+          <td class="font-mono text-sky-300">
+            {{ r.segment }}-{{ r.field_index }}{% if r.component_index %}.{{ r.component_index }}{% endif %}
+          </td>
+          <td class="font-mono text-slate-400">{{ r.transform }}</td>
+          <td class="text-right font-mono text-slate-500">{{ r.priority }}</td>
+          <td class="text-center">
+            <input type="checkbox" {% if r.active %}checked{% endif %}
+                   onchange="fmToggle(this, {{ r.id|tojson }}, {{ r|tojson|forceescape }})">
+          </td>
+          <td class="pl-3 text-slate-500">{{ r.notes or '' }}</td>
+          <td class="text-right">
+            <button class="text-red-500 hover:text-red-300" title="Delete"
+                    onclick="fmDelete({{ r.id }})">&times;</button>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const fmEsc = s => String(s == null ? '' : s).replace(/[&<>]/g,
+  c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+async function fmPost(url, body) {
+  const res = await fetch(url, {method: 'POST',
+    headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) { alert(data.error || 'Request failed'); return null; }
+  return data;
+}
+
+async function fmTest(mode) {
+  const box = document.getElementById('fmResult');
+  const body = mode === 'paste'
+    ? {raw_message: document.getElementById('fmPaste').value}
+    : {archive_id: document.getElementById('fmArchive').value};
+  if (mode === 'archive' && !body.archive_id) { alert('Pick a message first.'); return; }
+
+  box.innerHTML = '<div class="text-slate-500 text-[11px] mt-3">Testing…</div>';
+  const d = await fmPost('/mapping/field-map/test', body);
+  if (!d) { box.innerHTML = ''; return; }
+
+  const applicable = d.results.filter(r => r.in_scope);
+  const hit  = applicable.filter(r => r.value !== null && r.value !== undefined);
+  const miss = applicable.filter(r => r.value === null || r.value === undefined);
+
+  const rowHtml = r => `
+    <tr class="border-b border-[#1c2620]">
+      <td class="py-1 pr-3 text-slate-300">${fmEsc(r.target_kind)}.${fmEsc(r.target_field)}</td>
+      <td class="pr-3 font-mono text-sky-300">${fmEsc(r.source)}</td>
+      <td class="pr-3 font-mono text-slate-500">${fmEsc(r.transform)}</td>
+      <td class="font-mono ${r.value == null ? 'text-slate-600' : 'text-emerald-400'}">
+        ${r.value == null ? '— ' + fmEsc(r.reason) : fmEsc(r.value)}</td>
+    </tr>`;
+
+  const parsedRows = Object.entries(d.parsed)
+    .filter(([, v]) => v !== null && v !== '' && v !== 'None')
+    .map(([k, v]) => `<tr class="border-b border-[#1c2620]">
+        <td class="py-1 pr-3 text-slate-400">${fmEsc(k)}</td>
+        <td class="font-mono text-slate-200">${fmEsc(v)}</td></tr>`).join('');
+
+  box.innerHTML = `
+    <div class="mt-4 grid gap-5 lg:grid-cols-2">
+      <div>
+        <h4 class="text-[10px] uppercase tracking-widest text-slate-500 mb-2">
+          Mappings applied — ${hit.length} matched, ${miss.length} found nothing
+        </h4>
+        <table class="w-full text-[11px]"><tbody>
+          ${hit.map(rowHtml).join('')}${miss.map(rowHtml).join('')}
+        </tbody></table>
+        ${applicable.length === 0
+          ? '<div class="text-slate-500 text-[11px]">No mapping is scoped to this message kind ('
+            + fmEsc(d.message_kind) + ') from ' + fmEsc(d.sending_app || 'any sender') + '.</div>'
+          : ''}
+      </div>
+      <div>
+        <h4 class="text-[10px] uppercase tracking-widest text-slate-500 mb-2">
+          What the pipeline would carry forward
+        </h4>
+        <table class="w-full text-[11px]"><tbody>${parsedRows}</tbody></table>
+        ${(d.placeholders || []).length
+          ? '<div class="text-amber-500 text-[11px] mt-2">Placeholders neutralised: '
+            + d.placeholders.map(fmEsc).join('; ') + '</div>' : ''}
+        <h4 class="text-[10px] uppercase tracking-widest text-slate-500 mt-4 mb-2">Message</h4>
+        <pre class="bg-[#0d1210] border border-[#28332e] rounded p-2 text-[10.5px]
+                    font-mono overflow-x-auto text-slate-400">${d.segments.map(fmEsc).join('\n')}</pre>
+      </div>
+    </div>`;
+}
+
+async function fmSaveNew(btn) {
+  const row = btn.closest('tr');
+  const g = k => row.querySelector(`[data-n="${k}"]`).value.trim();
+  const [tkind, tfield] = g('target').split('|');
+  if (!g('seg') || !g('fidx')) { alert('Segment and field number are required.'); return; }
+  btn.disabled = true;
+  const d = await fmPost('/mapping/field-map/save', {
+    target_kind: tkind, target_field: tfield,
+    sending_app: g('app'), message_kind: g('kind'),
+    segment: g('seg'), field_index: g('fidx'),
+    component_index: g('cidx') || null, priority: g('prio') || 100,
+    transform: g('transform'), notes: g('notes'), active: true
+  });
+  if (!d) { btn.disabled = false; return; }
+  if (d.warning) alert(d.warning);
+  location.reload();
+}
+
+async function fmToggle(cb, id, r) {
+  const d = await fmPost('/mapping/field-map/save', {
+    target_kind: r.target_kind, target_field: r.target_field,
+    sending_app: r.sending_app, message_kind: r.message_kind,
+    segment: r.segment, field_index: r.field_index,
+    component_index: r.component_index, repeat_index: r.repeat_index,
+    priority: r.priority, transform: r.transform,
+    notes: r.notes, active: cb.checked
+  });
+  if (!d) cb.checked = !cb.checked;
+}
+
+async function fmDelete(id) {
+  if (!confirm('Delete this mapping?\n\nThe parser falls back to its built-in position, '
+             + 'so this restores the product default rather than leaving a gap.')) return;
+  const d = await fmPost('/mapping/field-map/delete', {id: id});
+  if (d) location.reload();
+}
+</script>

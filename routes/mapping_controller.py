@@ -966,3 +966,271 @@ def delete_status_code():
         db.session.rollback()
         logging.getLogger("MAPPING").exception("status map delete failed")
         return jsonify({'error': str(e)[:200]}), 500
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# HL7 FIELD MAPPING — the studio surface for hl7_field_mappings
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# The half of the field-mapping feature that makes it usable by the people it was
+# built for. The table and the engine landed first; without this an implementation
+# engineer would still be editing rows in psql, which is the situation the whole
+# feature exists to end.
+#
+# The test endpoint is the part that earns its keep. Field positions are guesses
+# until proven against real traffic — three of the seeded ones are still marked
+# PROVISIONAL — and the difference between "my rule fired" and "my rule matched
+# nothing" is the entire question when tuning one. Both modes the operator asked
+# for are supported: replay a message this site actually received, or paste a
+# sample when no traffic has arrived yet (a first install, or a vendor's spec
+# document).
+
+_TRANSFORMS = ['text', 'upper', 'datetime', 'date', 'name_xpn', 'name_xcn', 'number']
+_MESSAGE_KINDS = ['', 'adt', 'order', 'status', 'result']
+
+
+@mapping_bp.route('/field-map-tab')
+@login_required
+def field_map_tab():
+    """Lazy-loaded HTML fragment for the HL7 Field Mapping tab."""
+    if current_user.role not in ('admin', 'viewer', 'viewer2') \
+            and not user_has_page(current_user, 'mapping'):
+        return abort(403)
+    log = logging.getLogger("MAPPING")
+    rows, targets, recent = [], [], []
+    try:
+        rows = [dict(r) for r in db.session.execute(_t("""
+            SELECT m.id, m.sending_app, m.message_kind, m.target_kind, m.target_field,
+                   m.segment, m.field_index, m.component_index, m.repeat_index,
+                   m.priority, m.transform, m.active, m.notes, m.updated_at,
+                   COALESCE(tg.is_dangerous, FALSE) AS is_dangerous,
+                   tg.label, tg.data_type
+              FROM hl7_field_mappings m
+              LEFT JOIN hl7_field_targets tg
+                     ON tg.target_kind = m.target_kind AND tg.target_field = m.target_field
+             ORDER BY m.target_kind, m.target_field, m.priority
+        """)).mappings().all()]
+
+        targets = [dict(r) for r in db.session.execute(_t("""
+            SELECT target_kind, target_field, data_type, label, description,
+                   is_dangerous, sort_order
+              FROM hl7_field_targets ORDER BY target_kind, sort_order, target_field
+        """)).mappings().all()]
+
+        # Offered for the "test against real traffic" picker. Newest first, and
+        # labelled by type and sender so an engineer can find the message shape
+        # they are actually trying to map.
+        recent = [dict(r) for r in db.session.execute(_t("""
+            SELECT id, message_type, sending_app, message_control_id, received_at
+              FROM hl7_message_archive
+             ORDER BY id DESC LIMIT 40
+        """)).mappings().all()]
+    except Exception:
+        log.exception("could not load field mapping tab")
+
+    return render_template('_field_map_tab.html', rows=rows, targets=targets,
+                           recent=recent, transforms=_TRANSFORMS,
+                           message_kinds=_MESSAGE_KINDS)
+
+
+@mapping_bp.route('/field-map/save', methods=['POST'])
+@login_required
+@permission_required('can_configure')
+def save_field_map():
+    """
+    Create or update one mapping.
+
+    target_kind/target_field are checked against hl7_field_targets. That is not a
+    policy restriction — the operator chose to allow direct etl_* targets — it is
+    typo protection: a target that does not exist maps a value into nothing at
+    all, and nothing anywhere would ever report that.
+    """
+    if current_user.role != 'admin':
+        return abort(403)
+    d = request.get_json() or {}
+    log = logging.getLogger("MAPPING")
+
+    kind  = (d.get('target_kind') or 'parsed').strip()
+    field = (d.get('target_field') or '').strip()
+    seg   = (d.get('segment') or '').strip().upper()
+    try:
+        fidx = int(d.get('field_index'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'field number must be a whole number'}), 400
+    if fidx < 1:
+        return jsonify({'error': 'field numbers start at 1'}), 400
+    if not seg or not field:
+        return jsonify({'error': 'segment and target are both required'}), 400
+
+    transform = (d.get('transform') or 'text').strip()
+    if transform not in _TRANSFORMS:
+        return jsonify({'error': 'unknown transform'}), 400
+
+    def _opt_int(key):
+        v = d.get(key)
+        if v in (None, '', 'null'):
+            return None
+        try:
+            iv = int(v)
+        except (TypeError, ValueError):
+            return None
+        return iv if iv > 0 else None
+
+    try:
+        tgt = db.session.execute(_t("""
+            SELECT data_type, is_dangerous FROM hl7_field_targets
+             WHERE target_kind = :k AND target_field = :f
+        """), {'k': kind, 'f': field}).mappings().first()
+        if not tgt:
+            return jsonify({'error': f'unknown target {kind}.{field}'}), 400
+
+        # A type mismatch is a warning, not a refusal. Writing a raw HL7 timestamp
+        # into a date column without the matching transform is almost always a
+        # mistake, but "almost always" is not "always", and the operator asked for
+        # freedom here. Say so and save it.
+        warning = None
+        if tgt['data_type'] in ('datetime', 'date') and transform not in ('datetime', 'date'):
+            warning = (f"{field} expects a {tgt['data_type']} but the transform is "
+                       f"'{transform}'. The value will most likely be rejected at "
+                       f"ingest. Consider the '{tgt['data_type']}' transform.")
+        elif tgt['is_dangerous']:
+            warning = (f"{field} is a high-impact target: a wrong value here changes "
+                       f"derived figures without producing any error. Verify it with "
+                       f"Test before relying on it, and remember replay can undo it.")
+
+        db.session.execute(_t("""
+            INSERT INTO hl7_field_mappings
+                (sending_app, message_kind, target_kind, target_field, segment,
+                 field_index, component_index, repeat_index, priority, transform,
+                 active, notes, updated_by, updated_at)
+            VALUES (:app, :kind, :tkind, :tfield, :seg, :fidx, :cidx, :ridx,
+                    :prio, :transform, :active, :notes, :uid, NOW())
+            ON CONFLICT (sending_app, message_kind, target_kind, target_field, priority)
+            DO UPDATE SET
+                segment         = EXCLUDED.segment,
+                field_index     = EXCLUDED.field_index,
+                component_index = EXCLUDED.component_index,
+                repeat_index    = EXCLUDED.repeat_index,
+                transform       = EXCLUDED.transform,
+                active          = EXCLUDED.active,
+                notes           = EXCLUDED.notes,
+                updated_by      = EXCLUDED.updated_by,
+                updated_at      = NOW()
+        """), {
+            'app':   (d.get('sending_app') or '').strip(),
+            'kind':  (d.get('message_kind') or '').strip(),
+            'tkind': kind, 'tfield': field, 'seg': seg, 'fidx': fidx,
+            'cidx':  _opt_int('component_index'),
+            'ridx':  _opt_int('repeat_index'),
+            'prio':  _opt_int('priority') or 100,
+            'transform': transform,
+            'active': bool(d.get('active', True)),
+            'notes': (d.get('notes') or '').strip() or None,
+            'uid':   current_user.id,
+        })
+        db.session.commit()
+
+        from utils.hl7_fieldmap import invalidate
+        invalidate()
+
+        return jsonify({'status': 'ok', 'warning': warning})
+    except Exception as e:
+        db.session.rollback()
+        log.exception("field map save failed")
+        return jsonify({'error': str(e)[:200]}), 500
+
+
+@mapping_bp.route('/field-map/delete', methods=['POST'])
+@login_required
+@permission_required('can_configure')
+def delete_field_map():
+    """
+    Remove a mapping.
+
+    Harmless by design: the parser falls back to its built-in position, so
+    deleting a row restores the product default rather than leaving a gap.
+    """
+    if current_user.role != 'admin':
+        return abort(403)
+    row_id = (request.get_json() or {}).get('id')
+    if not row_id:
+        return jsonify({'error': 'id required'}), 400
+    try:
+        db.session.execute(_t("DELETE FROM hl7_field_mappings WHERE id = :id"),
+                           {'id': row_id})
+        db.session.commit()
+        from utils.hl7_fieldmap import invalidate
+        invalidate()
+        return jsonify({'status': 'ok'})
+    except Exception as e:
+        db.session.rollback()
+        logging.getLogger("MAPPING").exception("field map delete failed")
+        return jsonify({'error': str(e)[:200]}), 500
+
+
+@mapping_bp.route('/field-map/test', methods=['POST'])
+@login_required
+def test_field_map():
+    """
+    Run every applicable mapping against one message and report what it extracted.
+
+    Two sources, both of which the operator asked for:
+      archive_id  — a message this site really received. The better evidence, and
+                    the payoff of storing every message verbatim.
+      raw_message — a pasted sample, for a first install with no traffic yet, or
+                    for checking a layout from a vendor's interface spec.
+
+    Read-only. Nothing is written, nothing is screened, no findings are raised —
+    an engineer must be able to experiment without leaving marks in the audit
+    trail or tripping RAY7.
+    """
+    if current_user.role not in ('admin', 'viewer', 'viewer2') \
+            and not user_has_page(current_user, 'mapping'):
+        return abort(403)
+    d = request.get_json() or {}
+    raw = d.get('raw_message')
+
+    try:
+        if not raw and d.get('archive_id'):
+            row = db.session.execute(_t(
+                "SELECT raw_message FROM hl7_message_archive WHERE id = :id"
+            ), {'id': int(d['archive_id'])}).first()
+            if not row:
+                return jsonify({'error': 'no archived message with that id'}), 404
+            raw = row[0]
+        if not raw or not raw.strip():
+            return jsonify({'error': 'nothing to test — pick a message or paste one'}), 400
+
+        from utils.hl7_fieldmap import preview
+        from utils.hl7_parse import parse_message, split_segments
+
+        out = preview(raw)
+        msg = parse_message(raw)
+
+        # The resulting message alongside the per-mapping breakdown: the mappings
+        # explain HOW a value was found, this shows WHAT the pipeline would
+        # actually carry forward, including fields no mapping touched.
+        out['parsed'] = {
+            k: (str(v) if v is not None else None)
+            for k, v in (
+                ('kind', msg.kind), ('accession_number', msg.accession_number),
+                ('placer_order_number', msg.placer_order_number),
+                ('patient_id', msg.patient_id), ('canonical_state', msg.canonical_state),
+                ('ladder_rank', msg.ladder_rank), ('event_time', msg.event_time),
+                ('performed_by_id', msg.performed_by_id),
+                ('performed_by_name', msg.performed_by_name),
+                ('aetitle', msg.aetitle), ('room_name', msg.room_name),
+                ('modality', msg.modality), ('procedure_code', msg.procedure_code),
+                ('procedure_text', msg.procedure_text),
+                ('patient_class', msg.patient_class),
+                ('patient_location', msg.patient_location),
+                ('patient_name', msg.patient_name), ('birth_date', msg.birth_date),
+                ('sex', msg.sex),
+            )
+        }
+        out['segments'] = split_segments(raw)
+        out['placeholders'] = list(msg.placeholders)
+        return jsonify(out)
+    except Exception as e:
+        logging.getLogger("MAPPING").exception("field map test failed")
+        return jsonify({'error': str(e)[:300]}), 500
