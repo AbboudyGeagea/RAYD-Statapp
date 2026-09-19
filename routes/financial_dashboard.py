@@ -16,7 +16,7 @@ _STUDY_BASE = """
     LEFT JOIN procedure_duration_map pdm
            ON UPPER(TRIM(o.proc_id)) = UPPER(TRIM(pdm.procedure_code))
     WHERE s.study_date BETWEEN :start AND :end
-      AND COALESCE(UPPER(TRIM(COALESCE(m.modality, s.study_modality, ''))), '') != 'SR'
+      AND COALESCE(UPPER(TRIM(COALESCE(m.modality, s.study_modality, ''))), '') NOT IN ('SR', 'BMD')
       AND s.study_has_report = true
 """
 
@@ -72,7 +72,7 @@ def _collect(start: str, end: str) -> dict:
         LEFT JOIN procedure_duration_map pdm
                ON UPPER(TRIM(o.proc_id)) = UPPER(TRIM(pdm.procedure_code))
         WHERE s.study_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '12 months')
-          AND COALESCE(UPPER(TRIM(COALESCE(m.modality, s.study_modality, ''))), '') != 'SR'
+          AND COALESCE(UPPER(TRIM(COALESCE(m.modality, s.study_modality, ''))), '') NOT IN ('SR', 'BMD')
           AND s.study_has_report = true
         GROUP BY 1, 2
         ORDER BY 1, 2

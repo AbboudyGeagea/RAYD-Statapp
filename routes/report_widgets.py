@@ -26,7 +26,7 @@ _BASE_JOIN = """
 
 _WHERE = """
     WHERE s.study_date BETWEEN :date_from AND :date_to
-      AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+      AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT', 'BMD')
       AND (CAST(:modality AS TEXT)      IS NULL OR COALESCE(m.modality, s.study_modality) = :modality)
       AND (CAST(:physician_id AS TEXT) IS NULL OR s.reading_physician_id = :physician_id)
       AND (CAST(:patient_class AS TEXT)  IS NULL OR UPPER(s.patient_class) = UPPER(:patient_class))
@@ -452,7 +452,7 @@ def widget_shift_breakdown(db, filters, config):
         ) m ON TRUE
         WHERE s.study_date BETWEEN :date_from AND :date_to
           AND o.scheduled_datetime IS NOT NULL
-          AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+          AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT', 'BMD')
           {sec}
         GROUP BY 1
         ORDER BY 2 DESC
@@ -562,7 +562,7 @@ def _device_weekday_utilization(db, p, aes):
         ) m ON TRUE
         LEFT JOIN procedure_duration_map pdm ON UPPER(TRIM(s.procedure_code)) = UPPER(TRIM(pdm.procedure_code))
         WHERE s.study_date BETWEEN :date_from AND :date_to
-          AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+          AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT', 'BMD')
           AND UPPER(TRIM(s.storing_ae)) = ANY(:aes)
           AND (CAST(:modality AS TEXT) IS NULL OR COALESCE(m.modality, s.study_modality) = :modality)
           AND (CAST(:patient_class AS TEXT) IS NULL OR UPPER(s.patient_class) = UPPER(:patient_class))
@@ -688,7 +688,7 @@ _FIN_JOIN = """
 
 _FIN_WHERE = """
     WHERE s.study_date BETWEEN :date_from AND :date_to
-      AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+      AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT', 'BMD')
       AND s.study_has_report = true
       AND (CAST(:modality AS TEXT)      IS NULL OR COALESCE(m.modality, s.study_modality) = :modality)
       AND (CAST(:physician_id AS TEXT) IS NULL OR s.reading_physician_id = :physician_id)

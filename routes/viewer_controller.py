@@ -91,7 +91,7 @@ def daily_briefing():
                 LEFT JOIN aetitle_modality_map m
                     ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
                 WHERE s.study_date <= CURRENT_DATE - 1
-                  AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+                  AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT', 'BMD')
                   {site_clause}
             ),
             s AS MATERIALIZED (
@@ -113,7 +113,7 @@ def daily_briefing():
                 LEFT JOIN aetitle_modality_map m
                     ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
                 WHERE s.study_date >= (SELECT d FROM latest) - 7
-                  AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+                  AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT', 'BMD')
                   {site_clause}
             ),
             o AS MATERIALIZED (
@@ -134,7 +134,7 @@ def daily_briefing():
                 WHERE o.scheduled_datetime::date BETWEEN (SELECT d FROM latest) - 30
                                                        AND (SELECT d FROM latest)
                   AND o.order_status NOT ILIKE '%CA%'
-                  AND UPPER(TRIM(COALESCE(o.modality, ''))) NOT IN ('SR', 'OT', 'SCN')
+                  AND UPPER(TRIM(COALESCE(o.modality, ''))) NOT IN ('SR', 'OT', 'SCN', 'BMD')
                   {site_clause_o}
             ),
             avg30 AS (
@@ -349,7 +349,7 @@ def yesterday_overview():
                 FROM etl_didb_studies s
                 LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
                 WHERE s.study_date = CURRENT_DATE - 1
-                  AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+                  AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT', 'BMD')
                   {site_clause}
             ),
             o AS MATERIALIZED (
@@ -362,7 +362,7 @@ def yesterday_overview():
                 FROM etl_didb_studies s
                 LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
                 WHERE s.study_date >= CURRENT_DATE - 365
-                  AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+                  AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT', 'BMD')
                   {site_clause}
                 GROUP BY s.patient_db_uid
             ),
@@ -374,7 +374,7 @@ def yesterday_overview():
                 LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
                 WHERE s.study_date >= CURRENT_DATE - 8
                   AND s.study_date <  CURRENT_DATE - 1
-                  AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+                  AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT', 'BMD')
                   {site_clause}
             ),
             -- TWO peak hours (operator request 2026-09-18), because they answer
@@ -452,7 +452,7 @@ def yesterday_overview():
             LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
             WHERE s.study_date = CURRENT_DATE - 1
               AND s.referring_physician_first_name IS NOT NULL
-              AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+              AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT', 'BMD')
               {site_clause}
             GROUP BY 1
             ORDER BY 2 DESC
@@ -475,7 +475,7 @@ def yesterday_overview():
             LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
             WHERE s.study_date = CURRENT_DATE - 1
               AND s.storing_ae IS NOT NULL
-              AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+              AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT', 'BMD')
               {site_clause}
             GROUP BY s.storing_ae
             ORDER BY 3 DESC
@@ -498,7 +498,7 @@ def yesterday_overview():
                 ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
             WHERE s.study_date = CURRENT_DATE - 1
               AND s.storing_ae IS NOT NULL
-              AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+              AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT', 'BMD')
               {site_clause}
             GROUP BY s.storing_ae
             HAVING COALESCE(MAX(m.daily_capacity_minutes), MAX(ws.std_opening_minutes), 480) > 0
@@ -532,7 +532,7 @@ def yesterday_overview():
                 WHERE o.scheduled_datetime::date = CURRENT_DATE - 1
                   AND o.order_status NOT ILIKE '%CA%'
                   AND o.proc_id ~ '^[0-9]+$'
-                  AND UPPER(TRIM(COALESCE(o.modality, ''))) NOT IN ('SR', 'OT', 'SCN')
+                  AND UPPER(TRIM(COALESCE(o.modality, ''))) NOT IN ('SR', 'OT', 'SCN', 'BMD')
             ),
             grouped AS (
                 SELECT

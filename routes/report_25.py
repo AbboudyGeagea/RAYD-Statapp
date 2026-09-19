@@ -174,7 +174,7 @@ def get_tat_pacs_insert_time(form_data):
               AND s.insert_time IS NOT NULL
               AND COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) IS NOT NULL
               AND COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) > s.insert_time
-              AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'PACS')
+              AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'PACS', 'BMD')
               {filter_clause}
         )
     """
@@ -224,7 +224,7 @@ def get_tat_ris_exam_done(form_data):
             WHERE s.study_date BETWEEN :start AND :end
               AND COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) IS NOT NULL
               AND COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) > ed.exam_done_time
-              AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'PACS')
+              AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'PACS', 'BMD')
               {filter_clause}
         )
     """
@@ -251,7 +251,7 @@ def get_gold_standard_data(form_data):
     end = form_data.get("end_date") or date.today().strftime("%Y-%m-%d")
     
     params = {"start": start, "end": end}
-    where_clauses = ["study_date BETWEEN :start AND :end", "COALESCE(modality, '') NOT IN ('SR', 'OT')"]
+    where_clauses = ["study_date BETWEEN :start AND :end", "COALESCE(modality, '') NOT IN ('SR', 'OT', 'BMD')"]
 
     if form_data.get("class_enabled") == "on" and form_data.getlist("patient_class"):
         where_clauses.append("patient_class IN :classes")
@@ -394,7 +394,7 @@ def get_gold_standard_data(form_data):
                   AND pps.end_datetime IS NOT NULL
                   AND pps.end_datetime > pps.start_datetime
                   AND pps.performing_ae_title IS NOT NULL
-                  AND COALESCE({"m.modality, " if _sec_needs_mod_join else ""}s.study_modality, '') != 'SR'
+                  AND COALESCE({"m.modality, " if _sec_needs_mod_join else ""}s.study_modality, '') NOT IN ('SR', 'BMD')
                   {_sec_filters}
             """), params).mappings().all()
             if pps_rows:
@@ -496,7 +496,7 @@ def get_gold_standard_data(form_data):
                   AND pps.end_datetime IS NOT NULL
                   AND pps.end_datetime > pps.start_datetime
                   AND pps.performing_ae_title IS NOT NULL
-                  AND COALESCE({"m.modality, " if _sec_needs_mod_join else ""}s.study_modality, '') != 'SR'
+                  AND COALESCE({"m.modality, " if _sec_needs_mod_join else ""}s.study_modality, '') NOT IN ('SR', 'BMD')
                   {_sec_filters}
             ),
             classified AS (
@@ -587,7 +587,7 @@ def get_gold_standard_data(form_data):
               AND pps.end_datetime IS NOT NULL
               AND pps.end_datetime > pps.start_datetime
               AND pps.performing_ae_title IS NOT NULL
-              AND COALESCE({"m.modality, " if _sec_needs_mod_join else ""}s.study_modality, '') != 'SR'
+              AND COALESCE({"m.modality, " if _sec_needs_mod_join else ""}s.study_modality, '') NOT IN ('SR', 'BMD')
               {_sec_filters}
             GROUP BY 1, 2, 3
         """), params).mappings().all()
@@ -677,7 +677,7 @@ def get_gold_standard_data(form_data):
                   AND pps.end_datetime IS NOT NULL
                   AND pps.end_datetime > pps.start_datetime
                   AND pps.performing_ae_title IS NOT NULL
-                  AND COALESCE({"m.modality, " if _sec_needs_mod_join else ""}s.study_modality, '') != 'SR'
+                  AND COALESCE({"m.modality, " if _sec_needs_mod_join else ""}s.study_modality, '') NOT IN ('SR', 'BMD')
                   {_sec_filters}
             ),
             matched AS (
@@ -773,7 +773,7 @@ def get_gold_standard_data(form_data):
     # Rad Performance — exclude SR and OT; only count studies with a final report
     rad_cards = []
     if 'reading_radiologist' in df.columns:
-        _excl_mask = df['modality'].str.upper().isin(['SR', 'OT']) if 'modality' in df.columns else pd.Series(False, index=df.index)
+        _excl_mask = df['modality'].str.upper().isin(['SR', 'OT', 'BMD']) if 'modality' in df.columns else pd.Series(False, index=df.index)
         _df_rads = df[~_excl_mask]
         # Only count studies that have a final report (rep_final_timestamp is not null)
         if 'rep_final_timestamp' in _df_rads.columns:
@@ -818,7 +818,7 @@ def get_gold_standard_data(form_data):
     tech_tat_cards   = []
     if 'aetitle' in df.columns and 'total_tat_min' in df.columns and 'modality' in df.columns:
         try:
-            _excl_mask_ae = df['modality'].str.upper().isin(['SR', 'OT'])
+            _excl_mask_ae = df['modality'].str.upper().isin(['SR', 'OT', 'BMD'])
             tat_df = df[~_excl_mask_ae & (df['total_tat_min'] > 0)].copy()
             # Split normal vs outliers (> 24h = 1440 min) — outliers just excluded from
             # the per-AE averages below, no longer surfaced as a row-per-study list (was
@@ -1048,7 +1048,7 @@ def get_gold_standard_data(form_data):
                    COUNT(DISTINCT s.study_db_uid) AS cnt
             FROM etl_didb_studies s {_MJ25} {_PAM25}
             WHERE s.study_date BETWEEN :start AND :end
-              AND COALESCE(m.modality, s.study_modality, '') != 'SR'
+              AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'BMD')
               {_sec_filters} {_RAD25_OK}
             GROUP BY 1, 2 ORDER BY 1, 3 DESC
         """), params).mappings().fetchall()]
@@ -1061,7 +1061,7 @@ def get_gold_standard_data(form_data):
             {_MJ25}
             {_PAM25}
             WHERE s.study_date BETWEEN :start AND :end
-              AND COALESCE(s.study_modality, '') != 'SR'
+              AND COALESCE(s.study_modality, '') NOT IN ('SR', 'BMD')
               {_sec_filters} {_RAD25_OK}
             GROUP BY 1, 2 ORDER BY 1, 3 DESC
         """), params).mappings().fetchall()]
@@ -1086,7 +1086,7 @@ def get_gold_standard_data(form_data):
             {_PAM25}
             JOIN top_procs tp ON tp.procedure_code = s.procedure_code
             WHERE s.study_date BETWEEN :start AND :end
-              AND COALESCE(s.study_modality, '') != 'SR'
+              AND COALESCE(s.study_modality, '') NOT IN ('SR', 'BMD')
               {_sec_filters} {_RAD25_OK}
             GROUP BY 1, 2 ORDER BY 2, 3 DESC
         """), params).mappings().fetchall()]
@@ -1096,7 +1096,7 @@ def get_gold_standard_data(form_data):
                    COUNT(DISTINCT s.study_db_uid) AS cnt
             FROM etl_didb_studies s {_MJ25} {_PAM25}
             WHERE s.study_date BETWEEN :start AND :end
-              AND COALESCE(m.modality, s.study_modality, '') != 'SR'
+              AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'BMD')
               {_sec_filters} {_RAD25_OK}
             GROUP BY 1, 2 ORDER BY 1, 2
         """), params).mappings().fetchall()]
@@ -1117,7 +1117,7 @@ def get_gold_standard_data(form_data):
             LEFT JOIN role_lookup rl
                 ON rl.login_id = SPLIT_PART(UPPER(TRIM(s.rep_study_last_composed_by)), '@', 1)
             WHERE s.study_date BETWEEN :start AND :end
-              AND COALESCE(m.modality, s.study_modality, '') != 'SR'
+              AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'BMD')
               {_sec_filters} {_RAD25_OK}
         """), params).mappings().fetchall()
         for r in role_rows:
@@ -1145,7 +1145,7 @@ def get_gold_standard_data(form_data):
             JOIN etl_didb_studies s ON s.study_db_uid = pps.study_db_uid
             {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
             WHERE pps.start_datetime BETWEEN :start AND :end
-              AND COALESCE({"m.modality, " if _sec_needs_mod_join else ""}s.study_modality, '') != 'SR'
+              AND COALESCE({"m.modality, " if _sec_needs_mod_join else ""}s.study_modality, '') NOT IN ('SR', 'BMD')
               {_sec_filters}
             GROUP BY 1, 2 ORDER BY 2, 1
         """), params).mappings().all()

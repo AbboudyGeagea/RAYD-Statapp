@@ -106,7 +106,7 @@ def get_report_config(form):
         # and every chart in this report.
         base_sql = base_sql.replace(
             "WHERE 1=1",
-            "WHERE 1=1 AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')"
+            "WHERE 1=1 AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT', 'BMD')"
         )
 
         # LAUMC site rule (operator instruction): reports show RH (main site) only,
@@ -174,8 +174,8 @@ def get_report_config(form):
         if rh_site_id is not None:
             no_image_aes = ", ".join(f"'{ae}'" for ae in _REPORTS_WITHOUT_IMAGES_AES)
             base_sql = base_sql.replace(
-                "WHERE 1=1 AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')",
-                "WHERE 1=1 AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')"
+                "WHERE 1=1 AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT', 'BMD')",
+                "WHERE 1=1 AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT', 'BMD')"
                 " AND s.pacs_site_id_raw = (SELECT pacs_site_id FROM sites WHERE id = :rh_site_id)"
                 f" AND UPPER(TRIM(COALESCE(s.storing_ae, ''))) NOT IN ({no_image_aes})"
                 " AND UPPER(COALESCE(s.storing_ae, '')) NOT LIKE '%SJH%'"

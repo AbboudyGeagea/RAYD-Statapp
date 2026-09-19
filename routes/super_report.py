@@ -310,7 +310,7 @@ def super_report():
 def _build_where(start, end, filters, rh_site_id=None):
     clauses = [
         "s.study_date BETWEEN :start AND :end",
-        "COALESCE(m.modality, s.study_modality, 'Unknown') != 'SR'",
+        "COALESCE(m.modality, s.study_modality, 'Unknown') NOT IN ('SR', 'BMD')",
     ]
     params  = {"start": start, "end": end}
 

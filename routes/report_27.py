@@ -166,7 +166,7 @@ def _build_system_agreement(start, end):
                 WHERE UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae)) LIMIT 1
             ) m ON TRUE
             WHERE s.study_date BETWEEN :start AND :end
-              AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+              AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT', 'BMD')
               {pacs_site}
             GROUP BY 1
         )

@@ -138,7 +138,7 @@ def report_22():
             LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
             LEFT JOIN procedure_duration_map pm ON UPPER(TRIM(s.procedure_code)) = UPPER(TRIM(pm.procedure_code))
             LEFT JOIN etl_patient_view p ON p.patient_db_uid::TEXT = s.patient_db_uid::TEXT
-            WHERE COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+            WHERE COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT', 'BMD')
         """ + site_clause
 
         cte = f"WITH base_data AS ({base_sql})"
@@ -511,7 +511,7 @@ def status_drilldown_22():
             LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
             LEFT JOIN procedure_duration_map pm ON UPPER(TRIM(s.procedure_code)) = UPPER(TRIM(pm.procedure_code))
             LEFT JOIN etl_patient_view p ON p.patient_db_uid::TEXT = s.patient_db_uid::TEXT
-            WHERE COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+            WHERE COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT', 'BMD')
               {site_clause}
         )
         SELECT study_db_uid, patient_id, study_date, modality,
@@ -570,7 +570,7 @@ def export_report_22():
             FROM etl_didb_studies s
             LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
             LEFT JOIN etl_patient_view p ON p.patient_db_uid::TEXT = s.patient_db_uid::TEXT
-            WHERE COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+            WHERE COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT', 'BMD')
               {site_clause}
         )
         SELECT study_date, COALESCE(patient_class, 'N/A'), COALESCE(modality, 'N/A'), COALESCE(sex, 'U'),

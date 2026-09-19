@@ -275,7 +275,7 @@ def get_technician_tat_data(form_data):
                     LIMIT 1
                 ) tr ON true
                 LEFT JOIN procedure_duration_map pdm ON UPPER(TRIM(pps.procedure_code)) = UPPER(TRIM(pdm.procedure_code))
-                WHERE COALESCE(m.modality, s.study_modality, '') != 'SR'
+                WHERE COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'BMD')
             )
             SELECT accession_number, modality, procedure_code, procedure_display, done_by,
                    patient_class, patient_location,

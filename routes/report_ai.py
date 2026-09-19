@@ -222,7 +222,7 @@ def _get_volume_intelligence(start, end):
         SELECT study_date, COUNT(*) as cnt
         FROM etl_didb_studies
         WHERE study_date BETWEEN :s AND :e
-          AND COALESCE(study_modality, '') != 'SR'
+          AND COALESCE(study_modality, '') NOT IN ('SR', 'BMD')
         GROUP BY study_date
         ORDER BY study_date
     """), {"s": start, "e": end}).fetchall()
@@ -248,7 +248,7 @@ def _get_volume_intelligence(start, end):
         LEFT JOIN procedure_duration_map pm ON pm.procedure_code = s.procedure_code
         LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
         WHERE s.study_date BETWEEN :s AND :e
-          AND COALESCE(m.modality, s.study_modality, '') != 'SR'
+          AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'BMD')
         GROUP BY 1 ORDER BY 2 DESC LIMIT 8
     """), {"s": start, "e": end}).fetchall()
 
@@ -302,7 +302,7 @@ def _get_utilization_intelligence(start, end):
         WHERE s.study_date BETWEEN :s AND :e
           AND s.storing_ae IS NOT NULL
           AND UPPER(TRIM(s.storing_ae)) != 'SJHCSAPWFMFIR'
-          AND COALESCE(m.modality, s.study_modality, '') != 'SR'
+          AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'BMD')
         GROUP BY 1, 2
         ORDER BY 1, 2
     """), {"s": start, "e": end}).fetchall()
@@ -320,7 +320,7 @@ def _get_utilization_intelligence(start, end):
         WHERE s.study_date BETWEEN :s AND :e
           AND s.storing_ae IS NOT NULL
           AND UPPER(TRIM(s.storing_ae)) != 'SJHCSAPWFMFIR'
-          AND COALESCE(am.modality, s.study_modality, '') != 'SR'
+          AND COALESCE(am.modality, s.study_modality, '') NOT IN ('SR', 'BMD')
         GROUP BY 1, 2
         ORDER BY 1, 3 DESC
     """), {"s": start, "e": end}).fetchall()
@@ -383,7 +383,7 @@ def _get_utilization_intelligence(start, end):
               AND pps.end_datetime IS NOT NULL
               AND pps.end_datetime > pps.start_datetime
               AND pps.performing_ae_title IS NOT NULL
-              AND COALESCE(am.modality, s.study_modality, '') != 'SR'
+              AND COALESCE(am.modality, s.study_modality, '') NOT IN ('SR', 'BMD')
             GROUP BY 1, 2
         """), {"s": start, "e": end}).fetchall()
         actual_lookup = {(r[0], str(r[1])): float(r[2]) for r in pps_rows}
@@ -512,7 +512,7 @@ def _get_physician_intelligence(start, end):
         FROM etl_didb_studies
         WHERE study_date BETWEEN :s AND :e
           AND referring_physician_first_name IS NOT NULL
-          AND COALESCE(study_modality, '') != 'SR'
+          AND COALESCE(study_modality, '') NOT IN ('SR', 'BMD')
         GROUP BY 1, 2
         ORDER BY 1, 2
     """), {"s": start, "e": end}).fetchall()
@@ -535,7 +535,7 @@ def _get_physician_intelligence(start, end):
         LEFT JOIN aetitle_modality_map am ON UPPER(TRIM(am.aetitle)) = UPPER(TRIM(s.storing_ae))
         WHERE s.study_date BETWEEN :s AND :e
           AND s.referring_physician_first_name IS NOT NULL
-          AND COALESCE(am.modality, s.study_modality, '') != 'SR'
+          AND COALESCE(am.modality, s.study_modality, '') NOT IN ('SR', 'BMD')
         GROUP BY 1, 2
         ORDER BY 1, 3 DESC
     """), {"s": start, "e": end}).fetchall()

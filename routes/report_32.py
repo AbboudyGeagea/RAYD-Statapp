@@ -137,7 +137,7 @@ def get_radiologist_performance_data(form_data):
                total_tat_min, proc_duration, clinical_rvu, technical_rvu
         FROM base_data
         WHERE study_date BETWEEN :start AND :end
-          AND COALESCE(modality, '') NOT IN ('SR', 'OT')
+          AND COALESCE(modality, '') NOT IN ('SR', 'OT', 'BMD')
           {extra_where}
     """)
     df = pd.DataFrame(db.session.execute(sql_exec, params).mappings().all())
@@ -256,7 +256,7 @@ def get_radiologist_performance_data(form_data):
                    COUNT(DISTINCT s.study_db_uid) AS cnt
             FROM etl_didb_studies s {_MJ} {_PAM}
             WHERE s.study_date BETWEEN :start AND :end
-              AND COALESCE(m.modality, s.study_modality, '') != 'SR'
+              AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'BMD')
               {sec_filters} {_RAD_OK}
             GROUP BY 1, 2 ORDER BY 1, 3 DESC
         """), params).mappings().fetchall()]
@@ -269,7 +269,7 @@ def get_radiologist_performance_data(form_data):
             {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))" if sec_needs_mod_join else ""}
             {_PAM}
             WHERE s.study_date BETWEEN :start AND :end
-              AND COALESCE(s.study_modality, '') != 'SR'
+              AND COALESCE(s.study_modality, '') NOT IN ('SR', 'BMD')
               {sec_filters} {_RAD_OK}
             GROUP BY 1, 2 ORDER BY 1, 3 DESC
         """), params).mappings().fetchall()]
@@ -297,7 +297,7 @@ def get_radiologist_performance_data(form_data):
             LEFT JOIN procedure_duration_map pm ON UPPER(TRIM(pm.procedure_code)) = UPPER(TRIM(s.procedure_code))
             JOIN top_procs tp ON tp.procedure_code = s.procedure_code
             WHERE s.study_date BETWEEN :start AND :end
-              AND COALESCE(s.study_modality, '') != 'SR'
+              AND COALESCE(s.study_modality, '') NOT IN ('SR', 'BMD')
               {sec_filters} {_RAD_OK}
             GROUP BY 1, 2 ORDER BY 2, 3 DESC
         """), params).mappings().fetchall()]
@@ -308,7 +308,7 @@ def get_radiologist_performance_data(form_data):
                    COUNT(DISTINCT s.study_db_uid) AS cnt
             FROM etl_didb_studies s {_MJ} {_PAM}
             WHERE s.study_date BETWEEN :start AND :end
-              AND COALESCE(m.modality, s.study_modality, '') != 'SR'
+              AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'BMD')
               {sec_filters} {_RAD_OK}
             GROUP BY 1, 2 ORDER BY 1, 2
         """), params).mappings().fetchall()]
@@ -381,9 +381,9 @@ def get_radiologist_performance_data(form_data):
         # study_modality when the aetitle_modality_map join isn't in play,
         # same conditional pattern the volume-matrix queries above use.
         _sp_sr_ot_filter = (
-            "AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')"
+            "AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT', 'BMD')"
             if sec_needs_mod_join else
-            "AND COALESCE(s.study_modality, '') NOT IN ('SR', 'OT')"
+            "AND COALESCE(s.study_modality, '') NOT IN ('SR', 'OT', 'BMD')"
         )
 
         ts_rows = db.session.execute(text(f"""

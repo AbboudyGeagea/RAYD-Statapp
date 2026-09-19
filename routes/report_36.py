@@ -74,7 +74,7 @@ _RES_RAD_TAT_SQL_TEMPLATE = """
         LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
         WHERE s.rep_prelim_signed_by IS NOT NULL AND s.rep_prelim_timestamp IS NOT NULL
           AND s.study_date BETWEEN :start AND :end
-          AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'PACS')
+          AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'PACS', 'BMD')
           {filter_clause}
         UNION ALL
         SELECT s.study_db_uid, s.study_instance_uid, s.storing_ae, s.patient_class,
@@ -85,7 +85,7 @@ _RES_RAD_TAT_SQL_TEMPLATE = """
         LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
         WHERE s.rep_study_last_composed_by IS NOT NULL AND s.rep_study_last_composed_ts IS NOT NULL
           AND s.study_date BETWEEN :start AND :end
-          AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'PACS')
+          AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'PACS', 'BMD')
           {filter_clause}
     ),
     classified AS (
@@ -229,7 +229,7 @@ _MODALITY_TAT_SQL_TEMPLATE = """
         LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
         WHERE s.rep_prelim_signed_by IS NOT NULL AND s.rep_prelim_timestamp IS NOT NULL
           AND s.study_date BETWEEN :start AND :end
-          AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'PACS')
+          AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'PACS', 'BMD')
           {filter_clause}
         UNION ALL
         SELECT s.study_db_uid, s.study_instance_uid, s.patient_class, s.patient_location,
@@ -240,7 +240,7 @@ _MODALITY_TAT_SQL_TEMPLATE = """
         LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
         WHERE s.rep_study_last_composed_by IS NOT NULL AND s.rep_study_last_composed_ts IS NOT NULL
           AND s.study_date BETWEEN :start AND :end
-          AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'PACS')
+          AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'PACS', 'BMD')
           {filter_clause}
     ),
     classified AS (
@@ -371,7 +371,7 @@ def get_patient_wait_time(form_data):
                 LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
                 WHERE ar.arrived_at > sc.scheduled_at
                   AND s.study_date BETWEEN :start AND :end
-                  AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'PACS')
+                  AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'PACS', 'BMD')
                   {filter_clause}
             )
             SELECT

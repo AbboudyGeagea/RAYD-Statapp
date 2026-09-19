@@ -155,7 +155,7 @@ def get_kpi_detailed_reading(form_data):
             LEFT JOIN hl7_oru_reports o ON o.accession_number = s.accession_number
             LEFT JOIN std_resources_ris res ON res.resource_id = o.physician_id
             WHERE s.study_date BETWEEN :start AND :end
-              AND COALESCE(m.modality, s.study_modality, '') != 'SR'
+              AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'BMD')
               {site_clause}
               AND {excl_clause}
         """), params).mappings().fetchall()

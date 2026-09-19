@@ -15,7 +15,7 @@ logger = logging.getLogger("REFERRING_INTEL")
 referring_intel_bp = Blueprint("referring_intel", __name__)
 
 _MJ = "LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))"
-_SR = "COALESCE(m.modality, s.study_modality, '') != 'SR'"
+_SR = "COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'BMD')"
 _PHY = "TRIM(CONCAT(s.referring_physician_first_name, ' ', s.referring_physician_last_name))"
 
 # Report-finalized timestamp for TAT — PACS only (etl_didb_studies), per operator

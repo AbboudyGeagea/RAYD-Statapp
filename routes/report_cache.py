@@ -165,7 +165,7 @@ def get_filter_options(db) -> dict:
         "locations":  "SELECT ARRAY_AGG(DISTINCT TRIM(patient_location) ORDER BY TRIM(patient_location)) FROM etl_didb_studies WHERE patient_location IS NOT NULL AND TRIM(patient_location) != ''",
         "statuses":   "SELECT ARRAY_AGG(DISTINCT TRIM(study_status)    ORDER BY TRIM(study_status))    FROM etl_didb_studies WHERE study_status    IS NOT NULL AND TRIM(study_status)    != ''",
         "aetitles":   "SELECT ARRAY_AGG(DISTINCT TRIM(storing_ae)      ORDER BY TRIM(storing_ae))      FROM etl_didb_studies WHERE storing_ae      IS NOT NULL AND TRIM(storing_ae)      != ''",
-        "modalities": "SELECT ARRAY_AGG(DISTINCT TRIM(modality)        ORDER BY TRIM(modality))        FROM aetitle_modality_map WHERE modality IS NOT NULL AND modality != 'SR'",
+        "modalities": "SELECT ARRAY_AGG(DISTINCT TRIM(modality)        ORDER BY TRIM(modality))        FROM aetitle_modality_map WHERE modality IS NOT NULL AND modality NOT IN ('SR', 'BMD')",
         "sex_values": "SELECT ARRAY_AGG(DISTINCT TRIM(sex)             ORDER BY TRIM(sex))             FROM etl_patient_view WHERE sex IS NOT NULL AND TRIM(sex) != ''",
     }
 

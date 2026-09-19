@@ -11,7 +11,7 @@ from db import db, get_etl_cutoff_date
 
 report_30_bp = Blueprint("report_30", __name__)
 
-_SR = "AND COALESCE(study_modality, '') != 'SR'"
+_SR = "AND COALESCE(study_modality, '') NOT IN ('SR', 'BMD')"
 
 
 def _date_range(form_data):

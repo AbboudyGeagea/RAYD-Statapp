@@ -64,7 +64,7 @@ def get_device_utilization_data(form_data):
     end = form_data.get("end_date") or date.today().strftime("%Y-%m-%d")
 
     params = {"start": start, "end": end}
-    where_clauses = ["study_date BETWEEN :start AND :end", "COALESCE(modality, '') NOT IN ('SR', 'OT')"]
+    where_clauses = ["study_date BETWEEN :start AND :end", "COALESCE(modality, '') NOT IN ('SR', 'OT', 'BMD')"]
 
     if form_data.get("class_enabled") == "on" and form_data.getlist("patient_class"):
         where_clauses.append("patient_class IN :classes")
@@ -185,7 +185,7 @@ def get_device_utilization_data(form_data):
                   AND pps.end_datetime IS NOT NULL
                   AND pps.end_datetime > pps.start_datetime
                   AND pps.performing_ae_title IS NOT NULL
-                  AND COALESCE({"m.modality, " if _sec_needs_mod_join else ""}s.study_modality, '') != 'SR'
+                  AND COALESCE({"m.modality, " if _sec_needs_mod_join else ""}s.study_modality, '') NOT IN ('SR', 'BMD')
                   {_sec_filters}
             """), params).mappings().all()
             if pps_rows:

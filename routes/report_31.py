@@ -80,7 +80,7 @@ def get_report_config(form):
     # SR/OT exclusion — load-bearing per CLAUDE.md: every query touching
     # etl_didb_studies must filter these out (SR = auto-generated Structured
     # Report; OT = "Other" — neither is a real interpretable study).
-    extra = ["COALESCE(modality, '') NOT IN ('SR', 'OT')"]
+    extra = ["COALESCE(modality, '') NOT IN ('SR', 'OT', 'BMD')"]
 
     if form.get("f_mod_active") == "on" and form.get("f_mod"):
         extra.append("UPPER(modality) = UPPER(:mod)")
@@ -222,7 +222,7 @@ def get_report_31_data(form):
             LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
             WHERE s.study_date BETWEEN :start AND :end
               AND o.scheduled_datetime IS NOT NULL
-              AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+              AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT', 'BMD')
               {_sec_filters}
             GROUP BY 1 ORDER BY 1
         """), params).fetchall()
