@@ -33,14 +33,21 @@ _REPORTS_WITHOUT_IMAGES_AES = ('LAUMCWFM1AR',)
 # ("UPPER(modality) = ...") and procedure_duration_map also has a `modality` column —
 # joining that table directly would make those fragments ambiguous. This CTE projects
 # only `code` and `name`, so nothing can collide.
+#
+# GROUP BY is load-bearing, not tidiness: procedure_duration_map's UNIQUE is on the RAW
+# procedure_code, but this joins on UPPER(TRIM(...)), so 'abc-1' and 'ABC-1' are both
+# legal rows that both match the same study. Without the GROUP BY this CTE would emit
+# one row per case-variant and the LEFT JOIN below would multiply every count in the
+# report — the same fan-out migration 0116 had to repair on aetitle_modality_map.
 _PROC_NAMES_CTE = """
     proc_names AS (
-        SELECT UPPER(TRIM(procedure_code))    AS code,
-               NULLIF(TRIM(procedure_name), '') AS name
+        SELECT UPPER(TRIM(procedure_code))         AS code,
+               MIN(NULLIF(TRIM(procedure_name), '')) AS name
         FROM procedure_duration_map
         WHERE procedure_code IS NOT NULL
           AND procedure_name IS NOT NULL
           AND TRIM(procedure_name) != ''
+        GROUP BY UPPER(TRIM(procedure_code))
     )
 """
 
