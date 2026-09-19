@@ -440,6 +440,266 @@ def report_27():
     return render_template("report_27.html", data=data, run_report=run_report,
                            display_start=start_a, display_end=end_a)
 
+# ── Cancelled exam list (RIS) ─────────────────────────────────────────────────
+# Operator request: exportable list of cancelled exams, from RIS data.
+#
+# SOURCE. etl_orders is RIS-sourced on this install (the PACS-side MDB_ORDERS was
+# swapped out -- see ETL_JOBS/etl_orders.py's module docstring), so "cancelled
+# exams, RIS data" is etl_orders at SITE_WORKLIST grain: one row per scheduled
+# procedure step, which is what a cancellation actually happens to. A multi-part
+# protocol cancelled as a unit therefore produces several rows sharing one
+# linked_id -- the Linked Group ID column is there so that is visible rather than
+# looking like duplicates.
+#
+# WHAT COUNTS AS CANCELLED. Deliberately the same set the report's "Cancelled"
+# bar draws, so the CSV reconciles against the chart it sits next to. That bar is
+# order_status = 'CA', which ETL_JOBS/etl_orders.py _translate_order_status emits
+# for is_cancel OR stage = 'discontinued' -- i.e. it includes Discontinued (RIS
+# status 90), which is NOT strictly a cancellation. Rather than pick one
+# definition and disagree with the chart, the export carries both and adds a
+# Cancellation Type column so Discontinued can be filtered out in Excel.
+#
+# Row selection prefers status_key (the raw RIS code, migration 0112) over the
+# lossy order_status, falling back per-row where the backfill has not reached.
+# The two agree by construction today; status_key additionally picks up any
+# status newly classified as a cancellation in worklist_status_map AFTER those
+# rows were written, which the frozen order_status string cannot.
+#
+# NO PATIENT NAMES. Explicit operator instruction (ETL_JOBS/etl_ris_patients.py:7)
+# -- RIS name columns are never extracted, so they do not exist to export. The
+# patient is identified by MRN from std_patient_ids.
+#
+# WHO CANCELLED IT / WHY is NOT available. The RIS ORDERS table carries
+# cancelled_by_person_key and status_reason_key (see the std_orders_ris block in
+# ETL_JOBS/system_type_registry.py), but that table is registered, not ETL'd --
+# there is no std_orders_ris in the database. The RIS status name is therefore
+# the closest thing to a reason ("Cancelled by Patient" vs "Cancelled by OP" vs
+# "Cancelled Duplicate"), which is genuinely useful but is not a free-text
+# reason. Wiring std_orders_ris in would make a real reason column possible.
+#
+# SITE SCOPE. Intentionally unfiltered, matching get_report_data() above (which
+# the Cancelled bar is built from) rather than the RH-only rule applied in
+# _build_system_agreement. Filtering here and not there would make the CSV
+# disagree with the chart. Both sites are labelled in the Site column instead.
+
+# Row selection, when etl_orders.status_key exists. Per row: use the RIS code when
+# it has been backfilled, fall back to the lossy order_status when it has not, so a
+# partial backfill never drops cancelled rows from the list.
+_CANCELLED_PREDICATE_EXACT = """
+        CASE WHEN o.status_key IS NOT NULL
+             THEN (wsm.is_cancel = TRUE OR wsm.stage = 'discontinued')
+             ELSE UPPER(TRIM(COALESCE(o.order_status, ''))) = 'CA'
+        END
+"""
+# Row selection when the column does not exist at all (migration 0112 not applied
+# on this install). order_status is then the ONLY signal available, and 'CA' is
+# exactly what the chart's Cancelled bar draws, so the list still reconciles --
+# it just cannot name which flavour of cancellation each row was.
+_CANCELLED_PREDICATE_FALLBACK = "UPPER(TRIM(COALESCE(o.order_status, ''))) = 'CA'"
+
+# Column order is the order they are read in: when, who, what, why, then the
+# traceability keys that only matter once someone is chasing a specific row.
+_CANCELLED_EXPORT_COLUMNS = [
+    ("scheduled_date",         "Scheduled Date"),
+    ("scheduled_time",         "Scheduled Time"),
+    ("site_code",              "Site"),
+    ("patient_id",             "Patient ID (MRN)"),
+    ("sex",                    "Sex"),
+    ("age_at_scheduled",       "Age at Scheduled Date"),
+    ("modality",               "Modality"),
+    ("proc_id",                "Procedure Code (RIS)"),
+    ("procedure_description",  "Procedure"),
+    ("ris_status_name",        "RIS Status"),
+    ("cancellation_type",      "Cancellation Type"),
+    ("cancelled_recorded_at",  "Cancellation Recorded (approx)"),
+    ("days_notice",            "Days Notice (approx)"),
+    ("study_in_pacs",          "Study in PACS"),
+    ("storing_ae",             "AE Title"),
+    ("accession_number",       "Accession Number"),
+    ("order_dbid",             "RIS Order ID"),
+    ("linked_id",              "Linked Group ID"),
+]
+
+
+def _status_key_column_exists():
+    """True when migration 0112's etl_orders.status_key COLUMN is present.
+
+    Deliberately distinct from _has_status_key() above, which also requires the
+    backfill to have run. Whether the column EXISTS decides whether SQL may name
+    it at all — referencing it when absent is an outright query failure, not a
+    degraded answer. Whether it holds DATA only decides how precise the answer is,
+    and the per-row CASE in _CANCELLED_PREDICATE_EXACT handles that.
+
+    Not hypothetical: the HL7-branch installs run a separate migration lineage
+    that never received 0112, so their etl_orders has no such column.
+    """
+    try:
+        return bool(db.session.execute(text("""
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'etl_orders' AND column_name = 'status_key'
+        """)).scalar())
+    except Exception:
+        db.session.rollback()
+        return False
+
+
+def get_cancelled_exams(start, end):
+    """Cancelled / discontinued RIS orders in [start, end], one row per exam step.
+
+    Returns a DataFrame with _CANCELLED_EXPORT_COLUMNS' keys. Date-filtered on
+    scheduled_datetime — the same anchor the rest of Report 27 uses, so this
+    answers "exams that were due in this window and did not happen", not "exams
+    cancelled during this window". Those are different questions; the
+    Cancellation Recorded column carries the other one per row.
+    """
+    # See _status_key_column_exists(). Everything that names status_key — both
+    # joins, the status label and the row filter — is switched together, so the
+    # query is always internally consistent.
+    exact = _status_key_column_exists()
+    if exact:
+        status_joins = ("LEFT JOIN worklist_status_map wsm ON wsm.status_key = o.status_key\n"
+                        "        LEFT JOIN std_status_ris      sr  ON sr.status_key  = o.status_key")
+        # worklist_status_map is the curated map (migration 0047); std_status_ris is
+        # the raw RIS lookup and covers codes the map has not been extended to yet,
+        # so an unmapped cancellation still exports with its real RIS label.
+        status_name_sql = "COALESCE(wsm.status_name, sr.name, 'Unknown')"
+        stage_sql = "wsm.stage"
+        predicate = _CANCELLED_PREDICATE_EXACT
+    else:
+        status_joins = ""
+        status_name_sql = "'Unknown (RIS status code not ingested on this install)'"
+        stage_sql = "NULL::TEXT"
+        predicate = _CANCELLED_PREDICATE_FALLBACK
+
+    sql = text(f"""
+        SELECT
+            o.scheduled_datetime,
+            o.accession_number,
+            pid.patient_id,
+            p.gender_code                                   AS sex,
+            -- Age AS AT the scheduled date, not today. calculate_age() above is
+            -- age-now, which is right for a live demographic mix and wrong for a
+            -- historical list that may span years.
+            CASE WHEN p.birth_date IS NOT NULL AND o.scheduled_datetime IS NOT NULL
+                 THEN EXTRACT(YEAR FROM AGE(o.scheduled_datetime, p.birth_date))::INT
+            END                                             AS age_at_scheduled,
+            o.modality,
+            o.proc_id,
+            COALESCE(NULLIF(TRIM(dm.procedure_name), ''), NULLIF(TRIM(o.proc_text), ''),
+                     o.proc_id)                             AS procedure_description,
+            {status_name_sql}                               AS ris_status_name,
+            {stage_sql}                                     AS stage,
+            o.has_study,
+            s.storing_ae,
+            o.last_update                                   AS cancelled_recorded_at,
+            site.code                                       AS site_code,
+            o.order_dbid,
+            o.linked_id
+        FROM etl_orders o
+        {status_joins}
+        LEFT JOIN etl_didb_studies    s   ON s.study_db_uid::TEXT = o.study_db_uid::TEXT
+        LEFT JOIN std_patients_ris    p
+            ON p.patient_person_key = CASE WHEN o.patient_dbid ~ '^[0-9]+$'
+                                           THEN o.patient_dbid::BIGINT END
+        -- One MRN per patient, chosen deterministically. std_patient_ids.is_primary is
+        -- TEXT whose real value vocabulary is still unconfirmed (migration 0060 says so
+        -- outright), so a flag that LOOKS primary only wins the sort -- it is never
+        -- required. Without that, an install whose flag reads 'P' would export blanks.
+        LEFT JOIN LATERAL (
+            SELECT pi.patient_id
+            FROM std_patient_ids pi
+            WHERE pi.patient_person_key = CASE WHEN o.patient_dbid ~ '^[0-9]+$'
+                                               THEN o.patient_dbid::BIGINT END
+              AND NULLIF(TRIM(pi.patient_id), '') IS NOT NULL
+            ORDER BY (UPPER(TRIM(COALESCE(pi.is_primary, ''))) IN ('Y','1','T','TRUE')) DESC,
+                     pi.display_sort_order NULLS LAST,
+                     pi.sequence_id NULLS LAST,
+                     pi.patient_id_list_key
+            LIMIT 1
+        ) pid ON TRUE
+        -- Same LATERAL/LIMIT 1 shape as get_report_data(), for the same reason: a plain
+        -- OR-join on (PACS code, RIS code) duplicates the row whenever the two differ.
+        LEFT JOIN LATERAL (
+            SELECT dm.procedure_name
+            FROM procedure_duration_map dm
+            WHERE dm.procedure_code::TEXT IN (s.procedure_code::TEXT, o.proc_id::TEXT)
+            ORDER BY (dm.procedure_code::TEXT IS NOT DISTINCT FROM s.procedure_code::TEXT) DESC
+            LIMIT 1
+        ) dm ON TRUE
+        LEFT JOIN sites site ON site.id = o.site_id
+        WHERE o.scheduled_datetime >= :start
+          AND o.scheduled_datetime <  (CAST(:end AS DATE) + INTERVAL '1 day')
+          AND {predicate}
+        ORDER BY o.scheduled_datetime, o.accession_number
+    """)
+    df = pd.DataFrame(db.session.execute(sql, {"start": start, "end": end}).mappings().all())
+    if df.empty:
+        return pd.DataFrame(columns=[k for k, _ in _CANCELLED_EXPORT_COLUMNS])
+
+    sched = pd.to_datetime(df['scheduled_datetime'], errors='coerce')
+    recorded = pd.to_datetime(df['cancelled_recorded_at'], errors='coerce')
+    df['scheduled_date'] = sched.dt.strftime('%Y-%m-%d')
+    df['scheduled_time'] = sched.dt.strftime('%H:%M')
+    df['cancelled_recorded_at'] = recorded.dt.strftime('%Y-%m-%d %H:%M')
+
+    # Positive = cancelled ahead of the slot; 0 or negative = cancelled on the day
+    # or after it, i.e. a slot that was almost certainly lost. Approximate because
+    # last_update is the RIS row's last change, which for a terminal status is the
+    # cancellation itself unless the order was edited again afterwards.
+    df['days_notice'] = (sched.dt.normalize() - recorded.dt.normalize()).dt.days
+
+    # 'Discontinued' rides along in the same export as the chart's Cancelled bar
+    # but is not a cancellation — named, so it can be filtered out rather than
+    # silently inflating a cancellation count. Without status_key there is nothing
+    # to tell the two apart, and the column says that outright instead of
+    # labelling every row "Cancelled" and quietly overstating the total.
+    df['cancellation_type'] = df['stage'].map(
+        {'cancelled': 'Cancelled', 'discontinued': 'Discontinued'}
+    ).fillna('Cancelled or Discontinued (not distinguishable)' if not exact
+             else 'Cancelled (status not in map)')
+
+    # A cancelled order that still has a PACS study is an operational anomaly worth
+    # seeing, not a data error to hide — the exam may have gone ahead after all.
+    df['study_in_pacs'] = df['has_study'].map({True: 'Yes', False: 'No'}).fillna('No')
+
+    df['sex'] = df['sex'].fillna('Unknown')
+
+    # Nullable Int64, not the float64 pandas upcasts to the moment one row is NULL
+    # — otherwise a RIS order id exports as "8821.0" and an age as "45.0", which
+    # looks like a rounding artefact and breaks a lookup pasted back into the RIS.
+    for col in ('age_at_scheduled', 'days_notice', 'order_dbid', 'linked_id'):
+        df[col] = pd.to_numeric(df[col], errors='coerce').astype('Int64')
+
+    return df[[k for k, _ in _CANCELLED_EXPORT_COLUMNS]]
+
+
+@report_27_bp.route("/report/27/export-cancelled", methods=["POST"])
+@login_required
+def export_cancelled_exams():
+    from flask import current_app, jsonify
+    from routes.registry import check_license_limit
+    ok, msg = check_license_limit(current_app, 'export')
+    if not ok:
+        return jsonify({"error": msg}), 403
+
+    start = request.form.get("start_date")
+    end = request.form.get("end_date")
+
+    from utils.audit import log_event
+    log_event('report_export', category='report', resource_type='report_27_cancelled',
+              detail={'from': start, 'to': end})
+
+    df = get_cancelled_exams(start, end)
+    df.columns = [label for _, label in _CANCELLED_EXPORT_COLUMNS]
+
+    return Response(
+        df.to_csv(index=False),
+        mimetype="text/csv",
+        headers={"Content-disposition":
+                 f"attachment; filename=Cancelled_Exams_{start}_to_{end}.csv"},
+    )
+
+
 @report_27_bp.route("/report/27/export", methods=["POST"])
 @login_required
 def export_report_27():

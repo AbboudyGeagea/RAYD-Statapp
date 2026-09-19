@@ -125,6 +125,25 @@
                 <p class="text-[11px] text-slate-600 italic leading-relaxed">
                     Exports all order rows for the Audit Timeline range — includes order status, procedure codes, scheduled time, study match, age, and AE title.
                 </p>
+
+                <form method="POST" action="{{ url_for('report_27.export_cancelled_exams') }}">
+                    <input type="hidden" name="start_date" value="{{ display_start }}">
+                    <input type="hidden" name="end_date" value="{{ display_end }}">
+                    <button type="submit" class="btn-csv">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
+                                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                        </svg>
+                        Cancelled Exams CSV
+                    </button>
+                </form>
+                <p class="text-[11px] text-slate-600 italic leading-relaxed">
+                    The exams behind the <strong class="text-slate-500">Cancelled</strong> bar, from the RIS —
+                    one row per cancelled exam with its exact RIS status ("Cancelled by Patient",
+                    "Cancelled Duplicate", …), MRN, procedure, how much notice was given, and whether a
+                    PACS study exists anyway. Discontinued orders are included and labelled, matching the
+                    chart. No patient names — the RIS extract never carries them.
+                </p>
             </div>
             {% endif %}
         </aside>
@@ -438,7 +457,9 @@
                     <div class="card-desc">
                         Orders by lifecycle stage. Each bar groups several RIS statuses &mdash; hover to see
                         exactly which ones, so the figures can be reconciled against the RIS worklist.
-                        A large Cancelled bar may indicate workflow issues.
+                        A large Cancelled bar may indicate workflow issues &mdash; the
+                        <strong class="text-slate-400">Cancelled Exams CSV</strong> in the sidebar lists the
+                        exams behind it, row by row.
                     </div>
                     <div id="chart_status" class="flex-1 p-2"></div>
                 </div>
