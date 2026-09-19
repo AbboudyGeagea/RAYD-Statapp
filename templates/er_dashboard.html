@@ -73,9 +73,12 @@
                 <div class="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase tracking-widest">
                     <i class="bi bi-clock"></i> SLA
                 </div>
-                <input id="sla-input" type="number" value="60" min="10" max="480"
+                <!-- Entered in HOURS to match every figure this page renders. The API
+                     and all SLA comparisons stay in minutes; loadData() converts at the
+                     boundary, the same place fmtHours() converts the other direction. -->
+                <input id="sla-input" type="number" value="1" min="0.25" max="8" step="0.25"
                     class="w-16 bg-[#1d2522] border border-[#28332e] rounded-lg px-2 py-1.5 text-xs font-bold text-white text-center focus:outline-none focus:border-[#60a5fa]">
-                <span class="text-xs text-slate-500">min</span>
+                <span class="text-xs text-slate-500">h</span>
                 <input id="start-input" type="date" value="{{ default_start }}"
                     class="bg-[#1d2522] border border-[#28332e] rounded-lg px-3 py-1.5 text-xs font-bold text-white focus:outline-none focus:border-[#60a5fa]">
                 <span class="text-xs text-slate-500">→</span>
@@ -196,7 +199,10 @@ function tatColor(min, sla) {
 async function loadData() {
     const start = document.getElementById('start-input').value;
     const end   = document.getElementById('end-input').value;
-    const sla   = document.getElementById('sla-input').value;
+    // The box is in hours; /er/data and every SLA comparison downstream are in
+    // minutes. Convert here so the rest of the page keeps its single unit.
+    const slaHours = parseFloat(document.getElementById('sla-input').value);
+    const sla = Math.round((isNaN(slaHours) || slaHours <= 0 ? 1 : slaHours) * 60);
 
     document.getElementById('loading').classList.remove('hidden');
     document.getElementById('content').classList.add('hidden');
