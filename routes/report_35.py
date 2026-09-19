@@ -240,6 +240,9 @@ def get_technician_tat_data(form_data):
                     COALESCE(m.modality, s.study_modality, 'Unknown')       AS modality,
                     m.site_id,
                     pps.procedure_code,
+                    -- Readers get the procedure DESCRIPTION; the raw code is only a
+                    -- fallback for procedures the catalog has never been named.
+                    COALESCE(NULLIF(TRIM(pdm.procedure_name), ''), pps.procedure_code) AS procedure_display,
                     s.patient_class, s.patient_location,
                     tr.tech_name AS done_by,
                     sc.scheduled_at, ar.arrived_at, ed.exam_done_at,
@@ -274,7 +277,7 @@ def get_technician_tat_data(form_data):
                 LEFT JOIN procedure_duration_map pdm ON UPPER(TRIM(pps.procedure_code)) = UPPER(TRIM(pdm.procedure_code))
                 WHERE COALESCE(m.modality, s.study_modality, '') != 'SR'
             )
-            SELECT accession_number, modality, procedure_code, done_by,
+            SELECT accession_number, modality, procedure_code, procedure_display, done_by,
                    patient_class, patient_location,
                    scheduled_at, arrived_at, exam_done_at, scan_start_at, scanner_done_at,
                    pacs_insert_time, proc_duration, priority_code, priority_desc
@@ -436,7 +439,7 @@ def get_technician_tat_data(form_data):
 
             f_acc_arr    = fc['accession_number'].to_numpy()
             f_mod_arr    = fc['modality'].to_numpy()
-            f_proc_arr   = fc['procedure_code'].to_numpy()
+            f_proc_arr   = fc['procedure_display'].to_numpy()
             f_tech_arr   = fc['done_by'].to_numpy()
             f_tech_notna = fc['done_by'].notna().to_numpy()
             f_pclass_arr = fc['patient_class'].to_numpy()
@@ -489,7 +492,7 @@ def get_technician_tat_data(form_data):
                     tech_data['never_done'].append({
                         'accession':   str(r.get('accession_number') or ''),
                         'modality':    str(r.get('modality') or ''),
-                        'procedure':   str(r.get('procedure_code') or ''),
+                        'procedure':   str(r.get('procedure_display') or ''),
                         'arrived_at':  r['arrived_at'].strftime('%Y-%m-%d %H:%M'),
                         'overdue_min': round((now_ts - deadline).total_seconds() / 60, 1),
                     })

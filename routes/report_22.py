@@ -324,7 +324,10 @@ def report_22():
             {cte}
             SELECT
                 COALESCE(modality, 'UNMAPPED') AS modality,
-                COALESCE(study_description, procedure_code, 'N/A') AS procedure,
+                -- Fall back to the procedure DESCRIPTION (proc_display_name, already
+                -- resolved in base_data) rather than the bare RIS/PACS code when the
+                -- study carries no DICOM StudyDescription.
+                COALESCE(NULLIF(TRIM(study_description), ''), proc_display_name, 'N/A') AS procedure,
                 COUNT(*) AS cnt
             FROM base_data {where}
             GROUP BY 1, 2

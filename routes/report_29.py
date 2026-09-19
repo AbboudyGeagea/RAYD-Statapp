@@ -27,6 +27,27 @@ def get_report_data(form_data):
     df  = pd.DataFrame(res)
 
     if not df.empty:
+        # Procedure DESCRIPTION, not the raw RIS/PACS code — a code means nothing to
+        # the physicist or IT lead this report is written for. Resolved in pandas
+        # rather than by wrapping the stored report_template SQL: the rollup this
+        # report reads (summary_storage_daily) is small, and the template text is
+        # admin-editable, so a string-level wrap here would be the fragile option.
+        # Falls back to the raw code when the catalog has no name for it.
+        if "procedure_code" in df.columns:
+            name_map = {
+                str(code).strip().upper(): name
+                for code, name in db.session.execute(text("""
+                    SELECT procedure_code, procedure_name
+                    FROM procedure_duration_map
+                    WHERE procedure_code IS NOT NULL
+                      AND procedure_name IS NOT NULL
+                      AND TRIM(procedure_name) != ''
+                """)).fetchall()
+            }
+            df["procedure_display"] = df["procedure_code"].map(
+                lambda c: name_map.get(str(c).strip().upper()) or (c if pd.notna(c) else None)
+            )
+
         df["total_gb"]    = pd.to_numeric(df["total_gb"],    errors="coerce").fillna(0)
         df["study_count"] = pd.to_numeric(df["study_count"], errors="coerce").fillna(0)
         # Exclude rows with 0 studies — replace(0,1) would produce misleading averages
@@ -100,9 +121,9 @@ def report_29():
                 "outliers_removed": tech_outliers_removed
             }
 
-            # 3. Alerts — procedure codes averaging > 500 MB/study (IQR filter first)
+            # 3. Alerts — procedures averaging > 500 MB/study (IQR filter first)
             proc_agg = (
-                df.groupby("procedure_code")[["total_gb", "study_count"]]
+                df.groupby("procedure_display")[["total_gb", "study_count"]]
                 .sum().reset_index()
             )
             proc_agg["avg_mb"] = (
@@ -116,12 +137,12 @@ def report_29():
             for _, row in proc_agg[proc_agg["avg_mb"] > 500].sort_values("avg_mb", ascending=False).head(5).iterrows():
                 alerts.append({
                     "type": "critical",
-                    "msg":  f"Storage Hog: {row['procedure_code']} ({row['avg_mb']} MB/avg)"
+                    "msg":  f"Storage Hog: {row['procedure_display']} ({row['avg_mb']} MB/avg)"
                 })
 
             # 4. Table — aggregate by procedure + modality + AE
             table_df = (
-                df.groupby(["procedure_code", "modality", "storing_ae"])
+                df.groupby(["procedure_display", "modality", "storing_ae"])
                 .agg(study_count=("study_count", "sum"), total_gb=("total_gb", "sum"))
                 .reset_index()
             )

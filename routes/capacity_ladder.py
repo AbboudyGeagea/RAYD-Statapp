@@ -280,12 +280,14 @@ def _get_scheduled(aetitle, day):
 def _get_all_procedures():
     """Get all procedures with durations for gap suggestions."""
     rows = db.session.execute(text("""
-        SELECT procedure_code, duration_minutes
+        SELECT procedure_code, procedure_name, duration_minutes
         FROM procedure_duration_map
         WHERE duration_minutes > 0
         ORDER BY duration_minutes
     """)).mappings().fetchall()
-    return [{"code": r["procedure_code"], "duration": r["duration_minutes"]} for r in rows]
+    return [{"code":     r["procedure_code"],
+             "label":    (r["procedure_name"] or "").strip() or r["procedure_code"],
+             "duration": r["duration_minutes"]} for r in rows]
 
 
 def _find_gaps(blocks, start_min, end_min):
@@ -359,6 +361,10 @@ def suggestions():
         hist_rows = db.session.execute(text(f"""
             SELECT
                 s.procedure_code                       AS code,
+                -- The ladder blocks already render `label || code`; supply the
+                -- procedure DESCRIPTION so suggested fillers read like the
+                -- scheduled ones instead of showing a bare RIS code.
+                COALESCE(NULLIF(TRIM(MAX(pm.procedure_name)), ''), s.procedure_code) AS label,
                 COALESCE(pm.duration_minutes, 15)      AS duration,
                 COALESCE(pm.technical_rvu, 1.0)        AS rvu,
                 COUNT(*)                               AS freq
@@ -378,6 +384,7 @@ def suggestions():
         if not procedures:
             fallback = db.session.execute(text("""
                 SELECT procedure_code AS code,
+                       COALESCE(NULLIF(TRIM(procedure_name), ''), procedure_code) AS label,
                        duration_minutes AS duration,
                        COALESCE(technical_rvu, 1.0) AS rvu,
                        0 AS freq
@@ -394,7 +401,8 @@ def suggestions():
                 for g in gaps
             ],
             "procedures": [
-                {"code": p["code"], "duration": int(p["duration"]),
+                {"code": p["code"], "label": p.get("label") or p["code"],
+                 "duration": int(p["duration"]),
                  "rvu": float(p["rvu"]), "freq": int(p["freq"])}
                 for p in procedures
             ],

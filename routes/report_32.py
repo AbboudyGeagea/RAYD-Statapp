@@ -286,11 +286,15 @@ def get_radiologist_performance_data(form_data):
                 GROUP BY 1 ORDER BY COUNT(DISTINCT s.study_db_uid) DESC LIMIT 60
             )
             SELECT {_RAD} AS radiologist,
-                   s.procedure_code AS proc,
+                   -- Show the procedure DESCRIPTION, not the raw RIS/PACS code; fall
+                   -- back to the code only when the catalog has no name for it (same
+                   -- COALESCE shape as report_22 / report_25 / super_report).
+                   COALESCE(NULLIF(TRIM(pm.procedure_name), ''), s.procedure_code) AS proc,
                    COUNT(DISTINCT s.study_db_uid) AS cnt
             FROM etl_didb_studies s
             {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))" if sec_needs_mod_join else ""}
             {_PAM}
+            LEFT JOIN procedure_duration_map pm ON UPPER(TRIM(pm.procedure_code)) = UPPER(TRIM(s.procedure_code))
             JOIN top_procs tp ON tp.procedure_code = s.procedure_code
             WHERE s.study_date BETWEEN :start AND :end
               AND COALESCE(s.study_modality, '') != 'SR'

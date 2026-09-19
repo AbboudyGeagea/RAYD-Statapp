@@ -375,7 +375,7 @@
         const sev = document.getElementById('proto-sev').value;
 
         protoFiltered = PROTO_DATA.filter(r => {
-            const proc = (r.procedure_code || '').toLowerCase();
+            const proc = (r.procedure_display || r.procedure_code || '').toLowerCase();
             const ae   = (r.performing_technician || '').toLowerCase();
             const qOk  = !q || proc.includes(q) || ae.includes(q);
             const mOk  = !mod || r.modality === mod;
@@ -410,7 +410,7 @@
             const sev  = sevClass(r.avg_mb_per_study || 0);
             const pct  = Math.round(((+r.total_gb || 0) / maxGB) * 100);
             const color= sevColor(sev);
-            const proc = r.procedure_code || 'N/A';
+            const proc = r.procedure_display || r.procedure_code || 'N/A';
             const ae   = r.performing_technician || 'Unassigned';
             return `
             <div class="proto-row">

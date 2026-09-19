@@ -102,7 +102,13 @@ def get_report_data(start, end):
             s.procedure_code,
             p.birth_date,
             p.gender_code AS sex,
-            m.duration_minutes
+            m.duration_minutes,
+            -- Report 27 is ABOUT the codes (RIS proc_id vs PACS procedure_code match
+            -- rate), so both raw codes stay. This adds the human-readable procedure
+            -- DESCRIPTION alongside them so the CSV export is legible: catalog name
+            -- first, then the RIS order text, then the code as a last resort.
+            COALESCE(NULLIF(TRIM(m.procedure_name), ''), NULLIF(TRIM(o.proc_text), ''),
+                     s.procedure_code, o.proc_id) AS procedure_description
         FROM etl_orders o
         LEFT JOIN worklist_status_map wsm
             ON wsm.status_key = o.status_key
@@ -112,7 +118,7 @@ def get_report_data(start, end):
             ON p.patient_person_key = CASE WHEN o.patient_dbid ~ '^[0-9]+$'
                                             THEN o.patient_dbid::BIGINT END
         LEFT JOIN LATERAL (
-            SELECT dm.duration_minutes
+            SELECT dm.duration_minutes, dm.procedure_name
             FROM procedure_duration_map dm
             WHERE dm.procedure_code::TEXT IN (s.procedure_code::TEXT, o.proc_id::TEXT)
             ORDER BY (dm.procedure_code::TEXT IS NOT DISTINCT FROM s.procedure_code::TEXT) DESC

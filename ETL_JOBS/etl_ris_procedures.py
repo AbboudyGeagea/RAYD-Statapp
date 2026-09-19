@@ -23,9 +23,17 @@ provided yet — procedure_duration_map.body_part (migration 0053) stays NULL un
 lookup exists. Not blocking: procedure_code/name/duration/active are what every current
 report join actually needs.
 
-IMPORT POLICY (vendor-confirmed): FILL-ONLY. INSERT ... ON CONFLICT (procedure_code) DO
-NOTHING — never overwrites a manually-edited row (clinical_rvu/technical_rvu are
-RAYD-owned), and never deletes.
+IMPORT POLICY (vendor-confirmed): FILL-ONLY. Never overwrites a manually-edited row
+(clinical_rvu/technical_rvu are RAYD-owned), and never deletes.
+
+The conflict action used to be a flat DO NOTHING, which was fill-only in letter but not
+in spirit: ETL Phase 8 Step 3 (etl_runner.py) inserts a placeholder row for every
+distinct etl_orders.proc_id with procedure_name NULL, and whichever job runs first wins.
+When Phase 8 won, the RIS DESCRIPTION was dropped on the floor and procedure_name stayed
+NULL forever — so every report that shows the procedure DESCRIPTION fell back to the raw
+code. The upsert below now fills procedure_name (and only procedure_name) when the
+existing row has none; a row that already carries a name — whether from RIS or from a
+hand edit on the mapping tab — is still left completely alone.
 """
 import os
 import logging
@@ -41,7 +49,13 @@ _UPSERT_SQL = text("""
         (procedure_code, procedure_name, duration_minutes, active, ris_sps_code_key)
     VALUES
         (:procedure_code, :procedure_name, :duration_minutes, :active, :ris_sps_code_key)
-    ON CONFLICT (procedure_code) DO NOTHING
+    ON CONFLICT (procedure_code) DO UPDATE
+        SET procedure_name   = EXCLUDED.procedure_name,
+            ris_sps_code_key = COALESCE(procedure_duration_map.ris_sps_code_key,
+                                        EXCLUDED.ris_sps_code_key)
+        WHERE (procedure_duration_map.procedure_name IS NULL
+               OR TRIM(procedure_duration_map.procedure_name) = '')
+          AND EXCLUDED.procedure_name IS NOT NULL
 """)
 
 

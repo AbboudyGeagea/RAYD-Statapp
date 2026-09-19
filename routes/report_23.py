@@ -23,6 +23,27 @@ report_23_bp = Blueprint('report_23', __name__)
 # accidental, and keeps holding if the AE is ever re-stamped with a known site.
 _REPORTS_WITHOUT_IMAGES_AES = ('LAUMCWFM1AR',)
 
+# Procedure codes are internal RIS/PACS identifiers and mean nothing to a reader —
+# every report shows the procedure DESCRIPTION instead, falling back to the raw code
+# only when the catalog has no name for it. Same source and same COALESCE shape used
+# by report_22, report_25 (migration 0110) and super_report.
+#
+# Exposed as its own CTE rather than a plain LEFT JOIN onto base_data because the
+# filter fragments built in get_report_config() use UNQUALIFIED column names
+# ("UPPER(modality) = ...") and procedure_duration_map also has a `modality` column —
+# joining that table directly would make those fragments ambiguous. This CTE projects
+# only `code` and `name`, so nothing can collide.
+_PROC_NAMES_CTE = """
+    proc_names AS (
+        SELECT UPPER(TRIM(procedure_code))    AS code,
+               NULLIF(TRIM(procedure_name), '') AS name
+        FROM procedure_duration_map
+        WHERE procedure_code IS NOT NULL
+          AND procedure_name IS NOT NULL
+          AND TRIM(procedure_name) != ''
+    )
+"""
+
 def get_report_config(form):
     base_sql_query = text("SELECT report_sql_query FROM report_template WHERE report_id = 23")
     base_sql = db.session.execute(base_sql_query).scalar()
@@ -253,7 +274,7 @@ def report_23():
         """)
 
         demo_sql = text(f"""
-            {cte_base}
+            {cte_base}, {_PROC_NAMES_CTE}
             SELECT
                 CASE
                     WHEN age_at_exam <= 0.083 THEN '[0-1 month]'
@@ -264,10 +285,11 @@ def report_23():
                     WHEN age_at_exam <= 64    THEN '[36-64]'
                     ELSE '[65+]'
                 END as age_bucket,
-                COALESCE(proc_id, 'Unknown Proc') as description,
+                COALESCE(pn.name, base_data.proc_id::TEXT, 'Unknown Proc') as description,
                 sex,
                 COUNT(*) as cnt
             FROM base_data
+            LEFT JOIN proc_names pn ON pn.code = UPPER(TRIM(base_data.proc_id::TEXT))
             WHERE study_date BETWEEN :s AND :e{extra_where}
             GROUP BY 1, 2, 3
         """)
@@ -450,10 +472,10 @@ def export_report_23():
         return Response("No query configured.", status=500)
 
     sql = text(f"""
-        WITH base_data AS ({base_sql})
+        WITH base_data AS ({base_sql}), {_PROC_NAMES_CTE}
         SELECT
             study_date, modality, patient_class, sex, age_at_exam,
-            COALESCE(proc_id, 'Unknown') as procedure_code,
+            COALESCE(pn.name, base_data.proc_id::TEXT, 'Unknown') as procedure_description,
             CASE
                 WHEN age_at_exam <= 0.083 THEN '[0-1 month]'
                 WHEN age_at_exam <= 1     THEN '[1 month - 1 year]'
@@ -464,6 +486,7 @@ def export_report_23():
                 ELSE '[65+]'
             END as age_group
         FROM base_data
+        LEFT JOIN proc_names pn ON pn.code = UPPER(TRIM(base_data.proc_id::TEXT))
         WHERE study_date BETWEEN :s AND :e{extra_where}
         ORDER BY study_date DESC
     """)
@@ -472,7 +495,7 @@ def export_report_23():
         output = io.StringIO()
         writer = csv.writer(output)
         writer.writerow(['Study Date', 'Modality', 'Patient Class', 'Sex',
-                         'Age at Exam', 'Procedure Code', 'Age Group'])
+                         'Age at Exam', 'Procedure', 'Age Group'])
         yield output.getvalue()
         output.seek(0); output.truncate(0)
 
