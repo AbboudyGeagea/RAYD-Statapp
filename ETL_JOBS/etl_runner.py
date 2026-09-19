@@ -123,6 +123,7 @@ from etl_ris_patients      import run_ris_patients_etl
 from etl_ris_resources     import run_ris_resources_etl
 from etl_ris_pps_lookups   import run_ris_status_etl, run_ris_procedure_priority_etl, run_ris_dictation_etl
 from etl_ris_pps           import run_ris_pps_etl, run_pps_study_enrichment
+from etl_ris_reports       import run_ris_reports_etl
 from etl_ris_site_pps      import run_ris_site_pps_etl
 from etl_ris_modality_availability import (
     run_ris_modality_exceptions_etl, run_ris_schedule_template_items_etl,
@@ -789,6 +790,32 @@ def _perform_migration(engine):
                     logger.warning(f"⚠️  Phase 18 finished with sub-step failures: {', '.join(_phase18_failed)}")
                 else:
                     logger.info("✅ Phase 18 done")
+
+        # ── PHASE 19: RIS Reports (report-chain timestamps -> std_reports) ────────
+        # The only source anywhere for "Signed 1" and "Approved" times. PACS
+        # REP_FINAL_* is 100% empty at RH, SITE_WORKLIST.APPROVED_DATE is NULL on every
+        # approved exam, and worklist_status_history was never populated — see
+        # migration 0119's header for the full search. Feeds Report 36's KPI Detailed
+        # Reading; nothing else depends on it yet, so a failure here is isolated and
+        # costs only that one report section.
+        if _confirm_phase(19):
+            with engine.connect() as _c:
+                _ris_ok = _c.execute(
+                    text("SELECT 1 FROM db_params WHERE name = :n"), {"n": ris_src}
+                ).fetchone()
+            if not _ris_ok:
+                logger.info(
+                    f"⏭  Phase 19 skipped — no RIS source configured. Add a db_params entry "
+                    f"named '{ris_src}' (or set RAYD_RIS_SOURCE) pointing at the RIS Oracle."
+                )
+            else:
+                logger.info("📋 Phase 19: RIS Reports → std_reports")
+                try:
+                    run_ris_reports_etl(engine, ris_src, go_live)
+                    logger.info("✅ Phase 19 done")
+                except Exception as _e:
+                    _phase_failures.append("19 (RIS Reports)")
+                    logger.error(f"🛑 Phase 19 (RIS Reports) failed — continuing: {_e}", exc_info=True)
 
         # ── Mark overall sync SUCCESS (or PARTIAL if any phase failed but the
         # run still made it to the end — each phase is now isolated by its own
