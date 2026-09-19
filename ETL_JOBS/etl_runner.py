@@ -62,7 +62,11 @@ Execution phases (in order):
              done" anchor for the PACS-vs-RIS TAT comparison (report_25), as opposed to
              etl_didb_studies.insert_time (PACS ingestion proxy) or std_pps.end_datetime
              (MPPS event); scheduled [status_key=40, "Scheduled"] -> std_worklist_scheduled,
-             feeds the redefined "Patient Wait Time" (Scheduled -> Arrived); plus a 4th
+             feeds the redefined "Patient Wait Time" (Scheduled -> Arrived);
+             cancellations [status keys read from worklist_status_map, NOT hardcoded --
+             is_cancel OR stage='discontinued'] -> std_worklist_cancellations, the exact
+             cancellation moment behind report_27's cancelled-exam CSV, replacing the
+             etl_orders.last_update proxy it fell back on (migration 0122); plus a 5th
              sub-step, person_reference, off the unrelated PPS_PERSON_REFERENCE table
              (PPS_KEY join, no status_key) -> std_pps_person_reference, the working
              replacement for std_pps.primary_tech_person_key (confirmed 100% NULL,
@@ -134,6 +138,7 @@ from etl_ris_modality_availability import (
 from etl_pacs_user_groups     import run_pacs_user_groups_etl
 from etl_ris_worklist_arrivals import run_ris_worklist_arrivals_etl
 from etl_ris_worklist_exam_done import run_ris_worklist_exam_done_etl
+from etl_ris_worklist_cancellations import run_ris_worklist_cancellations_etl
 from etl_ris_worklist_scheduled import run_ris_worklist_scheduled_etl
 from etl_ris_pps_person_reference import run_ris_pps_person_reference_etl
 
@@ -184,7 +189,7 @@ _PHASE_LABELS = {
     '14': ('RIS PPS',            'Oracle RIS: PPS + STATUS + PROCEDURE_PRIORITY + DICTATION + SITE_PPS -> std_pps and friends + STUDY_INSTANCE_UID<->PACS join test — moderate/heavy (LAUMC)'),
     '15': ('RIS Modality Availability', 'Oracle RIS: SCHEDULE_SCHEME + AVAILABILITY_INDICATOR + MODALITY_AVAIL_EXCEPTION + SCHEDULE_TEMPLATE_ITEM -> std_schedule_schemes / std_availability_indicators / std_modality_exceptions / std_schedule_template_items (device utilization denominator) — light (LAUMC)'),
     '16': ('PACS User Groups',   'Oracle PACS: MEDILINK.SECM_USERS/SECM_GROUPS/SECM_USER_IN_GROUP -> std_pacs_user_groups (reading-permission groups, e.g. radiologists/residents) — light (LAUMC)'),
-    '17': ('RIS Worklist Status Events', 'Oracle RIS: WORKLIST_STATUS_HISTORY + SITE_WORKLIST -> std_worklist_arrivals (status_key=60 Arrived) + std_worklist_exam_done (status_key=100 Exam Done) + std_worklist_scheduled (status_key=40 Scheduled) + PPS_PERSON_REFERENCE -> std_pps_person_reference, per-PPS technologist reference (role-filtered at query time, not by type key) — light (LAUMC)'),
+    '17': ('RIS Worklist Status Events', 'Oracle RIS: WORKLIST_STATUS_HISTORY + SITE_WORKLIST -> std_worklist_arrivals (status_key=60 Arrived) + std_worklist_exam_done (status_key=100 Exam Done) + std_worklist_scheduled (status_key=40 Scheduled) + std_worklist_cancellations (cancellation status keys read from worklist_status_map) + PPS_PERSON_REFERENCE -> std_pps_person_reference, per-PPS technologist reference (role-filtered at query time, not by type key) — light (LAUMC)'),
     '18': ('RIS Device Schedule Resolution', 'Oracle RIS: SCHEDULE_TEMPLATE_VERSION -> std_schedule_template_versions, then (Postgres-only) resolves std_schedule_template_items.aetitle via the version->template->device chain, then computes std_device_weekly_availability (simple Available-minutes-per-weekday, interval-swept, full rebuild) — light (LAUMC)'),
 }
 
@@ -736,6 +741,7 @@ def _perform_migration(engine):
                     ("arrivals",  lambda: run_ris_worklist_arrivals_etl(engine, ris_src)),
                     ("exam_done", lambda: run_ris_worklist_exam_done_etl(engine, ris_src)),
                     ("scheduled", lambda: run_ris_worklist_scheduled_etl(engine, ris_src)),
+                    ("cancellations", lambda: run_ris_worklist_cancellations_etl(engine, ris_src)),
                     ("person_reference", lambda: run_ris_pps_person_reference_etl(engine, ris_src)),
                 ]
                 _phase17_failed = []

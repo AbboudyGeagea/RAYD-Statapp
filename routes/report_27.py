@@ -469,13 +469,20 @@ def report_27():
 # -- RIS name columns are never extracted, so they do not exist to export. The
 # patient is identified by MRN from std_patient_ids.
 #
-# WHO CANCELLED IT / WHY is NOT available. The RIS ORDERS table carries
-# cancelled_by_person_key and status_reason_key (see the std_orders_ris block in
-# ETL_JOBS/system_type_registry.py), but that table is registered, not ETL'd --
-# there is no std_orders_ris in the database. The RIS status name is therefore
-# the closest thing to a reason ("Cancelled by Patient" vs "Cancelled by OP" vs
-# "Cancelled Duplicate"), which is genuinely useful but is not a free-text
-# reason. Wiring std_orders_ris in would make a real reason column possible.
+# WHO CANCELLED IT / WHY is NOT available, and is NOT worth chasing. The RIS
+# ORDERS table carries cancelled_by_person_key and status_reason_key (see the
+# std_orders_ris block in ETL_JOBS/system_type_registry.py), which looks like the
+# obvious way to add a real "cancelled by" and reason column. Measured on LAUMC
+# Oracle 2026-09-19 across all 62,753 cancelled orders:
+#
+#     CANCELLED_BY_PERSON_KEY populated:      0  (0.0%)
+#     STATUS_REASON_KEY populated:          343  (0.5%)
+#
+# So the columns exist and are empty. ETL'ing std_orders_ris for them would buy
+# two blank columns. The RIS status name is the closest thing to a reason
+# ("Cancelled by Patient" vs "Cancelled by OP" vs "Cancelled Duplicate") and is
+# what this export uses instead. Do not re-investigate without new evidence that
+# the source has started populating them.
 #
 # SITE SCOPE. Intentionally unfiltered, matching get_report_data() above (which
 # the Cancelled bar is built from) rather than the RH-only rule applied in
@@ -511,14 +518,31 @@ _CANCELLED_EXPORT_COLUMNS = [
     ("procedure_description",  "Procedure"),
     ("ris_status_name",        "RIS Status"),
     ("cancellation_type",      "Cancellation Type"),
-    ("cancelled_recorded_at",  "Cancellation Recorded (approx)"),
-    ("days_notice",            "Days Notice (approx)"),
+    ("cancelled_recorded_at",  "Cancelled At"),
+    ("cancelled_at_source",    "Cancelled At Source"),
+    ("days_notice",            "Days Notice"),
     ("study_in_pacs",          "Study in PACS"),
     ("storing_ae",             "AE Title"),
     ("accession_number",       "Accession Number"),
     ("order_dbid",             "RIS Order ID"),
     ("linked_id",              "Linked Group ID"),
 ]
+
+
+def _relation_exists(name):
+    """True when a table/view of this name exists in the current schema.
+
+    Needed for the same reason as _status_key_column_exists(): this repo ships to
+    installs on different migration lineages, and naming a table that is not there
+    is a hard query failure rather than a degraded answer.
+    """
+    try:
+        return bool(db.session.execute(
+            text("SELECT to_regclass(:n) IS NOT NULL"), {"n": name}
+        ).scalar())
+    except Exception:
+        db.session.rollback()
+        return False
 
 
 def _status_key_column_exists():
@@ -556,6 +580,37 @@ def get_cancelled_exams(start, end):
     # joins, the status label and the row filter — is switched together, so the
     # query is always internally consistent.
     exact = _status_key_column_exists()
+
+    # Exact cancellation moment from the RIS status-transition log (migration 0122).
+    # Needs BOTH that table and o.status_key — the lookup keys on the order's current
+    # status, so without status_key there is nothing to match a transition against.
+    #
+    # Rows with no matching transition keep the old etl_orders.last_update proxy and SAY
+    # SO in the Cancelled At Source column. That column is not decoration: confirmed
+    # against LAUMC Oracle 2026-09-19, five of the nine cancellation statuses (90
+    # Discontinued, 1300 Rejected, 1702 Cancelled by PP, 1830 Not app, 2422 Cancelled
+    # Duplicate) have NO history rows at all, so a silent COALESCE would mix exact and
+    # approximate timestamps in one column with no way to tell them apart.
+    if exact and _relation_exists('std_worklist_cancellations'):
+        # Match the order's CURRENT status, so a cancel-reinstate-cancel sequence dates
+        # from the cancellation actually in force rather than the first one; MAX for the
+        # same reason where one status repeats.
+        cancel_join = """
+        LEFT JOIN LATERAL (
+            SELECT MAX(c.cancelled_at) AS cancelled_at
+            FROM std_worklist_cancellations c
+            WHERE c.site_worklist_key = o.order_dbid
+              AND c.status_key        = o.status_key
+        ) canc ON TRUE"""
+        cancelled_at_sql = "COALESCE(canc.cancelled_at, o.last_update)"
+        cancelled_src_sql = ("CASE WHEN canc.cancelled_at IS NOT NULL "
+                             "THEN 'RIS status history (exact)' "
+                             "ELSE 'Last RIS update (approx)' END")
+    else:
+        cancel_join = ""
+        cancelled_at_sql = "o.last_update"
+        cancelled_src_sql = "'Last RIS update (approx)'"
+
     if exact:
         status_joins = ("LEFT JOIN worklist_status_map wsm ON wsm.status_key = o.status_key\n"
                         "        LEFT JOIN std_status_ris      sr  ON sr.status_key  = o.status_key")
@@ -591,12 +646,13 @@ def get_cancelled_exams(start, end):
             {stage_sql}                                     AS stage,
             o.has_study,
             s.storing_ae,
-            o.last_update                                   AS cancelled_recorded_at,
+            {cancelled_at_sql}                              AS cancelled_recorded_at,
+            {cancelled_src_sql}                             AS cancelled_at_source,
             site.code                                       AS site_code,
             o.order_dbid,
             o.linked_id
         FROM etl_orders o
-        {status_joins}
+        {status_joins}{cancel_join}
         LEFT JOIN etl_didb_studies    s   ON s.study_db_uid::TEXT = o.study_db_uid::TEXT
         LEFT JOIN std_patients_ris    p
             ON p.patient_person_key = CASE WHEN o.patient_dbid ~ '^[0-9]+$'
@@ -642,10 +698,11 @@ def get_cancelled_exams(start, end):
     df['scheduled_time'] = sched.dt.strftime('%H:%M')
     df['cancelled_recorded_at'] = recorded.dt.strftime('%Y-%m-%d %H:%M')
 
-    # Positive = cancelled ahead of the slot; 0 or negative = cancelled on the day
-    # or after it, i.e. a slot that was almost certainly lost. Approximate because
-    # last_update is the RIS row's last change, which for a terminal status is the
-    # cancellation itself unless the order was edited again afterwards.
+    # Positive = cancelled ahead of the slot; 0 or negative = cancelled on the day or
+    # after it, i.e. a slot that was almost certainly lost. Exact wherever Cancelled At
+    # Source says so (the RIS status-transition log); approximate on the rows that fell
+    # back to last_update, which is the row's last change rather than the cancellation
+    # specifically. Read the two columns together.
     df['days_notice'] = (sched.dt.normalize() - recorded.dt.normalize()).dt.days
 
     # 'Discontinued' rides along in the same export as the chart's Cancelled bar
