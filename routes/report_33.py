@@ -7,6 +7,12 @@ Standalone single-topic report split out of Report 25's "Radiologists" tab.
 Bucketed multi-stage TAT (turnaround-time) per modality x patient-class x
 radiologist, matching the hospital's own "KPI Detailed reading.xlsx" format.
 
+Each block is additionally scored against the department's reporting target for
+its patient class (24h inpatient / 24h urgent / 48h outpatient by default, set
+in `settings` — see utils/tat_sla.py and migration 0121). Only the end-to-end
+"Exam done to Approved" stage is scored; see _KPI_SLA_STAGE for why the other
+two are left as raw distributions.
+
 This report's backend is fully independent of the shared report_template
 (id=25) SQL — it runs its own query directly against etl_didb_studies /
 hl7_orders / hl7_oru_reports / std_resources_ris. Ported as-is from
@@ -26,6 +32,7 @@ from flask_login import login_required
 from sqlalchemy import text
 from db import db, get_etl_cutoff_date
 from utils.site_resolver import default_site
+from utils import tat_sla
 
 logger = logging.getLogger("report_33")
 
@@ -80,6 +87,27 @@ _KPI_PROCEDURE_EXCLUSIONS = ['%TAVI%', '%CORO%']   # confirmed: exclude TAVI + C
 # Modalities are NOT hardcoded — every modality present in the queried period's data gets
 # its own block, using the same bucket scheme as CT (the only one with a defined SLA in the
 # source spreadsheet) as a default until other modalities get their own confirmed windows.
+
+# This report's own class labels ('IN' / 'Urg' / 'Out', taken from the source
+# spreadsheet) mapped onto utils/tat_sla.py's canonical buckets, so the reporting
+# targets set once in settings apply here under this report's own vocabulary.
+#
+# _kpi_class_bucket() below is deliberately left as this report's classifier
+# rather than being replaced by tat_sla.classify(): which block a study lands in
+# is what makes this table match the hospital's spreadsheet, and swapping the
+# rule would move studies between blocks and change numbers nobody asked to
+# change. The two only have to agree on the LABEL, which this map guarantees —
+# so a study's target always matches the block it is displayed under.
+_KPI_CLASS_TO_SLA_BUCKET = {
+    'IN':  tat_sla.BUCKET_IN,
+    'Urg': tat_sla.BUCKET_URG,
+    'Out': tat_sla.BUCKET_OUT,
+}
+# The TAT stage the reporting target is measured against. "Exam done to
+# Approved" is the only end-to-end stage of the three — "Ex. Done to Read" is
+# queue time and "Signed 1 to Approved" is a sub-interval, so scoring either
+# against a 24h/48h whole-journey target would understate breaches.
+_KPI_SLA_STAGE = 'Exam done to Approved'
 
 
 def _kpi_bucket_label(minutes, buckets):
@@ -177,15 +205,38 @@ def get_kpi_detailed_reading(form_data):
             kdf['class_bucket'] = kdf.apply(_kpi_class_bucket, axis=1)
             kdf = kdf[kdf['class_bucket'].notna()]
 
+            # Reporting targets read once for the whole report rather than per
+            # (modality x class) block — there can be dozens of blocks.
+            sla_minutes = tat_sla.get_sla_minutes()
+
             for (modality, class_bucket), cdf in kdf.groupby(['modality', 'class_bucket']):
                 buckets = _KPI_BUCKETS_OUTPATIENT if class_bucket == 'Out' else _KPI_BUCKETS_STANDARD
                 bucket_labels = [b[0] for b in buckets]
+
+                # Reporting target for this block's patient class (operator
+                # instruction, 2026-09-19: 24h inpatient, 24h urgent, 48h
+                # outpatient), configurable via 'rad_tat_sla_hours:<BUCKET>'.
+                sla_key = _KPI_CLASS_TO_SLA_BUCKET.get(class_bucket)
+                sla_target_min = sla_minutes.get(sla_key) if sla_key else None
+                # Which of this block's time buckets lie entirely beyond the
+                # target, so the template can rule off the compliant columns
+                # from the breaching ones instead of the reader eyeballing it.
+                sla_over_labels = (
+                    [label for label, lo, _hi in buckets if lo > sla_target_min]
+                    if sla_target_min is not None else []
+                )
 
                 block = {
                     'modality': modality,
                     'class_bucket': class_bucket,
                     'label': f"{modality}-{class_bucket}",
                     'bucket_labels': bucket_labels,
+                    'sla_target_min': sla_target_min,
+                    'sla_target_label': tat_sla.format_hours(
+                        None if sla_target_min is None else sla_target_min / 60.0),
+                    'sla_stage': _KPI_SLA_STAGE,
+                    'sla_over_labels': sla_over_labels,
+                    'sla': None,
                     'stages': {},
                 }
 
@@ -194,10 +245,12 @@ def get_kpi_detailed_reading(form_data):
                 exam_read['bucket'] = exam_read['exam_to_read_min'].apply(lambda m: _kpi_bucket_label(m, buckets))
                 counts = exam_read['bucket'].value_counts().to_dict()
                 block['stages']['Ex. Done to Read'] = {
+                    'scoring': False,     # queue time, not the end-to-end target
                     'radiologists': [{
                         'name': 'Res.',
                         'counts': {label: int(counts.get(label, 0)) for label in bucket_labels},
                         'total': int(exam_read['bucket'].notna().sum()),
+                        'within': None, 'breached': None, 'pct': None,
                     }]
                 }
 
@@ -208,16 +261,43 @@ def get_kpi_detailed_reading(form_data):
                 ]:
                     sdf = cdf[cdf[col].notna() & (cdf[col] >= 0) & cdf['radiologist'].notna()].copy()
                     sdf['bucket'] = sdf[col].apply(lambda m: _kpi_bucket_label(m, buckets))
+                    # Score against the reporting target on the end-to-end stage
+                    # only (see _KPI_SLA_STAGE). Other stages keep their raw
+                    # distribution with no pass/fail, so a sub-interval is never
+                    # judged against a whole-journey target.
+                    scoring = (stage_name == _KPI_SLA_STAGE and sla_target_min is not None)
                     rad_rows = []
                     for rad, rdf in sdf.groupby('radiologist'):
                         counts = rdf['bucket'].value_counts().to_dict()
-                        rad_rows.append({
+                        row = {
                             'name': rad,
                             'counts': {label: int(counts.get(label, 0)) for label in bucket_labels},
                             'total': int(rdf['bucket'].notna().sum()),
-                        })
+                            'within': None, 'breached': None, 'pct': None,
+                        }
+                        if scoring:
+                            scored = rdf[rdf['bucket'].notna()]
+                            n = int(len(scored))
+                            within = int((scored[col] <= sla_target_min).sum())
+                            row.update({
+                                'within': within,
+                                'breached': n - within,
+                                'pct': round(within / n * 100, 1) if n else None,
+                            })
+                        rad_rows.append(row)
                     rad_rows.sort(key=lambda r: r['name'])
-                    block['stages'][stage_name] = {'radiologists': rad_rows}
+                    block['stages'][stage_name] = {'radiologists': rad_rows, 'scoring': scoring}
+
+                    if scoring:
+                        scored_all = sdf[sdf['bucket'].notna()]
+                        n_all = int(len(scored_all))
+                        within_all = int((scored_all[col] <= sla_target_min).sum())
+                        block['sla'] = {
+                            'n': n_all,
+                            'within': within_all,
+                            'breached': n_all - within_all,
+                            'pct': round(within_all / n_all * 100, 1) if n_all else None,
+                        }
 
                 blocks.append(block)
         blocks.sort(key=lambda b: (b['modality'], b['class_bucket']))

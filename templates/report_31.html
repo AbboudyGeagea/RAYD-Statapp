@@ -229,7 +229,39 @@
                     </div>
                     <div class="card-desc">
                         Average turnaround time (minutes from study order to signed report) broken down by patient class. Higher bars indicate longer waits — compare classes to spot service-level gaps.
+                        The strip below scores the same studies against the department's reporting targets
+                        (24h inpatient, 24h urgent, 48h outpatient by default; set via the
+                        <code class="text-slate-400">rad_tat_sla_hours:&lt;IN|URG|OUT&gt;</code> settings rows).
                     </div>
+                    {# The chart groups on the RAW patient_class codes this install emits; this
+                       strip groups the same rows into the three classes the targets are written
+                       against. Both are shown because a code appearing in the chart but nowhere
+                       in the strip is exactly how an unmapped class becomes visible. #}
+                    {% if data.sla and data.sla.by_bucket %}
+                    <div class="px-5 pt-1 pb-3 flex items-stretch gap-3 flex-wrap">
+                        {% for b in data.sla.by_bucket %}
+                        <div class="flex-1 min-w-[140px] rounded-lg px-3 py-2" style="background:rgba(148,163,184,0.06);border:1px solid #1f2937;">
+                            <div class="flex items-baseline justify-between gap-2">
+                                <span class="text-[9px] font-black uppercase tracking-wider text-slate-400">{{ b.label }}</span>
+                                <span class="text-[9px] font-bold text-slate-600">{% if b.target is not none %}&le; {{ b.target_label }}{% else %}no target{% endif %}</span>
+                            </div>
+                            <p class="text-xl font-black mt-1 {% if b.pct is not none and b.pct < 90 %}text-rose-400{% elif b.pct is not none %}text-emerald-400{% else %}text-slate-500{% endif %}">
+                                {% if b.pct is not none %}{{ b.pct }}<span class="text-xs text-slate-500">%</span>{% else %}&mdash;{% endif %}
+                            </p>
+                            <p class="text-[10px] font-mono text-slate-500">
+                                {% if b.within is not none %}{{ "{:,}".format(b.within) }} / {{ "{:,}".format(b.n) }}{% if b.breached %} &middot; <span class="text-rose-400">{{ "{:,}".format(b.breached) }} over</span>{% endif %}
+                                {% else %}{{ "{:,}".format(b.n) }} studies, unscored{% endif %}
+                            </p>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% if data.sla.unclassified %}
+                    <p class="px-5 pb-2 text-[10px] text-amber-400/80 italic">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        {{ "{:,}".format(data.sla.unclassified) }} study(ies) matched no patient class above and are excluded from these figures.
+                    </p>
+                    {% endif %}
+                    {% endif %}
                     <div id="classTatChart" class="chart-container"></div>
                 </div>
 

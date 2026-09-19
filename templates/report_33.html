@@ -72,7 +72,9 @@
                     KPI Detailed Reading — TAT distribution per modality &times; patient class &times; radiologist, matching the
                     hospital's own KPI spreadsheet format. Counts, not averages: each cell is how many studies fell
                     in that turnaround-time bucket. Blank = zero. Every modality present in this date range is
-                    available below, not just CT.
+                    available below, not just CT. Each block is scored against its patient class's reporting
+                    target &mdash; 24h inpatient, 24h urgent, 48h outpatient by default, configurable via the
+                    <code class="text-zinc-400">rad_tat_sla_hours:&lt;IN|URG|OUT&gt;</code> settings rows.
                 </p>
 
                 {% if kpi_data %}
@@ -120,6 +122,40 @@
                         });
                     }
 
+                    // Colour convention shared with Report 32's radiologist cards:
+                    // green at 90%+ compliance, amber 75-90%, red below. The targets
+                    // themselves are the department's (24h IN/URG, 48h OUT); the 90%
+                    // line here is only how the rate is coloured, not a second policy.
+                    function slaColor(p) {
+                        if (p === null || p === undefined) return 'text-zinc-500';
+                        if (p >= 90) return 'text-emerald-400';
+                        if (p >= 75) return 'text-amber-400';
+                        return 'text-rose-400';
+                    }
+
+                    function renderSlaBanner(block) {
+                        if (block.sla_target_min === null || block.sla_target_min === undefined) {
+                            return `<p class="text-[10px] text-zinc-600 italic mb-3">
+                                        No reporting target configured for ${CLASS_LABELS[block.class_bucket] || block.class_bucket}
+                                        — distribution shown without a pass/fail judgement.
+                                    </p>`;
+                        }
+                        const s = block.sla || {};
+                        const pct = (s.pct === null || s.pct === undefined) ? '—' : `${s.pct}%`;
+                        return `
+                            <div class="flex items-center gap-4 flex-wrap mb-3 px-3 py-2 rounded-lg bg-zinc-900/60 border border-white/5">
+                                <span class="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Reporting Target</span>
+                                <span class="text-xs font-black text-white">${block.sla_target_label}</span>
+                                <span class="text-[10px] text-zinc-600">measured on <span class="text-zinc-400">${block.sla_stage}</span></span>
+                                <span class="text-zinc-700">|</span>
+                                <span class="text-lg font-black ${slaColor(s.pct)}">${pct}</span>
+                                <span class="text-[10px] text-zinc-500 font-mono">
+                                    ${(s.within ?? 0).toLocaleString()} / ${(s.n ?? 0).toLocaleString()} within
+                                    ${s.breached ? `· <span class="text-rose-400">${s.breached.toLocaleString()} over target</span>` : ''}
+                                </span>
+                            </div>`;
+                    }
+
                     function renderTable() {
                         const block = blocksFor(currentModality).find(b => b.class_bucket === currentClass);
                         const container = document.getElementById('kpi-table-container');
@@ -127,28 +163,49 @@
                             container.innerHTML = '<p class="text-xs text-zinc-600 italic py-8 text-center">No data for this modality / patient class in the selected range.</p>';
                             return;
                         }
+                        // Buckets lying entirely past the target are tinted, and the first
+                        // of them carries a left rule — so where the target falls is
+                        // visible in the distribution itself, not just in the banner.
+                        const overLabels = new Set(block.sla_over_labels || []);
+                        const firstOver = (block.sla_over_labels || [])[0];
+                        const bucketCls = label =>
+                            (overLabels.has(label) ? 'text-rose-400/80 bg-rose-500/5 ' : 'text-zinc-400 ') +
+                            (label === firstOver ? 'border-l border-rose-500/40 ' : '');
+
                         const stageRows = Object.entries(block.stages).map(([stageName, stage]) => {
                             return stage.radiologists.map((rad, i) => `
                                 <tr class="border-t border-white/5">
                                     ${i === 0 ? `<td class="py-1 pr-3 font-bold text-blue-300 align-top" rowspan="${stage.radiologists.length}">${stageName}</td>` : ''}
                                     <td class="py-1 pr-3 text-zinc-300">${rad.name}</td>
-                                    ${block.bucket_labels.map(label => `<td class="py-1 px-2 text-right font-mono text-zinc-400">${rad.counts[label] || ''}</td>`).join('')}
+                                    ${block.bucket_labels.map(label => `<td class="py-1 px-2 text-right font-mono ${bucketCls(label)}">${rad.counts[label] || ''}</td>`).join('')}
                                     <td class="py-1 pl-3 text-right font-black text-white">${rad.total}</td>
+                                    <td class="py-1 pl-3 text-right font-mono ${stage.scoring ? slaColor(rad.pct) : 'text-zinc-700'}">
+                                        ${stage.scoring && rad.pct !== null && rad.pct !== undefined ? `${rad.pct}%` : '—'}
+                                    </td>
+                                    <td class="py-1 pl-2 text-right font-mono ${stage.scoring && rad.breached ? 'text-rose-400' : 'text-zinc-700'}">
+                                        ${stage.scoring && rad.breached !== null && rad.breached !== undefined ? rad.breached : '—'}
+                                    </td>
                                 </tr>
                             `).join('');
                         }).join('');
-                        container.innerHTML = `
+                        container.innerHTML = renderSlaBanner(block) + `
                             <table class="w-full text-[10px] border-collapse whitespace-nowrap">
                                 <thead>
                                     <tr class="text-zinc-500 uppercase text-[9px]">
                                         <th class="text-left py-1 pr-3 font-black">Stage</th>
                                         <th class="text-left py-1 pr-3 font-black">Radiologist</th>
-                                        ${block.bucket_labels.map(label => `<th class="text-right py-1 px-2 font-black">${label}</th>`).join('')}
+                                        ${block.bucket_labels.map(label => `<th class="text-right py-1 px-2 font-black ${bucketCls(label)}">${label}</th>`).join('')}
                                         <th class="text-right py-1 pl-3 font-black text-white">Total</th>
+                                        <th class="text-right py-1 pl-3 font-black text-white" title="Share of this radiologist's studies within the ${block.sla_target_label} target">Within</th>
+                                        <th class="text-right py-1 pl-2 font-black text-white" title="Studies over the ${block.sla_target_label} target">Over</th>
                                     </tr>
                                 </thead>
                                 <tbody>${stageRows}</tbody>
                             </table>
+                            <p class="text-[9px] text-zinc-600 italic mt-3">
+                                Within / Over apply to the end-to-end <span class="text-zinc-500">${block.sla_stage}</span> stage only.
+                                The other stages are sub-intervals of that journey and are not scored against a whole-journey target.
+                            </p>
                         `;
                     }
 

@@ -160,7 +160,7 @@
             </p>
 
             <!-- KPI Row -->
-            <div class="grid grid-cols-2 lg:grid-cols-4 gap-6">
+            <div class="grid grid-cols-2 lg:grid-cols-5 gap-6">
                 <div class="data-card p-6 border-l-4 border-l-indigo-500 !h-auto">
                     <p class="text-xs font-bold text-slate-500 uppercase mb-1">Signed Studies</p>
                     <p class="text-3xl font-black text-white">{{ "{:,}".format(data.summary.total_studies) }}</p>
@@ -194,6 +194,68 @@
                     </div>
                     <p class="text-[11px] text-slate-600 italic mt-2">Physician vs facility revenue &mdash; two separate streams, never added together.</p>
                 </div>
+                {# TAT service-level compliance. Deliberately NOT a single number on its
+                   own — the per-class strip below it carries the targets, because 87%
+                   against a 24h inpatient clock and 87% against a 48h outpatient one are
+                   different results and the rolled-up figure cannot tell them apart. #}
+                <div class="data-card p-6 border-l-4 border-l-sky-500 !h-auto">
+                    <p class="text-xs font-bold text-slate-500 uppercase mb-1">Within TAT Target</p>
+                    <p class="text-3xl font-black {% if data.summary.sla_pct is not none and data.summary.sla_pct < 90 %}text-rose-400{% else %}text-white{% endif %}">
+                        {% if data.summary.sla_pct is not none %}{{ data.summary.sla_pct }}<span class="text-base text-slate-500">%</span>{% else %}&mdash;{% endif %}
+                    </p>
+                    <p class="text-[11px] text-slate-600 italic mt-2">
+                        {% if data.summary.sla_breached %}{{ "{:,}".format(data.summary.sla_breached) }} study(ies) over target.{% else %}No breaches in this period.{% endif %}
+                    </p>
+                </div>
+            </div>
+
+            <!-- ── TAT Target Compliance by Patient Class ────────────────────── -->
+            <div class="data-card !h-auto">
+                <div class="card-header">
+                    <span><i class="bi bi-stopwatch"></i> TAT Target Compliance by Patient Class</span>
+                </div>
+                <div class="card-desc">
+                    Reporting targets are set per patient class and are configurable
+                    (<code class="text-slate-400">rad_tat_sla_hours:&lt;IN|URG|OUT&gt;</code> in settings).
+                    A study counts as within target when its turnaround time &mdash; PACS ingestion to signed
+                    report &mdash; is at or under its class target. Studies with no signed report, or whose
+                    patient class matches no configured bucket, are not scored.
+                </div>
+                <div class="p-5">
+                    {% if data.sla and data.sla.by_bucket %}
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        {% for b in data.sla.by_bucket %}
+                        <div class="rounded-lg p-4" style="background:rgba(148,163,184,0.06);border:1px solid #1a211f;">
+                            <div class="flex items-baseline justify-between gap-2">
+                                <p class="text-xs font-black text-slate-300 uppercase tracking-wide">{{ b.label }}</p>
+                                <span class="text-[10px] font-bold text-slate-500">
+                                    {% if b.target is not none %}target {{ b.target_label }}{% else %}no target{% endif %}
+                                </span>
+                            </div>
+                            <p class="text-2xl font-black mt-2 {% if b.pct is not none and b.pct < 90 %}text-rose-400{% else %}text-white{% endif %}">
+                                {% if b.pct is not none %}{{ b.pct }}<span class="text-sm text-slate-500">%</span>{% else %}&mdash;{% endif %}
+                            </p>
+                            <p class="text-[11px] text-slate-500 mt-1 font-mono">
+                                {% if b.within is not none %}{{ "{:,}".format(b.within) }} / {{ "{:,}".format(b.n) }} within
+                                {% if b.breached %}&middot; <span class="text-rose-400">{{ "{:,}".format(b.breached) }} over</span>{% endif %}
+                                {% else %}{{ "{:,}".format(b.n) }} studies &mdash; not scored{% endif %}
+                            </p>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% if data.sla.unclassified %}
+                    <p class="text-[11px] text-amber-400/80 italic mt-4">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        {{ "{:,}".format(data.sla.unclassified) }} signed study(ies) could not be placed in a patient
+                        class and are excluded from every figure above. If that number is large, this install's
+                        <code>patient_class</code> values need adding to the <code>pc_inpatient</code> /
+                        <code>pc_outpatient</code> / <code>pc_emergency</code> settings rows.
+                    </p>
+                    {% endif %}
+                    {% else %}
+                    <p class="text-center text-sm text-slate-600 italic py-6">No classifiable studies with a turnaround time in this period.</p>
+                    {% endif %}
+                </div>
             </div>
 
             <!-- ── Radiologist Performance Cards ─────────────────────────────── -->
@@ -207,6 +269,7 @@
                         <button class="sort-btn" data-sort="tat" onclick="radSetSort('tat')">Fastest TAT</button>
                         <button class="sort-btn" data-sort="rvu" onclick="radSetSort('rvu')">RVU / hr</button>
                         <button class="sort-btn" data-sort="pctile" onclick="radSetSort('pctile')">Percentile</button>
+                        <button class="sort-btn" data-sort="sla" onclick="radSetSort('sla')">SLA Breaches</button>
                     </div>
                 </div>
                 <div class="card-desc">
@@ -442,6 +505,30 @@
                 return (name || '?').trim().split(/\s+/).map(n => n[0]).join('').slice(0, 2).toUpperCase();
             }
 
+            // TAT target compliance: green at 90%+, amber 75-90%, red below. The 90%
+            // line is a display convention only — the department has set the TAT
+            // targets themselves (24h IN/URG, 48h OUT) but no compliance-rate target,
+            // so this colours the number without asserting a pass/fail on the rate.
+            function slaColor(p) {
+                if (p === null || p === undefined) return { fg: '#64748b', bg: 'rgba(100,116,139,0.12)' };
+                if (p >= 90) return { fg: '#34d399', bg: 'rgba(52,211,153,0.15)' };
+                if (p >= 75) return { fg: '#fbbf24', bg: 'rgba(251,191,36,0.15)' };
+                return { fg: '#f87171', bg: 'rgba(248,113,113,0.15)' };
+            }
+
+            function slaBreakdown(rad) {
+                const rows = ((rad.sla || {}).by_bucket || []).filter(b => b.n > 0);
+                if (!rows.length) return '';
+                return rows.map(b => {
+                    const c = slaColor(b.pct);
+                    const val = b.pct === null || b.pct === undefined ? '—' : `${b.pct}%`;
+                    return `<span class="text-[10px] font-mono" title="${escH(b.label)} — target ${escH(b.target_label)}, ${b.within ?? '—'} of ${b.n} within">
+                                <span class="text-slate-600">${escH(b.bucket)}</span>
+                                <span style="color:${c.fg}">${val}</span>
+                            </span>`;
+                }).join('<span class="text-slate-700 text-[10px]">·</span>');
+            }
+
             function escH(s) { const d = document.createElement('div'); d.textContent = String(s || ''); return d.innerHTML; }
 
             function renderDrilldown(rad, idx) {
@@ -480,6 +567,8 @@
 
             function cardHtml(rad, idx) {
                 const pc = pctileColor(rad.tat_percentile);
+                const sc = slaColor(rad.sla_pct);
+                const slaVal = (rad.sla_pct === null || rad.sla_pct === undefined) ? '—' : `${rad.sla_pct}%`;
                 return `
                     <div class="rad-card">
                         <div class="flex items-start justify-between gap-2">
@@ -498,6 +587,16 @@
                             <div><p class="rad-stat-label">Technical RVU</p><p class="rad-stat-value">${rad.total_technical_rvu}</p></div>
                             <div><p class="rad-stat-label">RVU / hr</p><p class="rad-stat-value">${rad.rvu_per_hour}</p></div>
                         </div>
+                        <div class="rounded px-3 py-2" style="background:${sc.bg};border:1px solid rgba(148,163,184,0.10);">
+                            <div class="flex items-baseline justify-between gap-2">
+                                <p class="rad-stat-label !mb-0">Within TAT Target</p>
+                                <p class="text-sm font-black" style="color:${sc.fg}">${slaVal}</p>
+                            </div>
+                            <p class="text-[10px] text-slate-500 font-mono mt-1">
+                                ${rad.sla_scored ? `${rad.sla_scored} scored · ${rad.sla_breached} over` : 'no scorable studies'}
+                            </p>
+                            <div class="flex items-center gap-2 mt-1 flex-wrap">${slaBreakdown(rad)}</div>
+                        </div>
                         <div>
                             <div class="rad-drill-btn" onclick="radToggleDrill(${idx})">
                                 <span id="rad-drill-arrow-${idx}">▶</span> Drilldown by Location
@@ -515,6 +614,9 @@
                 if (sortMode === 'tat')    l.sort((a, b) => (a.overall || Infinity) - (b.overall || Infinity));
                 if (sortMode === 'rvu')    l.sort((a, b) => b.rvu_per_hour - a.rvu_per_hour);
                 if (sortMode === 'pctile') l.sort((a, b) => (a.tat_percentile ?? 999) - (b.tat_percentile ?? 999));
+                // Worst compliance first — this sort exists to find who is missing the
+                // target, so an unscored radiologist sorts last rather than to the top.
+                if (sortMode === 'sla')    l.sort((a, b) => (a.sla_pct ?? 999) - (b.sla_pct ?? 999));
                 return l;
             }
 

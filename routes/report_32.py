@@ -54,6 +54,7 @@ from sqlalchemy import text
 from db import db, get_etl_cutoff_date
 from routes.report_cache import cache_get, cache_put
 from utils.site_resolver import default_site
+from utils import tat_sla
 
 logger = logging.getLogger("report_32")
 
@@ -133,7 +134,7 @@ def get_radiologist_performance_data(form_data):
     # OT is excluded alongside it, matching Report 25's own convention.
     sql_exec = text(f"""
         WITH base_data AS ({base_sql})
-        SELECT reading_radiologist, modality, patient_location,
+        SELECT reading_radiologist, modality, patient_location, patient_class,
                total_tat_min, proc_duration, clinical_rvu, technical_rvu
         FROM base_data
         WHERE study_date BETWEEN :start AND :end
@@ -164,6 +165,36 @@ def get_radiologist_performance_data(form_data):
     except Exception:
         pass
 
+    # ── TAT service-level classification ──────────────────────────────────
+    # Per-patient-class reporting targets (operator instruction, 2026-09-19):
+    # 24 h inpatient / 24 h urgent / 48 h outpatient, configurable via the
+    # 'rad_tat_sla_hours:<BUCKET>' settings rows (migration 0121). Classified
+    # once here so the department summary, the per-radiologist cards and the CSV
+    # export all score the same rows the same way. accession_number isn't a
+    # column of report_template id=25, so ER detection here rests on
+    # patient_location/patient_class rather than the '2XE' prefix Report 33 can
+    # also use — which costs nothing in practice, since URG and IN share the
+    # same 24 h target.
+    #
+    # Targets are read ONCE and threaded through every compliance() call below:
+    # rad_cards loops per radiologist, and letting each one re-read settings
+    # would put a query per radiologist on the page load.
+    _sla_targets = tat_sla.get_sla_minutes()
+    try:
+        df['sla_bucket'] = tat_sla.classify_series(
+            df, class_col='patient_class', location_col='patient_location'
+        )
+    except Exception:
+        logger.exception("Failed to classify studies into TAT SLA buckets")
+        df['sla_bucket'] = None
+    sla_summary = tat_sla.compliance(df, 'total_tat_min', 'sla_bucket', targets=_sla_targets)
+    # Studies whose patient_class matches no configured bucket are scored by
+    # nobody — surfaced as a count so an unmapped class vocabulary shows up as a
+    # visible gap instead of quietly shrinking every denominator on the page.
+    sla_summary['unclassified'] = int(
+        df[df['total_tat_min'] > 0]['sla_bucket'].isna().sum()
+    ) if 'sla_bucket' in df.columns else 0
+
     # ── Radiologist performance cards ─────────────────────────────────────
     # NOTE: the base template (report_template.report_id=25) already
     # restricts to rows with a non-null TAT AND a non-null radiologist (see
@@ -193,6 +224,10 @@ def get_radiologist_performance_data(form_data):
             rvu_per_hour = round(r_df_mapped['clinical_rvu'].sum() / total_scan_hours, 2) if total_scan_hours > 0 else 0.0
 
             r_df_valid = r_df[r_df['total_tat_min'] > 0]
+            # SLA scoring uses the shared targets read once above — same rows the
+            # TAT average uses (positive TAT only), so "avg TAT" and "% within
+            # target" on a card always describe the same set of studies.
+            rad_sla = tat_sla.compliance(r_df, 'total_tat_min', 'sla_bucket', targets=_sla_targets)
             rad_cards.append({
                 "name": rad,
                 "count": int(len(r_df)),
@@ -202,6 +237,10 @@ def get_radiologist_performance_data(form_data):
                 "total_technical_rvu": round(r_df['technical_rvu'].sum(), 1),
                 "rvu_per_hour": rvu_per_hour,
                 "drilldown": drill,
+                "sla": rad_sla,
+                "sla_pct": rad_sla['overall']['pct'],
+                "sla_breached": rad_sla['overall']['breached'],
+                "sla_scored": rad_sla['overall']['n'],
             })
 
         # Add percentile rank among peers (lower TAT = better = lower percentile)
@@ -224,6 +263,8 @@ def get_radiologist_performance_data(form_data):
         "dept_median_tat": round(float(tat_vals.median()), 1) if len(tat_vals) > 0 else 0.0,
         "total_clinical_rvu": round(float(df['clinical_rvu'].sum()), 1) if 'clinical_rvu' in df.columns else 0.0,
         "total_technical_rvu": round(float(df['technical_rvu'].sum()), 1) if 'technical_rvu' in df.columns else 0.0,
+        "sla_pct": sla_summary['overall']['pct'],
+        "sla_breached": sla_summary['overall']['breached'],
     }
 
     # ── Reports per radiologist × modality / AE title / procedure / month ─
@@ -468,6 +509,7 @@ def get_radiologist_performance_data(form_data):
         "rad_volume_matrix": rad_volume_matrix,
         "addendum_data": addendum_data,
         "shift_patterns": shift_patterns,
+        "sla": sla_summary,
     }, start, end)
     cache_put(32, form_data, result)
     return result
@@ -521,17 +563,39 @@ def export_report_32():
 
     output = io.StringIO()
     writer = csv.writer(output)
+    # SLA columns are split per patient class as well as rolled up: a single
+    # "% within target" hides whether a radiologist is missing the 24 h
+    # inpatient clock or the 48 h outpatient one, which are different problems.
     writer.writerow(['Radiologist', 'Study Count', 'Avg TAT (min)', 'Median TAT (min)',
                       'Clinical RVU', 'Technical RVU', 'RVU/hr', 'TAT Percentile',
-                      'Addendum Count', 'Addendum %'])
+                      'Addendum Count', 'Addendum %',
+                      'Studies Scored vs SLA', 'Within SLA', 'Breached SLA', 'SLA %',
+                      'Inpatient Within/Total', 'Urgent Within/Total', 'Outpatient Within/Total'])
     addendum_by_rad = {r['rad']: r for r in data.get('addendum_data', {}).get('by_rad', [])}
+
+    def _bucket_cell(rad_sla, bucket):
+        row = next((b for b in rad_sla.get('by_bucket', []) if b['bucket'] == bucket), None)
+        if not row or not row['n']:
+            return ''
+        if row['within'] is None:       # bucket has no configured target
+            return f"—/{row['n']}"
+        return f"{row['within']}/{row['n']}"
+
     for r in data.get('rad_cards', []):
         add = addendum_by_rad.get(r['name'], {})
+        rad_sla = r.get('sla', {})
         writer.writerow([
             r['name'], r['count'], r['overall'], r['tat_median'],
             r['total_rvu'], r['total_technical_rvu'], r['rvu_per_hour'],
             r.get('tat_percentile', ''),
             add.get('addendum_count', ''), add.get('pct', ''),
+            r.get('sla_scored', ''),
+            rad_sla.get('overall', {}).get('within', ''),
+            r.get('sla_breached', ''),
+            r.get('sla_pct', ''),
+            _bucket_cell(rad_sla, tat_sla.BUCKET_IN),
+            _bucket_cell(rad_sla, tat_sla.BUCKET_URG),
+            _bucket_cell(rad_sla, tat_sla.BUCKET_OUT),
         ])
 
     return Response(

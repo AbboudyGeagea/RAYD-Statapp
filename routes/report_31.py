@@ -30,6 +30,7 @@ from sqlalchemy import text
 
 from db import db, get_etl_cutoff_date
 from utils.site_resolver import default_site
+from utils import tat_sla
 
 logger = logging.getLogger("report_31")
 
@@ -117,7 +118,8 @@ def get_report_31_data(form):
 
     sql = text(f"""
         WITH base_data AS ({base_sql})
-        SELECT modality, patient_class, study_date, total_tat_min, proc_duration, rvu
+        SELECT modality, patient_class, patient_location, study_date,
+               total_tat_min, proc_duration, rvu
         FROM base_data
         WHERE 1=1{extra_where}
     """)
@@ -181,6 +183,24 @@ def get_report_31_data(form):
             .to_dict()
         )
 
+    # ── TAT target compliance by patient class ────────────────────────────
+    # Department-level view of the reporting targets (operator instruction,
+    # 2026-09-19): 24h inpatient / 24h urgent / 48h outpatient, configurable
+    # via 'rad_tat_sla_hours:<BUCKET>' (migration 0121). class_tat above groups
+    # on the RAW patient_class string — one row per install-specific code — so
+    # this sits alongside it rather than replacing it: the raw breakdown still
+    # answers "what classes do we actually have?", which is exactly what you
+    # need when a class turns up unclassified below.
+    try:
+        df["sla_bucket"] = tat_sla.classify_series(
+            df, class_col="patient_class", location_col="patient_location"
+        )
+    except Exception:
+        logger.exception("Failed to classify studies into TAT SLA buckets")
+        df["sla_bucket"] = None
+    sla = tat_sla.compliance(df, "total_tat_min", "sla_bucket")
+    sla["unclassified"] = int(df[df["total_tat_min"] > 0]["sla_bucket"].isna().sum())
+
     modality_split = []
     if "modality" in df.columns:
         modality_split = [
@@ -234,6 +254,7 @@ def get_report_31_data(form):
     data = {
         "summary": summary,
         "class_tat": class_tat,
+        "sla": sla,
         "modality_split": modality_split,
         "correlation": correlation,
         "pearson_r": pearson_r,

@@ -359,7 +359,39 @@
                         </div>
                         <div class="chart-card-desc">
                             Average Turnaround Time (minutes from study order to report) broken down by patient class. Higher bars indicate longer waits — compare Emergency vs. Outpatient to spot service-level gaps.
+                            The strip below scores the same studies against the department's reporting targets
+                            (24h inpatient, 24h urgent, 48h outpatient by default; set via the
+                            <code class="text-zinc-400">rad_tat_sla_hours:&lt;IN|URG|OUT&gt;</code> settings rows).
                         </div>
+                        {# The chart groups on the RAW patient_class codes this install emits; the strip
+                           groups the same rows into the three classes the targets are written against.
+                           Both are kept: a code visible in the chart but absent from the strip is how an
+                           unmapped patient class makes itself known. #}
+                        {% if data.sla and data.sla.by_bucket %}
+                        <div class="px-5 pb-2 flex items-stretch gap-3 flex-wrap">
+                            {% for b in data.sla.by_bucket %}
+                            <div class="flex-1 min-w-[130px] rounded-lg px-3 py-2" style="background:rgba(148,163,184,0.06);border:1px solid rgba(255,255,255,0.06);">
+                                <div class="flex items-baseline justify-between gap-2">
+                                    <span class="text-[9px] font-black uppercase tracking-wider text-zinc-400">{{ b.label }}</span>
+                                    <span class="text-[9px] font-bold text-zinc-600">{% if b.target is not none %}&le; {{ b.target_label }}{% else %}no target{% endif %}</span>
+                                </div>
+                                <p class="text-xl font-black mt-1 {% if b.pct is not none and b.pct < 90 %}text-rose-400{% elif b.pct is not none %}text-emerald-400{% else %}text-zinc-500{% endif %}">
+                                    {% if b.pct is not none %}{{ b.pct }}<span class="text-xs text-zinc-500">%</span>{% else %}&mdash;{% endif %}
+                                </p>
+                                <p class="text-[10px] font-mono text-zinc-500">
+                                    {% if b.within is not none %}{{ "{:,}".format(b.within) }} / {{ "{:,}".format(b.n) }}{% if b.breached %} &middot; <span class="text-rose-400">{{ "{:,}".format(b.breached) }} over</span>{% endif %}
+                                    {% else %}{{ "{:,}".format(b.n) }} studies, unscored{% endif %}
+                                </p>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% if data.sla.unclassified %}
+                        <p class="px-5 pb-2 text-[10px] text-amber-400/80 italic">
+                            <i class="bi bi-exclamation-triangle"></i>
+                            {{ "{:,}".format(data.sla.unclassified) }} study(ies) matched no patient class above and are excluded from these figures.
+                        </p>
+                        {% endif %}
+                        {% endif %}
                         <div class="chart-card-body"><div id="chart-1" class="h-80"></div></div>
                     </div>
 
@@ -964,6 +996,8 @@
                                         <th class="text-right py-1 px-2 font-black">0-3h</th>
                                         <th class="text-right py-1 px-2 font-black">3-5h</th>
                                         <th class="text-right py-1 pl-2 font-black">5h+</th>
+                                        <th class="text-right py-1 px-2 font-black" title="Reporting target for this patient class">Target</th>
+                                        <th class="text-right py-1 pl-2 font-black text-white" title="Share of studies at or under the target">Within</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -977,6 +1011,13 @@
                                         <td class="py-1 px-2 text-right font-mono text-zinc-500">{{ row.bucket_0_3h }}</td>
                                         <td class="py-1 px-2 text-right font-mono text-zinc-500">{{ row.bucket_3_5h }}</td>
                                         <td class="py-1 pl-2 text-right font-mono text-zinc-500">{{ row.bucket_5h_plus }}</td>
+                                        <td class="py-1 px-2 text-right font-mono text-zinc-500">{{ row.sla_target_label }}</td>
+                                        {# 'Other' (unclassified) rows have no target, so they show a dash
+                                           rather than a 0% that would read as total failure. #}
+                                        <td class="py-1 pl-2 text-right font-mono {% if row.sla_pct is none %}text-zinc-700{% elif row.sla_pct < 90 %}text-rose-400{% else %}text-emerald-400{% endif %}"
+                                            title="{{ row.within_sla }} within / {{ row.breached_sla }} over">
+                                            {% if row.sla_pct is not none %}{{ row.sla_pct }}%{% else %}&mdash;{% endif %}
+                                        </td>
                                     </tr>
                                     {% endfor %}
                                 </tbody>
@@ -1006,6 +1047,8 @@
                                         <th class="text-right py-1 px-2 font-black">0-3h</th>
                                         <th class="text-right py-1 px-2 font-black">3-5h</th>
                                         <th class="text-right py-1 pl-2 font-black">5h+</th>
+                                        <th class="text-right py-1 px-2 font-black" title="Reporting target for this patient class">Target</th>
+                                        <th class="text-right py-1 pl-2 font-black text-white" title="Share of studies at or under the target">Within</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -1019,6 +1062,11 @@
                                         <td class="py-1 px-2 text-right font-mono text-zinc-500">{{ row.bucket_0_3h }}</td>
                                         <td class="py-1 px-2 text-right font-mono text-zinc-500">{{ row.bucket_3_5h }}</td>
                                         <td class="py-1 pl-2 text-right font-mono text-zinc-500">{{ row.bucket_5h_plus }}</td>
+                                        <td class="py-1 px-2 text-right font-mono text-zinc-500">{{ row.sla_target_label }}</td>
+                                        <td class="py-1 pl-2 text-right font-mono {% if row.sla_pct is none %}text-zinc-700{% elif row.sla_pct < 90 %}text-rose-400{% else %}text-emerald-400{% endif %}"
+                                            title="{{ row.within_sla }} within / {{ row.breached_sla }} over">
+                                            {% if row.sla_pct is not none %}{{ row.sla_pct }}%{% else %}&mdash;{% endif %}
+                                        </td>
                                     </tr>
                                     {% endfor %}
                                 </tbody>
@@ -1046,8 +1094,11 @@
                         if (!rows.length) return;
                         const q = v => '"' + String(v==null?'':v).replace(/"/g,'""') + '"';
                         const lines = [
-                            ['Modality','Patient Class','N','Avg TAT (h)','Median TAT (h)','0-3h','3-5h','5h+'].map(q).join(','),
-                            ...rows.map(r => [r.modality, r.patient_class_bucket, r.n, r.avg_tat_h, r.median_tat_h, r.bucket_0_3h, r.bucket_3_5h, r.bucket_5h_plus].map(q).join(','))
+                            ['Modality','Patient Class','N','Avg TAT (h)','Median TAT (h)','0-3h','3-5h','5h+',
+                             'Target (h)','Within Target','Over Target','Within %'].map(q).join(','),
+                            ...rows.map(r => [r.modality, r.patient_class_bucket, r.n, r.avg_tat_h, r.median_tat_h,
+                                              r.bucket_0_3h, r.bucket_3_5h, r.bucket_5h_plus,
+                                              r.sla_target_h, r.within_sla, r.breached_sla, r.sla_pct].map(q).join(','))
                         ];
                         _downloadCsv(lines.join('\n'), `tat_anchor_${anchor}_${new Date().toISOString().slice(0,10)}.csv`);
                     };

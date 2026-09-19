@@ -32,6 +32,7 @@ from routes.report_cache import cache_get, cache_put
 from utils.site_resolver import default_site
 from utils.report_filters import sidebar_filters as _sidebar_filters
 from utils.radiologist_resolve import rad_alias_join_sql, rad_display_sql
+from utils import tat_sla
 
 logger = logging.getLogger("report_25")
 
@@ -73,17 +74,48 @@ def _load_shift_config():
 
 
 def _tat_anchor_result_shell():
-    return {"summary": {"n": 0, "avg_tat_h": None, "median_tat_h": None}, "matrix": [], "trend": []}
+    return {
+        "summary": {"n": 0, "avg_tat_h": None, "median_tat_h": None,
+                    "within_sla": 0, "breached_sla": 0, "sla_pct": None},
+        "matrix": [], "trend": [],
+    }
 
 
-_TAT_ANCHOR_SUMMARY_SQL = """
+# The TAT-anchor CTEs label patient class in SQL ('ER'/'Inpatient'/'Outpatient'/
+# 'Other'), so the reporting targets are applied in SQL too rather than pulling
+# every row back into pandas just to score it. 'Other' maps to no bucket, so its
+# target is NULL and both FILTERs skip it -- unclassified studies are never
+# counted as compliant OR as breaches.
+_TAT_ANCHOR_SLA_LABELS = {
+    'Inpatient':  tat_sla.BUCKET_IN,
+    'ER':         tat_sla.BUCKET_URG,
+    'Outpatient': tat_sla.BUCKET_OUT,
+}
+
+
+def _tat_anchor_sla_case():
+    """Per-row SLA target in HOURS — tat_hours in these CTEs is already hours."""
+    return tat_sla.sla_hours_case_sql('patient_class_bucket', _TAT_ANCHOR_SLA_LABELS)
+
+
+def _tat_anchor_summary_sql():
+    sla = _tat_anchor_sla_case()
+    return f"""
     SELECT
         COUNT(*) AS n,
         ROUND(AVG(tat_hours)::numeric, 2) AS avg_tat_h,
-        ROUND((PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY tat_hours))::numeric, 2) AS median_tat_h
+        ROUND((PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY tat_hours))::numeric, 2) AS median_tat_h,
+        COUNT(*) FILTER (WHERE tat_hours <= ({sla})) AS within_sla,
+        COUNT(*) FILTER (WHERE tat_hours >  ({sla})) AS breached_sla
     FROM tat
 """
-_TAT_ANCHOR_MATRIX_SQL = """
+
+
+def _tat_anchor_matrix_sql():
+    # Built per call, not a module constant, because the targets come from
+    # settings and an administrator can change them between requests.
+    sla = _tat_anchor_sla_case()
+    return f"""
     SELECT
         modality, patient_class_bucket,
         COUNT(*) AS n,
@@ -91,11 +123,16 @@ _TAT_ANCHOR_MATRIX_SQL = """
         ROUND((PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY tat_hours))::numeric, 2) AS median_tat_h,
         COUNT(*) FILTER (WHERE tat_hours <= 3)                   AS bucket_0_3h,
         COUNT(*) FILTER (WHERE tat_hours > 3 AND tat_hours <= 5) AS bucket_3_5h,
-        COUNT(*) FILTER (WHERE tat_hours > 5)                    AS bucket_5h_plus
+        COUNT(*) FILTER (WHERE tat_hours > 5)                    AS bucket_5h_plus,
+        MAX({sla})                                   AS sla_target_h,
+        COUNT(*) FILTER (WHERE tat_hours <= ({sla})) AS within_sla,
+        COUNT(*) FILTER (WHERE tat_hours >  ({sla})) AS breached_sla
     FROM tat
     GROUP BY modality, patient_class_bucket
     ORDER BY modality, patient_class_bucket
 """
+
+
 _TAT_ANCHOR_TREND_SQL = """
     SELECT
         study_date AS day,
@@ -111,12 +148,25 @@ _TAT_ANCHOR_TREND_SQL = """
 def _run_tat_anchor_queries(base_cte, params, log_label):
     result = _tat_anchor_result_shell()
     try:
-        summary_row = db.session.execute(text(base_cte + _TAT_ANCHOR_SUMMARY_SQL), params).mappings().fetchone()
+        summary_row = db.session.execute(text(base_cte + _tat_anchor_summary_sql()), params).mappings().fetchone()
         if summary_row:
             result["summary"] = dict(summary_row)
+            # Denominator is scored studies (within + breached), NOT n — n also
+            # counts the 'Other' class rows, which have no target and so cannot
+            # be in either column. Dividing by n would report every unclassified
+            # study as a breach.
+            _w = int(result["summary"].get("within_sla") or 0)
+            _b = int(result["summary"].get("breached_sla") or 0)
+            result["summary"]["sla_pct"] = round(_w / (_w + _b) * 100, 1) if (_w + _b) else None
 
-        matrix_rows = db.session.execute(text(base_cte + _TAT_ANCHOR_MATRIX_SQL), params).mappings().fetchall()
+        matrix_rows = db.session.execute(text(base_cte + _tat_anchor_matrix_sql()), params).mappings().fetchall()
         result["matrix"] = [dict(r) for r in matrix_rows]
+        for r in result["matrix"]:
+            _w = int(r.get("within_sla") or 0)
+            _b = int(r.get("breached_sla") or 0)
+            r["sla_pct"] = round(_w / (_w + _b) * 100, 1) if (_w + _b) else None
+            r["sla_target_label"] = tat_sla.format_hours(
+                float(r["sla_target_h"]) if r.get("sla_target_h") is not None else None)
 
         trend_rows = db.session.execute(text(base_cte + _TAT_ANCHOR_TREND_SQL), params).mappings().fetchall()
         result["trend"] = [
@@ -770,6 +820,23 @@ def get_gold_standard_data(form_data):
     except Exception:
         pass
 
+    # TAT reporting targets per patient class (operator instruction, 2026-09-19):
+    # 24h inpatient / 24h urgent / 48h outpatient, configurable via the
+    # 'rad_tat_sla_hours:<BUCKET>' settings rows (migration 0121). Shared with
+    # the split reports (31/32/33) through utils/tat_sla.py so this legacy page
+    # and its successors never disagree about who breached. Classified once and
+    # the targets read once — rad_cards loops per radiologist below.
+    _sla_targets = tat_sla.get_sla_minutes()
+    try:
+        df['sla_bucket'] = tat_sla.classify_series(
+            df, class_col='patient_class', location_col='patient_location'
+        )
+    except Exception:
+        logger.exception("Failed to classify studies into TAT SLA buckets")
+        df['sla_bucket'] = None
+    sla_summary = tat_sla.compliance(df, 'total_tat_min', 'sla_bucket', targets=_sla_targets)
+    sla_summary['unclassified'] = int(df[df['total_tat_min'] > 0]['sla_bucket'].isna().sum())
+
     # Rad Performance — exclude SR and OT; only count studies with a final report
     rad_cards = []
     if 'reading_radiologist' in df.columns:
@@ -794,6 +861,7 @@ def get_gold_standard_data(form_data):
             rvu_per_hour = round(r_df_mapped['clinical_rvu'].sum() / total_scan_hours, 2) if total_scan_hours > 0 else 0.0
 
             r_df_valid = r_df[r_df['total_tat_min'] > 0]
+            rad_sla = tat_sla.compliance(r_df, 'total_tat_min', 'sla_bucket', targets=_sla_targets)
             rad_cards.append({
                 "name": rad,
                 "count": int(len(r_df)),
@@ -801,7 +869,11 @@ def get_gold_standard_data(form_data):
                 "tat_median": round(float(r_df[r_df['total_tat_min'] > 0]['total_tat_min'].median()), 1) if (r_df['total_tat_min'] > 0).any() else 0.0,
                 "total_rvu": round(r_df['clinical_rvu'].sum(), 1),
                 "rvu_per_hour": rvu_per_hour,
-                "drilldown": drill
+                "drilldown": drill,
+                "sla": rad_sla,
+                "sla_pct": rad_sla['overall']['pct'],
+                "sla_breached": rad_sla['overall']['breached'],
+                "sla_scored": rad_sla['overall']['n'],
             })
 
         # Add percentile rank among peers (lower TAT = better = lower percentile)
@@ -1181,6 +1253,7 @@ def get_gold_standard_data(form_data):
         },
         "matrix": matrix_rows, 
         "class_tat": df[df['total_tat_min'] > 0].groupby('patient_class')['total_tat_min'].mean().round(1).to_dict() if 'patient_class' in df.columns else {},
+        "sla": sla_summary,
         "rad_cards": rad_cards,
         "tech_tat_cards": tech_tat_cards,
         "modality_split": [{"name": k, "value": int(v)} for k, v in df['modality'].value_counts().items()] if 'modality' in df.columns else [], 
