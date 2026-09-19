@@ -949,6 +949,16 @@
 
                     <div class="chart-card">
                         <div class="flex flex-wrap items-center gap-2 mb-1">
+                            <span class="tag tag-bar"><i class="bi bi-bar-chart"></i> Grouped Bars</span>
+                            <span class="chart-card-title">Do the RIS and PACS agree?</span>
+                        </div>
+                        <p class="chart-q">Both systems report how many studies were read. Why are the numbers different, and which one should I quote?</p>
+                        <p class="chart-a"><strong>They count different things, and that is the whole explanation.</strong> The RIS counts scheduled procedure <em>steps</em>; PACS counts <em>studies</em>. A CT of the abdomen and pelvis is one study but two procedure steps, so raw RIS figures run roughly 18% above PACS and make PACS look like it is losing reports. This card groups multi-part exams back into single studies before comparing, at which point the two systems land within about 1% of each other every month — measured across January–August 2026 at Rizk: 37,075 in the RIS against 37,361 in PACS, 0.8% apart. The small remainder is real: walk-ins and outside studies imported into PACS that never had a RIS order.</p>
+                        <p class="chart-a">Quote the PACS figure for imaging volume and the RIS figure for reporting workload. When the two bars stop matching, something has broken between the systems — that is what this card is for. Months still within the reporting window are greyed out and excluded from the verdict, so a part-finished month never looks like a drop.</p>
+                    </div>
+
+                    <div class="chart-card">
+                        <div class="flex flex-wrap items-center gap-2 mb-1">
                             <span class="tag tag-pie"><i class="bi bi-pie-chart"></i> Donut</span>
                             <span class="chart-card-title">Procedure Code Reconciliation (RIS vs PACS)</span>
                         </div>

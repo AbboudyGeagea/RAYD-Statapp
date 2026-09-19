@@ -138,6 +138,158 @@
                 Audit of RIS orders vs. PACS studies for the selected period. KPIs measure how well orders are converting to completed studies and how many are orphaned (ordered but never scanned).
             </p>
 
+            <!-- ── RIS vs PACS agreement ───────────────────────────────────────
+                 Written to be read by someone who does not read charts. The verdict
+                 is a sentence, every bar carries its own number, and the unit
+                 difference (RIS counts procedure steps, PACS counts studies) is
+                 spelled out with a worked example rather than left to the reader. -->
+            {% if data.agreement and data.agreement.months %}
+            {% set ag = data.agreement %}
+            {% set tone = {'agree':  ('#10b981', 'rgba(16,185,129,0.10)',  'rgba(16,185,129,0.30)'),
+                           'drifting':('#f59e0b', 'rgba(245,158,11,0.10)', 'rgba(245,158,11,0.30)'),
+                           'broken': ('#ef4444', 'rgba(239,68,68,0.10)',   'rgba(239,68,68,0.30)')}[ag.verdict] %}
+
+            <div class="data-card" style="border-left:4px solid {{ tone[0] }};">
+                <div class="card-header" style="color:{{ tone[0] }};">
+                    <div class="flex items-center gap-2">
+                        <i class="bi bi-{{ 'check-circle-fill' if ag.verdict == 'agree' else 'exclamation-triangle-fill' }}"></i>
+                        Do the RIS and PACS agree?
+                    </div>
+                </div>
+
+                <!-- Verdict, in one sentence -->
+                <div class="p-5" style="background:{{ tone[1] }};border-bottom:1px solid {{ tone[2] }};">
+                    {% if ag.has_matured %}
+                    <p style="font-size:19px;font-weight:900;color:{{ tone[0] }};line-height:1.35;">
+                        {% if ag.verdict == 'agree' %}Yes — the two systems tell the same story.
+                        {% elif ag.verdict == 'drifting' %}Mostly — but the two systems are starting to drift apart.
+                        {% else %}No — the two systems disagree, and it needs investigating.{% endif %}
+                    </p>
+                    <p style="font-size:14px;color:#cbd5e1;margin-top:8px;line-height:1.6;">
+                        Over the completed months in this period the RIS reported
+                        <strong style="color:#fff;">{{ "{:,}".format(ag.ris_total) }}</strong> studies and PACS approved
+                        <strong style="color:#fff;">{{ "{:,}".format(ag.pacs_total) }}</strong> —
+                        a difference of <strong style="color:{{ tone[0] }};">{{ "{:,}".format(ag.diff_total|abs) }}</strong>
+                        studies{% if ag.diff_pct is not none %}, or {{ "{:.1f}".format(ag.diff_pct|abs) }}%{% endif %}.
+                        The largest gap in any single month was
+                        <strong style="color:{{ tone[0] }};">{{ "{:.1f}".format(ag.worst_pct) }}%</strong>.
+                    </p>
+                    {% else %}
+                    <p style="font-size:16px;font-weight:800;color:#94a3b8;">
+                        No completed months in this period yet — pick a wider date range.
+                    </p>
+                    {% endif %}
+                </div>
+
+                <!-- The unit difference, explained with a real example -->
+                <div class="p-5" style="border-bottom:1px solid #28332e;">
+                    <p style="font-size:11px;font-weight:900;color:#64748b;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;">
+                        Why the raw numbers look different
+                    </p>
+                    <p style="font-size:13.5px;color:#cbd5e1;line-height:1.75;">
+                        The two systems count different things. A CT of the abdomen <em>and</em> pelvis is
+                        <strong style="color:#fff;">one study</strong> in PACS but
+                        <strong style="color:#fff;">two procedure steps</strong> in the RIS.
+                        {% if ag.steps_per_study %}
+                        Here the RIS averages
+                        <strong style="color:#fff;">{{ ag.steps_per_study }}</strong> steps for every study.
+                        {% endif %}
+                        Counting raw RIS steps therefore makes PACS look like it is missing reports when it is not.
+                        Every figure on this card groups multi-part exams back into single studies first,
+                        so both sides are counting studies.
+                    </p>
+                </div>
+
+                <!-- Three plain numbers -->
+                <div class="grid grid-cols-3 gap-4 p-5">
+                    <div class="bg-[#181f1c] border border-[#28332e] rounded-xl p-4">
+                        <p class="text-[10px] font-black text-slate-500 uppercase mb-1">Reported in the RIS</p>
+                        <p class="text-3xl font-black" style="color:#60a5fa;">{{ "{:,}".format(ag.ris_total) }}</p>
+                        <p class="text-[11px] text-slate-500 mt-2 leading-snug">
+                            Exams a radiologist signed off, counted as studies.
+                        </p>
+                    </div>
+                    <div class="bg-[#181f1c] border border-[#28332e] rounded-xl p-4">
+                        <p class="text-[10px] font-black text-slate-500 uppercase mb-1">Approved in PACS</p>
+                        <p class="text-3xl font-black" style="color:#34d399;">{{ "{:,}".format(ag.pacs_total) }}</p>
+                        <p class="text-[11px] text-slate-500 mt-2 leading-snug">
+                            The same exams, as PACS recorded them.
+                        </p>
+                    </div>
+                    <div class="bg-[#181f1c] border border-[#28332e] rounded-xl p-4">
+                        <p class="text-[10px] font-black text-slate-500 uppercase mb-1">Difference</p>
+                        <p class="text-3xl font-black" style="color:{{ tone[0] }};">
+                            {{ '+' if ag.diff_total > 0 else '' }}{{ "{:,}".format(ag.diff_total) }}
+                        </p>
+                        <p class="text-[11px] text-slate-500 mt-2 leading-snug">
+                            {% if ag.diff_total > 0 %}Extra studies in PACS — walk-ins and outside studies
+                            imported without a RIS order.{% else %}Studies the RIS reported that PACS has not
+                            marked approved.{% endif %}
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Month by month -->
+                <div class="px-5 pb-2">
+                    <p style="font-size:11px;font-weight:900;color:#64748b;text-transform:uppercase;letter-spacing:.08em;">
+                        Month by month
+                    </p>
+                    <p style="font-size:12.5px;color:#94a3b8;margin-top:4px;">
+                        <span style="color:#60a5fa;font-weight:800;">■ Reported in the RIS</span>
+                        &nbsp;&nbsp;
+                        <span style="color:#34d399;font-weight:800;">■ Approved in PACS</span>
+                        &nbsp;— the two bars should be the same height. Each bar shows its own number.
+                    </p>
+                </div>
+                <div id="chart_agreement" style="height:320px;" class="px-2 pb-2"></div>
+
+                <!-- Same thing as words, for anyone who would rather read it -->
+                <div class="px-5 pb-5">
+                    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                        <thead>
+                            <tr style="color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.06em;">
+                                <th style="text-align:left;padding:6px 8px;">Month</th>
+                                <th style="text-align:right;padding:6px 8px;">RIS</th>
+                                <th style="text-align:right;padding:6px 8px;">PACS</th>
+                                <th style="text-align:left;padding:6px 14px;">In plain words</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        {% for m in ag.months %}
+                            <tr style="border-top:1px solid #1e2a26;{% if m.maturing %}opacity:.45;{% endif %}">
+                                <td style="padding:7px 8px;color:#cbd5e1;font-weight:700;">{{ m.label }}</td>
+                                <td style="padding:7px 8px;text-align:right;color:#60a5fa;font-weight:700;">{{ "{:,}".format(m.ris_studies) }}</td>
+                                <td style="padding:7px 8px;text-align:right;color:#34d399;font-weight:700;">{{ "{:,}".format(m.pacs_approved) }}</td>
+                                <td style="padding:7px 14px;color:#94a3b8;">
+                                    {% if m.maturing %}
+                                        Still being reported — too recent to compare.
+                                    {% elif m.diff_pct is none %}
+                                        No RIS activity this month.
+                                    {% elif m.diff_pct|abs < 3 %}
+                                        <span style="color:#10b981;font-weight:700;">Match</span>
+                                        — {{ "{:,}".format(m.diff|abs) }} apart ({{ "{:.1f}".format(m.diff_pct|abs) }}%).
+                                    {% else %}
+                                        <span style="color:{{ '#ef4444' if m.diff_pct|abs >= 10 else '#f59e0b' }};font-weight:700;">
+                                            {{ "{:,}".format(m.diff|abs) }} {{ 'more in PACS' if m.diff > 0 else 'missing from PACS' }}
+                                        </span>
+                                        ({{ "{:.1f}".format(m.diff_pct|abs) }}%) — worth checking.
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                    {% if not ag.exact_status %}
+                    <p style="font-size:11.5px;color:#f59e0b;margin-top:12px;line-height:1.6;">
+                        <i class="bi bi-info-circle"></i>
+                        RIS figures include every completed status (Approved, Signed, Dictated…), not Approved
+                        alone — about 0.7% wider. Applying migration 0112's backfill makes them exact.
+                    </p>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+
             <!-- KPI Row -->
             <div class="grid grid-cols-3 gap-4">
                 <div class="data-card p-4 border-l-4 border-emerald-500 flex flex-col justify-center">
@@ -360,6 +512,65 @@
         if (raw) {
             const axisLabel  = { color: '#64748b', fontSize: 12, fontWeight: 600 };
             const splitLine  = { lineStyle: { color: '#28332e' } };
+
+            // ── RIS vs PACS agreement ────────────────────────────────────────
+            // Deliberately plain: no legend (the colours are named in the card text
+            // above), no y-axis (every bar is labelled with its own value), no second
+            // axis and no ratio line. Two bars per month, same height = agreement.
+            const agEl = document.getElementById('chart_agreement');
+            if (agEl && raw.agreement && raw.agreement.months && raw.agreement.months.length) {
+                const ms = raw.agreement.months;
+                // A month still being reported gets faded bars so nobody reads an
+                // incomplete month as a drop.
+                const bar = (key, solid, faded) => ({
+                    name: key,
+                    type: 'bar',
+                    barMaxWidth: 46,
+                    label: {
+                        show: true, position: 'top', color: '#cbd5e1',
+                        fontSize: 12, fontWeight: 700,
+                        formatter: p => p.value.toLocaleString()
+                    },
+                    itemStyle: {
+                        borderRadius: [4, 4, 0, 0],
+                        color: p => ms[p.dataIndex].maturing ? faded : solid
+                    },
+                    data: ms.map(m => m[key])
+                });
+
+                echarts.init(agEl).setOption({
+                    grid: { left: 12, right: 12, top: 34, bottom: 28, containLabel: true },
+                    tooltip: {
+                        trigger: 'axis',
+                        axisPointer: { type: 'shadow' },
+                        formatter: p => {
+                            const m = ms[p[0].dataIndex];
+                            if (m.maturing) {
+                                return `<b>${m.label}</b><br/>Still being reported —<br/>too recent to compare.`;
+                            }
+                            const word = m.diff > 0 ? 'more in PACS' : 'missing from PACS';
+                            return `<b>${m.label}</b><br/>`
+                                 + `Reported in the RIS: <b>${m.ris_studies.toLocaleString()}</b><br/>`
+                                 + `Approved in PACS: <b>${m.pacs_approved.toLocaleString()}</b><br/>`
+                                 + `${Math.abs(m.diff).toLocaleString()} ${word}`
+                                 + (m.diff_pct === null ? '' : ` (${Math.abs(m.diff_pct).toFixed(1)}%)`);
+                        }
+                    },
+                    xAxis: {
+                        type: 'category',
+                        data: ms.map(m => m.label),
+                        axisLabel: { ...axisLabel, fontSize: 12 },
+                        axisTick: { show: false }
+                    },
+                    // Hidden on purpose — the numbers sit on the bars, so a value axis
+                    // is decoration a non-technical reader has to decode for nothing.
+                    yAxis: { type: 'value', show: false, max: v => Math.round(v.max * 1.18) },
+                    series: [
+                        bar('ris_studies',   '#60a5fa', 'rgba(96,165,250,0.28)'),
+                        bar('pacs_approved', '#34d399', 'rgba(52,211,153,0.28)')
+                    ]
+                });
+            }
 
             // Match Pie
             const cMatch = echarts.init(document.getElementById('chart_match'));
