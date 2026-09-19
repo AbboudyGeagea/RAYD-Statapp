@@ -371,9 +371,46 @@ def _build_where(start, end, filters, rh_site_id=None):
     return " AND ".join(clauses), params
 
 
+def _orders_have_site():
+    """True when etl_orders.site_id exists and is actually populated.
+
+    See the call site: scoping orders to a site is only safe once the ETL has filled
+    that column, otherwise the filter matches nothing and the Overview block reports
+    zero orders.
+    """
+    try:
+        return bool(db.session.execute(text("""
+            SELECT EXISTS (SELECT 1 FROM etl_orders WHERE site_id IS NOT NULL)
+        """)).scalar())
+    except Exception:
+        db.session.rollback()
+        return False
+
+
 def _collect_data(start, end, filters, rh_site_id=None):
     where, params = _build_where(start, end, filters, rh_site_id)
-    mj = "LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))"
+    # LATERAL ... LIMIT 1, not a plain LEFT JOIN. aetitle_modality_map's UNIQUE is on
+    # the RAW aetitle while every consumer matches on UPPER(TRIM(...)), so 'ct99' and
+    # 'CT99' are both legal rows AND both match the same study -- the fan-out migration
+    # 0116 had to repair, and which the RIS import can recreate on any cycle (0116's
+    # own closing note).
+    #
+    # Why it mattered here more than elsewhere: total_studies is COUNT(DISTINCT
+    # s.study_db_uid) and is immune, while every other figure feeding the brief is
+    # COUNT(*) or SUM() over this join. A duplicated AE inflated the numerators and left
+    # the denominator alone, so the narrative printed shares against a smaller total --
+    # reproduced with one duplicate row on 20% of studies: modality shares summing to
+    # 120%, physician shares 20% high, total_images 20% high, and "Reporting coverage:
+    # 115.0% (1,150 of 1,000 studies signed)".
+    #
+    # LIMIT 1 makes one study exactly one row whether or not duplicates exist, so this
+    # holds even after the next RIS import. ORDER BY id keeps the choice deterministic.
+    mj = ("LEFT JOIN LATERAL ("
+          "SELECT m0.modality, m0.station_name, m0.site_id "
+          "FROM aetitle_modality_map m0 "
+          "WHERE UPPER(TRIM(m0.aetitle)) = UPPER(TRIM(s.storing_ae)) "
+          "ORDER BY m0.id LIMIT 1) m ON TRUE")
+    # etl_patient_view.patient_db_uid is the PK, so this one is 1:1 and safe as-is.
     pj = "LEFT JOIN etl_patient_view p ON p.patient_db_uid = s.patient_db_uid"
 
     kpis = db.session.execute(text(f"""
@@ -394,6 +431,20 @@ def _collect_data(start, end, filters, rh_site_id=None):
     if filters.get("order_control"):
         oc.append("o.order_control = ANY(:order_control)")
         op["order_control"] = filters["order_control"]
+    # Site-scope the orders the same way every study figure is scoped. Without this the
+    # brief printed "N orders received" (all sites) directly beside "M studies
+    # completed" (RH only) in the same Overview block -- on LAUMC the satellite is ~45%
+    # of RIS volume, so the two numbers were never comparable and the fulfillment rate
+    # was measured against a population half the report never shows.
+    #
+    # etl_orders.site_id is populated by the orders ETL; the older comment here said
+    # orders had "no site-resolvable join", which stopped being true when that column
+    # landed. Guarded on the column actually carrying data, because filtering on a
+    # column that is NULL everywhere would silently zero the whole section -- if it is
+    # unpopulated this leaves the previous (unscoped) behaviour exactly as it was.
+    if rh_site_id is not None and _orders_have_site():
+        oc.append("o.site_id = :o_site_id")
+        op["o_site_id"] = rh_site_id
     orders = db.session.execute(text(f"""
         SELECT COUNT(*) AS total,
                COUNT(*) FILTER (WHERE has_study=TRUE) AS fulfilled,
