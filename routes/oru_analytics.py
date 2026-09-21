@@ -395,10 +395,22 @@ def oru_page():
     if current_user.role != 'admin' and not user_has_page(current_user, 'oru'):
         from flask import abort
         abort(403)
+    # procedure_name falls back to procedure_code, the same way this module's other
+    # reader does (see the report-list query below). Measured on LAUMC 2026-09-21,
+    # hl7_oru_reports.procedure_name is NULL on all 491,828 rows -- the parser reads it
+    # from OBR-4.2 (hl7_listener.py), but this feed sends OBR-4 as a bare string with no
+    # '^' components at all, so there is never a component 2 to read. Without the
+    # fallback every option in this dropdown rendered blank, and ORDER BY name sorted an
+    # all-NULL column, so the list came out in arbitrary order too.
+    #
+    # Note the bare value is not always a code: 15,122 rows carry prose in
+    # procedure_code ("CT SCAN, ABDOMEN, WITH INJECTION"), so some labels are
+    # descriptions rather than codes. That is the sender's shape, not something this
+    # query can normalise -- but a readable description beats a blank entry.
     procedures = db.session.execute(text("""
         SELECT DISTINCT
             UPPER(TRIM(procedure_code)) AS code,
-            INITCAP(LOWER(TRIM(procedure_name))) AS name
+            INITCAP(LOWER(COALESCE(NULLIF(TRIM(procedure_name), ''), TRIM(procedure_code)))) AS name
         FROM hl7_oru_reports
         WHERE procedure_code IS NOT NULL AND TRIM(procedure_code) != ''
         ORDER BY name
