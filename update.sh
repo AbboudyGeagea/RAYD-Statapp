@@ -166,6 +166,42 @@ info "Reloading nginx..."
 $COMPOSE exec -T nginx nginx -s reload 2>/dev/null && ok "nginx reloaded." || warn "nginx reload skipped (not running?)"
 
 # ──────────────────────────────────────────────────────
+# DISK: warn if BuildKit's build cache has grown large
+# ──────────────────────────────────────────────────────
+# Every rebuild adds a new multi-GB cache layer that is never reused again, and
+# nothing evicts it by default. Measured on the LAUMC host: 56GB of build cache,
+# 55GB reclaimable, while all four images together came to under 3GB -- so the
+# usual reflex, `docker image prune`, reclaims nothing and the operator concludes
+# Docker isn't the problem.
+#
+# This only WARNS. It deliberately does not prune: on LAUMC, running
+# `docker builder prune` inside the deploy path was tried twice and both times
+# wiped the cache the NEXT build needed, turning every update into a full apt/pip
+# re-download. And it deliberately does not restart the docker daemon, which is
+# what applying the permanent fix requires -- that bounces every container on the
+# box, including this live site, halfway through a deploy.
+#
+# The permanent fix is BuildKit GC, which is not the same thing as a prune: it
+# keeps the most recently used cache up to defaultKeepStorage and evicts only the
+# oldest beyond it, so the layers the next build needs stay put. install.sh sets
+# it up on fresh installs; hosts installed before that get told here.
+CACHE_RECLAIMABLE=$(docker system df --format '{{.Type}}\t{{.Reclaimable}}' 2>/dev/null \
+    | awk -F'\t' '$1 == "Build Cache" {print $2}' | grep -oE '^[0-9.]+GB' | grep -oE '^[0-9.]+' || true)
+if [ -n "${CACHE_RECLAIMABLE:-}" ] && [ "$(printf '%.0f' "$CACHE_RECLAIMABLE" 2>/dev/null || echo 0)" -ge 20 ]; then
+    warn "Build cache has ${CACHE_RECLAIMABLE}GB reclaimable."
+    if grep -q '"builder"' /etc/docker/daemon.json 2>/dev/null; then
+        warn "  BuildKit GC is configured but hasn't caught up yet. To reclaim now:"
+        warn "    sudo docker builder prune -f"
+    else
+        warn "  BuildKit GC is NOT configured on this host, so nothing evicts it."
+        warn "  One-off reclaim:  sudo docker builder prune -f"
+        warn "  Permanent fix:    add to /etc/docker/daemon.json, then systemctl restart docker"
+        warn '                    {"builder": {"gc": {"enabled": true, "defaultKeepStorage": "20GB"}}}'
+        warn "  Restart docker OUTSIDE a deploy window — it bounces every container."
+    fi
+fi
+
+# ──────────────────────────────────────────────────────
 # DONE
 # ──────────────────────────────────────────────────────
 echo ""
