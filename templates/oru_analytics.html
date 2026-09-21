@@ -990,7 +990,8 @@ function buildCriticalSpotlight(log) {
         <span class="spotlight-sep">·</span>
         <span>${esc(r.patient_id)}</span>
         <span class="spotlight-sep">·</span>
-        <span>${esc(r.modality || '—')}</span>
+        <span title="${r.modality_inferred ? 'Inferred from the procedure description — no PACS study to confirm it against.' : ''}"
+          >${esc(r.modality || '—')}${r.modality_inferred ? '<span style="opacity:.7;" aria-label="inferred">~</span>' : ''}</span>
       </div>
       <div class="spotlight-kw">${(r.keywords||[]).map(k => `<span class="keyword-badge">${esc(k)}</span>`).join('')}</div>
     </div>`).join('');
@@ -1015,7 +1016,9 @@ function _criticalRowHtml(r) {
     <td style="color:#a78bfa;font-size:11px;font-weight:700;">${esc(r.physician_name || r.physician_id || '—')}</td>
     <td style="font-family:monospace;font-size:11px;color:var(--primary);">${esc(r.patient_id || '—')}</td>
     <td><span class="proc-tag">${esc(r.procedure || r.procedure_code || '—')}</span></td>
-    <td><span style="font-size:10.5px;font-weight:700;color:var(--text-dim);">${esc(r.modality || '—')}</span></td>
+    <td><span style="font-size:10.5px;font-weight:700;color:${r.modality_inferred ? 'var(--muted)' : 'var(--text-dim)'};"
+              title="${r.modality_inferred ? 'Inferred from the procedure description — this report has no PACS study to confirm it against.' : ''}"
+        >${esc(r.modality || '—')}${r.modality_inferred ? '<span style="opacity:.7;font-weight:900;" aria-label="inferred">~</span>' : ''}</span></td>
     <td>${(r.keywords||[]).map(k => `<span class="keyword-badge">${esc(k)}</span>`).join('') || '<em style="color:var(--muted)">—</em>'}</td>
     <td>${mono(r.accession_number)}</td>
     <td>${hasText ? `<button type="button" class="export-btn" style="padding:3px 8px;" onclick="toggleCritDetail('${detailId}')" aria-expanded="false" aria-controls="${detailId}" aria-label="Toggle report text"><i class="bi bi-chevron-down" aria-hidden="true"></i></button>` : ''}</td>
