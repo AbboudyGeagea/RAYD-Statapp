@@ -19,8 +19,24 @@ wrongly bundled into the cardiology/vascular-lab exclusion list), which orphaned
 ~12k hl7_oru_reports rows with no matching PACS study -- surfaced as reports with
 blank modality in the ORU tab.
 """
+import os
 import sys
 import logging
+
+# Same bootstrap as daily_analytics.py and etl_runner.py, which this file was
+# missing -- so the documented command above died on `from app import create_app`
+# with ModuleNotFoundError before reaching a single line of its own logic. Running
+# a file directly puts only its OWN directory on sys.path, so ETL_JOBS/ resolved
+# (that's where this script lives) but the repo root holding app.py and db.py did
+# not. That is why this backfill had never actually run since it was written on
+# 2026-09-04: not skipped, broken. HERE is added as well so `python -m
+# ETL_JOBS.backfill_ae_studies` works too -- that form puts the ROOT on sys.path
+# but not ETL_JOBS/, which is the mirror image of the same failure.
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)
+for _p in (ROOT, HERE):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 logging.basicConfig(level=logging.INFO)
 
