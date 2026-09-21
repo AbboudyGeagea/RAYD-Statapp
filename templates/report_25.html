@@ -198,6 +198,9 @@
         </header>
 
         <div class="flex-1 overflow-y-auto p-10">
+            {# Above every tab and outside the run_report guard: a frozen feed is worth
+               knowing about before you pick a date range, not after. #}
+            {% include '_etl_stale_banner.html' %}
             {% if run_report and not data %}
             <div class="glass-card text-center py-16 text-zinc-500">
                 <i class="bi bi-inboxes text-4xl mb-3 block opacity-40"></i>
@@ -942,6 +945,24 @@
                     PACS-side timestamps aren't trustworthy for SJH from here, and SJH is phase 2 anyway.
                 </p>
 
+                {# A failed query is reported as a failure, never as an empty panel — see
+                   _tat_anchor_result_shell. Rendered ahead of the n-based guard so it
+                   shows even when BOTH anchors error and there are no numbers at all. #}
+                {% for anchor, d in [('PACS insert_time', tat_pacs_data), ('RIS Exam Done', tat_ris_data)] %}
+                    {% if d and d.error %}
+                    <div class="glass-card border-l-4 border-rose-500 mb-4">
+                        <p class="text-[10px] font-black text-rose-400 uppercase tracking-widest mb-1">
+                            <i class="bi bi-exclamation-octagon mr-1"></i>{{ anchor }} — query failed
+                        </p>
+                        <p class="text-[11px] text-zinc-400 font-mono break-all">{{ d.error }}</p>
+                        <p class="text-[10px] text-zinc-600 mt-1 italic">
+                            This side is blank because the query errored, not because there is no data.
+                            Full traceback is in the app log.
+                        </p>
+                    </div>
+                    {% endif %}
+                {% endfor %}
+
                 {% if tat_pacs_data and tat_pacs_data.summary and tat_pacs_data.summary.n or tat_ris_data and tat_ris_data.summary and tat_ris_data.summary.n %}
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     <div class="glass-card">
@@ -962,7 +983,11 @@
                     </div>
                 </div>
 
-                {% if not tat_ris_data.summary.n %}
+                {# Only offer the "ETL hasn't run" explanation when the query actually
+                   succeeded and found nothing. When it errored, the banner above already
+                   said what really happened and this line would send the reader chasing
+                   an ETL job that is running perfectly well. #}
+                {% if not tat_ris_data.summary.n and not (tat_ris_data and tat_ris_data.error) %}
                 <p class="text-[9px] text-amber-500/80 italic">⚠ No RIS Exam Done data yet — std_worklist_exam_done is populated by ETL_JOBS/etl_ris_worklist_exam_done.py (Phase 17), which needs at least one ETL run since migration 0090 before this side fills in.</p>
                 {% endif %}
 

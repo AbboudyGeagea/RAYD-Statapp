@@ -1,0 +1,31 @@
+{# Stale-input banner. Include with `stale_feeds` set to utils.etl_freshness.stale_feeds()'s
+   result; renders nothing when everything is fresh, so it is safe to include unconditionally.
+
+   Deliberately worded as "these numbers are old", not "this report is broken" -- the figures
+   below it are real, they just stop at the date shown. #}
+{% if stale_feeds %}
+<div class="glass-card border-l-4 border-amber-500 mb-6">
+    <p class="text-[10px] font-black text-amber-400 uppercase tracking-widest mb-2">
+        <i class="bi bi-hourglass-split mr-1"></i>
+        Stale data — {{ stale_feeds|length }} feed{{ 's' if stale_feeds|length != 1 else '' }} not refreshing
+    </p>
+    <ul class="text-[11px] text-zinc-400 space-y-1">
+        {% for f in stale_feeds %}
+        <li>
+            <span class="text-zinc-300 font-bold">{{ f.label }}</span>
+            {% if f.never_ran %}
+                — <span class="text-rose-400">has never completed successfully</span>
+            {% else %}
+                — last refreshed <span class="text-amber-400 font-bold">{{ f.last_success.strftime('%d %b %Y') }}</span>
+                ({{ f.age_days }} day{{ 's' if f.age_days != 1 else '' }} ago)
+            {% endif %}
+            <span class="text-zinc-600 font-mono text-[10px]">{{ f.job_name }}</span>
+        </li>
+        {% endfor %}
+    </ul>
+    <p class="text-[10px] text-zinc-600 mt-2 italic">
+        Figures below are correct but stop at the dates above. Check that the job's ETL phase is
+        included in RAYD_ETL_PHASES — an unset value runs every phase.
+    </p>
+</div>
+{% endif %}

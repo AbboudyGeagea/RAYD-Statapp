@@ -34,6 +34,22 @@ from utils.report_filters import sidebar_filters as _sidebar_filters
 from utils.radiologist_resolve import rad_alias_join_sql, rad_display_sql
 from utils.pacs_roles import role_lookup_cte as _role_lookup_cte, role_precedence as _role_precedence
 from utils.ae_display import ae_display_sql
+from utils.etl_freshness import stale_feeds
+
+# etl_job_log job names this page's numbers actually come from, mapped to what a reader
+# should be told is out of date. Phases 16/17/18 are in here deliberately: those are the
+# ones that silently stopped running on LAUMC (RAYD_ETL_PHASES ended at 15), leaving
+# whole tabs quoting August data in late September with nothing on screen to say so.
+_REPORT_25_FEEDS = {
+    "STUDIES_ETL":                   "PACS studies (all tabs)",
+    "ORDERS_ETL":                    "Orders",
+    "RIS_PPS_ETL":                   "RIS performed-procedure steps (utilization, peak hours)",
+    "RIS_WORKLIST_EXAM_DONE_ETL":    "RIS exam-done times (RIS TAT anchor)",
+    "RIS_WORKLIST_ARRIVALS_ETL":     "RIS patient arrivals",
+    "RIS_WORKLIST_SCHEDULED_ETL":    "RIS scheduled times",
+    "PACS_USER_GROUPS_ETL":          "PACS reader groups (RES/RAD badges)",
+    "SCHEDULE_TEMPLATE_DEVICE_LINK": "Device opening hours (capacity, after-hours split)",
+}
 from utils import tat_sla
 
 logger = logging.getLogger("report_25")
@@ -76,10 +92,16 @@ def _load_shift_config():
 
 
 def _tat_anchor_result_shell():
+    # `error` distinguishes "the query ran and found nothing" from "the query blew up",
+    # which this shell used to render identically. That cost roughly seven weeks on
+    # LAUMC: the RIS side was failing with a Postgres /dev/shm exhaustion (parallel
+    # Gather over std_worklist_exam_done x std_pps x etl_didb_studies, container stuck
+    # on Docker's 64MB default -- see docker-compose.yml's shm_size) and the panel just
+    # showed an empty state blaming the ETL, which had in fact run fine.
     return {
         "summary": {"n": 0, "avg_tat_h": None, "median_tat_h": None,
                     "within_sla": 0, "breached_sla": 0, "sla_pct": None},
-        "matrix": [], "trend": [],
+        "matrix": [], "trend": [], "error": None,
     }
 
 
@@ -175,9 +197,16 @@ def _run_tat_anchor_queries(base_cte, params, log_label):
             {**dict(r), "day": r["day"].strftime("%Y-%m-%d") if r["day"] else None}
             for r in trend_rows
         ]
-    except Exception:
+    except Exception as exc:
         logger.exception(f"Failed to compute {log_label} TAT")
         db.session.rollback()
+        # Surface the DB's own first line -- "could not resize shared memory segment",
+        # "relation ... does not exist" -- which is the part that tells an operator what
+        # to do. The driver appends the full failing statement and parameters to str(),
+        # so take only the first line: the rest is noise on screen and would put raw SQL
+        # in front of a report viewer.
+        detail = getattr(exc, "orig", exc)
+        result["error"] = str(detail).strip().splitlines()[0][:300] or exc.__class__.__name__
     return result
 
 
@@ -1378,6 +1407,7 @@ def report_25():
     template_data  = None
     tat_pacs_data  = None
     tat_ris_data   = None
+    stale_feeds_list = stale_feeds(db, _REPORT_25_FEEDS)
 
     if run_report:
         from utils.audit import log_event
@@ -1407,7 +1437,7 @@ def report_25():
 
         template_data = {k: v for k, v in data.items() if k != 'raw_df'} if data else None
 
-    return render_template("report_25.html", data=template_data, tat_pacs_data=tat_pacs_data, tat_ris_data=tat_ris_data, display_start=display_start, display_end=display_end, classes=classes, locations=locations, modalities=modalities, aetitles=aetitles, tree_json=tree_json, journey_json=journey_json, run_report=run_report, active_tab=active_tab, shift_config=shift_config)
+    return render_template("report_25.html", data=template_data, tat_pacs_data=tat_pacs_data, tat_ris_data=tat_ris_data, display_start=display_start, display_end=display_end, classes=classes, locations=locations, modalities=modalities, aetitles=aetitles, tree_json=tree_json, journey_json=journey_json, run_report=run_report, active_tab=active_tab, shift_config=shift_config, stale_feeds=stale_feeds_list)
 
 @report_25_bp.route("/report/25/export", methods=["POST"])
 @login_required
