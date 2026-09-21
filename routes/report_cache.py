@@ -181,12 +181,20 @@ def get_filter_options(db) -> dict:
     # while still filtering on the raw aetitle value (additive -- doesn't touch
     # the "aetitles" array above, so any other unaudited consumer of that shape
     # is unaffected).
+    #
+    # Resolved through utils.ae_display rather than station_name alone: a room named
+    # by hand on the mapping tab writes room_name and never station_name, so this
+    # dropdown used to keep showing raw AE titles on exactly the installs that had
+    # bothered to name their rooms. Rows where nothing resolves are left out entirely
+    # (the fallback is the aetitle itself, and a label identical to the value adds
+    # nothing) so consumers keep their own "no label" behavior.
     try:
+        from utils.ae_display import ae_display_sql
         rows = db.session.execute(text(
-            "SELECT aetitle, station_name FROM aetitle_modality_map "
-            "WHERE aetitle IS NOT NULL AND station_name IS NOT NULL AND TRIM(station_name) != ''"
+            f"SELECT aetitle, {ae_display_sql('m', 'NULL')} AS label "
+            "FROM aetitle_modality_map m WHERE aetitle IS NOT NULL"
         )).fetchall()
-        data["aetitle_labels"] = {r[0]: r[1] for r in rows}
+        data["aetitle_labels"] = {r[0]: r[1] for r in rows if r[1]}
     except Exception as exc:
         logger.error("filter_options[aetitle_labels] failed: %s", exc)
         db.session.rollback()

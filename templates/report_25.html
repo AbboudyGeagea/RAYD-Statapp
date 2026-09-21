@@ -655,7 +655,7 @@
                                             {% for s in g.samples %}
                                             <tr class="text-zinc-400">
                                                 <td class="py-1 font-mono">{{ s.when }}</td>
-                                                <td class="py-1">{{ s.ae }}</td>
+                                                <td class="py-1">{{ s.ae_display or s.ae }}</td>
                                                 <td class="py-1">{{ s.patient_class }}</td>
                                                 <td class="py-1 font-mono text-zinc-600">{{ s.accession or '—' }}</td>
                                             </tr>

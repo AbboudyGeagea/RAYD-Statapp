@@ -33,6 +33,7 @@ from utils.site_resolver import default_site
 from utils.report_filters import sidebar_filters as _sidebar_filters
 from utils.radiologist_resolve import rad_alias_join_sql, rad_display_sql
 from utils.pacs_roles import role_lookup_cte as _role_lookup_cte, role_precedence as _role_precedence
+from utils.ae_display import ae_display_sql
 from utils import tat_sla
 
 logger = logging.getLogger("report_25")
@@ -399,12 +400,40 @@ def get_gold_standard_data(form_data):
     under_utilized = 0
     total_active_mins = df.loc[df['proc_duration'] > 0, 'proc_duration'].sum()
 
-    # aetitle -> resolved RIS station/room name (falls back to the raw AE title when the
-    # migration adding aetitle_display hasn't run yet, e.g. a non-LAUMC install).
-    ae_display_map = (
-        df.drop_duplicates('aetitle').set_index('aetitle')['aetitle_display'].to_dict()
-        if 'aetitle_display' in df.columns else {}
-    )
+    # aetitle -> resolved RIS room name, read straight from aetitle_modality_map rather
+    # than from the stored template's own aetitle_display column.
+    #
+    # Two reasons not to trust that column here. It resolves station_name only, so a
+    # room named by hand on the mapping tab (room_name) or overridden on the floor plan
+    # (display_aetitle) never showed up -- readers saw raw AE titles across every tab.
+    # And it only exists at all if migration 0110's guarded UPDATE actually fired; on an
+    # install whose report_template was hand-tuned it silently never applied, leaving
+    # this map empty and every label falling back to the AE title with no clue why.
+    # Querying the mapping table directly is authoritative on both counts and costs one
+    # scan of a table with tens of rows.
+    #
+    # df['aetitle'] is UPPER(TRIM(storing_ae)) (see migration 0110), so key the map the
+    # same way or nothing matches.
+    ae_display_map = {}
+    try:
+        ae_display_map = {
+            r['ae']: r['label']
+            for r in db.session.execute(text(f"""
+                SELECT UPPER(BTRIM(m.aetitle)) AS ae,
+                       {ae_display_sql('m', 'UPPER(BTRIM(m.aetitle))')} AS label
+                FROM aetitle_modality_map m
+                WHERE m.aetitle IS NOT NULL AND BTRIM(m.aetitle) != ''
+            """)).mappings()
+        }
+    except Exception:
+        logger.exception("Failed to load AE display labels")
+        db.session.rollback()
+
+    # Overwrite the template-sourced column from the same map so everything reading the
+    # dataframe directly (outlier_studies, CSV export) gets the corrected label too,
+    # instead of only the call sites that go through ae_display_map.
+    if ae_display_map and 'aetitle' in df.columns:
+        df['aetitle_display'] = df['aetitle'].map(lambda a: ae_display_map.get(a, a))
 
     # Initialised before the branch below so the opening-hours split further down can
     # read them unconditionally — it degrades to minutes-without-percentages when there
@@ -711,7 +740,13 @@ def get_gold_standard_data(form_data):
     try:
         cf_rows = db.session.execute(text(f"""
             WITH exams AS (
+                -- `ae` stays the raw AE title: std_device_weekly_windows.aetitle is
+                -- matched against it below. `ae_display` is the label carried alongside
+                -- purely for the drill-down table, resolved off a join of its own (amd)
+                -- since the modality join above is conditional and keyed on storing_ae,
+                -- not on the performing AE this panel groups by.
                 SELECT UPPER(TRIM(pps.performing_ae_title)) AS ae,
+                       {ae_display_sql('amd', 'UPPER(TRIM(pps.performing_ae_title))')} AS ae_display,
                        COALESCE({"m.modality, " if _sec_needs_mod_join else ""}s.study_modality, 'Unknown') AS modality,
                        pps.start_datetime,
                        s.accession_number,
@@ -723,6 +758,8 @@ def get_gold_standard_data(form_data):
                        END AS patient_class
                 FROM std_pps pps
                 JOIN etl_didb_studies s ON s.study_db_uid = pps.study_db_uid
+                LEFT JOIN aetitle_modality_map amd
+                    ON UPPER(TRIM(amd.aetitle)) = UPPER(TRIM(pps.performing_ae_title))
                 {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
                 WHERE pps.start_datetime BETWEEN :start AND :end
                   AND pps.end_datetime IS NOT NULL
@@ -770,7 +807,7 @@ def get_gold_standard_data(form_data):
                 FROM matched m
             )
             SELECT modality, conflict, window_reason, patient_class,
-                   start_datetime, ae, accession_number, total_exams
+                   start_datetime, ae, ae_display, accession_number, total_exams
             FROM (
                 SELECT f.*,
                        ROW_NUMBER() OVER (PARTITION BY f.modality, f.conflict
@@ -796,6 +833,7 @@ def get_gold_standard_data(form_data):
             g['samples'].append({
                 "when":          r['start_datetime'].strftime('%Y-%m-%d %H:%M') if r['start_datetime'] else '',
                 "ae":            r['ae'],
+                "ae_display":    r['ae_display'],
                 "patient_class": r['patient_class'],
                 "accession":     r['accession_number'],
             })
@@ -1128,7 +1166,7 @@ def get_gold_standard_data(form_data):
 
         rad_volume_matrix["by_aetitle"] = [dict(r) for r in db.session.execute(text(f"""
             SELECT {_RAD25} AS radiologist,
-                   COALESCE(NULLIF(TRIM(m.station_name),''), s.storing_ae, 'Unknown') AS dim,
+                   {ae_display_sql('m', "NULLIF(BTRIM(s.storing_ae), ''), 'Unknown'")} AS dim,
                    COUNT(DISTINCT s.study_db_uid) AS cnt
             FROM etl_didb_studies s
             {_MJ25}
@@ -1315,11 +1353,16 @@ def report_25():
     # the entire page load.
     classes = locations = modalities = aetitles = []
     
-    tree_raw = db.session.execute(text("SELECT modality, aetitle, station_name FROM aetitle_modality_map")).all()
+    # Infrastructure tab's fleet tree — same room-name resolution as every other AE
+    # label on this page (utils.ae_display), not station_name alone.
+    tree_raw = db.session.execute(text(
+        f"SELECT modality, aetitle, {ae_display_sql('m', 'm.aetitle')} AS label "
+        "FROM aetitle_modality_map m"
+    )).all()
     tree_dict = {}
-    for mod, ae, station_name in tree_raw:
+    for mod, ae, label in tree_raw:
         if mod not in tree_dict: tree_dict[mod] = []
-        tree_dict[mod].append({"name": (station_name or '').strip() or ae})
+        tree_dict[mod].append({"name": (label or '').strip() or ae})
     tree_json = json.dumps({"name": "FLEET", "children": [{"name": k, "children": v} for k, v in tree_dict.items()]})
 
     shift_config = _load_shift_config()
