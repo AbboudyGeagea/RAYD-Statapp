@@ -70,6 +70,18 @@ services:
       db:
         condition: service_healthy
 
+    # nginx and rayd-nlp already capped their json logs; rayd-app and db never did,
+    # so on a long-lived install those two grow without bound under
+    # /var/lib/docker/containers/<id>/<id>-json.log and are invisible to
+    # `docker system df` (it reports images/volumes/build cache, not container logs).
+    # rayd-app is the noisiest container on the box -- Gunicorn access lines plus the
+    # nightly ETL's per-phase output. 30m x 3 caps it at 90MB.
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "30m"
+        max-file: "3"
+
   rayd-nlp:
     build: ./nlp_worker
     container_name: rayd_nlp
@@ -117,6 +129,11 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
 
 volumes:
   postgres_data:
