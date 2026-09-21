@@ -784,6 +784,172 @@ def update_ae_entry():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+_READER_ROLES_SQL = """
+    WITH {role_lookup_cte},
+    pacs_role AS (
+        SELECT DISTINCT ON (login_id) login_id, role
+        FROM (
+            SELECT UPPER(BTRIM(login_id)) AS login_id, LOWER(BTRIM(group_name)) AS role
+            FROM std_pacs_user_groups
+            WHERE login_id IS NOT NULL
+              AND LOWER(BTRIM(group_name)) IN ('radiologists', 'residents')
+        ) t
+        ORDER BY login_id, CASE role WHEN 'residents' THEN 0 ELSE 1 END
+    ),
+    all_groups AS (
+        SELECT UPPER(BTRIM(login_id)) AS login_id,
+               STRING_AGG(DISTINCT BTRIM(group_name) ||
+                          COALESCE('@' || BTRIM(group_domain), ''), ', ') AS groups
+        FROM std_pacs_user_groups
+        WHERE login_id IS NOT NULL
+        GROUP BY 1
+    ),
+    signers AS (
+        SELECT login, SUM(n) AS events, MAX(last_seen) AS last_seen
+        FROM (
+            SELECT SPLIT_PART(UPPER(BTRIM(rep_prelim_signed_by)), '@', 1) AS login,
+                   COUNT(*) AS n, MAX(study_date) AS last_seen
+            FROM etl_didb_studies
+            WHERE COALESCE(BTRIM(rep_prelim_signed_by), '') <> ''
+              AND study_date >= :since
+            GROUP BY 1
+            UNION ALL
+            SELECT SPLIT_PART(UPPER(BTRIM(rep_study_last_composed_by)), '@', 1),
+                   COUNT(*), MAX(study_date)
+            FROM etl_didb_studies
+            WHERE COALESCE(BTRIM(rep_study_last_composed_by), '') <> ''
+              AND study_date >= :since
+            GROUP BY 1
+            UNION ALL
+            SELECT SPLIT_PART(UPPER(BTRIM(rep_final_signed_by)), '@', 1),
+                   COUNT(*), MAX(study_date)
+            FROM etl_didb_studies
+            WHERE COALESCE(BTRIM(rep_final_signed_by), '') <> ''
+              AND study_date >= :since
+            GROUP BY 1
+        ) u
+        WHERE login <> ''
+        GROUP BY 1
+    ),
+    all_logins AS (
+        SELECT login FROM signers
+        UNION SELECT login_id FROM pacs_role
+        UNION SELECT UPPER(BTRIM(login_id)) FROM pacs_user_role_override
+    )
+    SELECT a.login,
+           COALESCE(s.events, 0)    AS events,
+           s.last_seen,
+           p.role                   AS pacs_role,
+           o.role                   AS override_role,
+           o.note                   AS override_note,
+           rl.role                  AS effective_role,
+           g.groups                 AS all_pacs_groups
+    FROM all_logins a
+    LEFT JOIN signers     s  ON s.login    = a.login
+    LEFT JOIN pacs_role   p  ON p.login_id = a.login
+    LEFT JOIN pacs_user_role_override o ON o.login_id = a.login
+    LEFT JOIN role_lookup rl ON rl.login_id = a.login
+    LEFT JOIN all_groups  g  ON g.login_id = a.login
+    ORDER BY COALESCE(s.events, 0) DESC, a.login
+"""
+
+
+@mapping_bp.route('/reader-roles-tab')
+@login_required
+def reader_roles_tab():
+    """Lazy-loaded HTML fragment for the Reader Roles tab.
+
+    Lets the operator correct a signer's role when PACS security-group membership
+    doesn't reflect their real job function -- LAUMC has residents sitting in the
+    'radiologists' group because that group is what grants reading permission, which
+    made them show up as radiologists on report 36 (measured 2026-09-21). Writes
+    pacs_user_role_override; see migration 0123 and utils/pacs_roles.py.
+
+    The signer half of the list is bounded to the last 24 months so long-departed
+    staff don't clutter it. That bound only affects people we discover BY signing --
+    anyone in a PACS reader group, and anyone who already has an override row, is
+    listed regardless of whether they've signed anything recently, so a row can never
+    become uneditable by going quiet.
+    """
+    if current_user.role not in ('admin', 'viewer', 'viewer2') and not user_has_page(current_user, 'mapping'): return abort(403)
+
+    from sqlalchemy import text as _t
+    from utils.pacs_roles import role_lookup_cte
+
+    since = (datetime.now().date() - timedelta(days=730))
+    try:
+        rows = db.session.execute(
+            _t(_READER_ROLES_SQL.format(role_lookup_cte=role_lookup_cte())),
+            {"since": since},
+        ).mappings().fetchall()
+    except Exception:
+        logging.exception("Failed to load reader roles")
+        db.session.rollback()
+        rows = []
+
+    return render_template('_reader_roles_tab.html',
+                           readers=[dict(r) for r in rows],
+                           since=since)
+
+
+@mapping_bp.route('/reader-role/set', methods=['POST'])
+@login_required
+def set_reader_role():
+    """Upsert or clear one login's role override.
+
+    role '' (or absent) deletes the override row, falling the login back to whatever
+    its PACS group membership says. The login is normalized to UPPER with the '@domain'
+    stripped before writing -- migration 0123's CHECK enforces that shape, and the
+    reports key the lookup the same way, so normalizing here means a row entered as
+    'rola.chalfoun@ad' still matches instead of being rejected or silently dead.
+
+    Both report 25's and report 36's bundles are cached for 5 minutes (report_cache),
+    so invalidate them or the operator sees no change and assumes the save failed.
+    """
+    if current_user.role != 'admin': return abort(403)
+    from sqlalchemy import text as _t
+    from routes.report_cache import cache_invalidate
+
+    data  = request.get_json(force=True)
+    login = str(data.get('login', '')).strip().upper().split('@')[0]
+    role  = str(data.get('role', '')).strip().lower()
+    note  = (str(data.get('note', '')).strip() or None)
+
+    if not login:
+        return jsonify({"status": "error", "message": "login is required"}), 400
+    if role and role not in ('radiologists', 'residents'):
+        return jsonify({"status": "error", "message": f"unknown role '{role}'"}), 400
+
+    try:
+        if role:
+            db.session.execute(_t("""
+                INSERT INTO pacs_user_role_override (login_id, role, note)
+                VALUES (:login, :role, :note)
+                ON CONFLICT (login_id) DO UPDATE
+                    SET role = EXCLUDED.role,
+                        note = EXCLUDED.note,
+                        updated_at = NOW()
+            """), {"login": login, "role": role, "note": note})
+        else:
+            db.session.execute(
+                _t("DELETE FROM pacs_user_role_override WHERE login_id = :login"),
+                {"login": login})
+        db.session.commit()
+
+        from utils.audit import log_event
+        log_event('reader_role_set', category='config',
+                  resource_type='pacs_user_role_override',
+                  detail={'login': login, 'role': role or None, 'note': note})
+
+        cache_invalidate(25)
+        cache_invalidate(36)
+        return jsonify({"status": "success", "login": login, "role": role or None})
+    except Exception as e:
+        db.session.rollback()
+        logging.exception("Failed to set reader role")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 @mapping_bp.route('/canonical/rename-cluster', methods=['POST'])
 @login_required
 def rename_cluster():

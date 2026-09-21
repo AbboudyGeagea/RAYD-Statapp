@@ -43,6 +43,7 @@ from sqlalchemy import text
 from db import db, get_etl_cutoff_date
 from utils.site_resolver import default_site
 from utils.report_filters import sidebar_filters as _sidebar_filters
+from utils.pacs_roles import role_lookup_cte, role_precedence
 from routes.report_25 import get_gold_standard_data
 
 logger = logging.getLogger("report_36")
@@ -60,11 +61,7 @@ _RES_RAD_TAT_SQL_TEMPLATE = """
         WHERE p.study_instance_uid IS NOT NULL
         GROUP BY p.study_instance_uid
     ),
-    role_lookup AS (
-        SELECT DISTINCT UPPER(login_id) AS login_id, group_name AS role
-        FROM std_pacs_user_groups
-        WHERE group_name IN ('radiologists', 'residents')
-    ),
+    {role_lookup_cte},
     signed_events AS (
         SELECT s.study_db_uid, s.study_instance_uid, s.storing_ae, s.patient_class,
                s.patient_location, s.insert_time,
@@ -168,13 +165,22 @@ def get_resident_radiologist_tat(form_data):
     Resident vs. Radiologist TAT (exam-done -> signature) per modality per patient
     class (Inpatient/Outpatient/ER) per individual signer, split by REAL role.
 
-    Role source: std_pacs_user_groups (PACS MEDILINK reading-permission groups --
-    "radiologists" / "residents"), matched to the signer via login name. NOT RIS's
-    resource_role_key -- that one was over-granted to every user as a workaround for
-    an installation-time RIS permissions bug and doesn't reflect real job function
-    (see ETL_JOBS/etl_ris_resources.py's docstring, and the concrete false positive/
-    negatives it produced: a radiologist misclassified Resident, two real residents
-    missed entirely -- caught 2026-07-31 by comparing it against this real group data).
+    Role source: utils.pacs_roles.role_lookup_cte() -- pacs_user_role_override
+    (operator corrections, migration 0123) layered over std_pacs_user_groups (PACS
+    MEDILINK reading-permission groups "radiologists" / "residents", migration 0087),
+    matched to the signer via login name. NOT RIS's resource_role_key -- that one was
+    over-granted to every user as a workaround for an installation-time RIS permissions
+    bug and doesn't reflect real job function (see ETL_JOBS/etl_ris_resources.py's
+    docstring, and the concrete false positive/negatives it produced: a radiologist
+    misclassified Resident, two real residents missed entirely -- caught 2026-07-31 by
+    comparing it against this real group data).
+
+    The override layer exists because the group data alone can't be right for everyone:
+    PACS has residents sitting in its 'radiologists' group, since that group is what
+    grants reading permission (measured 2026-09-21 -- the group data is otherwise clean,
+    with no dual memberships and no domain suffix on group_name to trip the match up).
+    Report 25's Workload Matrix badges read the same lookup, so a correction entered
+    once fixes both pages.
 
     Counts every signed event (prelim AND final) attributed to whoever actually
     signed it, not the stage it happened at -- a resident's final signature (rare)
@@ -199,7 +205,8 @@ def get_resident_radiologist_tat(form_data):
     [...], "unclassified_count": N}.
     """
     params, filter_clause, _start, _end = _sidebar_filters(form_data)
-    sql = _RES_RAD_TAT_SQL_TEMPLATE.format(filter_clause=filter_clause)
+    sql = _RES_RAD_TAT_SQL_TEMPLATE.format(filter_clause=filter_clause,
+                                           role_lookup_cte=role_lookup_cte())
     rows = []
     try:
         rows = db.session.execute(text(sql), params).mappings().fetchall()
@@ -395,8 +402,16 @@ def get_patient_wait_time(form_data):
 
 def get_reporting_cadence(form_data):
     """
-    Reporting Cadence Analysis (per-radiologist signing density heatmap + daily
+    Reporting Cadence Analysis (per-signer signing density heatmap + daily
     arrival/departure/break log), ported from report_25's compute_bg_data().
+
+    Carries a per-card 'role' since 2026-09-21: the panel lists whoever signed a final
+    report, which includes residents, and it previously had no role concept at all --
+    so every card read as a radiologist's card. Resolved through the same
+    utils.pacs_roles lookup the TAT split and report 25's badges use, matched on
+    rep_final_signed_by (this panel's own signer column -- NOT the prelim/composed
+    columns the TAT split unions, so a resident who only ever signs prelims correctly
+    doesn't appear here at all).
 
     (Used to also compute the statistical insights panel from this same
     rep_final_timestamp query -- removed 2026-07-31 along with KPI Detailed Reading
@@ -408,6 +423,7 @@ def get_reporting_cadence(form_data):
     try:
         _BREAK_MIN = 20
         ts_rows = db.session.execute(text(f"""
+            WITH {role_lookup_cte()}
             SELECT
                 COALESCE(
                     NULLIF(TRIM(CONCAT(
@@ -417,18 +433,21 @@ def get_reporting_cadence(form_data):
                     s.rep_final_signed_by,
                     'Unknown'
                 ) AS radiologist,
+                rl.role,
                 s.rep_final_timestamp,
                 s.accession_number
             FROM etl_didb_studies s
             LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
+            LEFT JOIN role_lookup rl
+                ON rl.login_id = SPLIT_PART(UPPER(TRIM(s.rep_final_signed_by)), '@', 1)
             WHERE s.rep_final_timestamp IS NOT NULL
               AND s.rep_final_timestamp::date BETWEEN :start AND :end
               {filter_clause}
-            ORDER BY 1, 2
+            ORDER BY 1, 3
         """), params).fetchall()
 
         if ts_rows:
-            ts_df = pd.DataFrame(ts_rows, columns=['radiologist', 'ts', 'accession_number'])
+            ts_df = pd.DataFrame(ts_rows, columns=['radiologist', 'role', 'ts', 'accession_number'])
             ts_df['ts']        = pd.to_datetime(ts_df['ts'])
             ts_df['work_date'] = ts_df['ts'].dt.date
             ts_df['hour']      = ts_df['ts'].dt.hour
@@ -474,7 +493,17 @@ def get_reporting_cadence(form_data):
                         'breaks': breaks,
                     })
                 wd = len(daily_log)
+                # This panel is keyed by DISPLAY name (signing_physician_* first, raw
+                # rep_final_signed_by second), so two logins can collapse onto one card
+                # -- resolve the card's role with the same residents-beats-radiologists
+                # rule the SQL uses rather than taking whichever row pandas hands over
+                # first. None here means "signer not in any PACS reader group", which
+                # the template badges as UNKNOWN rather than silently leaving blank.
+                card_role = None
+                for _r in rdf['role']:
+                    card_role = role_precedence(card_role, _r)
                 shift_patterns[rad] = {
+                    'role':           card_role,
                     'avg_arrival':    _h_to_hhmm(sum(arrivals)   / len(arrivals))   if arrivals   else '—',
                     'avg_departure':  _h_to_hhmm(sum(departures) / len(departures)) if departures else '—',
                     'avg_breaks_day': round(sum(break_cnts) / wd, 1)                if wd         else 0,

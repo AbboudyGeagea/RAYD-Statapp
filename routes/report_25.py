@@ -32,6 +32,7 @@ from routes.report_cache import cache_get, cache_put
 from utils.site_resolver import default_site
 from utils.report_filters import sidebar_filters as _sidebar_filters
 from utils.radiologist_resolve import rad_alias_join_sql, rad_display_sql
+from utils.pacs_roles import role_lookup_cte as _role_lookup_cte, role_precedence as _role_precedence
 from utils import tat_sla
 
 logger = logging.getLogger("report_25")
@@ -1174,16 +1175,14 @@ def get_gold_standard_data(form_data):
         """), params).mappings().fetchall()]
 
         # Real role per radiologist (residents/radiologists), from PACS reading-
-        # permission group membership (std_pacs_user_groups) -- not RIS's unreliable
-        # resource_role_key (see etl_ris_resources.py's docstring). Matched on the raw
-        # login before alias canonicalization, since std_pacs_user_groups.login_id is
-        # a username, not a display name.
+        # permission group membership plus the operator's overrides -- not RIS's
+        # unreliable resource_role_key (see etl_ris_resources.py's docstring). Shared
+        # with report_36's TAT split via utils.pacs_roles so the two pages can't
+        # disagree about who is a resident; see that module for the precedence rules.
+        # Matched on the raw login before alias canonicalization, since
+        # std_pacs_user_groups.login_id is a username, not a display name.
         role_rows = db.session.execute(text(f"""
-            WITH role_lookup AS (
-                SELECT DISTINCT UPPER(login_id) AS login_id, group_name AS role
-                FROM std_pacs_user_groups
-                WHERE group_name IN ('radiologists', 'residents')
-            )
+            WITH {_role_lookup_cte()}
             SELECT DISTINCT {_RAD25} AS radiologist, rl.role
             FROM etl_didb_studies s {_MJ25} {_PAM25}
             LEFT JOIN role_lookup rl
@@ -1194,7 +1193,9 @@ def get_gold_standard_data(form_data):
         """), params).mappings().fetchall()
         for r in role_rows:
             if r["role"]:
-                rad_volume_matrix["roles"][r["radiologist"]] = r["role"]
+                rad = r["radiologist"]
+                rad_volume_matrix["roles"][rad] = _role_precedence(
+                    rad_volume_matrix["roles"].get(rad), r["role"])
     except Exception:
         logger.exception("Failed to build radiologist × modality/AE/procedure volume matrix")
         db.session.rollback()

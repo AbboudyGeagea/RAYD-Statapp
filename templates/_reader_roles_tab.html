@@ -1,0 +1,109 @@
+{# Lazy-loaded fragment for the Reader Roles tab (routes/mapping_controller.py:
+   reader_roles_tab). Overrides PACS security-group membership when it doesn't match
+   a person's real job function -- see migration 0123 and utils/pacs_roles.py. #}
+
+<div class="card-custom p-6">
+    <div class="flex items-start justify-between gap-4 mb-1 flex-wrap">
+        <h4 class="text-[10px] font-black text-[#60a5fa] uppercase tracking-[0.2em]">Reader Roles</h4>
+        <span class="text-[10px] text-slate-500">Signers active since {{ since.strftime('%d %b %Y') }}</span>
+    </div>
+    <p class="text-[11px] text-slate-500 mb-5 max-w-3xl leading-relaxed">
+        Report 36 splits Resident vs. Radiologist by PACS security-group membership. Where that
+        group doesn't match someone's real job — a resident placed in the <em>radiologists</em>
+        group so they can read, for instance — set the correct role here. An override wins over
+        the PACS group everywhere the role is shown: the TAT heatmaps, the Reports per Reader
+        badges, and the Reporting Cadence cards.
+        <span class="text-slate-600">Leave a row on <em>Use PACS group</em> to follow PACS.</span>
+    </p>
+
+    {% if not readers %}
+        <p class="text-[11px] text-slate-500 py-6 text-center">
+            No signers or PACS reader groups found. If this looks wrong, check that the
+            PACS_USER_GROUPS_ETL job has run.
+        </p>
+    {% else %}
+    <div class="overflow-x-auto border border-[#28332e] rounded-lg">
+        <table class="w-full text-[11px]" style="border-collapse:collapse;">
+            <thead class="sticky top-0 z-10" style="background:#1b2420;">
+                <tr class="text-left text-slate-500 uppercase tracking-widest text-[9px] font-black">
+                    <th class="px-3 py-2">Login</th>
+                    <th class="px-3 py-2">PACS groups</th>
+                    <th class="px-3 py-2 text-right">Signed</th>
+                    <th class="px-3 py-2">Effective role</th>
+                    <th class="px-3 py-2">Override</th>
+                    <th class="px-3 py-2">Note</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for r in readers %}
+                {% set eff = r.effective_role %}
+                <tr class="border-t border-[#28332e]" data-login="{{ r.login }}">
+                    <td class="px-3 py-2 font-black text-slate-200 whitespace-nowrap">{{ r.login }}</td>
+                    <td class="px-3 py-2 text-slate-500">{{ r.all_pacs_groups or '—' }}</td>
+                    <td class="px-3 py-2 text-right font-mono text-slate-400">{{ '{:,}'.format(r.events) if r.events else '—' }}</td>
+                    <td class="px-3 py-2">
+                        {% if eff == 'residents' %}
+                            <span class="px-1.5 py-0.5 rounded font-black text-[9px]" style="background:#34d39922;color:#34d399;">RES</span>
+                        {% elif eff == 'radiologists' %}
+                            <span class="px-1.5 py-0.5 rounded font-black text-[9px]" style="background:#60a5fa22;color:#60a5fa;">RAD</span>
+                        {% else %}
+                            <span class="px-1.5 py-0.5 rounded font-black text-[9px]" style="background:#71717a22;color:#a1a1aa;"
+                                  title="Not in any PACS radiologists/residents group — excluded from both TAT panels until you set a role.">?</span>
+                        {% endif %}
+                        {% if r.override_role %}
+                            <span class="ml-1 text-[9px] text-amber-500 font-black uppercase tracking-wider">overridden</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-3 py-2">
+                        <select class="reader-role-select bg-[#141a17] border border-[#28332e] rounded px-2 py-1 text-[11px] text-slate-300"
+                                onchange="setReaderRole(this)">
+                            <option value=""              {% if not r.override_role %}selected{% endif %}>Use PACS group{% if r.pacs_role %} ({{ 'RES' if r.pacs_role == 'residents' else 'RAD' }}){% else %} (none){% endif %}</option>
+                            <option value="radiologists"  {% if r.override_role == 'radiologists' %}selected{% endif %}>Radiologist</option>
+                            <option value="residents"     {% if r.override_role == 'residents' %}selected{% endif %}>Resident</option>
+                        </select>
+                        <span class="reader-role-status ml-1 text-[10px]"></span>
+                    </td>
+                    <td class="px-3 py-2">
+                        <input type="text" class="reader-role-note bg-[#141a17] border border-[#28332e] rounded px-2 py-1 text-[11px] text-slate-400 w-full"
+                               placeholder="why" value="{{ r.override_note or '' }}"
+                               onchange="setReaderRole(this.closest('tr').querySelector('.reader-role-select'))">
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+// Saves immediately on change. Report 25's and 36's caches are invalidated server-side,
+// so the next run of either report reflects the new role straight away rather than up
+// to 5 minutes later.
+async function setReaderRole(sel) {
+    const row    = sel.closest('tr');
+    const status = row.querySelector('.reader-role-status');
+    const note   = row.querySelector('.reader-role-note');
+    status.textContent = '…';
+    status.style.color = '#71717a';
+    try {
+        const res = await fetch('/mapping/reader-role/set', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                login: row.dataset.login,
+                role:  sel.value,
+                note:  note ? note.value : '',
+            }),
+        });
+        const body = await res.json();
+        if (!res.ok || body.status !== 'success') throw new Error(body.message || res.status);
+        status.textContent = '✓';
+        status.style.color = '#34d399';
+        setTimeout(() => { status.textContent = ''; }, 2000);
+    } catch (e) {
+        status.textContent = '✕ ' + e.message;
+        status.style.color = '#f43f5e';
+    }
+}
+</script>

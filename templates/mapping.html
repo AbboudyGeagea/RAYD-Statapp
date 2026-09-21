@@ -119,6 +119,9 @@
                             </span>
                             {% endif %}
                         </button>
+                        <button class="tab-btn" onclick="switchTab('readers', this)">
+                            <i class="bi bi-person-badge mr-1"></i> Reader Roles
+                        </button>
                     </div>
                 </div>
 
@@ -266,6 +269,16 @@
                     </div>
 
                 </div><!-- end #tab-procedures -->
+
+                <!-- ═══════════════════════════════════════════════
+                     TAB: READER ROLES
+                ═══════════════════════════════════════════════ -->
+                <div id="tab-readers" class="space-y-8 hidden">
+                    <div class="flex flex-col items-center justify-center py-24 gap-4">
+                        <div class="w-8 h-8 border-2 border-[#28332e] border-t-blue-400 rounded-full animate-spin"></div>
+                        <p class="text-slate-500 text-xs uppercase tracking-widest">Loading reader roles&hellip;</p>
+                    </div>
+                </div><!-- end #tab-readers -->
 
 
             </div>
@@ -565,9 +578,10 @@
 
         // â”€â”€ Tab switching â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         let _procLoaded = false;
+        let _readersLoaded = false;
 
         function switchTab(name, btn) {
-            ['modality', 'procedures'].forEach(t => {
+            ['modality', 'procedures', 'readers'].forEach(t => {
                 document.getElementById('tab-' + t).classList.add('hidden');
             });
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -585,6 +599,28 @@
                     })
                     .catch(() => {
                         tab.innerHTML = '<p class="text-red-400 text-xs p-8 text-center">Failed to load procedure data. Please refresh.</p>';
+                    });
+            }
+
+            // The fragment ships its own <script>; innerHTML does NOT execute those, so
+            // re-inject them by hand or setReaderRole is never defined and every dropdown
+            // silently does nothing.
+            if (name === 'readers' && !_readersLoaded) {
+                _readersLoaded = true;
+                const tab = document.getElementById('tab-readers');
+                fetch('/mapping/reader-roles-tab')
+                    .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
+                    .then(html => {
+                        tab.innerHTML = html;
+                        tab.querySelectorAll('script').forEach(old => {
+                            const s = document.createElement('script');
+                            s.textContent = old.textContent;
+                            document.body.appendChild(s);
+                            old.remove();
+                        });
+                    })
+                    .catch(() => {
+                        tab.innerHTML = '<p class="text-red-400 text-xs p-8 text-center">Failed to load reader roles. Please refresh.</p>';
                     });
             }
         }
