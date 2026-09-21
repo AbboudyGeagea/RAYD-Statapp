@@ -44,10 +44,14 @@ import logging
 from datetime import datetime
 from sqlalchemy import text
 from db import OracleConnector
+from utils.phone_lb import resolve_phone, has_relative_marker
 
 _PATIENT_TABLE    = os.getenv("RAYD_RIS_PATIENT_TABLE", "PATIENT")
 _PERSON_TABLE     = os.getenv("RAYD_RIS_PERSON_TABLE", "PERSON")
 _PATIENT_ID_TABLE = os.getenv("RAYD_RIS_PATIENT_ID_TABLE", "PATIENT_ID_LIST")
+# Separate from PERSON and joined on the same PERSON_KEY -- this is where the patient's
+# phone number and email actually are. See migration 0124.
+_SITE_PERSON_TABLE = os.getenv("RAYD_RIS_SITE_PERSON_TABLE", "site_person")
 
 _FETCH_BATCH = 2000
 
@@ -91,7 +95,9 @@ _UPSERT_PATIENT_SQL = text("""
         preferred_delivery_method_key, death_date, death_time, death_indicator,
         worklist_flagset, permission_level, rcopia_patient_last_updated,
         rcopia_allergies_last_updated, rcopia_medication_last_updated, deleted,
-        deleted_date, person_last_updated, last_update
+        deleted_date, person_last_updated, last_update,
+        patient_phone_raw, patient_phone_normalized, patient_phone_is_landline,
+        patient_phone_is_relative, other_phone_raw, email_id
     ) VALUES (
         :patient_person_key, :birth_date, :birth_time, :gender_key, :gender_code,
         :mobile_phone_number, :pager_number, :primary_email_address, :secondary_email_address,
@@ -99,7 +105,9 @@ _UPSERT_PATIENT_SQL = text("""
         :preferred_delivery_method_key, :death_date, :death_time, :death_indicator,
         :worklist_flagset, :permission_level, :rcopia_patient_last_updated,
         :rcopia_allergies_last_updated, :rcopia_medication_last_updated, :deleted,
-        :deleted_date, :person_last_updated, :last_update
+        :deleted_date, :person_last_updated, :last_update,
+        :patient_phone_raw, :patient_phone_normalized, :patient_phone_is_landline,
+        :patient_phone_is_relative, :other_phone_raw, :email_id
     )
     ON CONFLICT (patient_person_key) DO UPDATE SET
         birth_date = EXCLUDED.birth_date, birth_time = EXCLUDED.birth_time,
@@ -117,7 +125,13 @@ _UPSERT_PATIENT_SQL = text("""
         rcopia_allergies_last_updated = EXCLUDED.rcopia_allergies_last_updated,
         rcopia_medication_last_updated = EXCLUDED.rcopia_medication_last_updated,
         deleted = EXCLUDED.deleted, deleted_date = EXCLUDED.deleted_date,
-        person_last_updated = EXCLUDED.person_last_updated, last_update = EXCLUDED.last_update
+        person_last_updated = EXCLUDED.person_last_updated, last_update = EXCLUDED.last_update,
+        patient_phone_raw = EXCLUDED.patient_phone_raw,
+        patient_phone_normalized = EXCLUDED.patient_phone_normalized,
+        patient_phone_is_landline = EXCLUDED.patient_phone_is_landline,
+        patient_phone_is_relative = EXCLUDED.patient_phone_is_relative,
+        other_phone_raw = EXCLUDED.other_phone_raw,
+        email_id = EXCLUDED.email_id
 """)
 
 _UPSERT_ID_SQL = text("""
@@ -246,9 +260,19 @@ def run_ris_patients_etl(pg_engine, oracle_source):
                     p.DEATH_DATE, p.DEATH_TIME, p.DEATH_INDICATOR, p.WORKLIST_FLAGSET,
                     p.PERMISSION_LEVEL, p.RCOPIA_PATIENT_LAST_UPDATED,
                     p.RCOPIA_ALLERGIES_LAST_UPDATED, p.RCOPIA_MEDICATION_LAST_UPDATED,
-                    per.DELETED, per.DELETED_DATE, per.LAST_UPDATED
+                    per.DELETED, per.DELETED_DATE, per.LAST_UPDATED,
+                    sp.PATIENT_PHONE_NUMBER, sp.OTHER_PHONE_NUMBER, sp.EMAIL_ID
                 FROM {_PATIENT_TABLE} p
                 JOIN {_PERSON_TABLE} per ON per.PERSON_KEY = p.PATIENT_PERSON_KEY
+                -- Contact details live on site_person, NOT on PERSON: PERSON's
+                -- MOBILE_PHONE_NUMBER / *_EMAIL_ADDRESS are NULL on every one of the
+                -- 469,791 rows at this site (measured 2026-09-21), while site_person
+                -- has a phone for 434,595 of 475,076 people. Same PERSON_KEY space, and
+                -- site_person is exactly one row per person_key (475,076 / 475,076), so
+                -- this LEFT JOIN cannot fan out. LEFT, not inner: a patient with no
+                -- site_person row must still load, just without contact details.
+                -- See migration 0124.
+                LEFT JOIN {_SITE_PERSON_TABLE} sp ON sp.PERSON_KEY = p.PATIENT_PERSON_KEY
                 WHERE p.PATIENT_PERSON_KEY IN ({','.join(binds)})
             """
             cursor.execute(patient_query, bind_params)
@@ -263,12 +287,20 @@ def run_ris_patients_etl(pg_engine, oracle_source):
                      email1, email2, language_key, multiindexref, edi_loc, edi_send,
                      pref_delivery_key, death_date, death_time, death_indicator,
                      worklist_flagset, permission_level, rcopia_pt, rcopia_allerg,
-                     rcopia_med, deleted, deleted_date, last_updated) = row
+                     rcopia_med, deleted, deleted_date, last_updated,
+                     site_phone, site_other_phone, site_email) = row
 
                     if ppk is None:
                         skipped += 1
                         continue
                     valid_patient_keys.add(ppk)
+
+                    # Free text: two numbers in one field, landlines mixed in with
+                    # mobiles, an 'R' marking a relative's number, and ~19k junk values.
+                    # resolve_phone is a verbatim port of the RIS reminder service's own
+                    # parser so both systems resolve a patient to the same number.
+                    phone_raw = _safe_str(site_phone)
+                    phone_normalized, phone_landline, _chosen = resolve_phone(phone_raw)
 
                     gender_code = None
                     if gender_key is not None:
@@ -295,6 +327,12 @@ def run_ris_patients_etl(pg_engine, oracle_source):
                         "deleted": _safe_str(deleted), "deleted_date": _safe_date(deleted_date),
                         "person_last_updated": _safe_date(last_updated),
                         "last_update": datetime.now(),
+                        "patient_phone_raw": phone_raw,
+                        "patient_phone_normalized": phone_normalized,
+                        "patient_phone_is_landline": phone_landline,
+                        "patient_phone_is_relative": has_relative_marker(phone_raw),
+                        "other_phone_raw": _safe_str(site_other_phone),
+                        "email_id": _safe_str(site_email),
                     })
                 if params:
                     with pg_engine.begin() as conn:
