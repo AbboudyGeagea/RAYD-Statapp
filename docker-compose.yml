@@ -96,6 +96,15 @@ services:
     image: postgres:15
     container_name: rayd_db
     restart: always
+    # Docker defaults /dev/shm to 64MB. Postgres puts parallel-query exchange buffers
+    # there, so any plan with a Gather node over a big table dies with
+    #   ERROR: could not resize shared memory segment ... No space left on device
+    # (hit on LAUMC 2026-09-21 running a join over std_worklist_exam_done x std_pps x
+    # etl_didb_studies). It is not a disk-space problem and nothing on the volume is
+    # full -- the message names /dev/shm. Report code that wraps its queries in a broad
+    # except, e.g. report_25's _run_tat_anchor_queries, turns that error into a silently
+    # empty panel, so the symptom is a blank chart rather than a visible failure.
+    shm_size: 1gb
     environment:
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
