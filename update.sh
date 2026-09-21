@@ -203,6 +203,30 @@ ok "${RECLAIMED:-Total reclaimed space: 0B}"
 # 75+ GB reclaimable once), clear it manually and deliberately, NOT as part
 # of a routine deploy:
 #   sudo docker builder prune -f
+#
+# What IS safe is letting the daemon evict cache on its own: BuildKit's GC
+# keeps the most recently used cache up to defaultKeepStorage and drops only
+# the oldest beyond it, so the layers the next build needs stay put. That is
+# the difference between GC and prune, and why the failures above don't apply
+# to it. install.sh configures it on fresh installs; existing hosts predate
+# that, so check and tell the operator rather than restarting the docker
+# daemon mid-update -- that would bounce every container on the box,
+# including this live site, halfway through a deploy.
+CACHE_RECLAIMABLE=$(docker system df --format '{{.Type}}\t{{.Reclaimable}}' 2>/dev/null \
+    | awk -F'\t' '$1 == "Build Cache" {print $2}' | grep -oE '^[0-9.]+GB' | grep -oE '^[0-9.]+' || true)
+if [ -n "${CACHE_RECLAIMABLE:-}" ] && [ "$(printf '%.0f' "$CACHE_RECLAIMABLE" 2>/dev/null || echo 0)" -ge 20 ]; then
+    warn "Build cache has ${CACHE_RECLAIMABLE}GB reclaimable."
+    if grep -q '"builder"' /etc/docker/daemon.json 2>/dev/null; then
+        warn "  BuildKit GC is configured but hasn't caught up yet. To reclaim now:"
+        warn "    sudo docker builder prune -f"
+    else
+        warn "  BuildKit GC is NOT configured on this host, so nothing evicts it."
+        warn "  One-off reclaim:  sudo docker builder prune -f"
+        warn "  Permanent fix:    add to /etc/docker/daemon.json, then systemctl restart docker"
+        warn '                    {"builder": {"gc": {"enabled": true, "defaultKeepStorage": "20GB"}}}'
+        warn "  Restart docker OUTSIDE a deploy window — it bounces every container."
+    fi
+fi
 
 # ──────────────────────────────────────────────────────
 # DONE
