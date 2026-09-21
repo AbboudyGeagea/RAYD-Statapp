@@ -59,6 +59,74 @@ ok "Docker Compose found: $($COMPOSE version)"
 # this host connects to an Oracle database, so the client is not downloaded,
 # not unpacked into /opt/oracle, and not registered with ldconfig.
 
+# ── BuildKit cache garbage collection ─────────────────────────────────────────
+# Every rebuild of rayd-app/rayd-nlp adds a new multi-GB cache layer (the Python
+# deps, medspaCy and its models) that is never reused again. Nothing evicts it by
+# default, so it grows unbounded: measured 56GB on the LAUMC host, 55GB of it
+# reclaimable,
+# on a host whose images totalled under 3GB. Operators chasing a full disk reach
+# for `docker image prune` and reclaim nothing, because images were never the
+# problem.
+#
+# This is GC, NOT `docker builder prune`. The difference matters and update.sh
+# documents why: pruning was tried there twice and both times wiped the cache the
+# NEXT build needed, turning every deploy into a full re-download of apt and pip.
+# GC instead keeps the most recently used cache up to defaultKeepStorage and
+# evicts only the oldest beyond it -- the layers you are actively rebuilding
+# against stay, the six-week-old orphans go.
+#
+# Idempotent and conservative: skipped entirely if a builder config already
+# exists, so a hand-tuned daemon.json is never overwritten.
+GC_KEEP="${RAYD_BUILD_CACHE_KEEP:-20GB}"
+DAEMON_JSON="/etc/docker/daemon.json"
+
+if [ "$(id -u)" -ne 0 ]; then
+    warn "Not root — skipping BuildKit cache GC setup. Re-run as root, or see docs."
+elif ! command -v python3 >/dev/null 2>&1; then
+    warn "python3 not found — skipping BuildKit cache GC setup (JSON edit needs it)."
+elif [ -f "$DAEMON_JSON" ] && grep -q '"builder"' "$DAEMON_JSON" 2>/dev/null; then
+    ok "BuildKit cache GC already configured in $DAEMON_JSON — left as is."
+else
+    info "Configuring BuildKit cache GC (keep ${GC_KEEP})..."
+    [ -f "$DAEMON_JSON" ] && cp -a "$DAEMON_JSON" "${DAEMON_JSON}.rayd.bak"
+    # Merge into whatever is already there rather than clobbering it -- this file
+    # commonly holds unrelated daemon settings (log driver, registry mirrors,
+    # storage driver) that must survive.
+    if python3 - "$DAEMON_JSON" "$GC_KEEP" <<'PYGC'
+import json, os, sys
+path, keep = sys.argv[1], sys.argv[2]
+try:
+    with open(path) as fh:
+        cfg = json.load(fh)
+    if not isinstance(cfg, dict):
+        raise ValueError("daemon.json is not a JSON object")
+except FileNotFoundError:
+    cfg = {}
+except Exception as exc:
+    sys.stderr.write(f"{exc}\n")
+    sys.exit(1)
+cfg.setdefault("builder", {})["gc"] = {"enabled": True, "defaultKeepStorage": keep}
+os.makedirs(os.path.dirname(path), exist_ok=True)
+with open(path, "w") as fh:
+    json.dump(cfg, fh, indent=2)
+    fh.write("\n")
+PYGC
+    then
+        # A restart is required for builder GC; on a fresh install nothing is
+        # serving traffic yet, so this is the one safe moment to do it. update.sh
+        # deliberately only warns instead, since restarting the daemon mid-update
+        # would bounce a live site.
+        if systemctl restart docker 2>/dev/null; then
+            ok "BuildKit cache GC enabled (keep ${GC_KEEP}); docker restarted."
+        else
+            warn "Wrote $DAEMON_JSON but could not restart docker. Run: systemctl restart docker"
+        fi
+    else
+        warn "Could not update $DAEMON_JSON (left unchanged) — configure builder GC manually."
+        [ -f "${DAEMON_JSON}.rayd.bak" ] && mv "${DAEMON_JSON}.rayd.bak" "$DAEMON_JSON"
+    fi
+fi
+
 # ──────────────────────────────────────────────────────
 # STEP 2: Environment file
 # ──────────────────────────────────────────────────────
