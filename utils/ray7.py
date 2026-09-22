@@ -109,7 +109,8 @@ _FUTURE_SKEW_MINUTES = 5
 # turns one refresh into a dozen simultaneous ones inside as many ACK windows.
 _CACHE_TTL = 300
 _CACHE_LOCK = threading.Lock()
-_cache = {'rules': (0.0, None), 'status_map': (0.0, None), 'aetitles': (0.0, None)}
+_cache = {'rules': (0.0, None), 'status_map': (0.0, None), 'aetitles': (0.0, None),
+          'result_map': (0.0, None), 'ladder': (0.0, None)}
 
 
 # ── The contract RAY7 screens ─────────────────────────────────────────────────
@@ -133,9 +134,18 @@ class ParsedMessage:
     # What sort of thing this is: order | status | result | adt | other
     kind:              str  = 'other'
 
-    # Identity
+    # Identity.
+    #
+    # The accession does not exist at the ordered rung — the RIS mints it at
+    # scheduling — so these three are a PRECEDENCE CHAIN, not three spellings of one
+    # key. resolve_identity() tries accession, then placer order number, and uses
+    # visit_number only to break a tie when one order number matches more than one
+    # open lifecycle. Visit is deliberately never an identity on its own: PACS
+    # messages frequently carry no PV1 at all, and matching on a field that is often
+    # absent splits one study into two.
     accession_number:    str = None
     placer_order_number: str = None
+    visit_number:        str = None   # PV1-19
     patient_id:          str = None
 
     # Lifecycle (status messages)
@@ -144,6 +154,7 @@ class ParsedMessage:
     event_time:        datetime = None
     raw_order_control: str  = None        # ORC-1
     raw_order_status:  str  = None        # ORC-5
+    raw_result_status: str  = None        # OBX-11, or OBR-25 as fallback
 
     # Attribution — this feed carries it per transition
     performed_by_id:   str  = None
@@ -245,8 +256,14 @@ def warm_caches():
         _rules()
         status_map()
         _known_aetitles()
-        logger.info("RAY7 caches warmed: %d rules, %d status mappings, %d AE titles",
-                    len(_rules() or {}), len(status_map() or {}), len(_known_aetitles() or set()))
+        result_status_map()
+        ladder_profile()
+        logger.info(
+            "RAY7 caches warmed: %d rules, %d status mappings, %d AE titles, "
+            "%d result statuses, %d ladder rungs (%d enforced)",
+            len(_rules() or {}), len(status_map() or {}), len(_known_aetitles() or set()),
+            len(result_status_map() or {}), len(ladder_profile() or {}),
+            len(enforced_ranks()))
     except Exception:
         logger.exception("RAY7 cache warm failed; caches will fill lazily instead")
 
@@ -338,6 +355,115 @@ def resolve_status(sending_app, order_control, order_status):
     return (None, None)
 
 
+def result_status_map():
+    """{(sending_app, result_status): (canonical_state, ladder_rank)} from OBX-11."""
+    def load():
+        rows, err = _bounded_query('result status map load', """
+            SELECT sending_app, result_status, canonical_state, ladder_rank
+              FROM hl7_result_status_map WHERE active
+        """)
+        if err:
+            raise RuntimeError(err)
+        return {
+            ((r['sending_app'] or ''), (r['result_status'] or '').upper()):
+                (r['canonical_state'], r['ladder_rank'])
+            for r in rows
+        }
+    return _cached('result_map', load) or {}
+
+
+def resolve_result_status(sending_app, result_status):
+    """
+    Map an OBX-11 (or OBR-25) value onto a signature rung, per-sender first.
+
+    Returns (None, None) for an unmapped value, which UNKNOWN_RESULT_STATUS reports
+    as a warning rather than a critical: the report still reaches hl7_oru_reports and
+    still reaches the radiologist, so only the signature rung is lost. Quarantining
+    would remove more information than it protects.
+    """
+    if not result_status:
+        return (None, None)
+    rmap = result_status_map()
+    app = sending_app or ''
+    st  = result_status.upper()
+    for key in ((app, st), ('', st)):
+        if key in rmap:
+            return rmap[key]
+    return (None, None)
+
+
+def ladder_profile():
+    """
+    {rung: {'ladder_rank', 'expected', 'enforce_order', 'label'}} — the per-site
+    statement of which rungs this install actually has.
+
+    Everything ships off (migration 0130), so on an unconfigured install every lookup
+    below reports "not expected, not enforced" and the sequence layer stays inert.
+    That is the intended state until an implementation engineer has mapped the site.
+    """
+    def load():
+        rows, err = _bounded_query('ladder profile load', """
+            SELECT rung, ladder_rank, label, expected, enforce_order
+              FROM ray7_ladder_profile
+        """)
+        if err:
+            raise RuntimeError(err)
+        return {r['rung']: dict(r) for r in rows}
+    return _cached('ladder', load) or {}
+
+
+def enforced_ranks():
+    """
+    Ranks that participate in the sequence judgement, ascending.
+
+    A rung must be BOTH expected and enforce_order to appear here. Expected-but-not-
+    enforced is the deliberate middle case: a rung the site does receive over an
+    unreliable path, which should be recorded and time-tracked without its lateness
+    quarantining anything.
+    """
+    return sorted(
+        p['ladder_rank'] for p in ladder_profile().values()
+        if p.get('expected') and p.get('enforce_order')
+    )
+
+
+def profile_configured():
+    """
+    Whether anyone has actually configured this install's ladder.
+
+    THE DISTINCTION THIS DRAWS IS LOAD-BEARING. Migration 0130 seeds every rung
+    expected = FALSE, which literally reads as "this site sends none of these" — and
+    taken literally it would make UNEXPECTED_RUNG fire on every single message the
+    moment the migration lands, at every install, which is precisely the queue flood
+    the opt-in default exists to prevent.
+
+    An all-off profile therefore means UNCONFIGURED, not "configured as absent", and
+    the profile-driven rules stay silent until at least one rung is switched on.
+    """
+    return any(p.get('expected') for p in ladder_profile().values())
+
+
+def rung_by_rank(rank):
+    for rung, p in ladder_profile().items():
+        if p.get('ladder_rank') == rank:
+            return rung
+    return None
+
+
+def is_expected(rank):
+    """
+    Whether a rung is declared present at this install.
+
+    An UNKNOWN rank counts as expected. A rank RAY7 has no profile row for is a gap
+    in configuration, not a statement that the site does not send it, and treating it
+    as unexpected would make a missing row silently suppress rules.
+    """
+    rung = rung_by_rank(rank)
+    if rung is None:
+        return True
+    return bool(ladder_profile().get(rung, {}).get('expected'))
+
+
 def _known_aetitles():
     def load():
         rows, err = _bounded_query(
@@ -410,7 +536,9 @@ class _Context:
     # is not the hardcoded status ladder the standing rule warns against. The part
     # that varies per site, CODE to rank, lives in hl7_status_map where an operator
     # can reach it.
-    RUNGS = [(40, 'scheduled_at'), (60, 'arrived_at'), (70, 'started_at'), (100, 'completed_at')]
+    RUNGS = [(20, 'ordered_at'), (40, 'scheduled_at'), (60, 'arrived_at'),
+             (70, 'started_at'), (100, 'completed_at'),
+             (120, 'signed_prelim_at'), (140, 'signed_final_at')]
 
     def __init__(self, msg, archive_id):
         self.msg        = msg
@@ -418,6 +546,8 @@ class _Context:
         self.siblings   = []     # other archive rows sharing sender + control ID
         self.state      = None   # ray7_study_state row, if the study is known
         self.degraded   = []     # names of lookups that failed or timed out
+        self.matched_by = None   # which link in the identity chain found the study
+        self.ambiguous  = []     # accessions an order number matched when >1 survived
 
         self._load_siblings()
         self._load_state()
@@ -443,18 +573,74 @@ class _Context:
             self.siblings = rows or []
 
     def _load_state(self):
-        acc = self.msg.accession_number
-        if not acc:
-            return
-        row, err = _bounded_query(
-            'study state lookup',
-            "SELECT * FROM ray7_study_state WHERE accession_number = :acc",
-            {'acc': acc}, one=True,
-        )
-        if err:
-            self.degraded.append('study_state')
-        else:
-            self.state = row
+        """
+        Resolve this message to one study, by precedence: accession, then order
+        number, with visit number breaking a tie.
+
+        At most two lookups, both on an index, because this runs inside the sender's
+        ACK window. The accession probe is the primary key; the order-number probe
+        uses idx_ray7_state_placer. The visit tiebreak is applied in Python over the
+        handful of rows that came back rather than as a third query.
+        """
+        msg = self.msg
+
+        # 1. Accession — authoritative once the RIS has minted it.
+        if msg.accession_number:
+            row, err = _bounded_query(
+                'study state lookup',
+                "SELECT * FROM ray7_study_state WHERE accession_number = :acc",
+                {'acc': msg.accession_number}, one=True,
+            )
+            if err:
+                self.degraded.append('study_state')
+                return
+            if row:
+                self.state = row
+                self.matched_by = 'accession'
+                return
+
+        # 2. Order number. Either this message predates the accession (an ORM NW), or
+        #    it carries one the RIS minted after we already opened a provisional row
+        #    for the order — the scheduling message that triggers the rekey.
+        if msg.placer_order_number:
+            rows, err = _bounded_query('study state by order', """
+                SELECT * FROM ray7_study_state
+                 WHERE placer_order_number = :placer
+                 ORDER BY is_provisional DESC, first_seen_at DESC
+                 LIMIT 5
+            """, {'placer': msg.placer_order_number})
+            if err:
+                self.degraded.append('study_state')
+                return
+            self.state = self._disambiguate(rows or [])
+
+    def _disambiguate(self, rows):
+        """
+        Pick one lifecycle when an order number matches several.
+
+        Visit number is the tiebreaker and never an identity of its own. A message
+        with no visit falls back to the most recent open lifecycle rather than
+        matching nothing, because PACS messages routinely carry no PV1 at all and
+        refusing to match would start a second lifecycle for a study we already know.
+        """
+        if not rows:
+            return None
+        if len(rows) == 1:
+            self.matched_by = 'order_number'
+            return rows[0]
+
+        visit = self.msg.visit_number
+        if visit:
+            narrowed = [r for r in rows if r.get('visit_number') == visit]
+            if len(narrowed) == 1:
+                self.matched_by = 'order_number+visit'
+                return narrowed[0]
+            if narrowed:
+                rows = narrowed
+
+        self.ambiguous = [r['accession_number'] for r in rows]
+        self.matched_by = 'order_number(ambiguous)'
+        return rows[0]
 
     def rung_time(self, rank):
         if not self.state:
@@ -648,6 +834,112 @@ def _rule_ladder_regression(msg, ctx):
         })]
 
 
+@_rule('OUT_OF_SEQUENCE_DELIVERY', kinds={'status', 'result'})
+def _rule_out_of_sequence(msg, ctx):
+    """
+    THE MESSAGES ARE SOUND; THE QUEUE THAT DELIVERED THEM WAS NOT.
+
+    This is the third of the three cases that all look like "CM before AR", and the
+    only one nothing caught before:
+
+        TIME_CONTRADICTION        the timestamps disagree — the source is wrong
+        SKIPPED_RUNG              the rung is genuinely absent — no event existed
+        OUT_OF_SEQUENCE_DELIVERY  the timestamps agree, the ARRIVAL ORDER did not
+
+    LADDER_REGRESSION deliberately exempts this case, on the reasoning that the
+    projector absorbs late delivery so flagging it is noise. That holds for the DATA
+    and not for the INTERFACE: a sender whose queue is disturbed is telling us
+    something, and it stays invisible until the day it also loses a message. This
+    rule is that signal, and it is mutually exclusive with LADDER_REGRESSION by
+    construction — that one takes the contradictory-timestamp case, this one takes
+    the consistent-timestamp case, and between them they cover every rank < current.
+
+    Critical, so the study is held out of the reports until a human acknowledges it.
+    Gated on enforced_ranks(), so on an unconfigured install it never fires at all.
+    """
+    if msg.ladder_rank is None or not msg.event_time or not ctx.state:
+        return
+
+    enforced = enforced_ranks()
+    if msg.ladder_rank not in enforced:
+        return
+
+    current = ctx.state.get('current_rank') or 0
+    if msg.ladder_rank >= current:
+        return
+    # A rung the site does not hold to an order cannot be the thing this message is
+    # late relative to, or disabling a rung would still quarantine its neighbours.
+    if current not in enforced:
+        return
+
+    current_time = ctx.rung_time(current)
+
+    # Hand the contradictory case to LADDER_REGRESSION rather than raising both. A
+    # single event producing two findings of different severities would quarantine on
+    # the strength of a rule whose own docstring says it is describing something else.
+    if current_time and msg.event_time > current_time:
+        return
+
+    return [Finding('OUT_OF_SEQUENCE_DELIVERY', CRITICAL, {
+        'incoming_state':      msg.canonical_state,
+        'incoming_rank':       msg.ladder_rank,
+        'incoming_time':       msg.event_time.isoformat(),
+        'already_reached_rank': current,
+        'already_reached_rung': rung_by_rank(current),
+        'already_reached_time': current_time.isoformat() if current_time else None,
+        # False when the higher rung has no timestamp to compare against — the
+        # arrival order is still wrong, but consistency could not be confirmed, and
+        # saying so is cheaper than someone re-deriving it from the queue later.
+        'timestamps_compared': bool(current_time),
+        'matched_by':          ctx.matched_by,
+        'sending_app':         msg.sending_app,
+        'note': 'events are self-consistent; they were delivered in the wrong order',
+    })]
+
+
+@_rule('UNEXPECTED_RUNG', kinds={'status', 'result'})
+def _rule_unexpected_rung(msg, ctx):
+    """
+    A status for a rung this site declared it does not send.
+
+    Info, not a fault: the likeliest explanation is that the ladder profile is out of
+    date, and the useful response is to update it, not to hold traffic. Without this
+    a wrong profile is invisible — and a profile nobody has noticed is wrong silently
+    suppresses the absence rules it governs.
+    """
+    if msg.ladder_rank is None or not profile_configured():
+        return
+    if is_expected(msg.ladder_rank):
+        return
+    return [Finding('UNEXPECTED_RUNG', INFO, {
+        'state': msg.canonical_state,
+        'rank':  msg.ladder_rank,
+        'hint':  'enable this rung in the ladder profile, or ignore if genuinely unused',
+    })]
+
+
+@_rule('UNKNOWN_RESULT_STATUS', kinds={'result'})
+def _rule_unknown_result_status(msg, ctx):
+    """
+    An OBX-11 value with no row in hl7_result_status_map.
+
+    Only raised where the site actually uses the signature rungs; elsewhere the value
+    is genuinely irrelevant and reporting it would be noise.
+    """
+    if not msg.raw_result_status or msg.ladder_rank is not None:
+        return
+    profile = ladder_profile()
+    if not any(profile.get(r, {}).get('expected')
+               for r in ('signed_prelim', 'signed_final')):
+        return
+    return [Finding('UNKNOWN_RESULT_STATUS', WARNING, {
+        'result_status': msg.raw_result_status,
+        'sending_app':   msg.sending_app,
+        'hint':          'add a row to hl7_result_status_map for this value',
+        'effect':        'the report still lands; only its signature rung is lost',
+    })]
+
+
 @_rule('TIME_CONTRADICTION', kinds={'status'})
 def _rule_time_contradiction(msg, ctx):
     """
@@ -684,8 +976,14 @@ def _rule_skipped_rung(msg, ctx):
     """
     if msg.ladder_rank is None or msg.ladder_rank < 100:
         return
+    # A rung the site does not send is not a rung the exam skipped. Without this
+    # gate, switching started off in the profile would flag every completed study as
+    # missing a start for as long as the setting stood — turning a configuration
+    # choice into a permanent queue of false findings.
     missing = []
     for rank, label in ((60, 'arrived'), (70, 'started')):
+        if not is_expected(rank):
+            continue
         if not ctx.rung_time(rank):
             missing.append(label)
     if missing:

@@ -31,7 +31,7 @@ identifiers.
 import json
 import logging
 
-from flask import Blueprint, render_template, request, jsonify, abort
+from flask import Blueprint, render_template, request, jsonify, abort, current_app
 from flask_login import login_required, current_user
 from sqlalchemy import text
 
@@ -265,6 +265,94 @@ def message_detail(archive_id):
     except Exception:
         logger.exception("RAY7 console: message detail failed | id=%s", archive_id)
         return jsonify({'error': 'lookup failed'}), 500
+
+
+@ray7_bp.route('/ray7/study/<path:accession>/acknowledge', methods=['POST'])
+@login_required
+def acknowledge_study(accession):
+    """
+    Acknowledge a quarantined study and RELEASE it into the reports.
+
+    This is the counterpart to resolve() below, and the difference is the whole
+    point. Resolving closes a flag and explicitly does not move data. Acknowledging
+    says "I have looked at this, the lifecycle is sound, let it through" — and a
+    verdict that does not actually release the data would be a button that lies,
+    because a quarantined study is invisible in every report until something
+    reprojects it.
+
+    STUDY-LEVEL, NOT MESSAGE-LEVEL. A scrambled lifecycle quarantines several
+    messages of one study; acknowledging them one at a time would be busywork and
+    would leave the study half-projected between clicks. One acknowledgement covers
+    the accession.
+
+    The replay runs with rescreen=False. Re-screening would judge these messages
+    against a ray7_study_state that now contains the very rungs they were flagged
+    for arriving after, so OUT_OF_SEQUENCE_DELIVERY would fire again and
+    re-quarantine what was just cleared. The human's judgement replaces the
+    machine's here; that is what acknowledging means.
+    """
+    _require_access()
+    body = request.json or {}
+    note = (request.form.get('note') or body.get('note') or '')[:2000]
+
+    archive_ids = [
+        r['message_archive_id'] for r in _rows("""
+            SELECT DISTINCT f.message_archive_id
+              FROM ray7_findings f
+             WHERE f.accession_number = :acc
+               AND f.resolved_at IS NULL
+               AND f.message_archive_id IS NOT NULL
+        """, {'acc': accession})
+        if r.get('message_archive_id')
+    ]
+
+    try:
+        db.session.execute(text("""
+            UPDATE ray7_findings
+               SET resolved_at = NOW(), resolved_by = :uid,
+                   resolution = 'cleared',
+                   resolution_note = :note
+             WHERE accession_number = :acc AND resolved_at IS NULL
+        """), {'acc': accession, 'uid': current_user.id,
+               'note': note or 'acknowledged in the RAY7 console'})
+
+        # 'flagged' rather than 'accepted': the message genuinely had findings and
+        # that should stay visible. What changes is that it is no longer WITHHELD.
+        # The audit of who released it, and when, lives on the finding rows above.
+        if archive_ids:
+            db.session.execute(text("""
+                UPDATE hl7_message_archive
+                   SET ray7_status = 'flagged'
+                 WHERE id = ANY(:ids) AND ray7_status = 'quarantined'
+            """), {'ids': archive_ids})
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        logger.exception("RAY7 console: acknowledge failed | acc=%s", accession)
+        return jsonify({'error': 'acknowledge failed'}), 500
+
+    released = 0
+    if archive_ids:
+        try:
+            from utils.hl7_replay import replay
+            stats = replay(current_app._get_current_object(),
+                           archive_ids=archive_ids, rescreen=False)
+            released = stats.get('projected', 0)
+        except Exception:
+            # The findings are already closed and committed. Say so plainly rather
+            # than reporting a clean release that did not happen — the operator can
+            # retry, and a silent half-success here is how a study goes missing.
+            logger.exception("RAY7 console: release replay failed | acc=%s", accession)
+            return jsonify({
+                'status': 'partial',
+                'error': 'findings were cleared but the study could not be reprojected',
+                'accession': accession,
+            }), 500
+
+    return jsonify({'status': 'ok', 'accession': accession,
+                    'messages_released': len(archive_ids),
+                    'projected': released,
+                    'note': 'Findings acknowledged and the study reprojected into the reports.'})
 
 
 @ray7_bp.route('/ray7/finding/<int:finding_id>/resolve', methods=['POST'])

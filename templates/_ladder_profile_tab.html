@@ -1,0 +1,132 @@
+{# ────────────────────────────────────────────────────────────────
+   RAY7 Ladder Profile — lazy-loaded fragment for the studio.
+
+   The implementation engineer's switchboard. Everything ships off, so the banner
+   at the top is the normal state on a fresh install rather than an error, and it
+   says so — an engineer who reads "nothing is enforced" as a fault will go looking
+   for a problem that is not there.
+
+   The "Seen" column is the reason this is more than a settings screen: it reports
+   what this site has actually sent per rung, so enabling one is a response to real
+   traffic rather than to a guess about what the interface spec claims.
+   ──────────────────────────────────────────────────────────────── #}
+
+<div class="space-y-8">
+
+  <div class="bg-[#12180f] border {{ 'border-[#28332e]' if configured else 'border-sky-800/50' }} rounded-lg p-5">
+    <h3 class="{{ 'text-slate-300' if configured else 'text-sky-400' }} font-black uppercase text-[11px] tracking-widest mb-1">
+      <i class="bi bi-list-ol mr-1"></i>
+      {% if configured %}Lifecycle ladder{% else %}Ladder not yet configured{% endif %}
+    </h3>
+    <p class="text-[11px] text-slate-400 mb-4 leading-relaxed max-w-4xl">
+      {% if configured %}
+        <strong class="text-slate-300">Expected</strong> tells RAY7 this site sends the status at
+        all — absence rules stop asking for a rung that is switched off, and the stall check
+        bridges to the next expected rung instead, so disabling a rung narrows the ladder rather
+        than leaving a blind segment.
+        <strong class="text-slate-300">Enforce order</strong> additionally requires the message to
+        <em>arrive</em> in ladder position; one that turns up after a rung above it is rated
+        critical and the study is <strong class="text-amber-300">held out of the reports</strong>
+        until someone acknowledges it in the RAY7 console.
+      {% else %}
+        Nothing is enforced yet, which is the intended state on a fresh install — sequence
+        enforcement is opt-in precisely because it quarantines. Switch on the rungs this site
+        actually sends. The <strong class="text-slate-300">Seen</strong> column below shows what
+        has genuinely arrived, so this is a response to traffic rather than to a spec.
+      {% endif %}
+    </p>
+
+    <table class="w-full text-[11px]">
+      <thead>
+        <tr class="text-slate-500 uppercase tracking-wider text-[9px] border-b border-[#28332e]">
+          <th class="text-left py-2">Rung</th>
+          <th class="text-left">Rank</th>
+          <th class="text-right">Seen</th>
+          <th class="text-left pl-4">Last seen</th>
+          <th class="text-center">Expected</th>
+          <th class="text-center">Enforce order</th>
+          <th class="text-left pl-4">Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for r in rows %}
+        <tr class="border-b border-[#1c2620]" data-rung="{{ r.rung }}">
+          <td class="py-2 font-mono text-slate-200 font-bold">{{ r.label }}</td>
+          <td class="font-mono text-slate-500">{{ r.ladder_rank }}</td>
+          <td class="text-right font-mono {{ 'text-slate-300' if r.seen else 'text-slate-600' }}">
+            {{ r.seen or '—' }}</td>
+          <td class="pl-4 font-mono text-slate-500">
+            {{ r.last_seen.strftime('%m-%d %H:%M') if r.last_seen else '—' }}</td>
+          <td class="text-center">
+            <input type="checkbox" data-field="expected" {{ 'checked' if r.expected }}
+                   class="accent-emerald-500 cursor-pointer">
+          </td>
+          <td class="text-center">
+            {# Disabled until the rung is expected: a rung the site does not send cannot
+               meaningfully be held to an arrival order, and the server forces the pair
+               off anyway. Showing it as editable would advertise a setting that does
+               nothing. #}
+            <input type="checkbox" data-field="enforce_order" {{ 'checked' if r.enforce_order }}
+                   {{ 'disabled' if not r.expected }}
+                   class="accent-amber-500 cursor-pointer disabled:opacity-25 disabled:cursor-not-allowed">
+          </td>
+          <td class="pl-4 text-slate-500 leading-snug">{{ r.notes or '' }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7" class="py-6 text-center text-slate-600">
+          No ladder profile rows. Migration 0130 may not have been applied.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+
+    <p class="text-[10px] text-slate-600 mt-4 leading-relaxed">
+      Changes save immediately and take effect on the next message. Enabling a rung does not
+      release studies already quarantined — acknowledge those in the RAY7 console, which
+      reprojects them.
+    </p>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  document.querySelectorAll('#tab-ladder tr[data-rung]').forEach(function (row) {
+    const expected = row.querySelector('[data-field="expected"]');
+    const enforce  = row.querySelector('[data-field="enforce_order"]');
+
+    function save() {
+      // Mirror the server's rule locally so the screen never shows a state the
+      // server would not store: unchecking "expected" forces "enforce order" off.
+      if (!expected.checked) { enforce.checked = false; enforce.disabled = true; }
+      else { enforce.disabled = false; }
+
+      row.style.opacity = '0.5';
+      fetch('/mapping/ladder-profile/save', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          rung: row.dataset.rung,
+          expected: expected.checked,
+          enforce_order: enforce.checked
+        })
+      })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function (d) {
+        // Trust the server's answer over the checkbox, so a rejected combination
+        // corrects itself on screen instead of lying until the next reload.
+        expected.checked = d.expected;
+        enforce.checked  = d.enforce_order;
+        enforce.disabled = !d.expected;
+        row.style.opacity = '1';
+      })
+      .catch(function () {
+        row.style.opacity = '1';
+        alert('Could not save that change. Please retry.');
+      });
+    }
+
+    expected.addEventListener('change', save);
+    enforce.addEventListener('change', save);
+  });
+})();
+</script>

@@ -46,7 +46,8 @@ import re
 import logging
 from datetime import datetime, date
 
-from utils.ray7 import ParsedMessage, content_hash, resolve_status
+from utils.ray7 import (ParsedMessage, content_hash, resolve_status,
+                        resolve_result_status, ladder_profile)
 
 logger = logging.getLogger("HL7_PARSE")
 
@@ -275,10 +276,11 @@ def _envelope(segments, raw_message, source_ip):
 
 
 def _identity(segments, msg):
-    """Accession, placer order and patient ID — shared by every clinical message."""
+    """Accession, placer order, visit and patient ID — shared by every clinical message."""
     pid = seg(segments, 'PID')
     orc = seg(segments, 'ORC')
     obr = seg(segments, 'OBR')
+    pv1 = seg(segments, 'PV1')
 
     msg.patient_id = component(field(pid, 3, ''), 0)
 
@@ -290,6 +292,13 @@ def _identity(segments, msg):
     # mints an accession at scheduling.
     msg.placer_order_number = (component(field(orc, 2, ''), 0)
                                or component(field(obr, 2, ''), 0))
+
+    # PV1-19 visit number. Used ONLY to break a tie when one order number matches
+    # more than one open lifecycle — never as an identity of its own, because PACS
+    # messages routinely carry no PV1 and matching on an often-absent field would
+    # split a single study into two lifecycles. Position is overridable per site
+    # through hl7_field_mappings like every other field.
+    msg.visit_number = component(field(pv1, 19, ''), 0) or None
 
 
 def _clinical(segments, msg):
@@ -344,6 +353,17 @@ def parse_order(segments, msg):
 
     msg.raw_order_control = field(orc, 1)
     msg.raw_order_status = field(orc, 5)
+
+    # The order IS the first rung. It is not seeded into hl7_status_map because that
+    # table is keyed on ORC-5 and "new order" is an ORC-1 value — there is no ORC-5
+    # code meaning ordered — so the state is derived here and only its RANK is
+    # configuration, read from the ladder profile.
+    #
+    # Note that an ORM NW usually carries NO ACCESSION: the RIS mints one at
+    # scheduling. Identity for this rung therefore rests on the placer order number,
+    # which is why ray7_study_state can hold a provisional key.
+    msg.canonical_state = 'ordered'
+    msg.ladder_rank = (ladder_profile().get('ordered', {}).get('ladder_rank') or 20)
 
     # The order itself is the "ordered" moment; ORC-9 is its transaction time.
     msg.event_time = (parse_hl7_datetime(field(orc, 9))
@@ -418,6 +438,40 @@ def parse_result(segments, msg):
 
     result_dt_raw = field(obr, 22, '') or field(obr, 7, '')
     msg.event_time = parse_hl7_datetime(result_dt_raw)
+
+    # THE SIGNATURE RUNG. This site reports the first signature as OBX-11 = W and the
+    # final one as F — not the standard HL7 meanings of those values, which is exactly
+    # why they are mapped through hl7_result_status_map rather than assumed here.
+    #
+    # THE MOST FINAL OBX WINS. A report carries one OBX per section and they need not
+    # agree: an addendum arrives as a final observation appended to a report whose
+    # earlier sections are still marked preliminary. Taking the first OBX would file a
+    # signed report as preliminary; taking the highest rank files it by the furthest
+    # signature actually present, which is what "this report is signed" means.
+    #
+    # OBR-25 is the fallback for senders that carry the status at report level only.
+    msg.raw_result_status = None
+    best_rank = None
+    for obx in all_segs(segments, 'OBX'):
+        raw = field(obx, 11)
+        if not raw:
+            continue
+        state, rank = resolve_result_status(msg.sending_app, raw)
+        if rank is not None and (best_rank is None or rank > best_rank):
+            best_rank, msg.canonical_state, msg.ladder_rank = rank, state, rank
+            msg.raw_result_status = raw
+        elif msg.raw_result_status is None:
+            # Unmapped, but remembered so UNKNOWN_RESULT_STATUS can name the value
+            # instead of reporting that something unspecified went wrong.
+            msg.raw_result_status = raw
+
+    if best_rank is None:
+        raw = field(obr, 25)
+        if raw:
+            state, rank = resolve_result_status(msg.sending_app, raw)
+            msg.raw_result_status = msg.raw_result_status or raw
+            if rank is not None:
+                msg.canonical_state, msg.ladder_rank = state, rank
 
     physician_id, physician_name = extract_signing_physician(obr, result_dt_raw)
     msg.performed_by_id = physician_id

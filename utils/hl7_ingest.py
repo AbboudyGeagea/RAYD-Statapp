@@ -152,14 +152,14 @@ _PATIENT_SQL = """
 
 _EVENT_SQL = """
     INSERT INTO hl7_study_events
-        (message_archive_id, accession_number, placer_order_number, patient_id,
-         canonical_state, ladder_rank, event_time,
+        (message_archive_id, accession_number, placer_order_number, visit_number,
+         patient_id, canonical_state, ladder_rank, event_time,
          performed_by_id, performed_by_name, performed_by_role,
          aetitle, room_name, modality, procedure_code, procedure_text,
          patient_class, patient_location, raw_order_control, raw_order_status)
     VALUES
-        (:archive_id, :accession_number, :placer_order_number, :patient_id,
-         :canonical_state, :ladder_rank, :event_time,
+        (:archive_id, :accession_number, :placer_order_number, :visit_number,
+         :patient_id, :canonical_state, :ladder_rank, :event_time,
          :performed_by_id, :performed_by_name, :performed_by_role,
          :aetitle, :room_name, :modality, :procedure_code, :procedure_text,
          :patient_class, :patient_location, :raw_order_control, :raw_order_status)
@@ -217,7 +217,15 @@ def persist_parsed(msg, archive_id):
     # critical and quarantined it, and inventing a rung for a code we cannot read
     # would put a guess into the lifecycle log. The raw message is archived, so the
     # event can be recovered by replay once the code is mapped.
-    if msg.kind == 'status' and msg.canonical_state and msg.ladder_rank is not None:
+    # 'order' and 'result' join 'status' here as of the sequence-enforcement work.
+    #
+    # An ORM NW used to write no event and no state row at all, so the ordered rung
+    # existed in the schema and never in the data — ordered_at was filled only by the
+    # absence sweep, reading hl7_orders. An ORU likewise had no rung until OBX-11 was
+    # parsed. Both now carry a canonical_state and a rank, so both belong in the
+    # lifecycle log on exactly the same terms as a status message.
+    if (msg.kind in ('status', 'order', 'result')
+            and msg.canonical_state and msg.ladder_rank is not None):
         if msg.accession_number or msg.placer_order_number:
             try:
                 with db.session.begin_nested():
@@ -225,6 +233,7 @@ def persist_parsed(msg, archive_id):
                         'archive_id':          archive_id,
                         'accession_number':    msg.accession_number,
                         'placer_order_number': msg.placer_order_number,
+                        'visit_number':        msg.visit_number,
                         'patient_id':          msg.patient_id,
                         'canonical_state':     msg.canonical_state,
                         'ladder_rank':         msg.ladder_rank,
@@ -260,10 +269,20 @@ def persist_parsed(msg, archive_id):
     if msg.kind == 'result' and msg.accession_number and msg.event_time:
         try:
             with db.session.begin_nested():
+                # reported_at means "a report exists", which is what the UNREPORTED
+                # sweep asks about, and any ORU answers it regardless of signature
+                # level. The signature RUNGS are set by update_study_state above,
+                # from the OBX-11 mapping.
+                #
+                # is_closed is deliberately NOT set here any more. Closing on any ORU
+                # meant a preliminary report closed the study, which would make
+                # STALLED_UNSIGNED unsatisfiable in exactly the way completion once
+                # made UNREPORTED unsatisfiable — the study stops being tracked at the
+                # precise moment it still needs its final signature. Closure is now
+                # rank 140 or cancellation, and nowhere else.
                 db.session.execute(text("""
                     UPDATE ray7_study_state
                        SET reported_at = COALESCE(reported_at, :reported_at),
-                           is_closed   = TRUE,
                            updated_at  = NOW()
                      WHERE accession_number = :acc
                 """), {'acc': msg.accession_number, 'reported_at': msg.event_time})
@@ -280,12 +299,96 @@ def persist_parsed(msg, archive_id):
 # whitelist lookup rather than a format of the incoming value, and must stay that
 # way.
 _RUNG_COLUMN = {
-    'scheduled': 'scheduled_at',
-    'arrived':   'arrived_at',
-    'started':   'started_at',
-    'completed': 'completed_at',
-    'cancelled': 'cancelled_at',
+    'ordered':       'ordered_at',
+    'scheduled':     'scheduled_at',
+    'arrived':       'arrived_at',
+    'started':       'started_at',
+    'completed':     'completed_at',
+    'signed_prelim': 'signed_prelim_at',
+    'signed_final':  'signed_final_at',
+    'cancelled':     'cancelled_at',
 }
+
+# Marks a lifecycle opened before the RIS minted an accession. The tilde cannot occur
+# in an accession issued by any of these systems, so a provisional key is recognisable
+# on sight and can never collide with a real one.
+_PROVISIONAL_PREFIX = '~ORD:'
+
+
+def provisional_key(placer_order_number):
+    return f"{_PROVISIONAL_PREFIX}{placer_order_number}"
+
+
+def is_provisional_key(key):
+    return bool(key) and key.startswith(_PROVISIONAL_PREFIX)
+
+
+def _rekey_provisional(msg):
+    """
+    Move a provisional lifecycle onto the accession the RIS has just minted.
+
+    An ORM NW arrives with only a placer order number, so its state row is keyed
+    ~ORD:<order>. The scheduling message is the first to carry BOTH identifiers, and
+    this is where the two halves become one study.
+
+    Done as an UPDATE of the key rather than a merge because ray7_study_state is the
+    only table keyed on the accession as a primary key; ray7_findings and
+    hl7_study_events hold it as plain TEXT with no foreign key, so they are rewritten
+    alongside rather than cascading.
+
+    If a row already exists under the real accession — the scheduling message arrived
+    twice, or out of order relative to itself — the provisional row is folded into it
+    and deleted, taking the earlier ordered_at with it. COALESCE order matters: the
+    real row wins on every column except the rungs the provisional row uniquely holds.
+    """
+    acc = msg.accession_number
+    placer = msg.placer_order_number
+    if not acc or not placer:
+        return False
+    prov = provisional_key(placer)
+
+    try:
+        with db.session.begin_nested():
+            merged = db.session.execute(text("""
+                UPDATE ray7_study_state real_row
+                   SET ordered_at    = COALESCE(real_row.ordered_at, p.ordered_at),
+                       placer_order_number = COALESCE(real_row.placer_order_number,
+                                                      p.placer_order_number),
+                       visit_number  = COALESCE(real_row.visit_number, p.visit_number),
+                       event_count   = real_row.event_count + p.event_count,
+                       first_seen_at = LEAST(real_row.first_seen_at, p.first_seen_at),
+                       updated_at    = NOW()
+                  FROM ray7_study_state p
+                 WHERE real_row.accession_number = :acc
+                   AND p.accession_number = :prov
+                RETURNING real_row.accession_number
+            """), {'acc': acc, 'prov': prov}).first()
+
+            if merged:
+                db.session.execute(
+                    text("DELETE FROM ray7_study_state WHERE accession_number = :prov"),
+                    {'prov': prov})
+            else:
+                db.session.execute(text("""
+                    UPDATE ray7_study_state
+                       SET accession_number = :acc,
+                           is_provisional   = FALSE,
+                           updated_at       = NOW()
+                     WHERE accession_number = :prov
+                """), {'acc': acc, 'prov': prov})
+
+            # The lifecycle log and any findings raised against the provisional key
+            # have to follow, or the ordered event is orphaned under a key nothing
+            # refers to any more and the study looks like it was never ordered.
+            for tbl in ('hl7_study_events', 'ray7_findings'):
+                db.session.execute(text(f"""
+                    UPDATE {tbl} SET accession_number = :acc
+                     WHERE accession_number = :prov
+                """), {'acc': acc, 'prov': prov})
+        return True
+    except Exception:
+        logger.exception("RAY7/ingest: rekey of %s to %s failed", prov, acc)
+        return False
 
 
 def update_study_state(msg):
@@ -310,10 +413,24 @@ def update_study_state(msg):
     GREATEST, so a late-delivered earlier event cannot walk the study backwards —
     the ladder records the furthest point reached, not the most recent message.
     """
-    if not msg.accession_number:
-        return
     column = _RUNG_COLUMN.get(msg.canonical_state or '')
     if not column or msg.ladder_rank is None:
+        return
+
+    # IDENTITY, in precedence order. The accession once the RIS has minted it;
+    # otherwise a provisional key derived from the order number, which is all an ORM
+    # NW carries. Without this the ordered rung could never have a state row at all.
+    #
+    # A message holding BOTH identifiers is the scheduling message that mints the
+    # accession, so it is also the moment the provisional lifecycle is folded into the
+    # real one. Done before the upsert, or the upsert would create a second row under
+    # the accession and the order's own rung would be stranded on the old key.
+    if msg.accession_number and msg.placer_order_number:
+        _rekey_provisional(msg)
+
+    key = msg.accession_number or (
+        provisional_key(msg.placer_order_number) if msg.placer_order_number else None)
+    if not key:
         return
 
     # A completion from the PACS means "images stored", not "exam done". Both
@@ -326,12 +443,14 @@ def update_study_state(msg):
 
     sql = """
         INSERT INTO ray7_study_state
-            (accession_number, placer_order_number, patient_id, modality, aetitle,
+            (accession_number, placer_order_number, visit_number, is_provisional,
+             patient_id, modality, aetitle,
              room_name, procedure_code, procedure_text, patient_class,
              patient_location, {col},
              current_rank, event_count, is_closed, first_seen_at, last_event_at, updated_at)
         VALUES
-            (:accession, :placer, :patient_id, :modality, :aetitle,
+            (:accession, :placer, :visit_number, :provisional,
+             :patient_id, :modality, :aetitle,
              :room, :procedure_code, :procedure_text, :patient_class,
              :patient_location, :event_time,
              -- is_closed must be computed on INSERT too, not only on conflict.
@@ -339,8 +458,14 @@ def update_study_state(msg):
              -- rungs never arrived, which is exactly the case the absence sweep
              -- cares about — would otherwise stay open forever and be re-reported
              -- as stalled every time the sweep ran.
-             :rank, 1, (:rank >= 100 AND :col <> 'pacs_completed_at')
-                       OR :state = 'cancelled', NOW(), :event_time, NOW())
+             --
+             -- CLOSURE IS THE FINAL SIGNATURE (rank 140), NOT COMPLETION. Closing at
+             -- 100 made UNREPORTED unsatisfiable — completed_at can only be set by a
+             -- rank-100 event, which also set is_closed, and the sweep requires NOT
+             -- is_closed — so the rule and its index covered an empty set from 0119
+             -- until 0130. A study whose images are done but whose report is unsigned
+             -- is the one the queue most needs to show.
+             :rank, 1, :rank >= 140 OR :state = 'cancelled', NOW(), :event_time, NOW())
         ON CONFLICT (accession_number) DO UPDATE SET
             {col}               = COALESCE(ray7_study_state.{col}, EXCLUDED.{col}),
             placer_order_number = COALESCE(ray7_study_state.placer_order_number, EXCLUDED.placer_order_number),
@@ -356,9 +481,9 @@ def update_study_state(msg):
             event_count         = ray7_study_state.event_count + 1,
             last_event_at       = GREATEST(COALESCE(ray7_study_state.last_event_at, EXCLUDED.last_event_at),
                                            COALESCE(EXCLUDED.last_event_at, ray7_study_state.last_event_at)),
+            visit_number        = COALESCE(ray7_study_state.visit_number, EXCLUDED.visit_number),
             is_closed           = ray7_study_state.is_closed
-                                  OR (EXCLUDED.current_rank >= 100
-                                      AND '{col}' <> 'pacs_completed_at')
+                                  OR EXCLUDED.current_rank >= 140
                                   OR EXCLUDED.cancelled_at IS NOT NULL,
             updated_at          = NOW()
     """.replace('{col}', column)
@@ -366,8 +491,10 @@ def update_study_state(msg):
     try:
         with db.session.begin_nested():
             db.session.execute(text(sql), {
-                'accession':      msg.accession_number,
+                'accession':      key,
                 'placer':         msg.placer_order_number,
+                'visit_number':   msg.visit_number,
+                'provisional':    is_provisional_key(key),
                 'patient_id':     msg.patient_id,
                 'modality':       msg.modality,
                 # aetitle and room come from the Started event and should win when

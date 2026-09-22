@@ -127,6 +127,14 @@ LEFT JOIN LATERAL (
      LIMIT 1
 ) r ON TRUE
 WHERE st.accession_number = :acc
+  -- A PROVISIONAL LIFECYCLE IS NOT A STUDY YET.
+  --
+  -- An ORM NW carries no accession — the RIS mints one at scheduling — so its state
+  -- row is opened under a synthetic ~ORD:<order number> key. An order nobody has
+  -- scheduled belongs to etl_orders, not to etl_didb_studies, and projecting it here
+  -- would put a fabricated accession in front of a radiologist and into every report
+  -- that lists one. The row projects normally the moment scheduling rekeys it.
+  AND NOT st.is_provisional
 ON CONFLICT (study_db_uid) DO UPDATE SET
     patient_db_uid       = EXCLUDED.patient_db_uid,
     accession_number     = EXCLUDED.accession_number,
@@ -209,8 +217,14 @@ INSERT INTO etl_orders (
 SELECT
     hl7_surrogate_id('order', COALESCE(st.placer_order_number, st.accession_number)),
     st.patient_id,
-    hl7_surrogate_id('study', st.accession_number),
-    st.accession_number,
+    -- A provisional row has no accession yet, so it must not mint a STUDY surrogate:
+    -- that would key a permanent map entry to a synthetic ~ORD: value and leave this
+    -- order pointing at it after scheduling minted the real one. The order surrogate
+    -- above is safe by contrast — it keys on the placer number, which survives the
+    -- rekey unchanged, so the same order row is updated in place rather than doubled.
+    CASE WHEN st.is_provisional THEN NULL
+         ELSE hl7_surrogate_id('study', st.accession_number) END,
+    CASE WHEN st.is_provisional THEN NULL ELSE st.accession_number END,
     st.procedure_code,
     st.procedure_text,
     st.scheduled_at,
@@ -219,9 +233,12 @@ SELECT
          WHEN st.started_at   IS NOT NULL THEN 'IP'
          WHEN st.arrived_at   IS NOT NULL THEN 'AR'
          WHEN st.scheduled_at IS NOT NULL THEN 'SC'
+         -- Ordered but not yet scheduled. Previously unreachable, because an ORM NW
+         -- never reached this table at all.
+         WHEN st.ordered_at   IS NOT NULL THEN 'NW'
          ELSE NULL END,
     st.modality,
-    TRUE,
+    NOT st.is_provisional,
     NOW()
 FROM ray7_study_state st
 WHERE st.accession_number = :acc
@@ -234,7 +251,9 @@ ON CONFLICT (order_dbid) DO UPDATE SET
     scheduled_datetime = COALESCE(EXCLUDED.scheduled_datetime, etl_orders.scheduled_datetime),
     order_status       = COALESCE(EXCLUDED.order_status,       etl_orders.order_status),
     modality           = COALESCE(EXCLUDED.modality,           etl_orders.modality),
-    has_study          = TRUE,
+    -- Latches. An order that has acquired a study never loses one, but a provisional
+    -- order projecting for the first time must not claim it already has.
+    has_study          = etl_orders.has_study OR EXCLUDED.has_study,
     last_update        = NOW()
 """
 
@@ -548,6 +567,21 @@ def project_message(msg):
     if msg.accession_number:
         done += project_study(msg.accession_number)
         done += project_worklist(msg.accession_number)
+        if msg.patient_id:
+            done += project_patient(msg.patient_id)
+
+    elif msg.kind == 'order' and msg.placer_order_number:
+        # An ORM NW before the RIS has minted an accession. Its lifecycle lives under
+        # the provisional key, and projecting it is how an unscheduled order becomes
+        # visible in etl_orders — which is what ORPHAN_ORDER reads to find orders the
+        # RIS never scheduled. _STUDY_SQL refuses provisional rows on its own, so this
+        # reaches etl_orders and stops short of etl_didb_studies, which is the split
+        # that keeps a synthetic accession out of the reports.
+        #
+        # Imported here rather than at module scope: utils.hl7_ingest imports this
+        # module, so a top-level import would be circular.
+        from utils.hl7_ingest import provisional_key
+        done += project_study(provisional_key(msg.placer_order_number))
         if msg.patient_id:
             done += project_patient(msg.patient_id)
 

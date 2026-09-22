@@ -847,14 +847,20 @@ def rename_cluster():
 # sent, with counts and a first/last-seen window. Mapping becomes a response to
 # evidence instead of documentation archaeology.
 
-_CANONICAL_STATES = ['scheduled', 'arrived', 'started', 'completed', 'cancelled']
+# 'ordered' is offered here because a site whose ORC-5 carries a new-order code can
+# legitimately map it. The SIGNATURE rungs are not: they arrive on OBX-11, not in ORC
+# at all, and belong to hl7_result_status_map. Offering them on this screen would
+# invite a mapping that can never match a message.
+_CANONICAL_STATES = ['ordered', 'scheduled', 'arrived', 'started', 'completed',
+                     'cancelled']
 
 # Rank is derived from the state, never typed in. It is not a free choice — it is
 # what makes RAY7's sequence rules and the projector agree on what "further along"
 # means, and letting someone put arrived above completed would invert the
 # lifecycle everywhere downstream. Cancellation is off the ladder, hence -1.
-_STATE_RANK = {'scheduled': 40, 'arrived': 60, 'started': 70,
-               'completed': 100, 'cancelled': -1}
+_STATE_RANK = {'ordered': 20, 'scheduled': 40, 'arrived': 60, 'started': 70,
+               'completed': 100, 'signed_prelim': 120, 'signed_final': 140,
+               'cancelled': -1}
 
 
 def _invalidate_status_cache():
@@ -865,6 +871,116 @@ def _invalidate_status_cache():
         _cache['status_map'] = (0.0, None)
     except Exception:
         pass
+
+
+def _invalidate_ladder_cache():
+    """Same reasoning as the status map. Matters more here: the ladder profile is
+    what decides whether a message is quarantined, so an engineer who switches a
+    rung off to stop a flood must not have to wait out a TTL to see it stop."""
+    try:
+        from utils.ray7 import _cache
+        _cache['ladder'] = (0.0, None)
+    except Exception:
+        pass
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LADDER PROFILE — which lifecycle rungs this install actually has
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# The implementation engineer's switchboard, and the reason the sequence layer can
+# ship enabled-by-nobody. A RIS does not have to send all seven states and a
+# PACS-only install cannot send most of them; without a per-site statement of what
+# to expect, every absent rung reads as a fault and the findings queue fills with
+# studies that are perfectly fine.
+#
+# TWO SWITCHES PER RUNG, and the difference matters:
+#   expected       the site sends this status at all
+#   enforce_order  it must also ARRIVE in ladder position, on pain of quarantine
+#
+# Turning expected off also BRIDGES the ladder — the sweep pairs each expected rung
+# with the next expected one, so disabling started moves the stall check to
+# arrived -> completed rather than leaving that segment unwatched.
+
+
+@mapping_bp.route('/ladder-profile-tab')
+@login_required
+def ladder_profile_tab():
+    """Lazy-loaded HTML fragment for the RAY7 Ladder Profile tab."""
+    if current_user.role not in ('admin', 'viewer', 'viewer2') \
+            and not user_has_page(current_user, 'mapping'):
+        return abort(403)
+    rows, seen = [], {}
+    try:
+        rows = [dict(r) for r in db.session.execute(_t("""
+            SELECT rung, ladder_rank, label, expected, enforce_order, notes, updated_at
+              FROM ray7_ladder_profile
+             ORDER BY ladder_rank
+        """)).mappings().all()]
+
+        # Evidence, the same idea as _unmapped_codes(): show what this site has
+        # actually sent per rung, so enabling a rung is a response to traffic rather
+        # than to a guess about what the interface spec says.
+        seen = {r['canonical_state']: dict(r) for r in db.session.execute(_t("""
+            SELECT canonical_state, COUNT(*) AS seen, MAX(event_time) AS last_seen
+              FROM hl7_study_events
+             GROUP BY canonical_state
+        """)).mappings().all()}
+    except Exception:
+        logging.getLogger("MAPPING").exception("could not load ray7_ladder_profile")
+
+    for r in rows:
+        ev = seen.get(r['rung'], {})
+        r['seen'] = ev.get('seen', 0)
+        r['last_seen'] = ev.get('last_seen')
+
+    return render_template('_ladder_profile_tab.html',
+                           rows=rows,
+                           configured=any(r['expected'] for r in rows))
+
+
+@mapping_bp.route('/ladder-profile/save', methods=['POST'])
+@login_required
+def ladder_profile_save():
+    """
+    Update one rung's switches.
+
+    enforce_order is forced off when expected is off, rather than being stored
+    independently. A rung the site does not send cannot meaningfully be held to an
+    arrival order, and allowing the pair (expected=false, enforce_order=true) would
+    leave a setting that reads as enforcing while doing nothing — the kind of
+    configuration that gets trusted and is not true.
+    """
+    if current_user.role != 'admin' and not user_has_page(current_user, 'mapping'):
+        return abort(403)
+
+    body = request.json or {}
+    rung = (request.form.get('rung') or body.get('rung') or '').strip()
+    if rung not in _STATE_RANK:
+        return jsonify({'error': 'unknown rung'}), 400
+
+    def _flag(name):
+        raw = request.form.get(name, body.get(name))
+        return str(raw).lower() in ('1', 'true', 'yes', 'on')
+
+    expected = _flag('expected')
+    enforce = _flag('enforce_order') and expected
+
+    try:
+        db.session.execute(_t("""
+            UPDATE ray7_ladder_profile
+               SET expected = :expected, enforce_order = :enforce, updated_at = NOW()
+             WHERE rung = :rung
+        """), {'rung': rung, 'expected': expected, 'enforce': enforce})
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        logging.getLogger("MAPPING").exception("could not save ladder profile for %s", rung)
+        return jsonify({'error': 'save failed'}), 500
+
+    _invalidate_ladder_cache()
+    return jsonify({'status': 'ok', 'rung': rung,
+                    'expected': expected, 'enforce_order': enforce})
 
 
 def _unmapped_codes():

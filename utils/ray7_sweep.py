@@ -40,7 +40,7 @@ logger = logging.getLogger("RAY7_SWEEP")
 # Each rule: the column whose timestamp starts the clock, and the SQL predicate
 # identifying studies stuck at that rung. The predicates deliberately mirror the
 # partial indexes in 0119 so the planner can use them.
-_STALL_RULES = (
+_LEGACY_STALL_RULES = (
     {
         'code': 'STALLED_SCHEDULED',
         'since': 'scheduled_at',
@@ -69,6 +69,96 @@ _STALL_RULES = (
         'note': 'the exam completed and no report followed',
     },
 )
+
+# The rung a stall is named after is the one the study is SITTING at, not the one it
+# is waiting for — which is why disabling a rung renames nothing and only moves the
+# target. The awaited column is computed from the profile at run time.
+_RUNG_COLUMN = {
+    'ordered':       'ordered_at',
+    'scheduled':     'scheduled_at',
+    'arrived':       'arrived_at',
+    'started':       'started_at',
+    'completed':     'completed_at',
+    'signed_prelim': 'signed_prelim_at',
+    'signed_final':  'signed_final_at',
+}
+
+_STALL_RULE_FOR_RUNG = {
+    'scheduled':     ('STALLED_SCHEDULED',
+                      'scheduled, and no arrival since — a no-show nobody cancelled, '
+                      'or the arrival feed has stopped'),
+    'arrived':       ('STALLED_ARRIVED',
+                      'patient arrived and the exam never started — a real wait, or '
+                      'a missing start event'),
+    'started':       ('STALLED_STARTED',
+                      'an exam left open on the device, or a completion that never '
+                      'arrived — inflates every duration metric it touches'),
+    'completed':     ('UNREPORTED',
+                      'the exam completed and no report followed'),
+    'signed_prelim': ('STALLED_UNSIGNED',
+                      'a first signature arrived and the final one never followed — '
+                      'the study reads as complete while the report is provisional'),
+}
+
+
+def _stall_rules():
+    """
+    Build the stall rules from the ladder profile, bridging over disabled rungs.
+
+    THE BRIDGE IS THE POINT. Turning a rung off must not blind the segment it sat in.
+    With started disabled, the static rules above would ask two useless questions:
+    arrived → started fires on every study forever, because the start is never
+    coming, and started → completed can never fire at all, because started_at is
+    permanently NULL. Between them a patient could arrive and never be scanned and
+    nothing would notice.
+
+    Pairing each expected rung with the NEXT expected rung instead turns that into
+    one meaningful question — arrived → completed — which is what a site without a
+    start feed actually wants to know.
+
+    An UNCONFIGURED profile (nothing expected — the state migration 0130 ships) falls
+    back to the original four rules, so this changes nothing at an install that has
+    not opted in. Silently disabling every absence rule on merge would be a far worse
+    outcome than the ones this whole design is guarding against.
+    """
+    try:
+        from utils.ray7 import ladder_profile
+        profile = ladder_profile()
+    except Exception:
+        logger.exception("RAY7 sweep: could not read ladder profile; using static rules")
+        return _LEGACY_STALL_RULES
+
+    expected = sorted(
+        (p['ladder_rank'], rung)
+        for rung, p in (profile or {}).items() if p.get('expected')
+    )
+    if not expected:
+        return _LEGACY_STALL_RULES
+
+    rules = []
+    for i, (_, rung) in enumerate(expected):
+        entry = _STALL_RULE_FOR_RUNG.get(rung)
+        if not entry:
+            continue                        # 'ordered' is ORPHAN_ORDER's job
+        code, note = entry
+        since = _RUNG_COLUMN[rung]
+
+        awaited = _RUNG_COLUMN[expected[i + 1][1]] if i + 1 < len(expected) else None
+        if awaited is None:
+            # Nothing expected above this rung. Only completion has a meaningful
+            # answer here — "reported at all", regardless of signature level — which
+            # is also what preserves UNREPORTED at a site with no signature feed.
+            if rung != 'completed':
+                continue
+            awaited = 'reported_at'
+
+        rules.append({
+            'code': code,
+            'since': since,
+            'where': f"s.{since} IS NOT NULL AND s.{awaited} IS NULL",
+            'note': note,
+        })
+    return rules
 
 # Shared shape. The ON CONFLICT predicate must match ux_ray7_findings_open_absence
 # exactly or Postgres cannot infer the index and the statement fails outright.
@@ -143,6 +233,7 @@ UPDATE ray7_findings f
             (f.rule_code = 'STALLED_ARRIVED'   AND s.started_at   IS NOT NULL) OR
             (f.rule_code = 'STALLED_STARTED'   AND s.completed_at IS NOT NULL) OR
             (f.rule_code = 'UNREPORTED'        AND s.reported_at  IS NOT NULL) OR
+            (f.rule_code = 'STALLED_UNSIGNED'  AND s.signed_final_at IS NOT NULL) OR
             (f.rule_code = 'ORPHAN_ORDER'      AND s.scheduled_at IS NOT NULL) OR
             s.cancelled_at IS NOT NULL
         ))
@@ -164,6 +255,14 @@ UPDATE ray7_findings f
         --
         -- Caught by the out_of_order scenario, which is documented as having to
         -- produce no findings and produced two.
+        -- OUT_OF_SEQUENCE_DELIVERY IS DELIBERATELY ABSENT FROM THIS LIST, and must
+        -- stay absent. The two below were judged against incomplete information and
+        -- became untrue once the rest of the lifecycle turned up. That one was true
+        -- when it was raised and stays true forever: the messages DID arrive out of
+        -- order, and no later message can change what already happened on the wire.
+        -- It is cleared by a human acknowledging it in the RAY7 console, which is
+        -- also what releases the quarantined study. Auto-resolving it would silently
+        -- re-admit data nobody had looked at.
         (f.message_archive_id IS NOT NULL AND (
             (f.rule_code = 'SKIPPED_RUNG'
                  AND s.arrived_at IS NOT NULL AND s.started_at IS NOT NULL) OR
@@ -205,7 +304,7 @@ def run_sweep():
     """
     raised = {}
 
-    for rule in _STALL_RULES:
+    for rule in _stall_rules():
         sql = _STALL_SQL.replace('{since}', rule['since']).replace('{where}', rule['where'])
         for cfg in _rule_settings(rule['code']):
             try:

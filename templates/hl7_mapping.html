@@ -80,6 +80,9 @@
                         <button class="tab-btn" onclick="switchTab('statuscodes', this)">
                             <i class="bi bi-diagram-3 mr-1"></i> Status Codes
                         </button>
+                        <button class="tab-btn" onclick="switchTab('ladder', this)">
+                            <i class="bi bi-list-ol mr-1"></i> Ladder Profile
+                        </button>
                         <button class="tab-btn" onclick="switchTab('masterdata', this)">
                             <i class="bi bi-people mr-1"></i> Master Data
                         </button>
@@ -89,6 +92,7 @@
                 <div id="tab-explorer" class="space-y-8"></div>
                 <div id="tab-fieldmap" class="space-y-8 hidden"></div>
                 <div id="tab-statuscodes" class="space-y-8 hidden"></div>
+                <div id="tab-ladder" class="space-y-8 hidden"></div>
                 <div id="tab-masterdata" class="space-y-8 hidden"></div>
 
             </div>
@@ -104,6 +108,7 @@
             explorer:    {url: '/mapping/explorer-tab',     label: 'the explorer'},
             fieldmap:    {url: '/mapping/field-map-tab',    label: 'field mappings'},
             statuscodes: {url: '/mapping/status-codes-tab', label: 'status codes'},
+            ladder:      {url: '/mapping/ladder-profile-tab', label: 'the ladder profile'},
             masterdata:  {url: '/mapping/master-data-tab',  label: 'master data'},
         };
         const loaded = {};

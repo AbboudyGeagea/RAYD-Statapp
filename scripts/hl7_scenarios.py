@@ -156,14 +156,115 @@ def sc_out_of_order():
     """
     Events delivered backwards, timestamps consistent.
 
-    Must produce NO findings. Late delivery is routine and the projector absorbs
-    it; flagging it would bury the queue in noise. This is the scenario most
-    likely to regress, because the obvious implementation gets it wrong.
+    WHAT THIS EXPECTS DEPENDS ON THE LADDER PROFILE, and that is the point.
+
+    Unconfigured (ray7_ladder_profile as migration 0130 seeds it — every rung off):
+    NO findings, exactly as before. Late delivery is routine, the projector absorbs
+    it, and an install that has not opted in must not change behaviour.
+
+    With rungs enabled and enforce_order set: one OUT_OF_SEQUENCE_DELIVERY per
+    message that arrived below a rung already reached — here IP, AR and SC, since CM
+    landed first — each CRITICAL, so the study is quarantined until acknowledged.
+
+    WHAT MUST NOT APPEAR IN EITHER MODE is SKIPPED_RUNG or ORPHAN_EVENT. Those fire
+    on the state as it stood when the message arrived, so a reversed lifecycle can
+    trip them truthfully and then become wrong once the rest lands; the sweep's
+    auto-resolve is what closes them. This scenario is still the one most likely to
+    regress, because the obvious implementation gets it wrong in one direction or
+    the other — it used to be "flags nothing that arrived late", and it is now
+    "flags the DELIVERY without flagging the DATA".
     """
     acc = '900002'
     events = lifecycle(acc, 'OOO', [('CM', 195), ('IP', 225), ('AR', 240), ('SC', 280)])
     for label, segs in events:
         send(f'reversed {label}', segs)
+
+
+def sc_provisional_order():
+    """
+    A HIS order with NO ACCESSION, then the scheduling message that mints one.
+
+    The ordered rung is the only one whose study cannot be identified by accession:
+    the RIS mints that at scheduling, so an ORM NW carries a placer order number and
+    nothing else. The lifecycle therefore opens under a provisional ~ORD: key and is
+    rekeyed onto the real accession when SC arrives.
+
+    What to check afterwards:
+      * before SC — one ray7_study_state row, is_provisional = true, ordered_at set,
+        and NOTHING in etl_didb_studies (an unscheduled order is not a study)
+      * after SC  — one row under accession 900010, is_provisional = false, and
+        ordered_at STILL SET, carried across by the rekey
+      * no ~ORD: key left anywhere in ray7_study_state, hl7_study_events,
+        ray7_findings or etl_orders.accession_number
+    """
+    acc, placer = '900010', 'PLACER-PROV-1'
+    send('ORM NW, placer only, no accession',
+         [msh('SAP_HIS', 'PROV-ORD', 'ORM^O01', ts(300)), pid(),
+          seg('ORC', {1: 'NW', 2: f'{placer}^HIS', 9: ts(300)}),
+          seg('OBR', {2: f'{placer}^HIS', 4: 'ECABDPEL^CT ABDOMEN AND PELVIS',
+                      21: 'CT64_RH', 24: 'CT'}),
+          pv1()])
+    send('ORM SC mints the accession',
+         [msh('RIS', 'PROV-SC', 'ORM^O01', ts(280)), pid(),
+          seg('ORC', {1: 'SC', 2: f'{placer}^HIS', 3: f'{acc}^HIS', 5: 'SC',
+                      9: ts(280)}),
+          obr(acc), pv1()])
+    for label, segs in lifecycle(acc, 'PROV', [('AR', 240), ('IP', 225), ('CM', 195)]):
+        send(label, segs)
+
+
+def sc_signatures():
+    """
+    The two signature rungs: OBX-11 = W then F.
+
+    Neither existed before — every ORU collapsed into a single reported_at, so
+    "signed preliminary" and "signed final" were indistinguishable and a study was
+    considered closed the moment any report arrived.
+
+    What to check: signed_prelim_at and signed_final_at both set, and is_closed only
+    TRUE after the F. A study that stops at W must stay open, or STALLED_UNSIGNED can
+    never fire — the same defect that made UNREPORTED unsatisfiable before 0130.
+    """
+    acc = '900011'
+    for label, segs in lifecycle(acc, 'SIG', [('SC', 280), ('AR', 240),
+                                              ('IP', 225), ('CM', 195)]):
+        send(label, segs)
+    send('ORU preliminary (W)',
+         [msh('PACS', 'SIG-ORU-W', 'ORU^R01', ts(180)), pid(),
+          seg('OBR', {3: f'{acc}^HIS', 4: 'ECABDPEL^CT ABDO', 22: ts(180), 24: 'CT',
+                      57: f'rad@sjh.com&Dany&Abou Chedid^^{ts(180)}'}),
+          seg('OBX', {2: 'TX', 3: 'REPORT', 5: 'Preliminary read.', 11: 'W'})])
+    send('ORU final (F)',
+         [msh('PACS', 'SIG-ORU-F', 'ORU^R01', ts(120)), pid(),
+          seg('OBR', {3: f'{acc}^HIS', 4: 'ECABDPEL^CT ABDO', 22: ts(120), 24: 'CT',
+                      57: f'rad@sjh.com&Dany&Abou Chedid^^{ts(120)}'}),
+          seg('OBX', {2: 'TX', 3: 'REPORT', 5: 'No acute abnormality.', 11: 'F'}),
+          seg('OBX', {2: 'TX', 3: 'IMPRESSION', 5: 'Normal study.', 11: 'F'})])
+
+
+def sc_signature_reversed():
+    """
+    The final signature delivered BEFORE the preliminary one.
+
+    Exercises two things at once: that the most final OBX wins when a report carries
+    mixed statuses, and that a late W behind an already-recorded F is an
+    OUT_OF_SEQUENCE_DELIVERY rather than a regression — the timestamps are
+    consistent, only the delivery was not.
+
+    Silent unless signed_prelim and signed_final are both enabled with enforce_order.
+    """
+    acc = '900012'
+    for label, segs in lifecycle(acc, 'SIGR', [('SC', 280), ('AR', 240),
+                                               ('IP', 225), ('CM', 195)]):
+        send(label, segs)
+    send('ORU final (F) arrives first',
+         [msh('PACS', 'SIGR-F', 'ORU^R01', ts(120)), pid(),
+          seg('OBR', {3: f'{acc}^HIS', 4: 'ECABDPEL^CT ABDO', 22: ts(120), 24: 'CT'}),
+          seg('OBX', {2: 'TX', 3: 'REPORT', 5: 'Final read.', 11: 'F'})])
+    send('ORU preliminary (W) arrives late, stamped earlier',
+         [msh('PACS', 'SIGR-W', 'ORU^R01', ts(180)), pid(),
+          seg('OBR', {3: f'{acc}^HIS', 4: 'ECABDPEL^CT ABDO', 22: ts(180), 24: 'CT'}),
+          seg('OBX', {2: 'TX', 3: 'REPORT', 5: 'Preliminary read.', 11: 'W'})])
 
 
 def sc_time_contradiction():
@@ -302,6 +403,9 @@ def sc_load(studies=100):
 SCENARIOS = {
     'happy_path':          sc_happy_path,
     'out_of_order':        sc_out_of_order,
+    'provisional_order':   sc_provisional_order,
+    'signatures':          sc_signatures,
+    'signature_reversed':  sc_signature_reversed,
     'time_contradiction':  sc_time_contradiction,
     'duplicates':          sc_duplicates,
     'unmapped_code':       sc_unmapped_code,

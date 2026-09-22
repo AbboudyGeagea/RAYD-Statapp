@@ -38,6 +38,8 @@ class Ctx:
     RUNGS = ray7._Context.RUNGS
     def __init__(self, **rungs):
         self.siblings = []
+        self.matched_by = 'accession'
+        self.ambiguous = []
         self.state = dict(rungs) if rungs else None
         if self.state is not None:
             ranks = [r for r, c in self.RUNGS if self.state.get(c)]
@@ -95,6 +97,131 @@ check("completed with no arrival or start -> flags",
 check("completed with full ladder -> silent",
       codes(ray7._rule_skipped_rung(msg(100, 'completed', T(12)),
                                     Ctx(arrived_at=T(9), started_at=T(10)))), [])
+
+
+# ── The ladder profile and the sequence layer it governs ──────────────────────
+#
+# Everything below depends on ray7_ladder_profile, which is a table. Pinning the
+# cache directly is how these stay offline: _cached() serves a fresh entry without
+# ever calling its loader, so no database is touched.
+
+_RUNGS = [('ordered', 20), ('scheduled', 40), ('arrived', 60), ('started', 70),
+          ('completed', 100), ('signed_prelim', 120), ('signed_final', 140)]
+
+def profile(expected=(), enforced=()):
+    """Pin a ladder profile. Empty = the unconfigured state 0130 ships."""
+    import time
+    ray7._cache['ladder'] = (time.time(), {
+        rung: {'rung': rung, 'ladder_rank': rank, 'label': rung,
+               'expected': rung in expected, 'enforce_order': rung in enforced}
+        for rung, rank in _RUNGS
+    })
+
+ALL = [r for r, _ in _RUNGS]
+
+print("\nOUT_OF_SEQUENCE_DELIVERY — arrival order, not timestamps")
+profile(expected=ALL, enforced=ALL)
+# Arrived (60) delivered after Completed (100) landed, stamped EARLIER so the events
+# themselves are sound. LADDER_REGRESSION stays silent on this; the new rule is
+# precisely what catches it.
+check("late delivery, timestamps consistent -> quarantines",
+      codes(ray7._rule_out_of_sequence(msg(60, 'arrived', T(9)),
+                                       Ctx(completed_at=T(11)))),
+      ['OUT_OF_SEQUENCE_DELIVERY'])
+check("  ...and it is critical",
+      [f.severity for f in ray7._rule_out_of_sequence(msg(60, 'arrived', T(9)),
+                                                      Ctx(completed_at=T(11)))],
+      ['critical'])
+# The contradictory case belongs to LADDER_REGRESSION. Both firing would quarantine
+# on the strength of a rule that says it is describing something else.
+check("timestamps contradict -> silent (LADDER_REGRESSION owns it)",
+      codes(ray7._rule_out_of_sequence(msg(60, 'arrived', T(13)),
+                                       Ctx(completed_at=T(11)))), [])
+check("forward progress -> silent",
+      codes(ray7._rule_out_of_sequence(msg(100, 'completed', T(12)),
+                                       Ctx(arrived_at=T(9)))), [])
+check("unknown study -> silent",
+      codes(ray7._rule_out_of_sequence(msg(60, 'arrived', T(9)), Ctx())), [])
+
+print("\nOUT_OF_SEQUENCE_DELIVERY — the off switch")
+profile()                       # nothing configured: the state on arrival
+check("unconfigured profile -> silent",
+      codes(ray7._rule_out_of_sequence(msg(60, 'arrived', T(9)),
+                                       Ctx(completed_at=T(11)))), [])
+profile(expected=ALL, enforced=[r for r in ALL if r != 'arrived'])
+check("rung expected but not enforced -> silent",
+      codes(ray7._rule_out_of_sequence(msg(60, 'arrived', T(9)),
+                                       Ctx(completed_at=T(11)))), [])
+# The rung it is late RELATIVE TO must also be enforced, or disabling one rung would
+# still quarantine its neighbours.
+profile(expected=ALL, enforced=[r for r in ALL if r != 'completed'])
+check("reached rung not enforced -> silent",
+      codes(ray7._rule_out_of_sequence(msg(60, 'arrived', T(9)),
+                                       Ctx(completed_at=T(11)))), [])
+
+print("\nUNEXPECTED_RUNG — and the all-off flood guard")
+profile()
+# THE REGRESSION THIS GUARDS. 0130 seeds every rung expected=FALSE, which read
+# literally means "this site sends none of these" — and would fire on every message
+# at every install the moment the migration landed.
+check("unconfigured profile -> silent, not a flood",
+      codes(ray7._rule_unexpected_rung(msg(70, 'started', T(10)), Ctx())), [])
+profile(expected=['scheduled', 'arrived', 'completed'])
+check("rung the site says it does not send -> info",
+      codes(ray7._rule_unexpected_rung(msg(70, 'started', T(10)), Ctx())),
+      ['UNEXPECTED_RUNG'])
+check("rung the site does send -> silent",
+      codes(ray7._rule_unexpected_rung(msg(60, 'arrived', T(10)), Ctx())), [])
+
+print("\nSKIPPED_RUNG respects the profile")
+profile(expected=['scheduled', 'arrived', 'completed'])   # no 'started' at this site
+check("disabled rung is not a skipped rung",
+      codes(ray7._rule_skipped_rung(msg(100, 'completed', T(12)),
+                                    Ctx(arrived_at=T(9)))), [])
+check("an expected rung that IS missing still flags",
+      codes(ray7._rule_skipped_rung(msg(100, 'completed', T(12)),
+                                    Ctx(scheduled_at=T(8)))), ['SKIPPED_RUNG'])
+print("\nSTALL RULE BRIDGING — a disabled rung must not blind its segment")
+import utils.ray7_sweep as sweep
+
+def bridge(expected):
+    profile(expected=expected)
+    return {r['code']: r['where'] for r in sweep._stall_rules()}
+
+# Full ladder, no signature feed: completion still waits on reported_at, which is
+# what preserves UNREPORTED at a site that never sends W or F.
+b = bridge(['scheduled', 'arrived', 'started', 'completed'])
+check("arrived waits on started",
+      b.get('STALLED_ARRIVED'), "s.arrived_at IS NOT NULL AND s.started_at IS NULL")
+check("completed falls back to reported_at",
+      b.get('UNREPORTED'), "s.completed_at IS NOT NULL AND s.reported_at IS NULL")
+
+# THE BRIDGE. With started disabled the static rules would ask two useless
+# questions — arrived->started fires forever, started->completed can never fire —
+# leaving a patient able to arrive and never be scanned with nothing noticing.
+b = bridge(['scheduled', 'arrived', 'completed'])
+check("started disabled -> arrived waits on completed instead",
+      b.get('STALLED_ARRIVED'), "s.arrived_at IS NOT NULL AND s.completed_at IS NULL")
+check("started disabled -> no rule named for it",
+      'STALLED_STARTED' in b, False)
+
+# With signature rungs on, completion waits on the first signature rather than on
+# "a report of any kind", and the prelim->final gap becomes its own question.
+b = bridge(['completed', 'signed_prelim', 'signed_final'])
+check("completed waits on the first signature",
+      b.get('UNREPORTED'), "s.completed_at IS NOT NULL AND s.signed_prelim_at IS NULL")
+check("prelim waits on final",
+      b.get('STALLED_UNSIGNED'),
+      "s.signed_prelim_at IS NOT NULL AND s.signed_final_at IS NULL")
+
+# An unconfigured profile must keep the original four rules. Silently disabling every
+# absence rule on merge would be worse than anything this design guards against.
+profile()
+check("unconfigured -> falls back to the static rules",
+      [r['code'] for r in sweep._stall_rules()],
+      ['STALLED_SCHEDULED', 'STALLED_ARRIVED', 'STALLED_STARTED', 'UNREPORTED'])
+
+profile()   # leave the cache unconfigured for anything after this
 check("walk-in: no scheduled rung is fine -> silent",
       codes(ray7._rule_skipped_rung(msg(100, 'completed', T(12)),
                                     Ctx(arrived_at=T(9), started_at=T(10)))), [])

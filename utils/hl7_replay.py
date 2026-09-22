@@ -146,12 +146,23 @@ UPDATE ray7_study_state s
 """
 
 
-def replay(app, limit=None, since_id=0, rescreen=True, dry_run=False):
+def replay(app, limit=None, since_id=0, rescreen=True, dry_run=False, archive_ids=None):
     """
     Walk the archive in arrival order and rebuild everything derived from it.
 
     limit / since_id scope the run — useful for replaying only what arrived after a
     parser fix rather than the entire history.
+
+    archive_ids scopes it to an explicit set of messages, which is how the RAY7
+    console releases ONE quarantined study: the operator acknowledges the finding and
+    exactly that study's messages are reprojected, rather than the whole archive.
+
+    RELEASING ALWAYS PASSES rescreen=False, and the reason is easy to miss. The
+    screening that quarantined the study would run again here — against a
+    ray7_study_state that now contains the very rungs it complained about — so
+    OUT_OF_SEQUENCE_DELIVERY would fire a second time and re-quarantine the study the
+    operator just cleared. The button would appear to do nothing. The human's
+    acknowledgement IS the judgement; re-running the machine's is not wanted.
 
     Returns a dict of counters.
     """
@@ -164,15 +175,23 @@ def replay(app, limit=None, since_id=0, rescreen=True, dry_run=False):
              'quarantined': 0, 'projected': 0}
 
     with app.app_context():
-        rows = db.session.execute(text("""
-            SELECT id, raw_message, source_ip
-              FROM hl7_message_archive
-             WHERE id > :since
-             ORDER BY id
-             {limit}
-        """.replace('{limit}', 'LIMIT :lim' if limit else '')),
-            {'since': since_id, 'lim': limit} if limit else {'since': since_id}
-        ).fetchall()
+        if archive_ids:
+            rows = db.session.execute(text("""
+                SELECT id, raw_message, source_ip
+                  FROM hl7_message_archive
+                 WHERE id = ANY(:ids)
+                 ORDER BY id
+            """), {'ids': list(archive_ids)}).fetchall()
+        else:
+            rows = db.session.execute(text("""
+                SELECT id, raw_message, source_ip
+                  FROM hl7_message_archive
+                 WHERE id > :since
+                 ORDER BY id
+                 {limit}
+            """.replace('{limit}', 'LIMIT :lim' if limit else '')),
+                {'since': since_id, 'lim': limit} if limit else {'since': since_id}
+            ).fetchall()
 
         stats['read'] = len(rows)
         logger.info("Replay: %d archived message(s) to process", len(rows))
@@ -183,7 +202,11 @@ def replay(app, limit=None, since_id=0, rescreen=True, dry_run=False):
         # itself is never touched: a bad replay must not be able to destroy the one
         # copy of the source data.
         ids = [r[0] for r in rows]
-        full_replay = (since_id == 0 and not limit)
+        # `not archive_ids` is load-bearing: a targeted release passes no since_id and
+        # no limit, so without it every single-study release would satisfy this test
+        # and DELETE the whole of ray7_study_state on its way past — destroying every
+        # other study's lifecycle to re-admit one.
+        full_replay = (since_id == 0 and not limit and not archive_ids)
 
         if ids:
             try:
