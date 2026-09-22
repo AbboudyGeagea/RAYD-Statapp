@@ -96,15 +96,60 @@ NEGATION_PREFIXES = [
     'absence of ', 'absent ', 'free of ',
     'ruled out', 'no acute ', 'no definite ', 'no demonstrable ',
     'denies ', 'denied ', 'no identified ',
+
+    # ENGLISH ONLY (operator decision, 2026-09-22). French cues were added here
+    # briefly and removed the same day: 'non ' matched the standard radiology
+    # phrase "Non contrast CT" and suppressed everything after it —
+    # "Non contrast CT of the head demonstrates acute hemorrhage" scored as
+    # NOTHING. A missed critical finding costs more than an extra one, so an
+    # unused-language cue that can over-negate has no place on this path.
 ]
 
-def _is_negated(t, match_start, window=80):
+# Cues that follow the finding instead of preceding it. A backward-only scan can
+# never see these, which is why 'ruled out' sat in the list above doing nothing —
+# English puts it after the finding ("Pneumothorax was ruled out"), not before.
+NEGATION_POSTFIXES = [
+    'ruled out', 'is absent', 'are absent', 'was excluded', 'were excluded',
+    'not seen', 'not identified', 'not visualized', 'not visualised',
+    'not demonstrated', 'not present', 'excluded',
+    ': none', ':none', ': nil', ': negative', ': absent',
+]
+
+
+def _is_negated(t, match_start, window=80, match_end=None, fwd_window=40):
+    """
+    Whether the finding at match_start is negated.
+
+    Scans BACKWARD for a prefix cue, and — when match_end is supplied — FORWARD
+    for a postfix cue. Both scans stop at a sentence boundary so a cue cannot
+    reach across a full stop and suppress an unrelated finding in the next
+    sentence; over-negating is a false NEGATIVE, which is the expensive direction
+    clinically.
+
+    The forward scan is narrower than the backward one on purpose: postfix cues
+    sit immediately after the finding ("X: none", "X was ruled out"), whereas a
+    prefix cue can be separated from it by a longer noun phrase.
+    """
+    seps = ('.', '\n', ';', '?', '!')
+
     segment = t[max(0, match_start - window):match_start]
-    for sep in ('.', '\n', ';', '?', '!'):
+    for sep in seps:
         last_sep = segment.rfind(sep)
         if last_sep != -1:
             segment = segment[last_sep + 1:]
-    return any(neg in segment for neg in NEGATION_PREFIXES)
+    if any(neg in segment for neg in NEGATION_PREFIXES):
+        return True
+
+    if match_end is not None:
+        tail = t[match_end:match_end + fwd_window]
+        for sep in seps:
+            first_sep = tail.find(sep)
+            if first_sep != -1:
+                tail = tail[:first_sep]
+        if any(neg in tail for neg in NEGATION_POSTFIXES):
+            return True
+
+    return False
 
 
 # ── Critical keyword groups ───────────────────────────────────────────────────
@@ -157,8 +202,16 @@ def _init_vocabulary():
           f"{len(CRITICAL)} critical keywords.")
 
 
-# Bump when the model or vocabulary changes — triggers re-analysis of stale rows
-_NLP_MODEL_VERSION = 'medspacy-v1'
+# Bump when the model or vocabulary changes — triggers re-analysis of stale rows.
+#
+# Two values, because which engine produced a row is a property of the row, not of
+# the build: the rule-based fallback can run at any time and scores worse on
+# negation, so rows it produced must be identifiable and re-analysable once
+# medspaCy is healthy again. Query for the fallback value to find them:
+#   SELECT count(*) FROM hl7_oru_analysis WHERE nlp_version = 'rulebased-v1';
+_ENGINE_MEDSPACY = 'medspacy-v1'
+_ENGINE_FALLBACK = 'rulebased-v1'
+_NLP_MODEL_VERSION = _ENGINE_MEDSPACY      # kept for callers that import it
 
 _CHUNK           = 500
 _BATCH_LIMIT      = 2000
@@ -202,18 +255,40 @@ def _load_medspacy():
                 seen.add(kw)
         target_matcher.add(rules)
 
+        # ENGLISH ONLY (operator decision, 2026-09-22): the reporting audience is
+        # English, so medspaCy's built-in English ConText rules are the whole rule
+        # set and no language extensions are registered.
+        #
+        # A French rule block used to live here and was REMOVED because one of its
+        # rules was actively harmful on English text:
+        #
+        #     ConTextRule("non", "NEGATED_EXISTENCE", direction="FORWARD")
+        #
+        # spaCy tokenises "Non-contrast" as "Non" + "-" + "contrast", so that rule
+        # matched the standard radiology phrase "Non contrast CT" / "Non-contrast CT"
+        # and negated everything after it. Measured 2026-09-22:
+        #
+        #     "Non contrast CT of the head demonstrates acute hemorrhage."  -> NOTHING
+        #     "Non-contrast CT demonstrates hemorrhage."                    -> NOTHING
+        #
+        # That is a silently MISSED critical finding on one of the most common
+        # phrasings in CT reporting — the expensive direction of error. The other
+        # French rules were harmless but useless here, and went with it.
+        #
+        # If a French-reporting site is ever onboarded, restore them from git
+        # history WITHOUT "non", and add the French diagnosis phrases to
+        # oru_diagnosis_vocabulary at the same time — the target terms are English
+        # too, so French cues alone would not have detected anything to negate.
+        #
+        # What IS registered: a small English supplement for post-posed cues the
+        # stock rule set misses. medspaCy already handles "X was ruled out" but not
+        # "X excluded", which scored a false positive on the 2026-09-22 corpus.
+        # BACKWARD because these cues follow the finding they negate.
         context = nlp.get_pipe("medspacy_context")
         context.add([
-            ConTextRule("pas de",        "NEGATED_EXISTENCE", direction="FORWARD"),
-            ConTextRule("sans",          "NEGATED_EXISTENCE", direction="FORWARD"),
-            ConTextRule("absence de",    "NEGATED_EXISTENCE", direction="FORWARD"),
-            ConTextRule("aucun",         "NEGATED_EXISTENCE", direction="FORWARD"),
-            ConTextRule("aucune",        "NEGATED_EXISTENCE", direction="FORWARD"),
-            ConTextRule("négatif pour",  "NEGATED_EXISTENCE", direction="FORWARD"),
-            ConTextRule("négatif",       "NEGATED_EXISTENCE", direction="FORWARD"),
-            ConTextRule("non",           "NEGATED_EXISTENCE", direction="FORWARD"),
-            ConTextRule("exclu",         "NEGATED_EXISTENCE", direction="BIDIRECTIONAL"),
-            ConTextRule("écarté",        "NEGATED_EXISTENCE", direction="BIDIRECTIONAL"),
+            ConTextRule("excluded",     "NEGATED_EXISTENCE", direction="BACKWARD"),
+            ConTextRule("is excluded",  "NEGATED_EXISTENCE", direction="BACKWARD"),
+            ConTextRule("was excluded", "NEGATED_EXISTENCE", direction="BACKWARD"),
         ])
 
         _NLP = nlp
@@ -231,14 +306,29 @@ def _affirmed_phrases_rule_based(t):
     for pos, phrase in _PHRASE_AUTOMATON.find_all(t):
         if phrase in found:
             continue
-        if not _is_negated(t, pos):
+        if not _is_negated(t, pos, match_end=pos + len(phrase)):
             found.add(phrase)
     return found
 
 
 def _affirmed_phrases_batch(texts):
+    """
+    Returns (affirmed_sets, engine) — the engine being which path actually ran.
+
+    THE ENGINE IS RETURNED, NOT ASSUMED. This used to fall through to the
+    rule-based path on any exception, silently, and the caller stamped every row
+    'medspacy-v1' regardless. A batch degraded by a transient spaCy
+    multiprocessing failure was therefore indistinguishable in the data from a
+    genuine medspaCy analysis — while scoring measurably worse on negation
+    (9/14 vs 14/14 on the 2026-09-22 corpus, all five errors false positives).
+
+    "The NLP analysed this and found nothing" must never be indistinguishable
+    from "the NLP could not look properly", which is the same rule RAY7 follows
+    with RAY7_DEGRADED. Recording the engine is what makes a degraded run
+    findable afterwards instead of permanently invisible.
+    """
     if not texts:
-        return []
+        return [], _ENGINE_MEDSPACY
     cleaned = [(t or '').lower()[:8000] for t in texts]
     nlp = _load_medspacy()
 
@@ -250,14 +340,23 @@ def _affirmed_phrases_batch(texts):
                 for doc in docs
             ]
         try:
-            return _docs_to_sets(nlp.pipe(cleaned, batch_size=64, n_process=_NLP_WORKERS))
-        except Exception:
+            return _docs_to_sets(
+                nlp.pipe(cleaned, batch_size=64, n_process=_NLP_WORKERS)), _ENGINE_MEDSPACY
+        except Exception as exc:
+            # Loud, not silent. Multiprocessing is the usual casualty under
+            # memory pressure and single-process almost always succeeds, so this
+            # is a recoverable degradation worth seeing in the logs.
+            print(f"[NLP Worker] medspaCy n_process={_NLP_WORKERS} failed ({exc}); "
+                  f"retrying single-process.")
             try:
-                return _docs_to_sets(nlp.pipe(cleaned, batch_size=64, n_process=1))
-            except Exception:
-                pass
+                return _docs_to_sets(
+                    nlp.pipe(cleaned, batch_size=64, n_process=1)), _ENGINE_MEDSPACY
+            except Exception as exc2:
+                print(f"[NLP Worker] medspaCy single-process ALSO failed ({exc2}); "
+                      f"falling back to rule-based matching for {len(cleaned)} report(s). "
+                      f"Negation accuracy is reduced — rows stamped '{_ENGINE_FALLBACK}'.")
 
-    return [_affirmed_phrases_rule_based(t) for t in cleaned]
+    return [_affirmed_phrases_rule_based(t) for t in cleaned], _ENGINE_FALLBACK
 
 
 # ── PostgreSQL ────────────────────────────────────────────────────────────────
@@ -296,7 +395,7 @@ def run_batch():
         for chunk_start in range(0, total, _CHUNK):
             chunk  = rows[chunk_start:chunk_start + _CHUNK]
             texts  = [(r.impression_text or r.report_text or '') for r in chunk]
-            affirmed_list = _affirmed_phrases_batch(texts)
+            affirmed_list, engine = _affirmed_phrases_batch(texts)
 
             for r, affirmed in zip(chunk, affirmed_list):
                 seen, labels = set(), []
@@ -314,7 +413,7 @@ def run_batch():
                                 (report_id, affirmed_labels, is_critical, nlp_version, analyzed_at)
                             VALUES (%s, %s::TEXT[], %s, %s, NOW())
                             ON CONFLICT (report_id) DO NOTHING
-                        """, (r.id, pg_array, len(labels) > 0, _NLP_MODEL_VERSION))
+                        """, (r.id, pg_array, len(labels) > 0, engine))
                     # Commit per row: a failure on one row must only roll back that
                     # row, not every prior success in this chunk (previously a
                     # single rollback() here discarded the whole chunk-so-far).
