@@ -49,6 +49,16 @@ ETL_TABLES = [
 
 
 def truncate_etl_tables(engine):
+    warn("aetitle_modality_map is in the list above and is CONFIGURATION, not ETL output.")
+    warn("Its CASCADE also drops device_weekly_schedule and device_exceptions.")
+    warn("The ETL re-seeds only (aetitle, modality, 480) — every tuned capacity,")
+    warn("opening hour, room name and exclude_from_stats flag is LOST, and")
+    warn("device_exceptions has no ETL writer at all, so it never comes back.")
+    warn("")
+    warn("Prefer ./clean_db.sh <branch>, which backs those up first and verifies")
+    warn("the backup is non-empty before it truncates anything.")
+    warn("")
+
     table_list = ", ".join(ETL_TABLES)
     with engine.begin() as conn:
         info(f"Truncating: {table_list}")
