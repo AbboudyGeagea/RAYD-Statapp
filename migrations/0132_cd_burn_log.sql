@@ -58,7 +58,7 @@ SELECT
   COUNT(DISTINCT id) as burn_events,
   COUNT(DISTINCT DATE(timestamp)) as burn_days,
   SUM(copies_count) as total_copies,
-  SUM(COALESCE(json_array_length(studies), 0)) as total_studies,
+  SUM(COALESCE(jsonb_array_length(studies), 0)) as total_studies,
   COUNT(DISTINCT facility_code) as facilities,
   SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as successful_burns,
   SUM(CASE WHEN status != 'success' THEN 1 ELSE 0 END) as failed_burns,

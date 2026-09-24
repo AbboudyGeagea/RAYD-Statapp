@@ -10,8 +10,8 @@ Endpoints:
 """
 import logging
 from datetime import datetime
-from flask import Blueprint, request, jsonify, current_user
-from flask_login import login_required
+from flask import Blueprint, request, jsonify
+from flask_login import login_required, current_user
 from sqlalchemy.exc import IntegrityError
 
 from db import db, CDLog

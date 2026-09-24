@@ -13,8 +13,8 @@ Routes:
 """
 import logging
 from datetime import datetime, timedelta
-from flask import Blueprint, render_template, request, jsonify, current_user
-from flask_login import login_required
+from flask import Blueprint, render_template, request, jsonify
+from flask_login import login_required, current_user
 from sqlalchemy import text, func
 
 from db import db, CDLog
