@@ -240,6 +240,14 @@
                         <a href="{{ url_for('viewer.viewer_report', report_id=report.report_id) }}" target="_blank" class="w-full py-3 bg-emerald-600 text-white text-center text-xs font-black uppercase tracking-widest rounded-xl">Monitor System</a>
                     </div>
                     {% endfor %}
+
+                    <!-- Report 30: CD Burn Audit -->
+                    <div class="card-custom p-6 flex flex-col hover:border-[#60a5fa]/30 transition-colors">
+                        <div class="p-2.5 bg-blue-400/10 rounded-xl text-blue-400 w-fit mb-4"><i class="bi bi-disc text-xl"></i></div>
+                        <h3 class="text-base font-bold text-white mb-2">CD Burn Audit</h3>
+                        <p class="text-slate-400 text-xs leading-relaxed mb-6 flex-1">Track DICOM CD/DVD distribution: burn events, success rates, copies per facility. Audit trail of who burned what, when. Validate UIDs against Orthanc.</p>
+                        <a href="{{ url_for('report_30.report_30') }}" target="_blank" class="w-full py-3 bg-blue-600 text-white text-center text-xs font-black uppercase tracking-widest rounded-xl">Open Report 30</a>
+                    </div>
                 </div>
 
                 <!-- ── Report AI Tab ── -->
@@ -278,13 +286,6 @@
                         <h3 class="text-base font-bold text-white mb-2">Capacity Ladder</h3>
                         <p class="text-slate-400 text-xs leading-relaxed mb-6 flex-1">Visual daily schedule for every modality. Utilization bars per AE, drill-down timeline, and gap suggestions — which procedures fit in open slots based on your real device schedule.</p>
                         <a href="{{ url_for('capacity_ladder.capacity_ladder_page') }}" target="_blank" class="w-full py-3 bg-green-600 text-white text-center text-xs font-black uppercase tracking-widest rounded-xl">Open Capacity Ladder</a>
-                    </div>
-
-                    <div class="card-custom p-6 flex flex-col hover:border-[#60a5fa]/30 transition-colors">
-                        <div class="p-2.5 bg-blue-400/10 rounded-xl text-blue-400 w-fit mb-4"><i class="bi bi-disc text-xl"></i></div>
-                        <h3 class="text-base font-bold text-white mb-2">CD Burn Audit</h3>
-                        <p class="text-slate-400 text-xs leading-relaxed mb-6 flex-1">Track DICOM CD/DVD distribution: burn events, success rates, copies per facility. Audit who burned what, when, and validate UIDs against Orthanc. Requires admin privileges.</p>
-                        <a href="{{ url_for('report_30.report_30') }}" target="_blank" class="w-full py-3 bg-blue-600 text-white text-center text-xs font-black uppercase tracking-widest rounded-xl">Open Report 30</a>
                     </div>
 
                 </div>
