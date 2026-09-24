@@ -543,6 +543,86 @@ fi
 # expected state, not a failed install.
 
 # ──────────────────────────────────────────────────────
+# STEP 6: Initial User Setup (HL7 Branch)
+# ──────────────────────────────────────────────────────
+echo ""
+echo "  ── Initial User Setup ──────────────────────────────"
+echo ""
+
+# Create Super User (axadmin) — requires password reset on first login
+info "Creating Super User (SU) account..."
+
+# Generate password hash using Python + werkzeug
+from werkzeug.security import generate_password_hash
+AXADMIN_HASH=$(python3 << 'PYHASH'
+from werkzeug.security import generate_password_hash
+print(generate_password_hash("axilum2000", method="pbkdf2:sha256"))
+PYHASH
+)
+
+pg_exec "
+INSERT INTO users (username, password_hash, role, email, status, must_change_password, created_at)
+VALUES ('axadmin', '${AXADMIN_HASH}', 'su', 'admin@intermedic.com', 'active', true, NOW())
+ON CONFLICT (username) DO NOTHING;
+"
+ok "Super User 'axadmin' created (must change password on first login)."
+
+# Prompt Implementation team to create their user
+echo ""
+echo "  ── Implementation Team Account ──────────────────────"
+echo "  The Implementation team will use this account to configure:"
+echo "    • HL7→DB mappings"
+echo "    • Modalities and procedures"
+echo "    • CSV imports"
+echo "    • Backend system configuration"
+echo ""
+
+read -r -p "  Create Implementation user now? (Y/n): " CREATE_IMPL
+CREATE_IMPL="${CREATE_IMPL,,}"
+
+if [[ "$CREATE_IMPL" != "n" && "$CREATE_IMPL" != "no" ]]; then
+    read -r -p "  Implementation username: " IMPL_USERNAME
+    while [ -z "$IMPL_USERNAME" ]; then
+        read -r -p "  Username cannot be empty. Try again: " IMPL_USERNAME
+    done
+
+    read -r -sp "  Implementation password: " IMPL_PASSWORD
+    echo ""
+    while [ -z "$IMPL_PASSWORD" ]; then
+        read -r -sp "  Password cannot be empty. Try again: " IMPL_PASSWORD
+        echo ""
+    done
+
+    read -r -sp "  Confirm password: " IMPL_PASSWORD_CONFIRM
+    echo ""
+    while [ "$IMPL_PASSWORD" != "$IMPL_PASSWORD_CONFIRM" ]; do
+        warn "Passwords do not match. Try again."
+        read -r -sp "  Password: " IMPL_PASSWORD
+        echo ""
+        read -r -sp "  Confirm: " IMPL_PASSWORD_CONFIRM
+        echo ""
+    done
+
+    # Hash the implementation password
+    IMPL_HASH=$(python3 << PYHASH2
+from werkzeug.security import generate_password_hash
+print(generate_password_hash("${IMPL_PASSWORD}", method="pbkdf2:sha256"))
+PYHASH2
+)
+
+    pg_exec "
+INSERT INTO users (username, password_hash, role, status, created_at)
+VALUES ('${IMPL_USERNAME}', '${IMPL_HASH}', 'implementation', 'active', NOW())
+ON CONFLICT (username) DO NOTHING;
+"
+    ok "Implementation user '${IMPL_USERNAME}' created."
+else
+    echo "  Skipping Implementation user creation. You can add one manually later via /admin/users"
+fi
+
+echo ""
+
+# ──────────────────────────────────────────────────────
 # DONE
 # ──────────────────────────────────────────────────────
 echo ""
