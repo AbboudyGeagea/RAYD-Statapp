@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, redirect, url_for, flash, jsonify, request, abort
+from flask import Blueprint, render_template, redirect, url_for, flash, jsonify, request, abort, current_app
 from flask_login import login_required, current_user
 from db import User, ReportTemplate, ReportAccessControl, UserPagePermission, SchedulingEntry, UserAuditLog, active_sessions, db
 from sqlalchemy import func, text
@@ -44,6 +44,61 @@ def admin_dashboard():
         demo_start     = demo_start,
         demo_end       = demo_end,
     )
+
+
+@admin_bp.route('/users/create', methods=['POST'])
+@login_required
+def create_user():
+    if current_user.role not in ('su', 'administrator'):
+        return jsonify({'status': 'error', 'message': 'Permission denied'}), 403
+
+    from werkzeug.security import generate_password_hash
+
+    username = request.json.get('username', '').strip()
+    password = request.json.get('password', '').strip()
+    role = request.json.get('role', 'user').lower()
+    email = request.json.get('email', '').strip() or None
+    full_name = request.json.get('full_name', '').strip() or None
+
+    if not username or not password:
+        return jsonify({'status': 'error', 'message': 'Username and password required'}), 400
+
+    if len(password) < 6:
+        return jsonify({'status': 'error', 'message': 'Password must be at least 6 characters'}), 400
+
+    if role not in ('su', 'implementation', 'administrator', 'user'):
+        return jsonify({'status': 'error', 'message': 'Invalid role'}), 400
+
+    if User.query.filter_by(username=username).first():
+        return jsonify({'status': 'error', 'message': 'Username already exists'}), 400
+
+    try:
+        new_user = User(
+            username=username,
+            password_hash=generate_password_hash(password, method='pbkdf2:sha256'),
+            role=role,
+            status='active',
+            email=email,
+            full_name=full_name
+        )
+        db.session.add(new_user)
+        db.session.flush()
+
+        db.session.add(UserAuditLog(
+            actor_user_id=current_user.id,
+            target_user_id=new_user.id,
+            action='user_created',
+            event_category='user_mgmt',
+            detail={'username': username, 'role': role},
+            ip_address=request.remote_addr
+        ))
+        db.session.commit()
+
+        return jsonify({'status': 'ok', 'user_id': new_user.id, 'message': f'User {username} created'}), 201
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"User creation error: {e}")
+        return jsonify({'status': 'error', 'message': 'Database error'}), 500
 
 
 # ── Scheduling module REMOVED at LAUMC (page + cancel/arrive/reschedule/suggest routes) ──
