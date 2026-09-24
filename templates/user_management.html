@@ -5,6 +5,7 @@
     <title>RAYD | User Management</title>
     <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
         :root { --accent: #60a5fa; --bg: #181f1c; --surface: #232b28; --border: #28332e; --surface2: #1d2522; }
         body { font-family: 'Inter', sans-serif; background: var(--bg); color: #e2e8f0; }
@@ -551,7 +552,17 @@
     async function drawerForceReset() {
         const uid = window._drawerUserId;
         const u = USERS[uid];
-        if (!confirm(`Force "${u.username}" to change their password on next login?`)) return;
+        const result = await Swal.fire({
+            title: `Force password reset for "${u.username}"?`,
+            text: 'They must change their password on next login.',
+            icon: 'info',
+            showCancelButton: true,
+            confirmButtonColor: '#60a5fa',
+            cancelButtonColor: '#64748b',
+            confirmButtonText: 'Force Reset',
+            cancelButtonText: 'Cancel'
+        });
+        if (!result.isConfirmed) return;
         const data = await api('{{ url_for("admin.force_password_reset") }}', {user_id: uid});
         if (data.status === 'ok') { toast('Password reset flagged'); USERS[uid].must_change_pw = true; openDrawer(uid); }
         else toast('Error', false);
@@ -571,7 +582,17 @@
         const uid = window._drawerUserId;
         const u = USERS[uid];
         if (u.status === 'active') {
-            if (!confirm(`Disable "${u.username}"? All active sessions will be revoked.`)) return;
+            const result = await Swal.fire({
+                title: `Disable "${u.username}"?`,
+                text: 'All active sessions will be revoked.',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#ef4444',
+                cancelButtonColor: '#64748b',
+                confirmButtonText: 'Disable Account',
+                cancelButtonText: 'Cancel'
+            });
+            if (!result.isConfirmed) return;
             const data = await api('{{ url_for("admin.disable_user") }}', {user_id: uid});
             if (data.status === 'ok') {
                 USERS[uid].status = 'disabled'; USERS[uid].sessions = 0;
@@ -588,7 +609,17 @@
 
     async function drawerRevokeSessions() {
         const uid = window._drawerUserId;
-        if (!confirm('Revoke all active sessions? User will be logged out immediately.')) return;
+        const result = await Swal.fire({
+            title: 'Revoke all sessions?',
+            text: 'User will be logged out immediately.',
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#f59e0b',
+            cancelButtonColor: '#64748b',
+            confirmButtonText: 'Revoke All',
+            cancelButtonText: 'Cancel'
+        });
+        if (!result.isConfirmed) return;
         const data = await api('{{ url_for("admin.revoke_all_sessions") }}', {user_id: uid});
         if (data.status === 'ok') {
             USERS[uid].sessions = 0;
@@ -599,7 +630,17 @@
     async function drawerDeleteUser() {
         const uid = window._drawerUserId;
         const u = USERS[uid];
-        if (!confirm(`Permanently delete user "${u.username}"? This cannot be undone.`)) return;
+        const result = await Swal.fire({
+            title: `Delete user "${u.username}"?`,
+            text: 'This action cannot be undone.',
+            icon: 'error',
+            showCancelButton: true,
+            confirmButtonColor: '#dc2626',
+            cancelButtonColor: '#64748b',
+            confirmButtonText: 'Delete Permanently',
+            cancelButtonText: 'Cancel'
+        });
+        if (!result.isConfirmed) return;
         const data = await api('{{ url_for("admin.delete_user") }}', {user_id: uid});
         if (data.status === 'ok') {
             document.getElementById('card-' + uid)?.remove();
@@ -627,7 +668,17 @@
     }
 
     async function rejectUser(userId, username) {
-        if (!confirm(`Reject and delete registration for "${username}"?`)) return;
+        const result = await Swal.fire({
+            title: `Reject registration for "${username}"?`,
+            text: 'Their registration will be deleted.',
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#ef4444',
+            cancelButtonColor: '#64748b',
+            confirmButtonText: 'Reject',
+            cancelButtonText: 'Cancel'
+        });
+        if (!result.isConfirmed) return;
         const data = await api('{{ url_for("admin.reject_user") }}', {user_id: userId});
         if (data.status === 'ok') { document.getElementById('pending-card-' + userId)?.remove(); toast('Registration rejected'); }
         else toast(data.message || 'Error', false);
