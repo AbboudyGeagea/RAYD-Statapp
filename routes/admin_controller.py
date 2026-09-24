@@ -9,7 +9,7 @@ admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
 @admin_bp.route('/dashboard', endpoint='admin_dashboard')
 @login_required
 def admin_dashboard():
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         flash("Admin access required.", "danger")
         return redirect(url_for('viewer.viewer_dashboard'))
 
@@ -102,10 +102,10 @@ def _admin_audit(action, target_user_id, detail=None, category='user_mgmt'):
 @admin_bp.route('/users')
 @login_required
 def user_management():
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         return abort(403)
 
-    active_users  = User.query.filter(User.role != 'admin', User.status != 'pending') \
+    active_users  = User.query.filter(User.role not in ('su', 'administrator'), User.status != 'pending') \
                               .order_by(User.role, User.username).all()
     pending_users = User.query.filter_by(status='pending').order_by(User.created_at.desc()).all()
 
@@ -134,7 +134,7 @@ def user_management():
 @admin_bp.route('/users/permissions', methods=['POST'])
 @login_required
 def update_user_permissions():
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         return abort(403)
 
     from db import ALL_FEATURE_KEYS
@@ -163,7 +163,7 @@ def update_user_permissions():
 @admin_bp.route('/users/role', methods=['POST'])
 @login_required
 def update_user_role():
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         return abort(403)
 
     data     = request.get_json()
@@ -174,7 +174,7 @@ def update_user_role():
         return jsonify({'status': 'error', 'message': 'Invalid role'}), 400
 
     user = User.query.get(user_id)
-    if not user or user.role == 'admin':
+    if not user or user.role == 'su':
         return jsonify({'status': 'error', 'message': 'User not found or protected'}), 400
 
     old_role = user.role
@@ -192,7 +192,7 @@ def update_user_role():
 @admin_bp.route('/users/approve', methods=['POST'])
 @login_required
 def approve_user():
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         return abort(403)
 
     data     = request.get_json()
@@ -217,7 +217,7 @@ def approve_user():
 @admin_bp.route('/users/reject', methods=['POST'])
 @login_required
 def reject_user():
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         return abort(403)
 
     data    = request.get_json()
@@ -237,14 +237,14 @@ def reject_user():
 @admin_bp.route('/users/disable', methods=['POST'])
 @login_required
 def disable_user():
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         return abort(403)
 
     data    = request.get_json()
     user_id = data.get('user_id')
 
     user = User.query.get(user_id)
-    if not user or user.role == 'admin':
+    if not user or user.role == 'su':
         return jsonify({'status': 'error', 'message': 'User not found or protected'}), 400
 
     user.status = 'disabled'
@@ -258,14 +258,14 @@ def disable_user():
 @admin_bp.route('/users/enable', methods=['POST'])
 @login_required
 def enable_user():
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         return abort(403)
 
     data    = request.get_json()
     user_id = data.get('user_id')
 
     user = User.query.get(user_id)
-    if not user or user.role == 'admin':
+    if not user or user.role == 'su':
         return jsonify({'status': 'error', 'message': 'User not found or protected'}), 400
 
     user.status = 'active'
@@ -277,14 +277,14 @@ def enable_user():
 @admin_bp.route('/users/force-reset', methods=['POST'])
 @login_required
 def force_password_reset():
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         return abort(403)
 
     data    = request.get_json()
     user_id = data.get('user_id')
 
     user = User.query.get(user_id)
-    if not user or user.role == 'admin':
+    if not user or user.role == 'su':
         return jsonify({'status': 'error', 'message': 'User not found or protected'}), 400
 
     user.must_change_password = True
@@ -296,7 +296,7 @@ def force_password_reset():
 @admin_bp.route('/users/set-password', methods=['POST'])
 @login_required
 def set_user_password():
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         return abort(403)
 
     data       = request.get_json()
@@ -307,7 +307,7 @@ def set_user_password():
         return jsonify({'status': 'error', 'message': 'Password must be at least 6 characters'}), 400
 
     user = User.query.get(user_id)
-    if not user or user.role == 'admin':
+    if not user or user.role == 'su':
         return jsonify({'status': 'error', 'message': 'User not found or protected'}), 400
 
     from werkzeug.security import generate_password_hash
@@ -322,7 +322,7 @@ def set_user_password():
 @admin_bp.route('/users/session/revoke', methods=['POST'])
 @login_required
 def revoke_session():
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         return abort(403)
 
     data       = request.get_json()
@@ -341,7 +341,7 @@ def revoke_session():
 @admin_bp.route('/users/session/revoke-all', methods=['POST'])
 @login_required
 def revoke_all_sessions():
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         return abort(403)
 
     data    = request.get_json()
@@ -356,14 +356,14 @@ def revoke_all_sessions():
 @admin_bp.route('/users/delete', methods=['POST'])
 @login_required
 def delete_user():
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         return abort(403)
 
     data    = request.get_json()
     user_id = data.get('user_id')
 
     user = User.query.get(user_id)
-    if not user or user.role == 'admin':
+    if not user or user.role == 'su':
         return jsonify({'status': 'error', 'message': 'User not found or protected'}), 400
 
     _admin_audit('deleted', user.id, {'username': user.username})
@@ -378,7 +378,7 @@ def delete_user():
 @admin_bp.route('/audit')
 @login_required
 def audit_log():
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         return abort(403)
 
     category = request.args.get('category', '')
@@ -409,7 +409,7 @@ def audit_log():
 @login_required
 def audit_log_export():
     import csv, io
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         return abort(403)
 
     category = request.args.get('category', '')
@@ -456,7 +456,7 @@ def oracle_config():
 @admin_bp.route('/hl7-forward', methods=['GET', 'POST'], endpoint='hl7_forward_config')
 @login_required
 def hl7_forward_config():
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         return abort(403)
 
     from utils.hl7_forward import test_forward, invalidate_cache
@@ -521,7 +521,7 @@ def hl7_forward_config():
 @admin_bp.route('/sync-mappings', methods=['POST'])
 @login_required
 def sync_mappings():
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         return abort(403)
     try:
         from ETL_JOBS.etl_runner import _sync_lookup_tables
@@ -534,7 +534,7 @@ def sync_mappings():
 @admin_bp.route('/demo-mode', methods=['POST'])
 @login_required
 def set_demo_mode():
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         return abort(403)
     data           = request.get_json()
     enabled        = 'true' if data.get('enabled') else 'false'
@@ -578,7 +578,7 @@ def set_demo_mode():
 @admin_bp.route('/etl/trigger-phase9', methods=['POST'])
 @login_required
 def trigger_phase9():
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         return abort(403)
     try:
         import logging, io
@@ -616,7 +616,7 @@ def trigger_etl():
     purely on Postgres (lookup-table inference and procedure clustering), so they
     are still valid work on this branch even though "ETL" is in their name.
     """
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         return abort(403)
 
     return jsonify({
