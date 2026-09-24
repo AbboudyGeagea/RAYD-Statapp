@@ -34,7 +34,7 @@ def get_or_create(model, **kwargs):
 @login_required
 @permission_required('can_export')
 def export_modality_csv():
-    if current_user.role not in ('admin', 'viewer', 'viewer2') and not user_has_page(current_user, 'mapping'): return abort(403)
+    if current_user.role not in ('su', 'implementation', 'administrator') and not user_has_page(current_user, 'mapping'): return abort(403)
     from flask import current_app, jsonify
     from routes.registry import check_license_limit
     ok, msg = check_license_limit(current_app, 'export')
@@ -60,7 +60,7 @@ def export_modality_csv():
 @login_required
 @permission_required('can_export')
 def export_procedure_csv():
-    if current_user.role not in ('admin', 'viewer', 'viewer2') and not user_has_page(current_user, 'mapping'): return abort(403)
+    if current_user.role not in ('su', 'implementation', 'administrator') and not user_has_page(current_user, 'mapping'): return abort(403)
     from flask import current_app, jsonify
     from routes.registry import check_license_limit
     ok, msg = check_license_limit(current_app, 'export')
@@ -85,7 +85,7 @@ def export_procedure_csv():
 @login_required
 @permission_required('can_configure')
 def mapping_page():
-    if current_user.role not in ('admin', 'viewer', 'viewer2') and not user_has_page(current_user, 'mapping'): return abort(403)
+    if current_user.role not in ('su', 'implementation', 'administrator') and not user_has_page(current_user, 'mapping'): return abort(403)
 
     modality_mappings = AETitleModalityMap.query.order_by(AETitleModalityMap.aetitle).all()
 
@@ -133,7 +133,7 @@ def hl7_mapping_page():
     Carries no context of its own — every tab is a lazy-loaded fragment served
     by the routes below, so the page is a frame and the permission gate.
     """
-    if current_user.role not in ('admin', 'viewer', 'viewer2') \
+    if current_user.role not in ('su', 'implementation', 'administrator') \
             and not user_has_page(current_user, 'mapping'):
         return abort(403)
     return render_template('hl7_mapping.html')
@@ -143,7 +143,7 @@ def hl7_mapping_page():
 @login_required
 def procedures_tab():
     """Lazy-loaded HTML fragment for the Procedures tab."""
-    if current_user.role not in ('admin', 'viewer', 'viewer2') and not user_has_page(current_user, 'mapping'): return abort(403)
+    if current_user.role not in ('su', 'implementation', 'administrator') and not user_has_page(current_user, 'mapping'): return abort(403)
 
     from sqlalchemy import text as _t
     import json as _json
@@ -907,7 +907,7 @@ def _invalidate_ladder_cache():
 @login_required
 def ladder_profile_tab():
     """Lazy-loaded HTML fragment for the RAY7 Ladder Profile tab."""
-    if current_user.role not in ('admin', 'viewer', 'viewer2') \
+    if current_user.role not in ('su', 'implementation', 'administrator') \
             and not user_has_page(current_user, 'mapping'):
         return abort(403)
     rows, seen = [], {}
@@ -1016,7 +1016,7 @@ def _unmapped_codes():
 @login_required
 def status_codes_tab():
     """Lazy-loaded HTML fragment for the HL7 Status Codes tab."""
-    if current_user.role not in ('admin', 'viewer', 'viewer2') \
+    if current_user.role not in ('su', 'implementation', 'administrator') \
             and not user_has_page(current_user, 'mapping'):
         return abort(403)
     try:
@@ -1139,7 +1139,7 @@ _MESSAGE_KINDS = ['', 'adt', 'order', 'status', 'result']
 @login_required
 def field_map_tab():
     """Lazy-loaded HTML fragment for the HL7 Field Mapping tab."""
-    if current_user.role not in ('admin', 'viewer', 'viewer2') \
+    if current_user.role not in ('su', 'implementation', 'administrator') \
             and not user_has_page(current_user, 'mapping'):
         return abort(403)
     log = logging.getLogger("MAPPING")
@@ -1327,7 +1327,7 @@ def test_field_map():
     an engineer must be able to experiment without leaving marks in the audit
     trail or tripping RAY7.
     """
-    if current_user.role not in ('admin', 'viewer', 'viewer2') \
+    if current_user.role not in ('su', 'implementation', 'administrator') \
             and not user_has_page(current_user, 'mapping'):
         return abort(403)
     d = request.get_json() or {}
@@ -1393,7 +1393,7 @@ def test_field_map():
 @login_required
 def master_data_tab():
     """Lazy-loaded HTML fragment for the Master Data tab."""
-    if current_user.role not in ('admin', 'viewer', 'viewer2') \
+    if current_user.role not in ('su', 'implementation', 'administrator') \
             and not user_has_page(current_user, 'mapping'):
         return abort(403)
     from utils.master_import import DATASETS
@@ -1433,7 +1433,7 @@ def master_data_tab():
 @login_required
 def master_data_template(key):
     """Download a CSV template with the right header and a worked example."""
-    if current_user.role not in ('admin', 'viewer', 'viewer2') \
+    if current_user.role not in ('su', 'implementation', 'administrator') \
             and not user_has_page(current_user, 'mapping'):
         return abort(403)
     from utils.master_import import DATASETS, template_csv
@@ -1497,7 +1497,7 @@ def master_data_import(key):
 @login_required
 def explorer_tab():
     """Lazy-loaded HTML fragment for the mapping explorer."""
-    if current_user.role not in ('admin', 'viewer', 'viewer2') \
+    if current_user.role not in ('su', 'implementation', 'administrator') \
             and not user_has_page(current_user, 'mapping'):
         return abort(403)
     recent, targets, existing = [], [], []
@@ -1540,7 +1540,7 @@ def explorer_message():
     traffic is the better evidence, and a pasted sample is all there is before
     any traffic has arrived.
     """
-    if current_user.role not in ('admin', 'viewer', 'viewer2') \
+    if current_user.role not in ('su', 'implementation', 'administrator') \
             and not user_has_page(current_user, 'mapping'):
         return abort(403)
     d = request.get_json() or {}

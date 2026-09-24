@@ -73,7 +73,7 @@ def _cluster_tat_histogram(vals, k=10):
 @er_bp.route('/er')
 @login_required
 def er_page():
-    if current_user.role == 'tec':
+    if current_user.role == 'implementation':
         abort(403)
     default_end   = date.today().isoformat()
     default_start = (date.today() - timedelta(days=30)).isoformat()
@@ -85,7 +85,7 @@ def er_page():
 @er_bp.route('/er/data')
 @login_required
 def er_data():
-    if current_user.role == 'tec':
+    if current_user.role == 'implementation':
         abort(403)
 
     start     = request.args.get('start', (date.today() - timedelta(days=30)).isoformat())

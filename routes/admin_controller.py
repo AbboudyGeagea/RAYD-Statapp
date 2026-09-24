@@ -80,7 +80,7 @@ def _apply_role_default_permissions(user, role):
         else:
             db.session.add(UserPagePermission(user_id=user.id, page_key=page_key, is_enabled=desired))
 
-    if role == 'viewer':
+    if role == 'user':
         from routes.viewer_controller import seed_report_access
         seed_report_access(user.id)
 
@@ -170,7 +170,7 @@ def update_user_role():
     user_id  = data.get('user_id')
     new_role = data.get('role')
 
-    if new_role not in ('viewer', 'viewer2', 'tec', 'finance', 'secretary'):
+    if new_role not in ('su', 'implementation', 'administrator', 'user'):
         return jsonify({'status': 'error', 'message': 'Invalid role'}), 400
 
     user = User.query.get(user_id)
@@ -199,7 +199,7 @@ def approve_user():
     user_id  = data.get('user_id')
     new_role = data.get('role', 'viewer')
 
-    if new_role not in ('viewer', 'viewer2', 'tec', 'finance', 'secretary'):
+    if new_role not in ('su', 'implementation', 'administrator', 'user'):
         return jsonify({'status': 'error', 'message': 'Invalid role'}), 400
 
     user = User.query.get(user_id)
@@ -558,11 +558,11 @@ def set_demo_mode():
         if user:
             user.password_hash = generate_password_hash(demo_password, method='pbkdf2:sha256')
         else:
-            # Create the demo user as a viewer if they don't exist yet
+            # Create the demo user as a standard user if they don't exist yet
             user = User(
                 username=demo_username,
                 password_hash=generate_password_hash(demo_password, method='pbkdf2:sha256'),
-                role='viewer'
+                role='user'
             )
             db.session.add(user)
             db.session.flush()

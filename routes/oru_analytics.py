@@ -974,7 +974,7 @@ def review_seed():
 @oru_bp.route('/nlp/review/queue')
 @login_required
 def review_queue():
-    if current_user.role not in ('admin', 'viewer', 'viewer2'):
+    if current_user.role not in ('su', 'implementation', 'administrator'):
         abort(403)
 
     row = db.session.execute(text("""
@@ -1012,7 +1012,7 @@ def review_queue():
 @oru_bp.route('/nlp/review/<int:review_id>', methods=['POST'])
 @login_required
 def review_submit(review_id):
-    if current_user.role not in ('admin', 'viewer', 'viewer2'):
+    if current_user.role not in ('su', 'implementation', 'administrator'):
         abort(403)
 
     data = request.get_json(silent=True) or {}
@@ -1036,7 +1036,7 @@ def review_submit(review_id):
 @oru_bp.route('/nlp/review/stats')
 @login_required
 def review_stats():
-    if current_user.role not in ('admin', 'viewer', 'viewer2'):
+    if current_user.role not in ('su', 'implementation', 'administrator'):
         abort(403)
 
     rows = db.session.execute(text("""
@@ -1159,7 +1159,7 @@ def nlp_results():
 @oru_bp.route('/critical-keywords')
 @login_required
 def get_critical_keywords():
-    if current_user.role not in ('admin', 'viewer', 'viewer2'):
+    if current_user.role not in ('su', 'implementation', 'administrator'):
         abort(403)
     try:
         rows = db.session.execute(
@@ -1174,7 +1174,7 @@ def get_critical_keywords():
 @oru_bp.route('/critical-keywords', methods=['POST'])
 @login_required
 def add_critical_keyword():
-    if current_user.role not in ('admin', 'viewer', 'viewer2'):
+    if current_user.role not in ('su', 'implementation', 'administrator'):
         abort(403)
     data = request.get_json(silent=True) or {}
     word = (data.get('word') or '').strip().lower()
@@ -1196,7 +1196,7 @@ def add_critical_keyword():
 @oru_bp.route('/critical-keywords/<path:word>', methods=['DELETE'])
 @login_required
 def delete_critical_keyword(word):
-    if current_user.role not in ('admin', 'viewer', 'viewer2'):
+    if current_user.role not in ('su', 'implementation', 'administrator'):
         abort(403)
     word = word.strip().lower()
     key = f'oru_crit:{word}'
@@ -1212,7 +1212,7 @@ def delete_critical_keyword(word):
 @oru_bp.route('/keyword-suggestions')
 @login_required
 def keyword_suggestions():
-    if current_user.role not in ('admin', 'viewer', 'viewer2'):
+    if current_user.role not in ('su', 'implementation', 'administrator'):
         abort(403)
     import re
     from collections import Counter

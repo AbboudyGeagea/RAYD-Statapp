@@ -98,7 +98,7 @@ def register():
             new_user = User(
                 username=username,
                 password_hash=generate_password_hash(password, method='pbkdf2:sha256'),
-                role='viewer',          # role assigned by admin at approval time
+                role='user',            # role assigned by admin at approval time
                 status='pending',
                 full_name=full_name,
                 email=email,
@@ -186,11 +186,12 @@ def login():
         if user.must_change_password:
             return redirect(url_for('auth.profile_password'))
 
-        if user.role == 'admin':
+        # Post-login redirect by role
+        if user.role in ('su', 'administrator'):
             return redirect(url_for('admin.admin_dashboard'))
-        if user.role == 'tec':
-            return redirect(url_for('hl7_orders.hl7_orders_page'))
-        # (scheduling module removed at LAUMC — secretaries land on the dashboard)
+        if user.role == 'implementation':
+            return redirect(url_for('mapping.mapping_page'))
+        # 'user' role → viewer dashboard
         return redirect(url_for('viewer.viewer_dashboard'))
 
     return render_template('login.html')

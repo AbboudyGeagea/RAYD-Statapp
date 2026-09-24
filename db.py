@@ -422,24 +422,43 @@ class SchedulingEntry(db.Model):
     updated_at = db.Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 ALL_FEATURE_KEYS = [
-    # patient_portal + scheduling: modules removed at LAUMC (see docs/LAUMC_SCOPE.md)
+    # HL7 branch core features
     'live_feed', 'hl7_orders', 'report_ai', 'oru', 'mapping',
     'financial', 'cd_print', 'referring_intel', 'custom_reports',
 ]
 
-# Default pages granted to each role at approval / role-change time.
-# Admin is always full-access — handled separately in user_has_page().
+# HL7 BRANCH ROLES (replaces old: viewer, viewer2, tec, finance, secretary)
+#
+# SU (Super User)
+#   - R&D level, zero restrictions, full access to everything
+#
+# Implementation
+#   - ATH employees implementing the system
+#   - Backend config: HL7→DB mappings, modalities, procedures, CSV imports
+#
+# Administrator
+#   - Daily radiology manager / chief radiologist
+#   - All reports, user management, referring contacts, system admin
+#
+# User
+#   - Read-only reports (administrator assigns which reports)
+#   - Limited to features admin grants
+#
 ROLE_PAGE_DEFAULTS = {
-    'viewer':  set(ALL_FEATURE_KEYS),
-    'viewer2': set(ALL_FEATURE_KEYS),
-    'tec':       {'scheduling', 'live_feed', 'hl7_orders'},
-    'finance':   {'financial'},
-    'secretary': {'scheduling', 'live_feed'},
+    'su':               set(ALL_FEATURE_KEYS),  # Full access
+    'implementation':   {'mapping', 'live_feed', 'hl7_orders', 'custom_reports'},  # Backend config + data ingestion
+    'administrator':    {'live_feed', 'hl7_orders', 'report_ai', 'oru', 'mapping', 'financial', 'referring_intel', 'custom_reports'},  # All reports + user mgmt
+    'user':             {'hl7_orders', 'oru', 'report_ai'},  # Admin assigns which reports
 }
 
 def user_has_page(user, page_key):
-    if user.role == 'admin':
+    # SU has unrestricted access
+    if user.role == 'su':
         return True
+    # Admin-level access (backward compat: old 'admin' role becomes 'administrator')
+    if user.role == 'administrator':
+        return True
+    # For other roles, check explicit permission or fall back to role default
     perm = UserPagePermission.query.filter_by(user_id=user.id, page_key=page_key).first()
     if perm is not None:
         return perm.is_enabled
