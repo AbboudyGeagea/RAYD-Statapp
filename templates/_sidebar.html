@@ -67,17 +67,17 @@
             </a>
         </div>
 
-        {% if current_user.role == 'admin' or current_user|user_has_page('mapping') %}
+        {% if current_user.role in ('su', 'administrator') or current_user|user_has_page('mapping') %}
         <!-- ── ADMINISTRATION ──────────────────────────────────────── -->
         <button class="sg-btn" onclick="sgToggle('admin')">
             <span class="flex items-center gap-2"><i class="bi bi-shield-lock-fill" style="color:#f59e0b;"></i> Administration</span>
             <i id="chev-admin" class="bi bi-chevron-down sg-chevron {% if admin_on %}open{% endif %}"></i>
         </button>
         <div id="sg-admin" class="sg-body {% if not admin_on %}closed{% endif %} space-y-0.5 mb-2">
-            {% if current_user.role == 'admin' %}
+            {% if current_user.role in ('su', 'administrator') %}
             <a href="{{ url_for('admin.admin_dashboard') }}"
                class="sidebar-item {% if ep == 'admin.admin_dashboard' %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
-                <i class="bi bi-cpu flex-shrink-0" style="color:#f59e0b;"></i> ETL Control Room
+                <i class="bi bi-gear flex-shrink-0" style="color:#f59e0b;"></i> Admin Dashboard
             </a>
             <a href="{{ url_for('admin.user_management') }}"
                class="sidebar-item {% if ep == 'admin.user_management' %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
@@ -111,7 +111,7 @@
                 <i class="bi bi-person-lines-fill flex-shrink-0" style="color:#f472b6;"></i> Referring Contacts
             </a>
             {% endif %}
-            {% if current_user.role == 'admin' or current_user|user_has_page('mapping') %}
+            {% if current_user.role in ('su', 'administrator') or current_user|user_has_page('mapping') %}
             {# Two separate entries, and the active test is exact rather than a
                prefix: ep.startswith('mapping.') matched BOTH, so whichever came
                first lit up on both pages. #}
@@ -124,7 +124,7 @@
                 <i class="bi bi-diagram-2-fill flex-shrink-0" style="color:#38bdf8;"></i> HL7 &rarr; DB
             </a>
             {% endif %}
-            {% if current_user.role == 'admin' %}
+            {% if current_user.role in ('su', 'administrator') %}
             <a href="{{ url_for('admin.hl7_forward_config') }}"
                class="sidebar-item {% if ep == 'admin.hl7_forward_config' %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
                 <i class="bi bi-send-arrow-up-fill flex-shrink-0" style="color:#38bdf8;"></i> HL7 Forward
@@ -134,23 +134,23 @@
         {% endif %}
 
         <!-- ── OPERATIONS ──────────────────────────────────────────── -->
-        {% set has_ops = (license.get('live_feed') and (current_user.role == 'admin' or current_user|user_has_page('live_feed')))
-                      or (current_user.role == 'admin' or current_user|user_has_page('hl7_orders'))
-                      or (31 in license.get('reports', []) and (current_user.role == 'admin' or current_user|user_has_page('report_31'))) %}
+        {% set has_ops = (license.get('live_feed') and (current_user.role in ('su', 'administrator') or current_user|user_has_page('live_feed')))
+                      or (current_user.role in ('su', 'administrator') or current_user|user_has_page('hl7_orders'))
+                      or (31 in license.get('reports', []) and (current_user.role in ('su', 'administrator') or current_user|user_has_page('report_31'))) %}
         {% if has_ops %}
         <button class="sg-btn" onclick="sgToggle('ops')">
             <span class="flex items-center gap-2"><i class="bi bi-lightning-fill" style="color:#22c55e;"></i> Operations</span>
             <i id="chev-ops" class="bi bi-chevron-down sg-chevron {% if ops_on %}open{% endif %}"></i>
         </button>
         <div id="sg-ops" class="sg-body {% if not ops_on %}closed{% endif %} space-y-0.5 mb-2">
-            {% if license.get('live_feed') and (current_user.role == 'admin' or current_user|user_has_page('live_feed')) %}
+            {% if license.get('live_feed') and (current_user.role in ('su', 'administrator') or current_user|user_has_page('live_feed')) %}
             <a href="{{ url_for('live_feed.live_page') }}" target="_blank"
                class="sidebar-item {% if ep.startswith('live_feed.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
                 <i class="bi bi-activity flex-shrink-0" style="color:#22c55e;"></i> Live Department View
                 <span style="font-size:8px;font-weight:900;padding:1px 5px;border-radius:4px;background:rgba(34,197,94,0.15);color:#22c55e;text-transform:uppercase;letter-spacing:0.08em;">LIVE</span>
             </a>
             {% endif %}
-            {% if current_user.role == 'admin' or current_user|user_has_page('hl7_orders') %}
+            {% if current_user.role in ('su', 'administrator') or current_user|user_has_page('hl7_orders') %}
             <a href="{{ url_for('hl7_orders.hl7_orders_page') }}"
                class="sidebar-item {% if ep.startswith('hl7_orders.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
                 <i class="bi bi-clipboard2-pulse flex-shrink-0" style="color:#f43f5e;"></i> HL7 Orders
@@ -160,7 +160,7 @@
                 </span>
             </a>
             {% endif %}
-            {% if 31 in license.get('reports', []) and (current_user.role == 'admin' or current_user|user_has_page('report_31')) %}
+            {% if 31 in license.get('reports', []) and (current_user.role in ('su', 'administrator') or current_user|user_has_page('report_31')) %}
             <a href="{{ url_for('report_31.report_31') }}"
                class="sidebar-item {% if ep.startswith('report_31.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
                 <i class="bi bi-speedometer2 flex-shrink-0" style="color:#818cf8;"></i> Operations Overview
@@ -171,28 +171,28 @@
         {% endif %}
 
         <!-- ── ANALYTICS ───────────────────────────────────────────── -->
-        {% set has_analytics = (current_user.role == 'admin' or current_user|user_has_page('oru'))
-                            or (license.get('referring_intel') and (current_user.role == 'admin' or current_user|user_has_page('referring_intel')))
-                            or (license.get('custom_reports') and (current_user.role == 'admin' or current_user|user_has_page('custom_reports'))) %}
+        {% set has_analytics = (current_user.role in ('su', 'administrator') or current_user|user_has_page('oru'))
+                            or (license.get('referring_intel') and (current_user.role in ('su', 'administrator') or current_user|user_has_page('referring_intel')))
+                            or (license.get('custom_reports') and (current_user.role in ('su', 'administrator') or current_user|user_has_page('custom_reports'))) %}
         {% if has_analytics %}
         <button class="sg-btn" onclick="sgToggle('analytics')">
             <span class="flex items-center gap-2"><i class="bi bi-bar-chart-fill" style="color:#a78bfa;"></i> Analytics</span>
             <i id="chev-analytics" class="bi bi-chevron-down sg-chevron {% if analytics_on %}open{% endif %}"></i>
         </button>
         <div id="sg-analytics" class="sg-body {% if not analytics_on %}closed{% endif %} space-y-0.5 mb-2">
-            {% if current_user.role == 'admin' or current_user|user_has_page('oru') %}
+            {% if current_user.role in ('su', 'administrator') or current_user|user_has_page('oru') %}
             <a href="{{ url_for('oru.oru_page') }}"
                class="sidebar-item {% if ep.startswith('oru.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
                 <i class="bi bi-cloud-fill flex-shrink-0" style="color:#a78bfa;"></i> Report Intelligence
             </a>
             {% endif %}
-            {% if license.get('referring_intel') and (current_user.role == 'admin' or current_user|user_has_page('referring_intel')) %}
+            {% if license.get('referring_intel') and (current_user.role in ('su', 'administrator') or current_user|user_has_page('referring_intel')) %}
             <a href="{{ url_for('referring_intel.referring_intel_page') }}"
                class="sidebar-item {% if ep.startswith('referring_intel.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
                 <i class="bi bi-person-badge flex-shrink-0" style="color:#34d399;"></i> Referring Intel
             </a>
             {% endif %}
-            {% if license.get('custom_reports') and (current_user.role == 'admin' or current_user|user_has_page('custom_reports')) %}
+            {% if license.get('custom_reports') and (current_user.role in ('su', 'administrator') or current_user|user_has_page('custom_reports')) %}
             <a href="/reports/custom"
                class="sidebar-item {% if ep.startswith('custom_reports.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
                 <i class="bi bi-layout-text-sidebar-reverse flex-shrink-0" style="color:#60a5fa;"></i> Custom Reports
@@ -203,7 +203,7 @@
 
 
         <!-- ── FINANCE ─────────────────────────────────────────────── -->
-        {% if license.get('financial') and (current_user.role == 'admin' or current_user|user_has_page('financial')) %}
+        {% if license.get('financial') and (current_user.role in ('su', 'administrator') or current_user|user_has_page('financial')) %}
         <button class="sg-btn" onclick="sgToggle('finance')">
             <span class="flex items-center gap-2"><i class="bi bi-graph-up-arrow" style="color:#10b981;"></i> Finance</span>
             <i id="chev-finance" class="bi bi-chevron-down sg-chevron {% if finance_on %}open{% endif %}"></i>
@@ -249,7 +249,7 @@
     {% endif %}
 
     <!-- Logout -->
-    <div class="{% if current_user.role == 'admin' %}mt-auto {% endif %}mb-3">
+    <div class="{% if current_user.role in ('su', 'administrator') %}mt-auto {% endif %}mb-3">
         <a href="{{ url_for('auth.logout') }}"
             class="w-full flex items-center gap-3 px-3 py-2.5 text-xs font-bold rounded-xl border border-[#28332e] text-slate-500 hover:text-red-400 hover:border-red-400/30 transition-all">
             <i class="bi bi-box-arrow-right flex-shrink-0"></i> Logout
