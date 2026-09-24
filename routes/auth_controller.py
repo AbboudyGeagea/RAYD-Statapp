@@ -130,7 +130,7 @@ def register():
 @limiter.limit("5 per minute", methods=["POST"])
 def login():
     if current_user.is_authenticated:
-        dest = 'admin.admin_dashboard' if current_user.role == 'admin' else 'viewer.viewer_dashboard'
+        dest = 'admin.admin_dashboard' if current_user.role in ('su', 'administrator') else 'viewer.viewer_dashboard'
         return redirect(url_for(dest))
 
     if request.method == 'POST':
@@ -152,14 +152,14 @@ def login():
             flash('Your account has been disabled. Contact your administrator.', 'danger')
             return render_template('login.html')
 
-        # Demo mode: only admin and the designated demo user
+        # Demo mode: only su and the designated demo user
         demo_mode, demo_user = _get_demo_settings()
-        if demo_mode and user.role != 'admin' and user.username != demo_user:
+        if demo_mode and user.role != 'su' and user.username != demo_user:
             flash('Access is restricted during demo mode.', 'warning')
             return render_template('login.html')
 
-        # License checks (skip for admin)
-        if user.role != 'admin':
+        # License checks (skip for su)
+        if user.role != 'su':
             from routes.registry import check_license_limit
             ok, msg = check_license_limit(current_app, 'expired')
             if not ok:
@@ -202,9 +202,9 @@ def login():
 @auth_bp.route('/user/request-password-reset', methods=['POST'])
 @login_required
 def request_password_reset():
-    if current_user.role == 'admin':
+    if current_user.role == 'su':
         from flask import jsonify
-        return jsonify({'status': 'error', 'message': 'Admins cannot request a reset this way.'}), 400
+        return jsonify({'status': 'error', 'message': 'Super Users cannot request a reset this way.'}), 400
     current_user.password_reset_requested = True
     _audit('password_reset_requested', current_user.id)
     db.session.commit()
