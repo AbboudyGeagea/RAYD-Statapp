@@ -145,7 +145,7 @@ def hl7_orders_get_field_map():
 @login_required
 def hl7_orders_save_field_map():
     """Persist a custom HL7→DB column mapping (admin only)."""
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         abort(403)
     data = request.get_json(force=True)
     mappings = data.get('mappings', [])

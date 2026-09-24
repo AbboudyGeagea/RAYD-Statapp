@@ -695,7 +695,7 @@ def report_ai_panel(section):
 @report_ai_bp.route("/report/ai/storage-capacity", methods=["POST"])
 @login_required
 def save_storage_capacity():
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         return jsonify({"status": "error", "message": "Admin only"}), 403
     try:
         val = float(request.get_json(force=True).get("capacity_gb", 0))

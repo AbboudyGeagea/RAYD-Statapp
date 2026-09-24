@@ -318,7 +318,7 @@ function renderUserTable() {
                 ${u.full_name ? `<p class="text-xs text-slate-500">${esc(u.full_name)}</p>` : ''}
             </td>
             <td class="py-2.5 pr-4">
-                <span class="pill ${u.role === 'admin' ? 'bg-purple-500/15 text-purple-400 border border-purple-500/30' : 'bg-slate-700/50 text-slate-400 border border-slate-600'}">${esc(u.role || '—')}</span>
+                <span class="pill ${u.role === 'su' ? 'bg-purple-500/15 text-purple-400 border border-purple-500/30' : 'bg-slate-700/50 text-slate-400 border border-slate-600'}">${esc(u.role || '—')}</span>
             </td>
             <td class="py-2.5 pr-4" style="min-width:160px">
                 <select onchange="assignGroup(${u.id}, this.value)" style="font-size:12px;padding:5px 8px">

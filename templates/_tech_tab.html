@@ -189,7 +189,7 @@
         the raw time distribution only — no pass/fail judgement is made until a threshold is entered.
     </p>
 
-    {% if current_user.role == 'admin' %}
+    {% if current_user.role in ('su', 'administrator') %}
     <div class="glass-card space-y-3">
         <p class="text-[12px] font-black text-zinc-500 uppercase tracking-widest">Compliance Targets (minutes) — Admin</p>
         <div class="grid grid-cols-2 md:grid-cols-4 gap-3">

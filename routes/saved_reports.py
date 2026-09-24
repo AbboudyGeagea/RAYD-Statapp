@@ -34,7 +34,7 @@ def create_saved_report():
     # optional: verify user has access to base_report
     def user_has_base_access(uid, rid):
         # admin can access everything
-        if current_user.role == 'admin':
+        if current_user.role in ('su', 'administrator'):
             return True
         access = ReportAccessControl.query.filter_by(user_id=uid, report_template_id=rid, is_enabled=True).first()
         return access is not None
@@ -74,7 +74,7 @@ def run_saved_report(saved_id):
     # Access control: admin sees all; owner sees their own; everyone else only
     # sees public reports they also have base-report permission for.
     # Private reports from other users are never accessible regardless of base access.
-    if current_user.role == 'admin':
+    if current_user.role in ('su', 'administrator'):
         pass
     elif sr.owner_user_id == current_user.id:
         pass
@@ -141,7 +141,7 @@ def delete_saved_report(saved_id):
     sr = SavedReport.query.get(saved_id)
     if not sr:
         return jsonify({"status":"error","message":"Not found"}), 404
-    if not (sr.owner_user_id == current_user.id or current_user.role == 'admin'):
+    if not (sr.owner_user_id == current_user.id or current_user.role in ('su', 'administrator')):
         return jsonify({"status":"error","message":"Forbidden"}), 403
     try:
         db.session.delete(sr)

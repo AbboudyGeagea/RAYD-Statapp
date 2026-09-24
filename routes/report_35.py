@@ -732,7 +732,7 @@ def save_jci_thresholds():
     tier. Stored as 'jci_threshold:<CODE>' settings rows -- same convention as
     'pacs_ris_diff_threshold:<MODALITY>' above. A tier with no value submitted (blank
     input) has its threshold removed, reverting that tier to distribution-only display."""
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         return jsonify({"status": "error", "message": "Admin only"}), 403
     try:
         thresholds = request.get_json(force=True).get("thresholds", {})

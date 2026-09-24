@@ -32,7 +32,7 @@ _CHANNELS = {'email', 'sms', 'whatsapp'}
 @referring_contacts_bp.route('/')
 @login_required
 def referring_contacts_page():
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         abort(403)
     return render_template('referring_contacts_admin.html')
 
@@ -40,7 +40,7 @@ def referring_contacts_page():
 @referring_contacts_bp.route('/api/list')
 @login_required
 def api_list():
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         abort(403)
     rows = db.session.execute(text("""
         SELECT id, physician_name, middle_name, email, phone, whatsapp_number,
@@ -60,7 +60,7 @@ def api_known_names():
     lets the admin pick from real data instead of typing free text (a typo
     would silently break the name match back to etl_didb_studies).
     """
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         abort(403)
     rows = db.session.execute(text("""
         SELECT DISTINCT TRIM(CONCAT(referring_physician_first_name, ' ', referring_physician_last_name)) AS name
@@ -103,7 +103,7 @@ def _validate_payload(data):
 @referring_contacts_bp.route('/api/save', methods=['POST'])
 @login_required
 def api_save():
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         abort(403)
     data = request.get_json(force=True) or {}
     payload, err = _validate_payload(data)
@@ -143,7 +143,7 @@ def api_save():
 @referring_contacts_bp.route('/api/toggle-active', methods=['POST'])
 @login_required
 def api_toggle_active():
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         abort(403)
     data = request.get_json(force=True) or {}
     contact_id = data.get('id')
@@ -165,7 +165,7 @@ def api_toggle_active():
 @referring_contacts_bp.route('/api/delete', methods=['POST'])
 @login_required
 def api_delete():
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         abort(403)
     data = request.get_json(force=True) or {}
     contact_id = data.get('id')
@@ -191,7 +191,7 @@ _CSV_COLUMNS = ['physician_name', 'email', 'phone', 'whatsapp_number', 'preferre
 @referring_contacts_bp.route('/api/upload-csv', methods=['POST'])
 @login_required
 def api_upload_csv():
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         abort(403)
     file = request.files.get('file')
     if not file or not file.filename:
@@ -249,7 +249,7 @@ def api_upload_csv():
 @referring_contacts_bp.route('/api/csv-template')
 @login_required
 def api_csv_template():
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         abort(403)
     from flask import Response
     sample = (
@@ -267,7 +267,7 @@ def api_csv_template():
 @referring_contacts_bp.route('/api/message-template')
 @login_required
 def api_get_message_template():
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         abort(403)
     row = db.session.execute(
         text("SELECT value FROM settings WHERE key = 'crn_message_template'")
@@ -278,7 +278,7 @@ def api_get_message_template():
 @referring_contacts_bp.route('/api/message-template', methods=['POST'])
 @login_required
 def api_save_message_template():
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         abort(403)
     data = request.get_json(force=True) or {}
     template = (data.get('template') or '').strip()

@@ -23,7 +23,7 @@ groups_bp = Blueprint('groups', __name__)
 
 
 def _admin_only():
-    if not current_user.is_authenticated or current_user.role != 'admin':
+    if not current_user.is_authenticated or current_user.role != 'su':
         abort(403)
 
 

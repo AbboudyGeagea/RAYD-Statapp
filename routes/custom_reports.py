@@ -116,14 +116,14 @@ def _visible_report_or_404(report_id):
     # Non-shared reports (private / restricted) are only visible to their
     # owner or an admin — mirrors the WHERE clause used in report_list().
     if (row.get("visibility") != "shared"
-            and current_user.role != "admin"
+            and current_user.role not in ('su', 'administrator')
             and row.get("created_by") != current_user.id):
         abort(403)
     return row
 
 
 def _editable_or_403(row):
-    if current_user.role == "admin":
+    if current_user.role in ('su', 'administrator'):
         return
     if row.get("created_by") != current_user.id:
         abort(403)
@@ -151,7 +151,7 @@ def report_list():
            OR r.created_by = :uid
            OR :is_admin
         ORDER BY r.updated_at DESC
-    """), {"uid": current_user.id, "is_admin": current_user.role == "admin"}).mappings().fetchall()
+    """), {"uid": current_user.id, "is_admin": current_user.role in ('su', 'administrator')}).mappings().fetchall()
 
     reports = [dict(r) for r in rows if not (r["has_financial"] and not can_finance)]
 
@@ -281,7 +281,7 @@ def save_report():
         ).fetchone()
         if not existing:
             return jsonify({"error": "Report not found"}), 404
-        if current_user.role != "admin" and existing[0] != current_user.id:
+        if current_user.role not in ('su', 'administrator') and existing[0] != current_user.id:
             return jsonify({"error": "Not authorised to edit this report"}), 403
 
         db.session.execute(text("""
@@ -442,7 +442,7 @@ def delete_report(report_id):
     ).fetchone()
     if not row:
         return jsonify({"error": "Not found"}), 404
-    if current_user.role != "admin" and row[0] != current_user.id:
+    if current_user.role not in ('su', 'administrator') and row[0] != current_user.id:
         return jsonify({"error": "Not authorised"}), 403
 
     db.session.execute(text("DELETE FROM custom_reports WHERE id = :id"), {"id": report_id})

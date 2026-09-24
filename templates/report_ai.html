@@ -90,7 +90,7 @@
                 <button type="submit" class="run-btn">Update Analysis</button>
             </form>
 
-            {% if current_user.role == 'admin' %}
+            {% if current_user.role in ('su', 'administrator') %}
             <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:14px;">
                 <label>Total Storage Capacity (GB)</label>
                 <div class="flex items-center gap-2">

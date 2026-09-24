@@ -265,7 +265,7 @@ def procedures_tab():
 @mapping_bp.route('/upload/modality', methods=['POST'])
 @login_required
 def upload_modality_map():
-    if current_user.role != 'admin': return abort(403)
+    if current_user.role not in ('su', 'implementation'): return abort(403)
     file = request.files.get('file')
     if not file: return redirect(url_for('mapping.mapping_page'))
 
@@ -344,7 +344,7 @@ def upload_modality_map():
 @mapping_bp.route('/upload/procedure', methods=['POST'])
 @login_required
 def upload_procedure_map():
-    if current_user.role != 'admin': return abort(403)
+    if current_user.role not in ('su', 'implementation'): return abort(403)
     file = request.files.get('file')
     if not file: return redirect(url_for('mapping.mapping_page'))
 
@@ -410,7 +410,7 @@ def upload_procedure_map():
 @mapping_bp.route('/device/grid/save', methods=['POST'])
 @login_required
 def save_grid_changes():
-    if current_user.role != 'admin': return abort(403)
+    if current_user.role not in ('su', 'implementation'): return abort(403)
     data = request.get_json(force=True)
     updates = data.get('updates', [])
     try:
@@ -446,7 +446,7 @@ def save_grid_changes():
 @mapping_bp.route('/procedure/update', methods=['POST'])
 @login_required
 def update_single_procedure():
-    if current_user.role != 'admin': return abort(403)
+    if current_user.role not in ('su', 'implementation'): return abort(403)
     from sqlalchemy import func as _f
     data = request.get_json(force=True)
     try:
@@ -480,7 +480,7 @@ def update_single_procedure():
 @login_required
 def delete_procedure():
     """Delete a procedure from the catalog (admin only)."""
-    if current_user.role != 'admin': return abort(403)
+    if current_user.role not in ('su', 'implementation'): return abort(403)
     from sqlalchemy import text as _t, func as _f
     data = request.get_json(force=True)
     try:
@@ -509,7 +509,7 @@ def delete_procedure():
 @mapping_bp.route('/canonical/approve', methods=['POST'])
 @login_required
 def approve_canonical_group():
-    if current_user.role != 'admin': return abort(403)
+    if current_user.role not in ('su', 'implementation'): return abort(403)
     from sqlalchemy import text as _t
     data = request.get_json(force=True)
     try:
@@ -535,7 +535,7 @@ def approve_canonical_group():
 @mapping_bp.route('/canonical/delete', methods=['POST'])
 @login_required
 def delete_canonical_group():
-    if current_user.role != 'admin': return abort(403)
+    if current_user.role not in ('su', 'implementation'): return abort(403)
     from sqlalchemy import text as _t
     data = request.get_json(force=True)
     try:
@@ -552,7 +552,7 @@ def delete_canonical_group():
 @login_required
 def set_canonical_modality():
     """Apply a modality to all procedure codes in a canonical group."""
-    if current_user.role != 'admin': return abort(403)
+    if current_user.role not in ('su', 'implementation'): return abort(403)
     from sqlalchemy import text as _t
     data = request.get_json(force=True)
     try:
@@ -587,7 +587,7 @@ def set_canonical_modality():
 @login_required
 def confirm_pair():
     """Mark a candidate pair as confirmed and add both codes to a canonical group."""
-    if current_user.role != 'admin': return abort(403)
+    if current_user.role not in ('su', 'implementation'): return abort(403)
     from sqlalchemy import text as _t
     data = request.get_json(force=True)
     try:
@@ -651,7 +651,7 @@ def confirm_pair():
 @login_required
 def reject_pair():
     """Mark a candidate pair as rejected (different procedures)."""
-    if current_user.role != 'admin': return abort(403)
+    if current_user.role not in ('su', 'implementation'): return abort(403)
     from sqlalchemy import text as _t
     data = request.get_json(force=True)
     try:
@@ -670,7 +670,7 @@ def reject_pair():
 @mapping_bp.route('/canonical/approve-member', methods=['POST'])
 @login_required
 def approve_member():
-    if current_user.role != 'admin': return abort(403)
+    if current_user.role not in ('su', 'implementation'): return abort(403)
     from sqlalchemy import text as _t
     data = request.get_json(force=True)
     try:
@@ -689,7 +689,7 @@ def approve_member():
 @login_required
 def move_member():
     """Move a code to a different cluster, or delete from all clusters (unclustered)."""
-    if current_user.role != 'admin': return abort(403)
+    if current_user.role not in ('su', 'implementation'): return abort(403)
     from sqlalchemy import text as _t
     data = request.get_json(force=True)
     try:
@@ -715,7 +715,7 @@ def move_member():
 @mapping_bp.route('/canonical/add-to-cluster', methods=['POST'])
 @login_required
 def add_to_cluster():
-    if current_user.role != 'admin': return abort(403)
+    if current_user.role not in ('su', 'implementation'): return abort(403)
     from sqlalchemy import text as _t
     data = request.get_json(force=True)
     try:
@@ -736,7 +736,7 @@ def add_to_cluster():
 @mapping_bp.route('/canonical/add-cluster', methods=['POST'])
 @login_required
 def add_cluster():
-    if current_user.role != 'admin': return abort(403)
+    if current_user.role not in ('su', 'implementation'): return abort(403)
     from sqlalchemy import text as _t
     data = request.get_json(force=True)
     try:
@@ -757,7 +757,7 @@ def add_cluster():
 @login_required
 def delete_ae_entry():
     """Delete an AE title and its associated schedule / exceptions (CASCADE)."""
-    if current_user.role != 'admin': return abort(403)
+    if current_user.role not in ('su', 'implementation'): return abort(403)
     data = request.get_json(force=True)
     ae = str(data.get('aetitle', '')).strip().upper()
     if not ae:
@@ -784,7 +784,7 @@ def delete_ae_entry():
 @login_required
 def update_ae_entry():
     """Inline update for an AE title row (modality, room_name, description)."""
-    if current_user.role != 'admin': return abort(403)
+    if current_user.role not in ('su', 'implementation'): return abort(403)
     data = request.get_json(force=True)
     try:
         ae = str(data['aetitle']).strip().upper()
@@ -813,7 +813,7 @@ def update_ae_entry():
 @mapping_bp.route('/canonical/rename-cluster', methods=['POST'])
 @login_required
 def rename_cluster():
-    if current_user.role != 'admin': return abort(403)
+    if current_user.role not in ('su', 'implementation'): return abort(403)
     from sqlalchemy import text as _t
     data = request.get_json(force=True)
     try:
@@ -951,7 +951,7 @@ def ladder_profile_save():
     leave a setting that reads as enforcing while doing nothing — the kind of
     configuration that gets trusted and is not true.
     """
-    if current_user.role != 'admin' and not user_has_page(current_user, 'mapping'):
+    if current_user.role not in ('su', 'implementation') and not user_has_page(current_user, 'mapping'):
         return abort(403)
 
     body = request.json or {}
@@ -1038,7 +1038,7 @@ def status_codes_tab():
 @permission_required('can_configure')
 def save_status_code():
     """Create or update one mapping row."""
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'implementation'):
         return abort(403)
     d = request.get_json() or {}
     state = (d.get('canonical_state') or '').strip()
@@ -1094,7 +1094,7 @@ def delete_status_code():
     retire a code without that consequence, set it inactive instead — the row
     stays and history keeps the meaning it was ingested with.
     """
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'implementation'):
         return abort(403)
     row_id = (request.get_json() or {}).get('id')
     if not row_id:
@@ -1188,7 +1188,7 @@ def save_field_map():
     typo protection: a target that does not exist maps a value into nothing at
     all, and nothing anywhere would ever report that.
     """
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'implementation'):
         return abort(403)
     d = request.get_json() or {}
     log = logging.getLogger("MAPPING")
@@ -1293,7 +1293,7 @@ def delete_field_map():
     Harmless by design: the parser falls back to its built-in position, so
     deleting a row restores the product default rather than leaving a gap.
     """
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'implementation'):
         return abort(403)
     row_id = (request.get_json() or {}).get('id')
     if not row_id:
@@ -1456,7 +1456,7 @@ def master_data_import(key):
     import: a mistyped role code breaks nothing loudly, it just leaves a
     technologist out of every technician report. A preview costs one click.
     """
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'implementation'):
         return abort(403)
     from utils.master_import import run_import
 

@@ -122,7 +122,7 @@ def generate_report():
             return jsonify(error="Report not found"), 404
 
         # Access control
-        if current_user.role != "admin":
+        if current_user.role not in ("su", "administrator"):
             allowed = ReportAccessControl.query.filter_by(
                 user_id=current_user.id,
                 report_template_id=report_id,

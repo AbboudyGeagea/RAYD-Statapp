@@ -424,7 +424,7 @@
         <div id="hl7ParseResults" style="display:none;">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
             <label style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#5a6070;text-transform:uppercase;letter-spacing:0.1em;">HL7 Orders Column Mapping</label>
-            {% if current_user.role == 'admin' %}
+            {% if current_user.role in ('su', 'administrator') %}
             <button onclick="saveMappingFromParse()" style="background:#00c896;color:#000;border:none;padding:5px 14px;border-radius:4px;font-family:'IBM Plex Mono',monospace;font-size:10px;cursor:pointer;font-weight:600;letter-spacing:0.05em;">Save Mapping</button>
             {% endif %}
           </div>
@@ -451,7 +451,7 @@
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-shrink:0;">
         <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#5a6070;">Configure which HL7 segment/field/component maps to each hl7_orders column</span>
         <div style="display:flex;gap:8px;">
-          {% if current_user.role == 'admin' %}
+          {% if current_user.role in ('su', 'administrator') %}
           <button onclick="addMappingRow()" style="background:#252a38;color:#c8cdd8;border:1px solid #333a4d;padding:5px 12px;border-radius:4px;font-family:'IBM Plex Mono',monospace;font-size:10px;cursor:pointer;">+ Add Row</button>
           <button onclick="saveFieldMap()" style="background:#00c896;color:#000;border:none;padding:5px 14px;border-radius:4px;font-family:'IBM Plex Mono',monospace;font-size:10px;cursor:pointer;font-weight:600;">Save Mappings</button>
           {% endif %}
@@ -466,7 +466,7 @@
             <th style="text-align:left;padding:6px 8px;font-family:'IBM Plex Mono',monospace;font-size:9px;color:#5a6070;text-transform:uppercase;letter-spacing:0.1em;width:100px;">Component #</th>
             <th style="text-align:left;padding:6px 8px;font-family:'IBM Plex Mono',monospace;font-size:9px;color:#5a6070;text-transform:uppercase;letter-spacing:0.1em;">DB Column</th>
             <th style="text-align:left;padding:6px 8px;font-family:'IBM Plex Mono',monospace;font-size:9px;color:#5a6070;text-transform:uppercase;letter-spacing:0.1em;">Label</th>
-            {% if current_user.role == 'admin' %}
+            {% if current_user.role in ('su', 'administrator') %}
             <th style="width:36px;"></th>
             {% endif %}
           </tr>
@@ -658,7 +658,7 @@
   ];
 
   const KNOWN_SEGS = ['MSH','PID','PV1','ORC','OBR','OBX'];
-  const IS_ADMIN = {{ 'true' if current_user.role == 'admin' else 'false' }};
+  const IS_ADMIN = {{ 'true' if current_user.role in ('su', 'administrator') else 'false' }};
 
   var HL7_FIELD_MAP = [];
 

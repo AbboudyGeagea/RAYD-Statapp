@@ -207,7 +207,7 @@
             <button id="run-nlp-btn" onclick="runNLP()" class="btn-primary" type="button">
               <i class="bi bi-cpu" aria-hidden="true"></i> Process Reports
             </button>
-            {% if current_user.role == 'admin' %}
+            {% if current_user.role in ('su', 'administrator') %}
             <button id="backfill-nlp-btn" onclick="runBackfill()" class="export-btn" type="button" title="Process the entire historical backlog, ignoring the date filter — runs in automatic batches until nothing is pending.">
               <i class="bi bi-database-fill-gear" aria-hidden="true"></i> Backfill All
             </button>
@@ -435,7 +435,7 @@
               <button onclick="exportCriticalCSV()" id="critical-csv-btn" class="export-btn" type="button" style="display:none;">
                 <i class="bi bi-download" aria-hidden="true"></i> CSV
               </button>
-              {% if current_user.role == 'admin' %}
+              {% if current_user.role in ('su', 'administrator') %}
               <button onclick="toggleKeywordsPanel()" class="export-btn" type="button" aria-expanded="false" aria-controls="keywords-panel">
                 <i class="bi bi-tags-fill" aria-hidden="true"></i> Manage Keywords
               </button>
@@ -443,7 +443,7 @@
             </div>
           </div>
 
-          {% if current_user.role == 'admin' %}
+          {% if current_user.role in ('su', 'administrator') %}
           <!-- Keywords management panel (admin only) -->
           <div id="keywords-panel" style="display:none;background:var(--well);border:1px solid var(--border);border-radius:12px;padding:16px 18px;margin-bottom:16px;">
             <div style="font-size:10px;font-weight:800;letter-spacing:0.16em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;">Critical Keywords Dictionary</div>
@@ -591,7 +591,7 @@
                   <div class="section-label" style="margin-bottom:0;"><i class="bi bi-clipboard-check-fill" style="color:var(--primary);" aria-hidden="true"></i>Classification Review
                     <span id="review-progress" style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;margin-left:8px;"></span>
                   </div>
-                  {% if current_user.role == 'admin' %}
+                  {% if current_user.role in ('su', 'administrator') %}
                   <button id="review-seed-btn" onclick="seedReviewSample()" class="export-btn" type="button" title="Sample unreviewed reports for one-time confirmation, balanced between predicted-critical and predicted-not.">
                     <i class="bi bi-shuffle" aria-hidden="true"></i> Generate Review Sample
                   </button>

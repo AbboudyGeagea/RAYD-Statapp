@@ -47,7 +47,7 @@ PER_PAGE = 50
 def _require_access():
     if not current_user.is_authenticated:
         abort(401)
-    if current_user.role != 'admin' and not user_has_page(current_user, 'can_view_etl'):
+    if current_user.role != 'su' and not user_has_page(current_user, 'can_view_etl'):
         abort(403)
 
 

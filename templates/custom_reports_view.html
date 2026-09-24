@@ -132,7 +132,7 @@
                         </div>
                     </div>
                     <div class="flex items-center gap-2 flex-shrink-0">
-                        {% if current_user.role == 'admin' or current_user.id == report.created_by %}
+                        {% if current_user.role in ('su', 'administrator') or current_user.id == report.created_by %}
                         <a href="/reports/custom/{{ report.id }}/edit" class="btn-ghost">
                             <i class="bi bi-pencil-fill"></i> Edit
                         </a>

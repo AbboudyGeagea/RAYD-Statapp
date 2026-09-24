@@ -233,7 +233,7 @@
     </nav>
 
     <!-- Password reset -->
-    {% if current_user.role != 'admin' %}
+    {% if current_user.role != 'su' %}
     <div class="mt-auto mb-2">
         {% if current_user.password_reset_requested %}
         <div class="w-full flex items-center gap-3 px-3 py-2.5 text-xs font-bold rounded-xl border border-emerald-500/20 text-emerald-400 bg-emerald-500/5 mb-2">

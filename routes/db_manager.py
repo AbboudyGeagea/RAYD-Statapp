@@ -23,7 +23,7 @@ PRIMARY_CONN = 'oracle_PACS'   # protected — cannot be deleted
 
 
 def _guard():
-    if current_user.role != 'admin':
+    if current_user.role != 'su':
         abort(403)
 
 

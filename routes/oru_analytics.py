@@ -392,7 +392,7 @@ def _oru_report_ids(where_clause, params, limit=None, offset=0):
 @login_required
 def oru_page():
     from db import user_has_page
-    if current_user.role != 'admin' and not user_has_page(current_user, 'oru'):
+    if current_user.role not in ('su', 'administrator') and not user_has_page(current_user, 'oru'):
         from flask import abort
         abort(403)
     procedures = db.session.execute(text("""
@@ -717,7 +717,7 @@ def oru_section_gaps():
     Returns per-section counts and a per-physician breakdown for manager export.
     """
     from db import user_has_page
-    if current_user.role != 'admin' and not user_has_page(current_user, 'oru'):
+    if current_user.role not in ('su', 'administrator') and not user_has_page(current_user, 'oru'):
         from flask import abort
         abort(403)
 
@@ -805,7 +805,7 @@ def oru_sections():
     then return the top token frequencies for each section as treemap data.
     """
     from db import user_has_page
-    if current_user.role != 'admin' and not user_has_page(current_user, 'oru'):
+    if current_user.role not in ('su', 'administrator') and not user_has_page(current_user, 'oru'):
         from flask import abort
         abort(403)
 
@@ -871,7 +871,7 @@ def nlp_status():
 @oru_bp.route('/nlp/process', methods=['POST'])
 @login_required
 def nlp_process():
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         from flask import abort
         abort(403)
 
@@ -900,7 +900,7 @@ def nlp_process():
 @oru_bp.route('/nlp/job/<int:job_id>')
 @login_required
 def nlp_job_status(job_id):
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         from flask import abort
         abort(403)
 
@@ -939,7 +939,7 @@ _REVIEW_SAMPLE_PER_BUCKET = 150
 @oru_bp.route('/nlp/review/seed', methods=['POST'])
 @login_required
 def review_seed():
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         abort(403)
 
     data = request.get_json(silent=True) or {}
@@ -1295,7 +1295,7 @@ def keyword_suggestions():
 @oru_bp.route('/diagnosis-vocabulary')
 @login_required
 def get_diagnosis_vocabulary():
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         abort(403)
     rows = db.session.execute(text("""
         SELECT id, phrase, canonical_label, is_benign, active
@@ -1312,7 +1312,7 @@ def get_diagnosis_vocabulary():
 @oru_bp.route('/diagnosis-vocabulary', methods=['POST'])
 @login_required
 def add_diagnosis_vocabulary():
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         abort(403)
     data = request.get_json(silent=True) or {}
     phrase = (data.get('phrase') or '').strip().lower()
@@ -1341,7 +1341,7 @@ def add_diagnosis_vocabulary():
 @oru_bp.route('/diagnosis-vocabulary/<int:vocab_id>', methods=['DELETE'])
 @login_required
 def delete_diagnosis_vocabulary(vocab_id):
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         abort(403)
     try:
         db.session.execute(text("DELETE FROM oru_diagnosis_vocabulary WHERE id = :id"), {'id': vocab_id})

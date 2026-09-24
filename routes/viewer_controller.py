@@ -43,7 +43,7 @@ def viewer_dashboard():
 
     from db import ReportTemplate
 
-    is_admin = current_user.role == 'admin'
+    is_admin = current_user.role in ('su', 'administrator')
 
     if is_admin:
         reports = ReportTemplate.query.filter_by(is_base=True).all()
@@ -571,7 +571,7 @@ def yesterday_overview():
 def viewer_report(report_id):
     """Render report directly based on report_id"""
     # Access control for non-admins
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         access = ReportAccessControl.query.filter_by(
             user_id=current_user.id,
             report_template_id=report_id,
@@ -592,7 +592,7 @@ def viewer_report(report_id):
 def viewer_export_report(report_id):
     """Export report directly, no url_for needed"""
     # Access control for non-admins
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'administrator'):
         access = ReportAccessControl.query.filter_by(
             user_id=current_user.id,
             report_template_id=report_id,

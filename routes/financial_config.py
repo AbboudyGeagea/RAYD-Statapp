@@ -68,7 +68,7 @@ def _validate_rate(body: dict) -> tuple:
 @login_required
 @permission_required('can_view_finance')
 def financial_config_page():
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'implementation'):
         abort(403)
     fin_config = _full_config()
     return render_template('financial_config.html', fin_config=fin_config)
@@ -79,7 +79,7 @@ def financial_config_page():
 @financial_config_bp.route('/api/financial/config')
 @login_required
 def api_get_config():
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'implementation'):
         abort(403)
     return jsonify(_full_config())
 
@@ -87,7 +87,7 @@ def api_get_config():
 @financial_config_bp.route('/api/financial/preview')
 @login_required
 def api_preview():
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'implementation'):
         abort(403)
     modality = request.args.get('modality') or None
     proc     = request.args.get('procedure_code') or None
@@ -100,7 +100,7 @@ def api_preview():
 @financial_config_bp.route('/api/financial/config/global', methods=['POST'])
 @login_required
 def api_set_global():
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'implementation'):
         abort(403)
     body = request.get_json(force=True) or {}
     rate, err = _validate_rate(body)
@@ -135,7 +135,7 @@ def api_set_global():
 @financial_config_bp.route('/api/financial/config/modality', methods=['POST'])
 @login_required
 def api_set_modality():
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'implementation'):
         abort(403)
     body     = request.get_json(force=True) or {}
     modality = str(body.get('modality', '')).upper().strip()
@@ -175,7 +175,7 @@ def api_set_modality():
 @financial_config_bp.route('/api/financial/config/modality/<modality>', methods=['DELETE'])
 @login_required
 def api_delete_modality(modality):
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'implementation'):
         abort(403)
     modality = modality.upper().strip()
     old_row = db.session.execute(
@@ -199,7 +199,7 @@ def api_delete_modality(modality):
 @financial_config_bp.route('/api/financial/config/procedure', methods=['POST'])
 @login_required
 def api_set_procedure():
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'implementation'):
         abort(403)
     body  = request.get_json(force=True) or {}
     pcode = str(body.get('procedure_code', '')).upper().strip()
@@ -239,7 +239,7 @@ def api_set_procedure():
 @financial_config_bp.route('/api/financial/config/procedure/<procedure_code>', methods=['DELETE'])
 @login_required
 def api_delete_procedure(procedure_code):
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'implementation'):
         abort(403)
     pcode = procedure_code.upper().strip()
     old_row = db.session.execute(
@@ -265,7 +265,7 @@ def api_delete_procedure(procedure_code):
 @financial_config_bp.route('/api/audit/financial')
 @login_required
 def api_audit_log():
-    if current_user.role != 'admin':
+    if current_user.role not in ('su', 'implementation'):
         abort(403)
     rows = db.session.execute(text(
         "SELECT id, user_name, action, entity_type, entity_id, "

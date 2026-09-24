@@ -215,7 +215,7 @@
                             </a>
 
                             <!-- Delete — admin always sees it; non-admin only if they created it -->
-                            {% if current_user.role == 'admin' or report.creator == current_user.username %}
+                            {% if current_user.role in ('su', 'administrator') or report.creator == current_user.username %}
                             <button onclick="deleteReport({{ report.id }})" class="btn-danger ml-auto">
                                 <i class="bi bi-trash3-fill"></i> Delete
                             </button>
