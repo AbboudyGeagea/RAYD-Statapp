@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | CD Burn Audit Dashboard</title>
+    <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
+    <style>
+        :root { --accent: #38bdf8; }
+        body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; }
+        .card-custom { background: #232b28; border-radius: 1.5rem; border: 1px solid #28332e; padding: 24px; }
+        .kpi-value { font-size: 2.25rem; font-weight: 900; color: #38bdf8; }
+        .kpi-label { font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.12em; color: #64748b; margin-top: 4px; }
+        .section-title { font-size: 14px; font-weight: 900; color: #e2e8f0; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 12px; }
+        .table-row { border-bottom: 1px solid rgba(40,51,46,0.8); padding: 12px 0; }
+        .table-row:hover { background: rgba(56,189,248,0.04); }
+        .badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 10px; font-weight: 900; }
+        .badge-success { background: rgba(34,197,94,0.15); color: #22c55e; }
+        .badge-error { background: rgba(239,68,68,0.15); color: #ef4444; }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+
+    {% include '_header.html' %}
+
+    <div class="flex flex-1 overflow-hidden">
+        <!-- Sidebar -->
+        <aside class="w-64 bg-[#1a2420] border-r border-[#28332e] flex flex-col p-5 shadow-sm z-20 gap-5 overflow-y-auto flex-shrink-0">
+            <nav class="space-y-1">
+                <a href="{{ url_for('viewer.viewer_dashboard') }}"
+                   class="flex items-center gap-3 px-4 py-3 text-xs font-black text-[#64748b] uppercase tracking-widest border border-[#28332e] mb-4 hover:border-[#38bdf8]/30 rounded-lg transition-all">
+                    <i class="bi bi-arrow-left-square-fill text-[#38bdf8] text-lg"></i> Dashboard
+                </a>
+                <hr class="border-[#28332e] my-4">
+                <p class="text-[10px] font-black text-[#64748b] uppercase tracking-widest px-4">CD Log</p>
+                <a href="{{ url_for('cd_log_ui.cd_log_dashboard') }}"
+                   class="flex items-center gap-3 px-4 py-3 text-xs font-bold text-[#38bdf8] bg-[#28332e] rounded-lg">
+                    <i class="bi bi-graph-up text-lg"></i> Dashboard
+                </a>
+                <a href="{{ url_for('cd_log_ui.cd_log_orthanc_validation') }}"
+                   class="flex items-center gap-3 px-4 py-3 text-xs font-bold text-[#64748b] hover:text-[#38bdf8] rounded-lg transition-all">
+                    <i class="bi bi-check-circle text-lg"></i> Orthanc Validation
+                </a>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="flex-1 overflow-y-auto p-8">
+            <div class="max-w-7xl mx-auto">
+                <!-- Header -->
+                <div class="mb-8">
+                    <h1 class="text-4xl font-black text-[#e2e8f0] mb-2">CD Burn Audit</h1>
+                    <p class="text-[#64748b] text-sm">Last 30 days: burn events, success rates, facility breakdown</p>
+                </div>
+
+                <!-- KPIs -->
+                <div class="grid grid-cols-4 gap-6 mb-8">
+                    <div class="card-custom">
+                        <p class="kpi-label">Burn Events</p>
+                        <p class="kpi-value">{{ stats.burn_events|default(0) }}</p>
+                    </div>
+                    <div class="card-custom">
+                        <p class="kpi-label">Success Rate</p>
+                        <p class="kpi-value">
+                            {% if stats.burn_events %}
+                                {{ (stats.successful_burns / stats.burn_events * 100)|round(1) }}%
+                            {% else %}
+                                —
+                            {% endif %}
+                        </p>
+                    </div>
+                    <div class="card-custom">
+                        <p class="kpi-label">Total Copies</p>
+                        <p class="kpi-value">{{ stats.total_copies|default(0) }}</p>
+                    </div>
+                    <div class="card-custom">
+                        <p class="kpi-label">Unique Patients</p>
+                        <p class="kpi-value">{{ stats.unique_patients|default(0) }}</p>
+                    </div>
+                </div>
+
+                <!-- Top Facilities -->
+                <div class="card-custom mb-8">
+                    <p class="section-title mb-4">Top Facilities (by burn count)</p>
+                    <div class="space-y-3">
+                        {% for fac in top_facilities %}
+                        <div class="table-row flex justify-between items-center">
+                            <div class="flex-1">
+                                <p class="font-bold text-[#e2e8f0]">{{ fac.facility_code }}</p>
+                                <p class="text-[#64748b] text-xs">{{ fac.unique_patients }} patients</p>
+                            </div>
+                            <div class="text-right">
+                                <p class="font-bold text-[#38bdf8]">{{ fac.burn_count }} burns</p>
+                                <p class="text-[#64748b] text-xs">{{ fac.success_rate_pct }}% success</p>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <!-- Recent Burns -->
+                <div class="card-custom">
+                    <p class="section-title mb-4">Recent CD Burn Events</p>
+                    <div class="space-y-2">
+                        {% for burn in recent %}
+                        <div class="table-row flex justify-between items-center">
+                            <div class="flex-1">
+                                <p class="font-bold text-[#e2e8f0]">{{ burn.patient_name }}</p>
+                                <p class="text-[#64748b] text-xs">
+                                    {{ burn.timestamp.strftime('%Y-%m-%d %H:%M') }} •
+                                    {{ burn.facility_code }}
+                                </p>
+                            </div>
+                            <div class="flex items-center gap-3">
+                                <span class="badge {% if burn.status == 'success' %}badge-success{% else %}badge-error{% endif %}">
+                                    {{ burn.status|upper }}
+                                </span>
+                                <span class="text-[#38bdf8] font-bold">{{ burn.copies_count }} copies</span>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+</body>
+</html>
