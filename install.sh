@@ -259,6 +259,139 @@ $COMPOSE ps | grep rayd_service | grep -q "Up" || error "rayd_service failed to 
 
 ok "All containers are running."
 
+# ── License Tier Configuration ────────────────────────────────────────────────
+echo ""
+echo "  ── License Tier ───────────────────────────────────────────────────────────"
+echo "  1) Essential    — Viewer dashboard, all reports, user mgmt,"
+echo "                    activity log, modality/procedure config, export"
+echo "                    Unlimited users/sessions"
+echo ""
+echo "  2) Professional — Everything in Essential, plus:"
+echo "                    HL7 orders, report intelligence, custom reports,"
+echo "                    ER dashboard, capacity ladder, saved reports"
+echo "                    Unlimited users/sessions"
+echo ""
+echo "  3) Enterprise   — Everything in Professional, plus:"
+echo "                    Revenue intelligence, AI reports, live department view"
+echo "                    Unlimited users/sessions"
+echo ""
+echo "  4) Custom       — Start from Enterprise and toggle features manually"
+echo "  ─────────────────────────────────────────────────────────────────────────"
+echo ""
+read -r -p "  Select license tier [1-4] (default: 3): " TIER_CHOICE
+TIER_CHOICE="${TIER_CHOICE:-3}"
+
+case "$TIER_CHOICE" in
+    1) TIER_KEY="essential" ;;
+    2) TIER_KEY="professional" ;;
+    4) TIER_KEY="custom" ;;
+    *) TIER_KEY="enterprise" ;;
+esac
+
+# Tier presets inlined — no Flask/Python import needed on the host
+_JSON_ESS='{"tier":"essential","reports":[22,23,25,27,29,30],"export":true,"adapter_mapper":true,"hl7_orders":false,"oru_analytics":false,"custom_reports":false,"er_dashboard":false,"capacity_ladder":false,"saved_reports":false,"super_report":false,"referring_intel":false,"financial":false,"live_feed":false,"ai_report":false,"max_users":0,"max_sessions":0,"expires":"","max_studies_per_report":0}'
+_JSON_PRO='{"tier":"professional","reports":[22,23,25,27,29,30],"export":true,"adapter_mapper":true,"hl7_orders":true,"oru_analytics":true,"custom_reports":true,"er_dashboard":true,"capacity_ladder":true,"saved_reports":true,"super_report":true,"referring_intel":true,"financial":false,"live_feed":false,"ai_report":false,"max_users":0,"max_sessions":0,"expires":"","max_studies_per_report":0}'
+_JSON_ENT='{"tier":"enterprise","reports":[22,23,25,27,29,30],"export":true,"adapter_mapper":true,"hl7_orders":true,"oru_analytics":true,"custom_reports":true,"er_dashboard":true,"capacity_ladder":true,"saved_reports":true,"super_report":true,"referring_intel":true,"financial":true,"live_feed":true,"ai_report":true,"max_users":0,"max_sessions":0,"expires":"","max_studies_per_report":0}'
+
+case "$TIER_KEY" in
+    essential)    LICENSE_JSON="$_JSON_ESS" ;;
+    professional) LICENSE_JSON="$_JSON_PRO" ;;
+    *)            LICENSE_JSON="$_JSON_ENT" ;;
+esac
+
+if [[ "$TIER_KEY" == "custom" ]]; then
+    echo ""
+    echo "  Starting from Enterprise tier. Edit the JSON below."
+    echo "  Current license JSON:"
+    echo "  $LICENSE_JSON" | python3 -m json.tool 2>/dev/null || echo "  $LICENSE_JSON"
+    echo ""
+
+    read -r -p "  Licensed report IDs (comma-separated, e.g. 22,23,25,27,29,30): " CUSTOM_REPORTS
+    if [ -n "$CUSTOM_REPORTS" ]; then
+        LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+d['reports'] = [int(x.strip()) for x in '${CUSTOM_REPORTS}'.split(',') if x.strip().isdigit()]
+d['tier'] = 'custom'
+print(json.dumps(d))
+")
+    fi
+
+    read -r -p "  Max users (0 = unlimited): " CUSTOM_MAX_USERS
+    if [ -n "$CUSTOM_MAX_USERS" ]; then
+        LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+d['max_users'] = int('${CUSTOM_MAX_USERS}') if '${CUSTOM_MAX_USERS}'.isdigit() else 0
+print(json.dumps(d))
+")
+    fi
+
+    read -r -p "  Max concurrent sessions (0 = unlimited): " CUSTOM_MAX_SESS
+    if [ -n "$CUSTOM_MAX_SESS" ]; then
+        LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+d['max_sessions'] = int('${CUSTOM_MAX_SESS}') if '${CUSTOM_MAX_SESS}'.isdigit() else 0
+print(json.dumps(d))
+")
+    fi
+
+    read -r -p "  Expiry date (YYYY-MM-DD, blank = never): " CUSTOM_EXPIRY
+    if [ -n "$CUSTOM_EXPIRY" ]; then
+        LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+d['expires'] = '${CUSTOM_EXPIRY}'
+print(json.dumps(d))
+")
+    fi
+
+    read -r -p "  Max studies per report (0 = unlimited): " CUSTOM_STUDY_CAP
+    if [ -n "$CUSTOM_STUDY_CAP" ]; then
+        LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+d['max_studies_per_report'] = int('${CUSTOM_STUDY_CAP}') if '${CUSTOM_STUDY_CAP}'.isdigit() else 0
+print(json.dumps(d))
+")
+    fi
+
+    echo ""
+    echo "  Professional features:"
+    for feat in hl7_orders oru_analytics custom_reports er_dashboard capacity_ladder saved_reports referring_intel super_report; do
+        CURRENT=$(echo "$LICENSE_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('$feat', False))")
+        read -r -p "    Enable $feat? (current: $CURRENT) [y/n/Enter=keep]: " TOGGLE
+        if [[ "${TOGGLE,,}" == "y" ]]; then
+            LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); d['$feat']=True; print(json.dumps(d))")
+        elif [[ "${TOGGLE,,}" == "n" ]]; then
+            LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); d['$feat']=False; print(json.dumps(d))")
+        fi
+    done
+
+    echo ""
+    echo "  Enterprise features:"
+    for feat in financial live_feed ai_report; do
+        CURRENT=$(echo "$LICENSE_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('$feat', False))")
+        read -r -p "    Enable $feat? (current: $CURRENT) [y/n/Enter=keep]: " TOGGLE
+        if [[ "${TOGGLE,,}" == "y" ]]; then
+            LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); d['$feat']=True; print(json.dumps(d))")
+        elif [[ "${TOGGLE,,}" == "n" ]]; then
+            LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); d['$feat']=False; print(json.dumps(d))")
+        fi
+    done
+fi
+
+pg_exec "
+INSERT INTO settings (key, value) VALUES ('license', '${LICENSE_JSON}')
+ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+"
+
+echo ""
+echo "  Final license:"
+echo "  $LICENSE_JSON" | python3 -m json.tool 2>/dev/null || echo "  $LICENSE_JSON"
+ok "License tier '${TIER_KEY}' saved."
+
 # ── Initial user setup ────────────────────────────────────────────────────────
 echo ""
 echo "  ── Initial User Setup ──────────────────────────────"
