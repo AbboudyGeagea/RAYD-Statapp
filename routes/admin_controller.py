@@ -54,11 +54,14 @@ def create_user():
 
     from werkzeug.security import generate_password_hash
 
-    username = request.json.get('username', '').strip()
-    password = request.json.get('password', '').strip()
-    role = request.json.get('role', 'user').lower()
-    email = request.json.get('email', '').strip() or None
-    full_name = request.json.get('full_name', '').strip() or None
+    if not request.json:
+        return jsonify({'status': 'error', 'message': 'Invalid request format'}), 400
+
+    username = (request.json.get('username') or '').strip()
+    password = (request.json.get('password') or '').strip()
+    role = (request.json.get('role') or 'user').lower()
+    email = (request.json.get('email') or '').strip() or None
+    full_name = (request.json.get('full_name') or '').strip() or None
 
     if not username or not password:
         return jsonify({'status': 'error', 'message': 'Username and password required'}), 400
