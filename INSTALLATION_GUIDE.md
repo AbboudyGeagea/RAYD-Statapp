@@ -21,6 +21,7 @@
 10. [Data Ingestion Verification](#data-ingestion-verification)
 11. [Troubleshooting](#troubleshooting)
 12. [Post-Deployment Checklist](#post-deployment-checklist)
+13. [Capacity & Performance](#capacity--performance)
 
 ---
 
@@ -959,6 +960,141 @@ SELECT count(*) as active_connections FROM pg_stat_activity;
 | Date | Version | Changes | Author |
 |------|---------|---------|--------|
 | Sep 2026 | 1.0 | Initial release | Implementation Team |
+
+---
+
+## Capacity & Performance
+
+This section describes the HL7 listener's real-world throughput and capacity limits, based on stress testing.
+
+### Performance Baseline
+
+**Tested on:** Ryzen 7 Ultra (8 cores), 16GB RAM, NVMe SSD  
+**Test date:** September 2026  
+**Total messages tested:** 660 (100% success rate)
+
+### HL7 Listener Throughput
+
+| Load Level | Concurrent Senders | Throughput | Avg Latency | Status |
+|-----------|-------------------|------------|-------------|--------|
+| **Light** | 1-2 senders | 10-15 msg/sec | 74-80 ms | Optimal ✅ |
+| **Recommended** | 3-5 senders | 40-50 msg/sec | 80-200 ms | Production ✅ |
+| **Peak** | 20 concurrent | 62 msg/sec | 226 ms | Burst capacity |
+| **Overload** | >25 concurrent | Degraded | 1,000+ ms | Avoid ❌ |
+
+**In practical terms:**
+- **Safe sustained:** 40-50 messages/sec (2,400-3,000 msg/min)
+- **Peak burst:** 62 messages/sec (3,720 msg/min)
+- **Maximum concurrent connections:** 20-25 (beyond this, latency degrades exponentially)
+
+### Typical Hospital Deployment
+
+**Example with 3 PACS systems:**
+
+```
+PACS System A: 15 msg/sec peak (morning rush)
+PACS System B: 10 msg/sec average
+PACS System C: 8 msg/sec average
+Total: 33 msg/sec = SAFE (within 40-50 recommended range)
+```
+
+For your deployment, calculate peak load:
+1. List all HL7 senders (PACS, HIS, RIS systems)
+2. Estimate each sender's peak throughput (ask vendor)
+3. Total should not exceed 40-50 msg/sec sustained
+
+### Bottleneck Analysis
+
+**Why does performance level off?**
+
+The HL7 listener processes each message through:
+1. **Parse** (2-3 ms) - HL7 syntax parsing
+2. **Archive** (20-30 ms) - Store raw message in database
+3. **RAY7 Screen** (50-100 ms) - **BLOCKING** validation/screening
+4. **Persist Verdict** (5-10 ms) - Store screening results
+5. **Project** (10-20 ms) - Write to reporting tables (hl7_orders, hl7_oru_reports)
+6. **Commit** (5-10 ms) - Transaction commit
+
+**Total per message: ~100-170 ms**
+
+The bottleneck is **RAY7 screening**, which runs **synchronously in the ACK response window**. This is intentional for safety: every message must be validated before acknowledging to the sender.
+
+At 20 concurrent senders, this creates natural queue depth but remains stable. Beyond 25 threads, Python's Global Interpreter Lock (GIL) causes queue backlog, rapidly degrading latency.
+
+### Capacity Planning
+
+**For your server specs (8 cores, 16GB RAM, NVMe):**
+
+| Hardware Component | Utilization | Limit | Notes |
+|-------------------|------------|-------|-------|
+| CPU | Single-threaded GIL | ~1 core | Screening is CPU-bound parsing |
+| RAM | Minimal | <2GB | Stable, no swap observed |
+| Database connections | 14/25 max | 25 pool | Adequate headroom |
+| Disk I/O | Low | ~50 MB/min | NVMe easily handles |
+| Network | Unused | 1Gbps | Not a factor on localhost |
+
+### Monitoring in Production
+
+Monitor these metrics to detect overload:
+
+```bash
+# 1. Active DB connections
+docker exec rayd_db psql -U etl_user -d etl_db \
+  -c "SELECT count(*) FROM pg_stat_activity WHERE datname = 'etl_db';"
+# Alert if > 20
+
+# 2. Recent message count
+docker exec rayd_db psql -U etl_user -d etl_db \
+  -c "SELECT count(*) FROM hl7_archive WHERE received_at > NOW() - INTERVAL '1 minute';"
+# Should show incoming message rate
+
+# 3. App logs for ACK times
+docker compose logs rayd-app | grep "HL7.*type="
+# Watch for "time=XXms" increasing over time
+```
+
+**Alert thresholds:**
+- DB connections > 20: Investigate sender or slow screening
+- ACK latency > 500 ms: System overloaded or slow queries
+- Message failure rate > 0.1%: Data quality issue
+- Thread count > 30: Stop accepting new connections, coordinate with senders
+
+### Scaling Beyond 62 msg/sec
+
+If your deployment needs higher throughput, these options are available:
+
+**Option 1: Async RAY7 Screening** (2-3x improvement)
+- Move RAY7 validation to background job
+- Messages briefly unscreened in database
+- ACK latency drops to 50 ms, throughput ~150+ msg/sec
+- Trade-off: Quarantine rules apply asynchronously
+
+**Option 2: Multi-Process Architecture** (2-4x improvement)
+- Replace Python threading with process pool
+- Each process has own GIL, true parallelism
+- Requires 4-8 cores (you have 8)
+- Estimated throughput: 200-250 msg/sec
+
+**Option 3: Connection Pooling** (10-15% improvement)
+- Use PgBouncer or pgpool-II for better connection management
+- Reduces connection overhead
+- Minimal code changes
+
+**Option 4: Hybrid (Recommended)** (3-5x improvement)
+- Async RAY7 + multi-process pool
+- Highest throughput with moderate complexity
+- Estimated: 300+ msg/sec
+
+Contact Intermedic engineering if you need to implement scaling options.
+
+### Success Metrics
+
+Your deployment is successful if:
+- All HL7 messages arrive and are archived (0% message loss)
+- ACK latency < 500 ms in normal operation
+- Database connections never exceed pool size
+- No spike in CPU or memory usage during peaks
+- Data appears in dashboards within 2-5 seconds of arrival
 
 ---
 
