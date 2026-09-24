@@ -43,6 +43,8 @@ from routes.custom_reports      import custom_reports_bp
 from routes.health_bp           import health_bp
 from routes.resource_monitor    import resource_monitor_bp
 from routes.crn_ack             import crn_ack_bp
+from routes.cd_log_route         import cd_log_bp
+from routes.cd_log_ui            import cd_log_ui_bp
 
 logger = logging.getLogger("REGISTRY")
 
@@ -268,6 +270,8 @@ def register_blueprints(app):
     app.register_blueprint(crn_ack_bp)   # public ack landing page — never license-gated
     app.register_blueprint(api_bp)
     app.register_blueprint(auth_bp)
+    app.register_blueprint(cd_log_bp)   # CD burn log API
+    app.register_blueprint(cd_log_ui_bp)   # CD burn log UI dashboards
     app.register_blueprint(admin_bp,         url_prefix='/admin')
     app.register_blueprint(viewer_bp,        url_prefix='/viewer')
     app.register_blueprint(mapping_bp)

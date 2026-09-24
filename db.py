@@ -346,6 +346,40 @@ class ETLJobLog(db.Model):
     error_message = db.Column(Text)
     duration_seconds = db.Column(Numeric(10,2))
 
+class CDLog(db.Model):
+    __tablename__ = 'cd_burn_log'
+    id = db.Column(Integer, primary_key=True)
+    event_type = db.Column(String(50), server_default='cd_burned')
+    timestamp = db.Column(DateTime, nullable=False)
+    burn_mode = db.Column(String(50))
+    burn_location = db.Column(String(100))
+
+    patient_id = db.Column(String(50))
+    patient_name = db.Column(String(255))
+    patient_dob = db.Column(Date)
+
+    studies = db.Column(JSONB, server_default='[]')
+
+    copies_count = db.Column(Integer, default=1)
+    disc_format = db.Column(String(20))
+    disc_size_mb = db.Column(Numeric(10,2))
+    disc_label = db.Column(String(255))
+    burn_duration_seconds = db.Column(Integer)
+
+    status = db.Column(String(20), server_default='success')
+    error_message = db.Column(Text)
+
+    operator_id = db.Column(String(100))
+    facility_code = db.Column(String(50))
+    app_version = db.Column(String(20))
+
+    orthanc_validated = db.Column(Boolean, server_default='false')
+    orthanc_validation_result = db.Column(JSONB)
+    orthanc_validated_at = db.Column(DateTime)
+
+    created_at = db.Column(DateTime, server_default=func.now())
+    updated_at = db.Column(DateTime, server_default=func.now())
+
 # ----------------------------------------------------------------
 # 4. REPORTING ENGINE
 # ----------------------------------------------------------------
