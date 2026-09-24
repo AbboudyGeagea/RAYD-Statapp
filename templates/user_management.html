@@ -130,9 +130,9 @@
                             {% if pending_users %}&nbsp;&bull;&nbsp;<span class="text-amber-400">{{ pending_users|length }} pending</span>{% endif %}
                         </p>
                     </div>
-                    <a href="{{ url_for('auth.register') }}"
+                    <a href="{{ url_for('admin.admin_dashboard') }}"
                        class="flex items-center gap-2 px-4 py-2 bg-[#60a5fa] text-[#0f172a] text-xs font-black uppercase tracking-widest rounded-xl hover:bg-[#93c5fd] transition-colors">
-                        <i class="bi bi-person-plus-fill"></i> Add User
+                        <i class="bi bi-plus-circle"></i> Create User
                     </a>
                 </div>
 
