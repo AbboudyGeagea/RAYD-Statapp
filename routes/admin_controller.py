@@ -1,12 +1,8 @@
 from flask import Blueprint, render_template, redirect, url_for, flash, jsonify, request, abort
 from flask_login import login_required, current_user
-from db import User, ReportTemplate, ETLJobLog, ReportAccessControl, UserPagePermission, SchedulingEntry, UserAuditLog, active_sessions, db
+from db import User, ReportTemplate, ReportAccessControl, UserPagePermission, SchedulingEntry, UserAuditLog, active_sessions, db
 from sqlalchemy import func, text
 from datetime import datetime, timedelta, date as date_type
-import sys, os
-_etl_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'ETL_JOBS')
-if _etl_path not in sys.path: sys.path.insert(0, _etl_path)
-from etl_settings import ETL_GEAR
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
 
@@ -17,63 +13,8 @@ def admin_dashboard():
         flash("Admin access required.", "danger")
         return redirect(url_for('viewer.viewer_dashboard'))
 
-    # --- 1. User & Report Management ---
     users   = User.query.order_by(User.username).all()
     reports = ReportTemplate.query.order_by(ReportTemplate.report_name).all()
-
-    # --- 2. Date & Pagination Logic ---
-    selected_date = request.args.get('date')   # YYYY-MM-DD
-    page     = request.args.get('page', 1, type=int)
-    per_page = 20
-
-    # Base query — newest first, all columns including the new ones
-    query = ETLJobLog.query.order_by(ETLJobLog.start_time.desc())
-
-    if selected_date:
-        query = query.filter(func.date(ETLJobLog.start_time) == selected_date)
-
-    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
-    etl_logs   = pagination.items
-
-    # --- 3. System Status ---
-    last_sync_entry = (
-        ETLJobLog.query
-        .filter_by(status='SUCCESS')
-        .order_by(ETLJobLog.end_time.desc())
-        .first()
-    )
-    last_sync_time = (
-        last_sync_entry.end_time.strftime('%d %b, %H:%M')
-        if last_sync_entry and last_sync_entry.end_time
-        else "Never"
-    )
-
-    # --- 4. ETL Stats for KPI strip ---
-    today_str = date_type.today().isoformat()
-    etl_stats = db.session.execute(text("""
-        SELECT
-            COUNT(*) FILTER (WHERE start_time::date = CURRENT_DATE)                        AS runs_today,
-            COUNT(*) FILTER (WHERE start_time >= NOW() - INTERVAL '7 days' AND status = 'SUCCESS')::float
-              / NULLIF(COUNT(*) FILTER (WHERE start_time >= NOW() - INTERVAL '7 days'), 0) * 100
-                                                                                            AS success_rate_7d,
-            ROUND(AVG(duration_seconds) FILTER (
-                WHERE status = 'SUCCESS' AND duration_seconds IS NOT NULL
-                  AND start_time >= NOW() - INTERVAL '30 days'
-            ))                                                                              AS avg_duration,
-            COALESCE(SUM(records_processed) FILTER (WHERE start_time::date = CURRENT_DATE), 0)
-                                                                                            AS records_today
-        FROM etl_job_log
-    """)).fetchone()
-    runs_today      = int(etl_stats[0] or 0)
-    success_rate_7d = round(float(etl_stats[1] or 0))
-    avg_duration    = int(etl_stats[2] or 0)
-    records_today   = int(etl_stats[3] or 0)
-
-    # Is an ETL job currently running?
-    etl_running = ETLJobLog.query.filter(
-        ETLJobLog.end_time.is_(None),
-        ETLJobLog.status == 'RUNNING'
-    ).first() is not None
 
     # Demo mode settings
     demo_rows = db.session.execute(
@@ -97,21 +38,11 @@ def admin_dashboard():
         'admin_panel.html',
         users          = users,
         reports        = reports,
-        etl_logs       = etl_logs,
-        pagination     = pagination,
-        last_sync_time = last_sync_time,
-        selected_date  = selected_date,
-        etl_gear       = ETL_GEAR,
         page_perms     = page_perms,
         page_keys      = page_keys,
         demo_mode      = demo_mode,
         demo_start     = demo_start,
         demo_end       = demo_end,
-        runs_today     = runs_today,
-        success_rate_7d= success_rate_7d,
-        avg_duration   = avg_duration,
-        records_today  = records_today,
-        etl_running    = etl_running,
     )
 
 

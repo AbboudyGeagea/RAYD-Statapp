@@ -24,7 +24,6 @@ import routes.report_36   # noqa: F401
 from routes.report_registry import get_all_reports, get_report_ids
 from routes.api_controller   import api_bp
 from routes.hl7_orders       import hl7_orders_bp
-from routes.etl_gear_route   import etl_gear_bp
 from routes.report_ai        import report_ai_bp
 from routes.super_report     import super_report_bp
 from routes.capacity_ladder  import capacity_ladder_bp
@@ -275,7 +274,6 @@ def register_blueprints(app):
     app.register_blueprint(report_bp)
     app.register_blueprint(preferences_bp)
     app.register_blueprint(docs_bp)
-    app.register_blueprint(etl_gear_bp)
     app.register_blueprint(financial_config_bp)   # admin config — always on
     app.register_blueprint(groups_bp)
 
