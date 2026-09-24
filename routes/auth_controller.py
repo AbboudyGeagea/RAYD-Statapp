@@ -247,11 +247,20 @@ def profile_password():
             flash('Password must be at least 6 characters.', 'danger')
             return render_template('profile_password.html')
 
-        current_user.password_hash = generate_password_hash(new_pw, method='pbkdf2:sha256')
-        current_user.must_change_password = False
-        _audit('password_changed', current_user.id)
+        try:
+            current_user.password_hash = generate_password_hash(new_pw, method='pbkdf2:sha256')
+            current_user.must_change_password = False
+            db.session.add(current_user)
+            _audit('password_changed', current_user.id)
+            db.session.commit()
+            current_app.logger.info(f"[AUTH] Password changed for user {current_user.username}, must_change_password set to False")
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.error(f"[AUTH] Password change failed for {current_user.username}: {e}")
+            flash('Database error while changing password. Try again.', 'danger')
+            return render_template('profile_password.html')
+
         _close_session()
-        db.session.commit()
         logout_user()
         session.clear()
 
