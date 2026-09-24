@@ -56,6 +56,7 @@
                 <div class="card">
                     <h2 class="card-title">Create New User</h2>
                     <form id="createUserForm" class="space-y-4">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                         <div class="grid grid-cols-2 gap-4">
                             <div>
                                 <label class="text-xs font-bold text-slate-400 uppercase tracking-widest block mb-2">Username</label>
@@ -165,6 +166,7 @@
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
+                        csrf_token: document.querySelector('input[name="csrf_token"]').value,
                         username: document.getElementById('username').value,
                         password: document.getElementById('password').value,
                         role: document.getElementById('role').value,
