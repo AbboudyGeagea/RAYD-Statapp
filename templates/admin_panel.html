@@ -176,7 +176,7 @@
                 });
                 const data = await res.json();
                 if (res.ok) {
-                    Swal.fire({
+                    await Swal.fire({
                         title: 'User Created!',
                         text: data.message,
                         icon: 'success',
