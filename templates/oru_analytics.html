@@ -7,6 +7,8 @@
 <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
 <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script src="{{ url_for('static', filename='js/chart-explanations.js') }}"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-treemap@2.3.0/dist/chartjs-chart-treemap.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
@@ -285,7 +287,10 @@
         <!-- ══ Critical findings spotlight ══════════════════════════════ -->
         <div class="spotlight-banner" id="critical-spotlight" style="display:none;margin-top:20px;" role="region" aria-label="Critical findings spotlight">
           <div class="spotlight-header">
-            <span class="spotlight-title"><i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i> Critical Findings — Needs Attention</span>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span class="spotlight-title"><i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i> Critical Findings — Needs Attention</span>
+              <i class="bi bi-info-circle" onclick="ChartExplanations.show('nlp-critical-rate')" title="Learn more about critical findings" style="font-size: 16px; color: rgba(255,255,255,0.7); cursor: pointer; transition: all 0.2s;"></i>
+            </div>
             <a href="#critical-card" class="spotlight-viewall">View All <i class="bi bi-arrow-right" aria-hidden="true"></i></a>
           </div>
           <div class="spotlight-list" id="spotlight-list"></div>
@@ -297,7 +302,11 @@
           <!-- Left column -->
           <div style="display:flex;flex-direction:column;gap:16px;">
             <div class="card">
-              <div class="section-label"><i class="bi bi-pie-chart-fill" style="color:var(--success);" aria-hidden="true"></i>Normal vs Abnormal Rate</div>
+              <div class="section-label">
+                <i class="bi bi-pie-chart-fill" style="color:var(--success);" aria-hidden="true"></i>
+                <span>Normal vs Abnormal Rate</span>
+                <i class="bi bi-info-circle chart-info-icon" onclick="ChartExplanations.show('nlp-normal-abnormal')" title="Learn more about this chart" style="font-size: 14px; margin-left: auto; margin-right: 0;"></i>
+              </div>
               <div id="donut-wrap">
                 <canvas id="donutChart" role="img" aria-label="Normal versus abnormal report rate"></canvas>
                 <div class="donut-legend">
@@ -425,8 +434,9 @@
         <div class="card" id="critical-card" style="margin-top:20px;scroll-margin-top:110px;">
           <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px;">
             <div class="section-label" style="margin-bottom:0;">
-              <i class="bi bi-exclamation-triangle-fill" style="color:var(--critical);" aria-hidden="true"></i>Critical Findings Log
-              <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;">(most recent 20)</span>
+              <i class="bi bi-exclamation-triangle-fill" style="color:var(--critical);" aria-hidden="true"></i>
+              <span>Critical Findings Log <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;">(most recent 20)</span></span>
+              <i class="bi bi-info-circle chart-info-icon" onclick="ChartExplanations.show('critical-findings-table')" title="Learn more about critical findings" style="font-size: 14px; margin-left: auto; margin-right: 0;"></i>
             </div>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
               <button onclick="exportCriticalPNG()" id="critical-png-btn" class="export-btn" type="button" style="display:none;">
@@ -538,8 +548,10 @@
         <!-- ══ NLP Results (collapsible, shown after processing) ═══════ -->
         <div id="nlp-section" style="display:none;margin-top:20px;">
           <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px;">
-            <div class="section-label" style="margin-bottom:0;"><i class="bi bi-cpu" aria-hidden="true"></i> NLP Analysis Results
+            <div class="section-label" style="margin-bottom:0;">
+              <i class="bi bi-cpu" aria-hidden="true"></i> NLP Analysis Results
               <span id="nlp-result-meta" style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;margin-left:8px;"></span>
+              <i class="bi bi-info-circle chart-info-icon" onclick="ChartExplanations.show('nlp-word-cloud')" title="Learn more about NLP analysis" style="font-size: 14px; margin-left: auto; margin-right: 0;"></i>
             </div>
             <div style="display:flex;gap:8px;">
               <button id="load-nlp-btn" onclick="loadNLPResults()" class="export-btn" type="button" title="Reload NLP results" aria-label="Reload NLP results">
