@@ -1,6 +1,7 @@
 import io
 import csv
-from datetime import date
+import logging
+from datetime import date, timedelta
 from flask import Blueprint, render_template, request, Response
 from flask_login import login_required
 from sqlalchemy import text
@@ -8,6 +9,18 @@ from db import db, get_go_live_date
 from utils.site_resolver import default_site
 
 report_22_bp = Blueprint("report_22", __name__)
+
+# Rows that are never radiology exams, applied inside every base_data CTE below.
+# SR/OT are PACS objects and BMD is out of this report's scope (unchanged). The
+# CARD family is cardiology tagged on the shared SJH gateway AEs: ETL Phase 2c
+# purges it, but that phase only runs when listed in RAYD_ETL_PHASES (it was
+# missing from LAUMC's list as of 2026-09-21), so the report guards it as well.
+# It has to test s.study_modality, not the mapped modality -- the gateway AEs map
+# to one modality for all their traffic, so the CARD tag only survives on the study.
+_BASE_EXCLUSIONS = """
+    COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT', 'BMD')
+    AND UPPER(TRIM(COALESCE(s.study_modality, ''))) NOT IN ('CARD', 'SJH_CARD', 'CARDUS', 'SJHCARD')
+"""
 
 def get_where_params(form):
     start_date = form.get("start_date")
@@ -32,6 +45,12 @@ def get_where_params(form):
     #
     # getlist() on a plain string value returns a 1-element list, so a bookmarked URL
     # from before this change (?f_ae=CT99) keeps working untouched.
+    #
+    # Each filter also takes <field>_mode = include | exclude (operator request
+    # 2026-10-03, e.g. "everything except CARD"). Absent means include, so old
+    # bookmarks are unaffected. Exclude COALESCEs the column to '' so rows with a
+    # NULL value stay in -- a bare NOT IN would drop them, since NULL NOT IN (...)
+    # is NULL, not TRUE.
     def _multi(field):
         return tuple(sorted({
             (v or "").strip().upper() for v in form.getlist(field) if (v or "").strip()
@@ -49,7 +68,10 @@ def get_where_params(form):
         chosen = _multi(field)
         if not chosen:
             continue
-        where += f" AND UPPER(TRIM({col})) IN :{bind}"
+        if form.get(f"{field}_mode") == "exclude":
+            where += f" AND COALESCE(UPPER(TRIM({col})), '') NOT IN :{bind}"
+        else:
+            where += f" AND UPPER(TRIM({col})) IN :{bind}"
         params[bind] = chosen
 
     # LAUMC site rule (operator instruction, 2026-07-26): reports show RH (main
@@ -67,6 +89,96 @@ def get_where_params(form):
         site_clause = " AND m.site_id = :rh_site_id"
 
     return where, params, site_clause
+
+
+def _month_starts(start, end):
+    """First day of every calendar month the [start, end] range touches, so the
+    volume table shows a column for a month even when it had zero studies."""
+    m = date.fromisoformat(str(start)[:10]).replace(day=1)
+    last = date.fromisoformat(str(end)[:10])
+    out = []
+    while m <= last:
+        out.append(m)
+        m = (m.replace(day=28) + timedelta(days=4)).replace(day=1)
+    return out
+
+
+def _build_volume(cte, where, params):
+    """Modality x month volume, in two units side by side.
+
+    studies -- PACS studies, the same count as the rest of this report.
+    exams   -- what the RIS counts. The RIS has one row per scheduled procedure
+               step, PACS one per study, so a CT abdomen + pelvis is two RIS exams
+               and one PACS study (report_27's notes measured the gap at ~17% on
+               LAUMC RH). Each PACS study therefore counts once per RIS exam that
+               reached exam-done or later (etl_orders.order_status = 'CM') and is
+               attached to it -- etl_orders' enrichment pass attaches linked
+               siblings via linked_id. A study with no such exam (walk-in,
+               imported CD, RIS status lagging) still counts 1: the images exist.
+               Two PACS copies of one accession collapse to one exam, on the copy
+               with the most images.
+    """
+    rows = db.session.execute(text(f"""
+        {cte},
+        scoped AS (
+            SELECT study_db_uid,
+                   DATE_TRUNC('month', study_date)::date AS ym,
+                   COALESCE(modality, 'UNMAPPED') AS modality,
+                   COALESCE(NULLIF(TRIM(accession_number), ''), 'uid:' || study_db_uid) AS exam_key,
+                   COALESCE(number_of_study_images, 0) AS images
+            FROM base_data {where}
+        ),
+        ris AS (
+            SELECT o.study_db_uid, COUNT(*) AS n
+            FROM etl_orders o
+            JOIN scoped sc ON sc.study_db_uid = o.study_db_uid
+            WHERE o.order_status = 'CM'
+            GROUP BY o.study_db_uid
+        ),
+        units AS (
+            SELECT DISTINCT ON (sc.exam_key)
+                   sc.ym, sc.modality,
+                   MAX(r.n) OVER w AS ris_n
+            FROM scoped sc
+            LEFT JOIN ris r ON r.study_db_uid = sc.study_db_uid
+            WINDOW w AS (PARTITION BY sc.exam_key)
+            ORDER BY sc.exam_key, sc.images DESC
+        ),
+        studies AS (
+            SELECT ym, modality, COUNT(*) AS n FROM scoped GROUP BY 1, 2
+        ),
+        exams AS (
+            SELECT ym, modality, SUM(COALESCE(ris_n, 1)) AS n FROM units GROUP BY 1, 2
+        )
+        SELECT COALESCE(s.ym, e.ym), COALESCE(s.modality, e.modality),
+               COALESCE(s.n, 0), COALESCE(e.n, 0)
+        FROM studies s
+        FULL JOIN exams e ON e.ym = s.ym AND e.modality = s.modality
+    """), params).fetchall()
+
+    try:
+        months = _month_starts(params["start"], params["end"])
+    except (KeyError, TypeError, ValueError):
+        months = sorted({r[0] for r in rows})
+
+    cells = {}
+    for ym, mod, n_studies, n_exams in rows:
+        cells.setdefault(mod, {})[ym] = (int(n_studies), int(n_exams))
+    mods = sorted(cells, key=lambda m: -sum(v[1] for v in cells[m].values()))
+
+    out_rows = [
+        {"modality": m,
+         "studies": [cells[m].get(ms, (0, 0))[0] for ms in months],
+         "exams":   [cells[m].get(ms, (0, 0))[1] for ms in months]}
+        for m in mods
+    ]
+    return {
+        "labels": [ms.strftime("%b %Y") for ms in months],
+        "rows": out_rows,
+        "total_studies": sum(sum(r["studies"]) for r in out_rows),
+        "total_exams": sum(sum(r["exams"]) for r in out_rows),
+    }
+
 
 @report_22_bp.route("/report/22", methods=["GET", "POST"])
 @login_required
@@ -92,6 +204,9 @@ def report_22():
         "status": request.values.getlist("f_status"),
         "mod": request.values.getlist("f_mod"),
         "ae": request.values.getlist("f_ae"),
+        "status_mode": request.values.get("f_status_mode", "include"),
+        "mod_mode": request.values.get("f_mod_mode", "include"),
+        "ae_mode": request.values.get("f_ae_mode", "include"),
     }
 
     run_report = 'start_date' in request.values
@@ -101,7 +216,9 @@ def report_22():
         from utils.audit import log_event
         log_event('report_run', category='report', resource_type='report_22',
                   detail={'from': start_date, 'to': end_date,
-                          'modality': filters.get('mod'), 'ae': filters.get('ae')})
+                          'modality': filters.get('mod'), 'ae': filters.get('ae'),
+                          'modality_mode': filters.get('mod_mode'),
+                          'ae_mode': filters.get('ae_mode')})
         where, params, site_clause = get_where_params(request.values)
 
         try:
@@ -122,6 +239,7 @@ def report_22():
                 m.modality, s.study_status, s.patient_db_uid, p.sex, p.age_group,
                 s.patient_class,
                 s.age_at_exam,
+                s.accession_number, s.number_of_study_images,
                 COALESCE(NULLIF(TRIM(CONCAT_WS(' ', s.referring_physician_first_name, s.referring_physician_last_name)), ''), 'Unknown') as physician,
                 s.patient_location, p.fallback_id as patient_id,
                 -- Display label: manual override first, then the RIS room/station name, then
@@ -138,8 +256,7 @@ def report_22():
             LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
             LEFT JOIN procedure_duration_map pm ON UPPER(TRIM(s.procedure_code)) = UPPER(TRIM(pm.procedure_code))
             LEFT JOIN etl_patient_view p ON p.patient_db_uid::TEXT = s.patient_db_uid::TEXT
-            WHERE COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT', 'BMD')
-        """ + site_clause
+            WHERE """ + _BASE_EXCLUSIONS + site_clause
 
         cte = f"WITH base_data AS ({base_sql})"
 
@@ -415,7 +532,16 @@ def report_22():
         top10_phys_st = sorted(phys_status_map, key=lambda p: sum(phys_status_map[p].values()), reverse=True)[:10]
         all_statuses_list = sorted(all_statuses_set)
 
+        # 5. Modality x month volume (studies vs RIS-matched exams)
+        try:
+            volume = _build_volume(cte, where, params)
+        except Exception as e:
+            db.session.rollback()
+            logging.warning(f"report_22 volume table failed: {e}")
+            volume = {"error": True}
+
         data = {
+            "volume": volume,
             "stat_c": {r[0]: r[1] for r in res_status},
             "phys_c": {r[0]: r[1] for r in res_phys},
             "phys_unique": {r[0]: r[1] for r in res_phys_unique},
@@ -511,7 +637,7 @@ def status_drilldown_22():
             LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
             LEFT JOIN procedure_duration_map pm ON UPPER(TRIM(s.procedure_code)) = UPPER(TRIM(pm.procedure_code))
             LEFT JOIN etl_patient_view p ON p.patient_db_uid::TEXT = s.patient_db_uid::TEXT
-            WHERE COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT', 'BMD')
+            WHERE {_BASE_EXCLUSIONS}
               {site_clause}
         )
         SELECT study_db_uid, patient_id, study_date, modality,
@@ -562,7 +688,8 @@ def export_report_22():
         params["export_mod"] = export_mod
     sql = text(f"""
         WITH base_data AS (
-            SELECT s.study_date, s.patient_class,
+            -- storing_ae is not exported, but get_where_params' AE filter reads it.
+            SELECT s.study_date, s.patient_class, s.storing_ae,
                    COALESCE(m.modality, s.study_modality) AS modality,
                    p.sex, s.study_status, s.patient_location,
                    TRIM(CONCAT_WS(' ', s.referring_physician_first_name, s.referring_physician_last_name)) as physician,
@@ -570,7 +697,7 @@ def export_report_22():
             FROM etl_didb_studies s
             LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
             LEFT JOIN etl_patient_view p ON p.patient_db_uid::TEXT = s.patient_db_uid::TEXT
-            WHERE COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT', 'BMD')
+            WHERE {_BASE_EXCLUSIONS}
               {site_clause}
         )
         SELECT study_date, COALESCE(patient_class, 'N/A'), COALESCE(modality, 'N/A'), COALESCE(sex, 'U'),

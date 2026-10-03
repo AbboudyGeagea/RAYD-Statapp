@@ -31,6 +31,24 @@
             background: #60a5fa linear-gradient(0deg, #60a5fa, #60a5fa);
             color: #0a1628; font-weight: 700;
         }
+        /* Include/Exclude switch per filter. In exclude mode the picked values turn
+           red and struck through, so it reads as "everything except these". */
+        .mode-select { background: #181f1c; border: 1px solid #28332e; color: #94a3b8; border-radius: 6px; font-size: 9px; font-weight: 800; text-transform: uppercase; padding: 2px 4px; outline: none; cursor: pointer; }
+        .mode-select:disabled { opacity: 0.3; cursor: not-allowed; }
+        body.light .mode-select { background: #ffffff; border-color: #e2e8f0; color: #4a5568; }
+        select.input-dark.is-exclude { border-color: rgba(248,113,113,0.5); }
+        select.input-dark[multiple].is-exclude option:checked {
+            background: #f87171 linear-gradient(0deg, #f87171, #f87171);
+            color: #1a0a0a; text-decoration: line-through;
+        }
+        .vol-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+        .vol-table th { padding: 7px 14px; color: #475569; font-size: 9px; text-transform: uppercase; letter-spacing: .09em; font-weight: 800; text-align: right; border-bottom: 1px solid #28332e; white-space: nowrap; }
+        .vol-table th:first-child, .vol-table td:first-child { text-align: left; }
+        .vol-table td { padding: 7px 14px; text-align: right; color: #cbd5e1; border-bottom: 1px solid #1a2420; font-variant-numeric: tabular-nums; }
+        .vol-table td:first-child { color: #60a5fa; font-weight: 800; }
+        .vol-table td.vol-total, .vol-table tr.vol-total td { color: #e2e8f0; font-weight: 900; }
+        .vol-table tr.vol-total td { border-top: 1px solid #28332e; border-bottom: none; }
+        body.light .vol-table td { color: #1a202c; border-color: #e2e8f0; }
         .card { background: #232b28; border: 1px solid #28332e; border-radius: 12px; margin-bottom: 24px; transition: all 0.3s ease; overflow: hidden; }
         .card:hover { border-color: #60a5fa; }
         .card-header { padding: 14px 20px; border-bottom: 1px solid #28332e; font-size: 10px; font-weight: 900; color: #60a5fa; text-transform: uppercase; letter-spacing: 1px; }
@@ -78,35 +96,30 @@
             </p>
 
             <div class="space-y-4">
+                {% for f in [
+                    {'id': 'f_status', 'label': 'Study Status', 'key': 'statuses',   'active': filters.f_status_active, 'picked': filters.status, 'mode': filters.status_mode},
+                    {'id': 'f_mod',    'label': 'Modality',     'key': 'modalities', 'active': filters.f_mod_active,    'picked': filters.mod,    'mode': filters.mod_mode},
+                    {'id': 'f_ae',     'label': 'Storing AE',   'key': 'aetitles',   'active': filters.f_ae_active,     'picked': filters.ae,     'mode': filters.ae_mode},
+                ] %}
                 <div class="flex flex-col gap-1">
-                    <div class="flex justify-between items-center"><label class="mb-0">Study Status</label>
-                        <input type="checkbox" name="f_status_active" onchange="document.getElementById('f_status').disabled = !this.checked" {% if filters.f_status_active %}checked{% endif %}>
+                    <div class="flex justify-between items-center gap-2"><label class="mb-0">{{ f.label }}</label>
+                        <div class="flex items-center gap-2">
+                            <select name="{{ f.id }}_mode" id="{{ f.id }}_mode" class="mode-select" data-target="{{ f.id }}"
+                                    title="Include: keep only the picked values. Exclude: keep everything except them."
+                                    {% if not f.active %}disabled{% endif %}>
+                                <option value="include" {% if f.mode != 'exclude' %}selected{% endif %}>Include</option>
+                                <option value="exclude" {% if f.mode == 'exclude' %}selected{% endif %}>Exclude</option>
+                            </select>
+                            <input type="checkbox" name="{{ f.id }}_active" onchange="toggleFilter(this, '{{ f.id }}')" {% if f.active %}checked{% endif %}>
+                        </div>
                     </div>
-                    <select name="f_status" id="f_status" multiple size="5" class="input-dark" {% if not filters.f_status_active %}disabled{% endif %}
-                            data-filter-key="statuses"
-                            data-selected="{{ filters.status | join('||') }}">
+                    <select name="{{ f.id }}" id="{{ f.id }}" multiple size="5"
+                            class="input-dark{% if f.mode == 'exclude' %} is-exclude{% endif %}" {% if not f.active %}disabled{% endif %}
+                            data-filter-key="{{ f.key }}"
+                            data-selected="{{ f.picked | join('||') }}">
                     </select>
                 </div>
-
-                <div class="flex flex-col gap-1">
-                    <div class="flex justify-between items-center"><label class="mb-0">Modality</label>
-                        <input type="checkbox" name="f_mod_active" onchange="document.getElementById('f_mod').disabled = !this.checked" {% if filters.f_mod_active %}checked{% endif %}>
-                    </div>
-                    <select name="f_mod" id="f_mod" multiple size="5" class="input-dark" {% if not filters.f_mod_active %}disabled{% endif %}
-                            data-filter-key="modalities"
-                            data-selected="{{ filters.mod | join('||') }}">
-                    </select>
-                </div>
-
-                <div class="flex flex-col gap-1">
-                    <div class="flex justify-between items-center"><label class="mb-0">Storing AE</label>
-                        <input type="checkbox" name="f_ae_active" onchange="document.getElementById('f_ae').disabled = !this.checked" {% if filters.f_ae_active %}checked{% endif %}>
-                    </div>
-                    <select name="f_ae" id="f_ae" multiple size="5" class="input-dark" {% if not filters.f_ae_active %}disabled{% endif %}
-                            data-filter-key="aetitles"
-                            data-selected="{{ filters.ae | join('||') }}">
-                    </select>
-                </div>
+                {% endfor %}
             </div>
 
             <button type="submit" style="background:#60a5fa; color:#0a1628; font-weight:900; font-size:10px; text-transform:uppercase; letter-spacing:0.08em; border-radius:10px; padding:12px; width:100%; border:none; cursor:pointer; transition:filter 0.15s;" onmouseover="this.style.filter='brightness(1.1)'" onmouseout="this.style.filter=''">Update Dashboard</button>
@@ -148,6 +161,44 @@
                 </div>
             </div>
         </section>
+
+        <!-- Exam Volume: Modality x Month -->
+        {% if data.volume %}
+        <div class="card">
+            <div class="card-header flex items-center justify-between gap-4 flex-wrap">
+                <span>Exam Volume — Modality × Month</span>
+                {% if not data.volume.error %}
+                <div class="flex items-center gap-4" style="text-transform:none;letter-spacing:0;">
+                    <label class="mb-0 flex items-center gap-2" style="cursor:pointer;color:#94a3b8;text-transform:none;font-size:11px;font-weight:700;">
+                        <input type="checkbox" id="vol-linked" checked onchange="renderVolume()">
+                        Count linked exams separately (match RIS)
+                    </label>
+                    <button type="button" onclick="exportVolume()"
+                            style="background:#1e293b;color:#94a3b8;font-weight:900;font-size:10px;text-transform:uppercase;letter-spacing:0.08em;border-radius:8px;padding:6px 12px;border:1px solid #334155;cursor:pointer;display:flex;align-items:center;gap:6px;">
+                        <i class="bi bi-download"></i> CSV
+                    </button>
+                </div>
+                {% endif %}
+            </div>
+            <div class="card-desc">
+                Studies per modality per month after the sidebar filters (RH only; SR, OT, BMD and cardiology always excluded).
+                With <b>linked counting</b> on, a PACS study that covers several RIS exams (e.g. CT abdomen + pelvis) counts once per exam
+                marked done in RIS, so totals line up with RIS order counts. A study with no finished RIS exam still counts once;
+                two PACS copies of one accession count once.
+                <span id="vol-summary"></span>
+            </div>
+            {% if data.volume.error %}
+            <p class="p-5 text-[11px] text-slate-500">Volume table could not be built — see the application log for the error.</p>
+            {% else %}
+            <div style="overflow-x:auto;">
+                <table class="vol-table">
+                    <thead id="vol-head"></thead>
+                    <tbody id="vol-body"></tbody>
+                </table>
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
 
         <!-- Predictive Churn: At-Risk Physicians -->
         {% if data.at_risk %}
@@ -835,6 +886,77 @@
             _addPdfOverlay('c_phys_status', 'Study Status per Top Physician',  'phys_status', '#232b28');
             _addPdfOverlay('c_gender',   'Patient Gender Distribution',        'gender_dist', '#232b28');
             _addPdfOverlay('c_age',      'Patient Age Distribution',           'age_dist', '#232b28');
+
+            renderVolume();
+        }
+
+        // ── Sidebar filters: on/off + Include/Exclude ─────────────────
+        function toggleFilter(cb, id) {
+            document.getElementById(id).disabled = !cb.checked;
+            document.getElementById(id + '_mode').disabled = !cb.checked;
+        }
+        document.querySelectorAll('select.mode-select').forEach(sel => {
+            sel.addEventListener('change', () => {
+                document.getElementById(sel.dataset.target)
+                    .classList.toggle('is-exclude', sel.value === 'exclude');
+            });
+        });
+
+        // ── Exam Volume: Modality x Month ─────────────────────────────
+        function _volKey() {
+            const cb = document.getElementById('vol-linked');
+            return (cb && cb.checked) ? 'exams' : 'studies';
+        }
+
+        // Rows sorted by total in the current unit, plus a TOTAL row.
+        function _volMatrix() {
+            const v = d.volume, key = _volKey();
+            const sum = a => a.reduce((x, y) => x + y, 0);
+            const rows = v.rows
+                .map(r => ({ modality: r.modality, cells: r[key], total: sum(r[key]) }))
+                .sort((a, b) => b.total - a.total);
+            const colTotals = v.labels.map((_, i) => sum(rows.map(r => r.cells[i])));
+            return { labels: v.labels, rows, colTotals, grand: sum(colTotals) };
+        }
+
+        function renderVolume() {
+            if (!d || !d.volume || d.volume.error) return;
+            const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+            const fmt = n => n.toLocaleString('en-US');
+            const m = _volMatrix();
+
+            document.getElementById('vol-head').innerHTML =
+                '<tr><th>Modality</th>' + m.labels.map(l => `<th>${esc(l)}</th>`).join('') + '<th>Total</th></tr>';
+            document.getElementById('vol-body').innerHTML =
+                m.rows.map(r => '<tr><td>' + esc(r.modality) + '</td>'
+                    + r.cells.map(c => `<td>${fmt(c)}</td>`).join('')
+                    + `<td class="vol-total">${fmt(r.total)}</td></tr>`).join('')
+                + '<tr class="vol-total"><td>TOTAL</td>'
+                + m.colTotals.map(c => `<td>${fmt(c)}</td>`).join('')
+                + `<td>${fmt(m.grand)}</td></tr>`;
+
+            const st = d.volume.total_studies, ex = d.volume.total_exams;
+            const pct = st ? ((ex - st) / st * 100).toFixed(1) : '0.0';
+            document.getElementById('vol-summary').textContent =
+                ` ${fmt(st)} PACS studies → ${fmt(ex)} exams with linked counting (${ex >= st ? '+' : ''}${fmt(ex - st)}, ${ex >= st ? '+' : ''}${pct}%).`;
+        }
+
+        function exportVolume() {
+            const m = _volMatrix();
+            const lines = [['Modality', ...m.labels, 'Total']]
+                .concat(m.rows.map(r => [r.modality, ...r.cells, r.total]))
+                .concat([['TOTAL', ...m.colTotals, m.grand]]);
+            const csv = lines.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\r\n');
+            const start = document.querySelector('input[name="start_date"]').value;
+            const end   = document.querySelector('input[name="end_date"]').value;
+            const a = document.createElement('a');
+            // BOM so Excel opens it as UTF-8.
+            a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
+            a.download = `exam_volume_${_volKey()}_${start}_to_${end}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(a.href);
         }
 
         function _addPdfOverlay(chartId, title, filename, bg) {
@@ -903,10 +1025,10 @@
             document.getElementById('status-drilldown-overlay').style.display = 'block';
             document.getElementById('drilldown-search').value = '';
 
-            const form = new FormData();
+            // Send the whole sidebar (dates + active filters + include/exclude modes) so
+            // the drilldown lists the same studies the chart bar counted.
+            const form = _sidebarFormData();
             form.append('status', status);
-            form.append('start_date', start);
-            form.append('end_date', end);
 
             try {
                 const res  = await fetch('/report/22/status-drilldown', { method: 'POST', body: form });
@@ -958,14 +1080,24 @@
             document.getElementById('status-drilldown-overlay').style.display = 'none';
         }
 
+        // Sidebar values as FormData; falls back to just the dates if the form is absent.
+        function _sidebarFormData() {
+            const sidebarForm = document.querySelector('aside form');
+            if (sidebarForm) return new FormData(sidebarForm);
+            const fd = new FormData();
+            fd.append('start_date', document.querySelector('input[name="start_date"]').value);
+            fd.append('end_date',   document.querySelector('input[name="end_date"]').value);
+            return fd;
+        }
+
         function exportDrilldown() {
-            const start = document.querySelector('input[name="start_date"]').value;
-            const end   = document.querySelector('input[name="end_date"]').value;
             const form  = document.createElement('form');
             form.method = 'POST';
             form.action = '/report/22/status-drilldown';
-            [['status', _drilldownStatus], ['start_date', start], ['end_date', end], ['export', '1']]
-                .forEach(([k, v]) => { const i = document.createElement('input'); i.type='hidden'; i.name=k; i.value=v; form.appendChild(i); });
+            const fd = _sidebarFormData();
+            fd.append('status', _drilldownStatus);
+            fd.append('export', '1');
+            fd.forEach((v, k) => { const i = document.createElement('input'); i.type='hidden'; i.name=k; i.value=v; form.appendChild(i); });
             document.body.appendChild(form);
             form.submit();
             document.body.removeChild(form);
