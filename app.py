@@ -148,16 +148,6 @@ def create_app():
             cfg['LIVE_FEED_ENABLED']       = True
             cfg['PATIENT_PORTAL_ENABLED']  = True
 
-        oracle_configured = False
-        try:
-            from db import db as _db
-            row = _db.session.execute(
-                _text("SELECT 1 FROM db_params WHERE name ILIKE '%oracle%' LIMIT 1")
-            ).fetchone()
-            oracle_configured = row is not None
-        except Exception:
-            pass
-
         pending_approvals_count   = 0
         reset_requests_count      = 0
         if current_user.is_authenticated and current_user.role in ('su', 'administrator'):
@@ -176,7 +166,6 @@ def create_app():
             "demo_start":               demo_start,
             "demo_end":                 demo_end,
             "demo_user":                demo_user,
-            "oracle_configured":        oracle_configured,
             "pending_approvals_count":  pending_approvals_count,
             "reset_requests_count":     reset_requests_count,
         }
@@ -572,34 +561,8 @@ def create_app():
 
     # (patient_portal_users migration removed — portal module absent at LAUMC)
 
-    # --- MIGRATION: encrypt db_params passwords ---
-    with app.app_context():
-        try:
-            from utils.crypto import encrypt, decrypt
-            from cryptography.fernet import InvalidToken
-            rows = db.session.execute(
-                text("SELECT id, password FROM db_params WHERE password IS NOT NULL AND password != ''")
-            ).fetchall()
-            for row_id, pwd in rows:
-                # Test if already encrypted by trying to decrypt
-                try:
-                    from cryptography.fernet import Fernet
-                    import base64, hashlib
-                    secret = os.environ.get('SECRET_KEY', '')
-                    key = base64.urlsafe_b64encode(hashlib.sha256(secret.encode()).digest())
-                    Fernet(key).decrypt(pwd.encode())
-                    # Already encrypted — skip
-                except Exception:
-                    # Not encrypted — encrypt it now
-                    db.session.execute(
-                        text("UPDATE db_params SET password = :p WHERE id = :id"),
-                        {"p": encrypt(pwd), "id": row_id}
-                    )
-                    logger.info(f"[Migration] Encrypted password for db_params id={row_id}")
-            db.session.commit()
-        except Exception as e:
-            db.session.rollback()
-            logger.warning(f"[Migration] db_params encryption: {e}")
+    # (db_params password encryption removed on the HL7 branch — this install stores
+    #  no credentials for any external database, so there is nothing to encrypt)
 
     # --- MIGRATION: permission_groups + user columns ---
     with app.app_context():
@@ -691,17 +654,15 @@ def create_app():
 
     # ─── SCHEDULER ───────────────────────────────────────────────────────────────
     #
-    # HL7 BRANCH — three of the original six jobs are gone, three remain. The
-    # distinction that matters is the direction of the data, not the word "ETL" in
-    # the job name:
+    # HL7 BRANCH — this install never connects to any external database, so every
+    # job that read one is gone:
     #
-    #   REMOVED, they read Oracle:
-    #     daily_etl_sync      05:00  ETL_JOBS.etl_runner.execute_sync  (18 phases)
-    #     cd_surf_etl         hourly ETL_JOBS.etl_cd_surf              (CDSURF schema)
+    #   REMOVED:
+    #     daily_etl_sync      05:00  Oracle PACS/RIS → etl_* (18 phases)
+    #     cd_surf_etl         hourly CDSURF Oracle schema
+    #     adapter_etl_runner  1 min  DB Manager adapter mappings (removed 2026-10-04
+    #                                together with DB Manager)
     #
-    #   KEPT:
-    #     adapter_etl_runner        1 min   no-op until a mapping is configured;
-    #                                       see the block below.
     #   KEPT, pure Postgres and still doing useful work:
     #     daily_analytics_snapshot  05:30  reads etl_didb_studies/etl_orders and writes
     #                                      analytics_snapshots for the daily briefing.
@@ -732,55 +693,10 @@ def create_app():
         replace_existing=True
     )
 
-    # ── adapter_etl_runner — KEPT (operator decision, 2026-09-17) ───────────────
-    # Not PACS ETL. This runs the "adapter mappings" configured through Admin > DB
-    # Manager and ships as the licensed `adapter_mapper` onboarding feature. It only
-    # does work when a mapping exists with status='confirmed' and etl_enabled=TRUE,
-    # so on an install that has none the job costs one indexed query a minute.
-    # ETL_JOBS.etl_adapter imports no Oracle driver, so it is unaffected by the
-    # driver removal; an Oracle-typed mapping would fail at connect time, but that
-    # is the same answer the rest of this branch gives.
-    def scheduled_adapter_etl():
-        """Run all confirmed adapter mappings whose etl_schedule matches the current time."""
-        with app.app_context():
-            try:
-                now_hhmm = datetime.now(pytz.timezone("Asia/Beirut")).strftime('%H:%M')
-                rows = db.session.execute(text("""
-                    SELECT id FROM adapter_mappings
-                    WHERE status = 'confirmed'
-                      AND etl_enabled = TRUE
-                      AND etl_schedule = :hhmm
-                """), {"hhmm": now_hhmm}).fetchall()
-
-                if not rows:
-                    return
-
-                from ETL_JOBS.etl_adapter import run_one_mapping
-                for (mapping_id,) in rows:
-                    logger.info(f"⏰ [Adapter ETL] Running mapping {mapping_id} (scheduled {now_hhmm})")
-                    try:
-                        run_one_mapping(app, mapping_id)
-                    except Exception as e:
-                        logger.error(f"🛑 [Adapter ETL] Mapping {mapping_id} failed: {e}", exc_info=True)
-
-            except Exception as e:
-                logger.error(f"🛑 [Adapter ETL] Scheduler error: {e}", exc_info=True)
-
-    # Runs every minute; each mapping's etl_schedule (HH:MM) is matched against current time
-    scheduler.add_job(
-        func=scheduled_adapter_etl,
-        trigger='interval',
-        minutes=1,
-        id='adapter_etl_runner',
-        name='Adapter ETL — per-mapping schedule',
-        replace_existing=True
-    )
-
     # ── cd_surf_etl — REMOVED ────────────────────────────────────────────────────
     # Hourly sync from the CDSURF Oracle schema behind report 30 (CD/DVD
-    # distribution). Your own cutover note flags CDSURF as an unresolved open item:
-    # no HL7 message carries a "disc was burned" event, so report 30 has no source
-    # on this branch until that is scoped separately.
+    # distribution). Report 30 now reads cd_burn_log instead, which the burning
+    # station fills by POSTing to /cd-burn (routes/cd_log_route.py).
 
     def purge_old_audit_logs():
         with app.app_context():

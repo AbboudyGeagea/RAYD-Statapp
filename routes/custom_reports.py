@@ -18,8 +18,6 @@ from routes.report_cache import get_filter_options
 custom_reports_bp = Blueprint("custom_reports", __name__)
 logger = logging.getLogger("CUSTOM_REPORTS")
 
-PRIMARY_CONN = "oracle_PACS"
-
 # Visibility values recognised by the read side (report_list's WHERE clause and
 # _visible_report_or_404 below). The composer dropdown (templates/custom_reports_
 # composer.html #gf-visibility) only ever submits 'private' or 'shared' — 'restricted'
@@ -69,36 +67,12 @@ def _ensure_tables():
 
 def _available_sources():
     """
-    Return list of available PG data sources (excludes oracle connections).
-    Always includes the main etl_db. Adds provisioned system-type DBs and
-    any non-oracle db_params entries.
+    Return the data sources a custom report can draw on. On the HL7 branch that is
+    only the main etl_db — this install connects to no external database, so the
+    DB Manager connections and provisioned system-type DBs listed here on other
+    branches do not exist.
     """
-    sources = [{"name": "etl_db", "label": "Main DB (etl_db)", "type": "postgres"}]
-
-    # Provisioned system-type databases
-    try:
-        rows = db.session.execute(text(
-            "SELECT system_type, db_name FROM system_type_databases WHERE is_active = TRUE ORDER BY system_type"
-        )).fetchall()
-        for r in rows:
-            sources.append({"name": r.db_name, "label": f"{r.system_type} ({r.db_name})", "type": "postgres"})
-    except Exception:
-        pass
-
-    # Non-oracle connections from db_params
-    try:
-        rows = db.session.execute(text("""
-            SELECT name, db_type FROM db_params
-            WHERE db_type NOT ILIKE '%oracle%'
-              AND name != :primary
-            ORDER BY name
-        """), {"primary": PRIMARY_CONN}).fetchall()
-        for r in rows:
-            sources.append({"name": r.name, "label": f"{r.name} ({r.db_type})", "type": r.db_type})
-    except Exception:
-        pass
-
-    return sources
+    return [{"name": "etl_db", "label": "Main DB (etl_db)", "type": "postgres"}]
 
 
 def _visible_report_or_404(report_id):

@@ -505,12 +505,6 @@ def audit_log_export():
     )
 
 
-@admin_bp.route('/oracle-config', endpoint='oracle_config')
-@login_required
-def oracle_config():
-    return redirect(url_for('db_manager.db_manager_page'))
-
-
 @admin_bp.route('/hl7-forward', methods=['GET', 'POST'], endpoint='hl7_forward_config')
 @login_required
 def hl7_forward_config():
@@ -576,19 +570,6 @@ def hl7_forward_config():
     )
 
 
-@admin_bp.route('/sync-mappings', methods=['POST'])
-@login_required
-def sync_mappings():
-    if current_user.role not in ('su', 'administrator'):
-        return abort(403)
-    try:
-        from ETL_JOBS.etl_runner import _sync_lookup_tables
-        _sync_lookup_tables(db.engine)
-        return jsonify({'status': 'ok'})
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
-
-
 @admin_bp.route('/demo-mode', methods=['POST'])
 @login_required
 def set_demo_mode():
@@ -633,56 +614,3 @@ def set_demo_mode():
     return jsonify({'status': 'ok'})
 
 
-@admin_bp.route('/etl/trigger-phase9', methods=['POST'])
-@login_required
-def trigger_phase9():
-    if current_user.role not in ('su', 'administrator'):
-        return abort(403)
-    try:
-        import logging, io
-        from ETL_JOBS.etl_phase9_clustering import run_phase9_clustering
-
-        # Capture log output so we can return it
-        log_buf = io.StringIO()
-        handler = logging.StreamHandler(log_buf)
-        handler.setLevel(logging.DEBUG)
-        logger = logging.getLogger('phase9_manual')
-        logger.setLevel(logging.DEBUG)
-        logger.addHandler(handler)
-
-        with db.engine.connect() as conn:
-            run_phase9_clustering(conn, logger)
-            conn.commit()
-
-        logger.removeHandler(handler)
-        return jsonify({"status": "success", "log": log_buf.getvalue()})
-    except Exception as e:
-        import traceback
-        return jsonify({"status": "error", "message": str(e), "trace": traceback.format_exc()}), 500
-
-
-@admin_bp.route('/etl/trigger', methods=['POST'])
-@login_required
-def trigger_etl():
-    """
-    HL7 BRANCH: disabled. This used to launch ETL_JOBS.etl_runner.execute_sync() —
-    the full 18-phase Oracle sync — in a background thread.
-
-    The route is kept rather than deleted so the existing admin button returns an
-    explanation instead of a 500 from a failed import. Note the two neighbouring
-    routes, /sync-mappings and /etl/trigger-phase9, are NOT disabled: both operate
-    purely on Postgres (lookup-table inference and procedure clustering), so they
-    are still valid work on this branch even though "ETL" is in their name.
-    """
-    if current_user.role not in ('su', 'administrator'):
-        return abort(403)
-
-    return jsonify({
-        "status": "error",
-        "message": (
-            "There is no Oracle ETL on this install. Clinical data arrives as HL7 v2 "
-            "over MLLP on port 6661 and is written continuously as messages come in, "
-            "so there is no sync to trigger. To rebuild the reporting tables from "
-            "messages already received, use the projector replay."
-        ),
-    }), 409

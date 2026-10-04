@@ -311,23 +311,6 @@ class active_sessions(db.Model):
     login_time = db.Column(DateTime, server_default=func.now())
     created_at = db.Column(DateTime, server_default=func.now())
 
-class DBParams(db.Model):
-    __tablename__ = 'db_params'
-    id = db.Column(Integer, primary_key=True)
-    name = db.Column(String(100), unique=True, nullable=False)
-    db_role = db.Column(String(50))
-    db_type = db.Column(String(50))
-    conn_string = db.Column(Text)
-    host = db.Column(String(100))
-    username = db.Column(String(50))
-    password = db.Column(String(100))
-    port = db.Column(Integer)
-    sid = db.Column(String(50))      # Oracle SID  /  database name for PG·MySQL·MSSQL
-    mode = db.Column(String(50))
-    owner = db.Column(String(100))   # schema owner (e.g. MEDISTORE)
-    created_at = db.Column(DateTime, server_default=func.now())
-    updated_at = db.Column(DateTime, server_default=func.now(), onupdate=func.now())
-
 class GoLiveDate(db.Model):
     __tablename__ = 'go_live_config'
     id = db.Column(Integer, primary_key=True)

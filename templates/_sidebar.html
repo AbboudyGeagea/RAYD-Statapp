@@ -33,7 +33,7 @@
 {# ── Active-group detection ────────────────────────────────────────── #}
 {% set ep = request.endpoint or '' %}
 {% set overview_on   = ep.startswith('viewer.') %}
-{% set admin_on      = ep in ['admin.admin_dashboard','admin.user_management','admin.audit_log','admin.hl7_forward_config'] or ep.startswith('db_manager.') or ep.startswith('mapping.') %}
+{% set admin_on      = ep in ['admin.admin_dashboard','admin.user_management','admin.audit_log','admin.hl7_forward_config'] or ep.startswith('mapping.') %}
 {% set ops_on        = ep.startswith('live_feed.') or ep.startswith('hl7_orders.') or ep.startswith('report_31.') %}
 {% set analytics_on  = ep.startswith('oru.') or ep.startswith('referring_intel.') or ep.startswith('custom_reports.') %}
 {% set ai_on         = ep.startswith('report_ai.') %}
@@ -94,13 +94,6 @@
             <a href="{{ url_for('admin.audit_log') }}"
                class="sidebar-item {% if ep == 'admin.audit_log' %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
                 <i class="bi bi-journal-text flex-shrink-0" style="color:#94a3b8;"></i> Activity Log
-            </a>
-            <a href="{{ url_for('db_manager.db_manager_page') }}"
-               class="sidebar-item {% if ep.startswith('db_manager.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
-                <i class="bi bi-database-fill-gear flex-shrink-0" style="color:#f97316;"></i> DB Manager
-                {% if not oracle_configured %}
-                <span style="font-size:8px;font-weight:900;padding:1px 5px;border-radius:4px;background:rgba(239,68,68,0.15);color:#f87171;text-transform:uppercase;letter-spacing:0.08em;">!</span>
-                {% endif %}
             </a>
             <a href="{{ url_for('floor_plan_admin.floor_plan_page') }}"
                class="sidebar-item {% if ep.startswith('floor_plan_admin.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">

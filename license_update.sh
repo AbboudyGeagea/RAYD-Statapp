@@ -49,7 +49,6 @@ tier = d.get("tier", "unknown").upper()
 print(f"  Current tier    : {tier}\n")
 FEATURES = [
     ("export",          "Export"),
-    ("adapter_mapper",  "DB / Adapter Mapper"),
     ("hl7_orders",      "HL7 Orders"),
     ("oru_analytics",   "Report Intelligence (ORU)"),
     ("custom_reports",  "Custom Reports"),
@@ -74,7 +73,7 @@ fi
 echo
 
 # ── Tier selection ────────────────────────────────────────────────────────────
-echo "  1) Essential     — core reports, ETL, user management"
+echo "  1) Essential     — core reports, user management"
 echo "  2) Professional  — + HL7, ER, capacity, saved reports, intelligence"
 echo "  3) Enterprise    — full access (all features)"
 echo "  4) Custom        — toggle each feature manually"
@@ -101,7 +100,6 @@ except Exception:
 
 FEATURES = [
     ("export",          "Export"),
-    ("adapter_mapper",  "DB / Adapter Mapper"),
     ("hl7_orders",      "HL7 Orders"),
     ("oru_analytics",   "Report Intelligence (ORU)"),
     ("custom_reports",  "Custom Reports"),
@@ -120,7 +118,7 @@ FEATURES = [
 KEYS = [k for k, _ in FEATURES]
 
 PRESETS = {
-    "essential": {k: k in ("export", "adapter_mapper") for k in KEYS},
+    "essential": {k: k == "export" for k in KEYS},
     "professional": {k: k not in ("financial","scheduling","live_feed","patient_portal","ai_report") for k in KEYS},
     "enterprise": {k: True for k in KEYS},
 }

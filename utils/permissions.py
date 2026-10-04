@@ -14,7 +14,7 @@ ALL_PERMISSIONS = [
     ('can_configure',     'Edit AE mappings, device schedules, procedure mappings'),
     ('can_manage_users',  'Add, edit and deactivate users (without full admin)'),
     ('can_view_finance',  'Access financial dashboard and config'),
-    ('can_view_etl',      'View ETL logs and PACS connection status'),
+    ('can_view_etl',      'Open the RAY7 HL7 screening console'),
     ('can_view_reports',  'Access analytics reports  ("*" = all, or list of IDs)'),
 ]
 

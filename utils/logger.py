@@ -16,7 +16,6 @@ Sidebar folder → module prefix mapping
   reports        routes.report_22 … report_29, routes.super_report
   etl            ETL_JOBS.*
   admin          routes.admin, routes.user_management, …
-  db_manager     routes.db_manager
   mapping        routes.mapping_controller
   live_feed      routes.live_feed
   hl7            routes.hl7_orders_route
@@ -63,8 +62,6 @@ _MODULE_FOLDER_MAP: dict = {
     "routes.activity_log":             "admin",
     "routes.scheduling":               "admin",
     "routes.hl7_forward":              "admin",
-    # DB Manager
-    "routes.db_manager":               "db_manager",
     # Live feed
     "routes.live_feed":                "live_feed",
     # Patient portal

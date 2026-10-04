@@ -32,7 +32,6 @@ from routes.preferences      import preferences_bp
 from routes.docs             import docs_bp
 from routes.er_dashboard     import er_bp
 from routes.oru_analytics    import oru_bp
-from routes.db_manager       import db_manager_bp
 from routes.floor_plan_admin import floor_plan_bp
 from routes.referring_contacts_admin import referring_contacts_bp
 from routes.referring_intel  import referring_intel_bp
@@ -55,7 +54,6 @@ DEFAULT_LICENSE = {
     "reports": get_report_ids(),
     # ── Tier 1: Essential ────────────────────────────────────
     "export":          True,
-    "adapter_mapper":  True,   # DB Manager (admin config)
     "floor_plan":      True,   # Floor Plan device positions (admin config)
     "referring_contacts": True,  # CRN contact + preferred-channel config (admin config)
     # ── Tier 2: Professional ─────────────────────────────────
@@ -94,7 +92,6 @@ TIER_PRESETS = {
         "tier": "essential",
         "reports": get_report_ids(),
         "export":          True,
-        "adapter_mapper":  True,
         "floor_plan":      True,
         "referring_contacts": True,
         "hl7_orders":      False,
@@ -120,7 +117,6 @@ TIER_PRESETS = {
         "tier": "professional",
         "reports": get_report_ids(),
         "export":          True,
-        "adapter_mapper":  True,
         "floor_plan":      True,
         "referring_contacts": True,
         "hl7_orders":      True,
@@ -295,7 +291,6 @@ def register_blueprints(app):
     # Fallback routes show a "not licensed" page instead of a 404.
     feature_map = {
         # ── Tier 1: Essential ────────────────────────────────
-        'adapter_mapper':  (db_manager_bp,        {}, [('/admin/db-manager',            'DB Manager')]),
         'floor_plan':      (floor_plan_bp,         {}, [('/admin/floor-plan/',           'Floor Plan')]),
         'referring_contacts': (referring_contacts_bp, {}, [('/admin/referring-contacts/', 'Referring Contacts')]),
         # ── Tier 2: Professional ─────────────────────────────
