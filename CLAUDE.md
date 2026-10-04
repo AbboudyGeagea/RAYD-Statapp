@@ -1,189 +1,154 @@
-# RAYD-Statapp — Agent Context
+# RAYD-Statapp (HL7 branch) — Agent Context
 
 ## Project
-Flask/PostgreSQL radiology statistics platform for a medical imaging center (Intermedic, Beirut, Lebanon).
-Pulls DICOM study data from a PACS Oracle DB via ETL, receives HL7 ORU radiology reports, and serves
-analytics dashboards for radiologists and administrators.
+Flask/PostgreSQL radiology statistics platform, **HL7 distribution**. This install never
+connects to any external database — no Oracle, no PACS DB, no RIS DB. All clinical data
+arrives as HL7 v2 over MLLP (port 6661), is screened by RAY7, and is projected into the
+`etl_*` tables that the reports read.
+
+**This branch is a separate product, not a site variant.** Its schema, data pipeline,
+installation, users and roles differ from every other RAYD branch on purpose. Never port,
+cherry-pick or merge changes from LAUMC, main or the site branches into it, never restore
+what was removed (ETL, Oracle, DB Manager, external DB connections, old roles), and never
+push HL7 work out to them.
 
 ## Stack
 | Layer | Tech |
 |-------|------|
 | App server | Flask 3 + Gunicorn, Python 3.11 |
 | ORM | Flask-SQLAlchemy (SQLAlchemy 2) |
-| Database | PostgreSQL 15 (`rayd_db` container) |
+| Database | PostgreSQL 15 (`rayd_db` container) — the only database this app touches |
+| Data source | HL7 v2 over MLLP, port 6661 (`hl7_listener.py`) |
+| Screening | RAY7 (`utils/ray7.py`), inline before the ACK |
 | NLP worker | medspaCy in separate `rayd_nlp` container |
 | Reverse proxy | nginx (`rayd_proxy` container) |
-| ETL source | Oracle PACS via `oracledb` (cx_Oracle compatible) |
 | Scheduling | APScheduler (inside main container) |
 
 ## Containers
+Names are `${RAYD_CONTAINER_PREFIX:-rayd}_*` so two clones can coexist on one host
+(the local HL7 test clone uses prefix `raydtest`).
 ```
-rayd_proxy   nginx:stable-alpine        — TLS termination, ports 80/443
-rayd_service python:3.11 (Dockerfile)   — Flask app, port 6661 internal
+rayd_proxy   nginx:stable-alpine        — TLS termination, HTTPS 443
+rayd_service python:3.11 (Dockerfile)   — Flask app + MLLP listener on 6661
 rayd_nlp     python:3.11 (nlp_worker/)  — medspaCy batch processor, no exposed ports
 rayd_db      postgres:15                — primary DB, port 5432 (dev: exposed to host)
 ```
 
+## Data flow
+```
+MLLP :6661 ─▶ hl7_message_archive (raw, every message) ─▶ RAY7.screen()
+          ─▶ persist events/state (hl7_study_events, ray7_study_state, hl7_orders,
+             hl7_oru_reports, hl7_patients) ─▶ projector ─▶ etl_didb_studies,
+             etl_patient_view, etl_orders ─▶ reports (report SQL is never touched)
+```
+
 ## Key Files
 ```
-app.py                          — app factory, blueprint registration, APScheduler jobs
-db.py                           — SQLAlchemy setup, ORM models, permission helpers
+app.py                    — app factory, blueprint registration, scheduler, `-m` replay CLI
+db.py                     — SQLAlchemy setup, ORM models, roles + user_has_page()
+hl7_listener.py           — MLLP socket listener: framing, ACK (always AA)
+utils/
+  hl7_parse.py            — HL7 v2 parsing into the ParsedMessage contract
+  hl7_fieldmap.py         — applies operator-configured hl7_field_mappings
+  hl7_dictionary.py       — HL7 v2.4 field names for the mapping explorer
+  hl7_ingest.py           — archive + persist (events, study state, orders, reports)
+  ray7.py                 — RAY7 screening engine (verdicts, findings)
+  ray7_sweep.py           — RAY7 absence rules (stalled / unreported), runs every 15 min
+  hl7_project.py          — the projector: HL7 state → etl_* tables, per accession
+  hl7_replay.py           — rebuild everything downstream of the archive
+  hl7_forward.py          — optional MLLP forwarding of raw messages
+  crn_scan.py, crn_dispatcher.py — critical result notifications (sending is a stub)
 routes/
-  report_22.py                  — main radiology stats (date/modality/physician filters)
-  super_report.py               — aggregated multi-section report
-  report_25.py                  — shift & device utilization
-  er_dashboard.py               — ER unread studies panel + SLA tracking
-  oru_analytics.py              — HL7 ORU analytics (NLP word cloud, critical findings log)
-  viewer_controller.py          — daily briefing, home dashboard
-  mapping_controller.py         — AE/modality/procedure mapping config (lazy-loaded tabs)
-  hl7_orders_route.py           — HL7 order analytics
-  report_cache.py               — shared cache/dropdown helpers
-ETL_JOBS/
-  etl_job.py                    — Oracle → PostgreSQL ETL pipeline
-  etl_analytics_refresh.py      — storage summary rollup (Phase 7 of the main ETL sync,
-                                   `daily_etl_sync`, runs nightly at 05:00 — NOT the
-                                   separate 05:30 `daily_analytics_snapshot` job, which
-                                   runs ETL_JOBS/daily_analytics.py instead, populating
-                                   analytics_snapshots for the daily briefing)
-nlp_worker/worker.py            — standalone medspaCy batch loop (polls every 60s)
-migrations/NNNN_*.sql           — schema migrations (canonical source of truth)
-init-db/schema.sql              — initial schema applied by docker-entrypoint
-install.sh                      — full production install script
+  ray7_console.py         — RAY7 findings / quarantine console
+  mapping_controller.py   — HL7 → DB field mapping, modality/procedure config
+  hl7_orders.py           — HL7 order analytics
+  oru_analytics.py        — ORU report intelligence (NLP, critical findings log)
+  cd_log_route.py         — POST /cd-burn API (CD/DVD burn events → cd_burn_log)
+  cd_log_ui.py            — CD burn log screens; Report 30 reads cd_burn_log
+  report_22.py … report_36.py, super_report.py, er_dashboard.py — reports (read etl_*)
+ETL_JOBS/daily_analytics.py — 05:30 snapshot for the daily briefing (Postgres only;
+                              the only module left in ETL_JOBS)
+nlp_worker/worker.py      — standalone medspaCy batch loop (polls every 60s)
+scripts/hl7_scenarios.py  — drive named HL7 scenarios at the listener; reset test data
+tests/                    — test_hl7_parse, test_hl7_fieldmap, test_ray7_rules
+migrations/NNNN_*.sql     — schema migrations (canonical source of truth)
+install.sh                — production install: no DB/ETL config, first user + license tier
 ```
 
 ## DB Schema
 
-### Core ETL tables
+### HL7 pipeline (migrations 0115–0130)
 ```
-etl_didb_studies
-  study_db_uid BIGINT PK, patient_db_uid, study_date DATE, study_modality VARCHAR(50),
-  storing_ae TEXT, accession_number TEXT, number_of_study_images INT,
-  report_status TEXT, order_status TEXT, study_has_report BOOL,
-  rep_final_timestamp TIMESTAMP, rep_final_signed_by TEXT,
-  reading_physician_id BIGINT, reading_physician_first_name TEXT, reading_physician_last_name TEXT,
-  referring_physician_first_name TEXT, referring_physician_last_name TEXT,
-  rep_prelim_timestamp TIMESTAMP, patient_class TEXT, patient_location VARCHAR(3),
-  study_description TEXT, study_body_part TEXT, age_at_exam NUMERIC(5,2)
-
-etl_patient_view
-  patient_db_uid BIGINT PK, patient_id TEXT, patient_name TEXT, dob DATE, sex TEXT,
-  patient_class TEXT, patient_location TEXT
-
-etl_orders
-  order_dbid BIGINT PK, patient_dbid TEXT, study_db_uid BIGINT,
-  proc_id TEXT, proc_text TEXT, scheduled_datetime TIMESTAMP,
-  order_status TEXT, modality TEXT, has_study BOOL, order_control TEXT
-
-etl_didb_serieses       — DICOM series detail (series_db_uid, study_db_uid, modality, body_part_examined)
-etl_didb_raw_images     — DICOM image detail (raw_image_db_uid, study_db_uid, series_db_uid)
-etl_image_locations     — image file sizes (raw_image_db_uid, image_size_kb, file_system)
-etl_job_log             — ETL run history (job_name, status, start_time, records_processed, error_message)
+hl7_message_archive   — every raw message received; the only copy that will ever exist
+hl7_surrogate_keys    — stable BIGINT keys minted by hl7_surrogate_id() for etl_* PKs
+hl7_status_map        — status codes → canonical lifecycle states (seeded config)
+hl7_result_status_map — OBX-11 → signature rungs (prelim / final)
+hl7_study_events      — lifecycle event log per accession
+hl7_patients          — patient demographics from HL7
+hl7_field_mappings, hl7_field_targets — per-site field mapping overrides
+ray7_rules            — rule config (seeded config)
+ray7_findings         — findings raised by RAY7
+ray7_study_state      — one row per study carrying the whole lifecycle
+ray7_ladder_profile   — per-site rung enable/enforce flags (seeded all off)
+hl7_orders, hl7_oru_reports, hl7_scn_studies — parsed orders, reports, PACS completions
+hl7_oru_analysis      — written by nlp-worker only
 ```
 
-### HL7 tables
+### Projected tables (filled by the projector, read by every report)
 ```
-hl7_oru_reports
-  id SERIAL PK, accession_number TEXT, patient_id TEXT,
-  procedure_code TEXT, procedure_name TEXT, modality TEXT,
-  physician_id TEXT, report_text TEXT, impression_text TEXT,
-  result_datetime TIMESTAMP, received_at TIMESTAMP DEFAULT now()
-
-hl7_oru_analysis        — written by nlp-worker; never update directly from main app
-  id SERIAL PK, report_id INT → hl7_oru_reports(id) UNIQUE,
-  affirmed_labels TEXT[], is_critical BOOL, nlp_version TEXT, analyzed_at TIMESTAMP
-
-hl7_orders
-  id SERIAL PK, accession_number TEXT, patient_id TEXT,
-  procedure_code TEXT, modality TEXT, order_date TIMESTAMP,
-  completed_at TIMESTAMP, pacs_done_at TIMESTAMP,
-  patient_class VARCHAR, patient_location VARCHAR
+etl_didb_studies   — study_db_uid is a surrogate key; insert_time = COMPLETED timestamp
+                     (the TAT anchor, see utils/hl7_project.py)
+etl_patient_view, etl_orders
+etl_didb_serieses, etl_didb_raw_images, etl_image_locations — stay EMPTY: image/series
+                     counts and storage need the nightly aggregate export (not built)
 ```
 
-### Configuration
+### Other
 ```
-aetitle_modality_map    — AE title → canonical modality
-  id SERIAL PK, aetitle VARCHAR NOT NULL, modality VARCHAR NOT NULL,
-  daily_capacity_minutes INT DEFAULT 480
-
-db_params               — external DB connections (Oracle PACS source, etc.)
-  id SERIAL PK, name VARCHAR(100) UNIQUE, db_role VARCHAR, db_type VARCHAR,
-  host VARCHAR, port INT, sid VARCHAR, username VARCHAR, password VARCHAR (encrypted),
-  conn_string TEXT, mode VARCHAR, created_at TIMESTAMP, updated_at TIMESTAMP
-
-settings                — key/value store for app config and license
-  key TEXT PK, value TEXT
-  Notable keys: license (JSON), demo_mode, demo_start, demo_end, demo_user,
-                shift_morning_start/end, shift_afternoon_start/end, shift_night_start/end,
-                oru_crit:<keyword> (custom critical NLP terms)
-
-go_live_config          — ETL minimum date; ETL ignores studies before this date
-  id SERIAL PK, go_live_date DATE
-
-device_exceptions       — per-day capacity overrides for specific AE titles
-  id, aetitle, exception_date DATE, actual_opening_minutes INT, reason VARCHAR
-
-device_weekly_schedule  — standard weekly schedule per AE title
-  aetitle VARCHAR, day_of_week INT (0=Mon–6=Sun), std_opening_minutes INT DEFAULT 720
+aetitle_modality_map, device_weekly_schedule, device_exceptions — device config
+cd_burn_log          — CD/DVD burn events (migration 0132)
+settings             — key/value config and license JSON
+users                — role is su | implementation | administrator | user (migration 0131)
+analytics_snapshots  — daily briefing data
 ```
+Leftover tables from the Oracle era (`db_params`, `adapter_mappings`, `go_live_config`,
+`etl_job_log`) may still exist on older installs; no code on this branch writes to them.
+There is no go-live date: `get_etl_cutoff_date()` returns `MIN(study_date)` from the
+projected `etl_didb_studies`, and `go_live_config` is left empty.
 
-### Users / Auth
-```
-users
-  id SERIAL PK, username VARCHAR UNIQUE, email VARCHAR, password_hash VARCHAR,
-  role VARCHAR (admin | viewer | viewer2), active BOOL DEFAULT true
-
-active_sessions
-  session_id VARCHAR PK, user_id INT, role VARCHAR, ip_address VARCHAR,
-  login_time TIMESTAMP DEFAULT now()
-```
-
-### Procedures / AI clustering
-```
-procedure_canonical_groups
-  id SERIAL PK, canonical_name TEXT, cluster_confidence NUMERIC,
-  source TEXT (ai_suggested | manual), approved BOOL DEFAULT false
-
-procedure_canonical_members
-  group_id INT → procedure_canonical_groups(id), procedure_code TEXT
-
-procedure_duplicate_candidates
-  id SERIAL PK, code_a TEXT, code_b TEXT, status TEXT (pending | merged | dismissed)
-
-procedure_duration_map
-  procedure_code TEXT, modality TEXT, avg_duration_minutes NUMERIC
-
-ai_nlp_cache            — TF-IDF / K-means secondary NLP (scikit-learn, main app)
-  id SERIAL PK, source_id INT → hl7_oru_reports(id),
-  classification VARCHAR(20), keywords JSONB, cluster_id INT,
-  cluster_label TEXT, severity_score NUMERIC(3,1), processed_at TIMESTAMP
-```
-
-### Analytics
-```
-analytics_snapshots
-  snapshot_date DATE PK, data JSONB
-
-procedure_exceptions    — legacy exceptions table (see device_exceptions for current)
-```
+## Roles
+| Role | Who | Access |
+|------|-----|--------|
+| `su` | R&D | everything; only role exempt from license expiry |
+| `implementation` | ATH engineers | mapping (HL7 fields, modalities, procedures), live feed, HL7 orders, custom reports |
+| `administrator` | radiology manager / chief radiologist | all reports, user management |
+| `user` | read-only staff | reports an administrator grants |
+Old role names (`admin`, `viewer`, `viewer2`, `tec`, `finance`, `secretary`) no longer exist —
+never check for them. Page access goes through `user_has_page()` in `db.py`.
 
 ## Critical Conventions
 
-1. **DB changes** — always via `migrations/NNNN_description.sql`. Never run DDL from psql CLI directly.
-2. **SR exclusion** — every query touching `etl_didb_studies` must filter:
-   `COALESCE(m.modality, s.study_modality, '') != 'SR'`
-   (SR = Structured Report; auto-generated by PACS, not a real study)
-3. **Modality source** — prefer `aetitle_modality_map.modality` over `study_modality`; fall back to `study_modality` if no mapping exists.
-4. **Expensive CTEs** — `etl_orders` scans with `MODE() WITHIN GROUP` must use `WITH ... AS MATERIALIZED`.
-5. **hl7_oru_analysis** — written only by `nlp_worker/worker.py`; route handlers read it but never write it.
-6. **Password encryption** — Oracle and external DB passwords are encrypted via `utils/crypto.py` using `SECRET_KEY`.
+1. **DB changes** — always via `migrations/NNNN_description.sql`. Migrations apply
+   automatically at app startup. Never run DDL from psql directly.
+2. **No external database, ever** — do not add DB drivers, connection settings or ETL jobs.
+3. **RAY7 never drops a message** — verdicts are accepted / flagged / quarantined, all
+   keep the message; the listener always ACKs `AA`. Rules run inline before the ACK, so
+   every rule must be an indexed O(1) lookup, under the time budget, and fail-open.
+4. **Report SQL is not touched for HL7** — reports keep reading `etl_*`; HL7 data reaches
+   them only through the projector.
+5. **SR exclusion** — every query touching `etl_didb_studies` must filter
+   `COALESCE(m.modality, s.study_modality, '') != 'SR'`.
+6. **Modality source** — prefer `aetitle_modality_map.modality` over `study_modality`.
+7. **hl7_oru_analysis** — written only by `nlp_worker/worker.py`.
+8. **Never truncate `ray7_rules`, `hl7_status_map` or `hl7_result_status_map`** — they are
+   seeded configuration; wiping them silently disables screening.
 
 ## Dev Workflow
 
 **Always pass both `-f` flags, on every command.** The base file and the dev
 override use *different* database volumes (`postgres_data` vs `postgres_dev_data`),
-so dropping the flags silently switches you to a different, empty database — and a
-bare `docker compose up -d rayd-app` is what once recreated `rayd_db` against the
-wrong volume. Define an alias and use it for everything:
+so dropping the flags silently switches you to a different, empty database. Define
+an alias and use it for everything:
 
 ```bash
 alias dc='docker compose -f docker-compose.yml -f docker-compose.dev.yml'
@@ -199,33 +164,25 @@ dc up -d
 #   localhost:5432         Postgres, for psql and the rayd-postgres MCP server
 #   localhost:8080         app direct, bypassing nginx
 
-# Tail logs
+# Tail logs / watch HL7 traffic arrive
 dc logs -f rayd-app
-dc logs -f rayd-nlp
-
-# Watch HL7 traffic arrive
 dc logs -f rayd-app | grep -E "HL7|MLLP|RAY7"
-
-# Connect to DB (password from .env)
-psql "postgresql://etl_user:PASSWORD@localhost:5432/etl_db"
 
 # Rebuild one service after a code change
 dc build rayd-app && dc up -d rayd-app
 
-# Check NLP worker health
-dc logs rayd-nlp --tail 20
+# Replay the archive through parse → screen → persist → project
+dc exec rayd-app python app.py -m              # everything
+dc exec rayd-app python app.py -m --dry-run    # count only
+#   also: --since <archive id>, --limit <n>, --no-rescreen
+
+# Send test scenarios at the listener
+python scripts/hl7_scenarios.py --list
 ```
 
-**Migrations apply themselves.** `run_migrations()` runs at app startup
-(`app.py`), so `dc up -d` after adding `migrations/NNNN_*.sql` is all that is
-needed — confirm with `dc logs rayd-app | grep migrations`. There is no manual
-apply step; the `migrations/` directory is not mounted into the database
-container, so any `docker exec rayd_db psql -f /docker-entrypoint-initdb.d/...`
-command will not find the file.
-
-**There is no ETL on this branch.** `python app.py -m` exits with an error by
-design — it is reserved for the HL7 projector replay. Data arrives only over
-MLLP on 6661.
+**Migrations apply themselves.** `run_migrations()` runs at app startup, so
+`dc up -d` after adding `migrations/NNNN_*.sql` is all that is needed — confirm with
+`dc logs rayd-app | grep migrations`.
 
 ## MCP Servers (for Claude Code agents)
 
