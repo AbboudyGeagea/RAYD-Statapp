@@ -72,7 +72,7 @@
 
     </div>
 
-    <!-- Admin Panel Link (Only visible if role is 'admin') -->
+    <!-- Admin Panel Link (Only visible to su / administrator) -->
     {% if role in ('su', 'administrator') %}
     <div class="mt-10 pt-6 border-t border-gray-200">
         <a href="{{ url_for('admin.index') }}" 

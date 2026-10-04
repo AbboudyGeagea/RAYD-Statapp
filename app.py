@@ -160,7 +160,7 @@ def create_app():
 
         pending_approvals_count   = 0
         reset_requests_count      = 0
-        if current_user.is_authenticated and current_user.role == 'admin':
+        if current_user.is_authenticated and current_user.role in ('su', 'administrator'):
             try:
                 from db import User as _User
                 pending_approvals_count  = _User.query.filter_by(status='pending').count()
@@ -333,8 +333,9 @@ def create_app():
         if current_user.must_change_password and ep != 'auth.profile_password':
             return redirect(url_for('auth.profile_password'))
 
-        # License expiry — admins can still log in to update the license
-        if current_user.role != 'admin':
+        # License expiry — su can still log in to update the license (same
+        # exemption as the login check in auth_controller)
+        if current_user.role != 'su':
             from routes.registry import check_license_limit
             ok, msg = check_license_limit(app, 'expired')
             if not ok:
@@ -348,8 +349,6 @@ def create_app():
     def index():
         if not current_user.is_authenticated:
             return redirect(url_for('auth.login'))
-        if current_user.role == 'tec':
-            return redirect(url_for('live_feed.live_page'))
         return redirect(url_for('viewer.welcome'))
 
     # --- MIGRATE: add new columns / tables if missing ---

@@ -17,7 +17,7 @@ def admin_required(f):
     # Checks DB role via flask-login — immune to session cookie forgery.
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if not current_user.is_authenticated or current_user.role != 'admin':
+        if not current_user.is_authenticated or current_user.role not in ('su', 'administrator'):
             flash('Access denied. Admin privileges required.', 'danger')
             return redirect(url_for('dashboard.index'))
         return f(*args, **kwargs)
@@ -27,7 +27,7 @@ def admin_required(f):
 def viewer_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if not current_user.is_authenticated or current_user.role not in ('viewer', 'viewer2', 'admin'):
+        if not current_user.is_authenticated or current_user.role not in ('su', 'administrator'):
             flash('Access denied. Viewer privileges required.', 'danger')
             return redirect(url_for('auth.login'))
         return f(*args, **kwargs)

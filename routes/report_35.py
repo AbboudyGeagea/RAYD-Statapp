@@ -814,7 +814,7 @@ def export_report_35():
 @report_35_bp.route('/report/35/flag/acknowledge', methods=['POST'])
 @login_required
 def ack_tech_flag_35():
-    if current_user.role not in ('admin', 'viewer', 'viewer2'):
+    if current_user.role not in ('su', 'administrator'):
         abort(403)
     from db import TechFlagAck
     data      = request.get_json(silent=True) or {}
@@ -849,7 +849,7 @@ def ack_tech_flag_35():
 @report_35_bp.route('/report/35/flag/unacknowledge', methods=['POST'])
 @login_required
 def unack_tech_flag_35():
-    if current_user.role not in ('admin', 'viewer', 'viewer2'):
+    if current_user.role not in ('su', 'administrator'):
         abort(403)
     from db import TechFlagAck
     data      = request.get_json(silent=True) or {}

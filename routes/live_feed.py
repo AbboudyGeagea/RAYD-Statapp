@@ -544,7 +544,7 @@ def _log_status_change(order_id, message_id, from_status, to_status, username, s
         logger.error(f"Status log write failed: {e}")
 
 
-_REVERT_ROLES  = {"admin", "viewer", "tec"}
+_REVERT_ROLES  = {"su", "administrator", "implementation"}
 _PREV_STATUS   = {"CM": "IP", "IP": "AR", "AR": "SC"}
 _REVERT_CLEAR  = {
     "CM": "done_at    = NULL, done_by    = NULL",

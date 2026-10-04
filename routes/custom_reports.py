@@ -10,7 +10,7 @@ from flask import Blueprint, render_template, request, jsonify, abort, redirect,
 from flask_login import login_required, current_user
 from sqlalchemy import text
 
-from db import db
+from db import db, user_has_page
 from utils.permissions import resolve_permission
 from routes.report_widgets import WIDGET_CATALOGUE, FINANCIAL_KEYS, run_widget
 from routes.report_cache import get_filter_options
@@ -34,7 +34,7 @@ FINANCIAL_VISIBILITY_FLOOR = "restricted"
 # ── Guards ────────────────────────────────────────────────────────────────────
 
 def _can_access():
-    return current_user.is_authenticated and current_user.role in ("admin", "viewer", "viewer2")
+    return current_user.is_authenticated and user_has_page(current_user, "custom_reports")
 
 
 def _can_finance():

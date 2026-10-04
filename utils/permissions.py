@@ -2,7 +2,7 @@
 utils/permissions.py — Group-based permission resolution.
 
 Resolution order for any permission key:
-  1. admin role                → always True
+  1. su / administrator role   → always True
   2. user.permission_overrides → if key present, that value wins
   3. user.group.permissions    → group default
   4. no group assigned         → True  (backward-compat: ungrouped users keep full access)
@@ -24,7 +24,7 @@ ALL_PERMISSION_KEYS = [k for k, _ in ALL_PERMISSIONS]
 def resolve_permission(user, permission: str) -> bool:
     if not getattr(user, 'is_authenticated', False):
         return False
-    if getattr(user, 'role', None) == 'admin':
+    if getattr(user, 'role', None) in ('su', 'administrator'):
         return True
 
     overrides = getattr(user, 'permission_overrides', None) or {}
@@ -45,7 +45,7 @@ def resolve_permission(user, permission: str) -> bool:
 def can_view_report(user, report_id: int) -> bool:
     if not getattr(user, 'is_authenticated', False):
         return False
-    if getattr(user, 'role', None) == 'admin':
+    if getattr(user, 'role', None) in ('su', 'administrator'):
         return True
 
     overrides = getattr(user, 'permission_overrides', None) or {}

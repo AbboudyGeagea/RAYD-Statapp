@@ -34,7 +34,7 @@ SESSION_KEY = "site_selection"   # flask session key holding the picker value
 
 
 def granted_site_ids(user):
-    """Canonical site ids this user may see. Admin with no explicit grants = all sites."""
+    """Canonical site ids this user may see. su/administrator with no explicit grants = all sites."""
     from sqlalchemy import text
     from db import db
     try:
@@ -45,7 +45,7 @@ def granted_site_ids(user):
         ids = [r[0] for r in rows]
         if ids:
             return ids
-        if getattr(user, "role", None) == "admin":
+        if getattr(user, "role", None) in ("su", "administrator"):
             from utils.site_resolver import all_site_ids
             return all_site_ids()
         return []

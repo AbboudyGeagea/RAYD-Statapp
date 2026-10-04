@@ -42,12 +42,10 @@
 
         /* ── Avatar ── */
         .avatar { width: 2.5rem; height: 2.5rem; border-radius: 0.75rem; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; font-weight: 900; flex-shrink: 0; }
-        .av-viewer   { background: rgba(96,165,250,.12);  color: #60a5fa; }
-        .av-viewer2  { background: rgba(129,140,248,.12); color: #818cf8; }
-        .av-tec      { background: rgba(168,85,247,.12);  color: #a855f7; }
-        .av-finance  { background: rgba(52,211,153,.12);  color: #34d399; }
-        .av-secretary{ background: rgba(251,146,60,.12);  color: #fb923c; }
-        .av-admin    { background: rgba(245,158,11,.12);  color: #f59e0b; }
+        .av-administrator { background: rgba(96,165,250,.12);  color: #60a5fa; }
+        .av-implementation{ background: rgba(168,85,247,.12);  color: #a855f7; }
+        .av-user          { background: rgba(52,211,153,.12);  color: #34d399; }
+        .av-su            { background: rgba(245,158,11,.12);  color: #f59e0b; }
         .av-pending  { background: rgba(245,158,11,.12);  color: #f59e0b; }
         .av-default  { background: rgba(100,116,139,.12); color: #64748b; }
 
@@ -183,7 +181,7 @@
                              onclick="openDrawer({{ u.id }})">
 
                             <div class="flex items-start gap-3 mb-3">
-                                <div class="avatar av-{{ u.role }} {% if u.role not in ['viewer','viewer2','tec','finance','secretary','admin'] %}av-default{% endif %}">
+                                <div class="avatar av-{{ u.role }} {% if u.role not in ['su','implementation','administrator','user'] %}av-default{% endif %}">
                                     {{ (u.full_name or u.username)[0]|upper }}
                                 </div>
                                 <div class="flex-1 min-w-0">

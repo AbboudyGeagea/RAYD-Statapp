@@ -636,7 +636,7 @@ def _resolve_date_range(values):
 @report_ai_bp.route("/report/ai", methods=["GET", "POST"])
 @login_required
 def report_ai():
-    if current_user.role not in ('admin', 'viewer') and not user_has_page(current_user, 'report_ai'):
+    if current_user.role not in ('su', 'administrator') and not user_has_page(current_user, 'report_ai'):
         abort(403)
     start, end = _resolve_date_range(request.values)
     active_tab = request.values.get("tab", "storage")
@@ -680,7 +680,7 @@ def report_ai_panel(section):
     in report_ai.html the first time a user opens that tab. Returns the same
     partial markup the main route would have inlined had that tab been the
     active one, plus the raw section data (for chart init on the client)."""
-    if current_user.role not in ('admin', 'viewer') and not user_has_page(current_user, 'report_ai'):
+    if current_user.role not in ('su', 'administrator') and not user_has_page(current_user, 'report_ai'):
         abort(403)
     if section not in _SECTION_CONFIG:
         abort(404)

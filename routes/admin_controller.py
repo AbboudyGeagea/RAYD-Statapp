@@ -255,7 +255,7 @@ def approve_user():
 
     data     = request.get_json()
     user_id  = data.get('user_id')
-    new_role = data.get('role', 'viewer')
+    new_role = data.get('role', 'user')
 
     if new_role not in ('su', 'implementation', 'administrator', 'user'):
         return jsonify({'status': 'error', 'message': 'Invalid role'}), 400

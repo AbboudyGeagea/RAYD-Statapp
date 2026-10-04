@@ -200,7 +200,6 @@
                     {% endfor %}
 
                     <!-- ER Dashboard card -->
-                    {% if current_user.role != 'tec' %}
                     <div class="card-custom p-6 flex flex-col hover:border-[#f43f5e]/30 transition-colors" style="border-top:2px solid #f43f5e;">
                         <div class="flex items-start justify-between mb-4">
                             <div class="p-2.5 rounded-xl" style="background:rgba(244,63,94,0.1);">
@@ -216,7 +215,6 @@
                             Open ER Dashboard
                         </a>
                     </div>
-                    {% endif %}
                 </div>
 
                 <div id="grid-it" class="hidden grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

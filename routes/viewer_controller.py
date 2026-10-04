@@ -38,9 +38,6 @@ def welcome():
 @viewer_bp.route('/dashboard')
 @login_required
 def viewer_dashboard():
-    if current_user.role == 'tec':
-        return redirect(url_for('hl7_orders.hl7_orders_page'))
-
     from db import ReportTemplate
 
     is_admin = current_user.role in ('su', 'administrator')
