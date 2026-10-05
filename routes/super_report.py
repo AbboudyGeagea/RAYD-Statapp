@@ -252,6 +252,8 @@ def super_report():
             "current":    current,
             "previous":   previous,
             "narrative":  narrative,
+            "start":      start,
+            "end":        end,
             "cmp_start":  cmp_start,
             "cmp_end":    cmp_end,
             "delta_days": delta,
@@ -365,11 +367,14 @@ def _collect_data(start, end, filters):
         GROUP BY 1 ORDER BY gb DESC LIMIT 5
     """), sp).mappings().fetchall()
 
-    top_mods = db.session.execute(text(f"""
+    # Every modality: the period comparison table needs both periods' full list
+    # (a modality missing from one period then really means zero there).
+    mod_rows = db.session.execute(text(f"""
         SELECT COALESCE(m.modality,s.study_modality,'N/A') AS modality, COUNT(*) AS cnt
         FROM etl_didb_studies s {mj} {pj} WHERE {where}
-        GROUP BY 1 ORDER BY cnt DESC LIMIT 5
+        GROUP BY 1 ORDER BY cnt DESC
     """), params).mappings().fetchall()
+    top_mods = mod_rows[:5]
 
     peak = db.session.execute(text(f"""
         SELECT s.study_date::text AS peak_day, COUNT(*) AS peak_count
@@ -585,6 +590,7 @@ def _collect_data(start, end, filters):
             "peak_day":       dict(peak).get("peak_day") if peak else None,
             "peak_count":     dict(peak).get("peak_count") if peak else 0,
             "top_modalities": [dict(r) for r in top_mods],
+            "by_modality":    [dict(r) for r in mod_rows],
         },
         "physicians":    [dict(r) for r in physicians],
         "external_referrals": int(external_referrals),

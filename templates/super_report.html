@@ -86,6 +86,9 @@
         /* Light mode */
         body.light { background: #f0f4f8 !important; color: #1a202c !important; }
         body.light .card { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        body.light #super-compare .text-white     { color: #1a202c !important; }
+        body.light #super-compare .text-slate-300 { color: #334155 !important; }
+        body.light #super-compare tr              { border-color: #e2e8f0 !important; }
         body.light .f-input, body.light .f-multi { background: #ffffff !important; border-color: #e2e8f0 !important; color: #1a202c !important; }
         body.light .dropdown-list { background: #ffffff !important; border-color: #e2e8f0 !important; }
         body.light .dropdown-item { color: #1a202c !important; }
@@ -270,6 +273,12 @@
 
                 <!-- KPIs -->
                 <div id="super-kpis" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-4 gap-3"></div>
+
+                <!-- Period comparison: both periods side by side in one table -->
+                <div class="card p-5" id="super-compare-card">
+                    <h4 class="text-[#60a5fa] text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-arrow-left-right"></i> Period Comparison</h4>
+                    <div class="overflow-x-auto"><table class="w-full text-xs" id="super-compare"></table></div>
+                </div>
 
                 <!-- Sections -->
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -820,6 +829,8 @@
             </div>`;
         }).join('');
 
+        renderComparison(d);
+
         // Volume
         const v = cur.volume, pv = prev.volume;
         document.getElementById('super-volume').innerHTML =
@@ -882,6 +893,77 @@
 
         // Radiologist matrix
         srRadMatrixInit(cur.rad_matrix || {});
+    }
+
+    // ── Period comparison table ───────────────────────────────────────
+    // Both periods' real values side by side (the cards above only show a % badge).
+    // dir: +1 higher is better, -1 lower is better, 0 neutral (no colour).
+    function renderComparison(d) {
+        const C = d.current, P = d.previous;
+        const num = v => (v === null || v === undefined || v === '' || isNaN(parseFloat(v))) ? null : parseFloat(v);
+        const show = (v, dec) => v === null ? '—'
+            : v.toLocaleString(undefined, { minimumFractionDigits: dec, maximumFractionDigits: dec });
+        const groups = [
+            ['Volume', [
+                ['Studies',             C.kpis.total_studies,       P.kpis.total_studies,       0,  1],
+                ['Avg studies / day',   C.volume.avg_per_day,       P.volume.avg_per_day,       1,  1],
+                ['Busiest day (count)', C.volume.peak_count,        P.volume.peak_count,        0,  0],
+                ['Patients',            C.kpis.total_patients,      P.kpis.total_patients,      0,  1],
+                ['Images',              C.kpis.total_images,        P.kpis.total_images,        0,  0],
+                ['Studies with report', C.kpis.studies_with_report, P.kpis.studies_with_report, 0,  1],
+            ]],
+            ['Orders', [
+                ['Orders',              C.orders.total,             P.orders.total,             0,  1],
+                ['Fulfilled',           C.orders.fulfilled,         P.orders.fulfilled,         0,  1],
+                ['Fulfillment %',       C.orders.fulfillment_pct,   P.orders.fulfillment_pct,   1,  1, 'pts'],
+            ]],
+            ['Patients', [
+                ['Male',                C.demographics.male,        P.demographics.male,        0,  0],
+                ['Female',              C.demographics.female,      P.demographics.female,      0,  0],
+                ['Inpatient',           C.demographics.inpatient,   P.demographics.inpatient,   0,  0],
+                ['Outpatient',          C.demographics.outpatient,  P.demographics.outpatient,  0,  0],
+                ['External referrals',  C.external_referrals,       P.external_referrals,       0,  0],
+            ]],
+            ['Storage & operations', [
+                ['Storage GB',          C.storage.total_gb,         P.storage.total_gb,         1,  0],
+                ['Avg GB / day',        C.storage.avg_gb_per_day,   P.storage.avg_gb_per_day,   1,  0],
+                ['ER-delayed studies',  (C.ae_ops || {}).er_delayed, (P.ae_ops || {}).er_delayed, 0, -1],
+            ]],
+        ];
+        // Studies per modality: both full lists, so a modality absent from a period is a real zero.
+        const cm = {}, pm = {};
+        (C.volume.by_modality || []).forEach(r => cm[r.modality] = r.cnt);
+        (P.volume.by_modality || []).forEach(r => pm[r.modality] = r.cnt);
+        const mods = [...new Set([...Object.keys(cm), ...Object.keys(pm)])]
+            .sort((a, b) => (cm[b] || 0) - (cm[a] || 0));
+        if (mods.length) groups.push(['Studies by modality', mods.map(m => [m, cm[m] || 0, pm[m] || 0, 0, 0])]);
+
+        const head = `<thead><tr class="text-[9px] font-black uppercase tracking-widest text-slate-500 text-right">
+            <th class="text-left py-2 pr-3">Metric</th>
+            <th class="py-2 px-3">Current<br><span class="font-mono normal-case tracking-normal text-slate-400">${escHtml(d.start || '')} → ${escHtml(d.end || '')}</span></th>
+            <th class="py-2 px-3">Comparison<br><span class="font-mono normal-case tracking-normal text-slate-400">${escHtml(d.cmp_start || '')} → ${escHtml(d.cmp_end || '')}</span></th>
+            <th class="py-2 px-3">Change</th>
+            <th class="py-2 pl-3">Change %</th>
+        </tr></thead>`;
+        const body = groups.map(([title, rows]) =>
+            `<tr><td colspan="5" class="pt-3 pb-1 text-[9px] font-black uppercase tracking-widest text-[#60a5fa]">${escHtml(title)}</td></tr>` +
+            rows.map(([label, c, p, dec, dir, unit]) => {
+                const cv = num(c), pv = num(p);
+                const diff = (cv !== null && pv !== null) ? cv - pv : null;
+                const pctv = (diff !== null && pv) ? Math.round(diff / Math.abs(pv) * 1000) / 10 : null;
+                const tone = (diff === null || diff === 0 || dir === 0) ? '#94a3b8'
+                    : ((diff > 0) === (dir > 0) ? '#34d399' : '#f87171');
+                const sign = diff > 0 ? '+' : '';
+                return `<tr class="border-t border-[#28332e]/60">
+                    <td class="py-1.5 pr-3 text-slate-300">${escHtml(String(label))}</td>
+                    <td class="py-1.5 px-3 text-right font-mono font-bold text-white">${show(cv, dec)}</td>
+                    <td class="py-1.5 px-3 text-right font-mono text-slate-400">${show(pv, dec)}</td>
+                    <td class="py-1.5 px-3 text-right font-mono font-bold" style="color:${tone}">${diff === null ? '—' : sign + show(diff, dec) + (unit ? ' ' + unit : '')}</td>
+                    <td class="py-1.5 pl-3 text-right font-mono" style="color:${tone}">${unit || pctv === null ? '—' : sign + pctv + '%'}</td>
+                </tr>`;
+            }).join('')
+        ).join('');
+        document.getElementById('super-compare').innerHTML = head + `<tbody>${body}</tbody>`;
     }
 
     // ── Radiologist Matrix ────────────────────────────────────────────
