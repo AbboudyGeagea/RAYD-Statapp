@@ -14,6 +14,16 @@ import logging
 mapping_bp = Blueprint('mapping', __name__, url_prefix='/mapping')
 
 
+def _can_use_mapping():
+    """Whoever can open the Modality / Procedures page may edit an AE's room,
+    alias and opening minutes (operator decision 2026-10-05). Same rule as
+    mapping_page(): role or granted page, plus the can_configure permission.
+    Deleting AEs and bulk CSV upload stay admin-only."""
+    from utils.permissions import resolve_permission
+    return ((current_user.role in ('admin', 'viewer', 'viewer2') or user_has_page(current_user, 'mapping'))
+            and resolve_permission(current_user, 'can_configure'))
+
+
 def _find_ae(aetitle):
     """The AE row the page means. The ETL stores AE titles exactly as PACS sends
     them (any case, DICOM space padding) while the page always sends
@@ -371,7 +381,7 @@ def upload_procedure_map():
 @mapping_bp.route('/device/grid/save', methods=['POST'])
 @login_required
 def save_grid_changes():
-    if current_user.role != 'admin': return abort(403)
+    if not _can_use_mapping(): return abort(403)
     data = request.get_json(force=True)
     updates = data.get('updates', [])
 
@@ -745,7 +755,7 @@ def delete_ae_entry():
 @login_required
 def update_ae_entry():
     """Inline update for an AE title row (modality, room_name, description)."""
-    if current_user.role != 'admin': return abort(403)
+    if not _can_use_mapping(): return abort(403)
     data = request.get_json(force=True)
     try:
         entry = _find_ae(data['aetitle'])

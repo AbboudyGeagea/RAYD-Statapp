@@ -317,7 +317,7 @@
     <script>
         // Why a save failed, in words: the server's message, or the permission rule.
         async function _saveErrorMessage(res) {
-            if (res.status === 403) return 'Only administrators can change modality settings.';
+            if (res.status === 403) return 'You do not have permission to change this setting.';
             const body = await res.json().catch(() => ({}));
             return body.message || `Server error (HTTP ${res.status}).`;
         }
