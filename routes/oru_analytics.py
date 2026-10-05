@@ -10,6 +10,40 @@ from db import db
 
 oru_bp = Blueprint('oru', __name__, url_prefix='/oru')
 
+
+def _modality_sql(alias='r'):
+    """(expression, joins) for a report's modality.
+
+    ORU messages often carry no modality and HL7 orders only exist from April
+    2026, so falling back to the order alone left many reports as UNK. Order of
+    trust: the ORU itself, the HL7 order, the PACS study with the same accession
+    (AE-title mapping first), then the procedure code's configured modality.
+    """
+    joins = f"""
+        LEFT JOIN LATERAL (
+            SELECT modality FROM hl7_orders
+            WHERE accession_number = {alias}.accession_number
+              AND modality IS NOT NULL AND TRIM(modality) != ''
+            LIMIT 1
+        ) ho ON true
+        LEFT JOIN LATERAL (
+            SELECT COALESCE(am.modality, ps.study_modality) AS modality
+            FROM etl_didb_studies ps
+            LEFT JOIN aetitle_modality_map am ON am.aetitle = ps.storing_ae
+            WHERE ps.accession_number = {alias}.accession_number
+              AND COALESCE(am.modality, ps.study_modality, '') NOT IN ('', 'SR')
+            LIMIT 1
+        ) pacs ON true
+        LEFT JOIN LATERAL (
+            SELECT modality FROM procedure_duration_map
+            WHERE UPPER(TRIM(procedure_code)) = UPPER(TRIM({alias}.procedure_code))
+              AND modality IS NOT NULL AND TRIM(modality) != ''
+            LIMIT 1
+        ) pm ON true"""
+    expr = (f"UPPER(COALESCE(NULLIF(TRIM({alias}.modality), ''), NULLIF(TRIM(ho.modality), ''),"
+            f" NULLIF(TRIM(pacs.modality), ''), NULLIF(TRIM(pm.modality), ''), 'UNK'))")
+    return expr, joins
+
 # ── Stop-word list ─────────────────────────────────────────────────────────────
 STOP = {
     # English
@@ -449,16 +483,12 @@ def oru_data():
     normal_count = agg_row.normal or 0
     abnormal_count = total - normal_count
 
+    mod_expr, mod_joins = _modality_sql('r')
     modality_rows = db.session.execute(text(f"""
-        SELECT UPPER(COALESCE(NULLIF(TRIM(r.modality), ''), NULLIF(TRIM(ho.modality), ''), 'UNK')) AS modality,
+        SELECT {mod_expr} AS modality,
                COUNT(*) AS cnt
         FROM hl7_oru_reports r
-        LEFT JOIN LATERAL (
-            SELECT modality FROM hl7_orders
-            WHERE accession_number = r.accession_number
-              AND modality IS NOT NULL AND TRIM(modality) != ''
-            LIMIT 1
-        ) ho ON true
+        {mod_joins}
         WHERE {where_clause}
         GROUP BY 1
         ORDER BY cnt DESC
@@ -558,21 +588,17 @@ def oru_data():
 
     detail_rows = []
     if ids:
-        detail_rows = db.session.execute(text("""
+        mod_expr, mod_joins = _modality_sql('r')
+        detail_rows = db.session.execute(text(f"""
             SELECT r.id AS report_id, r.procedure_code, r.procedure_name,
-                   COALESCE(NULLIF(TRIM(r.modality), ''), NULLIF(TRIM(ho.modality), ''), 'UNK') AS modality,
+                   {mod_expr} AS modality,
                    r.physician_id,
                    r.patient_id, r.accession_number,
                    r.report_text, r.impression_text, r.result_datetime, r.received_at,
                    a.affirmed_labels
             FROM   hl7_oru_reports r
             LEFT JOIN hl7_oru_analysis a ON a.report_id = r.id
-            LEFT JOIN LATERAL (
-                SELECT modality FROM hl7_orders
-                WHERE accession_number = r.accession_number
-                  AND modality IS NOT NULL AND TRIM(modality) != ''
-                LIMIT 1
-            ) ho ON true
+            {mod_joins}
             WHERE r.id = ANY(:ids)
             ORDER  BY r.received_at DESC
         """), {'ids': ids}).fetchall()
@@ -871,6 +897,7 @@ def nlp_results():
     # See oru_data()'s comment: filter by result_datetime, not received_at.
     where_clause, params, _days = _date_proc_conditions(date_from, date_to, proc, alias='o', days_default=90)
 
+    mod_expr, mod_joins = _modality_sql('o')
     rows = db.session.execute(text(f"""
         SELECT
             c.classification,
@@ -878,12 +905,13 @@ def nlp_results():
             c.cluster_label,
             c.severity_score,
             c.keywords,
-            o.modality,
+            {mod_expr} AS modality,
             o.procedure_name,
             o.procedure_code,
             o.physician_id
         FROM ai_nlp_cache c
         JOIN hl7_oru_reports o ON o.id = c.source_id
+        {mod_joins}
         WHERE {where_clause}
     """), params).fetchall()
 

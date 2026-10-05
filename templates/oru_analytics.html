@@ -432,7 +432,7 @@
               <button onclick="exportCriticalCSV()" id="critical-csv-btn" class="export-btn" type="button" style="display:none;">
                 <i class="bi bi-download" aria-hidden="true"></i> CSV
               </button>
-              {% if current_user.role == 'admin' %}
+              {% if current_user.role in ('admin', 'viewer', 'viewer2') %}
               <button onclick="toggleKeywordsPanel()" class="export-btn" type="button" aria-expanded="false" aria-controls="keywords-panel">
                 <i class="bi bi-tags-fill" aria-hidden="true"></i> Manage Keywords
               </button>
@@ -440,8 +440,9 @@
             </div>
           </div>
 
-          {% if current_user.role == 'admin' %}
-          <!-- Keywords management panel (admin only) -->
+          {% if current_user.role in ('admin', 'viewer', 'viewer2') %}
+          <!-- Keywords management panel: same roles the /oru/critical-keywords endpoints accept -->
+
           <div id="keywords-panel" style="display:none;background:var(--well);border:1px solid var(--border);border-radius:12px;padding:16px 18px;margin-bottom:16px;">
             <div style="font-size:10px;font-weight:800;letter-spacing:0.16em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;">Critical Keywords Dictionary</div>
             <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap;align-items:center;">
@@ -477,6 +478,7 @@
               <div id="builtin-kw-chips" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;"></div>
             </details>
 
+            {% if current_user.role == 'admin' %}
             <details style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border);">
               <summary style="font-size:10px;font-weight:700;color:var(--muted);cursor:pointer;">Diagnosis vocabulary (phrase → label mapping)</summary>
               <div style="display:flex;gap:8px;margin:10px 0;flex-wrap:wrap;align-items:center;">
@@ -493,6 +495,7 @@
                 <span style="font-size:10px;color:var(--muted);font-style:italic;">Loading…</span>
               </div>
             </details>
+            {% endif %}
           </div>
           {% endif %}
 
@@ -1142,7 +1145,8 @@ function toggleKeywordsPanel() {
   if (trigger) trigger.setAttribute('aria-expanded', shown ? 'false' : 'true');
   if (!shown && !_kwPanelLoaded) { loadKeywords(); _kwPanelLoaded = true; }
   if (!shown) loadSuggestions();
-  if (!shown && !_vocabLoaded) { loadVocabulary(); _vocabLoaded = true; }
+  // The vocabulary section is admin-only and absent from the page otherwise.
+  if (!shown && !_vocabLoaded && document.getElementById('vocab-chips')) { loadVocabulary(); _vocabLoaded = true; }
 }
 
 function loadVocabulary() {
