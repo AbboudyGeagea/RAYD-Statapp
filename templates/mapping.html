@@ -315,6 +315,13 @@
     </div>
 
     <script>
+        // Why a save failed, in words: the server's message, or the permission rule.
+        async function _saveErrorMessage(res) {
+            if (res.status === 403) return 'Only administrators can change modality settings.';
+            const body = await res.json().catch(() => ({}));
+            return body.message || `Server error (HTTP ${res.status}).`;
+        }
+
         function modalityHub() {
             return {
                 weekDates: [],
@@ -427,7 +434,7 @@
                         const el = document.getElementById(`cap-${this.activeContext.ae}-${this.weekDates.findIndex(d => d.iso === this.activeContext.date)}`);
                         if (el) el.classList.add('is-exception');
                     } else {
-                        alert('Save failed. Please try again.');
+                        alert('Save failed: ' + await _saveErrorMessage(res));
                     }
                 },
 
@@ -439,7 +446,7 @@
                         body: JSON.stringify({ updates: this.changedData })
                     });
                     if (res.ok) { location.reload(); }
-                    else { alert('Save failed.'); }
+                    else { alert('Save failed: ' + await _saveErrorMessage(res)); }
                 },
 
                 async updateProcModality(code, modality, el) {
@@ -544,7 +551,7 @@
                     el.classList.add('saved');
                     setTimeout(() => el.classList.remove('saved'), 1500);
                 } else {
-                    alert('Failed to save description.');
+                    alert('Failed to save description: ' + await _saveErrorMessage(res));
                     el.classList.remove('saving');
                 }
             } catch (e) {
@@ -567,7 +574,7 @@
                     el.classList.add('saved');
                     setTimeout(() => el.classList.remove('saved'), 1500);
                 } else {
-                    alert('Failed to save display alias.');
+                    alert('Failed to save display alias: ' + await _saveErrorMessage(res));
                     el.classList.remove('saving');
                 }
             } catch (e) {

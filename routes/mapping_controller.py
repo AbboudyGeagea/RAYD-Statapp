@@ -3,6 +3,7 @@ from flask_login import login_required, current_user
 # Import the CLASS names from your db file
 from db import db, AETitleModalityMap, ProcedureDurationMap, DeviceException, DeviceWeeklySchedule, user_has_page
 from utils.permissions import permission_required
+from sqlalchemy import func
 import pandas as pd
 from datetime import datetime, timedelta
 import json
@@ -11,6 +12,16 @@ import io
 import logging
 
 mapping_bp = Blueprint('mapping', __name__, url_prefix='/mapping')
+
+
+def _find_ae(aetitle):
+    """The AE row the page means. The ETL stores AE titles exactly as PACS sends
+    them (any case, DICOM space padding) while the page always sends
+    UPPER(TRIM(aetitle)), so match the same way instead of exactly."""
+    key = str(aetitle or '').strip().upper()
+    return AETitleModalityMap.query.filter(
+        func.upper(func.trim(AETitleModalityMap.aetitle)) == key
+    ).first()
 
 # --- HELPER FOR UPSERT LOGIC ---
 def get_or_create(model, **kwargs):
@@ -363,12 +374,27 @@ def save_grid_changes():
     if current_user.role != 'admin': return abort(403)
     data = request.get_json(force=True)
     updates = data.get('updates', [])
-    try:
-        for item in updates:
-            ae = str(item['aetitle']).strip().upper()
+
+    # Validate everything before writing anything.
+    parsed = []
+    for item in updates:
+        label = f"{str(item.get('aetitle', '')).strip()} {item.get('date', '')}"
+        entry = _find_ae(item.get('aetitle'))
+        if not entry:
+            return jsonify({"status": "error", "message": f"{label}: AE title not found"}), 400
+        try:
             exc_date = datetime.strptime(item['date'], '%Y-%m-%d').date()
-            val = int(item['value'])
-            
+            val = int(round(float(item['value'])))
+        except (KeyError, TypeError, ValueError):
+            return jsonify({"status": "error",
+                            "message": f"{label}: opening minutes must be a number"}), 400
+        if val < 0 or val > 1440:
+            return jsonify({"status": "error",
+                            "message": f"{label}: opening minutes must be between 0 and 1440"}), 400
+        parsed.append((entry.aetitle, exc_date, val, item))
+
+    try:
+        for ae, exc_date, val, item in parsed:
             # Logic for Point #3: Store in DeviceException
             reason = str(item.get('reason', 'Grid Adjustment') or 'Grid Adjustment').strip()
             existing = DeviceException.query.filter_by(aetitle=ae, exception_date=exc_date).first()
@@ -701,7 +727,7 @@ def delete_ae_entry():
     if not ae:
         return jsonify({"status": "error", "message": "aetitle required"}), 400
     try:
-        entry = AETitleModalityMap.query.filter_by(aetitle=ae).first()
+        entry = _find_ae(ae)
         if not entry:
             return jsonify({"status": "error", "message": "AE title not found"}), 404
         db.session.delete(entry)
@@ -722,8 +748,7 @@ def update_ae_entry():
     if current_user.role != 'admin': return abort(403)
     data = request.get_json(force=True)
     try:
-        ae = str(data['aetitle']).strip().upper()
-        entry = AETitleModalityMap.query.filter_by(aetitle=ae).first()
+        entry = _find_ae(data['aetitle'])
         if not entry:
             return jsonify({"status": "error", "message": "AE title not found"}), 404
         if 'modality' in data:
