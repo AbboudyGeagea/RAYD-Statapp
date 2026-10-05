@@ -31,8 +31,6 @@ from routes.er_dashboard     import er_bp
 from routes.oru_analytics    import oru_bp
 from routes.db_manager       import db_manager_bp
 from routes.referring_intel  import referring_intel_bp
-from routes.financial_config    import financial_config_bp
-from routes.financial_dashboard import financial_dashboard_bp
 from routes.groups_route        import groups_bp
 from routes.custom_reports      import custom_reports_bp
 from routes.cd_print_log        import cd_print_bp
@@ -60,7 +58,6 @@ DEFAULT_LICENSE = {
     "super_report":    True,
     "referring_intel": True,
     # ── Tier 3: Enterprise ───────────────────────────────────
-    "financial":       True,   # Revenue Intelligence
     "scheduling":      True,
     "live_feed":       True,
     "patient_portal":  True,
@@ -78,7 +75,7 @@ DEFAULT_LICENSE = {
 #                 user management, activity log, modality/procedure config
 #  Professional — + HL7 orders, report intelligence, custom reports,
 #                 patient CD log, ER dashboard, capacity ladder, saved reports
-#  Enterprise   — + revenue intelligence, scheduling, live AE status, patient portal
+#  Enterprise   — + scheduling, live AE status, patient portal
 #
 TIER_PRESETS = {
     "essential": {
@@ -95,7 +92,6 @@ TIER_PRESETS = {
         "saved_reports":   False,
         "super_report":    False,
         "referring_intel": False,
-        "financial":       False,
         "scheduling":      False,
         "live_feed":       False,
         "patient_portal":  False,
@@ -119,7 +115,6 @@ TIER_PRESETS = {
         "saved_reports":   True,
         "super_report":    True,
         "referring_intel": True,
-        "financial":       False,
         "scheduling":      False,
         "live_feed":       False,
         "patient_portal":  False,
@@ -263,7 +258,6 @@ def register_blueprints(app):
     app.register_blueprint(preferences_bp)
     app.register_blueprint(docs_bp)
     app.register_blueprint(etl_gear_bp)
-    app.register_blueprint(financial_config_bp)   # admin config — always on
     app.register_blueprint(groups_bp)
 
     # ── Licensed reports (auto-discovered from report_registry) ─
@@ -293,7 +287,6 @@ def register_blueprints(app):
                                                       ('/viewer/super-report',         'Super Report')]),
         'referring_intel': (referring_intel_bp,  {}, [('/viewer/referring-intel',      'Referring Intel')]),
         # ── Tier 3: Enterprise ───────────────────────────────
-        'financial':       (financial_dashboard_bp, {}, [('/revenue',                  'Revenue Intelligence')]),
         'ai_report':       (report_ai_bp,        {}, [('/report/ai',                  'AI Report')]),
     }
     for feature, (bp, kwargs, fallbacks) in feature_map.items():

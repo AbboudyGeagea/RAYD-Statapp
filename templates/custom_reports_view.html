@@ -222,6 +222,7 @@
         device_util:          { label: 'Device Utilisation',     icon: 'bi-hdd-stack-fill',            color: '#22d3ee' },
         report_status:        { label: 'Report Status',          icon: 'bi-file-earmark-check-fill',   color: '#4ade80' },
         referring_phys:       { label: 'Referring Physicians',   icon: 'bi-person-lines-fill',         color: '#e879f9' },
+        // Removed with Revenue Intelligence; kept so old saved sections still show a readable title.
         rvu_summary:          { label: 'RVU / Revenue Summary',  icon: 'bi-currency-dollar',           color: '#f87171' },
         revenue_by_modality:  { label: 'Revenue by Modality',   icon: 'bi-graph-up-arrow',            color: '#f87171' },
         revenue_by_physician: { label: 'Revenue by Physician',   icon: 'bi-person-fill-up',            color: '#f87171' },
@@ -236,7 +237,6 @@
 
     function fmt(n, dec = 0)  { return n == null ? '—' : (+n).toLocaleString(undefined, { maximumFractionDigits: dec }); }
     function fmtH(n)          { return n == null ? '—' : `${(+n).toFixed(1)} h`; }
-    function fmtUSD(n)        { return n == null ? '—' : '$' + (+n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 
     function kpiCard(value, label, color, sub) {
         return `<div class="kpi-card">
@@ -391,9 +391,6 @@
             case 'device_util':           return rwDeviceUtil(d, el);
             case 'report_status':         return rwPieRows(sec.id, d.rows, 'status', el);
             case 'referring_phys':        return rwReferringPhys(d, el);
-            case 'rvu_summary':           return rwRvuSummary(d, el);
-            case 'revenue_by_modality':   return rwRevenueByModality(sec.id, d, el);
-            case 'revenue_by_physician':  return rwRevenueByPhysician(d, el);
             case 'cd_burn_summary':       return rwCdBurnSummary(d, el);
             case 'rad_modality_matrix':   return rwRadModalityMatrix(d, el);
             default:
@@ -610,67 +607,6 @@
         ) + (d.external_referrals
             ? `<p class="text-xs text-slate-500 mt-2">External referrals (not ranked): <b>${fmt(d.external_referrals)}</b></p>`
             : '');
-    }
-
-    // ── rvu_summary ────────────────────────────────────────────
-    function rwRvuSummary(d, el) {
-        el.innerHTML = `<div class="flex gap-3 flex-wrap">
-            ${kpiCard(fmt(d.total_studies),        'Total Studies',      '#60a5fa')}
-            ${kpiCard(fmt(d.total_rvu, 1) + ' RVU', 'Total RVU',        '#f87171')}
-            ${kpiCard(fmtUSD(d.total_revenue),     'Total Revenue',      '#34d399')}
-            ${kpiCard(fmtUSD(d.rev_per_study),     'Revenue / Study',    '#f59e0b')}
-        </div>`;
-    }
-
-    // ── revenue_by_modality ────────────────────────────────────
-    function rwRevenueByModality(id, d, el) {
-        const rows = d.rows || [];
-        if (!rows.length) { el.innerHTML = '<p class="text-slate-500 text-sm">No data</p>'; return; }
-        el.innerHTML = `
-            <div class="mb-6">${mkCanvas('c-' + id, 90)}</div>
-            ${tableHtml(
-                ['Modality', 'Studies', 'Total RVU', 'Revenue'],
-                rows,
-                r => td(r.modality, 'font-bold text-white') +
-                     td(fmt(r.study_count), 'text-slate-400') +
-                     td(fmt(r.total_rvu, 1), 'text-slate-400') +
-                     td(fmtUSD(r.revenue_usd), 'font-bold text-emerald-400')
-            )}`;
-        mkChart(`c-${id}`, {
-            type: 'bar',
-            data: {
-                labels: rows.map(r => r.modality),
-                datasets: [{
-                    label: 'Revenue (USD)',
-                    data:  rows.map(r => r.revenue_usd),
-                    backgroundColor: rows.map((_, i) => PALETTE[i % PALETTE.length] + '44'),
-                    borderColor:     rows.map((_, i) => PALETTE[i % PALETTE.length]),
-                    borderWidth: 2,
-                    borderRadius: 4,
-                }]
-            },
-            options: baseOpts({
-                plugins: {
-                    legend: { display: false },
-                    tooltip: Object.assign(darkTooltip(), {
-                        callbacks: { label: ctx => ' $' + (+ctx.raw).toLocaleString(undefined, { maximumFractionDigits: 2 }) }
-                    })
-                }
-            })
-        });
-    }
-
-    // ── revenue_by_physician ───────────────────────────────────
-    function rwRevenueByPhysician(d, el) {
-        const rows = d.rows || [];
-        el.innerHTML = tableHtml(
-            ['Physician', 'Studies', 'Total RVU', 'Revenue'],
-            rows,
-            r => td(r.name || '—', 'font-bold text-white') +
-                 td(fmt(r.studies), 'text-slate-400') +
-                 td(fmt(r.total_rvu, 1), 'text-slate-400') +
-                 td(fmtUSD(r.revenue_usd), 'font-bold text-emerald-400')
-        );
     }
 
     // ── cd_burn_summary ────────────────────────────────────────

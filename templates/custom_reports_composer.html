@@ -423,7 +423,7 @@
                             </div>
                         </div>
 
-                        <!-- Visibility & Finance row -->
+                        <!-- Visibility row -->
                         <div class="card">
                             <div class="card-header">
                                 <i class="bi bi-shield-check"></i>
@@ -441,16 +441,6 @@
                                         </option>
                                     </select>
                                 </div>
-                                {% if can_finance %}
-                                <div class="flex items-center gap-2 mt-4">
-                                    <input type="checkbox" id="gf-financial" class="rounded"
-                                           {% if report and report.has_financial %}checked{% endif %}>
-                                    <label for="gf-financial" class="text-[10px] font-bold text-slate-400 uppercase tracking-wide cursor-pointer" style="margin-bottom:0;">
-                                        <i class="bi bi-lock-fill mr-1" style="color:#f59e0b;"></i>
-                                        Include Financial Widgets
-                                    </label>
-                                </div>
-                                {% endif %}
                             </div>
                         </div>
 
@@ -691,7 +681,6 @@
         };
         const visibility  = document.getElementById('gf-visibility').value;
         const hasFinancial = _sections.some(s => { const w = _catalogueMap[s.type]; return w && w.financial; });
-        const finCheckbox = document.getElementById('gf-financial');
 
         // Warn if financial widgets present but user doesn't have access — server already filtered
         // but we guard anyway in case catalogue was tampered client-side

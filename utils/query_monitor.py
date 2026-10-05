@@ -5,7 +5,7 @@ SQLAlchemy event listener that times every DB query within a Flask request
 and records one audit row per request on after_request.
 
 Only records endpoints matching /report/*, /viewer/briefing,
-/viewer/yesterday, /er, /revenue, /hl7*, /super-report, /report/ai.
+/viewer/yesterday, /er, /hl7*, /super-report, /report/ai.
 Skips: /health, /readiness, /static, /ai/*, /admin, /login, /logout.
 """
 import re
@@ -17,7 +17,7 @@ from sqlalchemy import event
 logger = logging.getLogger("QUERY_MONITOR")
 
 _RECORD_PATTERNS = re.compile(
-    r'^/(report/|viewer/(briefing|yesterday|dashboard)|er$|revenue|'
+    r'^/(report/|viewer/(briefing|yesterday|dashboard)|er$|'
     r'hl7|super-report|report/ai)',
     re.IGNORECASE
 )

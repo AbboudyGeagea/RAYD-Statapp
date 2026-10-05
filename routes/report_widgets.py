@@ -8,7 +8,8 @@ Each widget_* function receives:
     config  — dict: widget-specific options (top_n, chart_type, group_by, ...)
 
 Returns a plain dict that is JSON-serialisable.
-Financial widgets are flagged with FINANCIAL = True on the function.
+Catalogue entries carry a "financial" flag; none are financial since the
+Revenue Intelligence module was removed (see REMOVED_WIDGETS).
 """
 
 from sqlalchemy import text
@@ -153,38 +154,16 @@ WIDGET_CATALOGUE = [
         "financial":   False,
         "config_keys": [],
     },
-    # ── Financial ────────────────────────────────────────────────────────────
-    {
-        "key":         "rvu_summary",
-        "label":       "RVU / Revenue Summary",
-        "icon":        "bi-currency-dollar",
-        "color":       "#f87171",
-        "description": "Total RVU, revenue, revenue per study",
-        "financial":   True,
-        "config_keys": [],
-    },
-    {
-        "key":         "revenue_by_modality",
-        "label":       "Revenue by Modality",
-        "icon":        "bi-graph-up-arrow",
-        "color":       "#f87171",
-        "description": "Revenue & RVU breakdown per modality",
-        "financial":   True,
-        "config_keys": [],
-    },
-    {
-        "key":         "revenue_by_physician",
-        "label":       "Revenue by Physician",
-        "icon":        "bi-person-fill-up",
-        "color":       "#f87171",
-        "description": "Revenue & RVU breakdown per radiologist",
-        "financial":   True,
-        "config_keys": [("top_n", "Top N", "number", 10)],
-    },
 ]
 
 FINANCIAL_KEYS = {w["key"] for w in WIDGET_CATALOGUE if w["financial"]}
 WIDGET_META    = {w["key"]: w for w in WIDGET_CATALOGUE}
+
+# The dollar-revenue widgets went with the Revenue Intelligence module
+# (2026-10-05). Saved reports may still list them as sections.
+REMOVED_WIDGETS = {"rvu_summary", "revenue_by_modality", "revenue_by_physician"}
+REMOVED_WIDGET_MESSAGE = ("This widget was removed together with Revenue Intelligence. "
+                          "Edit the report to delete this section.")
 
 
 # ── Non-financial widgets ─────────────────────────────────────────────────────
@@ -445,113 +424,6 @@ def widget_referring_phys(db, filters, config):
     }
 
 
-# ── Financial widgets ─────────────────────────────────────────────────────────
-
-_FIN_JOIN = """
-    FROM etl_didb_studies s
-    LEFT JOIN LATERAL (
-        SELECT modality FROM aetitle_modality_map
-        WHERE aetitle = s.storing_ae LIMIT 1
-    ) m ON TRUE
-    LEFT JOIN etl_orders o              ON o.study_db_uid = s.study_db_uid
-    LEFT JOIN procedure_duration_map pdm
-           ON UPPER(TRIM(o.proc_id)) = UPPER(TRIM(pdm.procedure_code))
-"""
-
-_FIN_WHERE = """
-    WHERE s.study_date BETWEEN :date_from AND :date_to
-      AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
-      AND s.study_has_report = true
-      AND (CAST(:modality AS TEXT)      IS NULL OR COALESCE(m.modality, s.study_modality) = :modality)
-      AND (CAST(:physician_id AS BIGINT) IS NULL OR s.reading_physician_id = :physician_id)
-      AND (CAST(:patient_class AS TEXT)  IS NULL OR UPPER(s.patient_class) = UPPER(:patient_class))
-"""
-
-
-def _rvu_rate(modality):
-    try:
-        from utils.financial import effective_rate
-        return effective_rate(modality=modality)
-    except Exception:
-        return 0.0
-
-
-def widget_rvu_summary(db, filters, config):
-    p = _p(filters)
-    row = db.session.execute(text(f"""
-        SELECT COUNT(DISTINCT s.study_db_uid)                                    AS total_studies,
-               COALESCE(SUM(pdm.clinical_rvu + pdm.technical_rvu), 0)            AS total_rvu
-        {_FIN_JOIN} {_FIN_WHERE}
-    """), p).fetchone()
-    total_studies = row.total_studies or 0
-    total_rvu     = float(row.total_rvu or 0)
-
-    mod_rows = db.session.execute(text(f"""
-        SELECT {_MOD_EXPR} AS modality,
-               COALESCE(SUM(pdm.clinical_rvu + pdm.technical_rvu), 0) AS rvu
-        {_FIN_JOIN} {_FIN_WHERE}
-        GROUP BY 1
-    """), p).fetchall()
-
-    total_revenue = sum(_rvu_rate(r.modality) * float(r.rvu) for r in mod_rows)
-    rev_per_study = round(total_revenue / total_studies, 2) if total_studies else 0
-
-    return {
-        "total_studies":  total_studies,
-        "total_rvu":      round(total_rvu, 2),
-        "total_revenue":  round(total_revenue, 2),
-        "rev_per_study":  rev_per_study,
-    }
-
-
-def widget_revenue_by_modality(db, filters, config):
-    p = _p(filters)
-    rows = db.session.execute(text(f"""
-        SELECT {_MOD_EXPR} AS modality,
-               COUNT(DISTINCT s.study_db_uid)         AS study_count,
-               COALESCE(SUM(pdm.technical_rvu), 0)    AS total_rvu
-        {_FIN_JOIN} {_FIN_WHERE}
-        GROUP BY 1 ORDER BY 3 DESC
-    """), p).fetchall()
-    result = []
-    for r in rows:
-        rate    = _rvu_rate(r.modality)
-        rvu     = float(r.total_rvu)
-        revenue = round(rate * rvu, 2)
-        result.append({"modality": r.modality, "study_count": r.study_count,
-                       "total_rvu": round(rvu, 2), "rate": rate, "revenue_usd": revenue})
-    return {"rows": result}
-
-
-def widget_revenue_by_physician(db, filters, config):
-    p = _p(filters)
-    top_n = int(config.get("top_n") or 10)
-    rows = db.session.execute(text(f"""
-        SELECT s.reading_physician_first_name AS first_name,
-               s.reading_physician_last_name  AS last_name,
-               COUNT(DISTINCT s.study_db_uid)      AS studies,
-               COALESCE(SUM(pdm.clinical_rvu), 0)   AS total_rvu,
-               {_MOD_EXPR}                           AS top_modality
-        {_FIN_JOIN} {_FIN_WHERE}
-          AND s.reading_physician_last_name IS NOT NULL
-        GROUP BY 1, 2, 5
-        ORDER BY 4 DESC
-        LIMIT :top_n
-    """), {**p, "top_n": top_n}).fetchall()
-    result = []
-    for r in rows:
-        rate    = _rvu_rate(r.top_modality)
-        rvu     = float(r.total_rvu)
-        revenue = round(rate * rvu, 2)
-        result.append({
-            "name":        f"{r.first_name or ''} {r.last_name or ''}".strip(),
-            "studies":     r.studies,
-            "total_rvu":   round(rvu, 2),
-            "revenue_usd": revenue,
-        })
-    return {"top_n": top_n, "rows": result}
-
-
 def widget_cd_burn_summary(db, filters, config):
     params = {
         "date_from": filters.get("date_from"),
@@ -649,9 +521,6 @@ _DISPATCH = {
     "device_util":          widget_device_util,
     "report_status":        widget_report_status,
     "referring_phys":       widget_referring_phys,
-    "rvu_summary":          widget_rvu_summary,
-    "revenue_by_modality":  widget_revenue_by_modality,
-    "revenue_by_physician": widget_revenue_by_physician,
     "cd_burn_summary":        widget_cd_burn_summary,
     "rad_modality_matrix":    widget_rad_modality_matrix,
 }
@@ -659,6 +528,8 @@ _DISPATCH = {
 
 def run_widget(db, section_type, filters, config):
     """Run a single widget. Returns data dict or raises."""
+    if section_type in REMOVED_WIDGETS:
+        raise ValueError(REMOVED_WIDGET_MESSAGE)
     fn = _DISPATCH.get(section_type)
     if not fn:
         raise ValueError(f"Unknown widget type: {section_type}")

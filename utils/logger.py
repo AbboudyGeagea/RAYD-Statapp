@@ -24,7 +24,6 @@ Sidebar folder → module prefix mapping
   oru            routes.oru_analytics, nlp_worker
   referring_intel routes.referring_intel
   ai             routes.ai_alerts
-  financial      routes.financial_dashboard
   auth           auth.*
   app            everything else (db, report_cache, …)
 """
@@ -53,8 +52,6 @@ _MODULE_FOLDER_MAP: dict = {
     "hl7_listener":                    "hl7",
     # AI
     "routes.ai_alerts":                "ai",
-    # Financial
-    "routes.financial_dashboard":      "financial",
     # Mapping / config
     "routes.mapping_controller":       "mapping",
     # Admin / user management

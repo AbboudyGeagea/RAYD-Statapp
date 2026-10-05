@@ -12,7 +12,8 @@ from sqlalchemy import text
 
 from db import db
 from utils.permissions import resolve_permission
-from routes.report_widgets import WIDGET_CATALOGUE, FINANCIAL_KEYS, run_widget
+from routes.report_widgets import (WIDGET_CATALOGUE, FINANCIAL_KEYS, run_widget,
+                                   REMOVED_WIDGETS, REMOVED_WIDGET_MESSAGE)
 from routes.report_cache import get_filter_options
 
 custom_reports_bp = Blueprint("custom_reports", __name__)
@@ -364,6 +365,15 @@ def report_data(report_id):
         results = []
         for sec in sec_rows:
             sec_type = sec["section_type"]
+            if sec_type in REMOVED_WIDGETS:
+                results.append({
+                    "id":       sec["id"],
+                    "type":     sec_type,
+                    "position": sec["position"],
+                    "config":   sec["config_json"] or {},
+                    "error":    REMOVED_WIDGET_MESSAGE,
+                })
+                continue
             if sec_type in FINANCIAL_KEYS and not _can_finance():
                 continue
             try:

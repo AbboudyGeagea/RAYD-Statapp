@@ -59,7 +59,6 @@ FEATURES = [
     ("saved_reports",   "Saved Reports"),
     ("super_report",    "Super Report"),
     ("referring_intel", "Referring Intelligence"),
-    ("financial",       "Revenue Intelligence"),
     ("scheduling",      "Scheduling"),
     ("live_feed",       "Live AE Status"),
     ("patient_portal",  "Patient Portal"),
@@ -111,7 +110,6 @@ FEATURES = [
     ("saved_reports",   "Saved Reports"),
     ("super_report",    "Super Report"),
     ("referring_intel", "Referring Intelligence"),
-    ("financial",       "Revenue Intelligence"),
     ("scheduling",      "Scheduling"),
     ("live_feed",       "Live AE Status"),
     ("patient_portal",  "Patient Portal"),
@@ -121,7 +119,7 @@ KEYS = [k for k, _ in FEATURES]
 
 PRESETS = {
     "essential": {k: k in ("export", "adapter_mapper") for k in KEYS},
-    "professional": {k: k not in ("financial","scheduling","live_feed","patient_portal","ai_report") for k in KEYS},
+    "professional": {k: k not in ("scheduling","live_feed","patient_portal","ai_report") for k in KEYS},
     "enterprise": {k: True for k in KEYS},
 }
 
