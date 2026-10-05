@@ -221,7 +221,7 @@
                         </button>
                     </div>
                     <div class="card-desc">
-                        Ratio of orders where the RIS procedure code exactly matched the PACS procedure code (Match) vs. those that didn't (Mismatch). High mismatches may indicate data entry errors or mapping gaps.
+                        Ratio of orders where the RIS procedure code did not match the PACS procedure code (Mismatch) vs. those that matched exactly (Match). High mismatches may indicate data entry errors or mapping gaps.
                     </div>
                     <div id="chart_match" class="flex-1 p-2"></div>
                 </div>
@@ -369,8 +369,8 @@
                     itemStyle: { borderRadius: 6 },
                     label: { show: false },
                     data: [
-                        { value: raw.audit.matches,    name: 'Match',    itemStyle: { color: '#10b981' } },
-                        { value: raw.audit.mismatches, name: 'Mismatch', itemStyle: { color: '#ef4444' } }
+                        { value: raw.audit.mismatches, name: 'Mismatch', itemStyle: { color: '#ef4444' } },
+                        { value: raw.audit.matches,    name: 'Match',    itemStyle: { color: '#10b981' } }
                     ]
                 }]
             });
