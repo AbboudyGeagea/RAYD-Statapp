@@ -607,7 +607,9 @@
                          <span class="font-bold text-white">${fmt(r.count)}</span>
                          ${inlineBar(r.count / maxC * 100, '#e879f9')}
                      </div>`)
-        );
+        ) + (d.external_referrals
+            ? `<p class="text-xs text-slate-500 mt-2">External referrals (not ranked): <b>${fmt(d.external_referrals)}</b></p>`
+            : '');
     }
 
     // ── rvu_summary ────────────────────────────────────────────

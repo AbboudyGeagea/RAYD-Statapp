@@ -8,6 +8,7 @@ from flask_login import login_required, current_user
 from sqlalchemy import text
 from db import db, get_go_live_date, user_has_page
 from routes.report_cache import cache_get, cache_put
+from utils.referring import ref_name_sql, ranked_ref_sql
 
 logger = logging.getLogger("REPORT_AI")
 report_ai_bp = Blueprint("report_ai", __name__)
@@ -370,16 +371,14 @@ def _get_physician_intelligence(start, end):
     if cached is not None:
         return cached
 
-    rows = db.session.execute(text("""
+    rows = db.session.execute(text(f"""
         SELECT
-            COALESCE(NULLIF(TRIM(CONCAT_WS(' ',
-                referring_physician_first_name,
-                referring_physician_last_name)), ''), 'Unknown') as physician,
+            {ref_name_sql(None)} as physician,
             TO_CHAR(study_date, 'YYYY-MM') as month,
             COUNT(*) as cnt
         FROM etl_didb_studies
         WHERE study_date BETWEEN :s AND :e
-          AND referring_physician_first_name IS NOT NULL
+          AND {ranked_ref_sql(None)}
           AND COALESCE(study_modality, '') != 'SR'
         GROUP BY 1, 2
         ORDER BY 1, 2
@@ -391,18 +390,16 @@ def _get_physician_intelligence(start, end):
     df = pd.DataFrame(rows, columns=['physician', 'month', 'cnt'])
 
     # Per-physician modality referral pattern
-    phys_mod_rows = db.session.execute(text("""
+    phys_mod_rows = db.session.execute(text(f"""
         SELECT
-            COALESCE(NULLIF(TRIM(CONCAT_WS(' ',
-                referring_physician_first_name,
-                referring_physician_last_name)), ''), 'Unknown') as physician,
+            {ref_name_sql('s')} as physician,
             UPPER(TRIM(COALESCE(pm.modality, am.modality, s.study_modality))) AS modality,
             COUNT(*) as cnt
         FROM etl_didb_studies s
         LEFT JOIN procedure_duration_map pm ON pm.procedure_code = s.procedure_code
         LEFT JOIN aetitle_modality_map am ON am.aetitle = s.storing_ae
         WHERE s.study_date BETWEEN :s AND :e
-          AND s.referring_physician_first_name IS NOT NULL
+          AND {ranked_ref_sql('s')}
           AND COALESCE(am.modality, s.study_modality, '') != 'SR'
         GROUP BY 1, 2
         ORDER BY 1, 3 DESC

@@ -28,6 +28,7 @@ if ROOT not in sys.path:
 
 from sqlalchemy import create_engine, text
 from utils.stats import _pct, _fmt
+from utils.referring import ref_name_sql, ranked_ref_sql
 
 logging.basicConfig(
     level=logging.INFO,
@@ -123,14 +124,14 @@ def _collect(conn, start, end):
         WHERE study_date BETWEEN :s AND :e
     """), p).fetchone()
 
-    physicians = conn.execute(text("""
-        SELECT TRIM(CONCAT(referring_physician_first_name, ' ',
-                           referring_physician_last_name)) AS name,
+    physicians = conn.execute(text(f"""
+        SELECT {ref_name_sql('s')} AS name,
                COUNT(*) AS cnt
-        FROM etl_didb_studies
-        WHERE study_date BETWEEN :s AND :e
-          AND referring_physician_last_name IS NOT NULL
-          AND referring_physician_last_name != ''
+        FROM etl_didb_studies s
+        LEFT JOIN aetitle_modality_map m ON m.aetitle = s.storing_ae
+        WHERE s.study_date BETWEEN :s AND :e
+          AND COALESCE(m.modality, s.study_modality, '') != 'SR'
+          AND {ranked_ref_sql('s')}
         GROUP BY 1 ORDER BY cnt DESC LIMIT 5
     """), p).fetchall()
 

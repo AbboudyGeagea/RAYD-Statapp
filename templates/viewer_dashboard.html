@@ -388,9 +388,12 @@
             // Physicians
             const maxPhys = d.physicians.length ? d.physicians[0].count : 1;
             document.getElementById('yest-physicians').innerHTML =
-                d.physicians.length
+                (d.physicians.length
                     ? d.physicians.map(p => bar(p.name, p.count, maxPhys, '#60a5fa', ' studies')).join('')
-                    : '<p style="color:#64748b;font-size:13px;">No data</p>';
+                    : '<p style="color:#64748b;font-size:13px;">No data</p>') +
+                (d.external_referrals
+                    ? `<p style="color:#64748b;font-size:12px;margin-top:8px;border-top:1px dashed #28332e;padding-top:6px;">External referrals (not ranked): <b style="color:#94a3b8;">${d.external_referrals}</b> studies</p>`
+                    : '');
 
             // AE by count
             const maxAeCount = d.ae_by_count.length ? d.ae_by_count[0].count : 1;

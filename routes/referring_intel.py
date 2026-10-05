@@ -10,13 +10,22 @@ from flask import Blueprint, request, jsonify, render_template
 from flask_login import login_required
 from sqlalchemy import text
 from db import db
+from utils.referring import EXTERNAL_LABEL, ref_name_sql, ranked_ref_sql
 
 logger = logging.getLogger("REFERRING_INTEL")
 referring_intel_bp = Blueprint("referring_intel", __name__)
 
 _MJ = "LEFT JOIN aetitle_modality_map m ON s.storing_ae = m.aetitle"
 _SR = "COALESCE(m.modality, s.study_modality, '') != 'SR'"
-_PHY = "TRIM(CONCAT(s.referring_physician_first_name, ' ', s.referring_physician_last_name))"
+_PHY = ref_name_sql("s")
+_RANKED = ranked_ref_sql("s")
+# months=0 is the "All" button: no date window at all.
+_IN_WINDOW = "(:months = 0 OR s.study_date >= CURRENT_DATE - (:months * INTERVAL '1 month'))"
+
+
+def _months_arg():
+    months = int(request.args.get("months", 24))
+    return 0 if months <= 0 else min(months, 60)
 
 
 # ─────────────────────────────────────────────
@@ -48,14 +57,13 @@ def referring_intel_list():
                     * 100.0 / NULLIF(COUNT(*), 0), 1
                 ) AS pct_last_30d
             FROM etl_didb_studies s {_MJ}
-            WHERE s.referring_physician_last_name IS NOT NULL
-              AND s.referring_physician_last_name != ''
+            WHERE {_PHY} != ''
               AND {_SR}
             GROUP BY 1
             ORDER BY total_studies DESC
             LIMIT 300
         """)).mappings().fetchall()
-        return jsonify([dict(r) for r in rows])
+        return jsonify([dict(r, is_external=(r["physician"] == EXTERNAL_LABEL)) for r in rows])
     except Exception as e:
         logger.error(f"Physician list error: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
@@ -75,16 +83,15 @@ def referring_intel_loyalty():
     filtered to one -- referring_intel_list()/_detail() don't fit a scatter-style
     cohort view: list() has no TAT/return-rate, detail() is single-physician only.
     """
-    months = min(int(request.args.get("months", 24)), 60)
-    p = {"months": months}
+    p = {"months": _months_arg()}
 
     try:
         rows = db.session.execute(text(f"""
             WITH visits AS (
                 SELECT s.patient_db_uid, s.study_date, {_PHY} AS physician
                 FROM etl_didb_studies s {_MJ}
-                WHERE {_PHY} IS NOT NULL AND {_PHY} != '' AND {_SR}
-                  AND s.study_date >= CURRENT_DATE - (:months * INTERVAL '1 month')
+                WHERE {_RANKED} AND {_SR}
+                  AND {_IN_WINDOW}
             ),
             gaps AS (
                 SELECT physician, patient_db_uid, study_date,
@@ -111,7 +118,7 @@ def referring_intel_loyalty():
                                    AND s.rep_final_timestamp > s.insert_time
                        )::numeric, 1) AS median_tat_min
                 FROM etl_didb_studies s {_MJ}
-                WHERE {_SR} AND s.study_date >= CURRENT_DATE - (:months * INTERVAL '1 month')
+                WHERE {_RANKED} AND {_SR} AND {_IN_WINDOW}
                 GROUP BY 1
             )
             SELECT t.physician, t.total_studies, t.median_tat_min,
@@ -138,11 +145,10 @@ def referring_intel_loyalty():
 @login_required
 def referring_intel_detail():
     physician = request.args.get("physician", "").strip()
-    months    = min(int(request.args.get("months", 24)), 60)
     if not physician:
         return jsonify({"error": "physician required"}), 400
 
-    p = {"physician": physician, "months": months}
+    p = {"physician": physician, "months": _months_arg()}
 
     try:
         # ── Summary KPIs ──────────────────────────────────────────────
@@ -189,7 +195,7 @@ def referring_intel_detail():
                 COUNT(DISTINCT s.patient_db_uid)   AS patients
             FROM etl_didb_studies s {_MJ}
             WHERE {_PHY} = :physician AND {_SR}
-              AND s.study_date >= CURRENT_DATE - (:months * INTERVAL '1 month')
+              AND {_IN_WINDOW}
             GROUP BY 1 ORDER BY 1
         """), p).mappings().fetchall()
 
@@ -206,7 +212,7 @@ def referring_intel_detail():
               AND s.rep_final_timestamp IS NOT NULL
               AND s.insert_time IS NOT NULL
               AND s.rep_final_timestamp > s.insert_time
-              AND s.study_date >= CURRENT_DATE - (:months * INTERVAL '1 month')
+              AND {_IN_WINDOW}
             GROUP BY 1 ORDER BY 1
         """), p).mappings().fetchall()
 
@@ -265,7 +271,7 @@ def referring_intel_detail():
                 SELECT DISTINCT s.patient_db_uid, s.study_date
                 FROM etl_didb_studies s {_MJ}
                 WHERE {_PHY} = :physician AND {_SR}
-                  AND s.study_date >= CURRENT_DATE - (:months * INTERVAL '1 month')
+                  AND {_IN_WINDOW}
             ),
             gaps AS (
                 SELECT

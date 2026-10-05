@@ -5,8 +5,11 @@ from flask import Blueprint, render_template, request, Response
 from flask_login import login_required
 from sqlalchemy import text
 from db import db, get_go_live_date
+from utils.referring import EXTERNAL_LABEL, ref_name_sql
 
 report_22_bp = Blueprint("report_22", __name__)
+
+_PHYSICIAN = ref_name_sql("s", "'Unknown'")
 
 def get_where_params(form):
     start_date = form.get("start_date")
@@ -82,13 +85,13 @@ def report_22():
         except Exception:
             db.session.rollback()
 
-        base_sql = """
+        base_sql = f"""
             SELECT
                 s.study_db_uid, s.procedure_code, s.study_date, s.storing_ae, s.study_description,
                 m.modality, s.study_status, s.patient_db_uid, p.sex, p.age_group,
                 s.patient_class,
                 s.age_at_exam,
-                COALESCE(NULLIF(TRIM(CONCAT_WS(' ', s.referring_physician_first_name, s.referring_physician_last_name)), ''), 'Unknown') as physician,
+                {_PHYSICIAN} as physician,
                 s.patient_location, p.fallback_id as patient_id
             FROM etl_didb_studies s
             LEFT JOIN aetitle_modality_map m ON s.storing_ae = m.aetitle
@@ -102,10 +105,13 @@ def report_22():
         res_status = db.session.execute(text(f"{cte} SELECT COALESCE(study_status, 'N/A'), COUNT(*) FROM base_data {where} GROUP BY 1"), params).fetchall()
         
         # 2. Top Physicians (Study Count)
-        res_phys = db.session.execute(text(f"{cte} SELECT physician, COUNT(*) FROM base_data {where} GROUP BY 1 ORDER BY 2 DESC LIMIT 10"), params).fetchall()
+        # External referrals is a placeholder, not a doctor: kept out of every
+        # physician ranking below and reported as its own count.
+        res_phys = db.session.execute(text(f"{cte} SELECT physician, COUNT(*) FROM base_data {where} AND physician != '{EXTERNAL_LABEL}' GROUP BY 1 ORDER BY 2 DESC LIMIT 10"), params).fetchall()
+        phys_external = db.session.execute(text(f"{cte} SELECT COUNT(*) FROM base_data {where} AND physician = '{EXTERNAL_LABEL}'"), params).scalar() or 0
 
         # 2b. Top Physicians (UNIQUE Patient Count)
-        res_phys_unique = db.session.execute(text(f"{cte} SELECT physician, COUNT(DISTINCT patient_id) FROM base_data {where} GROUP BY 1 ORDER BY 2 DESC LIMIT 10"), params).fetchall()
+        res_phys_unique = db.session.execute(text(f"{cte} SELECT physician, COUNT(DISTINCT patient_id) FROM base_data {where} AND physician != '{EXTERNAL_LABEL}' GROUP BY 1 ORDER BY 2 DESC LIMIT 10"), params).fetchall()
         
         # 2c. PHYSICIAN CHURN — respects date filter, requires minimum volume
         res_phys_trend = db.session.execute(text(f"""
@@ -115,7 +121,7 @@ def report_22():
                        DATE_TRUNC('month', study_date) AS month,
                        COUNT(*) AS vol
                 FROM base_data {where}
-                AND UPPER(physician) != 'UNKNOWN'
+                AND UPPER(physician) != 'UNKNOWN' AND physician != '{EXTERNAL_LABEL}'
                 GROUP BY 1, 2
             ),
             with_lag AS (
@@ -145,7 +151,7 @@ def report_22():
                            DATE_TRUNC('month', study_date) AS month,
                            COUNT(*) AS vol
                     FROM base_data {where}
-                    AND UPPER(physician) != 'UNKNOWN'
+                    AND UPPER(physician) != 'UNKNOWN' AND physician != '{EXTERNAL_LABEL}'
                     GROUP BY 1, 2
                 ),
                 ranked AS (
@@ -168,7 +174,7 @@ def report_22():
                 last_ref AS (
                     SELECT physician, MAX(study_date) AS last_ref_date
                     FROM base_data {where}
-                    AND UPPER(physician) != 'UNKNOWN'
+                    AND UPPER(physician) != 'UNKNOWN' AND physician != '{EXTERNAL_LABEL}'
                     GROUP BY physician
                 )
                 SELECT s.physician,
@@ -196,7 +202,7 @@ def report_22():
             {cte}
             SELECT physician, COALESCE(modality, 'UNMAPPED') as mod, COUNT(*) as cnt
             FROM base_data {where}
-            AND UPPER(physician) != 'UNKNOWN'
+            AND UPPER(physician) != 'UNKNOWN' AND physician != '{EXTERNAL_LABEL}'
             GROUP BY 1, 2
             ORDER BY 1, 3 DESC
         """), params).fetchall()
@@ -206,7 +212,7 @@ def report_22():
             {cte}
             SELECT physician, ROUND(AVG(age_at_exam)::numeric, 1) as avg_age, COUNT(*) as cnt
             FROM base_data {where}
-            AND UPPER(physician) != 'UNKNOWN'
+            AND UPPER(physician) != 'UNKNOWN' AND physician != '{EXTERNAL_LABEL}'
             AND age_at_exam BETWEEN 0 AND 110
             GROUP BY 1
             HAVING COUNT(*) >= 5
@@ -270,7 +276,7 @@ def report_22():
             {cte}
             SELECT physician, COALESCE(study_status, 'Unknown') as status, COUNT(*) as cnt
             FROM base_data {where}
-            AND UPPER(physician) != 'UNKNOWN'
+            AND UPPER(physician) != 'UNKNOWN' AND physician != '{EXTERNAL_LABEL}'
             GROUP BY 1, 2
         """), params).fetchall()
 
@@ -370,6 +376,7 @@ def report_22():
         data = {
             "stat_c": {r[0]: r[1] for r in res_status},
             "phys_c": {r[0]: r[1] for r in res_phys},
+            "phys_external": int(phys_external),
             "phys_unique": {r[0]: r[1] for r in res_phys_unique},
             "phys_churn": [{"name": r[0], "cur": r[1], "prev": r[2], "change": r[3]} for r in res_phys_trend],
             "at_risk": [
@@ -446,9 +453,7 @@ def status_drilldown_22():
                 COALESCE(s.study_description, '') AS description,
                 COALESCE(s.storing_ae, 'N/A') AS ae,
                 s.study_status, s.patient_class, p.sex,
-                COALESCE(NULLIF(TRIM(CONCAT_WS(' ',
-                    s.referring_physician_first_name,
-                    s.referring_physician_last_name)), ''), 'Unknown') AS physician
+                {_PHYSICIAN} AS physician
             FROM etl_didb_studies s
             LEFT JOIN aetitle_modality_map m ON s.storing_ae = m.aetitle
             LEFT JOIN etl_patient_view p ON p.patient_db_uid::TEXT = s.patient_db_uid::TEXT
@@ -503,7 +508,7 @@ def export_report_22():
             SELECT s.study_date, s.patient_class,
                    COALESCE(m.modality, s.study_modality) AS modality,
                    p.sex, s.study_status, s.patient_location,
-                   TRIM(CONCAT_WS(' ', s.referring_physician_first_name, s.referring_physician_last_name)) as physician,
+                   {_PHYSICIAN} as physician,
                    p.fallback_id as patient_id
             FROM etl_didb_studies s
             LEFT JOIN aetitle_modality_map m ON s.storing_ae = m.aetitle

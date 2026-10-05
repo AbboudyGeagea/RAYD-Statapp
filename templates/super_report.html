@@ -839,8 +839,9 @@
 
         // Physicians
         document.getElementById('super-physicians').innerHTML =
-            (cur.physicians||[]).map(p => row(p.physician, fmt(p.cnt), null)).join('') ||
-            '<p class="text-slate-600 text-xs">No data</p>';
+            ((cur.physicians||[]).map(p => row(p.physician, fmt(p.cnt), null)).join('') ||
+             '<p class="text-slate-600 text-xs">No data</p>') +
+            (cur.external_referrals ? subSection('Not ranked', row('External referrals', fmt(cur.external_referrals), null)) : '');
 
         // Orders
         const o = cur.orders, po = prev.orders;

@@ -12,6 +12,7 @@ Financial widgets are flagged with FINANCIAL = True on the function.
 """
 
 from sqlalchemy import text
+from utils.referring import EXTERNAL_LABEL, ref_name_sql
 
 # ── Common SQL fragments ──────────────────────────────────────────────────────
 
@@ -431,17 +432,16 @@ def widget_referring_phys(db, filters, config):
     p = _p(filters)
     top_n = int(config.get("top_n") or 10)
     rows = db.session.execute(text(f"""
-        SELECT s.referring_physician_first_name AS first_name,
-               s.referring_physician_last_name  AS last_name,
+        SELECT {ref_name_sql('s')} AS name,
                COUNT(*) AS count
         {_BASE_JOIN} {_WHERE}
-          AND s.referring_physician_last_name IS NOT NULL
-        GROUP BY 1, 2 ORDER BY 3 DESC
-        LIMIT :top_n
-    """), {**p, "top_n": top_n}).fetchall()
+          AND {ref_name_sql('s')} != ''
+        GROUP BY 1 ORDER BY 2 DESC
+    """), p).fetchall()
     return {
         "top_n": top_n,
-        "rows": [{"name": f"{r.first_name or ''} {r.last_name or ''}".strip(), "count": r.count} for r in rows],
+        "rows": [{"name": r.name, "count": r.count} for r in rows if r.name != EXTERNAL_LABEL][:top_n],
+        "external_referrals": next((r.count for r in rows if r.name == EXTERNAL_LABEL), 0),
     }
 
 

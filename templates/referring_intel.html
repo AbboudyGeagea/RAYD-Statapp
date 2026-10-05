@@ -300,7 +300,8 @@
             const res = await fetch('/viewer/referring-intel/list');
             _physicians = await res.json();
             if (_physicians.error) throw new Error(_physicians.error);
-            document.getElementById('phy-count').textContent = _physicians.length + ' physicians';
+            document.getElementById('phy-count').textContent =
+                _physicians.filter(p => !p.is_external).length + ' physicians';
             renderPhysicianList('');
         } catch(e) {
             document.getElementById('phy-list').innerHTML =
@@ -319,14 +320,18 @@
             return;
         }
 
-        const maxStudies = Math.max(...filtered.map(p => p.total_studies));
-        list.innerHTML = filtered.map(p => {
-            const barW = Math.round(p.total_studies / maxStudies * 100);
+        // External referrals is a placeholder, not a doctor: pinned on top, outside the ranking.
+        const ranked   = filtered.filter(p => !p.is_external);
+        const external = filtered.filter(p => p.is_external);
+        const maxStudies = Math.max(1, ...ranked.map(p => p.total_studies));
+        list.innerHTML = external.concat(ranked).map(p => {
+            const barW = p.is_external ? 0 : Math.round(p.total_studies / maxStudies * 100);
             const isActive = p.physician === _activePhysician;
+            const extStyle = p.is_external ? 'style="border-bottom:1px dashed #28332e;margin-bottom:4px;"' : '';
             return `
-            <div class="phy-row ${isActive?'active':''}" onclick="selectPhysician('${escJs(p.physician)}')">
+            <div class="phy-row ${isActive?'active':''}" ${extStyle} onclick="selectPhysician('${escJs(p.physician)}')">
                 <div class="flex-1 min-w-0">
-                    <p class="text-xs font-bold truncate ${isActive?'text-emerald-300':'text-zinc-300'}">${esc(p.physician)}</p>
+                    <p class="text-xs font-bold truncate ${isActive?'text-emerald-300':'text-zinc-300'}">${esc(p.physician)}${p.is_external ? ' <span class="text-[9px] font-black uppercase" style="color:#4b5563;">· not ranked</span>' : ''}</p>
                     <div class="flex items-center gap-2 mt-1">
                         <div class="flex-1 h-1 rounded-full" style="background:#1a2820;">
                             <div class="phy-bar" style="width:${barW}%"></div>

@@ -4,6 +4,7 @@ from flask_login import login_required, current_user
 from sqlalchemy import text
 from db import ReportAccessControl, db
 from utils.permissions import permission_required
+from utils.referring import EXTERNAL_LABEL, ref_name_sql
 
 from routes.report_registry import get_report
 
@@ -375,22 +376,20 @@ def yesterday_overview():
         vs_avg             = round((studies_total - avg_7d) / avg_7d * 100, 1) if avg_7d else None
 
         # ── Query 2a: top referring physicians ─────────────────────────
-        phys_rows = rows("""
+        phys_rows = rows(f"""
             SELECT
-                COALESCE(NULLIF(TRIM(CONCAT_WS(' ',
-                    s.referring_physician_first_name,
-                    s.referring_physician_last_name)), ''), 'Unknown') AS name,
+                {ref_name_sql('s')} AS name,
                 COUNT(*)::int AS count
             FROM etl_didb_studies s
             LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
             WHERE s.study_date = CURRENT_DATE - 1
-              AND s.referring_physician_first_name IS NOT NULL
+              AND {ref_name_sql('s')} != ''
               AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
             GROUP BY 1
             ORDER BY 2 DESC
-            LIMIT 5
         """)
-        physicians = [{"name": r[0], "count": r[1]} for r in phys_rows]
+        physicians = [{"name": r[0], "count": r[1]} for r in phys_rows if r[0] != EXTERNAL_LABEL][:5]
+        external_referrals = next((r[1] for r in phys_rows if r[0] == EXTERNAL_LABEL), 0)
 
         # ── Query 2b: AE by study count ────────────────────────────────
         ae_rows = rows("""
@@ -517,6 +516,7 @@ def yesterday_overview():
             "er_patients":       er_patients,
             "peak_hour":         peak_hour,
             "physicians":        physicians,
+            "external_referrals": external_referrals,
             "ae_by_count":       ae_by_count_raw,
             "ae_by_util":        util_list,
             "orders_link":       orders_link,

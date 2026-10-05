@@ -3,6 +3,7 @@ from flask_login import login_required, current_user
 from sqlalchemy import text
 from db import db
 from datetime import date, timedelta
+from utils.referring import ref_name_sql
 
 er_bp = Blueprint('er', __name__)
 
@@ -110,10 +111,7 @@ def er_data():
                     COALESCE(s.signing_physician_first_name,''), ' ',
                     COALESCE(s.signing_physician_last_name,'')
                 )), '') AS radiologist,
-                NULLIF(TRIM(CONCAT(
-                    COALESCE(s.referring_physician_first_name,''), ' ',
-                    COALESCE(s.referring_physician_last_name,'')
-                )), '') AS physician,
+                NULLIF({ref_name_sql('s')}, '') AS physician,
                 s.rep_final_timestamp,
                 s.study_has_report,
                 -- ER Volume by Hour of Day: the _STUDY_DT study_time reconstruction above was

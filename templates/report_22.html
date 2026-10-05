@@ -251,6 +251,9 @@
                     The 10 physicians who referred the highest total number of studies in the selected period. A single physician may refer the same patient multiple times — this chart counts studies, not patients.
                 </div>
                 <div id="c3" class="chart-container"></div>
+                {% if data and data.phys_external %}
+                <p class="text-[11px] text-slate-500 mt-2">External referrals (not ranked): <b>{{ "{:,}".format(data.phys_external) }}</b> studies</p>
+                {% endif %}
             </div>
             <div class="card">
                 <div class="card-header text-emerald-400">Physician Loyalty (Unique Patient Count)</div>
