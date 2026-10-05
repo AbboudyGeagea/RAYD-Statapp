@@ -8,6 +8,9 @@ from db import db, get_go_live_date
 
 report_27_bp = Blueprint("report_27", __name__)
 
+# Modality types the Busiest Day & Time cells break down into; the rest is "Other".
+BREAKDOWN_MODALITIES = ['CT', 'MR', 'DX', 'CR']
+
 def calculate_age(birth_date):
     if birth_date is None or pd.isna(birth_date):
         return np.nan
@@ -28,10 +31,13 @@ def get_report_data(start, end):
             s.procedure_code,
             p.birth_date,
             p.sex,
-            m.duration_minutes
+            m.duration_minutes,
+            UPPER(TRIM(COALESCE(am.modality, s.study_modality, o.modality))) AS modality
         FROM etl_orders o
-        LEFT JOIN etl_didb_studies s 
+        LEFT JOIN etl_didb_studies s
             ON s.study_db_uid::TEXT = o.study_db_uid::TEXT
+        LEFT JOIN aetitle_modality_map am
+            ON am.aetitle = s.storing_ae
         LEFT JOIN etl_patient_view p 
             ON p.patient_db_uid::TEXT = o.patient_dbid::TEXT
         LEFT JOIN procedure_duration_map m 
@@ -133,9 +139,13 @@ def report_27():
             # matrix for "busiest day of week (and time)", separate day-of-month bar
             # for "busiest day of month" (day-of-month has no natural second axis to
             # pair with, unlike weekday x hour, so it doesn't fit the matrix).
-            sched = df_a[['scheduled_datetime']].dropna()
+            sched = df_a[['scheduled_datetime', 'modality']].dropna(subset=['scheduled_datetime'])
             if not sched.empty:
                 sched = sched.copy()
+                # Click-through breakdown per cell (operator request): the four
+                # main modality types by name, everything else as Other.
+                sched['mod_group'] = sched['modality'].where(
+                    sched['modality'].isin(BREAKDOWN_MODALITIES), 'Other')
                 sched['weekday']  = sched['scheduled_datetime'].dt.dayofweek   # 0=Mon..6=Sun
                 sched['hour']     = sched['scheduled_datetime'].dt.hour
                 sched['cal_date'] = sched['scheduled_datetime'].dt.date
@@ -152,6 +162,7 @@ def report_27():
 
                 daily = sched.groupby(['weekday', 'block_idx', 'cal_date']).size().reset_index(name='n')
                 grouped = {key: grp.sort_values('cal_date') for key, grp in daily.groupby(['weekday', 'block_idx'])}
+                by_mod = sched.groupby(['weekday', 'block_idx', 'mod_group']).size()
 
                 matrix_cells = []
                 for wd in range(7):
@@ -167,6 +178,8 @@ def report_27():
                             "block_idx":   bi,
                             "total":       total,
                             "series":      series,   # [[date_str, count], ...] real calendar dates in range
+                            "by_modality": {g: int(by_mod.get((wd, bi, g), 0))
+                                            for g in BREAKDOWN_MODALITIES + ['Other']},
                         })
 
                 data['busiest'] = {

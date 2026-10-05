@@ -237,9 +237,22 @@
                     </button>
                 </div>
                 <div class="card-desc">
-                    Each cell is a weekday x time-block combination. Background shade shows total order volume for that slot across the whole audit period (darker = busier); the line inside each cell shows how that slot's daily volume moved day-by-day across the period — hover a cell for exact dates and counts.
+                    Each cell is a weekday x time-block combination. Background shade shows total order volume for that slot across the whole audit period (darker = busier); the line inside each cell shows how that slot's daily volume moved day-by-day across the period — hover a cell for exact dates and counts. <b>Click a cell</b> to break it down by modality (CT, MR, DX, CR, other).
                 </div>
                 <div id="chart_busiest_matrix" class="p-2"></div>
+            </div>
+
+            <!-- Busiest Day & Time: per-slot modality breakdown -->
+            <div id="slot-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.6);"
+                 class="items-center justify-center" onclick="if (event.target === this) closeSlotModal()">
+                <div class="data-card p-5 w-full max-w-sm">
+                    <div class="flex items-center justify-between mb-1">
+                        <span id="slot-title" class="text-sm font-black uppercase tracking-wide"></span>
+                        <button onclick="closeSlotModal()" class="text-slate-500 hover:text-white text-xl font-black leading-none" aria-label="Close">&times;</button>
+                    </div>
+                    <p id="slot-total" class="text-[11px] text-slate-500 mb-3"></p>
+                    <div id="slot-body"></div>
+                </div>
             </div>
 
             <div class="data-card flex flex-col" style="height:340px;">
@@ -545,8 +558,52 @@
                 const cBusiest = echarts.init(matrixWrap);
                 cBusiest.setOption(mOption);
                 registerChart('chart_busiest_matrix', cBusiest);
+
+                // Click anywhere in a cell -> modality breakdown for that slot.
+                // Grids were pushed row by row (time block), then weekday, so
+                // grid index i maps back to its cell through slotOfGrid[i].
+                const slotOfGrid = [];
+                blockStarts.forEach((h, yidx) => weekdayLabels.forEach((_, xidx) => slotOfGrid.push({ xidx, yidx, h })));
+                const gridAt = e => slotOfGrid.findIndex((_, gi) =>
+                    cBusiest.containPixel({ gridIndex: gi }, [e.offsetX, e.offsetY]));
+                cBusiest.getZr().on('mousemove', e => {
+                    cBusiest.getZr().setCursorStyle(gridAt(e) >= 0 ? 'pointer' : 'default');
+                });
+                cBusiest.getZr().on('click', e => {
+                    const gi = gridAt(e);
+                    if (gi < 0) return;
+                    const { xidx, yidx, h } = slotOfGrid[gi];
+                    const cell = cellByKey[`${xidx}|${yidx}`] || { total: 0, by_modality: {} };
+                    const pad = n => String(n).padStart(2, '0');
+                    showSlotBreakdown(`${weekdayLabels[xidx]} ${pad(h)}:00 – ${pad(h + 2)}:00`, cell);
+                });
             }
         }
+
+        // ── Busiest Day & Time: modality breakdown dialog ─────────────────────
+        const SLOT_COLORS = { CT: '#60a5fa', MR: '#a78bfa', DX: '#fbbf24', CR: '#34d399', Other: '#94a3b8' };
+        function showSlotBreakdown(title, cell) {
+            const mods  = cell.by_modality || {};
+            const total = cell.total || 0;
+            document.getElementById('slot-title').textContent = title;
+            document.getElementById('slot-total').textContent =
+                `${total.toLocaleString()} order${total === 1 ? '' : 's'} across the audit period`;
+            document.getElementById('slot-body').innerHTML = Object.keys(SLOT_COLORS).map(m => {
+                const n   = mods[m] || 0;
+                const pct = total ? Math.round(n / total * 100) : 0;
+                return `
+                <div class="flex items-center gap-3 py-1.5">
+                    <span class="w-12 text-xs font-black" style="color:${SLOT_COLORS[m]}">${m}</span>
+                    <div class="flex-1 h-2 rounded-full" style="background:rgba(100,116,139,0.15)">
+                        <div class="h-2 rounded-full" style="width:${pct}%;background:${SLOT_COLORS[m]}"></div>
+                    </div>
+                    <span class="w-24 text-right text-xs font-mono text-slate-400">${n.toLocaleString()} · ${pct}%</span>
+                </div>`;
+            }).join('');
+            document.getElementById('slot-modal').style.display = 'flex';
+        }
+        function closeSlotModal() { document.getElementById('slot-modal').style.display = 'none'; }
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSlotModal(); });
 
         function applyTheme(theme) {
             document.body.classList.toggle('light', theme === 'light');
