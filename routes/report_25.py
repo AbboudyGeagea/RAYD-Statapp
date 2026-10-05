@@ -833,6 +833,14 @@ def compute_bg_data(form_data):
             WHERE o.scheduled_datetime IS NOT NULL
               AND o.scheduled_datetime::date BETWEEN :start AND :end
               AND UPPER(TRIM(COALESCE(o.modality, ''))) != 'SCN'
+              -- Only orders that produced a real (non-SR) PACS study count: an
+              -- order with no study behind it was never performed.
+              AND EXISTS (
+                  SELECT 1 FROM etl_didb_studies s
+                  LEFT JOIN aetitle_modality_map m ON s.storing_ae = m.aetitle
+                  WHERE s.accession_number = o.accession_number
+                    AND COALESCE(m.modality, s.study_modality, '') != 'SR'
+              )
               {"AND UPPER(TRIM(o.modality)) IN :modalities" if "modalities" in params else ""}
             ORDER BY o.modality, o.scheduled_datetime
         """), params).mappings().fetchall()
