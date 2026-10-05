@@ -651,6 +651,7 @@ def _get_user_page_columns():
         ('patient_portal',  'Patient Portal'),
         ('mapping',         'Modality / Procedures'),
         ('report_ai',       'AI Reports'),
+        ('patient_journey', 'Patient Journey'),
     ]
 
 

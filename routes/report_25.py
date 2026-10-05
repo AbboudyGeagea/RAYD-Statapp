@@ -1130,7 +1130,6 @@ def report_25():
     display_end   = date.today().strftime("%Y-%m-%d")
 
     data          = None
-    journey_json  = None
     template_data = None
 
     if run_report:
@@ -1140,19 +1139,9 @@ def report_25():
                           'tab': active_tab})
         data, display_start, display_end = get_gold_standard_data(request.values)
 
-        pid = request.values.get("fallback_id")
-        if pid:
-            res = db.session.execute(text("SELECT procedure_code, scheduled_datetime, insert_time, report_time, proc_duration FROM etl_didb_studies s JOIN etl_patient_view p ON s.fallback_id = p.fallback_id WHERE p.fallback_id = :pid ORDER BY s.insert_time ASC"), {"pid": pid}).mappings().all()
-            if res:
-                nodes = []
-                for r in res:
-                    t_ent = (r['insert_time'] - pd.Timedelta(minutes=r['proc_duration'])) if r['insert_time'] and r['proc_duration'] else None
-                    nodes.append({"name": r['procedure_code'], "children": [{"name": f"Sched: {r['scheduled_datetime'].strftime('%H:%M') if r['scheduled_datetime'] else 'N/A'}"}, {"name": f"True Entry: {t_ent.strftime('%H:%M') if t_ent else 'N/A'}"}]})
-                journey_json = json.dumps({"name": f"ID: {pid}", "children": nodes})
-
         template_data = {k: v for k, v in data.items() if k not in ('raw_df', 'wait_raw_df')} if data else None
 
-    return render_template("report_25.html", data=template_data, display_start=display_start, display_end=display_end, classes=classes, locations=locations, modalities=modalities, aetitles=aetitles, tree_json=tree_json, journey_json=journey_json, run_report=run_report, active_tab=active_tab, shift_config=shift_config)
+    return render_template("report_25.html", data=template_data, display_start=display_start, display_end=display_end, classes=classes, locations=locations, modalities=modalities, aetitles=aetitles, tree_json=tree_json, run_report=run_report, active_tab=active_tab, shift_config=shift_config)
 
 @report_25_bp.route("/report/25/export", methods=["POST"])
 @login_required
@@ -1235,168 +1224,6 @@ def save_shifts_25():
                 )
     db.session.commit()
     return redirect(url_for('report_25.report_25'))
-
-@report_25_bp.route("/report/25/patient-journey")
-@login_required
-def patient_journey_api():
-    from flask import jsonify as _json
-    from datetime import datetime as _dt
-
-    pid       = (request.args.get('pid', '') or '').strip()
-    accession = (request.args.get('accession', '') or '').strip()
-
-    if not pid and not accession:
-        return _json({'studies': [], 'error': 'Provide patient ID or accession number'})
-
-    try:
-        accessions = set()
-
-        # ── Find accessions by accession number ───────────────────────────────
-        if accession:
-            rows = db.session.execute(text(
-                "SELECT DISTINCT accession_number FROM etl_didb_studies "
-                "WHERE accession_number ILIKE :acc LIMIT 15"
-            ), {'acc': f'%{accession}%'}).fetchall()
-            accessions.update(r[0] for r in rows if r[0])
-
-        # ── Find accessions by patient ID (hl7_orders, then etl_didb_studies) ─
-        if pid:
-            try:
-                rows = db.session.execute(text(
-                    "SELECT DISTINCT accession_number FROM hl7_orders "
-                    "WHERE patient_id ILIKE :pid AND accession_number IS NOT NULL LIMIT 20"
-                ), {'pid': f'%{pid}%'}).fetchall()
-                accessions.update(r[0] for r in rows if r[0])
-            except Exception:
-                db.session.rollback()
-            try:
-                rows = db.session.execute(text(
-                    "SELECT DISTINCT accession_number FROM etl_didb_studies "
-                    "WHERE patient_id ILIKE :pid LIMIT 20"
-                ), {'pid': f'%{pid}%'}).fetchall()
-                accessions.update(r[0] for r in rows if r[0])
-            except Exception:
-                db.session.rollback()
-
-        if not accessions:
-            return _json({'studies': [], 'error': None, 'message': 'No matching studies found'})
-
-        accn_list = list(accessions)[:15]
-
-        # ── Batch fetch studies (1 query for all accessions) ─────────────────
-        study_rows = db.session.execute(text("""
-            SELECT DISTINCT ON (s.accession_number)
-                s.accession_number,
-                s.study_date::text                                                AS study_date,
-                s.study_time,
-                COALESCE(s.study_description, '')                                 AS study_description,
-                COALESCE(m.modality, s.study_modality, 'Unknown')                 AS modality,
-                COALESCE(s.patient_class, '')                                     AS patient_class,
-                COALESCE(s.patient_location, '')                                  AS patient_location,
-                s.insert_time,
-                s.rep_prelim_timestamp,
-                s.rep_transcribed_timestamp,
-                s.rep_final_timestamp,
-                NULLIF(TRIM(CONCAT(
-                    COALESCE(s.signing_physician_first_name,''), ' ',
-                    COALESCE(s.signing_physician_last_name,'')
-                )), '')                                                            AS radiologist,
-                s.rep_final_signed_by
-            FROM etl_didb_studies s
-            LEFT JOIN aetitle_modality_map m
-                ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
-            WHERE s.accession_number = ANY(:accns)
-        """), {'accns': accn_list}).mappings().fetchall()
-        studies_map = {r['accession_number']: dict(r) for r in study_rows}
-
-        # ── Batch fetch hl7_orders (1 query for all accessions) ──────────────
-        orders_map = {}  # accn -> list of order dicts
-        try:
-            order_rows = db.session.execute(text("""
-                SELECT
-                    accession_number,
-                    received_at,
-                    scheduled_datetime,
-                    done_at,
-                    done_by,
-                    order_status,
-                    COALESCE(procedure_text, procedure_code, '') AS procedure,
-                    modality   AS order_modality,
-                    patient_id AS order_pid
-                FROM hl7_orders
-                WHERE accession_number = ANY(:accns)
-                ORDER BY accession_number, received_at NULLS LAST
-            """), {'accns': accn_list}).mappings().fetchall()
-            for r in order_rows:
-                orders_map.setdefault(r['accession_number'], []).append(dict(r))
-        except Exception:
-            db.session.rollback()
-
-        # ── Build timeline per accession (pure Python, no more DB calls) ─────
-        def _ev(events, ts, ev_type, label, detail='', by=None):
-            if ts is None:
-                return
-            events.append({
-                'ts':     str(ts),
-                'type':   ev_type,
-                'label':  label,
-                'detail': detail,
-                'by':     str(by) if by else None,
-            })
-
-        results = []
-        for accn in accn_list:
-            study  = studies_map.get(accn)
-            if not study:
-                continue
-            orders = orders_map.get(accn, [])
-
-            events  = []
-            pid_val = None
-            for o in orders:
-                pid_val = pid_val or o.get('order_pid')
-                _ev(events, o.get('received_at'),       'order_received', 'Order Received',
-                    o.get('procedure') or '')
-                _ev(events, o.get('scheduled_datetime'), 'scheduled',      'Exam Scheduled',
-                    f"Status: {o.get('order_status') or '?'}")
-                _ev(events, o.get('done_at'),            'tech_done',      'Exam Completed by Tech',
-                    f"Modality: {o.get('order_modality') or ''}",
-                    o.get('done_by'))
-
-            _ev(events, study.get('insert_time'),               'pacs_in',     'Arrived in PACS',
-                f"Modality: {study.get('modality','')}")
-            _ev(events, study.get('rep_prelim_timestamp'),      'prelim',      'Preliminary Report', '')
-            _ev(events, study.get('rep_transcribed_timestamp'), 'transcribed', 'Transcribed', '')
-            _ev(events, study.get('rep_final_timestamp'),       'final',       'Final Report Signed',
-                '', study.get('radiologist') or study.get('rep_final_signed_by'))
-
-            events.sort(key=lambda x: x['ts'])
-            for i in range(1, len(events)):
-                try:
-                    t1 = _dt.fromisoformat(str(events[i-1]['ts']).replace('Z', '').split('.')[0])
-                    t2 = _dt.fromisoformat(str(events[i]['ts']).replace('Z', '').split('.')[0])
-                    events[i]['gap_min'] = round((t2 - t1).total_seconds() / 60)
-                except Exception:
-                    events[i]['gap_min'] = None
-
-            results.append({
-                'accession':        accn,
-                'study_date':       study.get('study_date', ''),
-                'modality':         study.get('modality', ''),
-                'patient_id':       pid_val or '',
-                'patient_class':    study.get('patient_class', ''),
-                'patient_location': study.get('patient_location', ''),
-                'description':      study.get('study_description', ''),
-                'events':           events,
-            })
-
-        results.sort(key=lambda x: x['study_date'], reverse=True)
-        return _json({'studies': results, 'error': None})
-
-    except Exception as e:
-        db.session.rollback()
-        return _json({'studies': [], 'error': str(e)}), 500
-
 
 # ── Flag acknowledgement API ───────────────────────────────────
 
