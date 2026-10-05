@@ -627,7 +627,7 @@ def get_gold_standard_data(form_data):
     # tech_data and insights are deferred to /report/25/bg (background endpoint)
     tech_data = {
         'summary': {}, 'by_technician': [], 'by_modality': [],
-        'flagged': [], 'never_done': [], 'daily_trend': [],
+        'flagged': [], 'exams': [], 'never_done': [], 'daily_trend': [],
     }
     tech_insights = []
     rad_insights  = []
@@ -814,7 +814,7 @@ def compute_bg_data(form_data):
     # ── Technician monitoring ─────────────────────────────────────────────
     tech_data = {
         'summary': {}, 'by_technician': [], 'by_modality': [],
-        'flagged': [], 'never_done': [], 'daily_trend': [],
+        'flagged': [], 'exams': [], 'never_done': [], 'daily_trend': [],
     }
     _tech_completed_df = pd.DataFrame()
     try:
@@ -824,6 +824,7 @@ def compute_bg_data(form_data):
         tech_rows = db.session.execute(text(f"""
             SELECT
                 o.accession_number, o.modality, o.procedure_code, o.done_by,
+                o.patient_id, o.procedure_text,
                 o.scheduled_datetime, o.done_at, o.pacs_done_at,
                 o.patient_class, o.patient_location,
                 COALESCE(p.duration_minutes, 30) AS proc_duration
@@ -909,8 +910,10 @@ def compute_bg_data(form_data):
                 er_concurrent = _find_concurrent_er(r) if 'too_late' in flags else []
                 flagged_rows.append({
                     'accession':      str(r.get('accession_number') or ''),
+                    'patient_id':     str(r['patient_id']) if pd.notna(r.get('patient_id')) else '',
                     'modality':       str(r.get('modality') or ''),
                     'procedure':      str(r.get('procedure_code') or ''),
+                    'procedure_text': str(r['procedure_text']) if pd.notna(r.get('procedure_text')) else '',
                     'technician':     str(r['done_by']) if pd.notna(r.get('done_by')) else '',
                     'patient_class':  str(r.get('patient_class') or ''),
                     'scheduled_at':   r['scheduled_datetime'].strftime('%Y-%m-%d %H:%M'),
@@ -923,6 +926,12 @@ def compute_bg_data(form_data):
                     'er_concurrent':  er_concurrent,
                 })
             tech_data['flagged'] = sorted([r for r in flagged_rows if r['flags']], key=lambda x: len(x['flags']), reverse=True)
+            # flag_idx ties a flagged exam to its row in the Acknowledgements Log.
+            for i, r in enumerate(tech_data['flagged'], 1):
+                r['flag_idx'] = i
+            # Every completed exam, flagged or not: the merged Technician Exams
+            # table (it replaced Flagged Exams + Daily Technician TAT, 2026-10-05).
+            tech_data['exams'] = sorted(flagged_rows, key=lambda x: x['scheduled_at'], reverse=True)
 
             for _, r in pending.iterrows():
                 deadline = r['scheduled_datetime'] + pd.Timedelta(minutes=float(r['proc_duration']))
