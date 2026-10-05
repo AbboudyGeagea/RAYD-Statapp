@@ -1431,7 +1431,12 @@ def ack_tech_flag():
             acknowledged_by_name=current_user.username,
             acknowledged_at=datetime.utcnow(),
         ))
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        logger.exception("Tech flag acknowledgement failed for %s on %s", accession, flag_date)
+        return jsonify({'error': str(getattr(e, 'orig', e))}), 500
     return jsonify({'ok': True})
 
 

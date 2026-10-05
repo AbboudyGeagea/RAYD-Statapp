@@ -2024,11 +2024,14 @@
                         note,
                     }),
                 });
-                if (!r.ok) throw new Error();
+                if (!r.ok) {
+                    const body = await r.json().catch(() => ({}));
+                    throw new Error(body.error || `HTTP ${r.status}`);
+                }
                 closeAckModal();
                 _updateAckRow(_ackPending.idx, _ackPending.accession, _ackPending.date, _ackPending.flags, true, note);
-            } catch {
-                alert('Failed to acknowledge. Please try again.');
+            } catch (e) {
+                alert('Failed to acknowledge: ' + e.message);
             }
         }
 
