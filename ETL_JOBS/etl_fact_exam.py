@@ -35,6 +35,12 @@ _CARDIO_DEVICES = (
 )
 _DUPLICATE_DEVICES = ('LAUMC', 'SVSM')
 
+# Bone densitometry (GE Lunar) stores its studies as OT only, so the token cleaning
+# below would leave it with no modality and drop it as "SR / OT only". Its modality
+# has to come from the device -- same AEs migration 0120 maps to BMD. Counted here
+# (operator, 2026-10-06), unlike RAYD's existing reports, which exclude BMD.
+_BMD_DEVICES = ('GELUNAR', 'GELUNAR11')
+
 # PACS STUDY_MODALITY tokens that are objects, not exams.
 _NON_EXAM_TOKENS = ('SR', 'OT', 'PR', 'KO', 'DOC', 'SC', 'REG', 'SEG', 'FID', 'RWV', 'PLAN')
 
@@ -115,7 +121,8 @@ _DERIVE_SQL = f"""
                f.accession_number, f.storing_ae, f.study_ts,
                f.patient_class, f.patient_location, f.pacs_site_id, f.study_modality_raw,
                COALESCE(f.number_of_images, 0) AS images,
-               {_priority_case()} AS own_mod,
+               CASE WHEN f.storing_ae IN ({_sql_list(_BMD_DEVICES)}) THEN 'BMD'
+                    ELSE {_priority_case()} END AS own_mod,
                CASE WHEN f.study_ts <> date_trunc('day', f.study_ts) THEN f.study_ts
                     ELSE f.insert_time END AS scan_ts
         FROM {_TABLE} f
