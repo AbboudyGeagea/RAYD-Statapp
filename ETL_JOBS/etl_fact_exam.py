@@ -151,9 +151,11 @@ _DERIVE_SQL = f"""
                     WHEN d.pclass = 'O' THEN 'Outpatient'
                     ELSE COALESCE(d.pclass, '(blank)') END                        AS patient_type,
                CASE
+                   -- RH2026... / SJ2026...: imported outside studies (operator,
+                   -- 2026-10-06). 'SJ' also covers anything starting 'SJH'.
                    WHEN UPPER(COALESCE(d.accession_number, '')) LIKE 'RH%'
-                     OR UPPER(COALESCE(d.accession_number, '')) LIKE 'SJH%'
-                        THEN 'accession starts with RH / SJH'
+                     OR UPPER(COALESCE(d.accession_number, '')) LIKE 'SJ%'
+                        THEN 'accession starts with RH / SJ'
                    WHEN COALESCE(d.study_modality_raw, '') LIKE '%CARD%'
                      OR d.modality LIKE '%CARD%'
                         THEN 'CARD modality'

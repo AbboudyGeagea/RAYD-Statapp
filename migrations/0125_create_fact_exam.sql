@@ -18,7 +18,8 @@
 --     partner takes the modality, device, scan time and patient type of the study in
 --     its work item that holds the images.
 --   * Not counted (kept, with `reason` set, so screens can show what was left out):
---     accession starting RH / SJH, CARD-family modality, the cardiology devices,
+--     accession starting RH / SJ (imported outside studies, e.g. RH20260918..,
+--     SJ20260714..), CARD-family modality, the cardiology devices,
 --     LAUMC/SVSM duplicate copies, '@dn' records, SR/OT-only studies that are not
 --     linked.
 --
