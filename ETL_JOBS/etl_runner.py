@@ -141,6 +141,7 @@ from etl_ris_worklist_exam_done import run_ris_worklist_exam_done_etl
 from etl_ris_worklist_cancellations import run_ris_worklist_cancellations_etl
 from etl_ris_worklist_scheduled import run_ris_worklist_scheduled_etl
 from etl_ris_pps_person_reference import run_ris_pps_person_reference_etl
+from etl_fact_exam            import run_fact_exam_etl
 
 logger = logging.getLogger("ETL_WORKER")
 
@@ -190,7 +191,8 @@ _PHASE_LABELS = {
     '15': ('RIS Modality Availability', 'Oracle RIS: SCHEDULE_SCHEME + AVAILABILITY_INDICATOR + MODALITY_AVAIL_EXCEPTION + SCHEDULE_TEMPLATE_ITEM -> std_schedule_schemes / std_availability_indicators / std_modality_exceptions / std_schedule_template_items (device utilization denominator) — light (LAUMC)'),
     '16': ('PACS User Groups',   'Oracle PACS: MEDILINK.SECM_USERS/SECM_GROUPS/SECM_USER_IN_GROUP -> std_pacs_user_groups (reading-permission groups, e.g. radiologists/residents) — light (LAUMC)'),
     '17': ('RIS Worklist Status Events', 'Oracle RIS: WORKLIST_STATUS_HISTORY + SITE_WORKLIST -> std_worklist_arrivals (status_key=60 Arrived) + std_worklist_exam_done (status_key=100 Exam Done) + std_worklist_scheduled (status_key=40 Scheduled) + std_worklist_cancellations (cancellation status keys read from worklist_status_map) + PPS_PERSON_REFERENCE -> std_pps_person_reference, per-PPS technologist reference (role-filtered at query time, not by type key) — light (LAUMC)'),
-    '18': ('RIS Device Schedule Resolution', 'Oracle RIS: SCHEDULE_TEMPLATE_VERSION -> std_schedule_template_versions, then (Postgres-only) resolves std_schedule_template_items.aetitle via the version->template->device chain, then computes std_device_weekly_availability (simple Available-minutes-per-weekday, interval-swept, full rebuild) — light (LAUMC)'),
+    '18': ('RIS Device Schedule Resolution','Oracle RIS: SCHEDULE_TEMPLATE_VERSION -> std_schedule_template_versions, then (Postgres-only) resolves std_schedule_template_items.aetitle via the version->template->device chain, then computes std_device_weekly_availability (simple Available-minutes-per-weekday, interval-swept, full rebuild) — light (LAUMC)'),
+    '20': ('Exam Fact',          'Oracle PACS: DIDB_STUDIES (narrow columns) -> fact_exam, then PostgreSQL derive of modality/device/link group/counted reason — moderate on fresh load, light after (LAUMC)'),
 }
 
 
@@ -822,6 +824,21 @@ def _perform_migration(engine):
                 except Exception as _e:
                     _phase_failures.append("19 (RIS Reports)")
                     logger.error(f"🛑 Phase 19 (RIS Reports) failed — continuing: {_e}", exc_info=True)
+
+        # ── PHASE 20: Exam Fact (PACS -> fact_exam) ──────────────────────────────
+        # The single counting definition (migration 0125): one row per PACS study with
+        # linked partners, cleaned modality and a `reason` for everything not counted.
+        # Reads PACS directly rather than etl_didb_studies, whose extract filters would
+        # drop linked partners. Nothing existing reads fact_exam yet, so a failure here
+        # is isolated.
+        if _confirm_phase(20):
+            logger.info("📋 Phase 20: Exam Fact → fact_exam")
+            try:
+                f_total, f_derived = run_fact_exam_etl(engine, src, go_live)
+                logger.info(f"✅ Phase 20 done — {f_total:,} studies upserted, {f_derived:,} re-derived")
+            except Exception as _e:
+                _phase_failures.append("20 (Exam Fact)")
+                logger.error(f"🛑 Phase 20 (Exam Fact) failed — continuing: {_e}", exc_info=True)
 
         # ── Mark overall sync SUCCESS (or PARTIAL if any phase failed but the
         # run still made it to the end — each phase is now isolated by its own
