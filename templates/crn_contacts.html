@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | CRN Contacts</title>
+    <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
+    <style>
+        body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; }
+        .card { background: #232b28; border-radius: 1.5rem; padding: 1.75rem; border: 1px solid #28332e; }
+        .input-field { background: #141b19; border: 1px solid #334155; color: #e2e8f0; padding: .65rem 1rem; border-radius: .85rem; width: 100%; font-size: .875rem; outline: none; }
+        .input-field:focus { border-color: #38bdf8; }
+        .label { font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .3em; color: #475569; margin-bottom: 6px; display: block; }
+        .btn-primary { background: #38bdf8; color: #0c1a22; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; padding: .7rem 1.5rem; border-radius: .85rem; border: none; cursor: pointer; }
+        .btn-primary:hover { opacity: .85; }
+        .stat { background: #141b19; border: 1px solid #28332e; border-radius: 1rem; padding: .9rem 1.1rem; }
+        table.list { width: 100%; border-collapse: collapse; font-size: 12px; }
+        table.list th { text-align: left; font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; color: #64748b; padding: 8px 10px; border-bottom: 1px solid #28332e; }
+        table.list td { padding: 8px 10px; border-bottom: 1px solid #1e2824; color: #cbd5e1; vertical-align: top; }
+        .muted { color: #475569; }
+        body.light { background: #f0f4f8 !important; color: #1a202c !important; }
+        body.light .card, body.light .stat { background: #ffffff; border-color: #e2e8f0; }
+        body.light .input-field { background: #ffffff; border-color: #cbd5e1; color: #1a202c; }
+        body.light table.list td { color: #334155; border-color: #e2e8f0; }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+    {% include '_header.html' %}
+    <div class="flex flex-1 overflow-hidden">
+        {% include '_sidebar.html' %}
+        <main class="flex-1 overflow-y-auto p-8 bg-[#181f1c]">
+            <div class="max-w-5xl mx-auto space-y-6">
+
+                <div>
+                    <h2 class="text-white text-2xl font-black uppercase tracking-tight">CRN Contacts</h2>
+                    <p class="text-slate-500 text-xs mt-1">
+                        Referring doctors who receive Critical Result Notifications. The doctor code must match the
+                        code the RIS sends in the order (ORC-12), e.g. <span class="font-mono text-slate-300">GP42</span>
+                        from <span class="font-mono text-slate-300">GP42^^Khaled Hadla</span>. Notifications go by SMS for now.
+                    </p>
+                </div>
+
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                {% for cat, m in messages %}
+                <div class="rounded-xl px-4 py-3 text-sm font-semibold
+                    {{ 'bg-emerald-500/10 text-emerald-200 border border-emerald-500/20' if cat == 'success'
+                       else 'bg-rose-500/10 text-rose-200 border border-rose-500/20' }}">{{ m }}</div>
+                {% endfor %}
+                {% endwith %}
+
+                <div class="grid grid-cols-3 gap-4">
+                    <div class="stat"><p class="label">Contacts</p><p class="text-2xl font-black text-white">{{ stats.total }}</p></div>
+                    <div class="stat"><p class="label">With a usable mobile</p><p class="text-2xl font-black text-emerald-400">{{ stats.with_phone }}</p></div>
+                    <div class="stat"><p class="label">Without one</p>
+                        <p class="text-2xl font-black {{ 'text-amber-400' if stats.total - stats.with_phone else 'text-white' }}">{{ stats.total - stats.with_phone }}</p></div>
+                </div>
+
+                <div class="card">
+                    <h3 class="text-white text-sm font-black uppercase tracking-widest mb-1">Import from CSV</h3>
+                    <p class="text-slate-500 text-xs mb-4">
+                        Columns: doctor code, name, phone, email (any order if the file has a header row, otherwise in
+                        that order). Comma, semicolon or tab separated; Excel exports work. Empty or NULL cells are
+                        fine. You will see a preview of every row before anything is saved, and a blank cell never
+                        erases a value already on file.
+                    </p>
+                    <form method="POST" action="{{ url_for('crn_admin.upload') }}" enctype="multipart/form-data"
+                          class="flex items-end gap-3 flex-wrap">
+                        <div class="flex-1 min-w-[240px]">
+                            <label class="label" for="file">CSV file</label>
+                            <input type="file" id="file" name="file" accept=".csv,.txt,text/csv" class="input-field" required>
+                        </div>
+                        <button type="submit" class="btn-primary"><i class="bi bi-eye mr-1"></i> Preview</button>
+                    </form>
+                </div>
+
+                <div class="card">
+                    <div class="flex items-center justify-between gap-4 mb-4 flex-wrap">
+                        <h3 class="text-white text-sm font-black uppercase tracking-widest">Contact list</h3>
+                        <form method="GET" class="flex gap-2">
+                            <input type="text" name="q" value="{{ q }}" placeholder="Search code, name, phone…" class="input-field" style="width:240px;">
+                        </form>
+                    </div>
+                    {% if rows %}
+                    <div class="overflow-x-auto">
+                        <table class="list">
+                            <thead><tr><th>Code</th><th>Name</th><th>Mobile (SMS)</th><th>As in file</th><th>Email</th><th>Updated</th></tr></thead>
+                            <tbody>
+                            {% for r in rows %}
+                            <tr>
+                                <td class="font-mono font-bold text-white">{{ r.doctor_code }}</td>
+                                <td>{{ r.full_name or '—' }}</td>
+                                <td class="font-mono">
+                                    {% if r.phone_e164 %}{{ r.phone_e164 }}
+                                    {% else %}<span class="text-amber-400"><i class="bi bi-exclamation-triangle"></i> none</span>{% endif %}
+                                </td>
+                                <td class="font-mono muted">{{ r.phone_raw or '' }}</td>
+                                <td>{{ r.email or '' }}</td>
+                                <td class="muted">{{ r.updated_at.strftime('%Y-%m-%d %H:%M') if r.updated_at }}{% if r.updated_by %} · {{ r.updated_by }}{% endif %}</td>
+                            </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="text-slate-500 text-sm py-6 text-center">
+                        {{ 'No contact matches “' ~ q ~ '”.' if q else 'No contacts yet. Import the CSV above.' }}
+                    </p>
+                    {% endif %}
+                </div>
+
+                {% if imports %}
+                <div class="card">
+                    <h3 class="text-white text-sm font-black uppercase tracking-widest mb-4">Recent imports</h3>
+                    <table class="list">
+                        <thead><tr><th>File</th><th>Uploaded</th><th>Result</th><th></th></tr></thead>
+                        <tbody>
+                        {% for i in imports %}
+                        <tr>
+                            <td>{{ i.filename }}</td>
+                            <td class="muted">{{ i.uploaded_at.strftime('%Y-%m-%d %H:%M') }} · {{ i.uploaded_by }}</td>
+                            <td>
+                                {% if i.applied_at %}
+                                {{ i.summary.inserted }} new, {{ i.summary.updated }} updated{% if i.summary.skipped %}, {{ i.summary.skipped }} skipped{% endif %}
+                                <span class="muted">· {{ i.applied_at.strftime('%Y-%m-%d %H:%M') }} · {{ i.applied_by }}</span>
+                                {% else %}<span class="muted">not imported</span>{% endif %}
+                            </td>
+                            <td>{% if not i.applied_at %}<a class="text-sky-400 text-xs font-bold" href="{{ url_for('crn_admin.preview', import_id=i.id) }}">Preview</a>{% endif %}</td>
+                        </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% endif %}
+
+            </div>
+        </main>
+    </div>
+    {% include '_footer.html' %}
+</body>
+</html>

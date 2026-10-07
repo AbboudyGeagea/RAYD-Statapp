@@ -33,7 +33,7 @@
 {# ── Active-group detection ────────────────────────────────────────── #}
 {% set ep = request.endpoint or '' %}
 {% set overview_on   = ep.startswith('viewer.') %}
-{% set admin_on      = ep in ['admin.admin_dashboard','admin.user_management','admin.audit_log','admin.hl7_forward_config'] or ep.startswith('db_manager.') or ep.startswith('mapping.') %}
+{% set admin_on      = ep in ['admin.admin_dashboard','admin.user_management','admin.audit_log','admin.hl7_forward_config'] or ep.startswith('db_manager.') or ep.startswith('mapping.') or ep.startswith('crn_admin.') %}
 {% set ops_on        = ep.startswith('live_feed.') or ep.startswith('hl7_orders.') or ep.startswith('cd_print.') or ep.startswith('patient_journey.') %}
 {% set analytics_on  = ep.startswith('oru.') or ep.startswith('referring_intel.') or ep.startswith('custom_reports.') or ep.startswith('portal_admin.') %}
 {% set ai_on         = ep.startswith('report_ai.') %}
@@ -111,6 +111,10 @@
             <a href="{{ url_for('admin.hl7_forward_config') }}"
                class="sidebar-item {% if ep == 'admin.hl7_forward_config' %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
                 <i class="bi bi-send-arrow-up-fill flex-shrink-0" style="color:#38bdf8;"></i> HL7 Forward
+            </a>
+            <a href="{{ url_for('crn_admin.contacts') }}"
+               class="sidebar-item {% if ep.startswith('crn_admin.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
+                <i class="bi bi-person-lines-fill flex-shrink-0" style="color:#f87171;"></i> CRN Contacts
             </a>
             {% endif %}
         </div>

@@ -37,6 +37,7 @@ from routes.custom_reports      import custom_reports_bp
 from routes.cd_print_log        import cd_print_bp
 from routes.health_bp           import health_bp
 from routes.resource_monitor    import resource_monitor_bp
+from routes.crn_admin           import crn_admin_bp
 
 logger = logging.getLogger("REGISTRY")
 
@@ -261,6 +262,7 @@ def register_blueprints(app):
     app.register_blueprint(etl_gear_bp)
     app.register_blueprint(patient_journey_bp)
     app.register_blueprint(groups_bp)
+    app.register_blueprint(crn_admin_bp)
 
     # ── Licensed reports (auto-discovered from report_registry) ─
     licensed_reports = lic.get('reports', [])
