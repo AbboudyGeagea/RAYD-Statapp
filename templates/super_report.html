@@ -6,6 +6,8 @@
     <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
     <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="{{ url_for('static', filename='js/chart-explanations.js') }}"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/dark.min.css">
     <style>
@@ -202,6 +204,7 @@
                     <div style="display:flex;align-items:center;gap:8px;">
                         <i class="bi bi-lightning-charge-fill" style="color:#60a5fa;"></i>
                         <span style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:0.12em;color:#60a5fa;">Daily Briefing</span>
+                        <i class="bi bi-info-circle chart-info-icon" data-explain="sr-briefing" role="button" tabindex="0" aria-label="About this card" title="About this card"></i>
                         <span id="briefing-updated" style="font-size:9px;font-weight:700;color:#475569;margin-left:4px;"></span>
                     </div>
                     <div style="display:flex;gap:4px;" id="briefing-tabs">
@@ -227,6 +230,7 @@
                     <div style="display:flex;align-items:center;gap:8px;">
                         <i class="bi bi-person-exclamation" style="color:#f59e0b;"></i>
                         <span style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:0.12em;color:#f59e0b;">Conflict Patients</span>
+                        <i class="bi bi-info-circle chart-info-icon" data-explain="sr-conflicts" role="button" tabindex="0" aria-label="About this card" title="About this card"></i>
                         <span id="sr-conflict-badge"
                               style="font-size:9px;font-weight:900;padding:2px 10px;border-radius:999px;background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.3);">
                             Loading…
@@ -266,6 +270,7 @@
                     <div class="flex items-center gap-2 mb-2">
                         <i class="bi bi-file-earmark-text text-yellow-400"></i>
                         <span class="text-[10px] font-black text-yellow-400 uppercase tracking-widest">Executive Summary</span>
+                        <i class="bi bi-info-circle chart-info-icon" data-explain="sr-summary" role="button" tabindex="0" aria-label="About this section" title="About this section"></i>
                         <span class="text-[9px] text-slate-600 ml-auto" id="period-label"></span>
                     </div>
                     <div class="narrative-box" id="super-narrative"></div>
@@ -276,33 +281,33 @@
 
                 <!-- Period comparison: both periods side by side in one table -->
                 <div class="card p-5" id="super-compare-card">
-                    <h4 class="text-[#60a5fa] text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-arrow-left-right"></i> Period Comparison</h4>
+                    <h4 class="text-[#60a5fa] text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-arrow-left-right"></i> Period Comparison<i class="bi bi-info-circle chart-info-icon" data-explain="sr-compare" role="button" tabindex="0" aria-label="About this table" title="About this table"></i></h4>
                     <div class="overflow-x-auto"><table class="w-full text-xs" id="super-compare"></table></div>
                 </div>
 
                 <!-- Sections -->
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div class="card p-5">
-                        <h4 class="text-[#60a5fa] text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-graph-up-arrow"></i> Volume & Trends</h4>
+                        <h4 class="text-[#60a5fa] text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-graph-up-arrow"></i> Volume & Trends<i class="bi bi-info-circle chart-info-icon" data-explain="sr-volume" role="button" tabindex="0" aria-label="About this card" title="About this card"></i></h4>
                         <div id="super-volume"></div>
                     </div>
                     <div class="card p-5">
-                        <h4 class="text-emerald-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-hdd-stack"></i> Storage & Images</h4>
+                        <h4 class="text-emerald-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-hdd-stack"></i> Storage & Images<i class="bi bi-info-circle chart-info-icon" data-explain="sr-storage" role="button" tabindex="0" aria-label="About this card" title="About this card"></i></h4>
                         <div id="super-storage"></div>
                     </div>
                     <div class="card p-5">
-                        <h4 class="text-violet-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-person-badge"></i> Top Referring Physicians</h4>
+                        <h4 class="text-violet-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-person-badge"></i> Top Referring Physicians<i class="bi bi-info-circle chart-info-icon" data-explain="sr-physicians" role="button" tabindex="0" aria-label="About this card" title="About this card"></i></h4>
                         <div id="super-physicians"></div>
                     </div>
                     <div class="card p-5">
-                        <h4 class="text-orange-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-clipboard2-pulse"></i> Orders & Fulfillment</h4>
+                        <h4 class="text-orange-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-clipboard2-pulse"></i> Orders & Fulfillment<i class="bi bi-info-circle chart-info-icon" data-explain="sr-orders" role="button" tabindex="0" aria-label="About this card" title="About this card"></i></h4>
                         <div id="super-orders"></div>
                     </div>
                 </div>
 
                 <!-- Demographics -->
                 <div class="card p-5">
-                    <h4 class="text-pink-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-people"></i> Patient Demographics</h4>
+                    <h4 class="text-pink-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-people"></i> Patient Demographics<i class="bi bi-info-circle chart-info-icon" data-explain="sr-demographics" role="button" tabindex="0" aria-label="About this card" title="About this card"></i></h4>
                     <div id="super-demographics" class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4"></div>
                     <p class="text-[9px] font-black uppercase tracking-widest text-slate-600 mb-2">All Patient Classes</p>
                     <div id="super-pc-breakdown" class="flex flex-col gap-1.5"></div>
@@ -313,6 +318,7 @@
                 <div class="card p-5" id="super-insights-card" style="display:none">
                     <h4 class="text-yellow-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2">
                         <i class="bi bi-lightbulb-fill"></i> Clinical Insights
+                        <i class="bi bi-info-circle chart-info-icon" data-explain="sr-insights" role="button" tabindex="0" aria-label="About this card" title="About this card"></i>
                     </h4>
                     <div id="super-insights" class="space-y-2"></div>
                 </div>
@@ -322,6 +328,7 @@
                     <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
                         <h4 class="text-[#60a5fa] text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
                             <i class="bi bi-person-check"></i> Reports per Radiologist
+                            <i class="bi bi-info-circle chart-info-icon" data-explain="reports-per-radiologist" role="button" tabindex="0" aria-label="About this table" title="About this table"></i>
                         </h4>
                         <!-- Modality / AE Title toggle + export -->
                         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
@@ -801,8 +808,10 @@
             {label:'Images',     cur:cur.kpis.total_images,   prev:prev.kpis.total_images,   color:'#a78bfa', icon:'bi-images'},
             {label:'Storage GB', cur:cur.storage.total_gb,    prev:prev.storage.total_gb,    color:'#2dd4bf', icon:'bi-hdd-stack'},
             {label:'Orders',     cur:cur.orders.total,        prev:prev.orders.total,        color:'#f97316', icon:'bi-clipboard2-pulse'},
-            {label:'Busiest AE', cur:ae.busiest_ae,           prev:null,                     color:'#818cf8', icon:'bi-broadcast',    isText:true, sub: ae.busiest_cnt ? fmt(ae.busiest_cnt)+' studies' : ''},
-            {label:'Idle AE',    cur:ae.idle_ae,              prev:null,                     color:'#f59e0b', icon:'bi-pause-circle', isText:true, sub: (ae.idle_cnt !== undefined && ae.idle_cnt !== null) ? fmt(ae.idle_cnt)+' studies' : ''},
+            {label:'Busiest AE', cur:ae.busiest_ae,           prev:null,                     color:'#818cf8', icon:'bi-broadcast',    isText:true, sub: ae.busiest_cnt ? fmt(ae.busiest_cnt)+' studies' : '',
+             title:'Device (AE title) that stored the most studies in the period'},
+            {label:'Idle AE',    cur:ae.idle_ae,              prev:null,                     color:'#f59e0b', icon:'bi-pause-circle', isText:true, sub: (ae.idle_cnt !== undefined && ae.idle_cnt !== null) ? fmt(ae.idle_cnt)+' studies' : '',
+             title:'Mapped device (Modality page) with the fewest studies in the period; can be zero'},
             {label:'ER Delayed', cur:ae.er_delayed,           prev:pae.er_delayed,           color:'#f87171', icon:'bi-activity',
              title:'Non-ER studies with TAT above P75 on days with concurrent ER volume'},
         ];

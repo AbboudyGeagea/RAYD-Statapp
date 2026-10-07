@@ -6,6 +6,8 @@
     <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="{{ url_for('static', filename='js/chart-explanations.js') }}"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/dark.min.css">
     <style>
@@ -123,7 +125,7 @@
 
         <section class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div class="card border-l-4 border-sky-400 bg-sky-950/10 p-4">
-                <div class="card-header">HL7 Orphan Orders</div>
+                <div class="card-header">HL7 Orphan Orders<i class="bi bi-info-circle chart-info-icon" data-explain="r22-orphans" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></div>
                 <div class="card-desc">Unmatched HL7 orders in the selected period. These represent workload that may not appear in ETL study counts because only one completed study may have been recorded per multi-order exam.</div>
                 <div class="p-4">
                     <p class="text-4xl font-black text-sky-400">{{ data.orphan_order_count }}</p>
@@ -138,6 +140,7 @@
             <div class="flex items-center justify-between">
                 <h2 class="text-xs font-black text-amber-400 uppercase tracking-widest flex items-center gap-2">
                     <span class="w-2 h-2 bg-amber-400 rounded-full animate-pulse"></span> Early Churn Warning — Physicians at Risk
+                    <i class="bi bi-info-circle chart-info-icon" data-explain="r22-early-churn" role="button" tabindex="0" aria-label="About this section" title="About this section"></i>
                 </h2>
                 <span class="text-[9px] font-bold text-slate-600 uppercase tracking-widest">Based on referral trend within selected period</span>
             </div>
@@ -211,6 +214,7 @@
         <section class="space-y-4">
             <h2 class="text-xs font-black text-rose-500 uppercase tracking-widest flex items-center gap-2">
                 <span class="w-2 h-2 bg-rose-500 rounded-full animate-pulse"></span> Confirmed Churn — Month-over-Month Drop
+                <i class="bi bi-info-circle chart-info-icon" data-explain="r22-confirmed-churn" role="button" tabindex="0" aria-label="About this section" title="About this section"></i>
             </h2>
             <p class="text-[10px] text-slate-500 italic -mt-2">
                 Physicians whose most recent month's referral count fell below the previous month, within the selected date range. Requires at least 5 referrals in the prior month to filter statistical noise.
@@ -236,7 +240,7 @@
 
         <!-- Tree Flow -->
         <div class="card">
-            <div class="card-header">Modality ➜ AE Source ➜ Top 5 Procedures</div>
+            <div class="card-header">Modality ➜ AE Source ➜ Top 5 Procedures<i class="bi bi-info-circle chart-info-icon" data-explain="r22-tree" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></div>
             <div class="card-desc">
                 A hierarchical breakdown of study volume across the selected period. Starting from total studies, it branches by imaging modality (CT, MR, US…), then by the DICOM AE title that received the study, and finally shows the top 5 procedure descriptions per AE. Node sizes reflect study count.
             </div>
@@ -246,7 +250,7 @@
         <!-- Physician charts -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div class="card">
-                <div class="card-header">Top Referring Physicians (Study Volume)</div>
+                <div class="card-header">Top Referring Physicians (Study Volume)<i class="bi bi-info-circle chart-info-icon" data-explain="r22-top-referrers" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></div>
                 <div class="card-desc">
                     The 10 physicians who referred the highest total number of studies in the selected period. A single physician may refer the same patient multiple times — this chart counts studies, not patients.
                 </div>
@@ -256,7 +260,7 @@
                 {% endif %}
             </div>
             <div class="card">
-                <div class="card-header text-emerald-400">Physician Loyalty (Unique Patient Count)</div>
+                <div class="card-header text-emerald-400">Physician Loyalty (Unique Patient Count)<i class="bi bi-info-circle chart-info-icon" data-explain="r22-loyalty" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></div>
                 <div class="card-desc">
                     The 10 physicians with the broadest patient reach — ranked by the number of distinct patients they referred. A high unique count relative to study volume indicates the physician refers many different patients rather than repeat visits.
                 </div>
@@ -267,13 +271,13 @@
         <!-- Physician Modality + Avg Age row -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div class="card">
-                <div class="card-header">Physician → Modality Preference (Top 10)</div>
+                <div class="card-header">Physician → Modality Preference (Top 10)<i class="bi bi-info-circle chart-info-icon" data-explain="r22-phys-modality" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></div>
                 <div class="card-desc">Which modality each top referring physician sends most to. Stacked bars per physician, coloured by modality.</div>
                 <div id="c_phys_mod" class="chart-container"></div>
             </div>
             <div class="card">
                 <div class="card-header text-amber-400 flex items-center justify-between">
-                    Average Patient Age per Physician
+                    <span>Average Patient Age per Physician<i class="bi bi-info-circle chart-info-icon" data-explain="r22-phys-age" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
                     {% if data.age_phys_outliers and data.age_phys_outliers > 0 %}
                     <span class="outlier-badge" title="Ages outside 0–110 years were excluded to prevent skewed averages">
                         <i class="bi bi-funnel-fill"></i> {{ data.age_phys_outliers }} outlier{{ 's' if data.age_phys_outliers != 1 }} removed
@@ -290,7 +294,7 @@
             <div class="flex items-start justify-between mb-1">
                 <div>
                     <div class="card-header text-sky-400 flex items-center gap-3">
-                        Age Distribution per Procedure Code
+                        <span>Age Distribution per Procedure Code<i class="bi bi-info-circle chart-info-icon" data-explain="r22-proc-age" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
                         {% if data.age_proc_outliers and data.age_proc_outliers > 0 %}
                         <span class="outlier-badge" title="Ages outside 0–110 years were excluded to prevent skewed averages">
                             <i class="bi bi-funnel-fill"></i> {{ data.age_proc_outliers }} outlier{{ 's' if data.age_proc_outliers != 1 }} removed
@@ -343,7 +347,7 @@
 
         <!-- Physician Status Breakdown -->
         <div class="card">
-            <div class="card-header text-rose-400">Study Status per Top Physician</div>
+            <div class="card-header text-rose-400">Study Status per Top Physician<i class="bi bi-info-circle chart-info-icon" data-explain="r22-phys-status" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></div>
             <div class="card-desc">Status breakdown (Completed, Cancelled, etc.) for the top 10 referring physicians by volume. High cancellation or incomplete rates may indicate ordering behaviour issues.</div>
             <div id="c_phys_status" class="chart-container" style="height:420px;"></div>
         </div>
@@ -409,7 +413,7 @@
         <!-- Demographics row -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div class="card">
-                <div class="card-header">Case Status Distribution</div>
+                <div class="card-header">Case Status Distribution<i class="bi bi-info-circle chart-info-icon" data-explain="r22-status" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></div>
                 <div class="card-desc">
                     Count of studies grouped by their current DICOM study status (e.g. Read, Unread, Dictated). Helps identify backlogs or workflow bottlenecks.
                 </div>
@@ -418,7 +422,7 @@
             </div>
             <div class="card">
                 <div class="card-header flex items-center justify-between">
-                    <span>Gender (Rose)</span>
+                    <span>Gender (Rose)<i class="bi bi-info-circle chart-info-icon" data-explain="r22-gender" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
                     {% if data.gender_excluded and data.gender_excluded > 0 %}
                     <span class="outlier-badge" title="Records with undefined or non-binary gender (not M/F) were excluded from this chart"
                           onclick="showDQModal()" style="cursor:pointer;">
@@ -433,7 +437,7 @@
             </div>
             <div class="card">
                 <div class="card-header flex items-center justify-between">
-                    <span>Age Group (Wave)</span>
+                    <span>Age Group (Wave)<i class="bi bi-info-circle chart-info-icon" data-explain="r22-age" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
                     {% if data.age_excl_negative and data.age_excl_negative > 0 %}
                     <span class="outlier-badge" title="Records with negative, zero, or implausible ages (>110 years) were excluded from this chart"
                           onclick="showDQModal()" style="cursor:pointer;">

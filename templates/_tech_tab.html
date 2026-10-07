@@ -118,7 +118,7 @@
 <!-- By Technician -->
 {% if tech_data.by_technician %}
 <div class="space-y-3">
-    <p class="text-xs font-black text-blue-500 uppercase tracking-widest">By Technician</p>
+    <p class="text-xs font-black text-blue-500 uppercase tracking-widest">By Technician<i class="bi bi-info-circle chart-info-icon" data-explain="r25-tech-by-tech" role="button" tabindex="0" aria-label="About this table" title="About this table"></i></p>
     <div class="glass-card overflow-x-auto">
         <table class="w-full text-left" style="border-collapse:separate; border-spacing:0;">
             <thead>
@@ -205,7 +205,7 @@
 <!-- By Modality -->
 {% if tech_data.by_modality %}
 <div class="space-y-3">
-    <p class="text-xs font-black text-blue-500 uppercase tracking-widest">By Modality</p>
+    <p class="text-xs font-black text-blue-500 uppercase tracking-widest">By Modality<i class="bi bi-info-circle chart-info-icon" data-explain="r25-tech-by-mod" role="button" tabindex="0" aria-label="About this table" title="About this table"></i></p>
     <div class="glass-card overflow-x-auto">
         <table class="w-full text-left" style="border-collapse:separate; border-spacing:0;">
             <thead>
@@ -241,7 +241,7 @@
      data-can-ack="{{ 1 if current_user.role in ('admin', 'viewer', 'viewer2') else 0 }}">
     <div class="flex items-center gap-4 flex-wrap">
         <p class="text-xs font-black text-blue-400 uppercase tracking-widest">
-            Technician Exams
+            Technician Exams<i class="bi bi-info-circle chart-info-icon" data-explain="r25-tech-exams" role="button" tabindex="0" aria-label="About this table" title="About this table"></i>
             <span id="tx-count" class="ml-2 px-2 py-0.5 rounded bg-blue-500/10 border border-blue-500/20 text-blue-300 text-[10px]"></span>
             <span class="ml-1 px-2 py-0.5 rounded bg-rose-500/10 border border-rose-500/20 text-rose-400 text-[10px]">{{ tech_data.flagged|length }} flagged</span>
         </p>
@@ -300,7 +300,7 @@
 {% if tech_data.flagged %}
 <div class="space-y-3">
     <p class="text-xs font-black text-emerald-500 uppercase tracking-widest">
-        Acknowledgements Log
+        Acknowledgements Log<i class="bi bi-info-circle chart-info-icon" data-explain="r25-tech-ack" role="button" tabindex="0" aria-label="About this table" title="About this table"></i>
         <span id="ack-log-count" class="ml-2 px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px]">{{ tech_data.ack_map|length }} ack'd</span>
     </p>
     <div class="glass-card overflow-x-auto">
@@ -369,7 +369,7 @@
 {% set nd_total = tech_data.never_done|length %}
 <div id="tech-never-done" class="space-y-3">
     <p class="text-xs font-black text-rose-500 uppercase tracking-widest">
-        Never Marked Done
+        Never Marked Done<i class="bi bi-info-circle chart-info-icon" data-explain="r25-tech-never-done" role="button" tabindex="0" aria-label="About this table" title="About this table"></i>
         <span class="ml-2 px-2 py-0.5 rounded bg-rose-500/10 border border-rose-500/20 text-rose-400 text-[10px]">{{ nd_total }} overdue</span>
     </p>
     <div class="glass-card overflow-x-auto">

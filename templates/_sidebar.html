@@ -37,7 +37,6 @@
 {% set ops_on        = ep.startswith('live_feed.') or ep.startswith('hl7_orders.') or ep.startswith('cd_print.') or ep.startswith('patient_journey.') %}
 {% set analytics_on  = ep.startswith('oru.') or ep.startswith('referring_intel.') or ep.startswith('custom_reports.') or ep.startswith('portal_admin.') %}
 {% set ai_on         = ep.startswith('report_ai.') %}
-{% set help_on       = ep.startswith('docs.') %}
 
 <aside class="w-60 bg-[#232b28] border-r border-[#28332e] flex flex-col p-3 shadow-xl z-20 overflow-y-auto flex-shrink-0">
 
@@ -198,20 +197,8 @@
         </div>
         {% endif %}
 
-
-        <!-- ── HELP ────────────────────────────────────────────────── -->
-        {% if current_user.role != 'tec' %}
-        <button class="sg-btn" onclick="sgToggle('help')">
-            <span class="flex items-center gap-2"><i class="bi bi-journal-text" style="color:#94a3b8;"></i> Help</span>
-            <i id="chev-help" class="bi bi-chevron-down sg-chevron {% if help_on %}open{% endif %}"></i>
-        </button>
-        <div id="sg-help" class="sg-body {% if not help_on %}closed{% endif %} space-y-0.5 mb-2">
-            <a href="{{ url_for('docs.docs_page') }}"
-               class="sidebar-item {% if ep.startswith('docs.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
-                <i class="bi bi-journal-text flex-shrink-0" style="color:#94a3b8;"></i> Documentation
-            </a>
-        </div>
-        {% endif %}
+        {# Help / Documentation group removed (Mazloum item 6): charts explain
+           themselves through their info icons. The /docs route is kept. #}
 
     </nav>
 

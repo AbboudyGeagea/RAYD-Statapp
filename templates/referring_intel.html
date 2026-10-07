@@ -6,6 +6,8 @@
     <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="{{ url_for('static', filename='js/chart-explanations.js') }}"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
     <style>
         :root { --bg:#0d1410; --surface:#151c18; --border:#1e2820; --accent:#34d399; }
@@ -121,7 +123,7 @@
             <div id="loyalty-view" class="hidden h-full p-6 flex flex-col gap-3">
                 <div>
                     <p class="text-[9px] font-black uppercase tracking-widest mb-1" style="color:#34d399;">
-                        <i class="bi bi-bullseye mr-1"></i>Loyalty &amp; Turnaround Correlation
+                        <i class="bi bi-bullseye mr-1"></i>Loyalty &amp; Turnaround Correlation<i class="bi bi-info-circle chart-info-icon" data-explain="ri-loyalty-map" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i>
                     </p>
                     <p class="text-xs" style="color:#4b5563;">
                         Each bubble is one referring physician (min. 10 studies in the selected window). X = median report
@@ -155,7 +157,7 @@
                 <div class="flex items-start justify-between gap-4">
                     <div>
                         <p class="text-[9px] font-black uppercase tracking-widest mb-1" style="color:#34d399;">
-                            <i class="bi bi-person-circle mr-1"></i>Referring Physician
+                            <i class="bi bi-person-circle mr-1"></i>Referring Physician<i class="bi bi-info-circle chart-info-icon" data-explain="ri-summary" role="button" tabindex="0" aria-label="About these numbers" title="About these numbers"></i>
                         </p>
                         <h2 id="ph-name" class="text-2xl font-black text-white"></h2>
                         <p id="ph-meta" class="text-xs mt-1" style="color:#4b5563;"></p>
@@ -179,7 +181,7 @@
                 <!-- ── Tab: Volume ──────────────────────────────────── -->
                 <div id="dtab-content-volume" class="detail-panel space-y-4">
                     <div class="card p-5">
-                        <p class="text-[9px] font-black uppercase tracking-widest mb-3" style="color:#34d399;">Monthly Study Volume</p>
+                        <p class="text-[9px] font-black uppercase tracking-widest mb-3" style="color:#34d399;">Monthly Study Volume<i class="bi bi-info-circle chart-info-icon" data-explain="ri-volume" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
                         <div id="chart-volume" style="height:220px;"></div>
                     </div>
                 </div>
@@ -187,7 +189,7 @@
                 <!-- ── Tab: TAT ─────────────────────────────────────── -->
                 <div id="dtab-content-tat" class="detail-panel hidden space-y-4">
                     <div class="card p-5">
-                        <p class="text-[9px] font-black uppercase tracking-widest mb-3" style="color:#34d399;">Monthly Median TAT (minutes)</p>
+                        <p class="text-[9px] font-black uppercase tracking-widest mb-3" style="color:#34d399;">Monthly Median TAT (minutes)<i class="bi bi-info-circle chart-info-icon" data-explain="ri-tat" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
                         <div id="chart-tat" style="height:220px;"></div>
                     </div>
                 </div>
@@ -196,19 +198,19 @@
                 <div id="dtab-content-mix" class="detail-panel hidden">
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div class="card p-5">
-                            <p class="text-[9px] font-black uppercase tracking-widest mb-3" style="color:#34d399;">Modality Mix</p>
+                            <p class="text-[9px] font-black uppercase tracking-widest mb-3" style="color:#34d399;">Modality Mix<i class="bi bi-info-circle chart-info-icon" data-explain="ri-modality" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
                             <div id="chart-modality" style="height:240px;"></div>
                         </div>
                         <div class="card p-5">
-                            <p class="text-[9px] font-black uppercase tracking-widest mb-3" style="color:#34d399;">Body Parts</p>
+                            <p class="text-[9px] font-black uppercase tracking-widest mb-3" style="color:#34d399;">Body Parts<i class="bi bi-info-circle chart-info-icon" data-explain="ri-body" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
                             <div id="chart-body" style="height:240px;"></div>
                         </div>
                         <div class="card p-5">
-                            <p class="text-[9px] font-black uppercase tracking-widest mb-3" style="color:#34d399;">Patient Class</p>
+                            <p class="text-[9px] font-black uppercase tracking-widest mb-3" style="color:#34d399;">Patient Class<i class="bi bi-info-circle chart-info-icon" data-explain="ri-class" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
                             <div id="chart-class" style="height:200px;"></div>
                         </div>
                         <div class="card p-5">
-                            <p class="text-[9px] font-black uppercase tracking-widest mb-3" style="color:#34d399;">Patient Age Distribution</p>
+                            <p class="text-[9px] font-black uppercase tracking-widest mb-3" style="color:#34d399;">Patient Age Distribution<i class="bi bi-info-circle chart-info-icon" data-explain="ri-age" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
                             <div id="chart-age" style="height:200px;"></div>
                         </div>
                     </div>
@@ -218,14 +220,14 @@
                 <div id="dtab-content-findings" class="detail-panel hidden">
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div class="card p-5">
-                            <p class="text-[9px] font-black uppercase tracking-widest mb-1" style="color:#34d399;">Top NLP-Extracted Findings</p>
+                            <p class="text-[9px] font-black uppercase tracking-widest mb-1" style="color:#34d399;">Top NLP-Extracted Findings<i class="bi bi-info-circle chart-info-icon" data-explain="ri-findings" role="button" tabindex="0" aria-label="About this list" title="About this list"></i></p>
                             <p class="text-[10px] mb-4" style="color:#374151;font-style:italic;">
                                 From HL7 ORU reports analyzed by the NLP worker — affirmed (non-negated) labels only.
                             </p>
                             <div id="findings-list" class="space-y-2"></div>
                         </div>
                         <div class="card p-5">
-                            <p class="text-[9px] font-black uppercase tracking-widest mb-4" style="color:#f87171;">Critical Findings</p>
+                            <p class="text-[9px] font-black uppercase tracking-widest mb-4" style="color:#f87171;">Critical Findings<i class="bi bi-info-circle chart-info-icon" data-explain="ri-critical" role="button" tabindex="0" aria-label="About this card" title="About this card"></i></p>
                             <div id="critical-box"></div>
                         </div>
                     </div>
@@ -236,12 +238,12 @@
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <!-- Return rate cards -->
                         <div class="card p-5 col-span-1">
-                            <p class="text-[9px] font-black uppercase tracking-widest mb-4" style="color:#34d399;">Patient Return Rate</p>
+                            <p class="text-[9px] font-black uppercase tracking-widest mb-4" style="color:#34d399;">Patient Return Rate<i class="bi bi-info-circle chart-info-icon" data-explain="ri-return" role="button" tabindex="0" aria-label="About this card" title="About this card"></i></p>
                             <div id="return-stats" class="space-y-3"></div>
                         </div>
                         <!-- Age chart -->
                         <div class="card p-5 col-span-2">
-                            <p class="text-[9px] font-black uppercase tracking-widest mb-3" style="color:#34d399;">Volume × Patients per Month</p>
+                            <p class="text-[9px] font-black uppercase tracking-widest mb-3" style="color:#34d399;">Volume × Patients per Month<i class="bi bi-info-circle chart-info-icon" data-explain="ri-pt-trend" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
                             <div id="chart-pt-trend" style="height:200px;"></div>
                         </div>
                     </div>
@@ -250,7 +252,7 @@
                 <!-- ── Tab: Recent ───────────────────────────────── -->
                 <div id="dtab-content-recent" class="detail-panel hidden">
                     <div class="card p-5">
-                        <p class="text-[9px] font-black uppercase tracking-widest mb-3" style="color:#34d399;">Last 20 Studies</p>
+                        <p class="text-[9px] font-black uppercase tracking-widest mb-3" style="color:#34d399;">Last 20 Studies<i class="bi bi-info-circle chart-info-icon" data-explain="ri-recent" role="button" tabindex="0" aria-label="About this table" title="About this table"></i></p>
                         <div class="overflow-x-auto">
                             <table class="data-table">
                                 <thead>

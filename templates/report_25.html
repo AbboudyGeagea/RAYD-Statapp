@@ -8,6 +8,8 @@
     <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="{{ url_for('static', filename='js/chart-explanations.js') }}"></script>
     <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
     <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
@@ -314,7 +316,7 @@
                 {% if data.summary.tat_median and data.summary.tat_p75 %}
                 {% set _p90ref = data.summary.tat_p90 if data.summary.tat_p90 and data.summary.tat_p90 > 0 else data.summary.tat_p75 %}
                 <div class="flex gap-4 items-center px-4 py-3 bg-white/[0.03] border border-white/5 rounded-2xl">
-                    <p class="text-[10px] font-black text-zinc-600 uppercase tracking-widest shrink-0">TAT Percentiles</p>
+                    <p class="text-[10px] font-black text-zinc-600 uppercase tracking-widest shrink-0">TAT Percentiles<i class="bi bi-info-circle chart-info-icon" data-explain="r25-tat-percentiles" role="button" tabindex="0" aria-label="About this metric" title="About this metric"></i></p>
                     <div class="flex gap-6 flex-1">
                         <div class="text-center">
                             <p class="text-[9px] text-zinc-600 uppercase font-bold">P25</p>
@@ -348,7 +350,7 @@
                 <!-- Patient Wait Time (order received -> PACS complete; Mazloum agreement 2026-09-16) -->
                 {% if data.summary.wait_available %}
                 <div class="flex gap-4 items-center px-4 py-3 bg-white/[0.03] border border-white/5 rounded-2xl">
-                    <p class="text-[10px] font-black text-zinc-600 uppercase tracking-widest shrink-0">Patient Wait Time</p>
+                    <p class="text-[10px] font-black text-zinc-600 uppercase tracking-widest shrink-0">Patient Wait Time<i class="bi bi-info-circle chart-info-icon" data-explain="r25-wait" role="button" tabindex="0" aria-label="About this metric" title="About this metric"></i></p>
                     {% if data.summary.wait_n and data.summary.wait_n > 0 %}
                     <div class="flex gap-6 flex-1">
                         <div class="text-center">
@@ -382,7 +384,7 @@
                 <div class="grid grid-cols-2 gap-8">
                     <div class="chart-card">
                         <div class="chart-card-header">
-                            <span class="chart-card-title">TAT per Patient Class</span>
+                            <span class="chart-card-title">TAT per Patient Class<i class="bi bi-info-circle chart-info-icon" data-explain="r25-tat-class" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
                             <button class="export-png-btn" onclick="exportChart('chart-1', 'tat_per_class')">
                                 <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                                 PNG
@@ -399,7 +401,7 @@
 
                     <div class="chart-card">
                         <div class="chart-card-header">
-                            <span class="chart-card-title">Hourly Arrival Pattern</span>
+                            <span class="chart-card-title">Hourly Arrival Pattern<i class="bi bi-info-circle chart-info-icon" data-explain="r25-hourly" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
                             <button class="export-png-btn" onclick="exportChart('chart-6', 'hourly_arrivals')">
                                 <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                                 PNG
@@ -419,7 +421,7 @@
                 <div class="grid grid-cols-2 gap-8">
                     <div class="chart-card">
                         <div class="chart-card-header">
-                            <span class="chart-card-title">Modality Volume Split</span>
+                            <span class="chart-card-title">Modality Volume Split<i class="bi bi-info-circle chart-info-icon" data-explain="r25-modality-split" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
                             <button class="export-png-btn" onclick="exportChart('chart-5', 'modality_split')">
                                 <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                                 PNG
@@ -436,7 +438,7 @@
 
                     <div class="chart-card">
                         <div class="chart-card-header">
-                            <span class="chart-card-title">Duration vs. TAT Correlation</span>
+                            <span class="chart-card-title">Duration vs. TAT Correlation<i class="bi bi-info-circle chart-info-icon" data-explain="r25-duration-tat" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
                             {% if run_report and data and data.pearson_r is not none %}
                             <span class="outlier-badge" style="background:{% if data.pearson_r|abs >= 0.7 %}#dcfce7{% elif data.pearson_r|abs >= 0.4 %}#fef9c3{% else %}#fee2e2{% endif %};color:#18181b;">r = {{ data.pearson_r }}</span>
                             {% endif %}
@@ -467,7 +469,7 @@
                 </p>
 
                 <div class="glass-card !p-0 overflow-hidden">
-                    <p class="p-6 text-xs font-black text-zinc-500 uppercase">Device Utilization &amp; Revenue Matrix</p>
+                    <p class="p-6 text-xs font-black text-zinc-500 uppercase">Device Utilization &amp; Revenue Matrix<i class="bi bi-info-circle chart-info-icon" data-explain="r25-util-matrix" role="button" tabindex="0" aria-label="About this table" title="About this table"></i></p>
                     <table class="w-full text-sm text-left border-t border-white/5">
                         <thead class="bg-white/5 text-zinc-500 uppercase font-black text-[11px]">
                             <tr>
@@ -508,7 +510,7 @@
                 <!-- Best vs Worst AE by Average TAT -->
                 <div class="glass-card">
                     <div class="flex items-center justify-between mb-4">
-                        <p class="text-xs font-black text-blue-500 uppercase">Best vs Worst AE by Average TAT</p>
+                        <p class="text-xs font-black text-blue-500 uppercase">Best vs Worst AE by Average TAT<i class="bi bi-info-circle chart-info-icon" data-explain="r25-ae-tat" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
                         <p class="text-[9px] text-zinc-500 uppercase">Min 5 studies · sorted fastest → slowest</p>
                     </div>
                     <div id="chart-ae-tat" class="w-full" style="height:320px;"></div>
@@ -518,7 +520,7 @@
                 {% if data.modality_tat %}
                 <div class="chart-card">
                     <div class="chart-card-header">
-                        <span class="chart-card-title">Avg TAT by Modality</span>
+                        <span class="chart-card-title">Avg TAT by Modality<i class="bi bi-info-circle chart-info-icon" data-explain="r25-mod-tat" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
                     </div>
                     <div class="chart-card-desc">Average and median turnaround time per modality. Sorted fastest to slowest.</div>
                     <div class="chart-card-body">
@@ -544,6 +546,7 @@
 
                 <p class="section-desc">
                     Radiologist performance heatmap — avg TAT per radiologist × modality. Darker = slower. Hover for detail.
+                    <i class="bi bi-info-circle chart-info-icon" data-explain="r25-rad-heatmap" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i>
                 </p>
 
                 <!-- TAT Heatmap: radiologist × modality -->
@@ -554,7 +557,7 @@
                 <!-- Peer Ranking Table — JS rendered for sort + drilldown -->
                 <div class="glass-card" id="rad-peer-card">
                     <div class="flex items-center justify-between mb-3">
-                        <p class="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Peer Ranking</p>
+                        <p class="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Peer Ranking<i class="bi bi-info-circle chart-info-icon" data-explain="r25-peer" role="button" tabindex="0" aria-label="About this table" title="About this table"></i></p>
                         <div class="flex gap-2 text-[9px] text-zinc-600 uppercase font-black">
                             Sort:
                             <button class="rad-sort-btn active" data-key="overall" onclick="sortRadTable('overall',this)">Avg TAT</button>
@@ -570,7 +573,7 @@
                 {% if data.rad_volume_matrix %}
                 <div class="glass-card" id="r25-rad-matrix-card">
                     <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
-                        <p class="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Reports per Radiologist</p>
+                        <p class="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Reports per Radiologist<i class="bi bi-info-circle chart-info-icon" data-explain="reports-per-radiologist" role="button" tabindex="0" aria-label="About this table" title="About this table"></i></p>
                         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
                             <div style="display:inline-flex;border:1px solid #3f3f46;border-radius:6px;overflow:hidden;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;">
                                 <button id="r25-rad-toggle-mod" onclick="r25RadToggle('mod')"
@@ -1405,14 +1408,14 @@
                 <div class="grid grid-cols-2 gap-6">
                     <div class="glass-card">
                         <div class="flex items-center justify-between mb-4">
-                            <p class="text-xs font-black text-blue-500 uppercase">Modality Efficiency Score</p>
+                            <p class="text-xs font-black text-blue-500 uppercase">Modality Efficiency Score<i class="bi bi-info-circle chart-info-icon" data-explain="r25-eff-score" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
                             <p class="text-[9px] text-zinc-500 uppercase">RVU per 1% Utilization</p>
                         </div>
                         <div id="chart-eff-bar" class="w-full" style="height:300px;"></div>
                     </div>
                     <div class="glass-card">
                         <div class="flex items-center justify-between mb-4">
-                            <p class="text-xs font-black text-blue-500 uppercase">Stress vs Output</p>
+                            <p class="text-xs font-black text-blue-500 uppercase">Stress vs Output<i class="bi bi-info-circle chart-info-icon" data-explain="r25-stress-output" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
                             <p class="text-[9px] text-zinc-500 uppercase">Util % vs RVU per AE</p>
                         </div>
                         <div id="chart-stress-scatter" class="w-full" style="height:300px;"></div>
@@ -1423,7 +1426,7 @@
                 <div class="grid grid-cols-2 gap-6">
                     <div class="glass-card">
                         <div class="flex items-center justify-between mb-4">
-                            <p class="text-xs font-black text-blue-500 uppercase">TAT Distribution</p>
+                            <p class="text-xs font-black text-blue-500 uppercase">TAT Distribution<i class="bi bi-info-circle chart-info-icon" data-explain="r25-tat-dist" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
                             <p class="text-[9px] text-zinc-500 uppercase">Studies per TAT bucket</p>
                         </div>
                         <div id="chart-tat-hist" class="w-full" style="height:280px;"></div>
@@ -1431,7 +1434,7 @@
                     <div class="glass-card">
                         <div class="flex items-center justify-between mb-4">
                             <div class="flex items-center gap-2">
-                                <p class="text-xs font-black text-blue-500 uppercase">RVU vs TAT</p>
+                                <p class="text-xs font-black text-blue-500 uppercase">RVU vs TAT<i class="bi bi-info-circle chart-info-icon" data-explain="r25-rvu-tat" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
                                 {% if run_report and data and data.rvu_outliers_removed %}
                                 <span class="outlier-badge">⚠ {{ data.rvu_outliers_removed }} outliers removed<span class="tooltip">IQR filter applied — extreme RVU/TAT values excluded.</span></span>
                                 {% endif %}
@@ -1445,7 +1448,7 @@
                 <!-- Row 3: TAT Outlier Cards -->
                 <div class="glass-card">
                     <div class="flex items-center justify-between mb-4">
-                        <p class="text-xs font-black text-amber-500 uppercase tracking-widest">TAT Outlier Detection</p>
+                        <p class="text-xs font-black text-amber-500 uppercase tracking-widest">TAT Outlier Detection<i class="bi bi-info-circle chart-info-icon" data-explain="r25-outliers" role="button" tabindex="0" aria-label="About this list" title="About this list"></i></p>
                         <span class="text-[10px] text-zinc-600 italic">IQR-based threshold · sorted by severity</span>
                     </div>
                     <div id="outlier-list" class="space-y-2">
@@ -1457,7 +1460,7 @@
                 <div class="grid grid-cols-2 gap-6">
                     <div class="glass-card">
                         <div class="flex items-center justify-between mb-4">
-                            <p class="text-xs font-black text-rose-500 uppercase tracking-widest">TAT — Above P90</p>
+                            <p class="text-xs font-black text-rose-500 uppercase tracking-widest">TAT — Above P90<i class="bi bi-info-circle chart-info-icon" data-explain="r25-p90" role="button" tabindex="0" aria-label="About this list" title="About this list"></i></p>
                             <span class="text-[10px] text-zinc-600 italic">Worst 10% · for RCA · max 50 rows</span>
                         </div>
                         <div id="tat-p90-outlier-list" class="space-y-2 max-h-[420px] overflow-y-auto">
@@ -1466,7 +1469,7 @@
                     </div>
                     <div class="glass-card">
                         <div class="flex items-center justify-between mb-4">
-                            <p class="text-xs font-black text-rose-500 uppercase tracking-widest">Patient Wait Time — Above P90</p>
+                            <p class="text-xs font-black text-rose-500 uppercase tracking-widest">Patient Wait Time — Above P90<i class="bi bi-info-circle chart-info-icon" data-explain="r25-wait-p90" role="button" tabindex="0" aria-label="About this list" title="About this list"></i></p>
                             <span class="text-[10px] text-zinc-600 italic">Order received &rarr; PACS complete · max 50 rows</span>
                         </div>
                         <div id="wait-p90-outlier-list" class="space-y-2 max-h-[420px] overflow-y-auto">
@@ -1486,7 +1489,7 @@
 
                 <!-- Unread Study Aging -->
                 <div class="space-y-4">
-                    <p class="text-xs font-black text-blue-500 uppercase tracking-widest">Unread Study Aging</p>
+                    <p class="text-xs font-black text-blue-500 uppercase tracking-widest">Unread Study Aging<i class="bi bi-info-circle chart-info-icon" data-explain="r25-unread-aging" role="button" tabindex="0" aria-label="About this section" title="About this section"></i></p>
                     {% if data and data.unread_aging %}
                     {% set bucket_totals = {} %}
                     {% for row in data.unread_aging %}
@@ -1525,7 +1528,7 @@
                 <!-- Studies per Shift -->
                 <div class="space-y-4">
                     <div class="flex items-center justify-between">
-                        <p class="text-xs font-black text-blue-500 uppercase tracking-widest">Studies per Shift</p>
+                        <p class="text-xs font-black text-blue-500 uppercase tracking-widest">Studies per Shift<i class="bi bi-info-circle chart-info-icon" data-explain="r25-shift" role="button" tabindex="0" aria-label="About this section" title="About this section"></i></p>
                         <button onclick="openShiftConfig()" class="px-4 py-2 bg-zinc-900 border border-white/10 rounded-xl text-[11px] font-black text-zinc-400 hover:text-white hover:border-blue-500/40 transition-all uppercase">
                             Configure Shifts
                         </button>
@@ -1568,7 +1571,7 @@
 
                 <!-- Addendum Rate -->
                 <div class="space-y-4">
-                    <p class="text-xs font-black text-blue-500 uppercase tracking-widest">Addendum Rate by Radiologist</p>
+                    <p class="text-xs font-black text-blue-500 uppercase tracking-widest">Addendum Rate by Radiologist<i class="bi bi-info-circle chart-info-icon" data-explain="r25-addendum" role="button" tabindex="0" aria-label="About this section" title="About this section"></i></p>
                     {% if data and data.addendum_data and data.addendum_data.by_rad %}
                     <div class="grid grid-cols-3 gap-4">
                         <div class="glass-card flex flex-col items-center col-span-1">

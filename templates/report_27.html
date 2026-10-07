@@ -12,6 +12,8 @@
          unaffected. -->
     <script src="https://cdn.jsdelivr.net/npm/echarts@6/dist/echarts.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="{{ url_for('static', filename='js/chart-explanations.js') }}"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/dark.min.css">
     <style>
@@ -168,7 +170,7 @@
                 <div class="card-header" style="color:#06b6d4;">
                     <div class="flex items-center gap-2">
                         <i class="bi bi-layers"></i>
-                        Multiple Orders Detected
+                        Multiple Orders Detected<i class="bi bi-info-circle chart-info-icon" data-explain="r27-multi-order" role="button" tabindex="0" aria-label="About this card" title="About this card"></i>
                         <span style="font-size:9px;font-weight:900;padding:2px 10px;border-radius:999px;background:rgba(6,182,212,0.12);color:#06b6d4;border:1px solid rgba(6,182,212,0.3);">
                             {{ data.multi_order.groups }} group{{ 's' if data.multi_order.groups != 1 else '' }}
                         </span>
@@ -198,7 +200,7 @@
             <div class="grid grid-cols-3 gap-6">
                 <div class="data-card col-span-2 flex flex-col" style="height:360px;">
                     <div class="card-header">
-                        <span>Hourly Load (Volume Trend)</span>
+                        <span>Hourly Load (Volume Trend)<i class="bi bi-info-circle chart-info-icon" data-explain="r27-hourly" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
                         <button class="export-pdf-btn" onclick="exportChartPdf('chart_hourly','Hourly Load (Volume Trend)','hourly_load')"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
                         <button class="export-png-btn" onclick="exportChart('chart_hourly', 'hourly_load')">
                             <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
@@ -213,7 +215,7 @@
 
                 <div class="data-card flex flex-col" style="height:360px;">
                     <div class="card-header">
-                        <span>Proc-ID Reconciliation</span>
+                        <span>Proc-ID Reconciliation<i class="bi bi-info-circle chart-info-icon" data-explain="r27-match" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
                         <button class="export-pdf-btn" onclick="exportChartPdf('chart_match','Proc-ID Reconciliation','proc_reconciliation')"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
                         <button class="export-png-btn" onclick="exportChart('chart_match', 'proc_reconciliation')">
                             <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
@@ -230,7 +232,7 @@
             <!-- Row 1b: Busiest Days -->
             <div class="data-card flex flex-col hidden" id="busiest-matrix-card">
                 <div class="card-header">
-                    <span>Busiest Day &amp; Time (Weekly Pattern)</span>
+                    <span>Busiest Day &amp; Time (Weekly Pattern)<i class="bi bi-info-circle chart-info-icon" data-explain="r27-busiest" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
                     <button class="export-png-btn" onclick="exportChart('chart_busiest_matrix', 'busiest_weekly_pattern')">
                         <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                         PNG
@@ -257,7 +259,7 @@
 
             <div class="data-card flex flex-col" style="height:340px;">
                 <div class="card-header">
-                    <span>Busiest Day of Month</span>
+                    <span>Busiest Day of Month<i class="bi bi-info-circle chart-info-icon" data-explain="r27-dom" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
                     <button class="export-pdf-btn" onclick="exportChartPdf('chart_dom','Busiest Day of Month','busiest_day_of_month')"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
                     <button class="export-png-btn" onclick="exportChart('chart_dom', 'busiest_day_of_month')">
                         <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
@@ -274,7 +276,7 @@
             <div class="grid grid-cols-3 gap-6">
                 <div class="data-card flex flex-col" style="height:380px;">
                     <div class="card-header">
-                        <span>Demographics (Age &amp; Gender)</span>
+                        <span>Demographics (Age &amp; Gender)<i class="bi bi-info-circle chart-info-icon" data-explain="r27-demo" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
                         <button class="export-pdf-btn" onclick="exportChartPdf('chart_demo','Demographics (Age & Gender)','demographics')"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
                         <button class="export-png-btn" onclick="exportChart('chart_demo', 'demographics')">
                             <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
@@ -289,7 +291,7 @@
 
                 <div class="data-card flex flex-col" style="height:380px;">
                     <div class="card-header">
-                        <span>Order Status Mix</span>
+                        <span>Order Status Mix<i class="bi bi-info-circle chart-info-icon" data-explain="r27-status" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
                         <button class="export-pdf-btn" onclick="exportChartPdf('chart_status','Order Status Mix','order_status_mix')"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
                         <button class="export-png-btn" onclick="exportChart('chart_status', 'order_status_mix')">
                             <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
@@ -304,7 +306,7 @@
 
                 <div class="data-card flex flex-col" style="height:380px;">
                     <div class="card-header">
-                        <span>Modality Distribution (AE)</span>
+                        <span>Modality Distribution (AE)<i class="bi bi-info-circle chart-info-icon" data-explain="r27-ae" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
                         <button class="export-pdf-btn" onclick="exportChartPdf('chart_ae','Modality Distribution (AE)','ae_distribution')"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
                         <button class="export-png-btn" onclick="exportChart('chart_ae', 'ae_distribution')">
                             <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
