@@ -165,12 +165,13 @@ def _init_vocabulary():
 # Bump when the model or vocabulary changes. Stale rows are only re-analysed
 # where a requeue step says so (see _requeue_non_rule_reports).
 # v2 = ConTextRule("non") removed (2026-10-07).
-_NLP_MODEL_VERSION = 'medspacy-v2'
+# v3 = ’ normalised; "pas d'", "absence d'", "is/was excluded", "mais" (2026-10-07).
+_NLP_MODEL_VERSION = 'medspacy-v3'
 
 # ai_nlp_cache.nlp_version (migration 0059). Rows with any other value are
 # recomputed by the next on-demand job; rows with none (written before negation
 # was resolved) are also hidden from the ORU page.
-_CLUSTER_VERSION = 'tfidf-negation-v1'
+_CLUSTER_VERSION = 'tfidf-negation-v2'   # v2 = medspacy-v3 cues
 
 _CHUNK           = 500
 _BATCH_LIMIT      = 2000
@@ -183,6 +184,13 @@ _BATCH_EVERY_TICKS = _POLL_SECONDS // _JOB_POLL_SECONDS
 
 _NLP = None
 _NLP_WORKERS = max(1, int((os.cpu_count() or 4) * 0.75))
+
+
+def _same_clause(target, modifier, span_between):
+    """ConText on_modifies callback for the post-posed "excluded" cues: negate only
+    a finding in the same clause, so "Large pleural effusion, pulmonary embolism
+    is excluded." keeps the effusion."""
+    return not any(tok.text in (',', ';') for tok in span_between)
 
 
 def _load_medspacy():
@@ -234,6 +242,24 @@ def _load_medspacy():
             ConTextRule("négatif",       "NEGATED_EXISTENCE", direction="FORWARD"),
             ConTextRule("exclu",         "NEGATED_EXISTENCE", direction="BIDIRECTIONAL"),
             ConTextRule("écarté",        "NEGATED_EXISTENCE", direction="BIDIRECTIONAL"),
+            # Elided forms: spaCy splits "d'épanchement" into d + ' + épanchement, so
+            # "pas de" never matched and "Pas d'épanchement pleural" was flagged as
+            # a pleural effusion. (’ is normalised to ' by _clean_text.)
+            ConTextRule("pas d'",        "NEGATED_EXISTENCE", direction="FORWARD"),
+            ConTextRule("absence d'",    "NEGATED_EXISTENCE", direction="FORWARD"),
+            # French "but", as the stock English "but": "Pas de fracture mais
+            # épanchement pleural important" negated the effusion too.
+            ConTextRule("mais",          "NEGATED_EXISTENCE", direction="TERMINATE"),
+        ])
+
+        # medspaCy's stock rules know "ruled out" but not "excluded", so "Pulmonary
+        # embolism is excluded." was flagged as a pulmonary embolism. Only the
+        # explicit forms: a bare "excluded" would also match "cannot be excluded"
+        # and negate a possible finding.
+        context.add([
+            ConTextRule(cue, "NEGATED_EXISTENCE", direction="BACKWARD", on_modifies=_same_clause)
+            for cue in ("is excluded", "was excluded", "are excluded", "were excluded",
+                        "has been excluded", "have been excluded")
         ])
 
         _NLP = nlp
@@ -256,10 +282,16 @@ def _affirmed_phrases_rule_based(t):
     return found
 
 
+def _clean_text(t):
+    # spaCy keeps "d’épanchement" (typographic apostrophe) as ONE token, so neither
+    # the finding nor a negation cue around it was ever matched.
+    return (t or '').lower().replace('’', "'")[:8000]
+
+
 def _affirmed_phrases_batch(texts):
     if not texts:
         return []
-    cleaned = [(t or '').lower()[:8000] for t in texts]
+    cleaned = [_clean_text(t) for t in texts]
     nlp = _load_medspacy()
 
     if nlp is not None:
@@ -298,7 +330,7 @@ def _negation_resolved_texts(texts):
     if nlp is None:
         raise RuntimeError("medspaCy is not available in the NLP worker, so negations "
                            "cannot be resolved. The analysis was not run.")
-    cleaned = [(t or '').lower()[:8000] for t in texts]
+    cleaned = [_clean_text(t) for t in texts]
     resolved = []
     # n_process=1: doc._.context_graph is read here, in this process.
     for doc in nlp.pipe(cleaned, batch_size=64, n_process=1):
@@ -306,7 +338,8 @@ def _negation_resolved_texts(texts):
         for m in doc._.context_graph.modifiers:
             if m.category in _MASKED_CONTEXT and m.direction.upper() not in ('TERMINATE', 'PSEUDO'):
                 drop.update(range(*m.modifier_span))
-                drop.update(range(*m.scope_span))
+                # Per token, so a rule's on_modifies limit (_same_clause) holds here too.
+                drop.update(i for i in range(*m.scope_span) if m.on_modifies(doc[i:i + 1]))
         for ent in doc.ents:
             if ent._.is_negated or ent._.is_historical:
                 drop.update(range(ent.start, ent.end))
@@ -637,6 +670,35 @@ def _requeue_non_rule_reports():
         conn.close()
 
 
+def _requeue_v3_cue_reports():
+    """Drop v1/v2 analysis rows of reports that v3 reads differently (a typographic
+    apostrophe, "pas d'", "absence d'", "... excluded", "mais"), so run_batch
+    re-analyses them and the critical findings log is corrected both ways. Skipped
+    while medspaCy is down: the rule-based fallback lacks these cues and would
+    stamp the old result v3. Touches v1/v2 rows only, so it is a no-op once they
+    are gone."""
+    if _NLP is None:
+        print("[NLP Worker] medspaCy not loaded -- v3 requeue postponed to the next start.")
+        return
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(r"""
+                DELETE FROM hl7_oru_analysis a
+                USING  hl7_oru_reports r
+                WHERE  a.report_id = r.id
+                  AND  a.nlp_version IN ('medspacy-v1', 'medspacy-v2')
+                  AND  COALESCE(NULLIF(r.impression_text, ''), r.report_text, '')
+                       ~* '’|\m(pas|absence)\s+d\s*''|\mexcluded\M|\mmais\M'
+            """)
+            requeued = cur.rowcount
+        conn.commit()
+        if requeued:
+            print(f"[NLP Worker] Requeued {requeued} report(s) for the v3 negation cues.")
+    finally:
+        conn.close()
+
+
 def main():
     print("[NLP Worker] Starting up...")
 
@@ -657,6 +719,10 @@ def main():
         _requeue_non_rule_reports()
     except Exception as e:
         print(f"[NLP Worker] Requeue of \"non\"-rule reports failed: {e}")
+    try:
+        _requeue_v3_cue_reports()
+    except Exception as e:
+        print(f"[NLP Worker] Requeue of v3-cue reports failed: {e}")
     print(f"[NLP Worker] Polling jobs every {_JOB_POLL_SECONDS}s, "
           f"medspaCy batch every {_POLL_SECONDS}s.")
 
