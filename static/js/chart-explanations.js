@@ -487,8 +487,8 @@ const ChartExplanations = {
     'oru-normal-abnormal': {
       title: 'Normal vs Abnormal Rate',
       purpose: 'Share of reports in the period that read as normal.',
-      valueMeaning: 'Normal = the conclusion (or the whole report when there is no conclusion) contains a normal phrase such as “unremarkable”, “no acute” or “within normal”. Everything else counts as abnormal.',
-      interpretation: 'This is a phrase match, not a reading of the report, so treat it as a trend. A sudden change usually comes from a change in report wording or templates.'
+      valueMeaning: 'Normal = the report contains an English normal phrase such as “unremarkable”, “no acute” or “within normal” anywhere in its text. Everything else counts as abnormal. French reports have no French phrase list, so they almost always count as abnormal.',
+      interpretation: 'This is a phrase search over the whole report, not a reading of its conclusion, so treat it as a rough trend. It understates the normal rate, mostly because of French reports. A sudden change usually comes from a change in report wording or templates.'
     },
     'oru-modality': {
       title: 'Reports by Modality',
