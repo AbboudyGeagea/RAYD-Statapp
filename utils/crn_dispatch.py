@@ -26,12 +26,14 @@ import logging
 import secrets
 import string
 from collections import Counter
+from datetime import datetime, timezone
 
 from sqlalchemy import text
 
 from db import db
 from utils.crypto import encrypt, decrypt
 from utils.crn_sms import send_sms
+from utils import crn_gateway_client as gateway
 
 logger = logging.getLogger("CRN_DISPATCH")
 
@@ -42,6 +44,8 @@ DEFAULTS = {
     'crn_live_since': '', 'crn_resend_min': '15', 'crn_fallback_min': '30', 'crn_overdue_min': '60',
     'crn_link_ttl_hours': '72', 'crn_fallback_code': '', 'crn_public_base_url': '',
     'crn_sms_provider': 'log', 'crn_sms_template': DEFAULT_TEMPLATE,
+    'crn_gateway_url': '', 'crn_gateway_api_key': '', 'crn_gateway_event_cursor': '0',
+    'crn_hospital_name': '', 'crn_page_footer': '',
 }
 
 
@@ -106,6 +110,92 @@ def _recipients(notification_id):
     """), {'n': notification_id}).mappings().fetchall()}
 
 
+def _page_payload(n, rec, cfg):
+    """What the notification page shows: patient, exam, report. It goes only to the
+    gateway (encrypted at rest there), never into the SMS."""
+    report = db.session.execute(text("""
+        SELECT report_text, impression_text, procedure_name, modality, physician_id, result_datetime, patient_id
+        FROM hl7_oru_reports WHERE id = :id
+    """), {'id': n['report_id']}).mappings().fetchone() or {}
+    order = db.session.execute(text("""
+        SELECT patient_name, date_of_birth, gender, procedure_text, modality, ordering_physician
+        FROM hl7_orders WHERE accession_number = :acc
+        ORDER BY received_at DESC LIMIT 1
+    """), {'acc': n['accession_number']}).mappings().fetchone() if n['accession_number'] else None
+    order = order or {}
+    fmt = lambda v, n_chars=16: str(v)[:n_chars] if v else None
+    return {
+        'hospital': {'name': cfg['crn_hospital_name'] or None, 'footer': cfg['crn_page_footer'] or None},
+        'recipient': {'name': rec['contact_name'], 'role': rec['role']},
+        'patient': {'name': order.get('patient_name'), 'mrn': report.get('patient_id') or n['patient_id'],
+                    'dob': fmt(order.get('date_of_birth'), 10), 'sex': order.get('gender')},
+        'order': {'accession': n['accession_number'],
+                  'procedure': report.get('procedure_name') or order.get('procedure_text'),
+                  'modality': report.get('modality') or order.get('modality'),
+                  'ordered_by': n['doctor_name'] or order.get('ordering_physician')},
+        'report': {'text': (report.get('impression_text') or '').strip() or report.get('report_text'),
+                   'signed_by': report.get('physician_id'), 'signed_at': fmt(report.get('result_datetime'))},
+    }
+
+
+def _push_page(n, rec, cfg):
+    expires_epoch = db.session.execute(text("""
+        SELECT EXTRACT(EPOCH FROM expires_at::timestamptz) FROM crn_recipients WHERE id = :id
+    """), {'id': rec['id']}).scalar()
+    expires_iso = datetime.fromtimestamp(float(expires_epoch), tz=timezone.utc).isoformat()
+    ok, error = gateway.push_page(cfg, rec['token_hash'], n['ref_code'], rec['id'], expires_iso,
+                                  _page_payload(n, rec, cfg))
+    if ok:
+        db.session.execute(text("UPDATE crn_recipients SET page_pushed_at = NOW() WHERE id = :id"),
+                           {'id': rec['id']})
+    return ok, error
+
+
+def _collect_gateway_events(cfg):
+    """Record the gateway's opens and acknowledgements. Returns how many."""
+    after = int(cfg['crn_gateway_event_cursor'] or 0)
+    handled = 0
+    for _ in range(20):                       # at most 20 x 500 events per pass
+        try:
+            events = gateway.fetch_events(cfg, after)
+        except Exception as e:
+            logger.warning(f"[CRN] could not collect gateway events: {e}")
+            break
+        for ev in events:
+            rec = db.session.execute(text("""
+                SELECT id, notification_id, role, contact_code, contact_name FROM crn_recipients
+                WHERE token_hash = :h
+            """), {'h': ev['token_hash']}).mappings().fetchone()
+            if rec:
+                detail = {'role': rec['role'], 'contact_code': rec['contact_code'],
+                          'contact_name': rec['contact_name'], 'ip': ev.get('ip'),
+                          'user_agent': ev.get('user_agent'), 'gateway_at': ev['at'],
+                          'gateway_event_id': ev['id']}
+                if ev['event_type'] == 'opened':
+                    _event(rec['notification_id'], 'opened', detail)
+                    db.session.execute(text("""
+                        UPDATE crn_recipients SET opened_at = COALESCE(opened_at, CAST(:at AS TIMESTAMPTZ))
+                        WHERE id = :id
+                    """), {'at': ev['at'], 'id': rec['id']})
+                elif ev['event_type'] == 'acknowledged':
+                    _event(rec['notification_id'], 'acknowledged', {**detail, 'comment': ev.get('comment')})
+                    db.session.execute(text("""
+                        UPDATE crn_notifications
+                        SET acknowledged_at = COALESCE(acknowledged_at, CAST(:at AS TIMESTAMPTZ)),
+                            acknowledged_by = COALESCE(acknowledged_by, :rid),
+                            status = 'acknowledged'
+                        WHERE id = :nid
+                    """), {'at': ev['at'], 'rid': rec['id'], 'nid': rec['notification_id']})
+                handled += 1
+            after = ev['id']
+        db.session.execute(text("UPDATE settings SET value = :v WHERE key = 'crn_gateway_event_cursor'"),
+                           {'v': str(after)})
+        db.session.commit()
+        if len(events) < 500:
+            break
+    return handled
+
+
 def _send(n, role, contact, cfg, event_type):
     """Text the notification's `role` recipient, creating it (and its link) from
     `contact` on first use. Records the send or the failure. Returns True if sent."""
@@ -126,6 +216,22 @@ def _send(n, role, contact, cfg, event_type):
         if not token:
             _event(n['id'], 'send_failed', {'role': role, 'intended': event_type,
                                             'error': 'the link could not be decrypted (SECRET_KEY changed?)'})
+            return False
+
+    # The page must be on the gateway before the SMS goes out, or the link is dead.
+    if rec['page_pushed_at'] is None:
+        if gateway.configured(cfg):
+            ok, error = _push_page(n, rec, cfg)
+            if not ok:
+                db.session.execute(text("UPDATE crn_recipients SET fail_count = fail_count + 1 WHERE id = :id"),
+                                   {'id': rec['id']})
+                _event(n['id'], 'page_push_failed', {'role': role, 'intended': event_type, 'error': error})
+                return False
+        elif cfg['crn_sms_provider'] != 'log':
+            db.session.execute(text("UPDATE crn_recipients SET fail_count = fail_count + 1 WHERE id = :id"),
+                               {'id': rec['id']})
+            _event(n['id'], 'send_failed', {'role': role, 'intended': event_type,
+                                            'error': 'the CRN gateway is not configured, the link would not open'})
             return False
 
     base = (cfg['crn_public_base_url'] or PLACEHOLDER_BASE_URL).rstrip('/')
@@ -249,6 +355,9 @@ def run_dispatch():
         db.session.rollback()
         return {}
     done = Counter()
+    if gateway.configured(cfg):
+        # First, so an acknowledgement stops escalation in this same pass.
+        done['gateway_events'] = _collect_gateway_events(cfg)
     passes = (
         ("n.status = 'detected'", {}, _route, 'routed'),
         ("n.status IN ('sent', 'overdue') AND n.acknowledged_at IS NULL"
