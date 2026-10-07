@@ -434,12 +434,15 @@ def get_gold_standard_data(form_data):
         mask = _iqr_filter(raw['proc_duration']) & _iqr_filter(raw['total_tat_min'])
         scatter_outliers_removed = int((~mask).sum())
 
+    # Clinical RVU (radiologist side): the template has emitted clinical_rvu /
+    # technical_rvu instead of a single 'rvu' since migration 0045, which left
+    # this chart empty.
     rvu_outliers_removed = 0
-    if 'rvu' in df.columns and 'total_tat_min' in df.columns:
-        tmp_raw = df[(df['rvu'] > 0) & (df['total_tat_min'] > 0)]
-        mask_rvu = _iqr_filter(tmp_raw['rvu']) & _iqr_filter(tmp_raw['total_tat_min'])
+    if 'clinical_rvu' in df.columns and 'total_tat_min' in df.columns:
+        tmp_raw = df[(df['clinical_rvu'] > 0) & (df['total_tat_min'] > 0)]
+        mask_rvu = _iqr_filter(tmp_raw['clinical_rvu']) & _iqr_filter(tmp_raw['total_tat_min'])
         rvu_outliers_removed = int((~mask_rvu).sum())
-        tmp = tmp_raw[mask_rvu][['rvu', 'total_tat_min']]
+        tmp = tmp_raw[mask_rvu][['clinical_rvu', 'total_tat_min']]
         rvu_tat = [[round(float(r[0]), 2), round(float(r[1]), 1)] for r in tmp.values.tolist()]
 
     # TAT by modality (from existing df)

@@ -189,7 +189,7 @@ const ChartExplanations = {
     'r25-rvu-tat': {
       title: 'RVU vs TAT',
       purpose: 'Whether higher-value studies are reported faster or slower than low-value ones.',
-      valueMeaning: 'Each dot is a study. X = RVU, Y = TAT in minutes. Extreme values are removed first (the badge shows how many).',
+      valueMeaning: 'Each dot is a study. X = clinical (radiologist) RVU from the Procedures page, Y = TAT in minutes. Extreme values are removed first (the badge shows how many).',
       interpretation: 'High-RVU studies should not wait longer than low-RVU ones.'
     },
     'r25-outliers': {
