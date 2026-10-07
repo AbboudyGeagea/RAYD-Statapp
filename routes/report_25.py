@@ -461,27 +461,32 @@ def get_gold_standard_data(form_data):
     except Exception:
         logger.warning("Failed to build modality TAT breakdown", exc_info=True)
 
-    # Unread study aging buckets
+    # Unread study aging buckets. The ORDER BY sits outside the grouped query:
+    # Postgres rejects an output alias (bucket) inside an ORDER BY expression,
+    # which made this query fail every time and the section always empty.
     unread_aging = []
     try:
         aging_rows = db.session.execute(text(f"""
-            SELECT
-                CASE
-                    WHEN EXTRACT(EPOCH FROM (NOW() - s.study_date::timestamp))/3600 <= 24 THEN '0-24h'
-                    WHEN EXTRACT(EPOCH FROM (NOW() - s.study_date::timestamp))/3600 <= 48 THEN '24-48h'
-                    WHEN EXTRACT(EPOCH FROM (NOW() - s.study_date::timestamp))/3600 <= 72 THEN '48-72h'
-                    ELSE '72h+'
-                END AS bucket,
-                COALESCE(UPPER(m.modality), 'N/A') AS modality,
-                COUNT(*) AS cnt
-            FROM etl_didb_studies s
-            LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
-            WHERE s.study_status ILIKE '%unread%'
-              AND s.study_date BETWEEN :start AND :end
-              {_sec_filters}
-            GROUP BY 1, 2
+            SELECT bucket, modality, cnt FROM (
+                SELECT
+                    CASE
+                        WHEN EXTRACT(EPOCH FROM (NOW() - s.study_date::timestamp))/3600 <= 24 THEN '0-24h'
+                        WHEN EXTRACT(EPOCH FROM (NOW() - s.study_date::timestamp))/3600 <= 48 THEN '24-48h'
+                        WHEN EXTRACT(EPOCH FROM (NOW() - s.study_date::timestamp))/3600 <= 72 THEN '48-72h'
+                        ELSE '72h+'
+                    END AS bucket,
+                    COALESCE(UPPER(m.modality), 'N/A') AS modality,
+                    COUNT(*) AS cnt
+                FROM etl_didb_studies s
+                LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
+                WHERE s.study_status ILIKE '%unread%'
+                  AND s.study_date BETWEEN :start AND :end
+                  {_sec_filters}
+                GROUP BY 1, 2
+            ) aging
             ORDER BY
-                CASE bucket WHEN '0-24h' THEN 1 WHEN '24-48h' THEN 2 WHEN '48-72h' THEN 3 ELSE 4 END
+                CASE bucket WHEN '0-24h' THEN 1 WHEN '24-48h' THEN 2 WHEN '48-72h' THEN 3 ELSE 4 END,
+                modality
         """), params).fetchall()
         for bucket, modality, cnt in aging_rows:
             unread_aging.append({'bucket': bucket, 'modality': modality, 'cnt': int(cnt)})
