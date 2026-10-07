@@ -1,0 +1,20 @@
+# CRN gateway on the DMZ VM. TLS is terminated by the reverse proxy in front of it
+# (public 443 -> proxy -> this container's 8443). Secrets live in .env next to this file.
+services:
+  crn-gateway:
+    build: .
+    container_name: crn_gateway
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8443:8443"
+    environment:
+      CRN_GATEWAY_API_KEY: ${CRN_GATEWAY_API_KEY}
+      CRN_GATEWAY_DATA_KEY: ${CRN_GATEWAY_DATA_KEY}
+      CRN_GATEWAY_API_ALLOW: ${CRN_GATEWAY_API_ALLOW:-}
+      CRN_GATEWAY_TRUST_PROXY: "1"
+      CRN_GATEWAY_RETENTION_DAYS: ${CRN_GATEWAY_RETENTION_DAYS:-7}
+    volumes:
+      - crn_gateway_data:/data
+
+volumes:
+  crn_gateway_data:
