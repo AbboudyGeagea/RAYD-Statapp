@@ -14,6 +14,7 @@ actual clustering (moved here from nlp_processor.py -> clustering.py so the
 main app never blocks a request thread on it).
 """
 import os
+import sys
 import time
 import json
 import re
@@ -184,6 +185,16 @@ def _load_medspacy():
     if _NLP is not None:
         return _NLP
     try:
+        # PyRuSH, medspaCy's sentence splitter, logs every sentence of every report
+        # at DEBUG through loguru by default: full report text in the container log.
+        # Keep only warnings and errors.
+        try:
+            from loguru import logger as _loguru
+            _loguru.remove()
+            _loguru.add(sys.stderr, level='WARNING')
+        except ImportError:
+            pass
+
         import medspacy
         from medspacy.target_matcher import TargetRule
         from medspacy.context import ConTextRule
