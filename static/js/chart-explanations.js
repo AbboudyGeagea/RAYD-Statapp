@@ -99,7 +99,7 @@ const ChartExplanations = {
     'r25-tat-percentiles': {
       title: 'TAT Percentiles',
       purpose: 'How report turnaround time (TAT) is spread across all reported studies in the period.',
-      valueMeaning: 'TAT = minutes from the start of the study day to the final signed report. PACS keeps the study date without a time, so every TAT also includes the hours between midnight and the scan. P25: a quarter of studies were faster. Median: half were faster. P75: three quarters. P90: the slowest 10% took longer than this.',
+      valueMeaning: 'TAT = minutes from the study’s arrival in PACS to the final signed report. P25: a quarter of studies were faster. Median: half were faster. P75: three quarters. P90: the slowest 10% took longer than this.',
       interpretation: 'Compare periods by the median, not the average: a few very late reports pull the average up. A P90 far above the median means a long tail of late reports; the Efficiency tab lists them under “TAT — Above P90”.'
     },
     'r25-wait': {
@@ -111,7 +111,7 @@ const ChartExplanations = {
     'r25-tat-class': {
       title: 'TAT per Patient Class',
       purpose: 'Average report TAT for each patient class on the PACS study.',
-      valueMeaning: 'Bar = average TAT in minutes, from the start of the study day to the final signed report. Studies with no final report are left out.',
+      valueMeaning: 'Bar = average TAT in minutes, from the study’s arrival in PACS to the final signed report. Studies with no final report are left out.',
       interpretation: 'Emergency should be fastest. Averages are pulled up by a few late reports, so read this next to the TAT Percentiles strip.'
     },
     'r25-hourly': {
@@ -184,7 +184,7 @@ const ChartExplanations = {
       title: 'TAT Distribution',
       purpose: 'How many studies fall in each turnaround range.',
       valueMeaning: 'Bars for 0–30, 31–60, 61–90, 91–120, 121–180, 181–240, 241–360 and over 360 minutes. Green = fast, blue = moderate, amber = slow, red = over 4 hours.',
-      interpretation: 'Most studies should sit on the left. Because TAT starts at midnight of the study day, a tall “360m+” bar is expected and does not mean every one of those reports was late.'
+      interpretation: 'Most studies should sit on the left. A tall “360m+” bar usually means studies done late in the day were reported the next morning.'
     },
     'r25-rvu-tat': {
       title: 'RVU vs TAT',
