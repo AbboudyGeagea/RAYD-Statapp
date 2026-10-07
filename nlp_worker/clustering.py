@@ -5,16 +5,18 @@ Pure Python NLP for ORU radiology report analysis.
 No background threads. No external API. No GPU.
 
 Pipeline:
-  1. TF-IDF vectorisation of impression / report text
-  2. K-means clustering (k auto-selected, max 8)
-  3. Per-report classification  → normal / borderline / critical
-  4. Per-report severity score  → 1.0–5.0
-  5. Per-report keyword list    → top TF-IDF terms
+  1. fit_model: TF-IDF + K-means (k auto-selected, max 8) on a sample of
+     reports, stored by the worker in oru_cluster_models
+  2. score_report, per report:
+     classification  → normal / borderline / critical
+     severity score  → 1.0–5.0
+     keyword list    → top TF-IDF terms (the model's idf)
+     cluster         → nearest centroid of the stored model
 
 Negation: TF-IDF cannot tell "no fracture" from "fracture", so it never sees
 the raw text. worker._negation_resolved_texts() runs each report through the
 same medspaCy pipeline as the primary analysis and removes every negated or
-historical mention; steps 1-5 count words only in that resolved text. The raw
+historical mention; steps 1-2 count words only in that resolved text. The raw
 text is used for one thing: the normal anchors, which are negations themselves
 ("no acute", "no pneumothorax").
 """
@@ -170,62 +172,28 @@ def extract_keywords(text: str, corpus_idf: dict, top_n: int = 8) -> list[str]:
     return [w for w, _ in sorted(scored.items(), key=lambda x: -x[1])][:top_n]
 
 
-# ── Corpus IDF builder ────────────────────────────────────────────────────────
-def build_idf(texts: list[str]) -> dict[str, float]:
-    """Compute IDF over a list of documents."""
-    n = len(texts)
-    if n == 0:
-        return {}
-    df = Counter()
-    for t in texts:
-        df.update(set(_tokenize(t)))
-    return {
-        term: np.log((1 + n) / (1 + count)) + 1.0
-        for term, count in df.items()
-    }
+# ── Cluster model ─────────────────────────────────────────────────────────────
+# One model, fitted on a sample and stored in oru_cluster_models, so every
+# report is assigned against the same clusters and a cluster means the same thing
+# in any date range. (Fitting K-means per processing batch gave each batch its own
+# unrelated "cluster 0".)
+_NO_FINDINGS_LABEL = 'No affirmed findings'   # nothing left once negations are removed
+_OTHER_LABEL       = 'Other wording'          # words, but none in the model's vocabulary
 
 
-# ── Clustering ────────────────────────────────────────────────────────────────
-_NO_FINDINGS_LABEL = 'No affirmed findings'
-
-
-def cluster_reports(texts: list[str], max_k: int = 8) -> tuple[list[int], list[str]]:
+def fit_model(resolved: list[str], max_k: int = 8) -> dict | None:
     """
-    Reports with no words left once negations are removed ("No fracture or
-    dislocation.") are kept out of K-means: as all-zero vectors they would land
-    in whichever cluster sits nearest the origin and be named after its words.
-    They get one extra cluster of their own, labelled _NO_FINDINGS_LABEL.
+    TF-IDF + K-means over negation-resolved texts, k auto-selected (3 ≤ k ≤ max_k)
+    by inertia elbow. Returns a JSON-able {terms, idf, centroids, labels}, or None
+    when there is too little text. labels has two entries after the K-means
+    clusters: _NO_FINDINGS_LABEL and _OTHER_LABEL (see ClusterModel.assign).
     """
-    worded = [i for i, t in enumerate(texts) if _tokenize(t)]
-    if len(worded) == len(texts):
-        return _kmeans_clusters(texts, max_k)
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    from sklearn.cluster import KMeans
 
-    ids, labels = _kmeans_clusters([texts[i] for i in worded], max_k) if worded else ([], [])
-    cluster_ids = [len(labels)] * len(texts)
-    for i, cid in zip(worded, ids):
-        cluster_ids[i] = cid
-    return cluster_ids, labels + [_NO_FINDINGS_LABEL]
-
-
-def _kmeans_clusters(texts: list[str], max_k: int = 8) -> tuple[list[int], list[str]]:
-    """
-    TF-IDF + K-means clustering.
-    Auto-selects k (3 ≤ k ≤ max_k) using inertia elbow.
-    Returns (cluster_ids, cluster_labels).
-    cluster_labels[i] = human-readable label for cluster i (top 3 TF-IDF terms).
-    """
-    try:
-        from sklearn.feature_extraction.text import TfidfVectorizer
-        from sklearn.cluster import KMeans
-        from sklearn.preprocessing import normalize
-    except ImportError:
-        logger.error("scikit-learn not installed")
-        return [0] * len(texts), ['unclassified']
-
-    if len(texts) < 6:
-        return [0] * len(texts), ['insufficient data']
-
-    # Vectorise
+    worded = [t for t in resolved if _tokenize(t)]
+    if len(worded) < 6:
+        return None
     vec = TfidfVectorizer(
         tokenizer=_tokenize,
         token_pattern=None,
@@ -235,24 +203,25 @@ def _kmeans_clusters(texts: list[str], max_k: int = 8) -> tuple[list[int], list[
         max_features=2000,
     )
     try:
-        X = vec.fit_transform(texts)
+        X = vec.fit_transform(worded)   # rows already L2-normalised
     except ValueError:
-        return [0] * len(texts), ['unclassified']
+        return None
+    # Reports whose words all fell outside the vocabulary are zero vectors; they
+    # would only drag a centroid towards the origin.
+    X = X[X.getnnz(axis=1) > 0]
+    n = X.shape[0]
+    if n < 6:
+        return None
 
-    X_norm = normalize(X, norm='l2')
-    terms  = vec.get_feature_names_out()
-
-    # Auto-select k via inertia elbow (cheap — max 8 iterations of KMeans)
-    k_range = range(3, min(max_k + 1, len(texts) // 3 + 1))
-    if not k_range or len(texts) < 9:
+    k_range = range(3, min(max_k + 1, n // 3 + 1))
+    if not k_range or n < 9:
         k = 3
     else:
         inertias = []
         for k_try in k_range:
             km = KMeans(n_clusters=k_try, n_init=5, max_iter=100, random_state=42)
-            km.fit(X_norm)
+            km.fit(X)
             inertias.append(km.inertia_)
-
         # Simple elbow: pick k where relative improvement drops below 15%
         k = list(k_range)[0]
         for i in range(1, len(inertias)):
@@ -261,55 +230,63 @@ def _kmeans_clusters(texts: list[str], max_k: int = 8) -> tuple[list[int], list[
                 k = list(k_range)[i]
                 break
 
-    # Final clustering
-    km = KMeans(n_clusters=k, n_init=10, max_iter=300, random_state=42)
-    labels = km.fit_predict(X_norm).tolist()
-
-    # Cluster labels: top 3 terms per centroid
-    cluster_labels = []
+    km = KMeans(n_clusters=k, n_init=10, max_iter=300, random_state=42).fit(X)
+    terms = vec.get_feature_names_out()
+    labels = []
     for center in km.cluster_centers_:
-        top_idx = center.argsort()[::-1][:3]
-        top_terms = [terms[i].title() for i in top_idx if terms[i] not in _STOP]
-        cluster_labels.append(' · '.join(top_terms) if top_terms else 'Mixed')
+        top = [terms[i].title() for i in center.argsort()[::-1][:3] if center[i] > 0]
+        labels.append(' · '.join(top) if top else 'Mixed')
+    return {
+        'terms':     terms.tolist(),
+        'idf':       [round(float(x), 6) for x in vec.idf_],
+        'centroids': [[round(float(x), 6) for x in c] for c in km.cluster_centers_],
+        'labels':    labels + [_NO_FINDINGS_LABEL, _OTHER_LABEL],
+    }
 
-    return labels, cluster_labels
+
+class ClusterModel:
+    """A fitted model (fit_model's dict) applied to one report at a time."""
+
+    def __init__(self, data: dict):
+        self.index = {t: i for i, t in enumerate(data['terms'])}
+        self.idf = np.asarray(data['idf'], dtype=float)
+        self.idf_by_term = dict(zip(data['terms'], data['idf']))
+        self.centroids = np.asarray(data['centroids'], dtype=float)
+        self.labels = data['labels']
+
+    def assign(self, resolved: str) -> int:
+        """Nearest centroid, with the same TF-IDF weighting as the fit
+        (sublinear tf × idf, L2-normalised)."""
+        tokens = _tokenize(resolved)
+        if not tokens:
+            return len(self.centroids)           # _NO_FINDINGS_LABEL
+        counts = Counter(t for t in tokens if t in self.index)
+        if not counts:
+            return len(self.centroids) + 1       # _OTHER_LABEL
+        v = np.zeros(len(self.idf))
+        for t, c in counts.items():
+            i = self.index[t]
+            v[i] = (1.0 + np.log(c)) * self.idf[i]
+        v /= np.linalg.norm(v)
+        return int(np.argmin(((self.centroids - v) ** 2).sum(axis=1)))
 
 
-# ── Main batch processor ──────────────────────────────────────────────────────
-def process_reports(records: list[dict]) -> tuple[list[dict], list[str]]:
+def score_report(text: str, resolved: str, model: ClusterModel | None) -> dict:
     """
-    records: list of {id, text, resolved}
-      text     — impression (full report when there is none), as received
-      resolved — the same text with negated / historical mentions removed
-                 (worker._negation_resolved_texts)
-    Returns:
-      results  — list of {id, classification, severity_score, keywords, cluster_id}
-      cluster_labels — label per cluster index
+    text     — impression (full report when there is none), as received
+    resolved — the same text with negated / historical mentions removed
+               (worker._negation_resolved_texts)
+    Returns {classification, severity_score, keywords, cluster_id, cluster_label};
+    cluster_id / cluster_label are None until a model exists.
     """
-    if not records:
-        return [], []
+    cls, sev = classify_report(text, resolved)
+    cid = model.assign(resolved) if model else None
+    return {
+        'classification': cls,
+        'severity_score': sev,
+        'keywords':       extract_keywords(resolved, model.idf_by_term if model else {}),
+        'cluster_id':     cid,
+        'cluster_label':  model.labels[cid] if model else None,
+    }
 
-    resolved = [r['resolved'] for r in records]
 
-    # Build corpus IDF once
-    idf = build_idf(resolved)
-
-    # Classify + keyword extract per report
-    results = []
-    for r, res in zip(records, resolved):
-        cls, sev = classify_report(r['text'], res)
-        kws = extract_keywords(res, idf)
-        results.append({
-            'id':             r['id'],
-            'classification': cls,
-            'severity_score': sev,
-            'keywords':       kws,
-            'cluster_id':     None,   # filled after clustering
-        })
-
-    # Cluster (needs at least 6 docs)
-    cluster_ids, cluster_labels = cluster_reports(resolved)
-    for res, cid in zip(results, cluster_ids):
-        res['cluster_id'] = cid
-
-    return results, cluster_labels
