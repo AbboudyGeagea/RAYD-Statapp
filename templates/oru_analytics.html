@@ -1303,9 +1303,10 @@ function loadData() {
       document.getElementById('kpi-total').textContent    = fmt(d.total);
       document.getElementById('kpi-normal').textContent   = fmt(d.normal);
       document.getElementById('kpi-abnormal').textContent = fmt(d.abnormal);
-      document.getElementById('kpi-critical').textContent = fmt((d.critical_log || []).length);
+      const critCount = d.critical_count ?? (d.critical_log || []).length;
+      document.getElementById('kpi-critical').textContent = fmt(critCount);
 
-      try { updateKpiSparklines(d.total, d.normal, d.abnormal, (d.critical_log || []).length); } catch(e) { console.warn('sparklines', e); }
+      try { updateKpiSparklines(d.total, d.normal, d.abnormal, critCount); } catch(e) { console.warn('sparklines', e); }
       try { buildDonut(d.normal, d.abnormal); }        catch(e) { console.warn('donut', e); }
       try { buildBars('mod-list',  d.modalities, 'modality', 'count', i => modColor(i.modality)); } catch(e) { console.warn('mod', e); }
       try { buildBars('proc-list', d.top_procs,  'name',     'count', () => 'var(--warning)'); }    catch(e) { console.warn('proc', e); }

@@ -529,7 +529,7 @@ const ChartExplanations = {
     'oru-critical-log': {
       title: 'Critical Findings Log',
       purpose: 'Reports flagged as containing a critical finding.',
-      valueMeaning: 'A report is flagged when the NLP finds an affirmed (not negated) diagnosis that is not marked benign, or one of the custom critical keywords added under Manage Keywords. The most recent reports in the period are checked, and up to 20 flagged reports are listed.',
+      valueMeaning: 'A report is flagged when the NLP finds an affirmed (not negated) diagnosis that is not marked benign, or one of the critical keywords (built-in, or added under Manage Keywords). Every report in the period is checked; the 20 most recent flagged ones are listed, and the Critical Findings count at the top counts all of them.',
       interpretation: 'Use it for follow-up and audit. If a real critical finding is missing, add its keyword with Manage Keywords.'
     },
     'oru-nlp': {

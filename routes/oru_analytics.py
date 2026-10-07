@@ -402,21 +402,46 @@ def _date_proc_conditions(date_from, date_to, proc, alias, days_default=30, days
     return str(and_(*conditions)), params, days
 
 
-def _oru_report_ids(where_clause, params, limit=None, offset=0):
-    """Ordered list of hl7_oru_reports.id (most recent first) matching a filter
-    already built against the 'r' alias. Used to drive a bounded detail fetch
-    instead of pulling every matching row's full columns."""
-    p = dict(params, offset=offset)
-    limit_sql = ""
-    if limit:
-        p['limit'] = limit
-        limit_sql = "LIMIT :limit"
-    rows = db.session.execute(text(f"""
-        SELECT r.id FROM hl7_oru_reports r
-        WHERE {where_clause}
-        ORDER BY r.received_at DESC
-        {limit_sql} OFFSET :offset
-    """), p).fetchall()
+def _critical_report_ids(where_clause, params, diagnoses, benign_labels, pending_affirmed):
+    """Ids of every critical report matching the filter, most recent first.
+
+    Same rule as the critical findings log: an affirmed phrase or label of a
+    non-benign vocabulary entry (hl7_oru_analysis for analysed reports, the
+    caller's pending_affirmed {report_id: set} for the rest), otherwise an
+    unnegated critical keyword in the report text.
+    """
+    crit_terms = {t for phrase, label in diagnoses if label not in benign_labels for t in (phrase, label)}
+    found = set()
+    if crit_terms:
+        rows = db.session.execute(text(f"""
+            SELECT r.id FROM hl7_oru_reports r
+            JOIN hl7_oru_analysis a ON a.report_id = r.id
+            WHERE {where_clause} AND a.affirmed_labels && CAST(:crit_terms AS TEXT[])
+        """), {**params, 'crit_terms': sorted(crit_terms)}).fetchall()
+        found.update(row.id for row in rows)
+        found.update(rid for rid, affirmed in pending_affirmed.items() if crit_terms & set(affirmed))
+
+    keywords = _get_all_critical_keywords()
+    if keywords:
+        # ILIKE narrows the candidates in SQL; the negation check stays in Python.
+        candidates = db.session.execute(text(f"""
+            SELECT r.id, r.report_text, r.impression_text FROM hl7_oru_reports r
+            WHERE {where_clause}
+              AND (r.impression_text ILIKE ANY(CAST(:kw_like AS TEXT[]))
+                   OR r.report_text ILIKE ANY(CAST(:kw_like AS TEXT[])))
+        """), {**params, 'kw_like': [f'%{kw}%' for kw in keywords]}).fetchall()
+        for row in candidates:
+            if row.id in found:
+                continue
+            tl = (_best_text(row) or '').lower()
+            if any(_any_unnegated(tl, kw) for kw in keywords):
+                found.add(row.id)
+
+    if not found:
+        return []
+    rows = db.session.execute(text("""
+        SELECT id FROM hl7_oru_reports WHERE id = ANY(:ids) ORDER BY received_at DESC
+    """), {'ids': list(found)}).fetchall()
     return [row.id for row in rows]
 
 
@@ -540,6 +565,9 @@ def oru_data():
         WHERE {where_clause} AND a.id IS NULL
     """), params).fetchall()
 
+    # report_id -> affirmed set for every not-yet-analysed report; feeds both the
+    # word cloud and the critical-report search below.
+    pending_affirmed = {}
     if pending_rows:
         pending_ids = [row.report_id for row in pending_rows]
         try:
@@ -551,9 +579,8 @@ def oru_data():
         except Exception:
             cached_by_id = {}
 
-        pending_affirmed = []
         to_compute = [row for row in pending_rows if row.report_id not in cached_by_id]
-        pending_affirmed.extend(cached_by_id.values())
+        pending_affirmed.update(cached_by_id)
 
         if to_compute:
             try:
@@ -562,7 +589,7 @@ def oru_data():
             except Exception:
                 computed = None
             if computed:
-                pending_affirmed.extend(computed)
+                pending_affirmed.update({row.report_id: affirmed for row, affirmed in zip(to_compute, computed)})
                 try:
                     for row, affirmed in zip(to_compute, computed):
                         db.session.execute(text("""
@@ -578,13 +605,18 @@ def oru_data():
                     db.session.rollback()  # best-effort cache write — response is unaffected
 
         if pending_affirmed:
-            for item in _count_diagnoses(pending_affirmed, top_n=None):
+            for item in _count_diagnoses(list(pending_affirmed.values()), top_n=None):
                 label_counts[item['word']] += item['count']
 
     cloud_words = [{'word': label, 'count': cnt} for label, cnt in label_counts.most_common(top_n)]
 
-    # ── Paginated detail rows — critical findings log + report detail ────────
-    ids = _oru_report_ids(where_clause, params, limit=limit, offset=offset)
+    # ── Critical reports across the whole filtered range ─────────────────────
+    # Used to be the critical ones among the latest `limit` reports only, so the
+    # KPI (= log length) could never pass 20 and a long range missed criticals.
+    crit_ids = _critical_report_ids(where_clause, params, diagnoses, benign_labels, pending_affirmed)
+
+    # ── Detail rows for the critical findings log (most recent first) ────────
+    ids = crit_ids[offset:offset + min(limit, 20)]
 
     detail_rows = []
     if ids:
@@ -658,7 +690,7 @@ def oru_data():
 
     detail_affirmed = [analyzed_affirmed.get(i, set()) for i in range(len(detail_rows))]
 
-    # ── Critical findings (most recent 20 within the paginated set) ─────────
+    # ── Critical findings log: hit words for the 20 most recent critical reports
     custom_kws = _get_all_critical_keywords()
     critical_log = []
     for r, affirmed in zip(detail_rows, detail_affirmed):
@@ -697,6 +729,7 @@ def oru_data():
         'modalities':     modalities,
         'top_procs':      top_procs,
         'critical_log':   critical_log,
+        'critical_count': len(crit_ids),
         'physicians':     physicians,
         'days':           days,
         'limit':          limit,
