@@ -204,8 +204,9 @@
           </div>
           <div class="flex items-center gap-3 flex-wrap">
             <span id="nlp-status-text" role="status" aria-live="polite" style="font-size:11px;font-weight:700;color:var(--muted);">Checking NLP status…</span>
-            <button id="run-nlp-btn" onclick="runNLP()" class="btn-primary" type="button">
-              <i class="bi bi-cpu" aria-hidden="true"></i> Process Reports
+            <button id="run-nlp-btn" onclick="runNLP()" class="btn-primary" type="button"
+                    title="Reports are analysed automatically. This rebuilds the clusters now instead of on the 1st of next month.">
+              <i class="bi bi-cpu" aria-hidden="true"></i> Rebuild Clusters
             </button>
           </div>
         </div>
@@ -583,7 +584,7 @@
             </div>
 
             <p style="font-size:10px;color:var(--muted);margin-top:12px;font-weight:600;">
-              Negated and historical mentions ("no fracture", "history of stroke") are removed by medspaCy before scoring, the same way as for the critical findings log. Results are a trend signal, not a clinical classifier.
+              Negated and historical mentions ("no fracture", "history of stroke") are removed by medspaCy before scoring, the same way as for the critical findings log. Every report is analysed automatically in the background; the clusters are rebuilt on the 1st of each month. Results are a trend signal, not a clinical classifier.
             </p>
           </div>
         </div><!-- /nlp-section -->
@@ -1324,38 +1325,47 @@ function loadData() {
 }
 
 // ── NLP status check ────────────────────────────────────────────────────────
+// The worker scores reports on its own; while it is catching up, refresh the
+// progress (and the results, which fill in newest first) every 30 s.
+let _nlpStatusTimer = null;
 function checkNLPStatus() {
   fetch('/oru/nlp/status')
     .then(r => r.json())
     .then(d => {
       const el = document.getElementById('nlp-status-text');
-      if (d.processed === 0) {
-        el.textContent = `${d.total} reports · NLP not yet run`;
+      const n = x => x.toLocaleString();
+      const model = d.model ? ` · clusters from ${d.model.fitted_at}` : '';
+      if (!d.model) {
+        el.textContent = `${n(d.total)} reports · building the first clusters…`;
         el.style.color = 'var(--muted)';
       } else if (d.pending > 0) {
-        el.textContent = `${d.processed} processed · ${d.pending} pending`;
+        el.textContent = `Analysing in the background: ${n(d.processed)} of ${n(d.total)} reports${model}`;
         el.style.color = 'var(--warning)';
       } else {
-        el.textContent = `${d.processed} reports fully processed`;
+        el.textContent = `All ${n(d.processed)} reports analysed${model}`;
         el.style.color = 'var(--success)';
+      }
+      clearTimeout(_nlpStatusTimer);
+      if (!d.model || d.pending > 0) {
+        _nlpStatusTimer = setTimeout(() => { checkNLPStatus(); loadNLPResults(); }, 30000);
       }
     }).catch(() => {});
 }
 
-// ── Run NLP ──────────────────────────────────────────────────────────────────
-// /oru/nlp/process only enqueues a job (routes/oru_analytics.py) -- the actual
-// TF-IDF/K-means clustering runs in the background nlp-worker container, so we
-// poll /oru/nlp/job/<id> until it finishes instead of assuming the POST response
-// means the work is done.
+// ── Rebuild clusters ─────────────────────────────────────────────────────────
+// /oru/nlp/process only enqueues a job (routes/oru_analytics.py) -- the nlp-worker
+// container refits the cluster model, so we poll /oru/nlp/job/<id> until it
+// finishes instead of assuming the POST response means the work is done.
 function runNLP() {
-  const f    = document.getElementById('date-from').value;
-  const t    = document.getElementById('date-to').value;
-  const days = f && t ? Math.max(1, Math.round((new Date(t) - new Date(f)) / 86400000)) : 30;
+  if (!confirm('Rebuild the clusters now?\n\nEvery report is then re-scored in the background ' +
+               '(about 1–3 hours for 500,000 reports). The results fill in newest first, ' +
+               'so recent date ranges are complete within minutes.')) return;
+  const days = 30;   // kept for the job row; the worker no longer uses it
   const btn  = document.getElementById('run-nlp-btn');
   const toast = document.getElementById('nlp-toast');
 
   btn.disabled = true;
-  btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Processing...';
+  btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Rebuilding...';
   toast.style.display = 'flex';
   toast.style.background = '';
   toast.style.borderColor = '';
@@ -1389,7 +1399,7 @@ function pollNLPJob(jobId) {
       .then(r => r.json())
       .then(d => {
         if (d.status === 'running') {
-          document.getElementById('nlp-toast-text').textContent = 'Running TF-IDF + K-means…';
+          document.getElementById('nlp-toast-text').textContent = 'Rebuilding clusters (a few minutes)…';
         } else if (d.status === 'done') {
           clearInterval(_nlpPollTimer);
           document.getElementById('nlp-toast-text').textContent = `✓ ${d.message || 'Processing complete.'}`;
@@ -1423,7 +1433,7 @@ function showNLPError(msg) {
 function resetNLPButton() {
   const btn = document.getElementById('run-nlp-btn');
   btn.disabled = false;
-  btn.innerHTML = '<i class="bi bi-cpu"></i> Process Reports';
+  btn.innerHTML = '<i class="bi bi-cpu"></i> Rebuild Clusters';
 }
 
 // ── Load / render NLP results ────────────────────────────────────────────────

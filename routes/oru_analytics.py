@@ -938,28 +938,40 @@ def oru_sections():
 @oru_bp.route('/nlp/status')
 @login_required
 def nlp_status():
+    # Same filter as the worker's scorer (run_scoring), so pending reaches 0.
     total = db.session.execute(
-        text("SELECT COUNT(*) FROM hl7_oru_reports WHERE report_text IS NOT NULL")
+        text("SELECT COUNT(*) FROM hl7_oru_reports "
+             "WHERE report_text IS NOT NULL AND TRIM(report_text) != ''")
     ).scalar() or 0
 
-    # Unversioned rows predate negation handling (migration 0126); they are
-    # hidden by nlp_results() and still pending until reprocessed.
+    model = db.session.execute(text("""
+        SELECT id, fitted_at, sample_size, jsonb_array_length(centroids) AS clusters
+        FROM oru_cluster_models ORDER BY id DESC LIMIT 1
+    """)).fetchone()
+
+    # Only rows scored against the latest model count (migration 0127); older
+    # rows are hidden by nlp_results() and re-scored by the worker.
     processed = db.session.execute(
-        text("SELECT COUNT(*) FROM ai_nlp_cache WHERE nlp_version IS NOT NULL")
+        text("SELECT COUNT(*) FROM ai_nlp_cache WHERE cluster_model_id = :mid"),
+        {'mid': model.id if model else None},
     ).scalar() or 0
 
     return jsonify({
         'total':     total,
         'processed': processed,
         'pending':   max(total - processed, 0),
+        'model':     {
+            'fitted_at':   model.fitted_at.strftime('%Y-%m-%d'),
+            'sample_size': model.sample_size,
+            'clusters':    model.clusters,
+        } if model else None,
     })
 
 
-# ── NLP processing (on-demand, triggered by user, runs in the background) ─────
-# The route only enqueues a job; nlp_worker/worker.py (the rayd_nlp container,
-# already polling every 60s for medspaCy analysis) picks up pending rows and
-# runs the actual TF-IDF/K-means clustering, so this request thread is never
-# blocked on it.
+# ── Cluster rebuild (on demand; the scoring itself is automatic) ──────────────
+# The route only enqueues a job; nlp_worker/worker.py (the rayd_nlp container)
+# refits the cluster model and then re-scores every report in the background,
+# so this request thread is never blocked on it.
 
 @oru_bp.route('/nlp/process', methods=['POST'])
 @login_required
@@ -1017,9 +1029,10 @@ def nlp_results():
     date_to   = request.args.get('date_to', '').strip()
     # See oru_data()'s comment: filter by result_datetime, not received_at.
     where_clause, params, _days = _date_proc_conditions(date_from, date_to, proc, alias='o', days_default=90)
-    # Rows without nlp_version were scored on the raw text, so "no fracture"
-    # counted as "fracture" (migration 0126). Never show them.
-    where_clause += " AND c.nlp_version IS NOT NULL"
+    # Only rows scored against the latest cluster model (migration 0127): older
+    # rows have another model's cluster ids, and unversioned ones were scored on
+    # the raw text, where "no fracture" counted as "fracture" (migration 0126).
+    where_clause += " AND c.cluster_model_id = (SELECT MAX(id) FROM oru_cluster_models)"
 
     rows = db.session.execute(text(f"""
         SELECT

@@ -7,13 +7,13 @@ so medspaCy's RAM footprint and native deps are isolated from the main app.
 Polls hl7_oru_reports every 60 seconds, processes unanalyzed rows in chunks,
 writes results to hl7_oru_analysis.
 
-Also polls oru_nlp_jobs every few seconds for on-demand TF-IDF/K-means
-clustering runs requested from /oru/nlp/process (routes/oru_analytics.py) --
-that route just enqueues a row and returns immediately; this worker does the
-actual clustering (moved here from nlp_processor.py -> clustering.py so the
-main app never blocks a request thread on it).
+Also keeps the TF-IDF/K-means analysis (ai_nlp_cache) up to date on its own
+(run_scoring), and polls oru_nlp_jobs every few seconds for "Rebuild clusters"
+requests from /oru/nlp/process (routes/oru_analytics.py), so the main app never
+blocks a request thread on it.
 """
 import os
+import sys
 import time
 import json
 import re
@@ -173,7 +173,6 @@ _CHUNK           = 500
 _BATCH_LIMIT      = 2000
 _POLL_SECONDS      = 60
 _JOB_POLL_SECONDS  = 5
-_BATCH_EVERY_TICKS = _POLL_SECONDS // _JOB_POLL_SECONDS
 
 
 # ── medspaCy ──────────────────────────────────────────────────────────────────
@@ -212,6 +211,17 @@ def _load_medspacy():
     if _NLP is not None:
         return _NLP
     try:
+        # PyRuSH, medspaCy's sentence splitter, logs every sentence of every report
+        # at DEBUG through loguru by default: full report text in the container log,
+        # and with the whole archive now scored in the background, a lot of it.
+        # Keep only warnings and errors. (Same as Mazloum 7c26e879.)
+        try:
+            from loguru import logger as _loguru
+            _loguru.remove()
+            _loguru.add(sys.stderr, level='WARNING')
+        except ImportError:
+            pass
+
         import medspacy
         from medspacy.target_matcher import TargetRule
         from medspacy.context import ConTextRule
@@ -424,7 +434,155 @@ def run_batch():
         conn.close()
 
 
-# ── On-demand clustering jobs (oru_nlp_jobs) ──────────────────────────────────
+# ── TF-IDF/K-means analysis (ai_nlp_cache), automatic ────────────────────────
+# run_scoring() keeps every report scored, newest first, against the current
+# cluster model (oru_cluster_models). The model is refitted when there is none,
+# when _CLUSTER_VERSION changes, on the first run of each calendar month, and when
+# an admin asks (oru_nlp_jobs, "Rebuild clusters"). A refit makes every row stale,
+# so the whole archive is re-scored in the background (~100 reports/s per core).
+
+_FIT_SAMPLE           = 10000   # most recent reports the model is fitted on
+_SCORE_BUDGET_SECONDS = 40      # per call, so primary analysis and jobs keep running
+
+_MODEL_CACHE = {'id': None, 'model': None}
+
+
+def _fit_cluster_model(conn, reason):
+    """Fit a model on the most recent _FIT_SAMPLE reports and store it. Returns the
+    new model id, or None when there is too little text."""
+    print(f"[NLP Worker] Fitting cluster model ({reason})...")
+    with conn.cursor(cursor_factory=psycopg2.extras.NamedTupleCursor) as cur:
+        cur.execute("""
+            SELECT impression_text, report_text FROM hl7_oru_reports
+            WHERE report_text IS NOT NULL AND TRIM(report_text) != ''
+            ORDER BY received_at DESC
+            LIMIT %s
+        """, (_FIT_SAMPLE,))
+        rows = cur.fetchall()
+    texts = [(r.impression_text or r.report_text or '').strip() for r in rows]
+    data = clustering.fit_model(_negation_resolved_texts(texts))
+    if data is None:
+        print("[NLP Worker] Too little report text to fit a cluster model.")
+        return None
+    with conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO oru_cluster_models
+                (nlp_version, sample_size, terms, idf, centroids, labels)
+            VALUES (%s, %s, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb)
+            RETURNING id
+        """, (_CLUSTER_VERSION, len(texts), json.dumps(data['terms']), json.dumps(data['idf']),
+              json.dumps(data['centroids']), json.dumps(data['labels'])))
+        model_id = cur.fetchone()[0]
+    conn.commit()
+    print(f"[NLP Worker] Cluster model {model_id}: {len(data['centroids'])} clusters "
+          f"from {len(texts)} reports. All reports will be re-scored in the background.")
+    return model_id
+
+
+def _current_model(conn):
+    """(id, ClusterModel) of the model to score against, refitting first when it
+    is missing, from an older _CLUSTER_VERSION, or from a previous month."""
+    with conn.cursor(cursor_factory=psycopg2.extras.NamedTupleCursor) as cur:
+        cur.execute("""
+            SELECT id, nlp_version, fitted_at < date_trunc('month', NOW()) AS last_month
+            FROM oru_cluster_models ORDER BY id DESC LIMIT 1
+        """)
+        latest = cur.fetchone()
+    model_id = latest.id if latest else None
+    if latest is None or latest.nlp_version != _CLUSTER_VERSION or latest.last_month:
+        reason = ('no model yet' if latest is None
+                  else 'analysis version changed' if latest.nlp_version != _CLUSTER_VERSION
+                  else 'monthly rebuild')
+        model_id = _fit_cluster_model(conn, reason) or model_id
+    if model_id is None:
+        return None, None
+    if _MODEL_CACHE['id'] != model_id:
+        with conn.cursor() as cur:
+            cur.execute("SELECT terms, idf, centroids, labels FROM oru_cluster_models WHERE id = %s",
+                        (model_id,))
+            terms, idf, centroids, labels = cur.fetchone()
+        _MODEL_CACHE.update(id=model_id, model=clustering.ClusterModel(
+            {'terms': terms, 'idf': idf, 'centroids': centroids, 'labels': labels}))
+    return model_id, _MODEL_CACHE['model']
+
+
+def run_scoring():
+    """Score pending reports for up to _SCORE_BUDGET_SECONDS. Returns True when it
+    stopped on the time budget with more reports waiting."""
+    conn = _get_conn()
+    try:
+        model_id, model = _current_model(conn)
+        deadline = time.monotonic() + _SCORE_BUDGET_SECONDS
+        while time.monotonic() < deadline:
+            with conn.cursor(cursor_factory=psycopg2.extras.NamedTupleCursor) as cur:
+                cur.execute("""
+                    SELECT o.id, o.report_text, o.impression_text
+                    FROM hl7_oru_reports o
+                    LEFT JOIN ai_nlp_cache c ON c.source_id = o.id
+                    WHERE o.report_text IS NOT NULL AND TRIM(o.report_text) != ''
+                      AND (c.id IS NULL
+                           OR c.nlp_version IS DISTINCT FROM %s
+                           OR c.cluster_model_id IS DISTINCT FROM %s)
+                    ORDER BY o.received_at DESC
+                    LIMIT %s
+                """, (_CLUSTER_VERSION, model_id, _CHUNK))
+                rows = cur.fetchall()
+            if not rows:
+                return False
+
+            texts = [(r.impression_text or r.report_text or '').strip() for r in rows]
+            resolved = _negation_resolved_texts(texts)
+            values = []
+            for r, t, res in zip(rows, texts, resolved):
+                s = clustering.score_report(t, res, model)
+                values.append((r.id, s['classification'], json.dumps(s['keywords']), s['cluster_id'],
+                               s['cluster_label'], s['severity_score'], _CLUSTER_VERSION, model_id))
+            _write_scores(conn, values)
+        return True
+    finally:
+        conn.close()
+
+
+_UPSERT_SCORE = """
+    INSERT INTO ai_nlp_cache
+        (source_id, classification, keywords, cluster_id, cluster_label,
+         severity_score, nlp_version, cluster_model_id, processed_at)
+    VALUES %s
+    ON CONFLICT (source_id) DO UPDATE SET
+        classification   = EXCLUDED.classification,
+        keywords         = EXCLUDED.keywords,
+        cluster_id       = EXCLUDED.cluster_id,
+        cluster_label    = EXCLUDED.cluster_label,
+        severity_score   = EXCLUDED.severity_score,
+        nlp_version      = EXCLUDED.nlp_version,
+        cluster_model_id = EXCLUDED.cluster_model_id,
+        processed_at     = NOW()
+"""
+_SCORE_TEMPLATE = "(%s, %s, %s::jsonb, %s, %s, %s, %s, %s, NOW())"
+
+
+def _write_scores(conn, values):
+    """One statement per chunk; if it fails, row by row so one bad row cannot
+    hold back the rest of the chunk."""
+    try:
+        with conn.cursor() as cur:
+            psycopg2.extras.execute_values(cur, _UPSERT_SCORE, values, template=_SCORE_TEMPLATE)
+        conn.commit()
+        return
+    except Exception as e:
+        conn.rollback()
+        print(f"[NLP Worker] ai_nlp_cache chunk write failed ({e}); retrying row by row.")
+    for v in values:
+        try:
+            with conn.cursor() as cur:
+                psycopg2.extras.execute_values(cur, _UPSERT_SCORE, [v], template=_SCORE_TEMPLATE)
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            print(f"[NLP Worker] ai_nlp_cache row {v[0]} error: {e}")
+
+
+# ── "Rebuild clusters" requests (oru_nlp_jobs) ────────────────────────────────
 
 def run_pending_jobs():
     conn = _get_conn()
@@ -432,7 +590,7 @@ def run_pending_jobs():
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.NamedTupleCursor) as cur:
             cur.execute("""
-                SELECT id, days FROM oru_nlp_jobs
+                SELECT id FROM oru_nlp_jobs
                 WHERE status = 'pending'
                 ORDER BY created_at
                 LIMIT 1
@@ -456,97 +614,34 @@ def run_pending_jobs():
         return
 
     try:
-        _process_job(conn, job.id, job.days)
+        _rebuild_job(conn, job.id)
     finally:
         conn.close()
 
 
-def _process_job(conn, job_id, days):
+def _rebuild_job(conn, job_id):
     try:
-        with conn.cursor(cursor_factory=psycopg2.extras.NamedTupleCursor) as cur:
-            cur.execute("""
-                SELECT o.id, o.report_text, o.impression_text
-                FROM hl7_oru_reports o
-                LEFT JOIN ai_nlp_cache c ON c.source_id = o.id
-                WHERE (c.id IS NULL OR c.nlp_version IS DISTINCT FROM %s)
-                  AND o.received_at >= NOW() - (%s || ' days')::INTERVAL
-                  AND o.report_text IS NOT NULL
-                  AND TRIM(o.report_text) != ''
-                ORDER BY o.received_at DESC
-                LIMIT 500
-            """, (_CLUSTER_VERSION, days))
-            rows = cur.fetchall()
-
-        if not rows:
+        model_id = _fit_cluster_model(conn, f'requested, job {job_id}')
+        if model_id is None:
+            status, message = 'done', 'Too little report text to build clusters.'
+            clusters = 0
+        else:
             with conn.cursor() as cur:
-                cur.execute("""
-                    UPDATE oru_nlp_jobs
-                    SET status = 'done', processed_count = 0, cluster_count = 0,
-                        message = 'Nothing new to process.', finished_at = NOW()
-                    WHERE id = %s
-                """, (job_id,))
-            conn.commit()
-            return
-
-        texts = [(r.impression_text or r.report_text or '').strip() for r in rows]
-        resolved = _negation_resolved_texts(texts)
-        records = [
-            {'id': r.id, 'text': t, 'resolved': res}
-            for r, t, res in zip(rows, texts, resolved)
-        ]
-        results, cluster_labels = clustering.process_reports(records)
-
-        # Cluster labels first so ai_nlp_cache.cluster_label can reference them.
-        with conn.cursor() as cur:
-            for cid, label in enumerate(cluster_labels):
-                cur.execute("""
-                    INSERT INTO oru_cluster_labels (cluster_id, label, updated_at)
-                    VALUES (%s, %s, NOW())
-                    ON CONFLICT (cluster_id) DO UPDATE SET
-                        label = EXCLUDED.label, updated_at = NOW()
-                """, (cid, label))
-        conn.commit()
-
-        saved = 0
-        for res in results:
-            cid = res['cluster_id']
-            label = cluster_labels[cid] if cid is not None and cid < len(cluster_labels) else None
-            try:
-                with conn.cursor() as cur:
-                    cur.execute("""
-                        INSERT INTO ai_nlp_cache
-                            (source_id, classification, keywords, cluster_id, cluster_label,
-                             severity_score, nlp_version, processed_at)
-                        VALUES (%s, %s, %s::jsonb, %s, %s, %s, %s, NOW())
-                        ON CONFLICT (source_id) DO UPDATE SET
-                            classification = EXCLUDED.classification,
-                            keywords       = EXCLUDED.keywords,
-                            cluster_id     = EXCLUDED.cluster_id,
-                            cluster_label  = EXCLUDED.cluster_label,
-                            severity_score = EXCLUDED.severity_score,
-                            nlp_version    = EXCLUDED.nlp_version,
-                            processed_at   = NOW()
-                    """, (res['id'], res['classification'], json.dumps(res['keywords']),
-                          cid, label, res['severity_score'], _CLUSTER_VERSION))
-                # Commit per row (item 10 fix — same reasoning as run_batch()).
-                conn.commit()
-                saved += 1
-            except Exception as e:
-                print(f"[NLP Worker] ai_nlp_cache row {res['id']} error: {e}")
-                conn.rollback()
-                continue
-
+                cur.execute("SELECT jsonb_array_length(centroids) FROM oru_cluster_models WHERE id = %s",
+                            (model_id,))
+                clusters = cur.fetchone()[0]
+            status = 'done'
+            message = (f'Clusters rebuilt: {clusters} clusters. Every report is being re-scored '
+                       f'in the background, newest first.')
         with conn.cursor() as cur:
             cur.execute("""
                 UPDATE oru_nlp_jobs
-                SET status = 'done', processed_count = %s, cluster_count = %s,
+                SET status = %s, processed_count = 0, cluster_count = %s,
                     message = %s, finished_at = NOW()
                 WHERE id = %s
-            """, (saved, len(cluster_labels),
-                  f'Processed {saved} reports into {len(cluster_labels)} clusters.', job_id))
+            """, (status, clusters, message, job_id))
         conn.commit()
-        print(f"[NLP Worker] Job {job_id} done — {saved} reports, {len(cluster_labels)} clusters.")
-
+        print(f"[NLP Worker] Job {job_id}: {message}")
     except Exception as e:
         conn.rollback()
         try:
@@ -656,22 +751,34 @@ def main():
     except Exception as e:
         print(f"[NLP Worker] Requeue of reports for the new rules failed: {e}")
     print(f"[NLP Worker] Polling jobs every {_JOB_POLL_SECONDS}s, "
-          f"medspaCy batch every {_POLL_SECONDS}s.")
+          f"medspaCy batch and TF-IDF scoring every {_POLL_SECONDS}s.")
 
-    tick = 0
+    # Wall-clock schedule, not tick counting: while a scoring backlog keeps each
+    # loop busy for _SCORE_BUDGET_SECONDS, run_batch (critical findings) must
+    # still run every _POLL_SECONDS.
+    next_batch = 0.0
+    backlog = False
     while True:
         try:
             run_pending_jobs()
         except Exception as e:
             print(f"[NLP Worker] Job poll error: {e}")
 
-        if tick % _BATCH_EVERY_TICKS == 0:
+        due = time.monotonic() >= next_batch
+        if due:
+            next_batch = time.monotonic() + _POLL_SECONDS
             try:
                 run_batch()
             except Exception as e:
                 print(f"[NLP Worker] Batch error: {e}")
 
-        tick += 1
+        if due or backlog:
+            try:
+                backlog = run_scoring()
+            except Exception as e:
+                backlog = False
+                print(f"[NLP Worker] Scoring error: {e}")
+
         time.sleep(_JOB_POLL_SECONDS)
 
 
