@@ -157,8 +157,10 @@ def _init_vocabulary():
           f"{len(CRITICAL)} critical keywords.")
 
 
-# Bump when the model or vocabulary changes — triggers re-analysis of stale rows
-_NLP_MODEL_VERSION = 'medspacy-v1'
+# Bump when the model or vocabulary changes. Stale rows are only re-analysed
+# where a requeue step says so (see _requeue_non_rule_reports).
+# v2 = ConTextRule("non") removed (2026-10-07).
+_NLP_MODEL_VERSION = 'medspacy-v2'
 
 _CHUNK           = 500
 _BATCH_LIMIT      = 2000
@@ -463,6 +465,31 @@ def _process_job(conn, job_id, days):
 
 # ── Main loop ─────────────────────────────────────────────────────────────────
 
+def _requeue_non_rule_reports():
+    """Drop v1 analysis rows of reports containing the word "non", so run_batch
+    re-analyses them without the removed ConTextRule("non") (it negated every
+    finding after "Non contrast CT"). Done here rather than in a migration so
+    the re-analysis can only ever run on this fixed worker. Touches v1 rows only,
+    so it is a no-op once they are gone. Connects as the table owner, so the
+    site RLS policy (migration 0050) does not hide any rows."""
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(r"""
+                DELETE FROM hl7_oru_analysis a
+                USING  hl7_oru_reports r
+                WHERE  a.report_id = r.id
+                  AND  a.nlp_version = 'medspacy-v1'
+                  AND  COALESCE(NULLIF(r.impression_text, ''), r.report_text, '') ~* '\mnon\M'
+            """)
+            requeued = cur.rowcount
+        conn.commit()
+        if requeued:
+            print(f"[NLP Worker] Requeued {requeued} report(s) analysed with the old \"non\" rule.")
+    finally:
+        conn.close()
+
+
 def main():
     print("[NLP Worker] Starting up...")
 
@@ -479,6 +506,10 @@ def main():
     print("[NLP Worker] DB ready.")
     _init_vocabulary()
     _load_medspacy()
+    try:
+        _requeue_non_rule_reports()
+    except Exception as e:
+        print(f"[NLP Worker] Requeue of \"non\"-rule reports failed: {e}")
     print(f"[NLP Worker] Polling jobs every {_JOB_POLL_SECONDS}s, "
           f"medspaCy batch every {_POLL_SECONDS}s.")
 
