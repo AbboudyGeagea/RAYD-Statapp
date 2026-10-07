@@ -162,6 +162,11 @@ def _init_vocabulary():
 # v2 = ConTextRule("non") removed (2026-10-07).
 _NLP_MODEL_VERSION = 'medspacy-v2'
 
+# ai_nlp_cache.nlp_version (migration 0126). Rows with any other value are
+# recomputed by the next on-demand job; rows with none (written before negation
+# was resolved) are also hidden from the ORU page.
+_CLUSTER_VERSION = 'tfidf-negation-v1'
+
 _CHUNK           = 500
 _BATCH_LIMIT      = 2000
 _POLL_SECONDS      = 60
@@ -258,6 +263,40 @@ def _affirmed_phrases_batch(texts):
                 pass
 
     return [_affirmed_phrases_rule_based(t) for t in cleaned]
+
+
+# ConText categories that run_batch() treats as "not a current finding".
+_MASKED_CONTEXT = ('NEGATED_EXISTENCE', 'HISTORICAL')
+
+
+def _negation_resolved_texts(texts):
+    """The texts with every negated or historical mention removed, decided by the
+    same medspaCy pipeline as run_batch(), for the TF-IDF/K-means jobs. Removes
+    each cue and its whole ConText scope, not just vocabulary findings, so "no
+    evidence of spondylolisthesis" also drops a word the vocabulary does not
+    know. TERMINATE/PSEUDO modifiers carry a category too ("but" is
+    NEGATED_EXISTENCE) and only limit other scopes, so they are skipped.
+
+    Raises if medspaCy is unavailable: the job then fails visibly instead of
+    classifying on the rule-based fallback."""
+    nlp = _load_medspacy()
+    if nlp is None:
+        raise RuntimeError("medspaCy is not available in the NLP worker, so negations "
+                           "cannot be resolved. The analysis was not run.")
+    cleaned = [(t or '').lower()[:8000] for t in texts]
+    resolved = []
+    # n_process=1: doc._.context_graph is read here, in this process.
+    for doc in nlp.pipe(cleaned, batch_size=64, n_process=1):
+        drop = set()
+        for m in doc._.context_graph.modifiers:
+            if m.category in _MASKED_CONTEXT and m.direction.upper() not in ('TERMINATE', 'PSEUDO'):
+                drop.update(range(*m.modifier_span))
+                drop.update(range(*m.scope_span))
+        for ent in doc.ents:
+            if ent._.is_negated or ent._.is_historical:
+                drop.update(range(ent.start, ent.end))
+        resolved.append(''.join(tok.text_with_ws for tok in doc if tok.i not in drop))
+    return resolved
 
 
 # ── PostgreSQL ────────────────────────────────────────────────────────────────
@@ -374,13 +413,13 @@ def _process_job(conn, job_id, days):
                 SELECT o.id, o.report_text, o.impression_text
                 FROM hl7_oru_reports o
                 LEFT JOIN ai_nlp_cache c ON c.source_id = o.id
-                WHERE c.id IS NULL
+                WHERE (c.id IS NULL OR c.nlp_version IS DISTINCT FROM %s)
                   AND o.received_at >= NOW() - (%s || ' days')::INTERVAL
                   AND o.report_text IS NOT NULL
                   AND TRIM(o.report_text) != ''
                 ORDER BY o.received_at DESC
                 LIMIT 500
-            """, (days,))
+            """, (_CLUSTER_VERSION, days))
             rows = cur.fetchall()
 
         if not rows:
@@ -394,9 +433,11 @@ def _process_job(conn, job_id, days):
             conn.commit()
             return
 
+        texts = [(r.impression_text or r.report_text or '').strip() for r in rows]
+        resolved = _negation_resolved_texts(texts)
         records = [
-            {'id': r.id, 'report_text': r.report_text, 'impression_text': r.impression_text}
-            for r in rows
+            {'id': r.id, 'text': t, 'resolved': res}
+            for r, t, res in zip(rows, texts, resolved)
         ]
         results, cluster_labels = clustering.process_reports(records)
 
@@ -419,17 +460,19 @@ def _process_job(conn, job_id, days):
                 with conn.cursor() as cur:
                     cur.execute("""
                         INSERT INTO ai_nlp_cache
-                            (source_id, classification, keywords, cluster_id, cluster_label, severity_score, processed_at)
-                        VALUES (%s, %s, %s::jsonb, %s, %s, %s, NOW())
+                            (source_id, classification, keywords, cluster_id, cluster_label,
+                             severity_score, nlp_version, processed_at)
+                        VALUES (%s, %s, %s::jsonb, %s, %s, %s, %s, NOW())
                         ON CONFLICT (source_id) DO UPDATE SET
                             classification = EXCLUDED.classification,
                             keywords       = EXCLUDED.keywords,
                             cluster_id     = EXCLUDED.cluster_id,
                             cluster_label  = EXCLUDED.cluster_label,
                             severity_score = EXCLUDED.severity_score,
+                            nlp_version    = EXCLUDED.nlp_version,
                             processed_at   = NOW()
                     """, (res['id'], res['classification'], json.dumps(res['keywords']),
-                          cid, label, res['severity_score']))
+                          cid, label, res['severity_score'], _CLUSTER_VERSION))
                 # Commit per row (item 10 fix — same reasoning as run_batch()).
                 conn.commit()
                 saved += 1

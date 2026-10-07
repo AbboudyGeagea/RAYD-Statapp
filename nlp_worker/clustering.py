@@ -11,10 +11,12 @@ Pipeline:
   4. Per-report severity score  → 1.0–5.0
   5. Per-report keyword list    → top TF-IDF terms
 
-Negation caveat: TF-IDF does not handle negation ("no fracture" still
-contains the token "fracture"). Classification uses phrase-level matching
-on the raw text for normal/critical anchors before falling back to token
-scores — this gives reasonable precision but is not clinical-grade.
+Negation: TF-IDF cannot tell "no fracture" from "fracture", so it never sees
+the raw text. worker._negation_resolved_texts() runs each report through the
+same medspaCy pipeline as the primary analysis and removes every negated or
+historical mention; steps 1-5 count words only in that resolved text. The raw
+text is used for one thing: the normal anchors, which are negations themselves
+("no acute", "no pneumothorax").
 """
 
 import re
@@ -108,25 +110,24 @@ def _tokenize(text: str) -> list[str]:
 
 
 # ── Single-report classification ──────────────────────────────────────────────
-def classify_report(text: str) -> tuple[str, float]:
+def classify_report(text: str, resolved: str) -> tuple[str, float]:
     """
     Returns (classification, severity_score).
     classification: 'normal' | 'borderline' | 'critical'
     severity_score: 1.0 – 5.0
+    text:     the report as received (normal anchors only)
+    resolved: the report with negated / historical mentions removed
     """
     if not text:
         return 'borderline', 2.5
 
     lower = text.lower()
-
-    # 1. Phrase-level normal detection (high precision)
     normal_hits = sum(1 for p in _NORMAL_PHRASES if p in lower)
-    if normal_hits >= 2:
-        return 'normal', 1.0
 
-    # 2. Token-level critical scoring
-    tokens = _tokenize(text)
-    tok_counter = Counter(tokens)
+    # 1. Token-level critical scoring, affirmed mentions only. Runs before the
+    #    normal anchors so that "No pneumothorax. No pleural effusion. Large
+    #    hemorrhage." is critical, not normal.
+    tok_counter = Counter(_tokenize(resolved))
     critical_score = sum(
         _CRITICAL_WEIGHTS.get(tok, 0) * min(cnt, 2)
         for tok, cnt in tok_counter.items()
@@ -135,6 +136,11 @@ def classify_report(text: str) -> tuple[str, float]:
     if critical_score >= 5:
         severity = min(1.0 + critical_score * 0.4, 5.0)
         return 'critical', round(severity, 1)
+
+    # 2. Phrase-level normal detection, or nothing affirmed at all
+    #    ("No fracture or dislocation.")
+    if normal_hits >= 2 or not tok_counter:
+        return 'normal', 1.0
 
     if critical_score >= 2:
         return 'borderline', round(2.0 + critical_score * 0.2, 1)
@@ -180,7 +186,28 @@ def build_idf(texts: list[str]) -> dict[str, float]:
 
 
 # ── Clustering ────────────────────────────────────────────────────────────────
+_NO_FINDINGS_LABEL = 'No affirmed findings'
+
+
 def cluster_reports(texts: list[str], max_k: int = 8) -> tuple[list[int], list[str]]:
+    """
+    Reports with no words left once negations are removed ("No fracture or
+    dislocation.") are kept out of K-means: as all-zero vectors they would land
+    in whichever cluster sits nearest the origin and be named after its words.
+    They get one extra cluster of their own, labelled _NO_FINDINGS_LABEL.
+    """
+    worded = [i for i, t in enumerate(texts) if _tokenize(t)]
+    if len(worded) == len(texts):
+        return _kmeans_clusters(texts, max_k)
+
+    ids, labels = _kmeans_clusters([texts[i] for i in worded], max_k) if worded else ([], [])
+    cluster_ids = [len(labels)] * len(texts)
+    for i, cid in zip(worded, ids):
+        cluster_ids[i] = cid
+    return cluster_ids, labels + [_NO_FINDINGS_LABEL]
+
+
+def _kmeans_clusters(texts: list[str], max_k: int = 8) -> tuple[list[int], list[str]]:
     """
     TF-IDF + K-means clustering.
     Auto-selects k (3 ≤ k ≤ max_k) using inertia elbow.
@@ -251,7 +278,10 @@ def cluster_reports(texts: list[str], max_k: int = 8) -> tuple[list[int], list[s
 # ── Main batch processor ──────────────────────────────────────────────────────
 def process_reports(records: list[dict]) -> tuple[list[dict], list[str]]:
     """
-    records: list of {id, report_text, impression_text}
+    records: list of {id, text, resolved}
+      text     — impression (full report when there is none), as received
+      resolved — the same text with negated / historical mentions removed
+                 (worker._negation_resolved_texts)
     Returns:
       results  — list of {id, classification, severity_score, keywords, cluster_id}
       cluster_labels — label per cluster index
@@ -259,19 +289,16 @@ def process_reports(records: list[dict]) -> tuple[list[dict], list[str]]:
     if not records:
         return [], []
 
-    texts = [
-        (r.get('impression_text') or r.get('report_text') or '').strip()
-        for r in records
-    ]
+    resolved = [r['resolved'] for r in records]
 
     # Build corpus IDF once
-    idf = build_idf(texts)
+    idf = build_idf(resolved)
 
     # Classify + keyword extract per report
     results = []
-    for r, text in zip(records, texts):
-        cls, sev = classify_report(text)
-        kws = extract_keywords(text, idf)
+    for r, res in zip(records, resolved):
+        cls, sev = classify_report(r['text'], res)
+        kws = extract_keywords(res, idf)
         results.append({
             'id':             r['id'],
             'classification': cls,
@@ -281,7 +308,7 @@ def process_reports(records: list[dict]) -> tuple[list[dict], list[str]]:
         })
 
     # Cluster (needs at least 6 docs)
-    cluster_ids, cluster_labels = cluster_reports(texts)
+    cluster_ids, cluster_labels = cluster_reports(resolved)
     for res, cid in zip(results, cluster_ids):
         res['cluster_id'] = cid
 
