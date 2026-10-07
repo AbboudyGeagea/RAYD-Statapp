@@ -100,7 +100,7 @@ INSERT_SQL = """
         accession_number, placer_order_number,
         procedure_code, procedure_text,
         modality, scheduled_datetime, orc_start_datetime,
-        ordering_physician, order_status,
+        ordering_physician, ordering_physician_code, order_status,
         patient_class, patient_location,
         raw_message, received_at
     ) VALUES (
@@ -109,7 +109,7 @@ INSERT_SQL = """
         :accession_number, :placer_order_number,
         :procedure_code, :procedure_text,
         :modality, :scheduled_datetime, :orc_start_datetime,
-        :ordering_physician, :order_status,
+        :ordering_physician, :ordering_physician_code, :order_status,
         :patient_class, :patient_location,
         :raw_message, :received_at
     )
@@ -127,6 +127,7 @@ INSERT_SQL = """
         scheduled_datetime = EXCLUDED.scheduled_datetime,
         orc_start_datetime = EXCLUDED.orc_start_datetime,
         ordering_physician = EXCLUDED.ordering_physician,
+        ordering_physician_code = EXCLUDED.ordering_physician_code,
         order_status       = EXCLUDED.order_status,
         patient_class      = EXCLUDED.patient_class,
         patient_location   = EXCLUDED.patient_location,
@@ -223,6 +224,16 @@ def _format_name(raw):
     mid   = parts[2] if len(parts) > 2 else ''
     name  = ' '.join(filter(None, [first, mid, last]))
     return name or None
+
+def _physician_code(raw):
+    """
+    Doctor code (XCN component 1) of an ordering-provider field, e.g. 'ID2' from
+    'ID2^^Jihad Falou'. None when the field is a bare name with no components,
+    so a name is never mistaken for a code. CRN looks doctors up by this code.
+    """
+    if not raw or '^' not in raw:
+        return None
+    return raw.split('^')[0].strip() or None
 
 def _component(field_val, index, default=None):
     """Get a sub-component from a field value (split by ^)."""
@@ -381,6 +392,7 @@ def parse_orm_o01(raw_message):
     accession_number    = _component(_field(orc, 3, ''), 0)
     placer_order_number = _component(_field(orc, 2, ''), 0)
     ordering_physician  = _format_name(_field(orc, 12, ''))
+    ordering_physician_code = _physician_code(_field(orc, 12, ''))
 
     # ORC-7.4 (Quantity/Timing, component 4 = Start date/time) -- read on its own,
     # deliberately NOT folded into scheduled_datetime's existing OBR-7-first fallback
@@ -408,6 +420,8 @@ def parse_orm_o01(raw_message):
 
     if not ordering_physician:
         ordering_physician = _format_name(_field(obr, 16, ''))
+    if not ordering_physician_code:
+        ordering_physician_code = _physician_code(_field(obr, 16, ''))
 
     # ── PV1 — Patient class and location ────────────────────────────────────
     # PV1-2: patient class (I=Inpatient, O=Outpatient, E=Emergency, etc.)
@@ -434,6 +448,7 @@ def parse_orm_o01(raw_message):
         "scheduled_datetime": scheduled_datetime,
         "orc_start_datetime": orc_start_datetime,
         "ordering_physician": ordering_physician,
+        "ordering_physician_code": ordering_physician_code,
         "order_status":       order_status,
         "raw_message":        raw_message,
         "received_at":        datetime.now(),

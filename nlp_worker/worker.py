@@ -17,8 +17,12 @@ import os
 import time
 import json
 import re
+import hashlib
+import secrets
 from collections import deque
+from datetime import datetime
 import psycopg2
+import psycopg2.errors
 import psycopg2.extras
 
 import clustering
@@ -272,6 +276,87 @@ def _get_conn():
     )
 
 
+# ── CRN marker detection ──────────────────────────────────────────────────────
+# A radiologist writes the agreed marker (settings.crn_marker, default "CRN") in a
+# report; each such report gets one crn_notifications row plus a 'detected' event.
+# Only reports received at or after settings.crn_live_since count (empty = CRN off),
+# so switching CRN on, or re-analysing old reports, never pages about past studies.
+
+_REF_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'   # no 0/O/1/I: read aloud safely
+
+
+def _crn_ref_code():
+    pick = lambda n: ''.join(secrets.choice(_REF_ALPHABET) for _ in range(n))
+    return f'CRN-{pick(4)}-{pick(4)}'
+
+
+def _crn_settings(conn):
+    """(live_since, marker). live_since is None while CRN is off."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT key, value FROM settings WHERE key IN ('crn_live_since', 'crn_marker')")
+        cfg = dict(cur.fetchall())
+    marker = (cfg.get('crn_marker') or '').strip()
+    raw = (cfg.get('crn_live_since') or '').strip()
+    if not raw or not marker:
+        return None, marker
+    try:
+        return datetime.fromisoformat(raw), marker
+    except ValueError:
+        print(f"[NLP Worker] CRN off: crn_live_since {raw!r} is not an ISO timestamp.")
+        return None, marker
+
+
+def _detect_crn_markers(conn, rows):
+    """Record each report in `rows` that carries the marker as a whole word, exact
+    case. One notification per report (UNIQUE report_id), so a report analysed
+    twice never notifies twice. Returns the number of new notifications."""
+    live_since, marker = _crn_settings(conn)
+    if live_since is None:
+        return 0
+    pattern = re.compile(r'(?<!\w)' + re.escape(marker) + r'(?!\w)')
+    created = 0
+    for r in rows:
+        if r.received_at is None or r.received_at < live_since:
+            continue
+        text = r.impression_text or r.report_text or ''
+        if not pattern.search(text):
+            continue
+        notification_id = None
+        for _ in range(3):   # retry only on a ref_code collision (32^8 codes)
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        INSERT INTO crn_notifications
+                            (ref_code, report_id, accession_number, patient_id, marker,
+                             signing_radiologist, report_signed_at, report_received_at,
+                             report_fingerprint)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (report_id) DO NOTHING
+                        RETURNING id
+                    """, (_crn_ref_code(), r.id, r.accession_number, r.patient_id, marker,
+                          r.physician_id, r.result_datetime, r.received_at,
+                          hashlib.sha256(text.encode('utf-8')).hexdigest()))
+                    got = cur.fetchone()
+                    if got:
+                        notification_id = got[0]
+                        cur.execute("""
+                            INSERT INTO crn_events (notification_id, event_type, detail)
+                            VALUES (%s, 'detected', %s)
+                        """, (notification_id, json.dumps({
+                            'marker': marker,
+                            'report_received_at': r.received_at.isoformat(),
+                        })))
+                conn.commit()
+                break
+            except psycopg2.errors.UniqueViolation:
+                conn.rollback()
+        if notification_id:
+            created += 1
+            print(f"[NLP Worker] CRN marker in report {r.id} (accession {r.accession_number}) "
+                  f"-> notification {notification_id}")
+    return created
+
+
 # ── Batch processing (medspaCy negation-aware analysis) ───────────────────────
 
 def run_batch():
@@ -279,7 +364,9 @@ def run_batch():
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.NamedTupleCursor) as cur:
             cur.execute("""
-                SELECT r.id, r.impression_text, r.report_text
+                SELECT r.id, r.impression_text, r.report_text,
+                       r.accession_number, r.patient_id, r.physician_id,
+                       r.result_datetime, r.received_at
                 FROM   hl7_oru_reports r
                 LEFT JOIN hl7_oru_analysis a ON a.report_id = r.id
                 WHERE  a.id IS NULL
@@ -290,6 +377,13 @@ def run_batch():
 
         if not rows:
             return
+
+        # Before the NLP pass, so a medspaCy failure cannot delay a critical result.
+        try:
+            _detect_crn_markers(conn, rows)
+        except Exception as e:
+            conn.rollback()
+            print(f"[NLP Worker] CRN marker detection error: {e}")
 
         total, committed = len(rows), 0
 
