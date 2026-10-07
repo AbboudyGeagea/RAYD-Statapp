@@ -856,8 +856,10 @@ def nlp_status():
         text("SELECT COUNT(*) FROM hl7_oru_reports WHERE report_text IS NOT NULL")
     ).scalar() or 0
 
+    # Unversioned rows predate negation handling (migration 0059); they are
+    # hidden by nlp_results() and still pending until reprocessed.
     processed = db.session.execute(
-        text("SELECT COUNT(*) FROM ai_nlp_cache")
+        text("SELECT COUNT(*) FROM ai_nlp_cache WHERE nlp_version IS NOT NULL")
     ).scalar() or 0
 
     return jsonify({
@@ -929,6 +931,9 @@ def nlp_results():
     date_to   = request.args.get('date_to', '').strip()
     # See oru_data()'s comment: filter by result_datetime, not received_at.
     where_clause, params, _days = _date_proc_conditions(date_from, date_to, proc, alias='o', days_default=90)
+    # Rows without nlp_version were scored on the raw text, so "no fracture"
+    # counted as "fracture" (migration 0059). Never show them.
+    where_clause += " AND c.nlp_version IS NOT NULL"
 
     mod_expr, mod_joins = _modality_sql('o')
     rows = db.session.execute(text(f"""

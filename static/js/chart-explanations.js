@@ -535,8 +535,8 @@ const ChartExplanations = {
     'oru-nlp': {
       title: 'NLP Analysis Results',
       purpose: 'A second, statistical analysis of the reports, run on demand.',
-      valueMeaning: 'Classification = Normal, Borderline or Critical, with a severity score from 1 to 5. Diagnostic Clusters group reports with similar wording (TF-IDF and K-means) and are named from their top words. Extracted Medical Terms = the keywords this analysis found.',
-      interpretation: 'This analysis does not handle negation (“no fracture” can still count “fracture”), so use it for trends, not for individual patients.'
+      valueMeaning: 'Before scoring, medspaCy removes every negated or historical mention (“no fracture”, “pas de fracture”, “history of stroke”), the same way as for the Critical Findings Log. Classification = Normal, Borderline or Critical, with a severity score from 1 to 5; a report with nothing affirmed is Normal. Diagnostic Clusters group reports with similar wording (TF-IDF and K-means) and are named from their top words; “No affirmed findings” holds the reports with nothing left once negations are removed. Extracted Medical Terms = the affirmed keywords this analysis found.',
+      interpretation: 'Use it for trends and case mix, not to judge an individual patient: it is a word-statistics model, so read the report itself for any single case.'
     }
   },
 
