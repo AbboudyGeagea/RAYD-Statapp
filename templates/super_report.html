@@ -854,7 +854,7 @@
         document.getElementById('super-storage').innerHTML =
             row('Total GB',     fmtD(s.total_gb), pct(s.total_gb, ps.total_gb)) +
             row('Avg GB/day',   fmtD(s.avg_gb_per_day), pct(s.avg_gb_per_day, ps.avg_gb_per_day)) +
-            row('Total images', fmt(s.total_study_count), null) +
+            row('Total images', fmt(cur.kpis.total_images), pct(cur.kpis.total_images, prev.kpis.total_images)) +
             subSection('By Modality', (s.by_modality||[]).map(m=>row(m.modality, fmtD(m.gb)+' GB', null)).join(''));
 
         // Physicians

@@ -343,7 +343,7 @@ const ChartExplanations = {
     'sr-storage': {
       title: 'Storage & Images',
       purpose: 'PACS storage used by the period’s studies.',
-      valueMeaning: 'From the nightly storage summary: total GB, average GB per day, and the 5 modalities using the most GB.',
+      valueMeaning: 'Total GB, average GB per day and the 5 modalities using the most GB come from the nightly storage summary. Total images = images in the period’s studies, as counted by PACS.',
       interpretation: 'GB per day rising while study volume stays flat means bigger studies, for example new protocols or thinner slices.'
     },
     'sr-physicians': {
