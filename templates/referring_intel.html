@@ -299,7 +299,7 @@
     // ── Load physician list ───────────────────────────────────────────
     async function loadPhysicianList() {
         try {
-            const res = await fetch('/viewer/referring-intel/list');
+            const res = await fetch(`/viewer/referring-intel/list?months=${_activeMonths}`);
             _physicians = await res.json();
             if (_physicians.error) throw new Error(_physicians.error);
             document.getElementById('phy-count').textContent =
@@ -463,7 +463,11 @@
             b.style.color      = active ? '#34d399' : '#4b5563';
             b.style.borderColor= active ? 'rgba(52,211,153,0.3)' : '#1e2820';
         });
-        if (_activePhysician) selectPhysician(_activePhysician);
+        // Every panel follows the window: reload the list and whichever view is open.
+        _loyaltyData = null;
+        loadPhysicianList();
+        if (!document.getElementById('loyalty-view').classList.contains('hidden')) showLoyaltyView();
+        else if (_activePhysician) selectPhysician(_activePhysician);
     }
 
     // ── Tab switching ─────────────────────────────────────────────────

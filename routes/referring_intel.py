@@ -59,10 +59,11 @@ def referring_intel_list():
             FROM etl_didb_studies s {_MJ}
             WHERE {_PHY} != ''
               AND {_SR}
+              AND {_IN_WINDOW}
             GROUP BY 1
             ORDER BY total_studies DESC
             LIMIT 300
-        """)).mappings().fetchall()
+        """), {"months": _months_arg()}).mappings().fetchall()
         return jsonify([dict(r, is_external=(r["physician"] == EXTERNAL_LABEL)) for r in rows])
     except Exception as e:
         logger.error(f"Physician list error: {e}", exc_info=True)
@@ -172,6 +173,7 @@ def referring_intel_detail():
                 )                                   AS pct_last_30d
             FROM etl_didb_studies s {_MJ}
             WHERE {_PHY} = :physician AND {_SR}
+              AND {_IN_WINDOW}
         """), p).mappings().fetchone()
 
         # Department median TAT baseline (last 90 days)
@@ -223,6 +225,7 @@ def referring_intel_detail():
                 COUNT(*) AS cnt
             FROM etl_didb_studies s {_MJ}
             WHERE {_PHY} = :physician AND {_SR}
+              AND {_IN_WINDOW}
             GROUP BY 1 ORDER BY cnt DESC LIMIT 12
         """), p).mappings().fetchall()
 
@@ -233,6 +236,7 @@ def referring_intel_detail():
                 COUNT(*) AS cnt
             FROM etl_didb_studies s {_MJ}
             WHERE {_PHY} = :physician AND {_SR}
+              AND {_IN_WINDOW}
             GROUP BY 1 ORDER BY cnt DESC LIMIT 10
         """), p).mappings().fetchall()
 
@@ -245,6 +249,7 @@ def referring_intel_detail():
                 JOIN hl7_oru_analysis a ON a.report_id = r.id
                 JOIN etl_didb_studies s ON s.accession_number = r.accession_number
                 WHERE {_PHY} = :physician
+                  AND {_IN_WINDOW}
                   AND a.affirmed_labels IS NOT NULL
                   AND array_length(a.affirmed_labels, 1) > 0
             ) sub
@@ -260,6 +265,7 @@ def referring_intel_detail():
             JOIN hl7_oru_analysis a ON a.report_id = r.id
             JOIN etl_didb_studies s ON s.accession_number = r.accession_number
             WHERE {_PHY} = :physician
+              AND {_IN_WINDOW}
         """), p).mappings().fetchone()
 
         # ── Patient return rate ────────────────────────────────────────
@@ -303,6 +309,7 @@ def referring_intel_detail():
                 COUNT(*) AS cnt
             FROM etl_didb_studies s {_MJ}
             WHERE {_PHY} = :physician AND {_SR}
+              AND {_IN_WINDOW}
             GROUP BY 1 ORDER BY cnt DESC
         """), p).mappings().fetchall()
 
@@ -323,6 +330,7 @@ def referring_intel_detail():
                 COUNT(*) AS cnt
             FROM etl_didb_studies s {_MJ}
             WHERE {_PHY} = :physician AND {_SR}
+              AND {_IN_WINDOW}
               AND s.age_at_exam IS NOT NULL
             GROUP BY 1 ORDER BY 1
         """), p).mappings().fetchall()
@@ -342,6 +350,7 @@ def referring_intel_detail():
                 ) AS tat_min
             FROM etl_didb_studies s {_MJ}
             WHERE {_PHY} = :physician AND {_SR}
+              AND {_IN_WINDOW}
             ORDER BY s.study_date DESC, s.study_db_uid DESC
             LIMIT 20
         """), p).mappings().fetchall()

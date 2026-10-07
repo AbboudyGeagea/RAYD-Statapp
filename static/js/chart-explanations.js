@@ -381,7 +381,7 @@ const ChartExplanations = {
     'ri-summary': {
       title: 'Physician Summary',
       purpose: 'Headline numbers for the selected doctor.',
-      valueMeaning: 'Total Studies, Unique Patients, Median TAT, Critical Rate and Last Study cover the doctor’s full history; 90d Return Rate uses the History Window. Median TAT = PACS arrival to final signed report, compared with the department median over the last 90 days. Activity Trend compares the share of the doctor’s studies from the last 30 days with an even pace over the History Window.',
+      valueMeaning: 'Every number covers the History Window (6M / 12M / 24M / All), like the rest of the page. Median TAT = PACS arrival to final signed report, compared with the department median over the last 90 days. Activity Trend compares the share of the window’s studies that came in the last 30 days with an even pace over the window (not shown for All).',
       interpretation: 'A red Median TAT means this doctor’s patients wait longer for reports than the department average. A falling Activity Trend is an early sign of fewer referrals.'
     },
     'ri-volume': {
@@ -398,38 +398,38 @@ const ChartExplanations = {
     },
     'ri-modality': {
       title: 'Modality Mix',
-      purpose: 'Which modalities this doctor’s studies used, over their full history.',
+      purpose: 'Which modalities this doctor’s studies used, in the History Window.',
       valueMeaning: 'Top 12 modalities by number of studies.',
       interpretation: 'Shows which department depends most on this doctor’s referrals.'
     },
     'ri-body': {
       title: 'Body Parts',
-      purpose: 'The body parts examined in this doctor’s studies, over their full history.',
+      purpose: 'The body parts examined in this doctor’s studies, in the History Window.',
       valueMeaning: 'Top 10 body parts as recorded in PACS; Unspecified = left blank.',
       interpretation: 'Reflects the doctor’s specialty. A large Unspecified share is a PACS data-quality issue.'
     },
     'ri-class': {
       title: 'Patient Class',
-      purpose: 'Split of this doctor’s studies by patient class, over their full history.',
+      purpose: 'Split of this doctor’s studies by patient class, in the History Window.',
       valueMeaning: 'Studies per patient-class code on the PACS study; Unknown = empty.',
       interpretation: 'Tells you whether this is mainly a hospital, clinic or emergency referrer.'
     },
     'ri-age': {
       title: 'Patient Age Distribution',
-      purpose: 'Ages of this doctor’s patients at the time of the exam, over their full history.',
+      purpose: 'Ages of this doctor’s patients at the time of the exam, in the History Window.',
       valueMeaning: 'Studies per 10-year age band.',
       interpretation: 'Shows the patient population this doctor serves.'
     },
     'ri-findings': {
       title: 'Top NLP-Extracted Findings',
       purpose: 'The most common findings in reports for this doctor’s patients.',
-      valueMeaning: 'From HL7 report messages analysed by the NLP worker, matched to studies by accession number. Only affirmed findings count: a finding written as negative (e.g. “no fracture”) is not counted. Top 20, full history.',
+      valueMeaning: 'From HL7 report messages analysed by the NLP worker, matched to studies by accession number. Only affirmed findings count: a finding written as negative (e.g. “no fracture”) is not counted. Top 20, in the History Window.',
       interpretation: 'Shows the case mix behind the referrals; useful when discussing protocols with the doctor.'
     },
     'ri-critical': {
       title: 'Critical Findings',
       purpose: 'How many of this doctor’s analysed reports contained a critical finding.',
-      valueMeaning: '% = reports the NLP flagged as critical ÷ reports analysed, over the full history.',
+      valueMeaning: '% = reports the NLP flagged as critical ÷ reports analysed, in the History Window.',
       interpretation: 'Compare with doctors of the same specialty: emergency and oncology referrers naturally run higher.'
     },
     'ri-return': {
@@ -446,7 +446,7 @@ const ChartExplanations = {
     },
     'ri-recent': {
       title: 'Last 20 Studies',
-      purpose: 'This doctor’s most recent studies.',
+      purpose: 'This doctor’s most recent studies in the History Window.',
       valueMeaning: 'TAT = minutes from PACS arrival to final signed report; empty = not reported yet.',
       interpretation: 'A quick check of what this doctor sent most recently, and whether it has been reported.'
     },
