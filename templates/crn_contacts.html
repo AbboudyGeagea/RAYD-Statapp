@@ -23,6 +23,7 @@
         body.light .input-field { background: #ffffff; border-color: #cbd5e1; color: #1a202c; }
         body.light table.list td { color: #334155; border-color: #e2e8f0; }
     </style>
+    {% include '_crn_head.html' %}
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
     {% include '_header.html' %}
@@ -32,21 +33,14 @@
             <div class="max-w-5xl mx-auto space-y-6">
 
                 <div>
-                    <h2 class="text-white text-2xl font-black uppercase tracking-tight">CRN Contacts</h2>
-                    <p class="text-slate-500 text-xs mt-1">
+                    {% set crn_tab = 'contacts' %}
+                    {% include '_crn_tabs.html' %}
+                    <p class="text-slate-500 text-xs">
                         Referring doctors who receive Critical Result Notifications. The doctor code must match the
                         code the RIS sends in the order (ORC-12), e.g. <span class="font-mono text-slate-300">GP42</span>
                         from <span class="font-mono text-slate-300">GP42^^Khaled Hadla</span>. Notifications go by SMS for now.
                     </p>
                 </div>
-
-                {% with messages = get_flashed_messages(with_categories=true) %}
-                {% for cat, m in messages %}
-                <div class="rounded-xl px-4 py-3 text-sm font-semibold
-                    {{ 'bg-emerald-500/10 text-emerald-200 border border-emerald-500/20' if cat == 'success'
-                       else 'bg-rose-500/10 text-rose-200 border border-rose-500/20' }}">{{ m }}</div>
-                {% endfor %}
-                {% endwith %}
 
                 <div class="grid grid-cols-3 gap-4">
                     <div class="stat"><p class="label">Contacts</p><p class="text-2xl font-black text-white">{{ stats.total }}</p></div>
@@ -76,18 +70,21 @@
                 <div class="card">
                     <div class="flex items-center justify-between gap-4 mb-4 flex-wrap">
                         <h3 class="text-white text-sm font-black uppercase tracking-widest">Contact list</h3>
-                        <form method="GET" class="flex gap-2">
-                            <input type="text" name="q" value="{{ q }}" placeholder="Search code, name, phone…" class="input-field" style="width:240px;">
-                        </form>
+                        <div class="flex gap-2 items-center">
+                            <form method="GET" class="flex gap-2">
+                                <input type="text" name="q" value="{{ q }}" placeholder="Search code, name, phone…" class="input-field" style="width:240px;">
+                            </form>
+                            <a href="{{ url_for('crn_admin.contact_form') }}" class="btn-primary" style="text-decoration:none;white-space:nowrap;"><i class="bi bi-plus-lg"></i> Add</a>
+                        </div>
                     </div>
                     {% if rows %}
                     <div class="overflow-x-auto">
                         <table class="list">
-                            <thead><tr><th>Code</th><th>Name</th><th>Mobile (SMS)</th><th>As in file</th><th>Email</th><th>Updated</th></tr></thead>
+                            <thead><tr><th>Code</th><th>Name</th><th>Mobile (SMS)</th><th>As in file</th><th>Email</th><th>Updated</th><th></th></tr></thead>
                             <tbody>
                             {% for r in rows %}
-                            <tr>
-                                <td class="font-mono font-bold text-white">{{ r.doctor_code }}</td>
+                            <tr{% if not r.active %} style="opacity:.5"{% endif %}>
+                                <td class="font-mono font-bold text-white">{{ r.doctor_code }}{% if not r.active %} <span class="muted text-[10px]">inactive</span>{% endif %}</td>
                                 <td>{{ r.full_name or '—' }}</td>
                                 <td class="font-mono">
                                     {% if r.phone_e164 %}{{ r.phone_e164 }}
@@ -96,6 +93,7 @@
                                 <td class="font-mono muted">{{ r.phone_raw or '' }}</td>
                                 <td>{{ r.email or '' }}</td>
                                 <td class="muted">{{ r.updated_at.strftime('%Y-%m-%d %H:%M') if r.updated_at }}{% if r.updated_by %} · {{ r.updated_by }}{% endif %}</td>
+                                <td><a class="text-sky-400 text-xs font-bold" href="{{ url_for('crn_admin.contact_form', code=r.doctor_code) }}">Edit</a></td>
                             </tr>
                             {% endfor %}
                             </tbody>

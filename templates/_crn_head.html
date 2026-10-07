@@ -1,0 +1,32 @@
+{# Shared head styles + tab bar for the Admin > CRN pages. Set `crn_tab` before including. #}
+<style>
+    body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; }
+    .card { background: #232b28; border-radius: 1.25rem; padding: 1.5rem; border: 1px solid #28332e; }
+    .input-field { background: #141b19; border: 1px solid #334155; color: #e2e8f0; padding: .6rem .9rem; border-radius: .75rem; width: 100%; font-size: .85rem; outline: none; }
+    .input-field:focus { border-color: #38bdf8; }
+    .label { font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .2em; color: #64748b; margin-bottom: 6px; display: block; }
+    .btn-primary { background: #38bdf8; color: #0c1a22; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; padding: .65rem 1.3rem; border-radius: .75rem; border: none; cursor: pointer; }
+    .btn-primary:hover { opacity: .85; }
+    .btn-ghost { background: transparent; color: #94a3b8; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; padding: .65rem 1.3rem; border-radius: .75rem; border: 1px solid #334155; cursor: pointer; text-decoration: none; display: inline-block; }
+    .btn-danger { background: #f87171; color: #1f0a0a; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; padding: .65rem 1.3rem; border-radius: .75rem; border: none; cursor: pointer; }
+    .crn-tabs { display: flex; gap: 6px; border-bottom: 1px solid #28332e; margin-bottom: 1.25rem; flex-wrap: wrap; }
+    .crn-tabs a { padding: .6rem 1rem; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; color: #64748b; text-decoration: none; border-bottom: 3px solid transparent; }
+    .crn-tabs a.on { color: #f87171; border-bottom-color: #f87171; }
+    table.list { width: 100%; border-collapse: collapse; font-size: 12px; }
+    table.list th { text-align: left; font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; color: #64748b; padding: 8px 10px; border-bottom: 1px solid #28332e; }
+    table.list td { padding: 8px 10px; border-bottom: 1px solid #1e2824; color: #cbd5e1; vertical-align: top; }
+    table.list tr.click:hover td { background: rgba(255,255,255,.02); cursor: pointer; }
+    .badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 10px; font-weight: 800; border: 1px solid; white-space: nowrap; }
+    .b-detected { color: #93c5fd; border-color: rgba(147,197,253,.35); }
+    .b-sent { color: #fbbf24; border-color: rgba(251,191,36,.35); }
+    .b-overdue { color: #f87171; border-color: rgba(248,113,113,.45); background: rgba(248,113,113,.08); }
+    .b-acknowledged { color: #34d399; border-color: rgba(52,211,153,.35); }
+    .b-unroutable, .b-send_failed { color: #fda4af; border-color: rgba(253,164,175,.45); background: rgba(253,164,175,.08); }
+    .muted { color: #64748b; }
+    .flash-ok { background: rgba(16,185,129,.1); color: #a7f3d0; border: 1px solid rgba(16,185,129,.25); }
+    .flash-err { background: rgba(244,63,94,.1); color: #fecdd3; border: 1px solid rgba(244,63,94,.25); }
+    body.light { background: #f0f4f8 !important; color: #1a202c !important; }
+    body.light .card { background: #ffffff; border-color: #e2e8f0; }
+    body.light .input-field { background: #ffffff; border-color: #cbd5e1; color: #1a202c; }
+    body.light table.list td { color: #334155; border-color: #e2e8f0; }
+</style>

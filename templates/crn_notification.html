@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | {{ n.ref_code }}</title>
+    <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
+    {% include '_crn_head.html' %}
+    <style>
+        .tl { list-style: none; margin: 0; padding: 0; }
+        .tl li { display: grid; grid-template-columns: 130px 1fr; gap: 12px; padding: 10px 0; border-bottom: 1px solid #1e2824; }
+        .tl .t { color: #64748b; font-size: 12px; font-family: monospace; }
+        .tl .e { font-weight: 800; color: #e2e8f0; font-size: 13px; }
+        .tl .d { color: #94a3b8; font-size: 12px; margin-top: 2px; }
+        .ev-acknowledged .e, .ev-acknowledged_by_phone .e { color: #34d399; }
+        .ev-overdue .e, .ev-unroutable .e, .ev-send_failed .e, .ev-page_push_failed .e, .ev-send_gave_up .e { color: #f87171; }
+        dl.kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; font-size: 13px; margin: 0; }
+        dl.kv dt { color: #64748b; } dl.kv dd { margin: 0; }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+    {% include '_header.html' %}
+    <div class="flex flex-1 overflow-hidden">
+        {% include '_sidebar.html' %}
+        <main class="flex-1 overflow-y-auto p-8 bg-[#181f1c]">
+            <div class="max-w-5xl mx-auto">
+                {% set crn_tab = 'board' %}
+                {% include '_crn_tabs.html' %}
+                {% set ev_labels = {
+                    'detected': 'Marker detected in the report',
+                    'sent': 'SMS sent',
+                    'resent': 'SMS resent (link not opened)',
+                    'doctor_unreachable': 'Ordering doctor could not be reached',
+                    'sent_to_fallback': 'SMS sent to the fallback contact',
+                    'escalated_fallback': 'Not acknowledged: fallback contact texted',
+                    'no_fallback': 'No fallback contact configured',
+                    'unroutable': 'Nobody could be notified',
+                    'opened': 'Link opened',
+                    'acknowledged': 'Acknowledged on the page',
+                    'acknowledged_by_phone': 'Acknowledged by phone',
+                    'overdue': 'Overdue',
+                    'send_failed': 'SMS could not be sent',
+                    'page_push_failed': 'Page could not be placed on the gateway',
+                    'send_gave_up': 'Gave up after repeated failures',
+                    'retry_requested': 'Retry requested',
+                } %}
+
+                <div class="flex items-center gap-3 mb-4">
+                    <a href="{{ url_for('crn_admin.board_page') }}" class="muted text-xs font-bold"><i class="bi bi-arrow-left"></i> Board</a>
+                    <span class="font-mono text-white text-lg font-black">{{ n.ref_code }}</span>
+                    <span class="badge b-{{ n.status }}">{{ labels.get(n.status, n.status) }}</span>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+                    <div class="card">
+                        <dl class="kv">
+                            <dt>Accession</dt><dd class="font-mono">{{ n.accession_number or '—' }}</dd>
+                            <dt>Patient MRN</dt><dd class="font-mono">{{ n.patient_id or '—' }}</dd>
+                            <dt>Ordering doctor</dt><dd>{% if n.doctor_code %}<span class="font-mono">{{ n.doctor_code }}</span> {{ n.doctor_name or '' }}{% else %}<span class="muted">not resolved</span>{% endif %}</dd>
+                            <dt>Radiologist</dt><dd>{{ n.signing_radiologist or '—' }}</dd>
+                            <dt>Report received</dt><dd>{{ n.report_received_at.strftime('%Y-%m-%d %H:%M:%S') if n.report_received_at else '—' }}</dd>
+                            <dt>Detected</dt><dd>{{ n.detected_at.strftime('%Y-%m-%d %H:%M:%S') }}</dd>
+                            <dt>First SMS</dt><dd>{{ n.first_sent_at.strftime('%Y-%m-%d %H:%M:%S') if n.first_sent_at else '—' }}</dd>
+                            <dt>Acknowledged</dt><dd>{{ n.acknowledged_at.strftime('%Y-%m-%d %H:%M:%S') if n.acknowledged_at else '—' }}</dd>
+                        </dl>
+                    </div>
+                    <div class="card">
+                        <p class="label">Texted</p>
+                        {% if recipients %}
+                        <table class="list">
+                            <thead><tr><th>Who</th><th>Mobile</th><th>SMS</th><th>Opened</th></tr></thead>
+                            <tbody>
+                            {% for r in recipients %}
+                            <tr>
+                                <td>{{ r.contact_name or r.contact_code }} <span class="muted">· {{ 'doctor' if r.role == 'doctor' else 'fallback' }}</span></td>
+                                <td class="font-mono">{{ r.phone_e164 }}</td>
+                                <td>{{ r.send_count }}{% if r.fail_count %} <span class="text-rose-300">({{ r.fail_count }} failed)</span>{% endif %}</td>
+                                <td>{{ r.opened_at.strftime('%H:%M') if r.opened_at else '—' }}</td>
+                            </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                        {% else %}<p class="muted text-sm">Nobody has been texted.</p>{% endif %}
+                    </div>
+                </div>
+
+                {% if current_user.role == 'admin' and (n.status in ('unroutable', 'send_failed') or not n.acknowledged_at) %}
+                <div class="card mb-4">
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        {% if n.status in ('unroutable', 'send_failed') %}
+                        <form method="POST" action="{{ url_for('crn_admin.retry', notification_id=n.id) }}">
+                            <p class="label">Retry</p>
+                            <p class="muted text-xs mb-3">After fixing the contact (or adding a fallback contact), send this CRN through routing again.</p>
+                            <button class="btn-primary" type="submit"><i class="bi bi-arrow-repeat"></i> Retry</button>
+                        </form>
+                        {% endif %}
+                        {% if not n.acknowledged_at %}
+                        <form method="POST" action="{{ url_for('crn_admin.ack_by_phone', notification_id=n.id) }}">
+                            <p class="label">Acknowledged by phone</p>
+                            <p class="muted text-xs mb-2">The result was communicated by phone. This stops escalation and is recorded separately from the doctor's own acknowledgement.</p>
+                            <textarea name="note" required minlength="5" maxlength="1000" class="input-field mb-3" rows="2"
+                                      placeholder="Who was called, by whom, what was said"></textarea>
+                            <button class="btn-danger" type="submit"><i class="bi bi-telephone"></i> Record</button>
+                        </form>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endif %}
+
+                <div class="card">
+                    <p class="label">Timeline</p>
+                    <ul class="tl">
+                        {% for e in events %}
+                        {% set d = e.detail or {} %}
+                        <li class="ev-{{ e.event_type }}">
+                            <span class="t">{{ e.at.strftime('%Y-%m-%d %H:%M:%S') }}</span>
+                            <div>
+                                <div class="e">{{ ev_labels.get(e.event_type, e.event_type) }}</div>
+                                <div class="d">
+                                    {% if d.contact_name or d.contact_code %}{{ d.contact_name or d.contact_code }}{% if d.role %} ({{ d.role }}){% endif %}{% endif %}
+                                    {% if d.phone %} · {{ d.phone }}{% endif %}
+                                    {% if d.dry_run %} · <span class="text-amber-300">dry run, not really sent</span>{% endif %}
+                                    {% if d.reason %} · {{ d.reason }}{% endif %}
+                                    {% if d.error %} · {{ d.error }}{% endif %}
+                                    {% if d.ip %} · {{ d.ip }}{% endif %}
+                                    {% if d.user_agent %} · {{ d.user_agent[:80] }}{% endif %}
+                                    {% if d.comment %}<div class="mt-1 text-slate-200">“{{ d.comment }}”</div>{% endif %}
+                                    {% if d.note %}<div class="mt-1 text-slate-200">“{{ d.note }}” — {{ d.by }}</div>{% elif d.by %} · by {{ d.by }}{% endif %}
+                                    {% if d.marker %}marker “{{ d.marker }}”{% endif %}
+                                    {% if d.minutes_since_first_sms %}{{ d.minutes_since_first_sms }} min after the first SMS{% endif %}
+                                </div>
+                            </div>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    <p class="muted text-xs mt-3">This history is append-only: entries cannot be edited or deleted.</p>
+                </div>
+            </div>
+        </main>
+    </div>
+    {% include '_footer.html' %}
+</body>
+</html>

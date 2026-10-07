@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | CRN Settings</title>
+    <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
+    {% include '_crn_head.html' %}
+    <style>
+        .chk { display: grid; grid-template-columns: 22px 150px 1fr; gap: 8px; padding: 7px 0; border-bottom: 1px solid #1e2824; font-size: 13px; }
+        .s-ok { color: #34d399; } .s-warn { color: #fbbf24; } .s-bad { color: #f87171; }
+        .sms { background: #141b19; border: 1px solid #28332e; border-radius: .75rem; padding: .8rem 1rem; font-family: monospace; font-size: 12px; white-space: pre-wrap; word-break: break-all; }
+        section h3 { color: #fff; font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: .12em; margin-bottom: .9rem; }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+    {% include '_header.html' %}
+    <div class="flex flex-1 overflow-hidden">
+        {% include '_sidebar.html' %}
+        <main class="flex-1 overflow-y-auto p-8 bg-[#181f1c]">
+            <div class="max-w-5xl mx-auto space-y-4">
+                {% set crn_tab = 'settings' %}
+                {% include '_crn_tabs.html' %}
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <section class="card">
+                        <h3>Status</h3>
+                        {% if cfg.crn_live_since %}
+                        <p class="text-emerald-300 font-bold mb-1"><i class="bi bi-circle-fill"></i> CRN is ON</p>
+                        <p class="muted text-xs mb-4">Since {{ cfg.crn_live_since.replace('T', ' ') }}. Only reports received after this time can notify.</p>
+                        <form method="POST" action="{{ url_for('crn_admin.switch_live') }}"
+                              onsubmit="return confirm('Switch CRN off? No new notifications will be created. Open ones keep escalating until acknowledged.')">
+                            <input type="hidden" name="on" value="0">
+                            <button class="btn-ghost" type="submit"><i class="bi bi-pause-circle"></i> Switch off</button>
+                        </form>
+                        {% else %}
+                        <p class="text-rose-300 font-bold mb-1"><i class="bi bi-pause-circle"></i> CRN is OFF</p>
+                        <p class="muted text-xs mb-4">Switching on starts from now: markers in earlier reports are ignored.</p>
+                        <form method="POST" action="{{ url_for('crn_admin.switch_live') }}"
+                              onsubmit="return confirm('{{ 'Some checks are not green. ' if checks|selectattr(0, 'ne', 'ok')|list else '' }}Switch CRN on now?')">
+                            <input type="hidden" name="on" value="1">
+                            <button class="btn-danger" type="submit"><i class="bi bi-play-circle"></i> Switch on</button>
+                        </form>
+                        {% endif %}
+                        <div class="mt-5">
+                            {% for state, label, detail in checks %}
+                            <div class="chk">
+                                <i class="bi {{ 'bi-check-circle-fill s-ok' if state == 'ok' else ('bi-exclamation-triangle-fill s-warn' if state == 'warn' else 'bi-x-circle-fill s-bad') }}"></i>
+                                <span class="font-bold">{{ label }}</span><span class="muted">{{ detail }}</span>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </section>
+
+                    <section class="card">
+                        <h3>Test</h3>
+                        <p class="muted text-xs mb-4">Places a test page (no patient data, valid for 1 hour) on the gateway and texts it to one contact, marked TEST. Tests are not stored as CRNs and never appear on the board or in the report.</p>
+                        <form method="POST" action="{{ url_for('crn_admin.test_send') }}" class="space-y-3">
+                            <select name="doctor_code" class="input-field" required>
+                                <option value="">Choose a contact…</option>
+                                {% for c in contacts if c.phone_e164 %}
+                                <option value="{{ c.doctor_code }}">{{ c.doctor_code }} · {{ c.full_name or '' }} · {{ c.phone_e164 }}</option>
+                                {% endfor %}
+                            </select>
+                            <button class="btn-primary" type="submit"><i class="bi bi-send"></i> Send test</button>
+                        </form>
+                    </section>
+                </div>
+
+                <form method="POST" class="space-y-4">
+                    <section class="card">
+                        <h3>Detection and escalation</h3>
+                        <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+                            <div><label class="label" for="m">Marker</label>
+                                <input id="m" name="crn_marker" value="{{ cfg.crn_marker }}" class="input-field font-mono" maxlength="40" required></div>
+                            <div><label class="label">Resend after (min)</label><input type="number" name="crn_resend_min" value="{{ cfg.crn_resend_min }}" min="1" max="1440" class="input-field"></div>
+                            <div><label class="label">Fallback after (min)</label><input type="number" name="crn_fallback_min" value="{{ cfg.crn_fallback_min }}" min="1" max="1440" class="input-field"></div>
+                            <div><label class="label">Overdue after (min)</label><input type="number" name="crn_overdue_min" value="{{ cfg.crn_overdue_min }}" min="1" max="2880" class="input-field"></div>
+                            <div><label class="label">Link valid (hours)</label><input type="number" name="crn_link_ttl_hours" value="{{ cfg.crn_link_ttl_hours }}" min="1" max="720" class="input-field"></div>
+                        </div>
+                        <p class="muted text-xs mt-3">The marker is matched as a whole word with exact capitals. Times count from the first SMS.</p>
+                        <div class="mt-4" style="max-width:480px;">
+                            <label class="label">Fallback contact</label>
+                            <select name="crn_fallback_code" class="input-field">
+                                <option value="">None</option>
+                                {% for c in contacts %}
+                                <option value="{{ c.doctor_code }}" {{ 'selected' if c.doctor_code == cfg.crn_fallback_code }}>{{ c.doctor_code }} · {{ c.full_name or '' }}{{ '' if c.phone_e164 else ' (no mobile!)' }}</option>
+                                {% endfor %}
+                            </select>
+                            <p class="muted text-xs mt-1">Texted when the ordering doctor cannot be reached, and when a CRN is not acknowledged in time.</p>
+                        </div>
+                    </section>
+
+                    <section class="card">
+                        <h3>CRN gateway</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div><label class="label">Gateway address (RAYD → gateway)</label>
+                                <input name="crn_gateway_url" value="{{ cfg.crn_gateway_url }}" placeholder="https://crn.hospital-domain" class="input-field"></div>
+                            <div><label class="label">Link address (in the SMS)</label>
+                                <input name="crn_public_base_url" value="{{ cfg.crn_public_base_url }}" placeholder="https://crn.hospital-domain" class="input-field"></div>
+                            <div><label class="label">API key</label>
+                                <input name="crn_gateway_api_key" type="password" autocomplete="new-password"
+                                       placeholder="{{ '•••••••• saved (leave empty to keep)' if api_key_set else 'not set' }}" class="input-field">
+                                {% if api_key_set %}<label class="muted text-xs mt-1 inline-flex gap-2 items-center"><input type="checkbox" name="clear_api_key"> remove the saved key</label>{% endif %}
+                            </div>
+                        </div>
+                        <p class="muted text-xs mt-3">The key is stored encrypted. It must match CRN_GATEWAY_API_KEY on the gateway.</p>
+                    </section>
+
+                    <section class="card">
+                        <h3>SMS and notification page</h3>
+                        <label class="label">SMS text</label>
+                        <textarea id="tpl" name="crn_sms_template" rows="2" class="input-field font-mono">{{ cfg.crn_sms_template }}</textarea>
+                        <p class="muted text-xs mt-1">Only <code>{ref}</code> and <code>{link}</code> can be used, and <code>{link}</code> is required. No patient details go by SMS.</p>
+                        <p class="label mt-4">Preview <span id="cnt" class="muted"></span></p>
+                        <div id="preview" class="sms">{{ sample }}</div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                            <div><label class="label">Hospital name on the page</label><input name="crn_hospital_name" value="{{ cfg.crn_hospital_name }}" class="input-field" maxlength="120"></div>
+                            <div><label class="label">Page footer</label><input name="crn_page_footer" value="{{ cfg.crn_page_footer }}" class="input-field" maxlength="300"></div>
+                        </div>
+                    </section>
+
+                    <div class="flex justify-end"><button class="btn-primary" type="submit"><i class="bi bi-floppy"></i> Save settings</button></div>
+                </form>
+            </div>
+        </main>
+    </div>
+    <script>
+        (function () {
+            const tpl = document.getElementById('tpl'), out = document.getElementById('preview'), cnt = document.getElementById('cnt');
+            const base = {{ ((cfg.crn_public_base_url or 'https://crn.hospital') ~ '/n/AbCdEfGhIjKlMnOpQrStUv')|tojson }};
+            function render() {
+                const text = tpl.value.replaceAll('{ref}', 'CRN-J2N8-L38G').replaceAll('{link}', base);
+                const bad = /\{(?!ref\}|link\})[^}]*\}/.test(tpl.value) || !tpl.value.includes('{link}');
+                out.textContent = bad ? 'Not allowed: use only {ref} and {link}, and keep {link}.' : text;
+                out.style.color = bad ? '#f87171' : '';
+                cnt.textContent = bad ? '' : `· ${text.length} characters${text.length > 160 ? ' (more than one SMS)' : ''}`;
+            }
+            tpl.addEventListener('input', render); render();
+        })();
+    </script>
+    {% include '_footer.html' %}
+</body>
+</html>

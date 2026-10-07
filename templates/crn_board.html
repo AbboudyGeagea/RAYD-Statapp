@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | CRN Board</title>
+    <meta http-equiv="refresh" content="60">
+    <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
+    {% include '_crn_head.html' %}
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+    {% include '_header.html' %}
+    <div class="flex flex-1 overflow-hidden">
+        {% include '_sidebar.html' %}
+        <main class="flex-1 overflow-y-auto p-8 bg-[#181f1c]">
+            <div class="max-w-6xl mx-auto">
+                {% set crn_tab = 'board' %}
+                {% include '_crn_tabs.html' %}
+
+                <div class="flex items-center gap-3 mb-4 text-xs">
+                    {% if live_since %}
+                    <span class="badge b-acknowledged"><i class="bi bi-circle-fill"></i> CRN on since {{ live_since.replace('T', ' ')[:16] }}</span>
+                    {% else %}
+                    <span class="badge b-unroutable"><i class="bi bi-pause-circle"></i> CRN is off</span>
+                    {% endif %}
+                    <span class="muted">This page refreshes every minute.</span>
+                </div>
+
+                <div class="card mb-4">
+                    <form method="GET" class="flex gap-3 flex-wrap items-end">
+                        <div>
+                            <label class="label">Status</label>
+                            <select name="status" class="input-field" style="width:200px;">
+                                {% for v, l in [('open', 'Open (not acknowledged)'), ('all', 'All')] + labels.items()|list %}
+                                <option value="{{ v }}" {{ 'selected' if status == v }}>{{ l }}{% if v in counts %} ({{ counts[v] }}){% endif %}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div><label class="label">From</label><input type="date" name="start" value="{{ start }}" class="input-field"></div>
+                        <div><label class="label">To</label><input type="date" name="end" value="{{ end }}" class="input-field"></div>
+                        <div class="flex-1 min-w-[200px]"><label class="label">Search</label>
+                            <input type="text" name="q" value="{{ q }}" placeholder="Reference, accession, doctor, MRN" class="input-field"></div>
+                        <button class="btn-primary" type="submit">Filter</button>
+                    </form>
+                </div>
+
+                <div class="card">
+                    {% if rows %}
+                    <div class="overflow-x-auto">
+                    <table class="list">
+                        <thead><tr><th>Reference</th><th>Detected</th><th>Accession</th><th>MRN</th><th>Doctor</th><th>Status</th><th>Since 1st SMS</th><th>Opened</th></tr></thead>
+                        <tbody>
+                        {% for r in rows %}
+                        <tr class="click" onclick="location.href='{{ url_for('crn_admin.notification_page', notification_id=r.id) }}'">
+                            <td class="font-mono font-bold text-white"><a href="{{ url_for('crn_admin.notification_page', notification_id=r.id) }}">{{ r.ref_code }}</a></td>
+                            <td class="muted">{{ r.detected_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                            <td class="font-mono">{{ r.accession_number or '—' }}</td>
+                            <td class="font-mono">{{ r.patient_id or '—' }}</td>
+                            <td>{% if r.doctor_code %}<span class="font-mono">{{ r.doctor_code }}</span> {{ r.doctor_name or '' }}{% else %}<span class="muted">—</span>{% endif %}</td>
+                            <td><span class="badge b-{{ r.status }}">{{ labels.get(r.status, r.status) }}</span></td>
+                            <td>{% if r.minutes is not none %}{{ r.minutes|round|int }} min{% else %}<span class="muted">—</span>{% endif %}</td>
+                            <td>{% if r.opened_at %}<i class="bi bi-eye text-emerald-400" title="{{ r.opened_at }}"></i>{% else %}<span class="muted">—</span>{% endif %}</td>
+                        </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                    </div>
+                    {% else %}
+                    <p class="muted text-sm text-center py-8">No CRN matches these filters.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </main>
+    </div>
+    {% include '_footer.html' %}
+</body>
+</html>

@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | CRN Contact</title>
+    <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
+    {% include '_crn_head.html' %}
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+    {% include '_header.html' %}
+    <div class="flex flex-1 overflow-hidden">
+        {% include '_sidebar.html' %}
+        <main class="flex-1 overflow-y-auto p-8 bg-[#181f1c]">
+            <div class="max-w-3xl mx-auto">
+                {% set crn_tab = 'contacts' %}
+                {% include '_crn_tabs.html' %}
+                {% set c = contact or {} %}
+                <form method="POST" class="card space-y-4">
+                    <h3 class="text-white text-sm font-black uppercase tracking-widest">{{ 'Add a contact' if is_new else 'Edit ' ~ c.doctor_code }}</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div><label class="label">Doctor code</label>
+                            <input name="doctor_code" value="{{ c.doctor_code or '' }}" class="input-field font-mono" maxlength="64"
+                                   {{ 'required' if is_new else 'disabled' }}>
+                            <p class="muted text-xs mt-1">As the RIS sends it in the order (ORC-12), e.g. GP42.</p></div>
+                        <div><label class="label">Name</label><input name="full_name" value="{{ c.full_name or '' }}" class="input-field"></div>
+                        <div><label class="label">Mobile</label><input name="phone" value="{{ c.phone_raw or '' }}" class="input-field" placeholder="03/123456 or +961 70 123 456">
+                            {% if c.phone_e164 %}<p class="muted text-xs mt-1">SMS goes to {{ c.phone_e164 }}</p>{% endif %}</div>
+                        <div><label class="label">Email</label><input name="email" value="{{ c.email or '' }}" class="input-field" type="email"></div>
+                    </div>
+                    <label class="inline-flex items-center gap-2 text-sm">
+                        <input type="checkbox" name="active" {{ 'checked' if is_new or c.active }}> Active (inactive doctors are skipped and the fallback contact is texted)
+                    </label>
+                    <div class="flex gap-3">
+                        <a href="{{ url_for('crn_admin.contacts') }}" class="btn-ghost">Cancel</a>
+                        <button class="btn-primary" type="submit">Save</button>
+                    </div>
+                </form>
+            </div>
+        </main>
+    </div>
+    {% include '_footer.html' %}
+</body>
+</html>
