@@ -794,6 +794,29 @@ def create_app():
         replace_existing=True
     )
 
+    def crn_dispatch_job():
+        # Critical Result Notification: route new CRNs and escalate unacknowledged
+        # ones (utils/crn_dispatch.py). A no-op while settings.crn_live_since is empty.
+        with app.app_context():
+            try:
+                from utils.crn_dispatch import run_dispatch
+                done = run_dispatch()
+                if done.get('errors'):
+                    logger.error(f"[CRN] dispatcher pass had errors: {done}")
+            except Exception as e:
+                logger.error(f"🛑 [CRN] dispatcher failed: {e}", exc_info=True)
+
+    scheduler.add_job(
+        func=crn_dispatch_job,
+        trigger='interval',
+        seconds=30,
+        id='crn_dispatch',
+        name='CRN dispatcher (every 30 s)',
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+
     # Only start scheduler and HL7 listener when running as server, not manual ETL
     manual_mode = len(sys.argv) > 1 and sys.argv[1] == '-m'
     if not manual_mode:
