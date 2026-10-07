@@ -196,6 +196,11 @@ def _load_medspacy():
                 seen.add(kw)
         target_matcher.add(rules)
 
+        # "non" is deliberately NOT one of the French cues: spaCy splits
+        # "Non-contrast" into "Non" + "-" + "contrast", so a FORWARD "non" rule
+        # negated every finding after "Non contrast CT"
+        # ("Non contrast CT of the head demonstrates acute hemorrhage" -> nothing).
+        # Same fix as HL7 c2691fcf and Mazloum 13dbf21c.
         context = nlp.get_pipe("medspacy_context")
         context.add([
             ConTextRule("pas de",        "NEGATED_EXISTENCE", direction="FORWARD"),
@@ -205,7 +210,6 @@ def _load_medspacy():
             ConTextRule("aucune",        "NEGATED_EXISTENCE", direction="FORWARD"),
             ConTextRule("négatif pour",  "NEGATED_EXISTENCE", direction="FORWARD"),
             ConTextRule("négatif",       "NEGATED_EXISTENCE", direction="FORWARD"),
-            ConTextRule("non",           "NEGATED_EXISTENCE", direction="FORWARD"),
             ConTextRule("exclu",         "NEGATED_EXISTENCE", direction="BIDIRECTIONAL"),
             ConTextRule("écarté",        "NEGATED_EXISTENCE", direction="BIDIRECTIONAL"),
         ])
