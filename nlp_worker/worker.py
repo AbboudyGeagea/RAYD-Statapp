@@ -166,12 +166,13 @@ def _init_vocabulary():
 # where a requeue step says so (see _requeue_non_rule_reports).
 # v2 = ConTextRule("non") removed (2026-10-07).
 # v3 = ’ normalised; "pas d'", "absence d'", "is/was excluded", "mais" (2026-10-07).
-_NLP_MODEL_VERSION = 'medspacy-v3'
+# v4 = "no interval change in X" no longer negates X (2026-10-07).
+_NLP_MODEL_VERSION = 'medspacy-v4'
 
 # ai_nlp_cache.nlp_version (migration 0059). Rows with any other value are
 # recomputed by the next on-demand job; rows with none (written before negation
 # was resolved) are also hidden from the ORU page.
-_CLUSTER_VERSION = 'tfidf-negation-v2'   # v2 = medspacy-v3 cues
+_CLUSTER_VERSION = 'tfidf-negation-v3'   # v2 = medspacy-v3 cues, v3 = medspacy-v4
 
 _CHUNK           = 500
 _BATCH_LIMIT      = 2000
@@ -184,6 +185,24 @@ _BATCH_EVERY_TICKS = _POLL_SECONDS // _JOB_POLL_SECONDS
 
 _NLP = None
 _NLP_WORKERS = max(1, int((os.cpu_count() or 4) * 0.75))
+
+
+# "No interval change in the lung mass", "Pas de modification de l'épanchement":
+# the finding is still there, but "no" / "pas de" negated it, so a known mass or
+# effusion vanished from the critical findings log. As PSEUDO rules these phrases
+# win over the shorter cue inside them (the matcher keeps the longest match),
+# modify nothing, and end the scope of an earlier cue in the same sentence.
+_NO_CHANGE_PHRASES = [
+    f"{neg} {adj}{noun}"
+    for neg in ("no", "without", "no evidence of")
+    for adj in ("", "interval ", "significant ", "significant interval ", "appreciable ", "definite ")
+    for noun in ("change", "changes", "increase", "decrease", "growth", "progression", "worsening")
+] + [
+    f"{neg} {noun}"
+    for neg in ("pas de", "pas d'", "sans")
+    for noun in ("modification", "modifications", "changement", "évolution", "aggravation",
+                 "augmentation", "majoration", "progression")
+]
 
 
 def _same_clause(target, modifier, span_between):
@@ -260,6 +279,9 @@ def _load_medspacy():
             ConTextRule(cue, "NEGATED_EXISTENCE", direction="BACKWARD", on_modifies=_same_clause)
             for cue in ("is excluded", "was excluded", "are excluded", "were excluded",
                         "has been excluded", "have been excluded")
+        ])
+        context.add([
+            ConTextRule(p, "NEGATED_EXISTENCE", direction="PSEUDO") for p in _NO_CHANGE_PHRASES
         ])
 
         _NLP = nlp
@@ -670,31 +692,45 @@ def _requeue_non_rule_reports():
         conn.close()
 
 
-def _requeue_v3_cue_reports():
-    """Drop v1/v2 analysis rows of reports that v3 reads differently (a typographic
-    apostrophe, "pas d'", "absence d'", "... excluded", "mais"), so run_batch
-    re-analyses them and the critical findings log is corrected both ways. Skipped
-    while medspaCy is down: the rule-based fallback lacks these cues and would
-    stamp the old result v3. Touches v1/v2 rows only, so it is a no-op once they
-    are gone."""
+# Reports a later model reads differently: (stale versions, Postgres regex on the
+# analysed text, what changed). Broad on purpose -- re-analysing a report that
+# comes out the same costs one more pass; missing one leaves a wrong row in the
+# critical findings log.
+_REQUEUES = [
+    (['medspacy-v1', 'medspacy-v2'],
+     r"’|\m(pas|absence)\s+d\s*'|\mexcluded\M|\mmais\M",
+     'v3 negation cues'),
+    (['medspacy-v1', 'medspacy-v2', 'medspacy-v3'],
+     r"\m(no|without|pas|sans)\M[^.;\n]{0,40}\m(change|changes|increase|decrease|growth|progression|"
+     r"worsening|modifications?|changement|[ée]volution|aggravation|augmentation|majoration)\M",
+     'v4 "no change" phrases'),
+]
+
+
+def _requeue_changed_reports():
+    """Drop analysis rows that a later model reads differently (_REQUEUES), so
+    run_batch re-analyses them and the critical findings log is corrected both
+    ways. Skipped while medspaCy is down: the rule-based fallback lacks these
+    rules and would stamp the old result with the new version. Touches stale
+    versions only, so it is a no-op once they are gone."""
     if _NLP is None:
-        print("[NLP Worker] medspaCy not loaded -- v3 requeue postponed to the next start.")
+        print("[NLP Worker] medspaCy not loaded -- requeue postponed to the next start.")
         return
     conn = _get_conn()
     try:
-        with conn.cursor() as cur:
-            cur.execute(r"""
-                DELETE FROM hl7_oru_analysis a
-                USING  hl7_oru_reports r
-                WHERE  a.report_id = r.id
-                  AND  a.nlp_version IN ('medspacy-v1', 'medspacy-v2')
-                  AND  COALESCE(NULLIF(r.impression_text, ''), r.report_text, '')
-                       ~* '’|\m(pas|absence)\s+d\s*''|\mexcluded\M|\mmais\M'
-            """)
-            requeued = cur.rowcount
-        conn.commit()
-        if requeued:
-            print(f"[NLP Worker] Requeued {requeued} report(s) for the v3 negation cues.")
+        for versions, pattern, what in _REQUEUES:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    DELETE FROM hl7_oru_analysis a
+                    USING  hl7_oru_reports r
+                    WHERE  a.report_id = r.id
+                      AND  a.nlp_version = ANY(%s)
+                      AND  COALESCE(NULLIF(r.impression_text, ''), r.report_text, '') ~* %s
+                """, (versions, pattern))
+                requeued = cur.rowcount
+            conn.commit()
+            if requeued:
+                print(f"[NLP Worker] Requeued {requeued} report(s) for the {what}.")
     finally:
         conn.close()
 
@@ -720,9 +756,9 @@ def main():
     except Exception as e:
         print(f"[NLP Worker] Requeue of \"non\"-rule reports failed: {e}")
     try:
-        _requeue_v3_cue_reports()
+        _requeue_changed_reports()
     except Exception as e:
-        print(f"[NLP Worker] Requeue of v3-cue reports failed: {e}")
+        print(f"[NLP Worker] Requeue of reports for the new rules failed: {e}")
     print(f"[NLP Worker] Polling jobs every {_JOB_POLL_SECONDS}s, "
           f"medspaCy batch every {_POLL_SECONDS}s.")
 
