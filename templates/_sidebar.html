@@ -34,7 +34,7 @@
 {% set ep = request.endpoint or '' %}
 {% set overview_on   = ep.startswith('viewer.') %}
 {% set admin_on      = ep in ['admin.admin_dashboard','admin.user_management','admin.audit_log','admin.hl7_forward_config'] or ep.startswith('db_manager.') or ep.startswith('mapping.') or ep.startswith('crn_admin.') %}
-{% set ops_on        = ep.startswith('live_feed.') or ep.startswith('hl7_orders.') or ep.startswith('cd_print.') or ep.startswith('patient_journey.') or (ep.startswith('crn_admin.') and current_user.role != 'admin') %}
+{% set ops_on        = ep.startswith('live_feed.') or ep.startswith('hl7_orders.') or ep.startswith('patient_journey.') or (ep.startswith('crn_admin.') and current_user.role != 'admin') %}
 {% set analytics_on  = ep.startswith('oru.') or ep.startswith('referring_intel.') or ep.startswith('custom_reports.') or ep.startswith('portal_admin.') %}
 {% set ai_on         = ep.startswith('report_ai.') %}
 
@@ -124,7 +124,6 @@
         {% set has_ops = (license.get('live_feed') and (current_user.role == 'admin' or current_user|user_has_page('live_feed')))
                       or (current_user.role == 'admin' or current_user|user_has_page('hl7_orders'))
                       or (current_user.role == 'admin' or current_user|user_has_page('patient_journey'))
-                      or (license.get('cd_print') and (current_user.role == 'admin' or current_user|user_has_page('cd_print')))
                       or current_user.role in ('viewer', 'viewer2') %}
         {% if has_ops %}
         <button class="sg-btn" onclick="sgToggle('ops')">
@@ -155,12 +154,7 @@
                 <i class="bi bi-signpost-split-fill flex-shrink-0" style="color:#a78bfa;"></i> Patient Journey
             </a>
             {% endif %}
-            {% if license.get('cd_print') and (current_user.role == 'admin' or current_user|user_has_page('cd_print')) %}
-            <a href="{{ url_for('cd_print.cd_print_log') }}"
-               class="sidebar-item {% if ep.startswith('cd_print.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
-                <i class="bi bi-disc-fill flex-shrink-0" style="color:#38bdf8;"></i> Patient CD Log
-            </a>
-            {% endif %}
+            <!-- Patient CD Log: removed, replaced by CD Log (/viewer/cd-log) fed by the burning station API -->
             {% if current_user.role in ('viewer', 'viewer2') %}
             <a href="{{ url_for('crn_admin.board_page') }}"
                class="sidebar-item {% if ep.startswith('crn_admin.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">

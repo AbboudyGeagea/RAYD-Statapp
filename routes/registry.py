@@ -34,10 +34,11 @@ from routes.referring_intel  import referring_intel_bp
 from routes.patient_journey     import patient_journey_bp
 from routes.groups_route        import groups_bp
 from routes.custom_reports      import custom_reports_bp
-from routes.cd_print_log        import cd_print_bp
 from routes.health_bp           import health_bp
 from routes.resource_monitor    import resource_monitor_bp
 from routes.crn_admin           import crn_admin_bp
+from routes.cd_log_route        import cd_log_bp
+from routes.cd_log_ui           import cd_log_ui_bp
 
 logger = logging.getLogger("REGISTRY")
 
@@ -53,7 +54,7 @@ DEFAULT_LICENSE = {
     "hl7_orders":      True,
     "oru_analytics":   True,   # Report Intelligence
     "custom_reports":  True,
-    "cd_print":        True,   # Patient CD Log
+    "cd_print":        False,  # Mazloum: module removed (replaced by CD Log)
     "er_dashboard":    True,
     "capacity_ladder": True,
     "saved_reports":   True,
@@ -111,7 +112,7 @@ TIER_PRESETS = {
         "hl7_orders":      True,
         "oru_analytics":   True,
         "custom_reports":  True,
-        "cd_print":        True,
+        "cd_print":        False,  # Mazloum: module removed (replaced by CD Log)
         "er_dashboard":    True,
         "capacity_ladder": True,
         "saved_reports":   True,
@@ -263,6 +264,8 @@ def register_blueprints(app):
     app.register_blueprint(patient_journey_bp)
     app.register_blueprint(groups_bp)
     app.register_blueprint(crn_admin_bp)
+    app.register_blueprint(cd_log_bp)      # CD burn log API (burning station POSTs here)
+    app.register_blueprint(cd_log_ui_bp)   # CD burn log UI dashboards
 
     # ── Licensed reports (auto-discovered from report_registry) ─
     licensed_reports = lic.get('reports', [])
@@ -283,7 +286,6 @@ def register_blueprints(app):
         'hl7_orders':      (hl7_orders_bp,       {}, [('/hl7/orders',                  'HL7 Orders')]),
         'oru_analytics':   (oru_bp,              {}, [('/oru',                         'Report Intelligence')]),
         'custom_reports':  (custom_reports_bp,   {}, [('/reports/custom',              'Custom Reports')]),
-        'cd_print':        (cd_print_bp,         {}, [('/cd-print-log',               'Patient CD Log')]),
         'er_dashboard':    (er_bp,               {}, [('/er',                          'ER Dashboard')]),
         'capacity_ladder': (capacity_ladder_bp,  {}, [('/viewer/capacity-ladder',      'Capacity Ladder')]),
         'saved_reports':   (saved_reports_bp,    {'url_prefix': '/saved'}, []),
@@ -303,6 +305,8 @@ def register_blueprints(app):
             tier = lic.get('tier', 'current')
             for url, display_name in fallbacks:
                 _register_not_licensed_route(app, url, display_name, tier)
+
+    # ── Patient CD Log: module REMOVED at Mazloum (replaced by the CD Log / cd_burn_log API) ──
 
     # ── Patient Portal (Enterprise — license + config flag) ──────
     if lic.get('patient_portal', False) and app.config.get("PATIENT_PORTAL_ENABLED", True):

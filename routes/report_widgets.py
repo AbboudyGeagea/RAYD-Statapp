@@ -431,30 +431,37 @@ def widget_cd_burn_summary(db, filters, config):
         "modality":  filters.get("modality") or None,
     }
 
-    mod_filter = "AND (CAST(:modality AS TEXT) IS NULL OR study_modality = :modality)"
-    sr_filter  = "AND COALESCE(study_modality, '') != 'SR'"
+    # cd_burn_log: one row per disc burn, studies in a JSONB array (SR excluded).
+    # A burn matches the modality filter if any of its studies has that modality.
+    burns = """
+        SELECT cd.id, cd.disc_format, cd.studies, COALESCE(cd.copies_count, 1) AS copies
+        FROM cd_burn_log cd
+        WHERE cd.timestamp >= CAST(:date_from AS date) AND cd.timestamp < CAST(:date_to AS date) + 1
+          AND cd.status = 'success'
+          AND (CAST(:modality AS TEXT) IS NULL OR EXISTS (
+                SELECT 1 FROM jsonb_array_elements(COALESCE(cd.studies, '[]'::jsonb)) s
+                WHERE s->>'modality' = :modality))
+    """
 
     summary = db.session.execute(text(f"""
+        WITH b AS ({burns})
         SELECT
-            COUNT(*)                                   AS burn_events,
-            COUNT(DISTINCT study_instance_uid)         AS unique_studies,
-            COALESCE(SUM(number_of_copies), COUNT(*))  AS total_copies
-        FROM cd_print_log
-        WHERE burned_at::date BETWEEN :date_from AND :date_to
-          {sr_filter}
-          {mod_filter}
+            (SELECT COUNT(*) FROM b)                   AS burn_events,
+            (SELECT COUNT(DISTINCT s->>'study_uid')
+               FROM b CROSS JOIN LATERAL jsonb_array_elements(COALESCE(b.studies, '[]'::jsonb)) s
+              WHERE COALESCE(s->>'modality', '') != 'SR'
+                AND (CAST(:modality AS TEXT) IS NULL OR s->>'modality' = :modality)
+            )                                          AS unique_studies,
+            (SELECT COALESCE(SUM(copies), 0) FROM b)   AS total_copies
     """), params).fetchone()
 
     breakdown_rows = db.session.execute(text(f"""
         SELECT
-            COALESCE(UPPER(media_type), 'UNKNOWN')     AS media_type,
+            COALESCE(UPPER(NULLIF(TRIM(disc_format), '')), 'UNKNOWN') AS media_type,
             COUNT(*)                                   AS burn_events,
-            COALESCE(SUM(number_of_copies), COUNT(*))  AS total_copies
-        FROM cd_print_log
-        WHERE burned_at::date BETWEEN :date_from AND :date_to
-          {sr_filter}
-          {mod_filter}
-        GROUP BY UPPER(media_type)
+            SUM(copies)                                AS total_copies
+        FROM ({burns}) b
+        GROUP BY 1
         ORDER BY burn_events DESC
     """), params).fetchall()
 

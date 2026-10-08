@@ -1,6 +1,7 @@
 """
-Report 30 — Patient CD / DVD Distribution
-Queries cd_print_log directly. No report_template dependency.
+Report 30 — Patient CD / DVD Distribution (CD Burn Audit)
+Queries cd_burn_log, filled by the burning station's REST API (routes/cd_log_route.py).
+One cd_burn_log row = one disc burn; its studies sit in a JSONB array.
 """
 import json
 from datetime import date
@@ -11,7 +12,25 @@ from db import db, get_etl_cutoff_date
 
 report_30_bp = Blueprint("report_30", __name__)
 
-_SR = "AND COALESCE(study_modality, '') != 'SR'"
+# Successful burns in the selected period (sargable on idx_cd_burn_log_timestamp)
+_BURNS = """
+    SELECT id, patient_id, patient_name, studies, disc_format,
+           COALESCE(copies_count, 1) AS copies,
+           timestamp
+    FROM cd_burn_log
+    WHERE timestamp >= CAST(:start AS date) AND timestamp < CAST(:end AS date) + 1
+      AND status = 'success'
+"""
+# One row per (burn, study); SR (Structured Report) studies excluded
+_BURN_STUDIES = f"""
+    SELECT b.id, b.copies,
+           COALESCE(NULLIF(TRIM(b.disc_format), ''), 'Unknown')    AS disc_format,
+           COALESCE(NULLIF(TRIM(s->>'modality'), ''), 'Unknown')   AS modality,
+           s->>'study_uid'                                         AS study_uid
+    FROM ({_BURNS}) b
+    CROSS JOIN LATERAL jsonb_array_elements(COALESCE(b.studies, '[]'::jsonb)) AS s
+    WHERE COALESCE(s->>'modality', '') != 'SR'
+"""
 
 
 def _date_range(form_data):
@@ -29,14 +48,15 @@ def get_report_data(form_data):
     p = {"start": start, "end": end}
 
     # ── KPIs ──────────────────────────────────────────────────────────
+    # Burns and copies count once per disc, however many studies it holds.
     r = db.session.execute(text(f"""
+        WITH b AS ({_BURNS}),
+             bs AS ({_BURN_STUDIES})
         SELECT
-            COUNT(*)                           AS burn_events,
-            COUNT(DISTINCT study_instance_uid) AS unique_studies,
-            COUNT(DISTINCT patient_name)       AS unique_patients,
-            SUM(COALESCE(number_of_copies, 1)) AS total_copies
-        FROM cd_print_log
-        WHERE burned_at::date BETWEEN :start AND :end {_SR}
+            (SELECT COUNT(*) FROM b)                                                    AS burn_events,
+            (SELECT COUNT(DISTINCT study_uid) FROM bs)                                  AS unique_studies,
+            (SELECT COUNT(DISTINCT COALESCE(NULLIF(patient_id, ''), patient_name)) FROM b) AS unique_patients,
+            (SELECT SUM(copies) FROM b)                                                 AS total_copies
     """), p).fetchone()
     stats = {
         "burn_events":     int(r[0]) if r and r[0] else 0,
@@ -52,13 +72,12 @@ def get_report_data(form_data):
     # ── Monthly trend ─────────────────────────────────────────────────
     trend = db.session.execute(text(f"""
         SELECT
-            TO_CHAR(DATE_TRUNC('month', burned_at), 'Mon YYYY'),
-            DATE_TRUNC('month', burned_at),
+            TO_CHAR(DATE_TRUNC('month', timestamp), 'Mon YYYY'),
+            DATE_TRUNC('month', timestamp),
             COUNT(*),
-            SUM(COALESCE(number_of_copies, 1))
-        FROM cd_print_log
-        WHERE burned_at::date BETWEEN :start AND :end {_SR}
-        GROUP BY DATE_TRUNC('month', burned_at)
+            SUM(copies)
+        FROM ({_BURNS}) b
+        GROUP BY DATE_TRUNC('month', timestamp)
         ORDER BY 2
     """), p).fetchall()
     trend_json = {
@@ -67,14 +86,13 @@ def get_report_data(form_data):
         "copies": [int(row[3]) for row in trend],
     }
 
-    # ── Media type (CD / DVD / …) ─────────────────────────────────────
+    # ── Disc format (CD / DVD / …) ────────────────────────────────────
     media = db.session.execute(text(f"""
         SELECT
-            COALESCE(NULLIF(TRIM(media_type), ''), 'Unknown'),
+            COALESCE(NULLIF(TRIM(disc_format), ''), 'Unknown'),
             COUNT(*),
-            SUM(COALESCE(number_of_copies, 1))
-        FROM cd_print_log
-        WHERE burned_at::date BETWEEN :start AND :end {_SR}
+            SUM(copies)
+        FROM ({_BURNS}) b
         GROUP BY 1
         ORDER BY 3 DESC
     """), p).fetchall()
@@ -84,14 +102,10 @@ def get_report_data(form_data):
         "copies": [int(row[2]) for row in media],
     }
 
-    # ── Modality breakdown ────────────────────────────────────────────
+    # ── Modality breakdown (burns holding at least one study of it) ───
     mods = db.session.execute(text(f"""
-        SELECT
-            COALESCE(NULLIF(study_modality, ''), 'Unknown'),
-            COUNT(*),
-            SUM(COALESCE(number_of_copies, 1))
-        FROM cd_print_log
-        WHERE burned_at::date BETWEEN :start AND :end {_SR}
+        SELECT modality, COUNT(*), SUM(copies)
+        FROM (SELECT DISTINCT id, copies, modality FROM ({_BURN_STUDIES}) bs) bm
         GROUP BY 1
         ORDER BY 2 DESC
         LIMIT 12
@@ -102,18 +116,21 @@ def get_report_data(form_data):
         "copies": [int(row[2]) for row in mods],
     }
 
-    # ── Detail table: modality × media type ──────────────────────────
+    # ── Detail table: modality × disc format ─────────────────────────
     tbl = db.session.execute(text(f"""
-        SELECT
-            COALESCE(NULLIF(TRIM(study_modality), ''), '—'),
-            COALESCE(NULLIF(TRIM(media_type), ''), 'Unknown'),
-            COUNT(*),
-            SUM(COALESCE(number_of_copies, 1)),
-            COUNT(DISTINCT study_instance_uid)
-        FROM cd_print_log
-        WHERE burned_at::date BETWEEN :start AND :end {_SR}
-        GROUP BY 1, 2
-        ORDER BY 3 DESC
+        WITH bs AS ({_BURN_STUDIES})
+        SELECT b.modality, b.disc_format, b.burns, b.copies, u.studies
+        FROM (
+            SELECT modality, disc_format, COUNT(*) AS burns, SUM(copies) AS copies
+            FROM (SELECT DISTINCT id, copies, disc_format, modality FROM bs) d
+            GROUP BY 1, 2
+        ) b
+        JOIN (
+            SELECT modality, disc_format, COUNT(DISTINCT study_uid) AS studies
+            FROM bs
+            GROUP BY 1, 2
+        ) u USING (modality, disc_format)
+        ORDER BY b.burns DESC
     """), p).fetchall()
     table_data = [
         {
@@ -144,6 +161,7 @@ def report_30():
     return render_template(
         "report_30.html",
         report_name   = "Patient Media Distribution",
+        report_desc   = "Patient media distribution powered by CD burn REST API",
         run_report    = run_report,
         display_start = display_start,
         display_end   = display_end,
@@ -176,7 +194,7 @@ def export_report_30():
     return Response(
         buf.getvalue(),
         mimetype="text/csv",
-        headers={"Content-Disposition": f"attachment; filename=CD_Distribution_{start}_to_{end}.csv"},
+        headers={"Content-Disposition": f"attachment; filename=CD_Burn_Audit_{start}_to_{end}.csv"},
     )
 
 

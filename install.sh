@@ -183,9 +183,17 @@ POSTGRES_DB=${PG_DB}
 
 TZ=Asia/Beirut
 LIVE_FEED_ENABLED=true
+
+# Burning station → POST /api/cd-burn with header X-API-Key: <this value>
+CD_BURN_API_KEY=$(openssl rand -hex 24)
 EOF
 
     ok ".env created."
+fi
+
+if ! grep -q "^CD_BURN_API_KEY=.\+" .env; then
+    printf '\n# Burning station → POST /api/cd-burn with header X-API-Key: <this value>\nCD_BURN_API_KEY=%s\n' "$(openssl rand -hex 24)" >> .env
+    ok "CD_BURN_API_KEY added to .env (give it to the burning station)."
 fi
 
 # Load .env so later steps can read it
