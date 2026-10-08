@@ -284,6 +284,10 @@ def create_app():
     # --- ROUTES ---
     register_blueprints(app)
 
+    # The burning station POSTs JSON, not a browser session.
+    from routes.cd_log_route import receive_cd_burn_event
+    csrf.exempt(receive_cd_burn_event)
+
     # --- SECURITY HEADERS ---
     @app.after_request
     def add_security_headers(response):
@@ -294,7 +298,8 @@ def create_app():
         return response
 
     # --- AUTH CHECKS ---
-    _AUTH_PASSTHROUGH = frozenset({'auth.login', 'auth.logout', 'auth.register', 'auth.profile_password', 'static', 'health.health', 'health.readiness'})
+    _AUTH_PASSTHROUGH = frozenset({'auth.login', 'auth.logout', 'auth.register', 'auth.profile_password', 'static', 'health.health', 'health.readiness',
+                                   'cd_log.receive_cd_burn_event'})  # burning station POST, no login
 
     @app.before_request
     def check_auth():

@@ -1,6 +1,7 @@
 """
 Report 30 — Patient CD / DVD Distribution (CD Burn Audit)
-Queries cd_burn_log (REST API data store). Updated to new schema.
+Queries cd_burn_log, filled by the burning station's REST API (routes/cd_log_route.py).
+One cd_burn_log row = one disc burn; its studies sit in a JSONB array.
 """
 import json
 from datetime import date
@@ -10,6 +11,26 @@ from sqlalchemy import text
 from db import db, get_etl_cutoff_date
 
 report_30_bp = Blueprint("report_30", __name__)
+
+# Successful burns in the selected period (sargable on idx_cd_burn_log_timestamp)
+_BURNS = """
+    SELECT id, patient_id, patient_name, studies, disc_format,
+           COALESCE(copies_count, 1) AS copies,
+           timestamp
+    FROM cd_burn_log
+    WHERE timestamp >= CAST(:start AS date) AND timestamp < CAST(:end AS date) + 1
+      AND status = 'success'
+"""
+# One row per (burn, study); SR (Structured Report) studies excluded
+_BURN_STUDIES = f"""
+    SELECT b.id, b.copies,
+           COALESCE(NULLIF(TRIM(b.disc_format), ''), 'Unknown')    AS disc_format,
+           COALESCE(NULLIF(TRIM(s->>'modality'), ''), 'Unknown')   AS modality,
+           s->>'study_uid'                                         AS study_uid
+    FROM ({_BURNS}) b
+    CROSS JOIN LATERAL jsonb_array_elements(COALESCE(b.studies, '[]'::jsonb)) AS s
+    WHERE COALESCE(s->>'modality', '') != 'SR'
+"""
 
 
 def _date_range(form_data):
@@ -27,41 +48,36 @@ def get_report_data(form_data):
     p = {"start": start, "end": end}
 
     # ── KPIs ──────────────────────────────────────────────────────────
-    # Using cd_burn_log: studies stored as JSONB array, unnest to count
-    r = db.session.execute(text("""
+    # Burns and copies count once per disc, however many studies it holds.
+    r = db.session.execute(text(f"""
+        WITH b AS ({_BURNS}),
+             bs AS ({_BURN_STUDIES})
         SELECT
-            COUNT(*) AS burn_events,
-            COUNT(DISTINCT s->>'study_uid') AS unique_studies,
-            COUNT(DISTINCT patient_name) AS unique_patients,
-            SUM(copies_count) AS total_copies,
-            SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS successful_burns
-        FROM cd_burn_log,
-        LATERAL jsonb_array_elements(COALESCE(studies, '[]'::jsonb)) AS s
-        WHERE DATE(timestamp) BETWEEN :start AND :end AND status = 'success'
+            (SELECT COUNT(*) FROM b)                                                    AS burn_events,
+            (SELECT COUNT(DISTINCT study_uid) FROM bs)                                  AS unique_studies,
+            (SELECT COUNT(DISTINCT COALESCE(NULLIF(patient_id, ''), patient_name)) FROM b) AS unique_patients,
+            (SELECT SUM(copies) FROM b)                                                 AS total_copies
     """), p).fetchone()
-
     stats = {
-        "burn_events":       int(r[0]) if r and r[0] else 0,
-        "unique_studies":    int(r[1]) if r and r[1] else 0,
-        "unique_patients":   int(r[2]) if r and r[2] else 0,
-        "total_copies":      int(r[3]) if r and r[3] else 0,
-        "successful_burns":  int(r[4]) if r and r[4] else 0,
+        "burn_events":     int(r[0]) if r and r[0] else 0,
+        "unique_studies":  int(r[1]) if r and r[1] else 0,
+        "unique_patients": int(r[2]) if r and r[2] else 0,
+        "total_copies":    int(r[3]) if r and r[3] else 0,
     }
     stats["avg_copies"] = (
         round(stats["total_copies"] / stats["burn_events"], 1)
         if stats["burn_events"] else 0
     )
 
-    # ── Daily trend ───────────────────────────────────────────────────
-    trend = db.session.execute(text("""
+    # ── Monthly trend ─────────────────────────────────────────────────
+    trend = db.session.execute(text(f"""
         SELECT
-            TO_CHAR(DATE(timestamp), 'Mon DD, YYYY'),
-            DATE(timestamp),
+            TO_CHAR(DATE_TRUNC('month', timestamp), 'Mon YYYY'),
+            DATE_TRUNC('month', timestamp),
             COUNT(*),
-            SUM(copies_count)
-        FROM cd_burn_log
-        WHERE DATE(timestamp) BETWEEN :start AND :end AND status = 'success'
-        GROUP BY DATE(timestamp)
+            SUM(copies)
+        FROM ({_BURNS}) b
+        GROUP BY DATE_TRUNC('month', timestamp)
         ORDER BY 2
     """), p).fetchall()
     trend_json = {
@@ -70,14 +86,13 @@ def get_report_data(form_data):
         "copies": [int(row[3]) for row in trend],
     }
 
-    # ── Disc format (CD / DVD / …) ─────────────────────────────────────
-    media = db.session.execute(text("""
+    # ── Disc format (CD / DVD / …) ────────────────────────────────────
+    media = db.session.execute(text(f"""
         SELECT
             COALESCE(NULLIF(TRIM(disc_format), ''), 'Unknown'),
             COUNT(*),
-            SUM(copies_count)
-        FROM cd_burn_log
-        WHERE DATE(timestamp) BETWEEN :start AND :end AND status = 'success'
+            SUM(copies)
+        FROM ({_BURNS}) b
         GROUP BY 1
         ORDER BY 3 DESC
     """), p).fetchall()
@@ -87,15 +102,10 @@ def get_report_data(form_data):
         "copies": [int(row[2]) for row in media],
     }
 
-    # ── Modality breakdown (from JSONB studies) ──────────────────────
-    mods = db.session.execute(text("""
-        SELECT
-            COALESCE(NULLIF(s->>'modality', ''), 'Unknown'),
-            COUNT(*),
-            SUM(cd.copies_count)
-        FROM cd_burn_log cd,
-        LATERAL jsonb_array_elements(COALESCE(cd.studies, '[]'::jsonb)) AS s
-        WHERE DATE(cd.timestamp) BETWEEN :start AND :end AND cd.status = 'success'
+    # ── Modality breakdown (burns holding at least one study of it) ───
+    mods = db.session.execute(text(f"""
+        SELECT modality, COUNT(*), SUM(copies)
+        FROM (SELECT DISTINCT id, copies, modality FROM ({_BURN_STUDIES}) bs) bm
         GROUP BY 1
         ORDER BY 2 DESC
         LIMIT 12
@@ -106,19 +116,21 @@ def get_report_data(form_data):
         "copies": [int(row[2]) for row in mods],
     }
 
-    # ── Detail table: modality × disc format ──────────────────────────
-    tbl = db.session.execute(text("""
-        SELECT
-            COALESCE(NULLIF(s->>'modality', ''), '—'),
-            COALESCE(NULLIF(TRIM(cd.disc_format), ''), 'Unknown'),
-            COUNT(*),
-            SUM(cd.copies_count),
-            COUNT(DISTINCT s->>'study_uid')
-        FROM cd_burn_log cd,
-        LATERAL jsonb_array_elements(COALESCE(cd.studies, '[]'::jsonb)) AS s
-        WHERE DATE(cd.timestamp) BETWEEN :start AND :end AND cd.status = 'success'
-        GROUP BY 1, 2
-        ORDER BY 3 DESC
+    # ── Detail table: modality × disc format ─────────────────────────
+    tbl = db.session.execute(text(f"""
+        WITH bs AS ({_BURN_STUDIES})
+        SELECT b.modality, b.disc_format, b.burns, b.copies, u.studies
+        FROM (
+            SELECT modality, disc_format, COUNT(*) AS burns, SUM(copies) AS copies
+            FROM (SELECT DISTINCT id, copies, disc_format, modality FROM bs) d
+            GROUP BY 1, 2
+        ) b
+        JOIN (
+            SELECT modality, disc_format, COUNT(DISTINCT study_uid) AS studies
+            FROM bs
+            GROUP BY 1, 2
+        ) u USING (modality, disc_format)
+        ORDER BY b.burns DESC
     """), p).fetchall()
     table_data = [
         {

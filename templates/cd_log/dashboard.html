@@ -58,13 +58,13 @@
                 <div class="grid grid-cols-4 gap-6 mb-8">
                     <div class="card-custom">
                         <p class="kpi-label">Burn Events</p>
-                        <p class="kpi-value">{{ stats.burn_events|default(0) }}</p>
+                        <p class="kpi-value">{{ stats.total_burns|default(0) }}</p>
                     </div>
                     <div class="card-custom">
                         <p class="kpi-label">Success Rate</p>
                         <p class="kpi-value">
-                            {% if stats.burn_events %}
-                                {{ (stats.successful_burns / stats.burn_events * 100)|round(1) }}%
+                            {% if stats.total_burns %}
+                                {{ (stats.successful_burns / stats.total_burns * 100)|round(1) }}%
                             {% else %}
                                 —
                             {% endif %}
@@ -87,7 +87,12 @@
                         {% for fac in top_facilities %}
                         <div class="table-row flex justify-between items-center">
                             <div class="flex-1">
-                                <p class="font-bold text-[#e2e8f0]">{{ fac.facility_code }}</p>
+                                {% if fac.facility_code %}
+                                <a href="{{ url_for('cd_log_ui.cd_log_facility_report', facility_code=fac.facility_code) }}"
+                                   class="font-bold text-[#e2e8f0] hover:text-[#38bdf8] hover:underline">{{ fac.facility_code }}</a>
+                                {% else %}
+                                <p class="font-bold text-[#e2e8f0]">—</p>
+                                {% endif %}
                                 <p class="text-[#64748b] text-xs">{{ fac.unique_patients }} patients</p>
                             </div>
                             <div class="text-right">
@@ -106,7 +111,12 @@
                         {% for burn in recent %}
                         <div class="table-row flex justify-between items-center">
                             <div class="flex-1">
+                                {% if burn.patient_id %}
+                                <a href="{{ url_for('cd_log_ui.cd_log_patient_audit', patient_id=burn.patient_id) }}"
+                                   class="font-bold text-[#e2e8f0] hover:text-[#38bdf8] hover:underline">{{ burn.patient_name }}</a>
+                                {% else %}
                                 <p class="font-bold text-[#e2e8f0]">{{ burn.patient_name }}</p>
+                                {% endif %}
                                 <p class="text-[#64748b] text-xs">
                                     {{ burn.timestamp.strftime('%Y-%m-%d %H:%M') }} •
                                     {{ burn.facility_code }}

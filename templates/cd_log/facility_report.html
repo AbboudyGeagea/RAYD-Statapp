@@ -75,10 +75,14 @@
                         {% for patient in top_patients %}
                         <div class="table-row flex justify-between items-center">
                             <div class="flex-1">
+                                {% if patient.patient_id %}
                                 <a href="{{ url_for('cd_log_ui.cd_log_patient_audit', patient_id=patient.patient_id) }}"
                                    class="font-bold text-[#38bdf8] hover:underline">
                                     {{ patient.patient_name }}
                                 </a>
+                                {% else %}
+                                <p class="font-bold text-[#e2e8f0]">{{ patient.patient_name }}</p>
+                                {% endif %}
                                 <p class="text-[#64748b] text-xs">Last: {{ patient.last_burn.strftime('%Y-%m-%d') }}</p>
                             </div>
                             <div class="text-right">

@@ -13,7 +13,7 @@ Routes:
 """
 import logging
 from datetime import datetime, timedelta
-from flask import Blueprint, render_template, request, jsonify
+from flask import Blueprint, render_template, request, jsonify, abort
 from flask_login import login_required, current_user
 from sqlalchemy import text, func
 
@@ -36,11 +36,11 @@ def cd_log_dashboard():
     Access: SU and administrator roles only
     """
     if current_user.role not in ('su', 'administrator'):
-        return render_template('error.html', error="Access denied. CD Log requires administrator privileges."), 403
+        abort(403)
 
     try:
         # Recent burns (last 30 days)
-        thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+        thirty_days_ago = datetime.now() - timedelta(days=30)
         recent = CDLog.query.filter(
             CDLog.timestamp >= thirty_days_ago
         ).order_by(CDLog.timestamp.desc()).limit(50).all()
@@ -96,7 +96,7 @@ def cd_log_dashboard():
 
     except Exception as e:
         logger.error(f"Error rendering CD log dashboard: {str(e)}", exc_info=True)
-        return render_template('error.html', error=f"Dashboard error: {str(e)}"), 500
+        abort(500)
 
 
 @cd_log_ui_bp.route("/viewer/cd-log/patient/<patient_id>")
@@ -113,7 +113,7 @@ def cd_log_patient_audit(patient_id):
     Access: SU and administrator roles only
     """
     if current_user.role not in ('su', 'administrator'):
-        return render_template('error.html', error="Access denied. CD Log requires administrator privileges."), 403
+        abort(403)
 
     try:
         # Patient info and burns
@@ -137,7 +137,7 @@ def cd_log_patient_audit(patient_id):
               COUNT(*) as total_burns,
               SUM(copies_count) as total_copies_received,
               COUNT(DISTINCT facility_code) as facilities_burned_from,
-              SUM(COALESCE(json_array_length(studies), 0)) as total_studies_burned,
+              SUM(COALESCE(jsonb_array_length(studies), 0)) as total_studies_burned,
               MIN(timestamp) as first_burn_date,
               MAX(timestamp) as last_burn_date,
               SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as successful_burns,
@@ -158,7 +158,7 @@ def cd_log_patient_audit(patient_id):
 
     except Exception as e:
         logger.error(f"Error rendering patient audit: {str(e)}", exc_info=True)
-        return render_template('error.html', error=f"Patient audit error: {str(e)}"), 500
+        abort(500)
 
 
 @cd_log_ui_bp.route("/viewer/cd-log/facility/<facility_code>")
@@ -175,11 +175,11 @@ def cd_log_facility_report(facility_code):
     Access: SU and administrator roles only
     """
     if current_user.role not in ('su', 'administrator'):
-        return render_template('error.html', error="Access denied. CD Log requires administrator privileges."), 403
+        abort(403)
 
     try:
         # Facility burns (last 60 days)
-        sixty_days_ago = datetime.utcnow() - timedelta(days=60)
+        sixty_days_ago = datetime.now() - timedelta(days=60)
         burns = CDLog.query.filter(
             CDLog.facility_code == facility_code,
             CDLog.timestamp >= sixty_days_ago
@@ -242,7 +242,7 @@ def cd_log_facility_report(facility_code):
 
     except Exception as e:
         logger.error(f"Error rendering facility report: {str(e)}", exc_info=True)
-        return render_template('error.html', error=f"Facility report error: {str(e)}"), 500
+        abort(500)
 
 
 @cd_log_ui_bp.route("/viewer/cd-log/validation")
@@ -258,11 +258,11 @@ def cd_log_orthanc_validation():
     Access: SU and administrator roles only
     """
     if current_user.role not in ('su', 'administrator'):
-        return render_template('error.html', error="Access denied. CD Log requires administrator privileges."), 403
+        abort(403)
 
     try:
         # Unvalidated burns (last 7 days)
-        seven_days_ago = datetime.utcnow() - timedelta(days=7)
+        seven_days_ago = datetime.now() - timedelta(days=7)
 
         pending = CDLog.query.filter(
             CDLog.orthanc_validated == False,
@@ -299,7 +299,7 @@ def cd_log_orthanc_validation():
 
     except Exception as e:
         logger.error(f"Error rendering validation report: {str(e)}", exc_info=True)
-        return render_template('error.html', error=f"Validation report error: {str(e)}"), 500
+        abort(500)
 
 
 @cd_log_ui_bp.route("/api/cd-burn/<int:cd_log_id>/validate", methods=["POST"])
@@ -328,7 +328,7 @@ def validate_against_orthanc(cd_log_id):
         }
 
         burn.orthanc_validation_result = validation_result
-        burn.orthanc_validated_at = datetime.utcnow()
+        burn.orthanc_validated_at = datetime.now()
         db.session.commit()
 
         return jsonify({

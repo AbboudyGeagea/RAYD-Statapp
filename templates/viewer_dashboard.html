@@ -245,6 +245,9 @@
                         <h3 class="text-base font-bold text-white mb-2">CD Burn Audit</h3>
                         <p class="text-slate-400 text-xs leading-relaxed mb-6 flex-1">Track DICOM CD/DVD distribution: burn events, success rates, copies per facility. Audit trail of who burned what, when. Validate UIDs against Orthanc.</p>
                         <a href="{{ url_for('report_30.report_30') }}" target="_blank" class="w-full py-3 bg-blue-600 text-white text-center text-xs font-black uppercase tracking-widest rounded-xl">Open Report 30</a>
+                        {% if current_user.role in ('su', 'administrator') %}
+                        <a href="{{ url_for('cd_log_ui.cd_log_dashboard') }}" target="_blank" class="w-full py-3 mt-2 border border-blue-600 text-blue-400 text-center text-xs font-black uppercase tracking-widest rounded-xl">Open CD Log</a>
+                        {% endif %}
                     </div>
                 </div>
 

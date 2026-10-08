@@ -7,6 +7,9 @@ Endpoints:
   POST /api/cd-burn       — receive and store CD burn event (public, no auth required)
   GET  /api/cd-burn       — list recent CD burn events (SU/admin only)
   GET  /api/cd-burn/<id>  — retrieve a specific CD burn event (SU/admin only)
+
+The POST is exempt from CSRF and from the login wall (app.py): the burning
+station sends JSON, not a browser session.
 """
 import logging
 from datetime import datetime
@@ -18,6 +21,18 @@ from db import db, CDLog
 
 logger = logging.getLogger("cd_log")
 cd_log_bp = Blueprint("cd_log", __name__, url_prefix="/api")
+
+
+def _parse_timestamp(value):
+    """ISO-8601 → naive local time (the container runs in TZ=Asia/Beirut, like
+    every other timestamp in the DB). A 'Z' or offset is converted, not dropped."""
+    try:
+        ts = datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        return datetime.now()
+    if ts.tzinfo is not None:
+        ts = ts.astimezone().replace(tzinfo=None)
+    return ts
 
 
 @cd_log_bp.route("/cd-burn", methods=["POST"])
@@ -39,26 +54,24 @@ def receive_cd_burn_event():
     }
     """
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True)
 
-        if not data:
+        if not isinstance(data, dict):
             return jsonify({"error": "No JSON payload provided"}), 400
 
         # Extract nested fields
-        patient = data.get("patient", {})
-        burn_details = data.get("burn_details", {})
-        result = data.get("result", {})
-        source = data.get("source", {})
-        studies = data.get("studies", [])
+        patient = data.get("patient") or {}
+        burn_details = data.get("burn_details") or {}
+        result = data.get("result") or {}
+        source = data.get("source") or {}
+        studies = data.get("studies") or []
 
-        # Parse timestamp
-        try:
-            timestamp_str = data.get("timestamp", "")
-            if timestamp_str.endswith("Z"):
-                timestamp_str = timestamp_str[:-1]  # Remove Z
-            timestamp = datetime.fromisoformat(timestamp_str)
-        except (ValueError, AttributeError):
-            timestamp = datetime.utcnow()
+        if not all(isinstance(x, dict) for x in (patient, burn_details, result, source)):
+            return jsonify({"error": "patient, burn_details, result and source must be JSON objects"}), 400
+        if not isinstance(studies, list):
+            return jsonify({"error": "studies must be a JSON array"}), 400
+
+        timestamp = _parse_timestamp(data.get("timestamp"))
 
         # Create CD log entry
         cd_log = CDLog(
@@ -73,7 +86,7 @@ def receive_cd_burn_event():
 
             studies=studies,
 
-            copies_count=burn_details.get("copies_count", 1),
+            copies_count=burn_details.get("copies_count") or 1,
             disc_format=burn_details.get("disc_format"),
             disc_size_mb=burn_details.get("disc_size_mb"),
             disc_label=burn_details.get("disc_label"),
