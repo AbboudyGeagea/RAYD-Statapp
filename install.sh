@@ -573,6 +573,73 @@ INSERT INTO go_live_config (go_live_date) VALUES ('${GO_LIVE}');
     ok "Go-live date set to ${GO_LIVE}."
 fi
 
+# ── 6e. Administrator account (required) ──────────────
+echo ""
+echo "  ── Administrator Account ───────────────────────"
+echo "  Create the admin account you will log in with."
+echo ""
+
+read -r -p "  Admin username [admin]: " ADMIN_USER
+ADMIN_USER="${ADMIN_USER:-admin}"
+while ! [[ "$ADMIN_USER" =~ ^[A-Za-z0-9._-]{3,50}$ ]]; do
+    read -r -p "  Username must be 3-50 letters, digits, '.', '_' or '-': " ADMIN_USER
+done
+
+while true; do
+    read -r -s -p "  Admin password (min 8 characters): " ADMIN_PASS; echo ""
+    if [ ${#ADMIN_PASS} -lt 8 ]; then
+        warn "Password must be at least 8 characters."; continue
+    fi
+    if [ "$ADMIN_PASS" = "admin123" ]; then
+        warn "admin123 is the built-in default — choose another password."; continue
+    fi
+    read -r -s -p "  Confirm password: " ADMIN_PASS2; echo ""
+    [ "$ADMIN_PASS" = "$ADMIN_PASS2" ] && break
+    warn "Passwords do not match — try again."
+done
+
+# The users columns this step writes come from the app's startup migrations
+_users_ready() {
+    [ "$(docker exec rayd_db psql -U "$PG_USER" -d "$PG_DB" -tAc \
+        "SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='must_change_password'" 2>/dev/null)" = "1" ]
+}
+info "Waiting for the app to finish its database migrations..."
+WAIT=0
+until _users_ready || [ $WAIT -ge 120 ]; do
+    sleep 3; WAIT=$((WAIT+3))
+done
+_users_ready || error "App migrations did not finish in time. Check: $COMPOSE logs rayd-app"
+
+# Hash inside the app container: same werkzeug the app uses to check it at login.
+# The password goes in on stdin, so it never shows up in the process list.
+ADMIN_HASH=$(printf '%s' "$ADMIN_PASS" | docker exec -i rayd_service python -c \
+    "import sys; from werkzeug.security import generate_password_hash as g; print(g(sys.stdin.read(), method='pbkdf2:sha256'))") \
+    || error "Could not hash the admin password inside rayd_service. Check: $COMPOSE logs rayd-app"
+[[ "$ADMIN_HASH" == pbkdf2:sha256:* ]] || error "Unexpected password hash output: ${ADMIN_HASH}"
+unset ADMIN_PASS ADMIN_PASS2
+
+pg_exec "
+INSERT INTO users (username, password_hash, role, status, must_change_password, full_name, notes)
+VALUES ('${ADMIN_USER}', '${ADMIN_HASH}', 'admin', 'active', FALSE, 'Administrator', 'Created by install.sh')
+ON CONFLICT (username) DO UPDATE SET
+    password_hash        = EXCLUDED.password_hash,
+    role                 = 'admin',
+    status               = 'active',
+    must_change_password = FALSE;
+" || error "Could not create the admin account."
+
+# Migration 0064 creates admin/admin123 on a database with no admin. If the
+# installer chose another username, disable that default so it can't be used.
+pg_exec "
+UPDATE users SET status = 'disabled'
+WHERE username = 'admin'
+  AND username <> '${ADMIN_USER}'
+  AND notes = 'Default admin created by migration 0064'
+  AND last_login IS NULL;
+" || warn "Could not disable the default admin account — disable it from User Management."
+
+ok "Admin account '${ADMIN_USER}' is ready."
+
 # ──────────────────────────────────────────────────────
 # STEP 7: Remove legacy Qwen2.5-7B / llama.cpp installation
 # Runs once — sentinel at /opt/rayd/.qwen_removed prevents repeat.
@@ -608,6 +675,7 @@ echo -e "${GREEN}  RAYD installation complete!${NC}"
 echo "=================================================="
 echo ""
 echo "  App:      https://$(hostname)"
+echo "  Admin:    ${ADMIN_USER}"
 echo "  Logs:     $COMPOSE logs -f"
 echo "  Restart:  $COMPOSE restart"
 echo "  Stop:     $COMPOSE down"
