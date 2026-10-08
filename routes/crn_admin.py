@@ -4,7 +4,8 @@ routes/crn_admin.py
 Admin > CRN (Critical Result Notification):
   board, notification timeline, acknowledgement report   admin, viewer, viewer2 (read-only)
   settings, go-live switch, test send, retry,
-  acknowledgement by phone, contacts and CSV import      admin only
+  acknowledgement by phone, dry-run link,
+  contacts and CSV import                                admin only
 The work itself is in utils/crn_admin_ops.py.
 
 Contacts: the referring-doctor contact list (doctor code, name, phone, email)
@@ -84,7 +85,20 @@ def notification_page(notification_id):
     if not n:
         abort(404)
     return render_template('crn_notification.html', n=n, recipients=recipients, events=events,
-                           labels=ops.STATUS_LABELS)
+                           labels=ops.STATUS_LABELS, dry_run=ops.load_settings()['crn_sms_provider'] == 'log')
+
+
+@crn_admin_bp.route('/notification/<int:notification_id>/dry-run-link/<int:recipient_id>')
+@login_required
+def dry_run_link(notification_id, recipient_id):
+    """Dry run only: open the page this recipient's SMS would link to."""
+    _admin_only()
+    link, error = ops.dry_run_link(notification_id, recipient_id, current_user.username)
+    if error:
+        flash(error, 'error')
+        return redirect(url_for('crn_admin.notification_page', notification_id=notification_id))
+    _audit('crn_dry_run_link_opened', {'notification_id': notification_id, 'recipient_id': recipient_id})
+    return redirect(link)
 
 
 @crn_admin_bp.route('/notification/<int:notification_id>/retry', methods=['POST'])

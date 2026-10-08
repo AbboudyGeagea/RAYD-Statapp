@@ -43,7 +43,9 @@
                     'page_push_failed': 'Page could not be placed on the gateway',
                     'send_gave_up': 'Gave up after repeated failures',
                     'retry_requested': 'Retry requested',
+                    'dry_run_link_opened': 'Link opened by an admin (dry-run test)',
                 } %}
+                {% set show_test_link = dry_run and current_user.role == 'admin' %}
 
                 <div class="flex items-center gap-3 mb-4">
                     <a href="{{ url_for('crn_admin.board_page') }}" class="muted text-xs font-bold"><i class="bi bi-arrow-left"></i> Board</a>
@@ -68,7 +70,7 @@
                         <p class="label">Texted</p>
                         {% if recipients %}
                         <table class="list">
-                            <thead><tr><th>Who</th><th>Mobile</th><th>SMS</th><th>Opened</th></tr></thead>
+                            <thead><tr><th>Who</th><th>Mobile</th><th>SMS</th><th>Opened</th>{% if show_test_link %}<th>Test</th>{% endif %}</tr></thead>
                             <tbody>
                             {% for r in recipients %}
                             <tr>
@@ -76,10 +78,16 @@
                                 <td class="font-mono">{{ r.phone_e164 }}</td>
                                 <td>{{ r.send_count }}{% if r.fail_count %} <span class="text-rose-300">({{ r.fail_count }} failed)</span>{% endif %}</td>
                                 <td>{{ r.opened_at.strftime('%H:%M') if r.opened_at else '—' }}</td>
+                                {% if show_test_link %}
+                                <td>{% if r.page_pushed_at and not r.expired %}<a href="{{ url_for('crn_admin.dry_run_link', notification_id=n.id, recipient_id=r.id) }}"
+                                       target="_blank" rel="noopener noreferrer" class="btn-ghost text-xs whitespace-nowrap"><i class="bi bi-box-arrow-up-right"></i> Open link (dry run)</a>
+                                    {% else %}<span class="muted">—</span>{% endif %}</td>
+                                {% endif %}
                             </tr>
                             {% endfor %}
                             </tbody>
                         </table>
+                        {% if show_test_link %}<p class="text-amber-300 text-xs mt-3"><i class="bi bi-exclamation-triangle"></i> Dry run: no SMS was really sent. <b>Open link (dry run)</b> opens the page as the doctor would see it, to test opening and acknowledging. Each use is recorded in the timeline under your name. The button disappears once an SMS provider is connected.</p>{% endif %}
                         {% else %}<p class="muted text-sm">Nobody has been texted.</p>{% endif %}
                     </div>
                 </div>
