@@ -9,4 +9,6 @@ COPY static ./static
 RUN useradd --system --uid 10001 gateway && mkdir -p /data && chown gateway /data
 USER gateway
 EXPOSE 8443
-CMD ["gunicorn", "--workers", "2", "--bind", "0.0.0.0:8443", "--access-logfile", "-", "app:app"]
+# No access log: every /n/ request carries the doctor's link token in its URL. Opens and
+# acknowledgements are recorded in the gateway's own events table instead.
+CMD ["gunicorn", "--workers", "2", "--bind", "0.0.0.0:8443", "app:app"]
