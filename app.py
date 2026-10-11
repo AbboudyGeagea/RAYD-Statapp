@@ -851,37 +851,6 @@ def create_app():
         replace_existing=True
     )
 
-    def crn_scan_and_escalate():
-        # Contact sync always runs (safe — reads RIS-sourced std_resources_ris, writes only
-        # to referring_contacts, no external communication). scan/escalate are dormant unless
-        # settings.crn_enabled = 'true' (utils/crn_dispatcher._crn_live) — both internally
-        # no-op fast when it's off, so this whole job is cheap to always run.
-        with app.app_context():
-            try:
-                from utils.referring_contacts_sync import sync_referring_contacts_from_ris
-                synced = sync_referring_contacts_from_ris()
-                if synced:
-                    logger.info(f"[CRN] referring_contacts sync: {synced} contact(s) created/updated from RIS")
-            except Exception as e:
-                logger.error(f"🛑 [CRN] referring_contacts sync failed: {e}", exc_info=True)
-            try:
-                from utils.crn_scan import scan_for_new_critical_results, escalate
-                created = scan_for_new_critical_results()
-                escalated = escalate()
-                if created or escalated:
-                    logger.info(f"[CRN] scan: {created} new notification(s), {escalated} escalated")
-            except Exception as e:
-                logger.error(f"🛑 [CRN] Scan/escalate failed: {e}", exc_info=True)
-
-    scheduler.add_job(
-        func=crn_scan_and_escalate,
-        trigger='interval',
-        minutes=5,
-        id='crn_scan_and_escalate',
-        name='CRN — scan for critical results + escalate unacknowledged',
-        replace_existing=True
-    )
-
     # Only start scheduler and HL7 listener when running as server, not manual ETL
     # (manual_mode computed earlier — see STARTUP: AUTO-TRIGGER ETL IF DB IS EMPTY)
     if not manual_mode:

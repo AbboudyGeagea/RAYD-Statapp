@@ -502,7 +502,7 @@ def parse_orm_o01(raw_message):
 
     # PV1-8: Referring Doctor (XCN: ID^Last^First^Mid...) — e.g. "20000191^WAKIM^GERARD VICTOR".
     # The ID component resolves against std_resources_ris.resource_id_key (RIS RESOURCE_ID/
-    # PERSON, Phase 13) for a real email/phone — see migrations/0079 and utils/crn_scan.py.
+    # PERSON, Phase 13) for a real email/phone — see migrations/0079 and utils/crn_contacts_ris.py.
     # NOT run through _format_name(): that helper's Last^First heuristic assumes parts[0] is
     # already the surname (true for PID-5's XPN), but XCN's parts[0] is the ID number here —
     # tested against a real PV1-8 sample, _format_name() folded "20000191" into the name.
