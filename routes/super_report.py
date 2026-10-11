@@ -279,10 +279,11 @@ def super_report():
         return jsonify(cached)
 
     try:
-        crn_enabled_row = db.session.execute(
-            text("SELECT value FROM settings WHERE key = 'crn_enabled'")
-        ).fetchone()
-        crn_enabled = bool(crn_enabled_row and crn_enabled_row[0] == 'true')
+        crn_cfg = dict(db.session.execute(text(
+            "SELECT key, value FROM settings WHERE key IN ('crn_live_since', 'crn_sms_provider')"
+        )).fetchall())
+        crn_enabled = bool((crn_cfg.get('crn_live_since') or '').strip())
+        crn_dry_run = (crn_cfg.get('crn_sms_provider') or 'log') == 'log'
 
         current   = _collect_data(start, end, filters, rh_site_id)
         previous  = _collect_data(cmp_start, cmp_end, filters, rh_site_id)
@@ -295,6 +296,7 @@ def super_report():
             "cmp_end":     cmp_end,
             "delta_days":  delta,
             "crn_enabled": crn_enabled,
+            "crn_dry_run": crn_dry_run,
         }
         cache_put("super_report", cache_key, result)
         return jsonify(result)
@@ -739,11 +741,13 @@ def _get_crn_summary(start, end):
     """Critical Result Notification activity for the period.
 
     Not site-scoped (no established site-resolution join for hl7_oru_reports /
-    crn_notifications yet -- CRN is single dry-run scaffold today, not part of
-    the RH/SJH rollout) and not filtered by Super Report's other active
+    crn_notifications yet) and not filtered by Super Report's other active
     filters -- a period-only rollup, same simplification as
-    _get_utilization_summary below.
+    _get_utilization_summary below. The CRN numbers are Admin > CRN > Report's
+    own summary (utils/crn_admin_ops.report), so the two always agree.
     """
+    from utils.crn_admin_ops import report as crn_report
+
     critical = db.session.execute(text("""
         SELECT COUNT(*) AS critical_count
         FROM hl7_oru_analysis a
@@ -752,25 +756,14 @@ def _get_crn_summary(start, end):
           AND COALESCE(r.result_datetime, r.received_at)::date BETWEEN :start AND :end
     """), {"start": start, "end": end}).mappings().fetchone()
 
-    notif = db.session.execute(text("""
-        SELECT
-            COUNT(*)                                      AS total_notifications,
-            COUNT(*) FILTER (WHERE status = 'acknowledged') AS acknowledged,
-            COUNT(*) FILTER (WHERE status = 'exhausted')    AS exhausted,
-            COUNT(*) FILTER (WHERE status = 'pending')      AS pending,
-            ROUND(AVG(EXTRACT(EPOCH FROM (acknowledged_at - created_at)) / 60.0)
-                  FILTER (WHERE acknowledged_at IS NOT NULL)::numeric, 1) AS avg_ack_min
-        FROM crn_notifications
-        WHERE created_at::date BETWEEN :start AND :end
-    """), {"start": start, "end": end}).mappings().fetchone()
-
+    s = crn_report(start, end)['summary']
     return {
         "critical_count":      int(critical["critical_count"] or 0) if critical else 0,
-        "total_notifications": int(notif["total_notifications"] or 0) if notif else 0,
-        "acknowledged":        int(notif["acknowledged"] or 0) if notif else 0,
-        "exhausted":           int(notif["exhausted"] or 0) if notif else 0,
-        "pending":             int(notif["pending"] or 0) if notif else 0,
-        "avg_ack_min":         float(notif["avg_ack_min"]) if notif and notif["avg_ack_min"] is not None else None,
+        "total_notifications": s['total'],
+        "acknowledged":        s['acknowledged'],
+        "overdue":             s['overdue'],
+        "open":                s['open'],
+        "median_ack_min":      s['median_min'],
     }
 
 

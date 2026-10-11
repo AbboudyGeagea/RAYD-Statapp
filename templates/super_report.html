@@ -918,12 +918,14 @@
         // Critical Findings (CRN)
         const c = cur.crn, pc_ = prev.crn;
         document.getElementById('super-crn').innerHTML =
-            (d.crn_enabled ? '' : '<p style="font-size:9px;color:#f59e0b;font-weight:700;margin-bottom:6px;">DRY-RUN MODE — no real notifications sent yet</p>') +
+            (!d.crn_enabled ? '<p style="font-size:9px;color:#f59e0b;font-weight:700;margin-bottom:6px;">CRN IS OFF — Admin &gt; CRN &gt; Settings</p>'
+              : d.crn_dry_run ? '<p style="font-size:9px;color:#f59e0b;font-weight:700;margin-bottom:6px;">DRY-RUN MODE — no real SMS sent yet</p>' : '') +
             row('Critical findings', fmt(c.critical_count), pct(c.critical_count, pc_.critical_count)) +
-            row('Notifications sent', fmt(c.total_notifications), null) +
+            row('CRNs', fmt(c.total_notifications), null) +
             row('Acknowledged', fmt(c.acknowledged), null) +
-            rowWarn('Exhausted (no ack)', fmt(c.exhausted), c.exhausted > 0) +
-            row('Avg time to ack', c.avg_ack_min !== null ? fmtD(c.avg_ack_min)+' min' : '—', null);
+            rowWarn('Went overdue', fmt(c.overdue), c.overdue > 0) +
+            rowWarn('Still open', fmt(c.open), c.open > 0) +
+            row('Median time to ack', c.median_ack_min !== null ? fmtD(c.median_ack_min)+' min' : '—', null);
 
         // Device Utilization
         const u = cur.utilization, pu = prev.utilization;
