@@ -1,0 +1,17 @@
+{# Title, tab bar and flashed messages for the Admin > CRN pages. Set `crn_tab` before including. #}
+<div class="mb-4">
+    <h2 class="text-white text-2xl font-black uppercase tracking-tight">Critical Result Notification</h2>
+</div>
+<nav class="crn-tabs">
+    <a href="{{ url_for('crn_admin.board_page') }}" class="{{ 'on' if crn_tab == 'board' }}"><i class="bi bi-broadcast"></i> Board</a>
+    <a href="{{ url_for('crn_admin.report_page') }}" class="{{ 'on' if crn_tab == 'report' }}"><i class="bi bi-clipboard-data"></i> Report</a>
+    {% if current_user.role == 'admin' %}
+    <a href="{{ url_for('crn_admin.settings_page') }}" class="{{ 'on' if crn_tab == 'settings' }}"><i class="bi bi-gear"></i> Settings</a>
+    <a href="{{ url_for('crn_admin.contacts') }}" class="{{ 'on' if crn_tab == 'contacts' }}"><i class="bi bi-person-lines-fill"></i> Contacts</a>
+    {% endif %}
+</nav>
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% for cat, m in messages %}
+<div class="rounded-xl px-4 py-3 text-sm font-semibold mb-4 {{ 'flash-ok' if cat == 'success' else 'flash-err' }}">{{ m }}</div>
+{% endfor %}
+{% endwith %}

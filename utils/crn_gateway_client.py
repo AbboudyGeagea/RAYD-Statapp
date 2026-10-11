@@ -37,6 +37,21 @@ def _headers(cfg):
     return {'Authorization': f'Bearer {api_key(cfg)}'}
 
 
+def health(cfg):
+    """(ok, detail) for the admin page's connection check."""
+    if not configured(cfg):
+        return False, 'gateway address or API key not set'
+    try:
+        r = requests.get(_url(cfg, '/api/health'), headers=_headers(cfg), timeout=4)   # page load waits on it
+    except requests.RequestException as e:
+        return False, f'gateway unreachable ({e.__class__.__name__})'
+    if r.status_code == 200:
+        return True, 'connected'
+    if r.status_code in (401, 403):
+        return False, f'gateway refused RAYD (HTTP {r.status_code}): check the API key and the allowed address'
+    return False, f'gateway answered HTTP {r.status_code}'
+
+
 def push_page(cfg, token_hash, ref_code, recipient_id, expires_at_iso, payload):
     """Place one recipient's page. Returns (ok, error)."""
     try:
