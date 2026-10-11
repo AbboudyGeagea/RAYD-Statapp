@@ -3,8 +3,8 @@ utils/crn_admin_ops.py
 ──────────────────────
 What the Admin > CRN pages do, kept out of the routes so it can be tested:
 settings, the go-live switch and its readiness checklist, the test send, the live
-board, a notification's timeline, retry, acknowledgement by phone, and the CRN
-Acknowledgement report.
+board, a notification's timeline, retry, acknowledgement by phone, the dry-run
+link, and the CRN Acknowledgement report.
 """
 import hashlib
 import secrets
@@ -16,7 +16,7 @@ from sqlalchemy import bindparam, text
 from db import db
 from utils import crn_dispatch as dispatch
 from utils import crn_gateway_client as gateway
-from utils.crypto import encrypt
+from utils.crypto import decrypt, encrypt
 from utils.crn_contacts import normalize_phone
 from utils.crn_sms import send_sms
 
@@ -205,7 +205,8 @@ def timeline(notification_id):
     if not n:
         return None, [], []
     recipients = db.session.execute(text("""
-        SELECT id, role, contact_code, contact_name, phone_e164, send_count, fail_count, last_sent_at, opened_at
+        SELECT id, role, contact_code, contact_name, phone_e164, send_count, fail_count, last_sent_at, opened_at,
+               page_pushed_at, expires_at < NOW() AS expired
         FROM crn_recipients WHERE notification_id = :id ORDER BY id
     """), {'id': notification_id}).mappings().fetchall()
     events = db.session.execute(text("""
@@ -249,6 +250,39 @@ def acknowledge_by_phone(notification_id, note, username):
     """), {'id': notification_id})
     db.session.commit()
     return None
+
+
+def dry_run_link(notification_id, recipient_id, username):
+    """The link a recipient's SMS would carry, so an admin can test the doctor's
+    side (open the page, acknowledge) before an SMS provider exists. Dry run only:
+    with a real provider the link must stay in the SMS. Every use is recorded in
+    the notification's history. Returns (link, error)."""
+    cfg = load_settings()
+    if cfg['crn_sms_provider'] != 'log':
+        return None, 'Only available in dry run, while no SMS provider is connected.'
+    rec = db.session.execute(text("""
+        SELECT role, contact_code, contact_name, token_enc, page_pushed_at, expires_at < NOW() AS expired
+        FROM crn_recipients WHERE id = :rid AND notification_id = :nid
+    """), {'rid': recipient_id, 'nid': notification_id}).mappings().fetchone()
+    if not rec:
+        db.session.rollback()
+        return None, 'Recipient not found.'
+    if rec['page_pushed_at'] is None:
+        db.session.rollback()
+        return None, 'The page is not on the CRN gateway yet.'
+    if rec['expired']:
+        db.session.rollback()
+        return None, 'This link has expired.'
+    token = decrypt(rec['token_enc'])
+    if not token or token == rec['token_enc']:
+        db.session.rollback()
+        return None, 'The link could not be decrypted (SECRET_KEY changed?).'
+    dispatch._event(notification_id, 'dry_run_link_opened', {
+        'role': rec['role'], 'contact_code': rec['contact_code'], 'contact_name': rec['contact_name'],
+        'by': username})
+    db.session.commit()
+    base = (cfg['crn_public_base_url'] or dispatch.PLACEHOLDER_BASE_URL).rstrip('/')
+    return f'{base}/n/{token}', None
 
 
 # ── CRN Acknowledgement report ────────────────────────────────────────────────
