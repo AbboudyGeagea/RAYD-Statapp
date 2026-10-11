@@ -33,6 +33,7 @@ from sqlalchemy import text
 from db import db
 from utils.crypto import encrypt, decrypt
 from utils.crn_sms import send_sms
+from utils.crn_contacts_ris import sync_code as ris_sync_code
 from utils import crn_gateway_client as gateway
 
 logger = logging.getLogger("CRN_DISPATCH")
@@ -279,8 +280,21 @@ def _referring_doctor(n):
     return '', report['name'] if report else None
 
 
+def _ris_refresh(code):
+    """LAUMC: bring the doctor's contact up to date from the RIS before texting
+    (utils/crn_contacts_ris.py; a hand-edited contact is never touched). Inside a
+    savepoint, so a RIS problem can never hold up the notification itself."""
+    try:
+        with db.session.begin_nested():
+            ris_sync_code(code)
+    except Exception as e:
+        logger.warning(f"[CRN] RIS contact lookup for {code} failed: {e}")
+
+
 def _route(n, cfg):
     code, referring_name = _referring_doctor(n)
+    if code:
+        _ris_refresh(code)
     contact = _contact(code)
 
     if not code:

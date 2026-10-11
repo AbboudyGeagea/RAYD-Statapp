@@ -874,6 +874,32 @@ def create_app():
         coalesce=True,
     )
 
+    def crn_contacts_ris_job():
+        # LAUMC: fill CRN contacts from the RIS for every referring doctor seen on a
+        # report or order (utils/crn_contacts_ris.py). Reads the RIS copy only and never
+        # touches a hand-edited contact, so it runs whether CRN is on or off.
+        with app.app_context():
+            try:
+                from utils.crn_contacts_ris import sync_all
+                written = sync_all()
+                db.session.commit()
+                if written:
+                    logger.info(f"[CRN] {written} contact(s) filled or refreshed from the RIS")
+            except Exception as e:
+                db.session.rollback()
+                logger.error(f"🛑 [CRN] RIS contact sync failed: {e}", exc_info=True)
+
+    scheduler.add_job(
+        func=crn_contacts_ris_job,
+        trigger='interval',
+        minutes=15,
+        id='crn_contacts_ris',
+        name='CRN contacts from the RIS (every 15 min)',
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+
     # Only start scheduler and HL7 listener when running as server, not manual ETL
     # (manual_mode computed earlier — see STARTUP: AUTO-TRIGGER ETL IF DB IS EMPTY)
     if not manual_mode:
