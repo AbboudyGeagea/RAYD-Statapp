@@ -13,6 +13,7 @@ services:
       CRN_GATEWAY_API_ALLOW: ${CRN_GATEWAY_API_ALLOW:-}
       CRN_GATEWAY_TRUST_PROXY: "1"
       CRN_GATEWAY_RETENTION_DAYS: ${CRN_GATEWAY_RETENTION_DAYS:-7}
+      CRN_GATEWAY_HOME_URL: ${CRN_GATEWAY_HOME_URL:-}
     volumes:
       - crn_gateway_data:/data
 

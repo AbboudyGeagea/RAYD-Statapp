@@ -12,6 +12,8 @@ It never connects into the hospital. RAYD (inside) calls it:
 Doctors call:
   GET  /n/<token>        the page (each open is logged: time, IP, browser)
   POST /n/<token>/ack    acknowledge (optional comment)
+Anyone:
+  GET  /                 a short "what is this" page, or a redirect (CRN_GATEWAY_HOME_URL)
 
 Storage is one SQLite file: pages hold the patient data encrypted with
 CRN_GATEWAY_DATA_KEY and are deleted CRN_GATEWAY_RETENTION_DAYS after
@@ -28,6 +30,7 @@ Environment:
   CRN_GATEWAY_TRUST_PROXY    1 when behind the TLS reverse proxy, so the client IP comes from X-Forwarded-For
   CRN_GATEWAY_DB             SQLite path (default /data/gateway.db)
   CRN_GATEWAY_RETENTION_DAYS default 7
+  CRN_GATEWAY_HOME_URL       where / redirects (e.g. the hospital website); empty = show the "what is this" page
 """
 import hashlib
 import hmac
@@ -37,7 +40,7 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 
 from cryptography.fernet import Fernet, InvalidToken
-from flask import Flask, abort, g, jsonify, render_template, request
+from flask import Flask, abort, g, jsonify, redirect, render_template, request
 
 DB_PATH = os.environ.get('CRN_GATEWAY_DB', '/data/gateway.db')
 RETENTION_DAYS = int(os.environ.get('CRN_GATEWAY_RETENTION_DAYS', '7'))
@@ -204,6 +207,20 @@ def get_events():
 
 # ── doctor-facing page ────────────────────────────────────────────────────────
 
+def _has_logo():
+    return os.path.exists(os.path.join(app.static_folder, 'logo.png'))   # hospital logo, optional
+
+
+@app.route('/')
+def home():
+    home_url = os.environ.get('CRN_GATEWAY_HOME_URL', '').strip()
+    if home_url:
+        return redirect(home_url)
+    return render_template('message.html', title='Critical Result Notification', logo=_has_logo(),
+                           text='This service delivers critical radiology results to doctors. '
+                                'To view a result, open the link in your SMS.')
+
+
 def _page(token):
     token_hash = hashlib.sha256(token.encode()).hexdigest()
     row = db().execute("SELECT * FROM pages WHERE token_hash = ?", (token_hash,)).fetchone()
@@ -237,9 +254,8 @@ def show(token):
     _log(row, 'opened')
     acked = db().execute("SELECT MIN(acknowledged_at) FROM pages WHERE ref_code = ?",
                          (row['ref_code'],)).fetchone()[0]
-    logo = os.path.exists(os.path.join(app.static_folder, 'logo.png'))   # hospital logo, optional
     return render_template('page.html', p=payload, ref=row['ref_code'], token=token,
-                           acknowledged_at=acked, logo=logo)
+                           acknowledged_at=acked, logo=_has_logo())
 
 
 @app.route('/n/<token>/ack', methods=['POST'])
