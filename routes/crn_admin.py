@@ -77,28 +77,37 @@ def board_page():
                            end=end or '', labels=ops.STATUS_LABELS, live_since=ops.load_settings()['crn_live_since'])
 
 
+def _notification_view(notification_id, test_sms=None):
+    n, recipients, events = ops.timeline(notification_id)
+    if not n:
+        abort(404)
+    cfg = ops.load_settings()
+    if test_sms:
+        test_sms['body'], _ = ops.dispatch.render_sms(cfg['crn_sms_template'], n['ref_code'], test_sms['link'])
+    return render_template('crn_notification.html', n=n, recipients=recipients, events=events,
+                           labels=ops.STATUS_LABELS, dry_run=cfg['crn_sms_provider'] == 'log', test_sms=test_sms)
+
+
 @crn_admin_bp.route('/notification/<int:notification_id>')
 @login_required
 def notification_page(notification_id):
     _board_roles()
-    n, recipients, events = ops.timeline(notification_id)
-    if not n:
-        abort(404)
-    return render_template('crn_notification.html', n=n, recipients=recipients, events=events,
-                           labels=ops.STATUS_LABELS, dry_run=ops.load_settings()['crn_sms_provider'] == 'log')
+    return _notification_view(notification_id)
 
 
 @crn_admin_bp.route('/notification/<int:notification_id>/dry-run-link/<int:recipient_id>')
 @login_required
 def dry_run_link(notification_id, recipient_id):
-    """Dry run only: open the page this recipient's SMS would link to."""
+    """Dry run only: show the SMS this recipient would get, link included. The admin
+    copies the link to a phone or laptop outside the hospital: the public link
+    address does not open from inside the hospital network."""
     _admin_only()
     link, error = ops.dry_run_link(notification_id, recipient_id, current_user.username)
     if error:
         flash(error, 'error')
         return redirect(url_for('crn_admin.notification_page', notification_id=notification_id))
     _audit('crn_dry_run_link_opened', {'notification_id': notification_id, 'recipient_id': recipient_id})
-    return redirect(link)
+    return _notification_view(notification_id, {'recipient_id': recipient_id, 'link': link})
 
 
 @crn_admin_bp.route('/notification/<int:notification_id>/retry', methods=['POST'])

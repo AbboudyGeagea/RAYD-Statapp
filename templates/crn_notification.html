@@ -43,7 +43,7 @@
                     'page_push_failed': 'Page could not be placed on the gateway',
                     'send_gave_up': 'Gave up after repeated failures',
                     'retry_requested': 'Retry requested',
-                    'dry_run_link_opened': 'Link opened by an admin (dry-run test)',
+                    'dry_run_link_opened': 'SMS link shown to an admin (dry-run test)',
                 } %}
                 {% set show_test_link = dry_run and current_user.role == 'admin' %}
 
@@ -52,6 +52,29 @@
                     <span class="font-mono text-white text-lg font-black">{{ n.ref_code }}</span>
                     <span class="badge b-{{ n.status }}">{{ labels.get(n.status, n.status) }}</span>
                 </div>
+
+                {% if test_sms %}
+                {% set who = recipients|selectattr('id', 'equalto', test_sms.recipient_id)|first %}
+                <div class="card mb-4" style="border-color:rgba(252,211,77,0.45);">
+                    <p class="label">Simulated SMS (dry run, not sent)</p>
+                    {% if who %}<p class="muted text-xs mb-3">To {{ who.contact_name or who.contact_code }} · <span class="font-mono">{{ who.phone_e164 }}</span></p>{% endif %}
+                    <div class="font-mono text-sm text-slate-200 whitespace-pre-wrap break-all p-3 rounded-lg mb-3" style="background:#111816;border:1px solid #28332e;">{{ test_sms.body }}</div>
+                    <div class="flex gap-2">
+                        <input id="sms-link" class="input-field font-mono text-xs" readonly value="{{ test_sms.link }}" onclick="this.select()">
+                        <button type="button" class="btn-primary whitespace-nowrap" onclick="copySmsLink(this)"><i class="bi bi-clipboard"></i> Copy link</button>
+                    </div>
+                    <p class="text-amber-300 text-xs mt-3"><i class="bi bi-exclamation-triangle"></i> This address does not open from inside the hospital network. Open it on a phone on mobile data, or a laptop outside the hospital, as the doctor would.</p>
+                </div>
+                <script>
+                    function copySmsLink(btn) {
+                        const field = document.getElementById('sms-link');
+                        field.select();
+                        (navigator.clipboard ? navigator.clipboard.writeText(field.value) : Promise.reject())
+                            .catch(() => document.execCommand('copy'))
+                            .then(() => { btn.innerHTML = '<i class="bi bi-check2"></i> Copied'; });
+                    }
+                </script>
+                {% endif %}
 
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
                     <div class="card">
@@ -80,14 +103,14 @@
                                 <td>{{ r.opened_at.strftime('%H:%M') if r.opened_at else '—' }}</td>
                                 {% if show_test_link %}
                                 <td>{% if r.page_pushed_at and not r.expired %}<a href="{{ url_for('crn_admin.dry_run_link', notification_id=n.id, recipient_id=r.id) }}"
-                                       target="_blank" rel="noopener noreferrer" class="btn-ghost text-xs whitespace-nowrap"><i class="bi bi-box-arrow-up-right"></i> Open link (dry run)</a>
+                                       class="btn-ghost text-xs whitespace-nowrap"><i class="bi bi-chat-text"></i> Show SMS (dry run)</a>
                                     {% else %}<span class="muted">—</span>{% endif %}</td>
                                 {% endif %}
                             </tr>
                             {% endfor %}
                             </tbody>
                         </table>
-                        {% if show_test_link %}<p class="text-amber-300 text-xs mt-3"><i class="bi bi-exclamation-triangle"></i> Dry run: no SMS was really sent. <b>Open link (dry run)</b> opens the page as the doctor would see it, to test opening and acknowledging. Each use is recorded in the timeline under your name. The button disappears once an SMS provider is connected.</p>{% endif %}
+                        {% if show_test_link %}<p class="text-amber-300 text-xs mt-3"><i class="bi bi-exclamation-triangle"></i> Dry run: no SMS was really sent. <b>Show SMS (dry run)</b> shows the SMS this person would get, with its link, to open on a phone or laptop outside the hospital and test opening and acknowledging. Each use is recorded in the timeline under your name. The button disappears once an SMS provider is connected.</p>{% endif %}
                         {% else %}<p class="muted text-sm">Nobody has been texted.</p>{% endif %}
                     </div>
                 </div>
