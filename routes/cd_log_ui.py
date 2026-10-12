@@ -17,7 +17,7 @@ from flask import Blueprint, render_template, request, jsonify, abort
 from flask_login import login_required, current_user
 from sqlalchemy import text, func
 
-from db import db, CDLog
+from db import db, CDLog, CDBurnReceipt
 
 logger = logging.getLogger("cd_log_ui")
 cd_log_ui_bp = Blueprint("cd_log_ui", __name__)
@@ -87,11 +87,15 @@ def cd_log_dashboard():
             ORDER BY burn_date DESC
         """), {"cutoff": thirty_days_ago}).fetchall()
 
+        # Burning station link: last requests to the CD burn API, stored or refused
+        receipts = CDBurnReceipt.query.order_by(CDBurnReceipt.received_at.desc()).limit(20).all()
+
         return render_template('cd_log/dashboard.html',
             recent=recent,
             stats=stats,
             top_facilities=top_facilities,
-            daily_trend=daily_trend
+            daily_trend=daily_trend,
+            receipts=receipts
         )
 
     except Exception as e:

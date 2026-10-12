@@ -54,6 +54,49 @@
                     <p class="text-[#64748b] text-sm">Last 30 days: burn events, success rates, facility breakdown</p>
                 </div>
 
+                <!-- Burning station link: every request to /api/cd-burn, stored or refused (cd_burn_receipts) -->
+                <div class="card-custom mb-8">
+                    <p class="section-title mb-1">Burning Station Link</p>
+                    {% if receipts %}
+                    {% set last = receipts[0] %}
+                    <p class="text-[#64748b] text-xs mb-4">
+                        Last request {{ last.received_at.strftime('%Y-%m-%d %H:%M') }} from {{ last.remote_addr or '—' }}
+                        <span class="badge {% if last.outcome == 'stored' %}badge-success{% else %}badge-error{% endif %}">{{ last.outcome|replace('_', ' ')|upper }}</span>
+                    </p>
+                    <table class="w-full text-xs">
+                        <thead>
+                            <tr class="text-left text-[10px] font-black uppercase tracking-widest text-[#64748b]">
+                                <th class="py-2 pr-4">Received</th>
+                                <th class="py-2 pr-4">From</th>
+                                <th class="py-2 pr-4">HTTP</th>
+                                <th class="py-2 pr-4">Result</th>
+                                <th class="py-2">Detail</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for r in receipts %}
+                            <tr class="table-row align-top">
+                                <td class="py-2 pr-4 whitespace-nowrap">{{ r.received_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                                <td class="py-2 pr-4 whitespace-nowrap">{{ r.remote_addr or '—' }}</td>
+                                <td class="py-2 pr-4">{{ r.http_status }}</td>
+                                <td class="py-2 pr-4 whitespace-nowrap">
+                                    <span class="badge {% if r.outcome == 'stored' %}badge-success{% else %}badge-error{% endif %}">{{ r.outcome|replace('_', ' ')|upper }}</span>
+                                </td>
+                                <td class="py-2 text-[#94a3b8]">
+                                    {{ r.detail or '' }}
+                                    {% if r.payload_shape %}
+                                    <p class="text-[#64748b] font-mono text-[10px] mt-1 break-all">Fields sent: {{ r.payload_shape }}</p>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    {% else %}
+                    <p class="text-[#64748b] text-xs">No request has reached RAYD from the burning station yet. Check that RayBurn posts to https://&lt;RAYD server&gt;/api/cd-burn and that the station can reach this server.</p>
+                    {% endif %}
+                </div>
+
                 <!-- KPIs -->
                 <div class="grid grid-cols-4 gap-6 mb-8">
                     <div class="card-custom">

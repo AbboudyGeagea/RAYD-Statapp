@@ -23,6 +23,7 @@ Sidebar folder → module prefix mapping
   portal         routes.portal
   oru            routes.oru_analytics, nlp_worker
   referring_intel routes.referring_intel
+  cd_log         cd_log (CD burn API), cd_log_ui
   ai             routes.ai_alerts
   auth           auth.*
   app            everything else (db, report_cache, …)
@@ -68,6 +69,9 @@ _MODULE_FOLDER_MAP: dict = {
     "routes.portal":                   "portal",
     # Referring intel
     "routes.referring_intel":          "referring_intel",
+    # CD burn API (every RayBurn request) + CD Log pages
+    "cd_log":                          "cd_log",
+    "cd_log_ui":                       "cd_log",
     # ETL (prefix match catches all sub-modules)
     "ETL_JOBS":                        "etl",
     # Auth

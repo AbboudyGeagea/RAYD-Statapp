@@ -14,19 +14,88 @@ Endpoints:
 The POST is exempt from CSRF and from the login wall (app.py). It is guarded
 instead by a shared key: the station sends `X-API-Key: <CD_BURN_API_KEY>`,
 with CD_BURN_API_KEY set in .env. With no key configured, every POST is refused.
+
+Every request, stored or refused, is written to /opt/rayd/logs/cd_log/cd_log.log
+and to cd_burn_receipts (migration 0062). Nothing there = RayBurn is not reaching
+RAYD; refused rows = it is, and the outcome says why it was turned away.
 """
 import hmac
 import logging
 import os
+import re
 from datetime import datetime
 from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
 from sqlalchemy.exc import IntegrityError
 
-from db import db, CDLog
+from db import db, CDLog, CDBurnReceipt
 
 logger = logging.getLogger("cd_log")
 cd_log_bp = Blueprint("cd_log", __name__, url_prefix="/api")
+
+_CD_BURN_PATH = re.compile(r"cd.?burn", re.IGNORECASE)
+
+
+def _payload_shape(data):
+    """Field names only, never values: 'patient{patient_id,patient_name},studies[2],timestamp'.
+    Shows a RayBurn payload that uses other field names than RAYD expects."""
+    if not isinstance(data, dict):
+        return None
+    parts = []
+    for key in sorted(data):
+        value = data[key]
+        if isinstance(value, dict):
+            parts.append(f"{key}{{{','.join(sorted(value))}}}")
+        elif isinstance(value, list):
+            parts.append(f"{key}[{len(value)}]")
+        else:
+            parts.append(key)
+    return ",".join(parts)[:1000]
+
+
+def _error_text(e):
+    """First line of a DB error only: the full text can echo the row's values (patient data)."""
+    first = str(getattr(e, "orig", None) or e).splitlines()
+    return f"{type(e).__name__}: {first[0][:300] if first else ''}"
+
+
+def _record_receipt(http_status, outcome, detail=None, data=None, cd_log_id=None):
+    """One log line and one cd_burn_receipts row per request to the CD burn API."""
+    agent = request.headers.get("User-Agent", "")
+    line = f"{request.method} {request.path} from {request.remote_addr} [{agent or '-'}] -> {http_status} {outcome}"
+    if detail:
+        line += f": {detail}"
+    (logger.info if outcome == "stored" else logger.warning)(line)
+    try:
+        db.session.add(CDBurnReceipt(
+            received_at=datetime.now(),
+            remote_addr=request.remote_addr,
+            method=request.method,
+            path=request.path,
+            user_agent=agent[:500] or None,
+            http_status=http_status,
+            outcome=outcome,
+            detail=detail,
+            payload_shape=_payload_shape(data),
+            cd_log_id=cd_log_id,
+        ))
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Could not save CD burn receipt: {_error_text(e)}")
+
+
+@cd_log_bp.after_app_request
+def _record_wrong_url(response):
+    """A station set up with a slightly wrong URL (/api/cd_burn, a trailing slash, GET)
+    never reaches receive_cd_burn_event: the login wall answers 302, Flask 404/405.
+    Record those too, so they show up next to the real burns."""
+    if (request.endpoint != "cd_log.receive_cd_burn_event"
+            and _CD_BURN_PATH.search(request.path)
+            and not current_user.is_authenticated):
+        _record_receipt(response.status_code, "wrong_url",
+                        f"{request.method} {request.path} is not the CD burn endpoint (POST /api/cd-burn)")
+    return response
 
 
 def _parse_timestamp(value):
@@ -61,16 +130,19 @@ def receive_cd_burn_event():
     """
     expected_key = os.environ.get("CD_BURN_API_KEY", "")
     if not expected_key:
-        logger.error("CD burn event refused: CD_BURN_API_KEY is not set in .env")
+        _record_receipt(503, "no_api_key_configured", "CD_BURN_API_KEY is not set in .env")
         return jsonify({"error": "CD burn API is not configured on this server"}), 503
-    if not hmac.compare_digest(request.headers.get("X-API-Key", ""), expected_key):
-        logger.warning(f"CD burn event refused: bad or missing X-API-Key from {request.remote_addr}")
+    sent_key = request.headers.get("X-API-Key", "")
+    if not hmac.compare_digest(sent_key, expected_key):
+        _record_receipt(401, "bad_api_key",
+                        "X-API-Key header missing" if not sent_key else "X-API-Key does not match CD_BURN_API_KEY")
         return jsonify({"error": "Invalid or missing API key"}), 401
 
+    data = request.get_json(silent=True)
     try:
-        data = request.get_json(silent=True)
-
         if not isinstance(data, dict):
+            _record_receipt(400, "not_json",
+                            f"Content-Type {request.content_type or 'missing'}, {request.content_length or 0} bytes")
             return jsonify({"error": "No JSON payload provided"}), 400
 
         # Extract nested fields
@@ -81,8 +153,10 @@ def receive_cd_burn_event():
         studies = data.get("studies") or []
 
         if not all(isinstance(x, dict) for x in (patient, burn_details, result, source)):
+            _record_receipt(400, "bad_payload", "patient, burn_details, result and source must be JSON objects", data)
             return jsonify({"error": "patient, burn_details, result and source must be JSON objects"}), 400
         if not isinstance(studies, list):
+            _record_receipt(400, "bad_payload", "studies must be a JSON array", data)
             return jsonify({"error": "studies must be a JSON array"}), 400
 
         timestamp = _parse_timestamp(data.get("timestamp"))
@@ -120,10 +194,11 @@ def receive_cd_burn_event():
         db.session.add(cd_log)
         db.session.commit()
 
-        logger.info(
-            f"CD burn event logged: patient_id={patient.get('patient_id')}, "
-            f"studies={len(studies)}, operator={source.get('operator_id')}, "
-            f"facility={source.get('facility_code')}"
+        _record_receipt(
+            201, "stored",
+            f"cd_log_id={cd_log.id}, studies={len(studies)}, "
+            f"operator={source.get('operator_id')}, facility={source.get('facility_code')}",
+            data, cd_log.id,
         )
 
         return jsonify({
@@ -134,12 +209,13 @@ def receive_cd_burn_event():
 
     except IntegrityError as e:
         db.session.rollback()
-        logger.error(f"Database integrity error: {str(e)}")
+        _record_receipt(409, "db_error", _error_text(e), data)
         return jsonify({"error": "Database integrity error"}), 409
 
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error processing CD burn event: {str(e)}", exc_info=True)
+        _record_receipt(500, "server_error", _error_text(e), data)
         return jsonify({"error": f"Internal server error: {str(e)}"}), 500
 
 

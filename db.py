@@ -329,6 +329,21 @@ class CDLog(db.Model):
     created_at = db.Column(DateTime, server_default=func.now())
     updated_at = db.Column(DateTime, server_default=func.now())
 
+class CDBurnReceipt(db.Model):
+    """Every request to the CD burn API, stored or refused (migration 0062)."""
+    __tablename__ = 'cd_burn_receipts'
+    id = db.Column(Integer, primary_key=True)
+    received_at = db.Column(DateTime, nullable=False, server_default=func.now())
+    remote_addr = db.Column(String(64))
+    method = db.Column(String(10))
+    path = db.Column(Text)
+    user_agent = db.Column(Text)
+    http_status = db.Column(Integer, nullable=False)
+    outcome = db.Column(String(30), nullable=False)
+    detail = db.Column(Text)
+    payload_shape = db.Column(Text)
+    cd_log_id = db.Column(Integer, ForeignKey('cd_burn_log.id', ondelete='SET NULL'))
+
 # ----------------------------------------------------------------
 # 4. REPORTING ENGINE
 # ----------------------------------------------------------------
