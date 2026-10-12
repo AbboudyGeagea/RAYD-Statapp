@@ -38,6 +38,9 @@
       "Bash(awk -F: '{print $3}')",
       "Bash(awk '{print $2}')",
       "Read(//d/Intermedic/Statistics app/**)"
+    ],
+    "additionalDirectories": [
+      "D:\\Intermedic\\Statistics app\\RAYD-Statapp-LAUMC-CRN\\utils"
     ]
   }
 }
