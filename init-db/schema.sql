@@ -1592,23 +1592,14 @@ COPY public.report_template (report_id, report_name, long_description, report_sq
 23	Patient Demographics	Base report for Patients Fact	SELECT \r\n    p.patient_db_uid, \r\n    p.birth_date, \r\n    p.sex, \r\n    p.age_group,\r\n    s.age_at_exam, \r\n    p.fallback_id,\r\n    s.study_db_uid, \r\n    s.study_date, \r\n    s.original_storing_ae,\r\n    m.modality,\r\n    o.order_dbid,\r\n    s.patient_class,\r\n    o.proc_id\r\nFROM etl_patient_view p\r\nLEFT JOIN etl_didb_studies s ON s.patient_db_uid = p.patient_db_uid\r\nLEFT JOIN etl_orders o ON o.patient_dbid = p.patient_db_uid\r\nLEFT JOIN aetitle_modality_map m ON s.original_storing_ae = m.aetitle\r\nWHERE 1=1	start_date,end_date	\N	\N	bar	t
 25	Modality Device Fact	Calculates average turnaround time (TAT) in minutes per signing physician.	SELECT \r\n    UPPER(TRIM(s.original_storing_ae)) as aetitle,\r\n    COALESCE(UPPER(m.modality), 'N/A') as modality,\r\n    s.study_date,\r\n    s.patient_class,\r\n    s.patient_location,\r\n    s.rep_final_signed_by as reading_radiologist,\r\n    s.procedure_code,\r\n    -- TAT Calculation\r\n    EXTRACT(EPOCH FROM (s.rep_final_timestamp - s.study_date))/60 as total_tat_min,\r\n    -- Work Duration from Procedure Map (Default to 15 if missing)\r\n    COALESCE(pm.duration_minutes, 15) as proc_duration,\r\n    -- RVU Value from Procedure Map (Default to 1.0 if missing)\r\n    COALESCE(pm.rvu_value, 1.0) as rvu,\r\n    -- Base Daily Capacity from Modality Map (Default to 480 if missing)\r\n    COALESCE(m.daily_capacity_minutes, 480) as base_daily_capacity,\r\n    s.patient_db_uid as patient_id\r\nFROM etl_didb_studies s\r\nLEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.original_storing_ae)) = UPPER(TRIM(m.aetitle))\r\nLEFT JOIN procedure_duration_map pm ON UPPER(TRIM(s.procedure_code)) = UPPER(TRIM(pm.procedure_code))\r\nWHERE s.study_date BETWEEN :start AND :end\r\n  AND s.rep_final_timestamp IS NOT NULL\r\n  AND s.rep_final_signed_by IS NOT NULL	start_date,end_date	\N	\N	bar	t
 29	Storage Calculation	Calculate the Storage usage for different Modalities, Patients, Procedures in a specific period of time. 	\r\nSELECT\r\n    study_date,\r\n    COALESCE(modality, 'N/A')            AS modality,\r\n    COALESCE(procedure_code, 'UNKNOWN')   AS procedure_code,\r\n    COALESCE(original_storing_ae, 'Unknown')       AS original_storing_ae,\r\n    SUM(total_gb)                           AS total_gb,\r\n    SUM(study_count)                        AS study_count\r\nFROM summary_storage_daily\r\nWHERE study_date BETWEEN :start AND :end\r\nGROUP BY study_date, modality, procedure_code, original_storing_ae\r\nORDER BY total_gb DESC\r\n	start_date,end_date	\N	\N	table	t
-
 30	Patient Media Distribution	CD and DVD burn history from CD surf. Shows burn volume by month, media type (CD vs DVD), and modality.	\N	start_date,end_date	\N	\N	bar	t
 \.
 
 
 --
--- Data for Name: users; Type: TABLE DATA; Schema: public; Owner: etl_user
+-- users: intentionally no data. The admin account comes from migration 0064
+-- (admin / admin123, must change on first login) or install.sh step 6e.
 --
-
-COPY public.users (id, username, password_hash, role) FROM stdin;
-1	admin	scrypt:32768:8:1$zIVwNzev0WSBKcqf$22eb669e34f4495927d7baa0ff3c34cf838437b3fa1b92ed40e7fe2960ed1037508b83833f08e77701efcfec18ca60536fd40752f20553d027186d8a5e5b7f5c	admin
-2	viewer	scrypt:32768:8:1$HdTiXFpE7DM72FFv$e9f74f207844448e77dd6cfa6edcd387e2e5d9eb6926dc26c543ede22d92648ad8d462c25c868309450f620fe594352558281ac371c3736a0541b9a75f910721	viewer
-3			
-4	role	pbkdf2:sha256:1000000$0zRXA9L3LeM6JpvC$7a66740d4253b8af4734b721b6520ec451e368cb654922f16b93821a97565ea5	viewer
-5	roles	pbkdf2:sha256:1000000$u9gFU5HHA8DzWA8V$266aef6a641ca282437fe23ee1bef4aea2e6f8fd04e08488f0aaece7f7ad51d4	viewer
-6	administrator	pbkdf2:sha256:1000000$zyyEBxFz0AdXs9CK$015f3b344b2eb43887dbd0b7065fd5aa16f592e9dc7d2123f9a3313464119450	admin
-\.
 
 
 --
@@ -1633,21 +1624,15 @@ SELECT pg_catalog.setval('public.report_template_report_id_seq', 42, true);
 
 
 --
--- Name: users_id_seq; Type: SEQUENCE SET; Schema: public; Owner: etl_user
---
-
-SELECT pg_catalog.setval('public.users_id_seq', 6, true);
-
-
---
 -- Name: user_page_permissions; Type: TABLE; Schema: public; Owner: etl_user
 --
 
 CREATE TABLE public.user_page_permissions (
     id SERIAL PRIMARY KEY,
-    user_id integer NOT NULL REFERENCES public.users(id),
+    user_id integer NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
     page_key character varying(50) NOT NULL,
-    is_enabled boolean DEFAULT true
+    is_enabled boolean NOT NULL DEFAULT true,
+    UNIQUE (user_id, page_key)
 );
 
 ALTER TABLE public.user_page_permissions OWNER TO etl_user;
@@ -1677,7 +1662,10 @@ ALTER TABLE public.scheduling_entries OWNER TO etl_user;
 --
 -- Tables added over time via app.py migrations and migration files.
 -- Included here so fresh installs work without relying on startup migration order.
+-- Names below are unqualified, and the pg_dump header emptied search_path.
 --
+
+SELECT pg_catalog.set_config('search_path', 'public', false);
 
 CREATE TABLE IF NOT EXISTS hl7_oru_reports (
     id               SERIAL PRIMARY KEY,
