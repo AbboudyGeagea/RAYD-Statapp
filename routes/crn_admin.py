@@ -183,7 +183,8 @@ def settings_page():
     sample, _ = ops.dispatch.render_sms(cfg['crn_sms_template'], 'CRN-J2N8-L38G',
                                         (cfg['crn_public_base_url'] or 'https://crn.hospital') + '/n/AbCdEfGhIjKlMnOpQrStUv')
     return render_template('crn_settings.html', cfg=cfg, checks=ops.readiness(cfg), contacts=contacts,
-                           sample=sample, api_key_set=bool(cfg['crn_gateway_api_key']))
+                           sample=sample, api_key_set=bool(cfg['crn_gateway_api_key']),
+                           link_fixed=bool(ops.dispatch.PUBLIC_BASE_URL_OVERRIDE))
 
 
 @crn_admin_bp.route('/settings/live', methods=['POST'])

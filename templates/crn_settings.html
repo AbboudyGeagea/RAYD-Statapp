@@ -97,7 +97,8 @@
                             <div><label class="label">Gateway address (RAYD → gateway)</label>
                                 <input name="crn_gateway_url" value="{{ cfg.crn_gateway_url }}" placeholder="https://crn.hospital-domain" class="input-field"></div>
                             <div><label class="label">Link address (in the SMS)</label>
-                                <input name="crn_public_base_url" value="{{ cfg.crn_public_base_url }}" placeholder="https://crn.hospital-domain" class="input-field"></div>
+                                <input name="crn_public_base_url" value="{{ cfg.crn_public_base_url }}" placeholder="https://crn.hospital-domain" class="input-field"{% if link_fixed %} readonly{% endif %}>
+                                {% if link_fixed %}<p class="text-amber-300 text-xs mt-1">Fixed in code (utils/crn_dispatch.py) for the public test.</p>{% endif %}</div>
                             <div><label class="label">API key</label>
                                 <input name="crn_gateway_api_key" type="password" autocomplete="new-password"
                                        placeholder="{{ '•••••••• saved (leave empty to keep)' if api_key_set else 'not set' }}" class="input-field">

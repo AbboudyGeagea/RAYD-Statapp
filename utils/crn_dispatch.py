@@ -40,6 +40,9 @@ logger = logging.getLogger("CRN_DISPATCH")
 MAX_SEND_FAILURES = 5
 DEFAULT_TEMPLATE = 'Critical result for your patient. Ref {ref}. View and acknowledge: {link}'
 PLACEHOLDER_BASE_URL = 'https://crn-gateway.invalid'
+# Hardcoded link address (public test, 2026-10-12): every SMS link and "Open link (dry run)"
+# use it, whatever Admin > CRN > Settings holds. Empty = back to the setting.
+PUBLIC_BASE_URL_OVERRIDE = 'https://194.147.127.3'
 DEFAULTS = {
     'crn_live_since': '', 'crn_resend_min': '15', 'crn_fallback_min': '30', 'crn_overdue_min': '60',
     'crn_link_ttl_hours': '72', 'crn_fallback_code': '', 'crn_public_base_url': '',
@@ -53,6 +56,8 @@ def _settings():
     cfg = dict(DEFAULTS)
     for key, value in db.session.execute(text("SELECT key, value FROM settings WHERE key LIKE 'crn%'")):
         cfg[key] = (value or '').strip()
+    if PUBLIC_BASE_URL_OVERRIDE:
+        cfg['crn_public_base_url'] = PUBLIC_BASE_URL_OVERRIDE
     for key in ('crn_resend_min', 'crn_fallback_min', 'crn_overdue_min', 'crn_link_ttl_hours'):
         try:
             cfg[key] = int(cfg[key])

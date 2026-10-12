@@ -70,6 +70,8 @@ def save_settings(form):
     values['crn_fallback_code'] = fallback
 
     for key in ('crn_gateway_url', 'crn_public_base_url'):
+        if key == 'crn_public_base_url' and dispatch.PUBLIC_BASE_URL_OVERRIDE:
+            continue   # fixed in code: keep the saved value for when the override goes
         url = (form.get(key) or '').strip().rstrip('/')
         if url and not url.startswith(('https://', 'http://')):
             errors.append(f'{key.replace("crn_", "").replace("_", " ")} must start with https://')
