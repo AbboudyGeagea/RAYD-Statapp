@@ -282,26 +282,35 @@ def widget_tat_summary(db, filters, config):
     def _tat(ts_col, date_col):
         return f"EXTRACT(EPOCH FROM ({ts_col} - {date_col}::timestamp)) / 3600.0"
 
+    # Anchor fixed 2026-09-16 (Mazloum P90 agreement): was s.study_date, which is a
+    # bare DATE and reads as midnight -- inflating/distorting TAT by however many
+    # hours into the day the study actually happened (same class of bug fixed via
+    # insert_time at LAUMC, migration 0110). s.insert_time is the PACS study-record
+    # commit timestamp already used as the completion-side anchor elsewhere in this
+    # codebase; falls back to the old midnight value only when insert_time is null so
+    # this can't turn rows that used to compute into rows that silently drop out.
+    _ANCHOR = "COALESCE(s.insert_time, s.study_date)"
+
     prelim = db.session.execute(text(f"""
-        SELECT ROUND(AVG({_tat('s.rep_prelim_timestamp','s.study_date')})::numeric,1)           AS avg_h,
+        SELECT ROUND(AVG({_tat('s.rep_prelim_timestamp', _ANCHOR)})::numeric,1)           AS avg_h,
                ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (
-                   ORDER BY {_tat('s.rep_prelim_timestamp','s.study_date')})::numeric,1)        AS median_h,
+                   ORDER BY {_tat('s.rep_prelim_timestamp', _ANCHOR)})::numeric,1)        AS median_h,
                ROUND(PERCENTILE_CONT(0.9) WITHIN GROUP (
-                   ORDER BY {_tat('s.rep_prelim_timestamp','s.study_date')})::numeric,1)        AS p90_h
+                   ORDER BY {_tat('s.rep_prelim_timestamp', _ANCHOR)})::numeric,1)        AS p90_h
         {_BASE_JOIN} {_WHERE}
           AND s.rep_prelim_timestamp IS NOT NULL
-          AND s.rep_prelim_timestamp > s.study_date::timestamp
+          AND s.rep_prelim_timestamp > {_ANCHOR}::timestamp
     """), p).fetchone()
 
     final = db.session.execute(text(f"""
-        SELECT ROUND(AVG({_tat('s.rep_final_timestamp','s.study_date')})::numeric,1)            AS avg_h,
+        SELECT ROUND(AVG({_tat('s.rep_final_timestamp', _ANCHOR)})::numeric,1)            AS avg_h,
                ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (
-                   ORDER BY {_tat('s.rep_final_timestamp','s.study_date')})::numeric,1)         AS median_h,
+                   ORDER BY {_tat('s.rep_final_timestamp', _ANCHOR)})::numeric,1)         AS median_h,
                ROUND(PERCENTILE_CONT(0.9) WITHIN GROUP (
-                   ORDER BY {_tat('s.rep_final_timestamp','s.study_date')})::numeric,1)         AS p90_h
+                   ORDER BY {_tat('s.rep_final_timestamp', _ANCHOR)})::numeric,1)         AS p90_h
         {_BASE_JOIN} {_WHERE}
           AND s.rep_final_timestamp IS NOT NULL
-          AND s.rep_final_timestamp > s.study_date::timestamp
+          AND s.rep_final_timestamp > {_ANCHOR}::timestamp
     """), p).fetchone()
 
     def _row(r):
