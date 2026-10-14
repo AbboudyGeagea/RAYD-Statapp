@@ -18,9 +18,13 @@ from sqlalchemy import text
 from db import db
 from routes.insights_engine import run_dept_insights
 from utils.stats import _pct, _fmt
+from utils.referring import EXTERNAL_LABEL, ref_name_sql, ranked_ref_sql
 
 logger = logging.getLogger("SUPER_REPORT")
 super_report_bp = Blueprint("super_report", __name__)
+
+_REF    = ref_name_sql("s")
+_RANKED = ranked_ref_sql("s")
 
 
 # ─────────────────────────────────────────────
@@ -183,7 +187,7 @@ def super_report_filters():
             "body_part":           distinct("SELECT DISTINCT study_body_part FROM etl_didb_studies WHERE study_body_part IS NOT NULL"),
             "procedure_code":      distinct("SELECT DISTINCT procedure_code FROM etl_didb_studies WHERE procedure_code IS NOT NULL LIMIT 200"),
             "signing_physician":   distinct("SELECT DISTINCT TRIM(CONCAT(signing_physician_first_name,' ',signing_physician_last_name)) FROM etl_didb_studies WHERE signing_physician_last_name IS NOT NULL AND signing_physician_last_name != ''"),
-            "referring_physician": distinct("SELECT DISTINCT TRIM(CONCAT(referring_physician_first_name,' ',referring_physician_last_name)) FROM etl_didb_studies WHERE referring_physician_last_name IS NOT NULL AND referring_physician_last_name != ''"),
+            "referring_physician": distinct(f"SELECT DISTINCT {_REF} FROM etl_didb_studies s"),
             "sex":                 distinct("SELECT DISTINCT sex FROM etl_patient_view WHERE sex IS NOT NULL"),
             "age_group":           distinct("SELECT DISTINCT age_group FROM etl_patient_view WHERE age_group IS NOT NULL"),
             "order_control":       distinct("SELECT DISTINCT order_control FROM etl_orders WHERE order_control IS NOT NULL"),
@@ -248,6 +252,8 @@ def super_report():
             "current":    current,
             "previous":   previous,
             "narrative":  narrative,
+            "start":      start,
+            "end":        end,
             "cmp_start":  cmp_start,
             "cmp_end":    cmp_end,
             "delta_days": delta,
@@ -294,7 +300,7 @@ def _build_where(start, end, filters):
         params["signing_physician"] = filters["signing_physician"]
 
     if filters.get("referring_physician"):
-        clauses.append("TRIM(CONCAT(s.referring_physician_first_name,' ',s.referring_physician_last_name)) = ANY(:referring_physician)")
+        clauses.append(f"{_REF} = ANY(:referring_physician)")
         params["referring_physician"] = filters["referring_physician"]
 
     if filters.get("has_report") == "Yes":
@@ -361,11 +367,14 @@ def _collect_data(start, end, filters):
         GROUP BY 1 ORDER BY gb DESC LIMIT 5
     """), sp).mappings().fetchall()
 
-    top_mods = db.session.execute(text(f"""
+    # Every modality: the period comparison table needs both periods' full list
+    # (a modality missing from one period then really means zero there).
+    mod_rows = db.session.execute(text(f"""
         SELECT COALESCE(m.modality,s.study_modality,'N/A') AS modality, COUNT(*) AS cnt
         FROM etl_didb_studies s {mj} {pj} WHERE {where}
-        GROUP BY 1 ORDER BY cnt DESC LIMIT 5
+        GROUP BY 1 ORDER BY cnt DESC
     """), params).mappings().fetchall()
+    top_mods = mod_rows[:5]
 
     peak = db.session.execute(text(f"""
         SELECT s.study_date::text AS peak_day, COUNT(*) AS peak_count
@@ -379,12 +388,17 @@ def _collect_data(start, end, filters):
     """), params).mappings().fetchone()
 
     physicians = db.session.execute(text(f"""
-        SELECT TRIM(CONCAT(s.referring_physician_first_name,' ',s.referring_physician_last_name)) AS physician,
+        SELECT {_REF} AS physician,
                COUNT(*) AS cnt
         FROM etl_didb_studies s {mj} {pj} WHERE {where}
-          AND s.referring_physician_last_name IS NOT NULL AND s.referring_physician_last_name != ''
+          AND {_RANKED}
         GROUP BY 1 ORDER BY cnt DESC LIMIT 10
     """), params).mappings().fetchall()
+
+    external_referrals = db.session.execute(text(f"""
+        SELECT COUNT(*) FROM etl_didb_studies s {mj} {pj} WHERE {where}
+          AND {_REF} = '{EXTERNAL_LABEL}'
+    """), params).scalar() or 0
 
     # ── Patient-class category mapping (configurable via settings table) ────
     _pc_rows = db.session.execute(text(
@@ -576,8 +590,10 @@ def _collect_data(start, end, filters):
             "peak_day":       dict(peak).get("peak_day") if peak else None,
             "peak_count":     dict(peak).get("peak_count") if peak else 0,
             "top_modalities": [dict(r) for r in top_mods],
+            "by_modality":    [dict(r) for r in mod_rows],
         },
         "physicians":    [dict(r) for r in physicians],
+        "external_referrals": int(external_referrals),
         "demographics":  {**dict(demo), "pc_breakdown": [dict(r) for r in pc_breakdown]},
         "ae_ops": {
             "busiest_ae":  ae_busy_row["aetitle"] if ae_busy_row else None,

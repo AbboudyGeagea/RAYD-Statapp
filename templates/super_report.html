@@ -6,6 +6,8 @@
     <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
     <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="{{ url_for('static', filename='js/chart-explanations.js') }}"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/dark.min.css">
     <style>
@@ -86,6 +88,9 @@
         /* Light mode */
         body.light { background: #f0f4f8 !important; color: #1a202c !important; }
         body.light .card { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        body.light #super-compare .text-white     { color: #1a202c !important; }
+        body.light #super-compare .text-slate-300 { color: #334155 !important; }
+        body.light #super-compare tr              { border-color: #e2e8f0 !important; }
         body.light .f-input, body.light .f-multi { background: #ffffff !important; border-color: #e2e8f0 !important; color: #1a202c !important; }
         body.light .dropdown-list { background: #ffffff !important; border-color: #e2e8f0 !important; }
         body.light .dropdown-item { color: #1a202c !important; }
@@ -199,6 +204,7 @@
                     <div style="display:flex;align-items:center;gap:8px;">
                         <i class="bi bi-lightning-charge-fill" style="color:#60a5fa;"></i>
                         <span style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:0.12em;color:#60a5fa;">Daily Briefing</span>
+                        <i class="bi bi-info-circle chart-info-icon" data-explain="sr-briefing" role="button" tabindex="0" aria-label="About this card" title="About this card"></i>
                         <span id="briefing-updated" style="font-size:9px;font-weight:700;color:#475569;margin-left:4px;"></span>
                     </div>
                     <div style="display:flex;gap:4px;" id="briefing-tabs">
@@ -224,6 +230,7 @@
                     <div style="display:flex;align-items:center;gap:8px;">
                         <i class="bi bi-person-exclamation" style="color:#f59e0b;"></i>
                         <span style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:0.12em;color:#f59e0b;">Conflict Patients</span>
+                        <i class="bi bi-info-circle chart-info-icon" data-explain="sr-conflicts" role="button" tabindex="0" aria-label="About this card" title="About this card"></i>
                         <span id="sr-conflict-badge"
                               style="font-size:9px;font-weight:900;padding:2px 10px;border-radius:999px;background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.3);">
                             Loading…
@@ -263,6 +270,7 @@
                     <div class="flex items-center gap-2 mb-2">
                         <i class="bi bi-file-earmark-text text-yellow-400"></i>
                         <span class="text-[10px] font-black text-yellow-400 uppercase tracking-widest">Executive Summary</span>
+                        <i class="bi bi-info-circle chart-info-icon" data-explain="sr-summary" role="button" tabindex="0" aria-label="About this section" title="About this section"></i>
                         <span class="text-[9px] text-slate-600 ml-auto" id="period-label"></span>
                     </div>
                     <div class="narrative-box" id="super-narrative"></div>
@@ -271,29 +279,35 @@
                 <!-- KPIs -->
                 <div id="super-kpis" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-4 gap-3"></div>
 
+                <!-- Period comparison: both periods side by side in one table -->
+                <div class="card p-5" id="super-compare-card">
+                    <h4 class="text-[#60a5fa] text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-arrow-left-right"></i> Period Comparison<i class="bi bi-info-circle chart-info-icon" data-explain="sr-compare" role="button" tabindex="0" aria-label="About this table" title="About this table"></i></h4>
+                    <div class="overflow-x-auto"><table class="w-full text-xs" id="super-compare"></table></div>
+                </div>
+
                 <!-- Sections -->
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div class="card p-5">
-                        <h4 class="text-[#60a5fa] text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-graph-up-arrow"></i> Volume & Trends</h4>
+                        <h4 class="text-[#60a5fa] text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-graph-up-arrow"></i> Volume & Trends<i class="bi bi-info-circle chart-info-icon" data-explain="sr-volume" role="button" tabindex="0" aria-label="About this card" title="About this card"></i></h4>
                         <div id="super-volume"></div>
                     </div>
                     <div class="card p-5">
-                        <h4 class="text-emerald-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-hdd-stack"></i> Storage & Images</h4>
+                        <h4 class="text-emerald-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-hdd-stack"></i> Storage & Images<i class="bi bi-info-circle chart-info-icon" data-explain="sr-storage" role="button" tabindex="0" aria-label="About this card" title="About this card"></i></h4>
                         <div id="super-storage"></div>
                     </div>
                     <div class="card p-5">
-                        <h4 class="text-violet-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-person-badge"></i> Top Referring Physicians</h4>
+                        <h4 class="text-violet-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-person-badge"></i> Top Referring Physicians<i class="bi bi-info-circle chart-info-icon" data-explain="sr-physicians" role="button" tabindex="0" aria-label="About this card" title="About this card"></i></h4>
                         <div id="super-physicians"></div>
                     </div>
                     <div class="card p-5">
-                        <h4 class="text-orange-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-clipboard2-pulse"></i> Orders & Fulfillment</h4>
+                        <h4 class="text-orange-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-clipboard2-pulse"></i> Orders & Fulfillment<i class="bi bi-info-circle chart-info-icon" data-explain="sr-orders" role="button" tabindex="0" aria-label="About this card" title="About this card"></i></h4>
                         <div id="super-orders"></div>
                     </div>
                 </div>
 
                 <!-- Demographics -->
                 <div class="card p-5">
-                    <h4 class="text-pink-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-people"></i> Patient Demographics</h4>
+                    <h4 class="text-pink-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-people"></i> Patient Demographics<i class="bi bi-info-circle chart-info-icon" data-explain="sr-demographics" role="button" tabindex="0" aria-label="About this card" title="About this card"></i></h4>
                     <div id="super-demographics" class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4"></div>
                     <p class="text-[9px] font-black uppercase tracking-widest text-slate-600 mb-2">All Patient Classes</p>
                     <div id="super-pc-breakdown" class="flex flex-col gap-1.5"></div>
@@ -304,6 +318,7 @@
                 <div class="card p-5" id="super-insights-card" style="display:none">
                     <h4 class="text-yellow-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2">
                         <i class="bi bi-lightbulb-fill"></i> Clinical Insights
+                        <i class="bi bi-info-circle chart-info-icon" data-explain="sr-insights" role="button" tabindex="0" aria-label="About this card" title="About this card"></i>
                     </h4>
                     <div id="super-insights" class="space-y-2"></div>
                 </div>
@@ -313,6 +328,7 @@
                     <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
                         <h4 class="text-[#60a5fa] text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
                             <i class="bi bi-person-check"></i> Reports per Radiologist
+                            <i class="bi bi-info-circle chart-info-icon" data-explain="reports-per-radiologist" role="button" tabindex="0" aria-label="About this table" title="About this table"></i>
                         </h4>
                         <!-- Modality / AE Title toggle + export -->
                         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
@@ -792,8 +808,10 @@
             {label:'Images',     cur:cur.kpis.total_images,   prev:prev.kpis.total_images,   color:'#a78bfa', icon:'bi-images'},
             {label:'Storage GB', cur:cur.storage.total_gb,    prev:prev.storage.total_gb,    color:'#2dd4bf', icon:'bi-hdd-stack'},
             {label:'Orders',     cur:cur.orders.total,        prev:prev.orders.total,        color:'#f97316', icon:'bi-clipboard2-pulse'},
-            {label:'Busiest AE', cur:ae.busiest_ae,           prev:null,                     color:'#818cf8', icon:'bi-broadcast',    isText:true, sub: ae.busiest_cnt ? fmt(ae.busiest_cnt)+' studies' : ''},
-            {label:'Idle AE',    cur:ae.idle_ae,              prev:null,                     color:'#f59e0b', icon:'bi-pause-circle', isText:true, sub: (ae.idle_cnt !== undefined && ae.idle_cnt !== null) ? fmt(ae.idle_cnt)+' studies' : ''},
+            {label:'Busiest AE', cur:ae.busiest_ae,           prev:null,                     color:'#818cf8', icon:'bi-broadcast',    isText:true, sub: ae.busiest_cnt ? fmt(ae.busiest_cnt)+' studies' : '',
+             title:'Device (AE title) that stored the most studies in the period'},
+            {label:'Idle AE',    cur:ae.idle_ae,              prev:null,                     color:'#f59e0b', icon:'bi-pause-circle', isText:true, sub: (ae.idle_cnt !== undefined && ae.idle_cnt !== null) ? fmt(ae.idle_cnt)+' studies' : '',
+             title:'Mapped device (Modality page) with the fewest studies in the period; can be zero'},
             {label:'ER Delayed', cur:ae.er_delayed,           prev:pae.er_delayed,           color:'#f87171', icon:'bi-activity',
              title:'Non-ER studies with TAT above P75 on days with concurrent ER volume'},
         ];
@@ -820,6 +838,8 @@
             </div>`;
         }).join('');
 
+        renderComparison(d);
+
         // Volume
         const v = cur.volume, pv = prev.volume;
         document.getElementById('super-volume').innerHTML =
@@ -834,13 +854,14 @@
         document.getElementById('super-storage').innerHTML =
             row('Total GB',     fmtD(s.total_gb), pct(s.total_gb, ps.total_gb)) +
             row('Avg GB/day',   fmtD(s.avg_gb_per_day), pct(s.avg_gb_per_day, ps.avg_gb_per_day)) +
-            row('Total images', fmt(s.total_study_count), null) +
+            row('Total images', fmt(cur.kpis.total_images), pct(cur.kpis.total_images, prev.kpis.total_images)) +
             subSection('By Modality', (s.by_modality||[]).map(m=>row(m.modality, fmtD(m.gb)+' GB', null)).join(''));
 
         // Physicians
         document.getElementById('super-physicians').innerHTML =
-            (cur.physicians||[]).map(p => row(p.physician, fmt(p.cnt), null)).join('') ||
-            '<p class="text-slate-600 text-xs">No data</p>';
+            ((cur.physicians||[]).map(p => row(p.physician, fmt(p.cnt), null)).join('') ||
+             '<p class="text-slate-600 text-xs">No data</p>') +
+            (cur.external_referrals ? subSection('Not ranked', row('External referrals', fmt(cur.external_referrals), null)) : '');
 
         // Orders
         const o = cur.orders, po = prev.orders;
@@ -881,6 +902,77 @@
 
         // Radiologist matrix
         srRadMatrixInit(cur.rad_matrix || {});
+    }
+
+    // ── Period comparison table ───────────────────────────────────────
+    // Both periods' real values side by side (the cards above only show a % badge).
+    // dir: +1 higher is better, -1 lower is better, 0 neutral (no colour).
+    function renderComparison(d) {
+        const C = d.current, P = d.previous;
+        const num = v => (v === null || v === undefined || v === '' || isNaN(parseFloat(v))) ? null : parseFloat(v);
+        const show = (v, dec) => v === null ? '—'
+            : v.toLocaleString(undefined, { minimumFractionDigits: dec, maximumFractionDigits: dec });
+        const groups = [
+            ['Volume', [
+                ['Studies',             C.kpis.total_studies,       P.kpis.total_studies,       0,  1],
+                ['Avg studies / day',   C.volume.avg_per_day,       P.volume.avg_per_day,       1,  1],
+                ['Busiest day (count)', C.volume.peak_count,        P.volume.peak_count,        0,  0],
+                ['Patients',            C.kpis.total_patients,      P.kpis.total_patients,      0,  1],
+                ['Images',              C.kpis.total_images,        P.kpis.total_images,        0,  0],
+                ['Studies with report', C.kpis.studies_with_report, P.kpis.studies_with_report, 0,  1],
+            ]],
+            ['Orders', [
+                ['Orders',              C.orders.total,             P.orders.total,             0,  1],
+                ['Fulfilled',           C.orders.fulfilled,         P.orders.fulfilled,         0,  1],
+                ['Fulfillment %',       C.orders.fulfillment_pct,   P.orders.fulfillment_pct,   1,  1, 'pts'],
+            ]],
+            ['Patients', [
+                ['Male',                C.demographics.male,        P.demographics.male,        0,  0],
+                ['Female',              C.demographics.female,      P.demographics.female,      0,  0],
+                ['Inpatient',           C.demographics.inpatient,   P.demographics.inpatient,   0,  0],
+                ['Outpatient',          C.demographics.outpatient,  P.demographics.outpatient,  0,  0],
+                ['External referrals',  C.external_referrals,       P.external_referrals,       0,  0],
+            ]],
+            ['Storage & operations', [
+                ['Storage GB',          C.storage.total_gb,         P.storage.total_gb,         1,  0],
+                ['Avg GB / day',        C.storage.avg_gb_per_day,   P.storage.avg_gb_per_day,   1,  0],
+                ['ER-delayed studies',  (C.ae_ops || {}).er_delayed, (P.ae_ops || {}).er_delayed, 0, -1],
+            ]],
+        ];
+        // Studies per modality: both full lists, so a modality absent from a period is a real zero.
+        const cm = {}, pm = {};
+        (C.volume.by_modality || []).forEach(r => cm[r.modality] = r.cnt);
+        (P.volume.by_modality || []).forEach(r => pm[r.modality] = r.cnt);
+        const mods = [...new Set([...Object.keys(cm), ...Object.keys(pm)])]
+            .sort((a, b) => (cm[b] || 0) - (cm[a] || 0));
+        if (mods.length) groups.push(['Studies by modality', mods.map(m => [m, cm[m] || 0, pm[m] || 0, 0, 0])]);
+
+        const head = `<thead><tr class="text-[9px] font-black uppercase tracking-widest text-slate-500 text-right">
+            <th class="text-left py-2 pr-3">Metric</th>
+            <th class="py-2 px-3">Current<br><span class="font-mono normal-case tracking-normal text-slate-400">${escHtml(d.start || '')} → ${escHtml(d.end || '')}</span></th>
+            <th class="py-2 px-3">Comparison<br><span class="font-mono normal-case tracking-normal text-slate-400">${escHtml(d.cmp_start || '')} → ${escHtml(d.cmp_end || '')}</span></th>
+            <th class="py-2 px-3">Change</th>
+            <th class="py-2 pl-3">Change %</th>
+        </tr></thead>`;
+        const body = groups.map(([title, rows]) =>
+            `<tr><td colspan="5" class="pt-3 pb-1 text-[9px] font-black uppercase tracking-widest text-[#60a5fa]">${escHtml(title)}</td></tr>` +
+            rows.map(([label, c, p, dec, dir, unit]) => {
+                const cv = num(c), pv = num(p);
+                const diff = (cv !== null && pv !== null) ? cv - pv : null;
+                const pctv = (diff !== null && pv) ? Math.round(diff / Math.abs(pv) * 1000) / 10 : null;
+                const tone = (diff === null || diff === 0 || dir === 0) ? '#94a3b8'
+                    : ((diff > 0) === (dir > 0) ? '#34d399' : '#f87171');
+                const sign = diff > 0 ? '+' : '';
+                return `<tr class="border-t border-[#28332e]/60">
+                    <td class="py-1.5 pr-3 text-slate-300">${escHtml(String(label))}</td>
+                    <td class="py-1.5 px-3 text-right font-mono font-bold text-white">${show(cv, dec)}</td>
+                    <td class="py-1.5 px-3 text-right font-mono text-slate-400">${show(pv, dec)}</td>
+                    <td class="py-1.5 px-3 text-right font-mono font-bold" style="color:${tone}">${diff === null ? '—' : sign + show(diff, dec) + (unit ? ' ' + unit : '')}</td>
+                    <td class="py-1.5 pl-3 text-right font-mono" style="color:${tone}">${unit || pctv === null ? '—' : sign + pctv + '%'}</td>
+                </tr>`;
+            }).join('')
+        ).join('');
+        document.getElementById('super-compare').innerHTML = head + `<tbody>${body}</tbody>`;
     }
 
     // ── Radiologist Matrix ────────────────────────────────────────────
