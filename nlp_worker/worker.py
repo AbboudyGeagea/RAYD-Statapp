@@ -162,12 +162,13 @@ def _init_vocabulary():
 # v2 = ConTextRule("non") removed (2026-10-07).
 # v3 = ’ normalised; "pas d'", "absence d'", "is/was excluded", "mais" (2026-10-07).
 # v4 = "no interval change in X" no longer negates X (2026-10-07).
-_NLP_MODEL_VERSION = 'medspacy-v4'
+# v5 = ": no" also negates the finding after it, "Impression: No X" (2026-10-14).
+_NLP_MODEL_VERSION = 'medspacy-v5'
 
 # ai_nlp_cache.nlp_version (migration 0071). Rows with any other value are
 # recomputed by the next on-demand job; rows with none (written before negation
 # was resolved) are also hidden from the ORU page.
-_CLUSTER_VERSION = 'tfidf-negation-v3'   # v2 = medspacy-v3 cues, v3 = medspacy-v4
+_CLUSTER_VERSION = 'tfidf-negation-v4'   # v2 = medspacy-v3 cues, v3 = medspacy-v4, v4 = medspacy-v5
 
 _CHUNK           = 500
 _BATCH_LIMIT      = 2000
@@ -206,6 +207,26 @@ def _same_clause(target, modifier, span_between):
     return not any(tok.text in (',', ';') for tok in span_between)
 
 
+def _colon_no_scope(target, modifier, span_between):
+    """ConText on_modifies callback for ": no". Before the colon it negates as
+    medspaCy's stock rule did ("Pneumothorax: no"). After it, it negates like
+    "no" ("Impression: No pneumothorax or effusion"), except a finding that is a
+    checklist label of its own, or one past another label's colon: in
+    "Pneumothorax: no, pleural effusion: moderate" the effusion keeps its value."""
+    if target.start < modifier.start:
+        return True
+    if any(tok.text == ':' for tok in span_between):
+        return False
+    # A label: a colon follows in the same clause (also true of a colon itself,
+    # which _negation_resolved_texts then keeps, so no two words get glued).
+    for tok in target.doc[target.start:target.sent.end]:
+        if tok.text == ':':
+            return False
+        if tok.text in (',', ';', '.'):
+            break
+    return True
+
+
 def _load_medspacy():
     global _NLP
     if _NLP is not None:
@@ -226,6 +247,20 @@ def _load_medspacy():
         from medspacy.context import ConTextRule
 
         nlp = medspacy.load(enable=["sentencizer", "medspacy_target_matcher", "medspacy_context"])
+
+        # medspaCy's stock ": no" rule is BACKWARD only, made for checklist lines such
+        # as "Pneumothorax: no". The matcher keeps the longest match, so in "Impression:
+        # No pneumothorax" or "CT head: no intracranial hemorrhage" it beat the FORWARD
+        # "no", negated the word before the colon and left the finding AFFIRMED (a false
+        # critical). Rebuild ConText from the stock rules without it and add ": no" back
+        # as BIDIRECTIONAL, scoped by _colon_no_scope. ": none" stays stock (BACKWARD):
+        # it answers a label ("Pneumothorax: none") and rarely introduces findings.
+        nlp.replace_pipe("medspacy_context", "medspacy_context", config={"rules": None})
+        context = nlp.get_pipe("medspacy_context")
+        context.add([r for r in ConTextRule.from_json(context.DEFAULT_RULES_FILEPATH)
+                     if r.literal.strip().lower() != ': no'])
+        context.add([ConTextRule(": no", "NEGATED_EXISTENCE", direction="BIDIRECTIONAL",
+                                 on_modifies=_colon_no_scope)])
 
         target_matcher = nlp.get_pipe("medspacy_target_matcher")
         seen, rules = set(), []
@@ -693,6 +728,9 @@ _REQUEUES = [
      r"\m(no|without|pas|sans)\M[^.;\n]{0,40}\m(change|changes|increase|decrease|growth|progression|"
      r"worsening|modifications?|changement|[ée]volution|aggravation|augmentation|majoration)\M",
      'v4 "no change" phrases'),
+    (['medspacy-v1', 'medspacy-v2', 'medspacy-v3', 'medspacy-v4'],
+     r":\s*no\M",
+     'v5 ": no" negating forward'),
 ]
 
 
