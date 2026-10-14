@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | Orthanc Validation</title>
+    <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
+    <style>
+        :root { --accent: #38bdf8; }
+        body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; }
+        .card-custom { background: #232b28; border-radius: 1.5rem; border: 1px solid #28332e; padding: 24px; }
+        .kpi-value { font-size: 2.25rem; font-weight: 900; color: #38bdf8; }
+        .kpi-label { font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.12em; color: #64748b; margin-top: 4px; }
+        .section-title { font-size: 14px; font-weight: 900; color: #e2e8f0; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 12px; }
+        .table-row { border-bottom: 1px solid rgba(40,51,46,0.8); padding: 12px 0; }
+        .table-row:hover { background: rgba(56,189,248,0.04); }
+        .badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 10px; font-weight: 900; }
+        .badge-pending { background: rgba(251,191,36,0.15); color: #fbbf24; }
+        .badge-valid { background: rgba(34,197,94,0.15); color: #22c55e; }
+        .badge-mismatch { background: rgba(239,68,68,0.15); color: #ef4444; }
+        .validate-btn { background: #38bdf8; color: #000; padding: 6px 12px; border-radius: 6px; font-size: 10px; font-weight: 900; cursor: pointer; transition: all 0.15s; }
+        .validate-btn:hover { background: #0ea5e9; }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+
+    {% include '_header.html' %}
+
+    <div class="flex flex-1 overflow-hidden">
+        <!-- Sidebar -->
+        <aside class="w-64 bg-[#1a2420] border-r border-[#28332e] flex flex-col p-5 shadow-sm z-20 gap-5 overflow-y-auto flex-shrink-0">
+            <nav class="space-y-1">
+                <a href="{{ url_for('viewer.viewer_dashboard') }}"
+                   class="flex items-center gap-3 px-4 py-3 text-xs font-black text-[#64748b] uppercase tracking-widest border border-[#28332e] mb-4 hover:border-[#38bdf8]/30 rounded-lg transition-all">
+                    <i class="bi bi-arrow-left-square-fill text-[#38bdf8] text-lg"></i> Dashboard
+                </a>
+                <hr class="border-[#28332e] my-4">
+                <p class="text-[10px] font-black text-[#64748b] uppercase tracking-widest px-4">CD Log</p>
+                <a href="{{ url_for('cd_log_ui.cd_log_dashboard') }}"
+                   class="flex items-center gap-3 px-4 py-3 text-xs font-bold text-[#64748b] hover:text-[#38bdf8] rounded-lg transition-all">
+                    <i class="bi bi-graph-up text-lg"></i> Dashboard
+                </a>
+                <a href="{{ url_for('cd_log_ui.cd_log_orthanc_validation') }}"
+                   class="flex items-center gap-3 px-4 py-3 text-xs font-bold text-[#38bdf8] bg-[#28332e] rounded-lg">
+                    <i class="bi bi-check-circle text-lg"></i> Orthanc Validation
+                </a>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="flex-1 overflow-y-auto p-8">
+            <div class="max-w-7xl mx-auto">
+                <!-- Header -->
+                <div class="mb-8">
+                    <h1 class="text-4xl font-black text-[#e2e8f0] mb-2">Orthanc UID Validation</h1>
+                    <p class="text-[#64748b] text-sm">Verify CD burn UIDs match Orthanc database</p>
+                </div>
+
+                <!-- Validation Stats -->
+                <div class="grid grid-cols-4 gap-6 mb-8">
+                    <div class="card-custom">
+                        <p class="kpi-label">Pending Validation</p>
+                        <p class="kpi-value">{{ stats[1]|default(0) }}</p>
+                    </div>
+                    <div class="card-custom">
+                        <p class="kpi-label">Validated</p>
+                        <p class="kpi-value">{{ stats[0]|default(0) }}</p>
+                    </div>
+                    <div class="card-custom">
+                        <p class="kpi-label">Valid (Match)</p>
+                        <p class="kpi-value">{{ stats[2]|default(0) }}</p>
+                    </div>
+                    <div class="card-custom">
+                        <p class="kpi-label">Mismatch</p>
+                        <p class="kpi-value">{{ stats[3]|default(0) }}</p>
+                    </div>
+                </div>
+
+                <!-- Pending Validations -->
+                <div class="card-custom mb-8">
+                    <p class="section-title mb-4">Pending Validations (Last 7 days)</p>
+                    {% if pending %}
+                    <div class="space-y-3">
+                        {% for event in pending %}
+                        <div class="table-row flex justify-between items-center">
+                            <div class="flex-1">
+                                <p class="font-bold text-[#e2e8f0]">{{ event.patient_name }}</p>
+                                <p class="text-[#64748b] text-xs">
+                                    {{ event.timestamp.strftime('%Y-%m-%d %H:%M') }} •
+                                    {{ event.facility_code }} •
+                                    {{ event.studies|length if event.studies else 0 }} studies
+                                </p>
+                            </div>
+                            <button onclick="validateBurn({{ event.id }})" class="validate-btn">
+                                <i class="bi bi-play-fill"></i> Validate
+                            </button>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <p class="text-[#64748b] text-sm italic">No pending validations</p>
+                    {% endif %}
+                </div>
+
+                <!-- Recent Mismatches -->
+                {% if mismatches %}
+                <div class="card-custom">
+                    <p class="section-title mb-4">Recent Mismatches</p>
+                    <div class="space-y-3">
+                        {% for event in mismatches %}
+                        <div class="table-row flex justify-between items-center">
+                            <div class="flex-1">
+                                <p class="font-bold text-[#e2e8f0]">{{ event.patient_name }}</p>
+                                <p class="text-[#64748b] text-xs">
+                                    {{ event.timestamp.strftime('%Y-%m-%d %H:%M') }} •
+                                    {{ event.facility_code }}
+                                </p>
+                                {% if event.orthanc_validation_result %}
+                                <p class="text-[#ef4444] text-xs mt-1">
+                                    <i class="bi bi-exclamation-circle"></i>
+                                    {{ event.orthanc_validation_result.get('message', 'UID mismatch detected') }}
+                                </p>
+                                {% endif %}
+                            </div>
+                            <span class="badge badge-mismatch">MISMATCH</span>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </main>
+    </div>
+
+    <script>
+        function validateBurn(cdLogId) {
+            fetch(`/api/cd-burn/${cdLogId}/validate`, { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('Validation queued. Refresh page to see results.');
+                        location.reload();
+                    } else {
+                        alert('Error: ' + data.error);
+                    }
+                })
+                .catch(err => alert('Error: ' + err));
+        }
+    </script>
+
+</body>
+</html>

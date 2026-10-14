@@ -278,6 +278,10 @@ def create_app():
     # --- ROUTES ---
     register_blueprints(app)
 
+    # The burning station POSTs JSON with an API key, not a browser session.
+    from routes.cd_log_route import receive_cd_burn_event
+    csrf.exempt(receive_cd_burn_event)
+
     # --- SECURITY HEADERS ---
     @app.after_request
     def add_security_headers(response):
@@ -288,7 +292,8 @@ def create_app():
         return response
 
     # --- AUTH CHECKS ---
-    _AUTH_PASSTHROUGH = frozenset({'auth.login', 'auth.logout', 'auth.register', 'auth.profile_password', 'static', 'health.health', 'health.readiness'})
+    _AUTH_PASSTHROUGH = frozenset({'auth.login', 'auth.logout', 'auth.register', 'auth.profile_password', 'static', 'health.health', 'health.readiness',
+                                   'cd_log.receive_cd_burn_event'})  # API key checked in the view
 
     @app.before_request
     def check_auth():
@@ -751,29 +756,10 @@ def create_app():
         replace_existing=True
     )
 
-    def scheduled_cd_surf_etl():
-        with app.app_context():
-            try:
-                row = db.session.execute(text(
-                    "SELECT 1 FROM db_params WHERE UPPER(owner) = 'CDSURF' LIMIT 1"
-                )).fetchone()
-                if not row:
-                    return
-                from ETL_JOBS.etl_cd_surf import run_cd_surf_etl
-                logger.info(f"⏰ [CD Surf ETL] Starting: {datetime.now()}")
-                n = run_cd_surf_etl(db.engine)
-                logger.info(f"✅ [CD Surf ETL] Done — {n} records.")
-            except Exception as e:
-                logger.error(f"🛑 [CD Surf ETL] Failed: {e}", exc_info=True)
-
-    scheduler.add_job(
-        func=scheduled_cd_surf_etl,
-        trigger='interval',
-        hours=1,
-        id='cd_surf_etl',
-        name='CD Surf ETL — hourly sync',
-        replace_existing=True
-    )
+    # ── cd_surf_etl — REMOVED ────────────────────────────────────────────────────
+    # Hourly sync from the CDSURF Oracle schema behind report 30 (CD/DVD
+    # distribution). Report 30 now reads cd_burn_log instead, which the burning
+    # station fills by POSTing to /api/cd-burn (routes/cd_log_route.py).
 
     def purge_old_audit_logs():
         with app.app_context():

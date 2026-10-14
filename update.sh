@@ -62,6 +62,12 @@ git checkout "$BRANCH" || error "git checkout $BRANCH failed."
 git reset --hard "origin/$BRANCH" || error "git reset failed."
 ok "Code up to date with '$BRANCH'."
 
+# The burning station authenticates to POST /api/cd-burn with this key.
+if [ -f .env ] && ! grep -q "^CD_BURN_API_KEY=.\+" .env; then
+    printf '\n# Burning station → POST /api/cd-burn with header X-API-Key: <this value>\nCD_BURN_API_KEY=%s\n' "$(openssl rand -hex 24)" >> .env
+    ok "CD_BURN_API_KEY added to .env — configure the burning station with: grep CD_BURN_API_KEY .env"
+fi
+
 # ──────────────────────────────────────────────────────
 # STEP 2: Build new image (old containers keep running)
 # ──────────────────────────────────────────────────────
