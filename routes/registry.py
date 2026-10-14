@@ -38,6 +38,7 @@ from routes.groups_route        import groups_bp
 from routes.custom_reports      import custom_reports_bp
 from routes.health_bp           import health_bp
 from routes.resource_monitor    import resource_monitor_bp
+from routes.crn_admin           import crn_admin_bp
 from routes.cd_log_route        import cd_log_bp
 from routes.cd_log_ui           import cd_log_ui_bp
 
@@ -268,6 +269,7 @@ def register_blueprints(app):
     app.register_blueprint(financial_config_bp)   # admin config — always on
     app.register_blueprint(patient_journey_bp)
     app.register_blueprint(groups_bp)
+    app.register_blueprint(crn_admin_bp)
     app.register_blueprint(cd_log_bp)      # CD burn log API (burning station POSTs here)
     app.register_blueprint(cd_log_ui_bp)   # CD burn log UI dashboards
 

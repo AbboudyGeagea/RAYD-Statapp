@@ -33,8 +33,8 @@
 {# ── Active-group detection ────────────────────────────────────────── #}
 {% set ep = request.endpoint or '' %}
 {% set overview_on   = ep.startswith('viewer.') %}
-{% set admin_on      = ep in ['admin.admin_dashboard','admin.user_management','admin.audit_log','admin.hl7_forward_config'] or ep.startswith('db_manager.') or ep.startswith('mapping.') %}
-{% set ops_on        = ep.startswith('live_feed.') or ep == 'admin.scheduling_page' or ep.startswith('hl7_orders.') or ep.startswith('patient_journey.') %}
+{% set admin_on      = ep in ['admin.admin_dashboard','admin.user_management','admin.audit_log','admin.hl7_forward_config'] or ep.startswith('db_manager.') or ep.startswith('mapping.') or ep.startswith('crn_admin.') %}
+{% set ops_on        = ep.startswith('live_feed.') or ep == 'admin.scheduling_page' or ep.startswith('hl7_orders.') or ep.startswith('patient_journey.') or (ep.startswith('crn_admin.') and current_user.role != 'admin') %}
 {% set analytics_on  = ep.startswith('oru.') or ep.startswith('referring_intel.') or ep.startswith('custom_reports.') or ep.startswith('portal_admin.') %}
 {% set ai_on         = ep.startswith('report_ai.') %}
 {% set finance_on    = ep.startswith('financial_dashboard.') %}
@@ -114,6 +114,10 @@
                class="sidebar-item {% if ep == 'admin.hl7_forward_config' %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
                 <i class="bi bi-send-arrow-up-fill flex-shrink-0" style="color:#38bdf8;"></i> HL7 Forward
             </a>
+            <a href="{{ url_for('crn_admin.board_page') }}"
+               class="sidebar-item {% if ep.startswith('crn_admin.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
+                <i class="bi bi-broadcast flex-shrink-0" style="color:#f87171;"></i> CRN
+            </a>
             {% endif %}
         </div>
         {% endif %}
@@ -122,7 +126,8 @@
         {% set has_ops = (license.get('live_feed') and (current_user.role == 'admin' or current_user|user_has_page('live_feed')))
                       or (license.get('scheduling') and (current_user.role == 'admin' or current_user|user_has_page('scheduling')))
                       or (current_user.role == 'admin' or current_user|user_has_page('hl7_orders'))
-                      or (current_user.role == 'admin' or current_user|user_has_page('patient_journey')) %}
+                      or (current_user.role == 'admin' or current_user|user_has_page('patient_journey'))
+                      or current_user.role in ('viewer', 'viewer2') %}
         {% if has_ops %}
         <button class="sg-btn" onclick="sgToggle('ops')">
             <span class="flex items-center gap-2"><i class="bi bi-lightning-fill" style="color:#22c55e;"></i> Operations</span>
@@ -159,6 +164,12 @@
             </a>
             {% endif %}
             <!-- Patient CD Log: removed, replaced by CD Log (/viewer/cd-log) fed by the burning station API -->
+            {% if current_user.role in ('viewer', 'viewer2') %}
+            <a href="{{ url_for('crn_admin.board_page') }}"
+               class="sidebar-item {% if ep.startswith('crn_admin.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
+                <i class="bi bi-broadcast flex-shrink-0" style="color:#f87171;"></i> CRN
+            </a>
+            {% endif %}
         </div>
         {% endif %}
 

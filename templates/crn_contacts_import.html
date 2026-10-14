@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | CRN Contacts Import</title>
+    <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
+    <style>
+        body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; }
+        .card { background: #232b28; border-radius: 1.5rem; padding: 1.75rem; border: 1px solid #28332e; }
+        .label { font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .3em; color: #475569; margin-bottom: 6px; display: block; }
+        .btn-primary { background: #38bdf8; color: #0c1a22; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; padding: .7rem 1.5rem; border-radius: .85rem; border: none; cursor: pointer; }
+        .btn-primary:hover { opacity: .85; }
+        .btn-ghost { background: transparent; color: #94a3b8; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; padding: .7rem 1.5rem; border-radius: .85rem; border: 1px solid #334155; text-decoration: none; display: inline-block; }
+        .chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 800; border: 1px solid; }
+        .st-ok { color: #34d399; border-color: rgba(52,211,153,.3); background: rgba(52,211,153,.08); }
+        .st-warning { color: #fbbf24; border-color: rgba(251,191,36,.3); background: rgba(251,191,36,.08); }
+        .st-skipped, .st-duplicate { color: #94a3b8; border-color: #334155; background: rgba(148,163,184,.06); }
+        table.list { width: 100%; border-collapse: collapse; font-size: 12px; }
+        table.list th { text-align: left; font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; color: #64748b; padding: 8px 10px; border-bottom: 1px solid #28332e; position: sticky; top: 0; background: #232b28; }
+        table.list td { padding: 7px 10px; border-bottom: 1px solid #1e2824; color: #cbd5e1; vertical-align: top; }
+        tr.row-skipped td, tr.row-duplicate td { opacity: .55; }
+        .muted { color: #475569; }
+        body.light { background: #f0f4f8 !important; color: #1a202c !important; }
+        body.light .card { background: #ffffff; border-color: #e2e8f0; }
+        body.light table.list th { background: #ffffff; }
+        body.light table.list td { color: #334155; border-color: #e2e8f0; }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+    {% include '_header.html' %}
+    <div class="flex flex-1 overflow-hidden">
+        {% include '_sidebar.html' %}
+        <main class="flex-1 overflow-y-auto p-8 bg-[#181f1c]">
+            <div class="max-w-5xl mx-auto space-y-6">
+
+                <div>
+                    <a href="{{ url_for('crn_admin.contacts') }}" class="text-xs text-slate-500 font-bold"><i class="bi bi-arrow-left"></i> CRN Contacts</a>
+                    <h2 class="text-white text-2xl font-black uppercase tracking-tight mt-2">Import preview</h2>
+                    <p class="text-slate-500 text-xs mt-1">{{ imp.filename }} · uploaded {{ imp.uploaded_at.strftime('%Y-%m-%d %H:%M') }} by {{ imp.uploaded_by }}. Nothing is saved until you press Import.</p>
+                </div>
+
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                {% for cat, m in messages %}
+                <div class="rounded-xl px-4 py-3 text-sm font-semibold bg-rose-500/10 text-rose-200 border border-rose-500/20">{{ m }}</div>
+                {% endfor %}
+                {% endwith %}
+
+                {% if parsed.error %}
+                <div class="card">
+                    <p class="text-rose-300 font-bold"><i class="bi bi-x-octagon"></i> {{ parsed.error }}</p>
+                    <a href="{{ url_for('crn_admin.contacts') }}" class="btn-ghost mt-4">Back</a>
+                </div>
+                {% else %}
+
+                <div class="card">
+                    <h3 class="text-white text-sm font-black uppercase tracking-widest mb-4">How the file was read</h3>
+                    <div class="grid grid-cols-2 gap-4 text-sm">
+                        <div><span class="label">Encoding · separator</span>{{ parsed.encoding }} ·
+                            {{ {',': 'comma', ';': 'semicolon', '\t': 'tab', '|': 'pipe'}.get(parsed.delimiter, parsed.delimiter) }}</div>
+                        <div><span class="label">Columns</span>
+                            code ← <b>{{ parsed.columns.doctor_code }}</b>,
+                            name ← <b>{{ parsed.columns.full_name or '—' }}</b>,
+                            phone ← <b>{{ parsed.columns.phone or '—' }}</b>,
+                            email ← <b>{{ parsed.columns.email or '—' }}</b>
+                        </div>
+                    </div>
+                    {% if not parsed.header_found %}
+                    <p class="text-amber-300 text-xs mt-4"><i class="bi bi-info-circle"></i>
+                        No header row was recognised, so the columns are read in the order code, name, phone, email,
+                        and the first line is treated as a doctor. Check the first rows below.</p>
+                    {% endif %}
+                    <div class="flex gap-2 flex-wrap mt-5">
+                        {% for st, label in [('ok', 'ready'), ('warning', 'imported with a warning'), ('duplicate', 'repeated code, later line used'), ('skipped', 'skipped')] %}
+                        {% if parsed.counts.get(st) %}<span class="chip st-{{ st }}">{{ parsed.counts[st] }} {{ label }}</span>{% endif %}
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="flex items-center justify-between gap-4 mb-4 flex-wrap">
+                        <h3 class="text-white text-sm font-black uppercase tracking-widest">Rows</h3>
+                        {% if imp.applied_at %}
+                        <span class="text-slate-400 text-xs">Imported {{ imp.applied_at.strftime('%Y-%m-%d %H:%M') }} by {{ imp.applied_by }}.</span>
+                        {% elif apply_count %}
+                        <form method="POST" action="{{ url_for('crn_admin.apply', import_id=imp.id) }}" class="flex gap-2">
+                            <a href="{{ url_for('crn_admin.contacts') }}" class="btn-ghost">Cancel</a>
+                            <button type="submit" class="btn-primary">
+                                <i class="bi bi-check2-circle mr-1"></i> Import {{ apply_count }} contact{{ 's' if apply_count != 1 }}
+                                ({{ new_count }} new, {{ apply_count - new_count }} update{{ 's' if apply_count - new_count != 1 }})
+                            </button>
+                        </form>
+                        {% endif %}
+                    </div>
+                    <div class="overflow-auto" style="max-height: 60vh;">
+                        <table class="list">
+                            <thead><tr><th>Line</th><th>Status</th><th>Code</th><th>Name</th><th>Phone in file</th><th>SMS number</th><th>Email</th><th>Notes</th></tr></thead>
+                            <tbody>
+                            {% for r in parsed.rows %}
+                            <tr class="row-{{ r.status }}">
+                                <td class="muted">{{ r.line }}</td>
+                                <td><span class="chip st-{{ r.status }}">{{ r.status }}</span>
+                                    {% if r.change %}<span class="muted text-[10px] block mt-1">{{ r.change }}</span>{% endif %}</td>
+                                <td class="font-mono font-bold text-white">{{ r.doctor_code or '—' }}</td>
+                                <td>{{ r.full_name or '' }}</td>
+                                <td class="font-mono muted">{{ r.phone_raw or '' }}</td>
+                                <td class="font-mono">{{ r.phone_e164 or '' }}</td>
+                                <td>{{ r.email or '' }}</td>
+                                <td class="text-[11px] text-slate-400">{{ r.notes | join('; ') }}</td>
+                            </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                {% endif %}
+
+            </div>
+        </main>
+    </div>
+    {% include '_footer.html' %}
+</body>
+</html>

@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | CRN Acknowledgement Report</title>
+    <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
+    {% include '_crn_head.html' %}
+    <style>
+        .tile { background: #141b19; border: 1px solid #28332e; border-radius: 1rem; padding: .9rem 1.1rem; }
+        .tile .v { font-size: 1.6rem; font-weight: 900; color: #fff; }
+        body.light .tile { background: #fff; border-color: #e2e8f0; } body.light .tile .v { color: #1a202c; }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+    {% include '_header.html' %}
+    <div class="flex flex-1 overflow-hidden">
+        {% include '_sidebar.html' %}
+        <main class="flex-1 overflow-y-auto p-8 bg-[#181f1c]">
+            <div class="max-w-6xl mx-auto">
+                {% set crn_tab = 'report' %}
+                {% include '_crn_tabs.html' %}
+                {% set s = data.summary %}
+
+                <div class="card mb-4">
+                    <form method="GET" class="flex gap-3 flex-wrap items-end">
+                        <div><label class="label">From</label><input type="date" name="start" value="{{ start }}" class="input-field"></div>
+                        <div><label class="label">To</label><input type="date" name="end" value="{{ end }}" class="input-field"></div>
+                        <button class="btn-primary" type="submit">Show</button>
+                        <a class="btn-ghost" href="{{ url_for('crn_admin.report_csv', start=start, end=end) }}"><i class="bi bi-download"></i> CSV</a>
+                    </form>
+                    <p class="muted text-xs mt-3">Time to acknowledge runs from the moment the report reached RAYD to the doctor's acknowledgement (or the phone acknowledgement).</p>
+                </div>
+
+                <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+                    <div class="tile"><p class="label">CRNs</p><p class="v">{{ s.total }}</p></div>
+                    <div class="tile"><p class="label">Acknowledged</p><p class="v text-emerald-400">{{ s.acknowledged }}{% if s.pct is not none %} <span class="text-sm muted">{{ s.pct }}%</span>{% endif %}</p></div>
+                    <div class="tile"><p class="label">Median time</p><p class="v">{{ s.median_min ~ ' min' if s.median_min is not none else '—' }}</p></div>
+                    <div class="tile"><p class="label">Went overdue</p><p class="v {{ 'text-rose-400' if s.overdue }}">{{ s.overdue }}</p></div>
+                    <div class="tile"><p class="label">Still open</p><p class="v {{ 'text-amber-400' if s.open }}">{{ s.open }}</p></div>
+                </div>
+
+                {% if s.total %}
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+                    <div class="card">
+                        <p class="label">How acknowledged</p>
+                        <table class="list"><tbody>
+                            {% for k, v in data.by_how %}<tr><td>{{ k }}</td><td class="text-right font-bold">{{ v }}</td></tr>{% endfor %}
+                        </tbody></table>
+                    </div>
+                    <div class="card lg:col-span-2">
+                        <p class="label">By radiologist</p>
+                        <table class="list">
+                            <thead><tr><th>Radiologist</th><th>CRNs</th><th>Acknowledged</th><th>Median</th><th>Overdue</th></tr></thead>
+                            <tbody>{% for g in data.by_radiologist %}
+                            <tr><td>{{ g.key }}</td><td>{{ g.total }}</td><td>{{ g.acknowledged }}</td><td>{{ g.median_min ~ ' min' if g.median_min is not none else '—' }}</td><td>{{ g.overdue }}</td></tr>
+                            {% endfor %}</tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="card">
+                    <p class="label">By referring doctor</p>
+                    <table class="list">
+                        <thead><tr><th>Doctor</th><th>CRNs</th><th>Acknowledged</th><th>Median</th><th>Overdue</th></tr></thead>
+                        <tbody>{% for g in data.by_doctor %}
+                        <tr><td>{{ g.key }}</td><td>{{ g.total }}</td><td>{{ g.acknowledged }}</td><td>{{ g.median_min ~ ' min' if g.median_min is not none else '—' }}</td><td>{{ g.overdue }}</td></tr>
+                        {% endfor %}</tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="card"><p class="muted text-sm text-center py-6">No CRN in this period.</p></div>
+                {% endif %}
+            </div>
+        </main>
+    </div>
+    {% include '_footer.html' %}
+</body>
+</html>
