@@ -33,6 +33,7 @@ from routes.db_manager       import db_manager_bp
 from routes.referring_intel  import referring_intel_bp
 from routes.financial_config    import financial_config_bp
 from routes.financial_dashboard import financial_dashboard_bp
+from routes.patient_journey     import patient_journey_bp
 from routes.groups_route        import groups_bp
 from routes.custom_reports      import custom_reports_bp
 from routes.cd_print_log        import cd_print_bp
@@ -264,6 +265,7 @@ def register_blueprints(app):
     app.register_blueprint(docs_bp)
     app.register_blueprint(etl_gear_bp)
     app.register_blueprint(financial_config_bp)   # admin config — always on
+    app.register_blueprint(patient_journey_bp)
     app.register_blueprint(groups_bp)
 
     # ── Licensed reports (auto-discovered from report_registry) ─

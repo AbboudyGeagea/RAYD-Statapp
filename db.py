@@ -372,7 +372,7 @@ class SchedulingEntry(db.Model):
 
 ALL_FEATURE_KEYS = [
     'live_feed', 'hl7_orders', 'report_ai', 'oru', 'mapping', 'patient_portal', 'scheduling',
-    'financial', 'cd_print', 'referring_intel', 'custom_reports',
+    'financial', 'cd_print', 'referring_intel', 'custom_reports', 'patient_journey',
 ]
 
 # Default pages granted to each role at approval / role-change time.

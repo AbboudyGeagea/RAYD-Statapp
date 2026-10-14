@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | Patient Journey</title>
+    <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
+    <style>
+        body { background: #181f1c; color: #e2e8f0; font-family: 'Inter', sans-serif; font-size: 14px; transition: background 0.2s, color 0.2s; }
+        body.light { background: #f0f4f8 !important; color: #1a202c !important; }
+        body.light aside, body.light header { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        body.light .sidebar-item { color: #4a5568 !important; }
+        body.light .sidebar-item:hover, body.light .sidebar-item.active { background: #e2e8f0 !important; color: #2b6cb0 !important; }
+        body.light .glass-card { background: #ffffff !important; border-color: #e2e8f0 !important; }
+        body.light .input-dark { background: #ffffff !important; border-color: #e2e8f0 !important; color: #1a202c !important; }
+        body.light main { background: #f0f4f8 !important; }
+        .glass-card { background: #232b28; border: 1px solid #28332e; border-radius: 1.5rem; padding: 24px; }
+        .input-dark { background:#181f1c; border:1px solid #28332e; color:#e2e8f0; border-radius:8px; padding:8px 10px; font-size:12px; width:100%; outline:none; transition:border 0.15s; }
+        .input-dark:focus { border-color:#60a5fa; }
+        .section-desc { font-size: 13px; color: #64748b; font-style: italic; line-height: 1.6; margin-bottom: 20px; padding: 12px 16px; background: rgba(96,165,250,0.06); border-left: 3px solid #60a5fa; border-radius: 0 8px 8px 0; }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+{% include '_header.html' %}
+<div class="flex flex-1 overflow-hidden">
+    {% include '_sidebar.html' %}
+    <main class="flex-1 overflow-y-auto bg-[#181f1c] p-8">
+
+        <!-- Breadcrumb -->
+        <div class="flex items-center gap-2 text-xs text-slate-500 mb-5">
+            <a href="{{ url_for('viewer.viewer_dashboard') }}" class="hover:text-sky-400 transition-colors flex items-center gap-1.5">
+                <i class="bi bi-house-fill"></i> Home
+            </a>
+            <i class="bi bi-chevron-right text-slate-600 text-[10px]"></i>
+            <span class="text-slate-400 font-semibold">Patient Journey</span>
+        </div>
+
+        <h1 class="text-2xl font-black text-white tracking-tight mb-4">Patient Journey</h1>
+
+        <div class="space-y-6">
+
+                <p class="section-desc">
+                    Trace the full lifecycle of a patient encounter — from order creation through technician exam,
+                    PACS arrival, and each reporting milestone. Enter a Patient ID or Accession Number to begin.
+                </p>
+
+                <!-- Search form -->
+                <div class="glass-card flex flex-wrap items-end gap-4">
+                    <div class="flex flex-col gap-1">
+                        <label class="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Patient ID</label>
+                        <input id="jrn-pid" type="text" placeholder="e.g. 123456"
+                               class="input-dark w-44 font-mono"
+                               onkeydown="if(event.key==='Enter') runJourney()">
+                    </div>
+                    <div class="flex flex-col gap-1">
+                        <label class="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Accession Number</label>
+                        <input id="jrn-acc" type="text" placeholder="e.g. ACC2024001234"
+                               class="input-dark w-52 font-mono"
+                               onkeydown="if(event.key==='Enter') runJourney()">
+                    </div>
+                    <button onclick="runJourney()"
+                            class="px-5 py-2.5 bg-blue-500/20 border border-blue-500/30 rounded-xl text-xs font-black text-blue-400 hover:bg-blue-500/30 transition-colors flex items-center gap-2">
+                        <i class="bi bi-search"></i> Trace Journey
+                    </button>
+                    <div id="jrn-spinner" class="hidden text-xs text-zinc-500 flex items-center gap-2">
+                        <i class="bi bi-arrow-repeat animate-spin"></i> Loading…
+                    </div>
+                </div>
+
+                <!-- Results -->
+                <div id="jrn-results"></div>
+
+        </div>
+    </main>
+</div>
+
+<script>
+        // ── Patient Journey ──────────────────────────────────────────────────
+        function runJourney() {
+            const pid = document.getElementById('jrn-pid').value.trim();
+            const acc = document.getElementById('jrn-acc').value.trim();
+            if (!pid && !acc) {
+                document.getElementById('jrn-results').innerHTML =
+                    '<p class="text-xs text-zinc-500 italic">Enter a Patient ID or Accession Number.</p>';
+                return;
+            }
+            const spinner = document.getElementById('jrn-spinner');
+            const results = document.getElementById('jrn-results');
+            spinner.classList.remove('hidden');
+            results.innerHTML = '';
+
+            const params = new URLSearchParams();
+            if (pid) params.set('pid', pid);
+            if (acc) params.set('accession', acc);
+
+            fetch('/patient-journey/data?' + params.toString())
+                .then(r => r.json())
+                .then(data => {
+                    spinner.classList.add('hidden');
+                    if (data.error) {
+                        results.innerHTML = `<p class="text-xs text-rose-400">${escHtml(data.error)}</p>`;
+                        return;
+                    }
+                    if (!data.studies || data.studies.length === 0) {
+                        results.innerHTML = '<div class="glass-card text-center py-10 text-zinc-600"><i class="bi bi-search text-3xl mb-2 block opacity-30"></i><p class="italic text-sm">No matching studies found.</p></div>';
+                        return;
+                    }
+                    results.innerHTML = data.studies.map(renderStudyJourney).join('');
+                })
+                .catch(e => {
+                    spinner.classList.add('hidden');
+                    results.innerHTML = `<p class="text-xs text-rose-400">Request failed: ${escHtml(e.message)}</p>`;
+                });
+        }
+
+        const JOURNEY_META = {
+            order_received: { icon: 'bi-file-earmark-text',  color: 'text-zinc-400',   bg: 'bg-zinc-500/15',   label: 'Order Received'         },
+            scheduled:      { icon: 'bi-calendar-check',     color: 'text-sky-400',    bg: 'bg-sky-500/15',    label: 'Exam Scheduled'         },
+            tech_done:      { icon: 'bi-person-badge',       color: 'text-violet-400', bg: 'bg-violet-500/15', label: 'Exam Completed (Tech)'  },
+            pacs_in:        { icon: 'bi-hdd-rack',           color: 'text-blue-400',   bg: 'bg-blue-500/15',   label: 'Arrived in PACS'        },
+            prelim:         { icon: 'bi-pencil-square',      color: 'text-amber-400',  bg: 'bg-amber-500/15',  label: 'Preliminary Report'     },
+            transcribed:    { icon: 'bi-keyboard',           color: 'text-orange-400', bg: 'bg-orange-500/15', label: 'Transcribed'            },
+            final:          { icon: 'bi-patch-check-fill',   color: 'text-emerald-400',bg: 'bg-emerald-500/15',label: 'Final Report Signed'    },
+        };
+
+        function fmtTs(ts) {
+            if (!ts) return '--';
+            try {
+                const d = new Date(ts);
+                return d.toLocaleString('en-GB', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
+            } catch(e) { return ts.slice(0, 16); }
+        }
+
+        function fmtGap(min) {
+            if (min === null || min === undefined) return '';
+            const sign = min < 0 ? '−' : '';
+            const abs = Math.abs(min);
+            if (abs < 60) return `${sign}${abs}m`;
+            const h = Math.floor(abs / 60);
+            const m = abs % 60;
+            return m > 0 ? `${sign}${h}h ${m}m` : `${sign}${h}h`;
+        }
+
+        function renderStudyJourney(s) {
+            const esc = t => String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+            // ── Total elapsed ─────────────────────────────────────────────
+            const totalMin = s.events.length > 1 ? (() => {
+                try {
+                    return Math.round((new Date(s.events[s.events.length-1].ts) - new Date(s.events[0].ts)) / 60000);
+                } catch(e) { return null; }
+            })() : null;
+
+            const accentClr = totalMin === null ? '#52525b'
+                : totalMin > 480 ? '#f87171'
+                : totalMin > 120 ? '#fbbf24'
+                : '#34d399';
+
+            const totalBadge = totalMin !== null
+                ? `<span style="padding:4px 10px;border-radius:8px;font-size:11px;font-family:monospace;font-weight:900;
+                       background:${accentClr}18;border:1px solid ${accentClr}44;color:${accentClr}">
+                       <i class="bi bi-clock" style="margin-right:3px;font-size:10px;"></i>${fmtGap(totalMin)} total
+                   </span>` : '';
+
+            // ── Header badges ─────────────────────────────────────────────
+            const pill = (txt, bg, txt_c, bd) =>
+                `<span style="padding:2px 8px;border-radius:6px;font-size:10px;font-weight:900;background:${bg};border:1px solid ${bd};color:${txt_c}">${esc(txt)}</span>`;
+            const badges = [
+                s.modality        ? pill(s.modality,        'rgba(96,165,250,0.15)', '#93c5fd', 'rgba(96,165,250,0.3)')  : '',
+                s.patient_class   ? pill(s.patient_class,   'rgba(139,92,246,0.15)', '#c4b5fd', 'rgba(139,92,246,0.3)') : '',
+                s.patient_location? pill(s.patient_location,'rgba(63,63,70,0.5)',    '#a1a1aa', 'rgba(100,100,115,0.4)'): '',
+                s.study_date      ? `<span style="font-size:10px;font-family:monospace;color:#52525b">${esc(s.study_date)}</span>` : '',
+            ].filter(Boolean).join('');
+
+            // ── Phase durations ───────────────────────────────────────────
+            const tsOf = type => { const e = s.events.find(x => x.type===type); return e?.ts ? new Date(e.ts) : null; };
+            const dMin = (a,b) => (a&&b) ? Math.round((b-a)/60000) : null;
+            const phases = [
+                { label:'Order → PACS',   min: dMin(tsOf('order_received'), tsOf('pacs_in'))  },
+                { label:'PACS → Prelim',  min: dMin(tsOf('pacs_in'),  tsOf('prelim'))          },
+                { label:'PACS → Final',   min: dMin(tsOf('pacs_in'),  tsOf('final'))           },
+                { label:'Prelim → Final', min: dMin(tsOf('prelim'),   tsOf('final'))           },
+            ].filter(p => p.min !== null && p.min >= 0);
+
+            const phClr = m => m > 240
+                ? { bg:'rgba(248,113,113,0.12)', bd:'rgba(248,113,113,0.3)', txt:'#f87171' }
+                : m > 60
+                ? { bg:'rgba(251,191,36,0.12)',  bd:'rgba(251,191,36,0.3)',  txt:'#fbbf24' }
+                : { bg:'rgba(52,211,153,0.12)',  bd:'rgba(52,211,153,0.3)',  txt:'#34d399' };
+
+            const phaseHtml = phases.length ? `
+                <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.06)">
+                    ${phases.map(p => { const c = phClr(p.min); return `
+                        <div style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 14px;border-radius:10px;
+                                    background:${c.bg};border:1px solid ${c.bd};min-width:88px;text-align:center">
+                            <span style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;color:${c.txt};opacity:0.75">${esc(p.label)}</span>
+                            <span style="font-size:16px;font-weight:900;font-family:monospace;color:${c.txt}">${fmtGap(p.min)}</span>
+                        </div>`; }).join('')}
+                </div>` : '';
+
+            // ── Progress track ────────────────────────────────────────────
+            let progressHtml = '';
+            if (s.events.length >= 2) {
+                try {
+                    const t0 = new Date(s.events[0].ts), t1 = new Date(s.events[s.events.length-1].ts);
+                    const span = t1 - t0;
+                    const dotClrs = { order_received:'#6366f1', scheduled:'#0ea5e9', tech_done:'#8b5cf6',
+                                      pacs_in:'#60a5fa', prelim:'#f59e0b', transcribed:'#f97316', final:'#22c55e' };
+                    const dots = s.events.map(ev => {
+                        if (!ev.ts) return '';
+                        const pct = span > 0 ? Math.round((new Date(ev.ts)-t0)/span*100) : 0;
+                        const col = dotClrs[ev.type] || '#71717a';
+                        const lbl = (JOURNEY_META[ev.type]||{}).label || ev.type;
+                        return `<div title="${esc(lbl)}: ${fmtTs(ev.ts)}"
+                            style="position:absolute;top:50%;transform:translateY(-50%);left:calc(${pct}% - 5px);
+                                   width:10px;height:10px;border-radius:50%;background:${col};
+                                   border:2px solid #232b28;z-index:5;cursor:default;box-shadow:0 0 5px ${col}88"></div>`;
+                    }).join('');
+                    progressHtml = `
+                        <div style="position:relative;height:4px;background:rgba(255,255,255,0.06);border-radius:4px;margin:12px 6px 4px;overflow:visible">
+                            <div style="position:absolute;inset:0;border-radius:4px;background:linear-gradient(to right,rgba(99,102,241,0.35),${accentClr}55)"></div>
+                            ${dots}
+                        </div>`;
+                } catch(e) {}
+            }
+
+            // ── Timeline ──────────────────────────────────────────────────
+            const timeline = s.events.map((ev, i) => {
+                const m = JOURNEY_META[ev.type] || { icon:'bi-dot', color:'text-zinc-500', bg:'bg-zinc-700/30', label: ev.label || ev.type };
+                const gapBig  = ev.gap_min > 240;
+                const gapWarn = ev.gap_min > 60;
+
+                const gapHtml = (ev.gap_min !== null && ev.gap_min !== undefined && i > 0)
+                    ? `<div style="display:flex;align-items:center;gap:8px;margin:3px 0 3px 6px">
+                           <div style="width:1px;height:16px;background:rgba(255,255,255,0.1)"></div>
+                           <span style="padding:1px 7px;border-radius:4px;font-size:10px;font-family:monospace;font-weight:900;
+                               background:${gapBig?'rgba(248,113,113,0.12)':gapWarn?'rgba(251,191,36,0.1)':'transparent'};
+                               color:${gapBig?'#f87171':gapWarn?'#fbbf24':'#52525b'}">${fmtGap(ev.gap_min)}</span>
+                       </div>`
+                    : (i > 0 ? `<div style="margin:3px 0 3px 6px"><div style="width:1px;height:14px;background:rgba(255,255,255,0.08)"></div></div>` : '');
+
+                return `${gapHtml}
+                <div style="display:flex;align-items:flex-start;gap:12px">
+                    <div class="${m.bg} border border-white/5"
+                         style="width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+                        <i class="bi ${m.icon} ${m.color}" style="font-size:14px"></i>
+                    </div>
+                    <div style="flex:1;min-width:0;padding:3px 0">
+                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                            <span class="text-xs font-black ${m.color}">${esc(ev.label || m.label)}</span>
+                            ${ev.by ? `<span style="font-size:10px;color:#71717a">· <span style="color:#a1a1aa;font-weight:700">${esc(ev.by)}</span></span>` : ''}
+                            ${ev.detail ? `<span style="font-size:10px;padding:1px 6px;border-radius:4px;background:rgba(255,255,255,0.04);color:#52525b">${esc(ev.detail)}</span>` : ''}
+                        </div>
+                        <span style="font-size:10px;font-family:monospace;color:#52525b">${fmtTs(ev.ts)}</span>
+                    </div>
+                </div>`;
+            }).join('');
+
+            const descLine = s.description
+                ? `<p style="font-size:11px;color:#52525b;font-style:italic;margin-top:4px">${esc(s.description)}</p>` : '';
+
+            return `
+            <div class="glass-card mb-4" style="border-left:3px solid ${accentClr};padding:20px 24px">
+                <!-- Header -->
+                <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px">
+                    <div>
+                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+                            <span style="font-size:15px;font-weight:900;color:#fff;font-family:monospace">${esc(s.accession)}</span>
+                            ${totalBadge}
+                        </div>
+                        ${s.patient_id ? `<p style="font-size:10px;color:#52525b;font-family:monospace;margin-bottom:4px">Patient · ${esc(String(s.patient_id))}</p>` : ''}
+                        <div style="display:flex;flex-wrap:wrap;gap:4px">${badges}</div>
+                        ${descLine}
+                    </div>
+                </div>
+
+                ${phaseHtml}
+                ${progressHtml}
+
+                <!-- Timeline -->
+                <div style="margin-top:16px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.05)">
+                    ${timeline || '<p style="font-size:11px;color:#52525b;font-style:italic;padding:8px 0">No timeline events found for this study.</p>'}
+                </div>
+            </div>`;
+        }
+
+        // Deep link: /patient-journey?pid=... or ?accession=... runs straight away.
+        (function () {
+            const q = new URLSearchParams(location.search);
+            if (q.get('pid'))       document.getElementById('jrn-pid').value = q.get('pid');
+            if (q.get('accession')) document.getElementById('jrn-acc').value = q.get('accession');
+            if (q.get('pid') || q.get('accession')) runJourney();
+        })();
+
+        function applyTheme(theme) {
+            document.body.classList.toggle('light', theme === 'light');
+            const icon = document.getElementById('theme-icon');
+            if (icon) icon.className = theme === 'light' ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
+        }
+        applyTheme("{{ ui_theme }}");
+        function toggleTheme() {
+            const next = document.body.classList.contains('light') ? 'dark' : 'light';
+            applyTheme(next);
+            fetch('/user/theme', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({theme: next}) });
+        }
+</script>
+{% include '_footer.html' %}
+</body>
+</html>

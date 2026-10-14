@@ -652,6 +652,7 @@ def _get_user_page_columns():
         ('mapping',         'Modality / Procedures'),
         ('report_ai',       'AI Reports'),
         ('financial',       'Revenue Intelligence'),
+        ('patient_journey', 'Patient Journey'),
     ]
 
 
