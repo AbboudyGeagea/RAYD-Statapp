@@ -20,8 +20,6 @@ from routes.api_controller   import api_bp
 from routes.hl7_orders       import hl7_orders_bp
 from routes.etl_gear_route   import etl_gear_bp
 from routes.report_ai        import report_ai_bp
-from routes.portal_bp        import portal_bp
-from routes.portal_admin     import portal_admin_bp
 from routes.super_report     import super_report_bp
 from routes.capacity_ladder  import capacity_ladder_bp
 from routes.live_feed        import live_feed_bp
@@ -66,7 +64,6 @@ DEFAULT_LICENSE = {
     "financial":       True,   # Revenue Intelligence
     "scheduling":      True,
     "live_feed":       True,
-    "patient_portal":  True,
     "ai_report":       True,
     # ── Limits (0 = unlimited) ───────────────────────────────
     "max_users":              0,
@@ -81,7 +78,7 @@ DEFAULT_LICENSE = {
 #                 user management, activity log, modality/procedure config
 #  Professional — + HL7 orders, report intelligence, custom reports,
 #                 patient CD log, ER dashboard, capacity ladder, saved reports
-#  Enterprise   — + revenue intelligence, scheduling, live AE status, patient portal
+#  Enterprise   — + revenue intelligence, scheduling, live AE status
 #
 TIER_PRESETS = {
     "essential": {
@@ -101,7 +98,6 @@ TIER_PRESETS = {
         "financial":       False,
         "scheduling":      False,
         "live_feed":       False,
-        "patient_portal":  False,
         "ai_report":       False,
         "max_users":              0,
         "max_sessions":           0,
@@ -125,7 +121,6 @@ TIER_PRESETS = {
         "financial":       False,
         "scheduling":      False,
         "live_feed":       False,
-        "patient_portal":  False,
         "ai_report":       False,
         "max_users":              0,
         "max_sessions":           0,
@@ -315,13 +310,7 @@ def register_blueprints(app):
 
     # ── Patient CD Log: module REMOVED (replaced by the CD Log / cd_burn_log API) ──
 
-    # ── Patient Portal (Enterprise — license + config flag) ──────
-    if lic.get('patient_portal', False) and app.config.get("PATIENT_PORTAL_ENABLED", True):
-        app.register_blueprint(portal_bp)
-        app.register_blueprint(portal_admin_bp)
-        logger.info("  patient_portal: enabled")
-    else:
-        logger.info("  patient_portal: not licensed — skipped")
+    # ── Patient Portal: module REMOVED. Its tables are left in place, unused. ──
 
     # ── Live AE Feed (Enterprise — license + config flag) ────────
     if lic.get('live_feed', False) and app.config.get("LIVE_FEED_ENABLED", True):
@@ -343,5 +332,4 @@ def register_blueprints(app):
     def inject_license():
         return {
             "license":              lic,
-            "portal_admin_enabled": "portal_admin" in app.blueprints,
         }

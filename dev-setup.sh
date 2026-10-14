@@ -29,7 +29,6 @@ POSTGRES_HOST=db
 POSTGRES_PORT=5432
 POSTGRES_DB=etl_db
 MASTER_ADMIN_KEY=admin123
-PATIENT_PORTAL_ENABLED=false
 LIVE_FEED_ENABLED=true
 EOF
     echo "  .env created with dev defaults."

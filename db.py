@@ -420,7 +420,7 @@ class SchedulingEntry(db.Model):
     updated_at = db.Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 ALL_FEATURE_KEYS = [
-    'live_feed', 'hl7_orders', 'report_ai', 'oru', 'mapping', 'patient_portal', 'scheduling',
+    'live_feed', 'hl7_orders', 'report_ai', 'oru', 'mapping', 'scheduling',
     'financial', 'cd_print', 'referring_intel', 'custom_reports', 'patient_journey',
 ]
 
@@ -587,53 +587,6 @@ class summary_storage_daily(db.Model):
     procedure_code = db.Column(String(255))
     total_gb = db.Column(Numeric(12, 4), default=0)
     study_count = db.Column(Integer, default=0)
-
-# ----------------------------------------------------------------
-# 7. PATIENT PORTAL TABLES  ← NEW
-# ----------------------------------------------------------------
-
-
-class PatientPortalUser(db.Model):
-    """
-    One record per patient MRN.
-    Upserted every time an ORM arrives for that patient.
-    Passwords are hashed. password_plain kept temporarily for migration,
-    new logins use password_hash.
-    """
-    __tablename__ = 'patient_portal_users'
-    id               = db.Column(Integer, primary_key=True)
-    mrn              = db.Column(String(50), nullable=False)
-    full_name        = db.Column(String(200))
-    phone            = db.Column(String(30))
-    accession_number = db.Column(String(100))
-    username         = db.Column(String(50), unique=True, nullable=False)  # = MRN
-    password_plain   = db.Column(String(20))                               # deprecated — migrate then drop
-    password_hash    = db.Column(String(256))
-    is_active        = db.Column(Boolean, default=True)
-    last_login       = db.Column(DateTime)
-    whatsapp_sent    = db.Column(Boolean, default=False)
-    whatsapp_sent_at = db.Column(DateTime)
-    created_at       = db.Column(DateTime, server_default=func.now())
-    updated_at       = db.Column(DateTime, server_default=func.now(), onupdate=func.now())
-
-    def __repr__(self):
-        return f"<PatientPortalUser mrn={self.mrn} name={self.full_name}>"
-
-
-class PortalConfig(db.Model):
-    """
-    Key-value store for per-site portal settings.
-    Editable via /admin/portal/config without redeploy.
-    """
-    __tablename__ = 'portal_config'
-    id           = db.Column(Integer, primary_key=True)
-    config_key   = db.Column(String(100), unique=True, nullable=False)
-    config_value = db.Column(Text)
-    description  = db.Column(String(255))
-    updated_at   = db.Column(DateTime, server_default=func.now(), onupdate=func.now())
-
-    def __repr__(self):
-        return f"<PortalConfig {self.config_key}>"
 
 # ----------------------------------------------------------------
 # ----------------------------------------------------------------

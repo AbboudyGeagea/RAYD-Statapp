@@ -46,9 +46,8 @@ class Config:
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
-    # ── HL7 / Patient Portal ──────────────────────────────────
+    # ── HL7 ───────────────────────────────────────────────────
     HL7_ENABLED            = _bool("HL7_ENABLED",            default=True)
-    PATIENT_PORTAL_ENABLED = _bool("PATIENT_PORTAL_ENABLED", default=True)
 
     # ── Live AE Feed ──────────────────────────────────────────
     LIVE_FEED_ENABLED = _bool("LIVE_FEED_ENABLED", default=True)

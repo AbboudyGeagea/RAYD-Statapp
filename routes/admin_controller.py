@@ -91,7 +91,7 @@ def admin_dashboard():
     for p in all_perms:
         page_perms.setdefault(p.user_id, {})[p.page_key] = p.is_enabled
 
-    page_keys = ['live_feed', 'hl7_orders', 'report_ai', 'oru', 'mapping', 'patient_portal']
+    page_keys = ['live_feed', 'hl7_orders', 'report_ai', 'oru', 'mapping']
 
     return render_template(
         'admin_panel.html',
@@ -648,7 +648,6 @@ def _get_user_page_columns():
         ('oru',             'Report Intelligence'),
         ('referring_intel', 'Referring Intel'),
         ('custom_reports',  'Custom Reports'),
-        ('patient_portal',  'Patient Portal'),
         ('mapping',         'Modality / Procedures'),
         ('report_ai',       'AI Reports'),
         ('financial',       'Revenue Intelligence'),
@@ -1156,16 +1155,9 @@ def set_demo_mode():
             )
             db.session.add(user)
             db.session.flush()
-            # Grant all page permissions to the new demo account — patient_portal is always excluded
+            # Grant page permissions to the new demo account
             for page_key in ['live_feed', 'hl7_orders', 'report_ai', 'oru', 'mapping']:
                 db.session.add(UserPagePermission(user_id=user.id, page_key=page_key, is_enabled=True))
-
-        # Always strip patient_portal from the demo user, even if previously granted manually
-        db.session.flush()
-        db.session.execute(
-            text("DELETE FROM user_page_permissions WHERE user_id = :uid AND page_key = 'patient_portal'"),
-            {"uid": user.id}
-        )
 
     db.session.commit()
     return jsonify({'status': 'ok'})

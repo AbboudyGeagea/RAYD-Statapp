@@ -35,7 +35,7 @@
 {% set overview_on   = ep.startswith('viewer.') %}
 {% set admin_on      = ep in ['admin.admin_dashboard','admin.user_management','admin.audit_log','admin.hl7_forward_config'] or ep.startswith('db_manager.') or ep.startswith('mapping.') or ep.startswith('crn_admin.') %}
 {% set ops_on        = ep.startswith('live_feed.') or ep == 'admin.scheduling_page' or ep.startswith('hl7_orders.') or ep.startswith('patient_journey.') or (ep.startswith('crn_admin.') and current_user.role != 'admin') %}
-{% set analytics_on  = ep.startswith('oru.') or ep.startswith('referring_intel.') or ep.startswith('custom_reports.') or ep.startswith('portal_admin.') %}
+{% set analytics_on  = ep.startswith('oru.') or ep.startswith('referring_intel.') or ep.startswith('custom_reports.') %}
 {% set ai_on         = ep.startswith('report_ai.') %}
 {% set finance_on    = ep.startswith('financial_dashboard.') %}
 {% set help_on       = ep.startswith('docs.') %}
@@ -176,8 +176,7 @@
         <!-- ── ANALYTICS ───────────────────────────────────────────── -->
         {% set has_analytics = (current_user.role == 'admin' or current_user|user_has_page('oru'))
                             or (license.get('referring_intel') and (current_user.role == 'admin' or current_user|user_has_page('referring_intel')))
-                            or (license.get('custom_reports') and (current_user.role == 'admin' or current_user|user_has_page('custom_reports')))
-                            or (portal_admin_enabled and current_user.username != demo_user and (current_user.role == 'admin' or current_user|user_has_page('patient_portal'))) %}
+                            or (license.get('custom_reports') and (current_user.role == 'admin' or current_user|user_has_page('custom_reports'))) %}
         {% if has_analytics %}
         <button class="sg-btn" onclick="sgToggle('analytics')">
             <span class="flex items-center gap-2"><i class="bi bi-bar-chart-fill" style="color:#a78bfa;"></i> Analytics</span>
@@ -200,12 +199,6 @@
             <a href="/reports/custom"
                class="sidebar-item {% if ep.startswith('custom_reports.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
                 <i class="bi bi-layout-text-sidebar-reverse flex-shrink-0" style="color:#60a5fa;"></i> Custom Reports
-            </a>
-            {% endif %}
-            {% if portal_admin_enabled and current_user.username != demo_user and (current_user.role == 'admin' or current_user|user_has_page('patient_portal')) %}
-            <a href="{{ url_for('portal_admin.portal_users') }}"
-               class="sidebar-item {% if ep.startswith('portal_admin.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
-                <i class="bi bi-person-vcard flex-shrink-0" style="color:#fb923c;"></i> Patient Portal
             </a>
             {% endif %}
         </div>

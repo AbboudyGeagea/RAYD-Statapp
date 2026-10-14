@@ -62,7 +62,6 @@ FEATURES = [
     ("financial",       "Revenue Intelligence"),
     ("scheduling",      "Scheduling"),
     ("live_feed",       "Live AE Status"),
-    ("patient_portal",  "Patient Portal"),
     ("ai_report",       "AI Report Analysis"),
 ]
 for key, label in FEATURES:
@@ -114,14 +113,13 @@ FEATURES = [
     ("financial",       "Revenue Intelligence"),
     ("scheduling",      "Scheduling"),
     ("live_feed",       "Live AE Status"),
-    ("patient_portal",  "Patient Portal"),
     ("ai_report",       "AI Report Analysis"),
 ]
 KEYS = [k for k, _ in FEATURES]
 
 PRESETS = {
     "essential": {k: k in ("export", "adapter_mapper") for k in KEYS},
-    "professional": {k: k not in ("financial","scheduling","live_feed","patient_portal","ai_report") for k in KEYS},
+    "professional": {k: k not in ("financial","scheduling","live_feed","ai_report") for k in KEYS},
     "enterprise": {k: True for k in KEYS},
 }
 

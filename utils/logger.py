@@ -20,7 +20,6 @@ Sidebar folder → module prefix mapping
   mapping        routes.mapping_controller
   live_feed      routes.live_feed
   hl7            routes.hl7_orders_route
-  portal         routes.portal
   oru            routes.oru_analytics, nlp_worker
   referring_intel routes.referring_intel
   cd_log         cd_log (CD burn API), cd_log_ui
@@ -68,8 +67,6 @@ _MODULE_FOLDER_MAP: dict = {
     "routes.db_manager":               "db_manager",
     # Live feed
     "routes.live_feed":                "live_feed",
-    # Patient portal
-    "routes.portal":                   "portal",
     # Referring intel
     "routes.referring_intel":          "referring_intel",
     # CD burn API (every RayBurn request) + CD Log pages
