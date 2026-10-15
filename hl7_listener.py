@@ -103,6 +103,7 @@ INSERT_SQL = """
         ordering_physician, order_status,
         patient_class, patient_location,
         referring_physician_code, referring_physician_name,
+        referring_physician_first_name, referring_physician_last_name,
         raw_message, received_at
     ) VALUES (
         :message_id, :message_datetime, :message_type,
@@ -113,6 +114,7 @@ INSERT_SQL = """
         :ordering_physician, :order_status,
         :patient_class, :patient_location,
         :referring_physician_code, :referring_physician_name,
+        :referring_physician_first_name, :referring_physician_last_name,
         :raw_message, :received_at
     )
     ON CONFLICT (message_id) DO UPDATE SET
@@ -133,6 +135,8 @@ INSERT_SQL = """
         patient_location   = EXCLUDED.patient_location,
         referring_physician_code = EXCLUDED.referring_physician_code,
         referring_physician_name = EXCLUDED.referring_physician_name,
+        referring_physician_first_name = EXCLUDED.referring_physician_first_name,
+        referring_physician_last_name  = EXCLUDED.referring_physician_last_name,
         raw_message        = EXCLUDED.raw_message,
         received_at        = EXCLUDED.received_at
 """
@@ -428,8 +432,10 @@ def parse_orm_o01(raw_message):
     # tested against a real PV1-8 sample, _format_name() folded "20000191" into the name.
     _pv1_8 = _field(pv1, 8, '')
     referring_physician_code = _component(_pv1_8, 0)
+    referring_physician_last_name  = _component(_pv1_8, 1, '') or None
+    referring_physician_first_name = _component(_pv1_8, 2, '') or None
     referring_physician_name = ' '.join(filter(None, [
-        _component(_pv1_8, 2, ''), _component(_pv1_8, 1, ''),  # First (comp 2), Last (comp 1)
+        referring_physician_first_name, referring_physician_last_name,
     ])) or None
 
     return {
@@ -452,6 +458,11 @@ def parse_orm_o01(raw_message):
         "order_status":       order_status,
         "referring_physician_code": referring_physician_code,
         "referring_physician_name": referring_physician_name,
+        # Kept as separate parts because the reports read etl_didb_studies'
+        # first/last pair and filter on a non-empty last name; the projector copies
+        # these across (migration 0133).
+        "referring_physician_first_name": referring_physician_first_name,
+        "referring_physician_last_name":  referring_physician_last_name,
         "raw_message":        raw_message,
         "received_at":        datetime.now(),
     }

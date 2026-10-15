@@ -73,7 +73,8 @@ INSERT INTO etl_didb_studies (
     study_description, procedure_code, study_modality,
     patient_class, patient_location, order_status, study_status,
     study_has_report, rep_final_timestamp, rep_final_signed_by,
-    reading_physician_id, age_at_exam, is_linked_study
+    reading_physician_id, age_at_exam, is_linked_study,
+    referring_physician_first_name, referring_physician_last_name
 )
 SELECT
     hl7_surrogate_id('study', st.accession_number),
@@ -116,7 +117,9 @@ SELECT
               (COALESCE(st.completed_at, st.started_at, st.arrived_at, st.scheduled_at)::date
                - p.birth_date)::numeric / 365.25, 2)
          END,
-    FALSE
+    FALSE,
+    ref.first_name,
+    ref.last_name
 FROM ray7_study_state st
 LEFT JOIN hl7_patients p ON p.patient_id = st.patient_id
 LEFT JOIN LATERAL (
@@ -126,6 +129,30 @@ LEFT JOIN LATERAL (
      ORDER BY o.result_datetime DESC NULLS LAST, o.id DESC
      LIMIT 1
 ) r ON TRUE
+-- The referring doctor (PV1-8). Referral Trends, Referring Intel, the churn alerts
+-- and CRN all read this pair off the study row, and several filter on a non-empty
+-- last name, so it must arrive as two parts rather than one display string. The HIS
+-- order is the authority; the report's own PV1-8 covers a study whose order never
+-- reached us. First and last always come from the same message, never mixed.
+LEFT JOIN LATERAL (
+    SELECT c.first_name, c.last_name
+      FROM (
+            SELECT ho.referring_physician_first_name AS first_name,
+                   ho.referring_physician_last_name  AS last_name,
+                   1 AS pri, ho.received_at AS ts, ho.id
+              FROM hl7_orders ho
+             WHERE ho.accession_number = st.accession_number
+               AND NULLIF(ho.referring_physician_last_name, '') IS NOT NULL
+            UNION ALL
+            SELECT ru.referring_physician_first_name, ru.referring_physician_last_name,
+                   2, ru.result_datetime, ru.id
+              FROM hl7_oru_reports ru
+             WHERE ru.accession_number = st.accession_number
+               AND NULLIF(ru.referring_physician_last_name, '') IS NOT NULL
+           ) c
+     ORDER BY c.pri, c.ts DESC NULLS LAST, c.id DESC
+     LIMIT 1
+) ref ON TRUE
 WHERE st.accession_number = :acc
   -- A PROVISIONAL LIFECYCLE IS NOT A STUDY YET.
   --
@@ -158,6 +185,13 @@ ON CONFLICT (study_db_uid) DO UPDATE SET
     rep_final_signed_by  = COALESCE(EXCLUDED.rep_final_signed_by,  etl_didb_studies.rep_final_signed_by),
     reading_physician_id = COALESCE(EXCLUDED.reading_physician_id, etl_didb_studies.reading_physician_id),
     age_at_exam          = COALESCE(EXCLUDED.age_at_exam,       etl_didb_studies.age_at_exam),
+    -- Replaced as a pair, keyed on the last name, so a later message can never leave
+    -- one doctor's first name beside another's surname.
+    referring_physician_first_name = CASE WHEN EXCLUDED.referring_physician_last_name IS NOT NULL
+                                          THEN EXCLUDED.referring_physician_first_name
+                                          ELSE etl_didb_studies.referring_physician_first_name END,
+    referring_physician_last_name  = COALESCE(EXCLUDED.referring_physician_last_name,
+                                              etl_didb_studies.referring_physician_last_name),
     last_update          = NOW()
 """
 

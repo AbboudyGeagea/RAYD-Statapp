@@ -1613,12 +1613,6 @@ COPY public.report_template (report_id, report_name, long_description, report_sq
 --
 
 COPY public.users (id, username, password_hash, role) FROM stdin;
-1	admin	scrypt:32768:8:1$zIVwNzev0WSBKcqf$22eb669e34f4495927d7baa0ff3c34cf838437b3fa1b92ed40e7fe2960ed1037508b83833f08e77701efcfec18ca60536fd40752f20553d027186d8a5e5b7f5c	admin
-2	viewer	scrypt:32768:8:1$HdTiXFpE7DM72FFv$e9f74f207844448e77dd6cfa6edcd387e2e5d9eb6926dc26c543ede22d92648ad8d462c25c868309450f620fe594352558281ac371c3736a0541b9a75f910721	viewer
-3			
-4	role	pbkdf2:sha256:1000000$0zRXA9L3LeM6JpvC$7a66740d4253b8af4734b721b6520ec451e368cb654922f16b93821a97565ea5	viewer
-5	roles	pbkdf2:sha256:1000000$u9gFU5HHA8DzWA8V$266aef6a641ca282437fe23ee1bef4aea2e6f8fd04e08488f0aaece7f7ad51d4	viewer
-6	administrator	pbkdf2:sha256:1000000$zyyEBxFz0AdXs9CK$015f3b344b2eb43887dbd0b7065fd5aa16f592e9dc7d2123f9a3313464119450	admin
 \.
 
 
@@ -1647,7 +1641,7 @@ SELECT pg_catalog.setval('public.report_template_report_id_seq', 42, true);
 -- Name: users_id_seq; Type: SEQUENCE SET; Schema: public; Owner: etl_user
 --
 
-SELECT pg_catalog.setval('public.users_id_seq', 6, true);
+SELECT pg_catalog.setval('public.users_id_seq', 1, false);
 
 
 --
