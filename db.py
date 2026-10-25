@@ -524,7 +524,9 @@ ALL_FEATURE_KEYS = [
 #
 ROLE_PAGE_DEFAULTS = {
     'su':               set(ALL_FEATURE_KEYS),  # Full access
-    'implementation':   {'mapping', 'live_feed', 'hl7_orders', 'custom_reports'},  # Backend config + data ingestion
+    # Backend config + data ingestion. can_view_etl = the RAY7 console: its held
+    # messages and unknown AE titles / status codes are what implementation maps.
+    'implementation':   {'mapping', 'live_feed', 'hl7_orders', 'custom_reports', 'can_view_etl'},
     'administrator':    {'live_feed', 'hl7_orders', 'report_ai', 'oru', 'mapping', 'financial', 'referring_intel', 'custom_reports'},  # All reports + user mgmt
     'user':             {'hl7_orders', 'oru', 'report_ai'},  # Admin assigns which reports
 }

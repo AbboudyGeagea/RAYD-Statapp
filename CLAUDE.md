@@ -163,7 +163,7 @@ projected `etl_didb_studies`, and `go_live_config` is left empty.
 | Role | Who | Access |
 |------|-----|--------|
 | `su` | R&D | everything; only role exempt from license expiry |
-| `implementation` | ATH engineers | mapping (HL7 fields, modalities, procedures), live feed, HL7 orders, Dynamic Worklists (incl. hand-written SQL) |
+| `implementation` | ATH engineers | mapping (HL7 fields, modalities, procedures), live feed, HL7 orders, Dynamic Worklists (incl. hand-written SQL), RAY7 console |
 | `administrator` | radiology manager / chief radiologist | all reports, user management |
 | `user` | read-only staff | reports an administrator grants |
 Old role names (`admin`, `viewer`, `viewer2`, `tec`, `finance`, `secretary`) no longer exist —

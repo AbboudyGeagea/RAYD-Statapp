@@ -43,13 +43,14 @@ def test_anonymous_is_refused(pipe, client):
 
 
 @pytest.mark.parametrize('role,code', [('su', 200), ('administrator', 200),
-                                       ('implementation', 403), ('user', 403)])
+                                       ('implementation', 200), ('user', 403)])
 def test_role_access(pipe, client, role, code):
     assert client.get('/ray7', headers={'X-Test-Role': role}).status_code == code
 
 
-@pytest.mark.parametrize('role', ['implementation', 'user'])
+@pytest.mark.parametrize('role', ['user'])
 def test_replay_is_refused_without_access(pipe, client, role):
+    """Implementation has the console since 2026-10-25 (it maps what RAY7 lists)."""
     hold_unknown_code(pipe)
     r = client.post('/ray7/held/replay', json={}, headers={'X-Test-Role': role})
     assert r.status_code == 403
