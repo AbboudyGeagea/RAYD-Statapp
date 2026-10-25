@@ -70,7 +70,12 @@ ETL_JOBS/daily_analytics.py — 05:30 snapshot for the daily briefing (Postgres 
                               the only module left in ETL_JOBS)
 nlp_worker/worker.py      — standalone medspaCy batch loop (polls every 60s)
 scripts/hl7_scenarios.py  — drive named HL7 scenarios at the listener; reset test data
-tests/                    — test_hl7_parse, test_hl7_fieldmap, test_ray7_rules
+tests/                    — pytest suite (~830 tests, see Dev Workflow): parse, every RAY7
+                            rule, lifecycle/projection, all delivery permutations, sweep,
+                            replay == live, console release, MLLP socket, fuzz, concurrency,
+                            time zone. Runs in its own throwaway DB `rayd_pytest`, never
+                            etl_db. test_hl7_parse/test_hl7_fieldmap/test_ray7_rules are the
+                            older offline scripts (`python tests/<file>`), not collected.
 migrations/NNNN_*.sql     — schema migrations (canonical source of truth)
 install.sh                — production install: no DB/ETL config, first user + license tier
 ```
@@ -178,7 +183,18 @@ dc exec rayd-app python app.py -m --dry-run    # count only
 
 # Send test scenarios at the listener
 python scripts/hl7_scenarios.py --list
+
+# Run the test suite (from the host, stack up; ~2 min). It creates and drops its
+# own database `rayd_pytest` on the dev Postgres (localhost:5432) — etl_db is never
+# touched. Deps: pip install -r tests/requirements.txt
+python -m pytest tests
+#   RAYD_TEST_KEEP_DB=1 keeps rayd_pytest afterwards for inspection;
+#   RAYD_TEST_ADMIN_URL=postgresql://user:pass@host:port/postgres points it elsewhere
 ```
+
+**One clock.** HL7 timestamps are naive hospital time, so every DB session runs on
+`TZ` (default Asia/Beirut) via `db.engine_options()` — the postgres container itself
+is on UTC. Anything that opens its own connection must pass `db.pg_connect_options()`.
 
 **Migrations apply themselves.** `run_migrations()` runs at app startup, so
 `dc up -d` after adding `migrations/NNNN_*.sql` is all that is needed — confirm with

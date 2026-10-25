@@ -1,0 +1,10 @@
+# What the pytest suite needs on top of nothing — it does not import the report
+# routes, so pandas / scikit-learn / APScheduler are not required to run it.
+Flask==3.0.2
+Flask-Login==0.6.3
+Flask-SQLAlchemy==3.1.1
+Flask-WTF==1.2.1
+SQLAlchemy<2.1
+psycopg2-binary
+pytest
+pytest-timeout
