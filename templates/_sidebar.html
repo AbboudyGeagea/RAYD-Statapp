@@ -35,7 +35,7 @@
 {% set overview_on   = ep.startswith('viewer.') %}
 {% set admin_on      = ep in ['admin.admin_dashboard','admin.user_management','admin.audit_log','admin.hl7_forward_config'] or ep.startswith('mapping.') or ep.startswith('ray7_console.') %}
 {% set ops_on        = ep.startswith('live_feed.') or ep.startswith('hl7_orders.') or ep.startswith('report_31.') %}
-{% set analytics_on  = ep.startswith('oru.') or ep.startswith('referring_intel.') or ep.startswith('custom_reports.') %}
+{% set analytics_on  = ep.startswith('oru.') or ep.startswith('referring_intel.') or ep.startswith('worklists.') %}
 {% set ai_on         = ep.startswith('report_ai.') %}
 {% set finance_on    = ep.startswith('financial_dashboard.') %}
 {% set help_on       = ep.startswith('docs.') %}
@@ -194,9 +194,9 @@
             </a>
             {% endif %}
             {% if license.get('custom_reports') and (current_user.role in ('su', 'administrator') or current_user|user_has_page('custom_reports')) %}
-            <a href="/reports/custom"
-               class="sidebar-item {% if ep.startswith('custom_reports.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
-                <i class="bi bi-layout-text-sidebar-reverse flex-shrink-0" style="color:#60a5fa;"></i> Custom Reports
+            <a href="{{ url_for('worklists.page') }}"
+               class="sidebar-item {% if ep.startswith('worklists.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
+                <i class="bi bi-list-columns-reverse flex-shrink-0" style="color:#60a5fa;"></i> Dynamic Worklists
             </a>
             {% endif %}
         </div>

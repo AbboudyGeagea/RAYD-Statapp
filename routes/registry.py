@@ -38,7 +38,7 @@ from routes.referring_intel  import referring_intel_bp
 from routes.financial_config    import financial_config_bp
 from routes.financial_dashboard import financial_dashboard_bp
 from routes.groups_route        import groups_bp
-from routes.custom_reports      import custom_reports_bp
+from routes.worklists           import worklists_bp
 from routes.health_bp           import health_bp
 from routes.resource_monitor    import resource_monitor_bp
 from routes.crn_ack             import crn_ack_bp
@@ -296,7 +296,10 @@ def register_blueprints(app):
         # ── Tier 2: Professional ─────────────────────────────
         'hl7_orders':      (hl7_orders_bp,       {}, [('/hl7/orders',                  'HL7 Orders')]),
         'oru_analytics':   (oru_bp,              {}, [('/oru',                         'Report Intelligence')]),
-        'custom_reports':  (custom_reports_bp,   {}, [('/reports/custom',              'Custom Reports')]),
+        # Dynamic Worklists took Custom Reports' place (and its licence key and page
+        # permission, so licences, role defaults and grants carry over unchanged).
+        'custom_reports':  (worklists_bp,        {}, [('/worklists',                   'Dynamic Worklists'),
+                                                      ('/reports/custom',              'Dynamic Worklists')]),
         'er_dashboard':    (er_bp,               {}, [('/er',                          'ER Dashboard')]),
         'capacity_ladder': (capacity_ladder_bp,  {}, [('/viewer/capacity-ladder',      'Capacity Ladder')]),
         'saved_reports':   (saved_reports_bp,    {'url_prefix': '/saved'}, []),

@@ -81,6 +81,11 @@ routes/
   cd_log_route.py         — POST /cd-burn API (CD/DVD burn events → cd_burn_log)
   cd_log_ui.py            — CD burn log screens; Report 30 reads cd_burn_log
   report_22.py … report_36.py, super_report.py, er_dashboard.py — reports (read etl_*)
+  worklists.py            — Dynamic Worklists (RAYD V2.0 report editor; replaced Custom
+                            Reports, same licence key + page permission `custom_reports`)
+utils/worklist_catalog.py — every dataset/field/grouping/measure a worklist may name
+utils/worklist_engine.py  — compiler (catalog identifiers only, values bound) + executor
+                            (runs on the read-only rpt_<db> role, never the app connection)
 ETL_JOBS/daily_analytics.py — 05:30 snapshot for the daily briefing (Postgres only;
                               the only module left in ETL_JOBS)
 nlp_worker/worker.py      — standalone medspaCy batch loop (polls every 60s)
@@ -134,6 +139,21 @@ settings             — key/value config and license JSON
 users                — role is su | implementation | administrator | user (migration 0131)
 analytics_snapshots  — daily briefing data
 ```
+
+### Dynamic Worklists (migration 0136)
+```
+rpt.exams / rpt.orders / rpt.reports — flat datasets the worklist editor queries
+worklists, worklist_versions        — saved definitions; every save is kept
+worklist_shifts                      — shift hours behind the "shift" field (seeded AM/PM/NIGHT)
+rpt_<database> login role            — SELECT on rpt.* only, read-only, 30 s timeout,
+                                       search_path rpt; password in settings
+                                       (worklist_db_role / worklist_db_password)
+```
+The worklist runner must keep its own login: the app's connection is the table owner
+(a superuser in the postgres image), so `SET ROLE` or `set_config('role', ...)` would
+switch straight back — no in-session privilege drop is a sandbox. A new `rpt` view
+needs no grant (default privileges cover it) but must avoid public-schema functions,
+which run with the caller's (rpt role's) rights.
 Leftover tables from the Oracle era (`db_params`, `adapter_mappings`, `go_live_config`,
 `etl_job_log`) may still exist on older installs; no code on this branch writes to them.
 There is no go-live date: `get_etl_cutoff_date()` returns `MIN(study_date)` from the
@@ -143,7 +163,7 @@ projected `etl_didb_studies`, and `go_live_config` is left empty.
 | Role | Who | Access |
 |------|-----|--------|
 | `su` | R&D | everything; only role exempt from license expiry |
-| `implementation` | ATH engineers | mapping (HL7 fields, modalities, procedures), live feed, HL7 orders, custom reports |
+| `implementation` | ATH engineers | mapping (HL7 fields, modalities, procedures), live feed, HL7 orders, Dynamic Worklists (incl. hand-written SQL) |
 | `administrator` | radiology manager / chief radiologist | all reports, user management |
 | `user` | read-only staff | reports an administrator grants |
 Old role names (`admin`, `viewer`, `viewer2`, `tec`, `finance`, `secretary`) no longer exist —
@@ -159,7 +179,9 @@ never check for them. Page access goes through `user_has_page()` in `db.py`.
    insert itself failed). Only intake may hold. Everything inline before the ACK must be
    an indexed O(1) lookup, under the time budget, and fail-open.
 4. **Report SQL is not touched for HL7** — reports keep reading `etl_*`; HL7 data reaches
-   them only through the projector.
+   them only through the projector. One deliberate exception: the `rpt.*` worklist views
+   read the HL7 tables directly (technician of the Started event, RAY7 notes, order →
+   exam chain exist nowhere in `etl_*`). Only the worklist module reads them.
 5. **SR exclusion** — every query touching `etl_didb_studies` must filter
    `COALESCE(m.modality, s.study_modality, '') != 'SR'`.
 6. **Modality source** — prefer `aetitle_modality_map.modality` over `study_modality`.

@@ -115,7 +115,7 @@ def _get_user_page_columns():
         ('cd_print',        'Patient CD Log'),
         ('oru',             'Report Intelligence'),
         ('referring_intel', 'Referring Intel'),
-        ('custom_reports',  'Custom Reports'),
+        ('custom_reports',  'Dynamic Worklists'),
         # One key, two pages: Modality / Procedures and HL7 → DB. Named so an
         # admin granting it can see it covers both.
         ('mapping',         'Modality / Procedures + HL7 → DB'),

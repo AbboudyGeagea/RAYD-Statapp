@@ -71,6 +71,8 @@ DATA_TABLES = [
 CONFIG_TABLES = [
     'ray7_rules', 'hl7_status_map', 'hl7_result_status_map', 'ray7_ladder_profile',
     'hl7_field_mappings', 'hl7_field_targets', 'settings', 'aetitle_modality_map',
+    # worklists before worklist_versions: deleting a worklist cascades to its versions
+    'worklists', 'worklist_versions', 'worklist_shifts',
 ]
 
 # The bootstrap app.py runs before migrations, reproduced here because it is inline
@@ -225,12 +227,14 @@ def app(database_url):
     @login.request_loader
     def _load(req):
         role = req.headers.get('X-Test-Role')
-        return FakeUser(role) if role else None
+        return FakeUser(role, int(req.headers.get('X-Test-Uid', 4242))) if role else None
 
     run_migrations(flask_app)
 
     from routes.ray7_console import ray7_bp
     flask_app.register_blueprint(ray7_bp)
+    from routes.worklists import worklists_bp
+    flask_app.register_blueprint(worklists_bp)
 
     from db import db
     from sqlalchemy import text
