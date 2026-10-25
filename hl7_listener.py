@@ -93,9 +93,17 @@ ACK_AA      = "AA"             # Application Accept
 ACK_AE      = "AE"             # Application Error
 
 # ── SQL ───────────────────────────────────────────────────────────────────────
+# Keyed on the ARCHIVE ROW, not on MSH-10 (migration 0134).
+#
+# message_id alone was the unique key, so two systems that both number their
+# messages from 1 overwrote each other's orders, and a sender that reused a control
+# ID for a different order (CONTROL_ID_REUSE) lost the first one the moment the
+# second was released. The archive already de-duplicates genuine redeliveries before
+# they get this far, so the only thing an upsert here still has to absorb is a
+# replay of the same archived message — which is exactly what its id identifies.
 INSERT_SQL = """
     INSERT INTO hl7_orders (
-        message_id, message_datetime, message_type,
+        message_id, message_archive_id, message_datetime, message_type,
         patient_id, patient_name, date_of_birth, gender,
         accession_number, placer_order_number,
         procedure_code, procedure_text,
@@ -106,7 +114,7 @@ INSERT_SQL = """
         referring_physician_first_name, referring_physician_last_name,
         raw_message, received_at
     ) VALUES (
-        :message_id, :message_datetime, :message_type,
+        :message_id, :message_archive_id, :message_datetime, :message_type,
         :patient_id, :patient_name, :date_of_birth, :gender,
         :accession_number, :placer_order_number,
         :procedure_code, :procedure_text,
@@ -117,7 +125,7 @@ INSERT_SQL = """
         :referring_physician_first_name, :referring_physician_last_name,
         :raw_message, :received_at
     )
-    ON CONFLICT (message_id) DO UPDATE SET
+    ON CONFLICT (message_archive_id) WHERE message_archive_id IS NOT NULL DO UPDATE SET
         message_datetime   = EXCLUDED.message_datetime,
         patient_id         = EXCLUDED.patient_id,
         patient_name       = EXCLUDED.patient_name,
@@ -206,42 +214,63 @@ from utils.hl7_parse import (      # noqa: E402  (kept beside the other HL7 code
     parse_hl7_datetime as _parse_hl7_datetime,
     format_name as _format_name,
     extract_signing_physician as _extract_signing_physician,
+    modality_of as _modality_of,
 )
 
+
+# One row per accession, holding the CURRENT version of the report.
+#
+# This was fill-only, inherited from LAUMC, where a RIS batch carried the
+# authoritative text and the live ORU could only fill gaps. This branch has no RIS
+# batch: the ORU is the only source there will ever be. So fill-only meant the
+# PRELIMINARY text stayed for good once the final arrived, and a correction (OBX-11
+# C) never replaced what it corrected.
+#
+# A report now replaces the stored one when it is at least as final (signature_rank,
+# from OBX-11 through hl7_result_status_map) and no older (result_datetime). A W
+# delivered after its F therefore cannot demote the final text, and a site that
+# sends no OBX-11 at all falls back to "newest wins". The descriptive columns stay
+# fill-only: the procedure does not change between versions of one report.
+_NEWER_REPORT = """(COALESCE(EXCLUDED.signature_rank, 0),
+                    COALESCE(EXCLUDED.result_datetime, '-infinity'::timestamp))
+                >= (COALESCE(hl7_oru_reports.signature_rank, 0),
+                    COALESCE(hl7_oru_reports.result_datetime, '-infinity'::timestamp))"""
 
 ORU_INSERT_SQL = """
     INSERT INTO hl7_oru_reports
         (procedure_code, procedure_name, modality, physician_id,
          patient_id, accession_number,
          report_text, impression_text, result_datetime, received_at, report_source,
+         signature_rank,
          referring_physician_code, referring_physician_first_name,
          referring_physician_last_name, referring_physician_middle_name)
     VALUES
         (:procedure_code, :procedure_name, :modality, :physician_id,
          :patient_id, :accession_number,
          :report_text, :impression_text, :result_datetime, :received_at, 'hl7',
+         :signature_rank,
          :referring_physician_code, :referring_physician_first_name,
          :referring_physician_last_name, :referring_physician_middle_name)
     ON CONFLICT (accession_number) DO UPDATE SET
-        -- FILL-ONLY. The RIS batch (report_source='ris') carries the authoritative,
-        -- complete, decrypted plain text; the live ORU can be partial or (at LAUMC)
-        -- encrypted, so it must never overwrite a value that already exists — it only
-        -- fills gaps. Order of arrival is irrelevant: whoever wrote a field first keeps it,
-        -- except the RIS ETL which deliberately wins on report_text/impression_text.
         procedure_code  = COALESCE(hl7_oru_reports.procedure_code,  EXCLUDED.procedure_code),
         procedure_name  = COALESCE(hl7_oru_reports.procedure_name,  EXCLUDED.procedure_name),
         modality        = COALESCE(hl7_oru_reports.modality,        EXCLUDED.modality),
-        physician_id    = COALESCE(hl7_oru_reports.physician_id,    EXCLUDED.physician_id),
         patient_id      = COALESCE(hl7_oru_reports.patient_id,      EXCLUDED.patient_id),
-        report_text     = COALESCE(hl7_oru_reports.report_text,     EXCLUDED.report_text),
-        impression_text = COALESCE(hl7_oru_reports.impression_text, EXCLUDED.impression_text),
-        result_datetime = COALESCE(hl7_oru_reports.result_datetime, EXCLUDED.result_datetime),
+        physician_id    = CASE WHEN {newer} THEN COALESCE(EXCLUDED.physician_id, hl7_oru_reports.physician_id)
+                               ELSE COALESCE(hl7_oru_reports.physician_id, EXCLUDED.physician_id) END,
+        report_text     = CASE WHEN {newer} THEN COALESCE(EXCLUDED.report_text, hl7_oru_reports.report_text)
+                               ELSE COALESCE(hl7_oru_reports.report_text, EXCLUDED.report_text) END,
+        impression_text = CASE WHEN {newer} THEN COALESCE(EXCLUDED.impression_text, hl7_oru_reports.impression_text)
+                               ELSE COALESCE(hl7_oru_reports.impression_text, EXCLUDED.impression_text) END,
+        result_datetime = CASE WHEN {newer} THEN COALESCE(EXCLUDED.result_datetime, hl7_oru_reports.result_datetime)
+                               ELSE COALESCE(hl7_oru_reports.result_datetime, EXCLUDED.result_datetime) END,
+        signature_rank  = GREATEST(hl7_oru_reports.signature_rank, EXCLUDED.signature_rank),
         report_source   = COALESCE(hl7_oru_reports.report_source,   'hl7'),
         referring_physician_code        = COALESCE(hl7_oru_reports.referring_physician_code,        EXCLUDED.referring_physician_code),
         referring_physician_first_name  = COALESCE(hl7_oru_reports.referring_physician_first_name,  EXCLUDED.referring_physician_first_name),
         referring_physician_last_name   = COALESCE(hl7_oru_reports.referring_physician_last_name,   EXCLUDED.referring_physician_last_name),
         referring_physician_middle_name = COALESCE(hl7_oru_reports.referring_physician_middle_name, EXCLUDED.referring_physician_middle_name)
-"""
+""".replace('{newer}', _NEWER_REPORT)
 
 # OBX value types that are clearly non-text — skip these, accept everything else
 _OBX_SKIP_TYPES = {'NM', 'DT', 'TM', 'DTM', 'ID', 'IS', 'NR', 'SN', 'CQ'}
@@ -252,7 +281,7 @@ _HL7_ESC = re.compile(r'\\[A-Za-z.]+\\')
 def _clean_obx_text(val):
     """Strip HL7 escape sequences and tidy whitespace."""
     val = _HL7_ESC.sub(' ', val)
-    val = val.replace('\.br\\', ' ').replace('\\.br\\', ' ')
+    val = val.replace('\\.br\\', ' ')
     return ' '.join(val.split())
 
 
@@ -294,7 +323,7 @@ def parse_oru_r01(raw_message):
     proc_raw         = _field(obr, 4, '')
     procedure_code   = _component(proc_raw, 0)
     procedure_name   = _component(proc_raw, 1) or _component(proc_raw, 2)
-    modality         = _field(obr, 24) or _field(obr, 19) or _field(obr, 17)
+    modality         = _modality_of(obr)
     result_dt        = _parse_hl7_datetime(_field(obr, 22) or _field(obr, 7))
     # Accession: OBR-3 (filler order number) component 1
     acc_raw          = _field(obr, 3, '')
@@ -407,7 +436,7 @@ def parse_orm_o01(raw_message):
     procedure_code = _component(proc_raw, 0)
     procedure_text = _component(proc_raw, 1)
 
-    modality = _field(obr, 24) or _field(obr, 19) or _field(obr, 17)
+    modality = _modality_of(obr)
 
     scheduled_datetime = _parse_hl7_datetime(
         _component(_field(obr, 7, ''), 0) or _component(_field(orc, 7, ''), 3)
@@ -502,7 +531,7 @@ def parse_pacs_completion(raw_message):
         'patient_name':     _format_name(_field(pid, 5)),
         'procedure_code':   _component(proc_raw, 0) or None,
         'procedure_text':   _component(proc_raw, 1) or None,
-        'modality':         _field(obr, 24) or _field(obr, 19) or None,
+        'modality':         _modality_of(obr),
         'storing_ae':       _field(msh, 3) or None,
         'patient_class':    _field(pv1, 2) or _field(pid, 18) or None,
         'study_datetime':   pacs_done_at or datetime.now(),
@@ -564,7 +593,7 @@ def _is_pacs_completion(msg, app):
     return (msg.sending_app or '').strip().upper() == configured.strip().upper()
 
 
-def _legacy_writes(raw_message, segments, msg, app):
+def _legacy_writes(raw_message, segments, msg, app, archive_id=None):
     """
     The type-specific writes that predate this pipeline: hl7_oru_reports,
     hl7_orders, and the PACS auto-done into hl7_scn_studies.
@@ -594,6 +623,9 @@ def _legacy_writes(raw_message, segments, msg, app):
             logger.warning("ORU with no report_text | proc=%s | OBX types=%s | count=%d",
                            parsed_oru.get('procedure_code'), obx_types, len(obx_types))
         else:
+            # The signature rung decides whether this version replaces the stored
+            # one (see ORU_INSERT_SQL); RAY7's parse already resolved it.
+            parsed_oru['signature_rank'] = msg.ladder_rank if msg.kind == 'result' else None
             try:
                 with db.session.begin_nested():
                     db.session.execute(text(ORU_INSERT_SQL), parsed_oru)
@@ -614,6 +646,7 @@ def _legacy_writes(raw_message, segments, msg, app):
             if field_map:
                 seg_dict = {s.split('|')[0]: s for s in segments}
                 parsed = _apply_field_map(seg_dict, parsed, field_map)
+            parsed['message_archive_id'] = archive_id
             try:
                 with db.session.begin_nested():
                     db.session.execute(text(INSERT_SQL), parsed)
@@ -651,6 +684,46 @@ def _legacy_writes(raw_message, segments, msg, app):
     return written
 
 
+def apply_accepted(raw_message, segments, msg, archive_id, app):
+    """
+    Everything an accepted message writes, in the one order that is correct.
+
+        persist events/state -> legacy writes -> project -> direct overrides
+
+    Shared by live ingestion and by replay (which is also how the RAY7 console
+    releases a quarantined study). There used to be two copies, and replay's lacked
+    the legacy writes, so a released report never reached hl7_oru_reports and a
+    released order never reached hl7_orders: the study came back into the reports
+    with its report or its order missing, while the console said it was released.
+
+    The order is load-bearing: the projector reads ray7_study_state, which
+    persist_parsed has just advanced, and hl7_oru_reports, which _legacy_writes has
+    just written; operator-configured direct writes run last so an override
+    genuinely overrides the projected value rather than racing it.
+    """
+    from utils.hl7_ingest import persist_parsed
+    from utils.hl7_project import project_message, apply_direct_overrides
+    parts = [persist_parsed(msg, archive_id)]
+    parts += _legacy_writes(raw_message, segments, msg, app, archive_id)
+    parts += project_message(msg)
+    parts += apply_direct_overrides(msg, segments)
+    return parts
+
+
+def _split(raw_message):
+    return [s.strip() for s in raw_message.replace('\r\n', '\r').replace('\n', '\r').split('\r')
+            if s.strip()]
+
+
+# Postgres TEXT cannot hold U+0000, so a message carrying one failed the archive
+# INSERT and was answered AE. The sender then resent the same bytes, failed again,
+# and — since MLLP senders deliver in order — every message queued behind it waited
+# forever. A NUL is stored as HL7's own hex escape for that byte (\X00\), which
+# keeps the message parseable and the original byte recoverable.
+_NUL = '\x00'
+_NUL_ESCAPED = '\\X00\\'
+
+
 def _process_message(raw_message, segments, addr, app):
     """
     One message, end to end. Returns True when it was safely archived.
@@ -669,9 +742,12 @@ def _process_message(raw_message, segments, addr, app):
     from db import db
     from utils import ray7
     from utils.hl7_parse import parse_message
-    from utils.hl7_ingest import (archive, persist_parsed, mark_parsed,
-                                  mark_quarantined, mark_parse_error)
-    from utils.hl7_project import project_message
+    from utils.hl7_ingest import (archive, mark_parsed, mark_quarantined,
+                                  mark_parse_error)
+
+    if _NUL in raw_message:
+        raw_message = raw_message.replace(_NUL, _NUL_ESCAPED)
+        segments = _split(raw_message)
 
     with app.app_context():
         msg = parse_message(raw_message, source_ip=addr[0] if addr else None)
@@ -698,17 +774,7 @@ def _process_message(raw_message, segments, addr, app):
             ray7.persist(verdict, msg, archive_id)
 
             if verdict.may_project:
-                parts = [persist_parsed(msg, archive_id)]
-                parts += _legacy_writes(raw_message, segments, msg, app)
-                # Last, and the order is load-bearing: the projector reads
-                # ray7_study_state, which persist_parsed has just advanced, and
-                # hl7_oru_reports, which _legacy_writes has just written. Running
-                # it earlier would project the study as it was one event ago.
-                parts += project_message(msg)
-                # Operator-configured direct writes run last, so an override
-                # genuinely overrides the projected value rather than racing it.
-                from utils.hl7_project import apply_direct_overrides
-                parts += apply_direct_overrides(msg, segments)
+                parts = apply_accepted(raw_message, segments, msg, archive_id, app)
                 written = ', '.join(p for p in parts if p and p != 'nothing') or 'nothing'
                 mark_parsed(archive_id, projected=True)
             else:

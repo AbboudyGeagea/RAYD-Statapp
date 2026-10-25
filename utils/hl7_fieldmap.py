@@ -197,6 +197,30 @@ def apply_to_message(msg, segments):
     return applied
 
 
+def peek(segments, sending_app, kind, target_field):
+    """
+    The value the site's 'parsed' mappings give one field, or None — read BEFORE
+    the message is classified.
+
+    For the few fields that decide what a message IS (the status codes) the overlay
+    in apply_to_message() is too late: by then the dispatcher has already resolved
+    the rung from ORC-5. Same priority order, same scoping, same extraction.
+    """
+    try:
+        by_name = _index_segments(segments)
+        rows = sorted((m for m in _mappings()
+                       if m['target_kind'] == 'parsed' and m['target_field'] == target_field
+                       and _applies(m, sending_app, kind)),
+                      key=lambda r: r['priority'])
+        for m in rows:
+            value = _extract(by_name, m)
+            if value is not None:
+                return value
+    except Exception:
+        logger.exception("mapping peek failed for %s", target_field)
+    return None
+
+
 def direct_overrides(msg, segments):
     """
     Configured writes that bypass the pipeline and target an etl_* column.

@@ -204,7 +204,11 @@ def persist_parsed(msg, archive_id):
                     'patient_class':    msg.patient_class,
                     'patient_location': msg.patient_location,
                     'last_adt_event':   msg.message_type if msg.kind == 'adt' else None,
-                    'last_message_at':  msg.message_datetime,
+                    # The last-write-wins clock is for DEMOGRAPHICS, so only the
+                    # messages that carry them may move it. An ORM or ORU stamped by
+                    # a RIS whose clock runs ahead of the HIS used to advance it, and
+                    # the A08 correction that followed was then rejected as "older".
+                    'last_message_at':  msg.message_datetime if msg.kind == 'adt' else None,
                     'archive_id':       archive_id,
                 })
             written.append('patient')
@@ -226,6 +230,21 @@ def persist_parsed(msg, archive_id):
     # lifecycle log on exactly the same terms as a status message.
     if (msg.kind in ('status', 'order', 'result')
             and msg.canonical_state and msg.ladder_rank is not None):
+        # A placer-only message (the HIS order) for an order the RIS has ALREADY
+        # scheduled: it belongs to that study. Without this an ORM NW delivered after
+        # its own SC opened a second, provisional lifecycle that nothing would ever
+        # rekey — the SC that does the rekeying had already been and gone — and the
+        # study never acquired its ordered_at.
+        #
+        # The accession is written back onto the message deliberately, so that the
+        # event row, the state upsert, the projection and the direct overrides that
+        # follow all address the real study. Screening has already run; it found the
+        # same study through the same order number (_Context._load_state).
+        if not msg.accession_number and msg.placer_order_number:
+            known = accession_for_placer(msg.placer_order_number)
+            if known:
+                msg.accession_number = known
+
         if msg.accession_number or msg.placer_order_number:
             try:
                 with db.session.begin_nested():
@@ -280,9 +299,11 @@ def persist_parsed(msg, archive_id):
                 # made UNREPORTED unsatisfiable — the study stops being tracked at the
                 # precise moment it still needs its final signature. Closure is now
                 # rank 140 or cancellation, and nowhere else.
+                # LEAST, not COALESCE: "when was it first reported" is the earliest
+                # report time, whichever report happened to be delivered first.
                 db.session.execute(text("""
                     UPDATE ray7_study_state
-                       SET reported_at = COALESCE(reported_at, :reported_at),
+                       SET reported_at = LEAST(reported_at, :reported_at),
                            updated_at  = NOW()
                      WHERE accession_number = :acc
                 """), {'acc': msg.accession_number, 'reported_at': msg.event_time})
@@ -377,18 +398,79 @@ def _rekey_provisional(msg):
                      WHERE accession_number = :prov
                 """), {'acc': acc, 'prov': prov})
 
-            # The lifecycle log and any findings raised against the provisional key
-            # have to follow, or the ordered event is orphaned under a key nothing
-            # refers to any more and the study looks like it was never ordered.
-            for tbl in ('hl7_study_events', 'ray7_findings'):
-                db.session.execute(text(f"""
-                    UPDATE {tbl} SET accession_number = :acc
-                     WHERE accession_number = :prov
-                """), {'acc': acc, 'prov': prov})
+            # Findings raised against the provisional key have to follow it.
+            db.session.execute(text("""
+                UPDATE ray7_findings SET accession_number = :acc
+                 WHERE accession_number = :prov
+            """), {'acc': acc, 'prov': prov})
+
+            # And so does the order's own event — which is stored with NO accession
+            # (the ORM NW had none), not under the provisional key. Matching it on
+            # the key, as this did, never found it: every scheduled study's lifecycle
+            # log began at Scheduled and the study read as never having been ordered.
+            db.session.execute(text("""
+                UPDATE hl7_study_events SET accession_number = :acc
+                 WHERE accession_number IS NULL AND placer_order_number = :placer
+            """), {'acc': acc, 'placer': placer})
         return True
     except Exception:
         logger.exception("RAY7/ingest: rekey of %s to %s failed", prov, acc)
         return False
+
+
+def accession_for_placer(placer_order_number):
+    """
+    The accession the RIS minted for this order, if a scheduled study already holds
+    it. The most recent wins when one order became several exams. Indexed
+    (idx_ray7_state_placer), and None when anything goes wrong — the caller then
+    opens a provisional lifecycle, which the next scheduling message folds in.
+    """
+    try:
+        row = db.session.execute(text("""
+            SELECT accession_number FROM ray7_study_state
+             WHERE placer_order_number = :p AND NOT is_provisional
+             ORDER BY first_seen_at DESC
+             LIMIT 1
+        """), {'p': placer_order_number}).first()
+        return row[0] if row else None
+    except Exception:
+        logger.exception("RAY7/ingest: placer lookup failed | placer=%s", placer_order_number)
+        return None
+
+
+# Attributes a later rung legitimately refines — the device and room the exam ran
+# on, the procedure as finally performed, where the patient was. Each takes its value
+# from the HIGHEST-ranked ORDER OR EXAM event that carried one (ranks 0–100), latest
+# first on a tie; the report and cancellation rungs are used only when no exam event
+# has a value. The report comes from another system with its own, often abbreviated,
+# coding ("CT ABDO" for the RIS's "CT ABDOMEN AND PELVIS"), and it describes the
+# exam rather than taking part in it.
+#
+# Read from the study's own lifecycle log rather than decided by arrival order:
+# "the most recent message wins" made the projected device depend on which message
+# the queue happened to deliver last, so the same study could come out on two
+# different AE titles from two delivery orders — and differently again on replay.
+# A handful of rows on an index per study.
+_REFINED = ('aetitle', 'room_name', 'patient_class', 'patient_location', 'modality',
+            'procedure_code', 'procedure_text')
+_REFINED_ORDER = ('(e.ladder_rank BETWEEN 0 AND 100) DESC, e.ladder_rank DESC, '
+                  'e.event_time DESC, e.id DESC')
+
+_REFINE_SQL = """
+UPDATE ray7_study_state s
+   SET {sets}
+  FROM (
+        SELECT {aggs}
+          FROM hl7_study_events e
+         WHERE e.accession_number = :acc
+       ) x
+ WHERE s.accession_number = :acc
+""".format(
+    sets=',\n       '.join(f"{c} = COALESCE(x.{c}, s.{c})" for c in _REFINED),
+    aggs=',\n               '.join(
+        f"(array_agg(e.{c} ORDER BY {_REFINED_ORDER}) "
+        f"FILTER (WHERE e.{c} IS NOT NULL))[1] AS {c}" for c in _REFINED),
+)
 
 
 def update_study_state(msg):
@@ -407,11 +489,20 @@ def update_study_state(msg):
     must see the state as it was BEFORE that message, or every event would find
     itself already recorded and the comparisons would be meaningless.
 
-    Each rung keeps its FIRST timestamp (COALESCE on the stored value), because a
+    Each rung keeps its FIRST timestamp — the EARLIEST one (LEAST), because a
     repeated Arrived is a real occurrence here and the clinically meaningful moment
-    is when the patient first arrived. current_rank only ever moves forward via
-    GREATEST, so a late-delivered earlier event cannot walk the study backwards —
-    the ladder records the furthest point reached, not the most recent message.
+    is when the patient first arrived. It used to be COALESCE on the stored value,
+    which is the first one DELIVERED: a repeat stamped earlier but queued behind a
+    later one then lost, and the same study came out differently depending on
+    delivery order and differently again on replay, which takes MIN. current_rank
+    only ever moves forward via GREATEST, so a late-delivered earlier event cannot
+    walk the study backwards — the ladder records the furthest point reached, not
+    the most recent message.
+
+    Every column is now order-independent: rung times by LEAST, rank by GREATEST,
+    identity by first-seen, and the refined attributes from the highest-ranked
+    event (_REFINED). That is what lets replay rebuild state by simply re-walking
+    the archive, and what makes the projected study independent of the queue.
     """
     column = _RUNG_COLUMN.get(msg.canonical_state or '')
     if not column or msg.ladder_rank is None:
@@ -467,7 +558,7 @@ def update_study_state(msg):
              -- is the one the queue most needs to show.
              :rank, 1, :rank >= 140 OR :state = 'cancelled', NOW(), :event_time, NOW())
         ON CONFLICT (accession_number) DO UPDATE SET
-            {col}               = COALESCE(ray7_study_state.{col}, EXCLUDED.{col}),
+            {col}               = LEAST(ray7_study_state.{col}, EXCLUDED.{col}),
             placer_order_number = COALESCE(ray7_study_state.placer_order_number, EXCLUDED.placer_order_number),
             patient_id          = COALESCE(ray7_study_state.patient_id,     EXCLUDED.patient_id),
             modality            = COALESCE(ray7_study_state.modality,       EXCLUDED.modality),
@@ -494,7 +585,10 @@ def update_study_state(msg):
                 'accession':      key,
                 'placer':         msg.placer_order_number,
                 'visit_number':   msg.visit_number,
-                'provisional':    is_provisional_key(key),
+                # From the MESSAGE, never from the key's spelling: an accession that
+                # merely begins with '~ORD:' is still an accession, and reading the
+                # prefix hid such a study from the reports as an unscheduled order.
+                'provisional':    not msg.accession_number,
                 'patient_id':     msg.patient_id,
                 'modality':       msg.modality,
                 # aetitle and room come from the Started event and should win when
@@ -511,6 +605,8 @@ def update_study_state(msg):
                 'state':          msg.canonical_state,
                 'col':            column,
             })
+            if msg.accession_number:
+                db.session.execute(text(_REFINE_SQL), {'acc': key})
     except Exception:
         logger.exception("RAY7/ingest: ray7_study_state upsert failed | acc=%s",
                          msg.accession_number)

@@ -186,29 +186,40 @@ ON CONFLICT (rule_code, accession_number)
 DO NOTHING
 """
 
-# ORPHAN_ORDER looks at the other side: a HIS order whose accession the RIS never
-# minted, so it can never be matched to a study. Sourced from hl7_orders because
-# by definition no ray7_study_state row was ever created for it.
+# ORPHAN_ORDER looks at the other side: a HIS order the RIS never scheduled, so it
+# can never be matched to a study.
+#
+# Read from ray7_study_state, where every ORM NW has opened a lifecycle since 0130 —
+# under its accession if it carried one, under the provisional ~ORD: key if not.
+# It used to read hl7_orders and require an accession, which is exactly what a HIS
+# order does NOT have (the RIS mints it at scheduling), so the normal shape of an
+# orphan was the one shape it could never see. The provisional key is a stable
+# accession_number for the open-finding index, and the rekey carries the finding
+# over to the real accession once scheduling turns up, where auto-resolve closes it.
+#
+# "Never progressed" rather than "never scheduled": a walk-in order that went
+# straight to Arrived is not an orphan.
 _ORPHAN_ORDER_SQL = """
 INSERT INTO ray7_findings
     (message_archive_id, rule_code, severity, accession_number, patient_id, detail)
 SELECT
-    NULL, 'ORPHAN_ORDER', :severity, o.accession_number, o.patient_id,
+    NULL, 'ORPHAN_ORDER', :severity, s.accession_number, s.patient_id,
     jsonb_build_object(
-        'ordered_at',        o.message_datetime,
-        'stalled_minutes',   ROUND(EXTRACT(EPOCH FROM (NOW() - o.message_datetime)) / 60.0),
-        'threshold_minutes', :threshold,
-        'placer_order_number', o.placer_order_number,
+        'ordered_at',          s.ordered_at,
+        'stalled_minutes',     ROUND(EXTRACT(EPOCH FROM (NOW() - s.ordered_at)) / 60.0),
+        'threshold_minutes',   :threshold,
+        'placer_order_number', s.placer_order_number,
+        'provisional',         s.is_provisional,
         'note', 'a HIS order the RIS never scheduled, so it can never match a study'
     )
-FROM hl7_orders o
-WHERE o.accession_number IS NOT NULL
-  AND o.message_datetime < NOW() - make_interval(mins => :threshold)
-  AND NOT EXISTS (
-        SELECT 1 FROM ray7_study_state s
-         WHERE s.accession_number = o.accession_number
-           AND s.scheduled_at IS NOT NULL
-  )
+FROM ray7_study_state s
+WHERE s.ordered_at IS NOT NULL
+  AND s.scheduled_at IS NULL AND s.arrived_at IS NULL AND s.started_at IS NULL
+  AND s.completed_at IS NULL AND s.pacs_completed_at IS NULL
+  AND s.cancelled_at IS NULL
+  AND NOT s.is_closed
+  AND s.ordered_at < NOW() - make_interval(mins => :threshold)
+  AND (:modality = '' OR s.modality = :modality)
 ON CONFLICT (rule_code, accession_number)
     WHERE message_archive_id IS NULL AND resolved_at IS NULL
 DO NOTHING
@@ -227,14 +238,27 @@ UPDATE ray7_findings f
  WHERE f.resolved_at IS NULL
    AND f.accession_number = s.accession_number
    AND (
-        -- Absence findings: the rung we were waiting for turned up.
+        -- Absence findings: the study moved past the rung it was stuck at.
+        --
+        -- ANY later rung, not only the next one. With a rung disabled the stall
+        -- rules bridge over it (arrived waits on completed when started is off), and
+        -- the old "next rung only" test then waited forever for an event the site
+        -- does not send — the finding could be raised but never cleared. A later
+        -- rung arriving means the study is not stuck where the finding says.
         (f.message_archive_id IS NULL AND (
-            (f.rule_code = 'STALLED_SCHEDULED' AND s.arrived_at   IS NOT NULL) OR
-            (f.rule_code = 'STALLED_ARRIVED'   AND s.started_at   IS NOT NULL) OR
-            (f.rule_code = 'STALLED_STARTED'   AND s.completed_at IS NOT NULL) OR
-            (f.rule_code = 'UNREPORTED'        AND s.reported_at  IS NOT NULL) OR
+            (f.rule_code = 'STALLED_SCHEDULED' AND COALESCE(s.arrived_at, s.started_at,
+                 s.completed_at, s.pacs_completed_at) IS NOT NULL) OR
+            (f.rule_code = 'STALLED_ARRIVED'   AND COALESCE(s.started_at, s.completed_at,
+                 s.pacs_completed_at) IS NOT NULL) OR
+            (f.rule_code = 'STALLED_STARTED'   AND COALESCE(s.completed_at,
+                 s.pacs_completed_at) IS NOT NULL) OR
+            (f.rule_code = 'UNREPORTED'        AND COALESCE(s.reported_at, s.signed_prelim_at,
+                 s.signed_final_at) IS NOT NULL) OR
             (f.rule_code = 'STALLED_UNSIGNED'  AND s.signed_final_at IS NOT NULL) OR
-            (f.rule_code = 'ORPHAN_ORDER'      AND s.scheduled_at IS NOT NULL) OR
+            (f.rule_code = 'ORPHAN_ORDER'      AND (s.scheduled_at IS NOT NULL OR
+                                                    s.arrived_at   IS NOT NULL OR
+                                                    s.started_at   IS NOT NULL OR
+                                                    s.completed_at IS NOT NULL)) OR
             s.cancelled_at IS NOT NULL
         ))
         OR
@@ -323,16 +347,15 @@ def run_sweep():
                                  rule['code'], cfg['modality'])
 
     for cfg in _rule_settings('ORPHAN_ORDER'):
-        if cfg['modality']:
-            continue        # hl7_orders is not scoped by our modality mapping
         try:
             with db.session.begin_nested():
                 result = db.session.execute(text(_ORPHAN_ORDER_SQL), {
                     'severity':  cfg['severity'],
                     'threshold': cfg['threshold_minutes'],
+                    'modality':  cfg['modality'] or '',
                 })
             if result.rowcount:
-                raised['ORPHAN_ORDER'] = result.rowcount
+                raised['ORPHAN_ORDER'] = raised.get('ORPHAN_ORDER', 0) + result.rowcount
         except Exception:
             logger.exception("RAY7 sweep: ORPHAN_ORDER failed")
 

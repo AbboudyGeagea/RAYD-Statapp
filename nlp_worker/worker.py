@@ -362,12 +362,18 @@ def _affirmed_phrases_batch(texts):
 # ── PostgreSQL ────────────────────────────────────────────────────────────────
 
 def _get_conn():
+    # Same session clock as the app (db.session_timezone()): received_at is written
+    # in hospital time, so "the last N days" has to be measured in it too. This
+    # container cannot import the app's db module, hence the small duplicate.
+    tz = (os.environ.get('TZ') or 'Asia/Beirut').strip()
+    options = f'-c timezone={tz}' if tz.replace('/', '').replace('_', '').isalnum() else ''
     return psycopg2.connect(
         host=os.environ.get('POSTGRES_HOST', 'db'),
         port=int(os.environ.get('POSTGRES_PORT', 5432)),
         dbname=os.environ['POSTGRES_DB'],
         user=os.environ['POSTGRES_USER'],
         password=os.environ['POSTGRES_PASSWORD'],
+        options=options,
     )
 
 

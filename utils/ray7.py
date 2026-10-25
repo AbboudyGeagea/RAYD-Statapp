@@ -457,7 +457,14 @@ def is_expected(rank):
     An UNKNOWN rank counts as expected. A rank RAY7 has no profile row for is a gap
     in configuration, not a statement that the site does not send it, and treating it
     as unexpected would make a missing row silently suppress rules.
+
+    So does every rank on an UNCONFIGURED profile — the all-off seed means "nobody
+    has said", per profile_configured(). Reading it literally retired SKIPPED_RUNG at
+    every install that had not mapped its ladder: it skips any rung that is not
+    expected, and on the shipped seed no rung was, so the rule could never fire.
     """
+    if not profile_configured():
+        return True
     rung = rung_by_rank(rank)
     if rung is None:
         return True
@@ -723,7 +730,12 @@ def _rule_missing_identifier(msg, ctx):
 @_rule('UNKNOWN_STATUS_CODE', kinds={'status'})
 def _rule_unknown_status(msg, ctx):
     # The parser resolves the code; an unresolved one arrives here with no rank.
-    if msg.raw_order_status and msg.ladder_rank is None:
+    #
+    # Any status message without a rung, not only one whose ORC-5 is filled. An
+    # ORC-1 = XO (order changed) with ORC-5 empty used to pass every rule, write
+    # nothing and be stamped "accepted" — precisely the transition dropped on the
+    # floor without anyone noticing that this rule exists to prevent.
+    if msg.ladder_rank is None:
         return [Finding('UNKNOWN_STATUS_CODE', CRITICAL, {
             'order_control': msg.raw_order_control,
             'order_status': msg.raw_order_status,

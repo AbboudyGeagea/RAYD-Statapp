@@ -115,7 +115,10 @@ def parse_hl7_datetime(val):
     # followed by four digits at the end. Splitting on '-' unconditionally would
     # destroy any sender that ever emits an ISO-style date.
     val = re.sub(r'[+-]\d{4}$', '', val)
-    for length, fmt in ((14, '%Y%m%d%H%M%S'), (12, '%Y%m%d%H%M'), (8, '%Y%m%d')):
+    # Hour precision (YYYYMMDDHH) is legal DTM. Without its own entry it fell through
+    # to the date-only format and moved the event to midnight.
+    for length, fmt in ((14, '%Y%m%d%H%M%S'), (12, '%Y%m%d%H%M'), (10, '%Y%m%d%H'),
+                        (8, '%Y%m%d')):
         if len(val) >= length:
             try:
                 return datetime.strptime(val[:length], fmt)
@@ -301,6 +304,19 @@ def _identity(segments, msg):
     msg.visit_number = component(field(pv1, 19, ''), 0) or None
 
 
+def modality_of(obr):
+    """
+    The modality code from OBR-24 (falling back to OBR-19, then OBR-17).
+
+    Component 1 only. Senders that code the field as a CE send "US^US" or
+    "MR^Magnetic Resonance^DCM", and storing the whole value put "CT^CT" in the
+    modality column of every study a generator sent on 2026-09-24 — which no
+    modality filter, colour map or SR exclusion recognises.
+    """
+    raw = field(obr, 24) or field(obr, 19) or field(obr, 17)
+    return component(raw, 0) if raw else None
+
+
 def _clinical(segments, msg):
     """Procedure, modality, class and location, where the message carries them."""
     pid = seg(segments, 'PID')
@@ -310,7 +326,7 @@ def _clinical(segments, msg):
     proc = field(obr, 4, '')
     msg.procedure_code = component(proc, 0)
     msg.procedure_text = component(proc, 1) or component(proc, 2)
-    msg.modality = field(obr, 24) or field(obr, 19) or field(obr, 17)
+    msg.modality = modality_of(obr)
 
     # PV1-2 patient class, falling back to PID-18 for senders that omit PV1.
     msg.patient_class = field(pv1, 2) or field(pid, 18)
@@ -480,6 +496,23 @@ def parse_result(segments, msg):
     return msg
 
 
+# ORC-1 order-control codes that mean the order is off: cancel request, cancelled,
+# cancelled as requested, discontinue request, discontinued, discontinued as
+# requested. Each resolves through hl7_status_map (seeded in 0117 and 0134).
+_CANCEL_CONTROLS = {'CA', 'OC', 'CR', 'DC', 'OD', 'DR'}
+
+
+def _mapped_status_codes(segments, sending_app, control, status):
+    """ORC-1 / ORC-5 as the site's field mappings define them, else as received."""
+    try:
+        from utils.hl7_fieldmap import peek
+        control = peek(segments, sending_app, 'status', 'raw_order_control') or control
+        status = peek(segments, sending_app, 'status', 'raw_order_status') or status
+    except Exception:
+        logger.exception("status-code mapping lookup failed; using ORC-1/ORC-5 as received")
+    return control or '', status or ''
+
+
 def parse_message(raw_message, source_ip=None):
     """
     Parse any inbound message into a ParsedMessage.
@@ -506,9 +539,27 @@ def parse_message(raw_message, source_ip=None):
             control = field(orc, 1, '')
             status = field(orc, 5, '')
 
+            # A site whose real status lives elsewhere (a Z-segment, say) maps
+            # raw_order_status / raw_order_control there. The mapped code has to
+            # drive the CLASSIFICATION, which happens here — the general overlay in
+            # `finally` runs after dispatch and could only relabel a message already
+            # filed under the wrong rung, or as unknown.
+            control, status = _mapped_status_codes(segments, msg.sending_app, control, status)
+
             # A new order is an order regardless of what ORC-5 says.
             if control.upper() == 'NW':
                 return parse_order(segments, msg)
+
+            # Many senders cancel with the order-control code alone (ORC-1 = CA / OC /
+            # DC ...) and leave ORC-5 empty. Classified through the status map like
+            # any other code, so a site can still re-map it, but only when ORC-5 is
+            # silent: an ORC-5 that says something always wins.
+            if not status and control.upper() in _CANCEL_CONTROLS:
+                state, rank = resolve_status(msg.sending_app, control, control)
+                if state:
+                    msg = parse_status_event(segments, msg, state, rank)
+                    msg.raw_order_status = None
+                    return msg
 
             state, rank = resolve_status(msg.sending_app, control, status)
             if state:

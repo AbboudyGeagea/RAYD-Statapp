@@ -47,7 +47,15 @@ def _engine():
         port   = os.environ.get("POSTGRES_PORT", "5432")
         dbname = os.environ.get("POSTGRES_DB", "etl_db")
         url    = f"postgresql://{user}:{pw}@{host}:{port}/{dbname}"
-    return create_engine(url, pool_pre_ping=True)
+    # The snapshot's "yesterday" must be the hospital's yesterday — same session
+    # clock as the app, see db.session_timezone().
+    try:
+        from db import pg_connect_options
+        options = pg_connect_options()
+    except Exception:
+        options = ''
+    connect_args = {'options': options} if options else {}
+    return create_engine(url, pool_pre_ping=True, connect_args=connect_args)
 
 
 # ── Period definitions ────────────────────────────────────────────────────────

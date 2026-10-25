@@ -66,6 +66,23 @@ logger = logging.getLogger("HL7_PROJECT")
 # patient_location is VARCHAR(3) in this schema, so it is truncated explicitly.
 # Letting Postgres raise on a longer value would fail the whole projection over a
 # display field.
+#
+# TWO CHAINS, deliberately different.
+#
+#   {DATED}   when the study happened — study_date, study_time, age_at_exam. Falls
+#             all the way down to the report, because a study we only know through
+#             its report (a PACS-only site, a RIS feed that is down) still happened
+#             on a day, and every report filters on study_date. Without it those
+#             studies projected with NULL dates and vanished from every date range.
+#   {ANCHOR}  where turnaround is measured FROM — insert_time. Stops at the exam
+#             events: anchoring on the report itself would record a zero-minute TAT.
+#             The PACS completion sits right after the RIS one: image arrival is the
+#             anchor the Oracle branch always used, and the best we have without RIS.
+_DATED = ("COALESCE(st.completed_at, st.pacs_completed_at, st.started_at, st.arrived_at, "
+          "st.scheduled_at, st.signed_final_at, st.signed_prelim_at, st.reported_at)")
+_ANCHOR = ("COALESCE(st.completed_at, st.pacs_completed_at, st.started_at, st.arrived_at, "
+           "st.scheduled_at)")
+
 _STUDY_SQL = """
 INSERT INTO etl_didb_studies (
     study_db_uid, patient_db_uid, accession_number, storing_ae,
@@ -84,38 +101,41 @@ SELECT
     ),
     st.accession_number,
     st.aetitle,
-    COALESCE(st.completed_at, st.started_at, st.arrived_at, st.scheduled_at)::date,
-    to_char(COALESCE(st.completed_at, st.started_at, st.arrived_at, st.scheduled_at),
-            'HH24:MI:SS'),
+    {DATED}::date,
+    to_char({DATED}, 'HH24:MI:SS'),
     -- See the module docstring: this is the exam-completion time, not an ingest
     -- time, and that is deliberate.
-    COALESCE(st.completed_at, st.started_at, st.arrived_at, st.scheduled_at),
+    {ANCHOR},
     NOW(),
     st.procedure_text,
     st.procedure_code,
     st.modality,
     st.patient_class,
     LEFT(st.patient_location, 3),
-    CASE WHEN st.cancelled_at IS NOT NULL THEN 'CA'
-         WHEN st.completed_at IS NOT NULL THEN 'CM'
-         WHEN st.started_at   IS NOT NULL THEN 'IP'
-         WHEN st.arrived_at   IS NOT NULL THEN 'AR'
-         WHEN st.scheduled_at IS NOT NULL THEN 'SC'
+    CASE WHEN st.cancelled_at      IS NOT NULL THEN 'CA'
+         WHEN st.completed_at      IS NOT NULL THEN 'CM'
+         WHEN st.pacs_completed_at IS NOT NULL THEN 'CM'
+         WHEN st.started_at        IS NOT NULL THEN 'IP'
+         WHEN st.arrived_at        IS NOT NULL THEN 'AR'
+         WHEN st.scheduled_at      IS NOT NULL THEN 'SC'
          ELSE NULL END,
     CASE WHEN st.cancelled_at IS NOT NULL THEN 'cancelled'
          WHEN st.is_closed THEN 'closed' ELSE 'open' END,
-    (r.result_datetime IS NOT NULL),
-    r.result_datetime,
+    (r.result_datetime IS NOT NULL OR st.reported_at IS NOT NULL),
+    -- THE END OF EVERY REPORT-TAT FIGURE. The final signature when the site sends
+    -- signature rungs; a preliminary alone is not final, so it leaves this NULL
+    -- rather than letting report 25 count a W as signed. A site that sends no
+    -- OBX-11 at all has no rungs, and its first report is the best answer.
+    COALESCE(st.signed_final_at,
+             CASE WHEN st.signed_prelim_at IS NULL
+                  THEN COALESCE(st.reported_at, r.result_datetime) END),
     r.physician_id,
     r.physician_id,
     -- Fractional years, matching the NUMERIC(5,2) the column declares. AGE() would
     -- give an interval that still needs converting, and dividing days by 365.25
     -- keeps leap years from accumulating a visible error on paediatric ages.
-    CASE WHEN p.birth_date IS NOT NULL
-              AND COALESCE(st.completed_at, st.started_at, st.arrived_at, st.scheduled_at) IS NOT NULL
-         THEN ROUND(
-              (COALESCE(st.completed_at, st.started_at, st.arrived_at, st.scheduled_at)::date
-               - p.birth_date)::numeric / 365.25, 2)
+    CASE WHEN p.birth_date IS NOT NULL AND {DATED} IS NOT NULL
+         THEN ROUND(({DATED}::date - p.birth_date)::numeric / 365.25, 2)
          END,
     FALSE,
     ref.first_name,
@@ -134,6 +154,10 @@ LEFT JOIN LATERAL (
 -- last name, so it must arrive as two parts rather than one display string. The HIS
 -- order is the authority; the report's own PV1-8 covers a study whose order never
 -- reached us. First and last always come from the same message, never mixed.
+--
+-- The order is found by accession OR by placer number. An ORM NW normally carries
+-- no accession at all — the RIS mints it at scheduling — so matching on accession
+-- alone found the referrer only on the rare order that already had one.
 LEFT JOIN LATERAL (
     SELECT c.first_name, c.last_name
       FROM (
@@ -142,6 +166,14 @@ LEFT JOIN LATERAL (
                    1 AS pri, ho.received_at AS ts, ho.id
               FROM hl7_orders ho
              WHERE ho.accession_number = st.accession_number
+               AND NULLIF(ho.referring_physician_last_name, '') IS NOT NULL
+            UNION ALL
+            SELECT ho.referring_physician_first_name, ho.referring_physician_last_name,
+                   1, ho.received_at, ho.id
+              FROM hl7_orders ho
+             WHERE st.placer_order_number IS NOT NULL
+               AND ho.placer_order_number = st.placer_order_number
+               AND ho.accession_number IS NULL
                AND NULLIF(ho.referring_physician_last_name, '') IS NOT NULL
             UNION ALL
             SELECT ru.referring_physician_first_name, ru.referring_physician_last_name,
@@ -162,6 +194,11 @@ WHERE st.accession_number = :acc
   -- would put a fabricated accession in front of a radiologist and into every report
   -- that lists one. The row projects normally the moment scheduling rekeys it.
   AND NOT st.is_provisional
+  -- AN ORDER IS NOT A STUDY EITHER, even one that already carries an accession. A
+  -- lifecycle with nothing but ordered_at has no date to file it under; projecting
+  -- it put 300 studies with NULL study_date and NULL insert_time into the live
+  -- table on 2026-09-24. It belongs to etl_orders until something dated happens.
+  AND {DATED} IS NOT NULL
 ON CONFLICT (study_db_uid) DO UPDATE SET
     patient_db_uid       = EXCLUDED.patient_db_uid,
     accession_number     = EXCLUDED.accession_number,
@@ -181,7 +218,11 @@ ON CONFLICT (study_db_uid) DO UPDATE SET
     study_status         = COALESCE(EXCLUDED.study_status,      etl_didb_studies.study_status),
     -- Never un-report a study: study_has_report only ever goes false -> true.
     study_has_report     = etl_didb_studies.study_has_report OR EXCLUDED.study_has_report,
-    rep_final_timestamp  = COALESCE(EXCLUDED.rep_final_timestamp,  etl_didb_studies.rep_final_timestamp),
+    -- Recomputed, not latched. It is derived from the signature rungs, which only
+    -- ever move forward, so the newest computation is always the right one — and a
+    -- latched value can be wrong: a W-only study projected while a report row from
+    -- a later message already existed (a replay) kept that row's time as "final".
+    rep_final_timestamp  = EXCLUDED.rep_final_timestamp,
     rep_final_signed_by  = COALESCE(EXCLUDED.rep_final_signed_by,  etl_didb_studies.rep_final_signed_by),
     reading_physician_id = COALESCE(EXCLUDED.reading_physician_id, etl_didb_studies.reading_physician_id),
     age_at_exam          = COALESCE(EXCLUDED.age_at_exam,       etl_didb_studies.age_at_exam),
@@ -193,7 +234,7 @@ ON CONFLICT (study_db_uid) DO UPDATE SET
     referring_physician_last_name  = COALESCE(EXCLUDED.referring_physician_last_name,
                                               etl_didb_studies.referring_physician_last_name),
     last_update          = NOW()
-"""
+""".replace('{DATED}', _DATED).replace('{ANCHOR}', _ANCHOR)
 
 # fallback_id carries the same PID-3 as `id`. On the Oracle branch these were two
 # different DIDB columns (id and fallback_pid) and reports 22/23 settled on
@@ -264,6 +305,7 @@ SELECT
     st.scheduled_at,
     CASE WHEN st.cancelled_at IS NOT NULL THEN 'CA'
          WHEN st.completed_at IS NOT NULL THEN 'CM'
+         WHEN st.pacs_completed_at IS NOT NULL THEN 'CM'
          WHEN st.started_at   IS NOT NULL THEN 'IP'
          WHEN st.arrived_at   IS NOT NULL THEN 'AR'
          WHEN st.scheduled_at IS NOT NULL THEN 'SC'
@@ -292,6 +334,24 @@ ON CONFLICT (order_dbid) DO UPDATE SET
 """
 
 
+# etl_orders is keyed on the placer number once one is known, else the accession.
+# A study whose first message carried only the accession (AR before SC, say) was
+# therefore projected under the accession, and when SC later brought the placer
+# number the same order was projected AGAIN under that — one order, two rows, in 18
+# of the 24 delivery orders of a four-event lifecycle. This removes the row the
+# accession minted, but only one projected for this very study.
+_STALE_ORDER_SQL = """
+DELETE FROM etl_orders o
+ USING ray7_study_state st, hl7_surrogate_keys k
+ WHERE st.accession_number = :acc
+   AND st.placer_order_number IS NOT NULL
+   AND st.placer_order_number <> st.accession_number
+   AND k.entity = 'order' AND k.natural_key = st.accession_number
+   AND o.order_dbid = k.surrogate_id
+   AND o.accession_number = st.accession_number
+"""
+
+
 def project_study(accession_number):
     """
     Project one accession into etl_didb_studies and etl_orders.
@@ -304,11 +364,13 @@ def project_study(accession_number):
     if not accession_number:
         return []
     done = []
-    for label, sql in (('study', _STUDY_SQL), ('order', _ORDER_SQL)):
+    for label, sql in (('study', _STUDY_SQL), ('order_rekey', _STALE_ORDER_SQL),
+                       ('order', _ORDER_SQL)):
         try:
             with db.session.begin_nested():
-                db.session.execute(text(sql), {'acc': accession_number})
-            done.append('etl_' + label)
+                n = db.session.execute(text(sql), {'acc': accession_number}).rowcount
+            if label != 'order_rekey' or n:
+                done.append('etl_' + label)
         except Exception:
             logger.exception("projector: %s upsert failed | acc=%s", label, accession_number)
     return done

@@ -204,11 +204,11 @@ def create_app():
     # request (routes/report_ai.py's parallel section fetch) and gunicorn runs 4
     # threads (scripts/entrypoint.sh), so worst case is ~16 connections just from
     # that one route. Sized with headroom for that plus normal traffic.
-    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-        'pool_size': 10,
-        'max_overflow': 15,
-        'pool_pre_ping': True,
-    }
+    #
+    # engine_options() also pins every session to the hospital's time zone — see
+    # session_timezone() in db.py for why that matters to every NOW() on this branch.
+    from db import engine_options
+    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = engine_options()
     app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 60  # browsers re-check static files every 60 s
     app.config['SESSION_COOKIE_HTTPONLY'] = True
     app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'

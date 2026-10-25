@@ -29,6 +29,7 @@ Exports used across the application:
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
 import os
+import re
 import sys
 import logging
 import time
@@ -73,6 +74,66 @@ class OracleConnector:
 
 def init_db(app):
     db.init_app(app)
+
+
+# ── The database session clock ────────────────────────────────────────────────
+#
+# Every timestamp HL7 gives us is naive HOSPITAL time, and every column that holds
+# one is `timestamp without time zone`. The database must therefore run its
+# sessions on the hospital's zone too, or NOW() and CURRENT_DATE live on a
+# different clock from the data they are compared with. The postgres:15 container
+# defaults to UTC, so before this every absence threshold fired two hours late in
+# winter and three in summer, every received_at was written in UTC beside HL7
+# times written in Beirut time, and CURRENT_DATE rolled over at 02:00/03:00 local.
+#
+# Set per connection (libpq `options`) rather than on the server, so it holds for
+# every install without touching the database container, and so it follows TZ —
+# the same variable the app container's own clock and the scheduler already read.
+_TZ_NAME_OK = re.compile(r'^[A-Za-z][A-Za-z0-9_+\-]*(/[A-Za-z0-9_+\-]+)*$')
+
+
+def session_timezone():
+    """
+    The zone database sessions should run in, or None to leave the server default.
+
+    Validated before use: an unrecognised name in the connection options would make
+    every connection fail and take the whole app down with it, which is a far worse
+    outcome than a skewed clock. A host with no tz database at all (Windows without
+    the tzdata package) cannot judge, so there the shape check alone decides.
+    """
+    tz = (os.environ.get('TZ') or 'Asia/Beirut').strip()
+    if not _TZ_NAME_OK.match(tz):
+        logger.warning("TZ=%r is not a zone name; database sessions keep the server's zone", tz)
+        return None
+    try:
+        import zoneinfo
+        known = zoneinfo.available_timezones()
+    except Exception:
+        known = set()
+    if known and tz not in known:
+        logger.warning("TZ=%r is not a known zone; database sessions keep the server's zone", tz)
+        return None
+    return tz
+
+
+def pg_connect_options():
+    """libpq `options` string carrying the session time zone, or '' when unset."""
+    tz = session_timezone()
+    return f'-c timezone={tz}' if tz else ''
+
+
+def engine_options():
+    """SQLAlchemy engine options for the app's own engine."""
+    opts = {
+        'pool_size': 10,
+        'max_overflow': 15,
+        'pool_pre_ping': True,
+    }
+    connect = pg_connect_options()
+    if connect:
+        opts['connect_args'] = {'options': connect}
+    return opts
+
 
 def get_pg_engine():
     return db.engine

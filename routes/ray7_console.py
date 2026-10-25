@@ -295,13 +295,18 @@ def acknowledge_study(accession):
     body = request.json or {}
     note = (request.form.get('note') or body.get('note') or '')[:2000]
 
+    # The HELD messages of this study — not every message with an open finding. An
+    # accepted message carrying a warning was already projected; re-running it on
+    # release is wasted work, and counting it made "messages released" overstate
+    # what the button actually let through.
     archive_ids = [
         r['message_archive_id'] for r in _rows("""
             SELECT DISTINCT f.message_archive_id
               FROM ray7_findings f
+              JOIN hl7_message_archive a ON a.id = f.message_archive_id
              WHERE f.accession_number = :acc
                AND f.resolved_at IS NULL
-               AND f.message_archive_id IS NOT NULL
+               AND a.ray7_status = 'quarantined'
         """, {'acc': accession})
         if r.get('message_archive_id')
     ]

@@ -159,8 +159,10 @@ def sc_out_of_order():
     WHAT THIS EXPECTS DEPENDS ON THE LADDER PROFILE, and that is the point.
 
     Unconfigured (ray7_ladder_profile as migration 0130 seeds it — every rung off):
-    NO findings, exactly as before. Late delivery is routine, the projector absorbs
-    it, and an install that has not opted in must not change behaviour.
+    nothing left OPEN once the sweep has run. CM landing first truthfully raises
+    SKIPPED_RUNG and ORPHAN_EVENT (warnings); the sweep closes both when the earlier
+    rungs turn up. The projected study is identical to in-order delivery — every
+    permutation is proven in tests/test_permutations.py.
 
     With rungs enabled and enforce_order set: one OUT_OF_SEQUENCE_DELIVERY per
     message that arrived below a rung already reached — here IP, AR and SC, since CM
@@ -361,7 +363,9 @@ def sc_malformed():
 
 def sc_multi_study():
     """Two studies interleaved, so per-accession state must not bleed across."""
-    a, b = '900010', '900011'
+    # Own accessions: 900010/900011 belong to provisional_order and signatures, and
+    # sharing them made --all fold this scenario into theirs.
+    a, b = '900013', '900014'
     ea = lifecycle(a, 'MULTI-A', [('SC', 100), ('AR', 90), ('IP', 80), ('CM', 70)])
     eb = lifecycle(b, 'MULTI-B', [('SC', 95), ('AR', 85), ('IP', 75), ('CM', 65)],
                    pat='00777666', ae='MR1', mod='MR', code='MRBRAIN', desc='MRI BRAIN')
@@ -372,7 +376,7 @@ def sc_multi_study():
 
 def sc_timezone():
     """Timestamps carrying an offset. They must be stored naive, not shifted."""
-    acc = '900012'
+    acc = '900015'          # not 900012, which is signature_reversed's
     stamp = (datetime.now() - timedelta(minutes=60)).strftime('%Y%m%d%H%M%S') + '+0300'
     send('ORC-9 with +0300 offset', [
         msh('RIS', 'TZ-1', 'ORM^O01', ts(60)), pid(),
