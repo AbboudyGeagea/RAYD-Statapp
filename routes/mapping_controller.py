@@ -837,11 +837,11 @@ def rename_cluster():
 # codes mean what varies by hospital. The seeded defaults (SC/AR/IP/CM) came from
 # one integration; a site using anything else would previously have needed a
 # migration or psql to be understood at all, because an unmapped code is rated
-# CRITICAL by RAY7 and its message quarantined. That is the right behaviour — an
+# CRITICAL by BRAYN and its message quarantined. That is the right behaviour — an
 # unclassified transition silently dropped would be far worse — but it does mean
 # the mapping has to be editable by an operator, not only by a developer.
 #
-# The part that makes this more than a CRUD screen is _unmapped_codes(). RAY7
+# The part that makes this more than a CRUD screen is _unmapped_codes(). BRAYN
 # already records every code it could not classify, so rather than asking someone
 # to guess what their RIS emits, the page lists the codes the site has actually
 # sent, with counts and a first/last-seen window. Mapping becomes a response to
@@ -855,7 +855,7 @@ _CANONICAL_STATES = ['ordered', 'scheduled', 'arrived', 'started', 'completed',
                      'cancelled']
 
 # Rank is derived from the state, never typed in. It is not a free choice — it is
-# what makes RAY7's sequence rules and the projector agree on what "further along"
+# what makes BRAYN's sequence rules and the projector agree on what "further along"
 # means, and letting someone put arrived above completed would invert the
 # lifecycle everywhere downstream. Cancellation is off the ladder, hence -1.
 _STATE_RANK = {'ordered': 20, 'scheduled': 40, 'arrived': 60, 'started': 70,
@@ -864,10 +864,10 @@ _STATE_RANK = {'ordered': 20, 'scheduled': 40, 'arrived': 60, 'started': 70,
 
 
 def _invalidate_status_cache():
-    """RAY7 caches the map for five minutes; drop it so an edit takes effect on
+    """BRAYN caches the map for five minutes; drop it so an edit takes effect on
     the next message rather than whenever the TTL happens to lapse."""
     try:
-        from utils.ray7 import _cache
+        from utils.brayn import _cache
         _cache['status_map'] = (0.0, None)
     except Exception:
         pass
@@ -878,7 +878,7 @@ def _invalidate_ladder_cache():
     the quality notes and the stall sweep expect, so an engineer who switches a
     rung off to stop a flood of notes must not have to wait out a TTL to see it."""
     try:
-        from utils.ray7 import _cache
+        from utils.brayn import _cache
         _cache['ladder'] = (0.0, None)
     except Exception:
         pass
@@ -897,7 +897,7 @@ def _invalidate_ladder_cache():
 # TWO SWITCHES PER RUNG, and the difference matters:
 #   expected       the site sends this status at all
 #   enforce_order  shown as "measure order": its delivery order counts towards the
-#                  sender's out-of-order rate. Nothing is held (RAY7 rebuild, 0135).
+#                  sender's out-of-order rate. Nothing is held (BRAYN rebuild, 0135).
 #
 # Turning expected off also BRIDGES the ladder — the sweep pairs each expected rung
 # with the next expected one, so disabling started moves the stall check to
@@ -907,7 +907,7 @@ def _invalidate_ladder_cache():
 @mapping_bp.route('/ladder-profile-tab')
 @login_required
 def ladder_profile_tab():
-    """Lazy-loaded HTML fragment for the RAY7 Ladder Profile tab."""
+    """Lazy-loaded HTML fragment for the BRAYN Ladder Profile tab."""
     if current_user.role not in ('su', 'implementation', 'administrator') \
             and not user_has_page(current_user, 'mapping'):
         return abort(403)
@@ -915,7 +915,7 @@ def ladder_profile_tab():
     try:
         rows = [dict(r) for r in db.session.execute(_t("""
             SELECT rung, ladder_rank, label, expected, enforce_order, notes, updated_at
-              FROM ray7_ladder_profile
+              FROM brayn_ladder_profile
              ORDER BY ladder_rank
         """)).mappings().all()]
 
@@ -928,7 +928,7 @@ def ladder_profile_tab():
              GROUP BY canonical_state
         """)).mappings().all()}
     except Exception:
-        logging.getLogger("MAPPING").exception("could not load ray7_ladder_profile")
+        logging.getLogger("MAPPING").exception("could not load brayn_ladder_profile")
 
     for r in rows:
         ev = seen.get(r['rung'], {})
@@ -969,7 +969,7 @@ def ladder_profile_save():
 
     try:
         db.session.execute(_t("""
-            UPDATE ray7_ladder_profile
+            UPDATE brayn_ladder_profile
                SET expected = :expected, enforce_order = :enforce, updated_at = NOW()
              WHERE rung = :rung
         """), {'rung': rung, 'expected': expected, 'enforce': enforce})
@@ -986,7 +986,7 @@ def ladder_profile_save():
 
 def _unmapped_codes():
     """
-    Codes RAY7 has seen and could not classify, newest first.
+    Codes BRAYN has seen and could not classify, newest first.
 
     Read from the findings rather than a separate log: UNKNOWN_STATUS_CODE already
     carries the sending app and both ORC values in its detail payload, so there is
@@ -1001,7 +1001,7 @@ def _unmapped_codes():
                    COUNT(*)                   AS seen,
                    MIN(created_at)            AS first_seen,
                    MAX(created_at)            AS last_seen
-              FROM ray7_findings
+              FROM brayn_findings
              WHERE rule_code = 'UNKNOWN_STATUS_CODE'
                AND detail ->> 'order_status' IS NOT NULL
              GROUP BY 1, 2, 3
@@ -1076,7 +1076,7 @@ def save_status_code():
             'status': 'ok',
             'note': 'Mapping saved. Messages already held for this code are not '
                     're-admitted automatically — use "Replay held messages" in the '
-                    'RAY7 console (or python app.py -m).',
+                    'BRAYN console (or python app.py -m).',
         })
     except Exception as e:
         db.session.rollback()
@@ -1092,7 +1092,7 @@ def delete_status_code():
     Remove a mapping.
 
     Worth understanding before clicking: any future message carrying this code
-    becomes UNKNOWN_STATUS_CODE, which RAY7 rates critical and holds. To
+    becomes UNKNOWN_STATUS_CODE, which BRAYN rates critical and holds. To
     retire a code without that consequence, set it inactive instead — the row
     stays and history keeps the meaning it was ingested with.
     """
@@ -1327,7 +1327,7 @@ def test_field_map():
 
     Read-only. Nothing is written, nothing is screened, no findings are raised —
     an engineer must be able to experiment without leaving marks in the audit
-    trail or tripping RAY7.
+    trail or tripping BRAYN.
     """
     if current_user.role not in ('su', 'implementation', 'administrator') \
             and not user_has_page(current_user, 'mapping'):
@@ -1510,7 +1510,7 @@ def explorer_tab():
         """)).mappings().all()]
 
         # RAYD's own fields first, raw etl_* columns after. The grouping is the
-        # point: mapping onto a RAYD field flows through RAY7's screening and the
+        # point: mapping onto a RAYD field flows through BRAYN's screening and the
         # lifecycle, mapping straight at a table bypasses both. The UI has to
         # make that visible while choosing, not afterwards.
         # Derived from the live schema, not a seeded list. The seed described 11

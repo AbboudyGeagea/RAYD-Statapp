@@ -25,12 +25,12 @@ fake_db = types.ModuleType("db")
 fake_db.db = types.SimpleNamespace(session=None)
 sys.modules["db"] = fake_db
 
-import utils.ray7 as ray7            # noqa: E402
+import utils.brayn as brayn            # noqa: E402
 import utils.hl7_parse as hp         # noqa: E402
 import utils.hl7_fieldmap as fm      # noqa: E402
 
-ray7.status_map = lambda: {('', '', 'CM'): ('completed', 100)}
-hp.resolve_status = ray7.resolve_status
+brayn.status_map = lambda: {('', '', 'CM'): ('completed', 100)}
+hp.resolve_status = brayn.resolve_status
 
 passed = failed = 0
 

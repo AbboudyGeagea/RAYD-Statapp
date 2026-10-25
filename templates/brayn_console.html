@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>RAY7 — HL7 Screening Console</title>
+<title>BRAYN — HL7 Screening Console</title>
 <style>
   :root {
     --bg:#0d0f14; --surface:#13161e; --surface2:#171b25; --border:#1e2330;
@@ -101,7 +101,7 @@
 {% set s = summary %}
 <header>
   <a href="/" class="sub" style="color:var(--accent)" title="Back to RAYD">&larr; RAYD</a>
-  <h1>RAY7</h1>
+  <h1>BRAYN</h1>
   <span class="sub">Every HL7 message is checked on arrival. Only a message that cannot be
     identified or classified is kept out of the reports.</span>
 </header>
@@ -126,14 +126,14 @@
   <nav>
     {% for key, label in [('summary','Overview'), ('held','Held'), ('findings','Notes & findings'),
                           ('health','Interface health'), ('messages','Messages')] %}
-      <a href="/ray7?view={{ key }}" class="{{ 'on' if view == key }}">{{ label }}{% if key == 'held' and s.held %}<span class="n">{{ s.held }}</span>{% endif %}</a>
+      <a href="/brayn?view={{ key }}" class="{{ 'on' if view == key }}">{{ label }}{% if key == 'held' and s.held %}<span class="n">{{ s.held }}</span>{% endif %}</a>
     {% endfor %}
   </nav>
 
   {% if not s.messages %}
     <div class="empty">
       <strong>No messages have ever been received.</strong><br>
-      RAY7 is running and has nothing to screen. On this branch that is almost always the
+      BRAYN is running and has nothing to screen. On this branch that is almost always the
       interface rather than the application: confirm the senders are pointed at port 6661
       on this host and that the firewall allows them.
     </div>
@@ -162,7 +162,7 @@
           <td class="num dim">{{ r.total }}</td>
           <td class="num dim">{{ r.studies or '—' }}</td>
           <td class="mono dim">{{ r.last_seen.strftime('%m-%d %H:%M') if r.last_seen }}</td>
-          <td><a href="/ray7?view={{ 'held' if r.layer == 'intake' else 'findings' }}&rule={{ r.rule_code }}&show=open">inspect</a></td>
+          <td><a href="/brayn?view={{ 'held' if r.layer == 'intake' else 'findings' }}&rule={{ r.rule_code }}&show=open">inspect</a></td>
         </tr>
       {% endfor %}
       </tbody>
@@ -181,7 +181,7 @@
       <h3>What “held” means</h3>
       <p>
         These messages <strong>were received and are stored safely</strong> — nothing has been
-        lost. RAY7 could not attach them to a study (no accession and no order number) or
+        lost. BRAYN could not attach them to a study (no accession and no order number) or
         could not classify them (a status code with no mapping), so their contents have not
         reached the reports.
       </p>
@@ -255,7 +255,7 @@
         {% endfor %}
       </select>
       <button type="submit">Filter</button>
-      <a href="/ray7?view=findings">Reset</a>
+      <a href="/brayn?view=findings">Reset</a>
     </form>
 
     {% if not rows %}
@@ -387,7 +387,7 @@
         {% endfor %}
       </select>
       <button type="submit">Filter</button>
-      <a href="/ray7?view=messages">Reset</a>
+      <a href="/brayn?view=messages">Reset</a>
     </form>
 
     {% if not rows %}
@@ -407,9 +407,9 @@
           <td class="mono">{{ m.sending_app or '—' }}</td>
           <td class="mono dim">{{ m.message_type or '—' }}</td>
           <td class="mono">{{ m.message_control_id }}</td>
-          <td>{% if m.ray7_status == 'quarantined' %}<span class="sev critical">held</span>
-              {% elif m.ray7_severity %}<span class="sev {{ m.ray7_severity }}">{{ m.ray7_status }}</span>
-              {% else %}<span class="dim">{{ m.ray7_status }}</span>{% endif %}</td>
+          <td>{% if m.brayn_status == 'quarantined' %}<span class="sev critical">held</span>
+              {% elif m.brayn_severity %}<span class="sev {{ m.brayn_severity }}">{{ m.brayn_status }}</span>
+              {% else %}<span class="dim">{{ m.brayn_status }}</span>{% endif %}</td>
           <td>{% if m.projected %}<span style="color:var(--green)">yes</span>
               {% else %}<span style="color:var(--red)">no</span>{% endif %}</td>
           <td class="num dim">{{ m.findings or '' }}</td>
@@ -423,7 +423,7 @@
 
   {% if total and pages > 1 %}
   <div class="pager">
-    {% set base = '/ray7?view=' ~ view ~ '&severity=' ~ severity ~ '&rule=' ~ rule ~ '&layer=' ~ layer ~ '&show=' ~ show ~ '&q=' ~ search %}
+    {% set base = '/brayn?view=' ~ view ~ '&severity=' ~ severity ~ '&rule=' ~ rule ~ '&layer=' ~ layer ~ '&show=' ~ show ~ '&q=' ~ search %}
     {% if page > 1 %}<a href="{{ base }}&page={{ page - 1 }}">← Previous</a>{% endif %}
     <span>Page {{ page }} of {{ pages }} · {{ total }} rows</span>
     {% if page < pages %}<a href="{{ base }}&page={{ page + 1 }}">Next →</a>{% endif %}
@@ -458,7 +458,7 @@ async function showMessage(id) {
   document.getElementById('dlgBody').innerHTML = '<div class="dim">Loading…</div>';
   dlg.showModal();
   try {
-    const r = await fetch('/ray7/message/' + id);
+    const r = await fetch('/brayn/message/' + id);
     const d = await r.json();
     if (d.error) throw new Error(d.error);
 
@@ -471,7 +471,7 @@ async function showMessage(id) {
       ['Facility', esc(d.sending_facility)], ['Type', esc(d.message_type)],
       ['HL7 version', esc(d.hl7_version)], ['Sender clock', esc(d.message_datetime)],
       ['Received', esc(d.received_at)], ['Source IP', esc(d.source_ip)],
-      ['RAY7 outcome', esc(d.ray7_status === 'quarantined' ? 'held' : d.ray7_status)],
+      ['BRAYN outcome', esc(d.brayn_status === 'quarantined' ? 'held' : d.brayn_status)],
       ['In reports', inReports],
       ['Parse status', esc(d.parse_status)], ['Parse error', esc(d.parse_error || '—')],
     ].map(([k, v]) => `<div class="k">${k}</div><div class="mono">${v}</div>`).join('');
@@ -502,7 +502,7 @@ async function resolveFinding(id, resolution) {
     : 'Close this finding?\n\nThis does NOT release held messages. To do that, fix the '
       + 'cause and use "Replay held messages".';
   if (!confirm(ask)) return;
-  const r = await post('/ray7/finding/' + id + '/resolve', {resolution: resolution});
+  const r = await post('/brayn/finding/' + id + '/resolve', {resolution: resolution});
   if (r.ok) location.reload(); else alert('Could not resolve that finding.');
 }
 
@@ -511,7 +511,7 @@ async function replayHeld(rule) {
                + ' under the current configuration?\n\nThose that now pass go into the reports.')) return;
   const out = document.getElementById('replayResult');
   if (out) out.textContent = 'Replaying…';
-  const r = await post('/ray7/held/replay', {rule: rule});
+  const r = await post('/brayn/held/replay', {rule: rule});
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { alert(d.error || 'Replay failed. Nothing was lost.'); if (out) out.textContent = ''; return; }
   alert(d.released + ' released, ' + d.still_held + ' still held.');

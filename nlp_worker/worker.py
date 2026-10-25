@@ -323,8 +323,8 @@ def _affirmed_phrases_batch(texts):
     (9/14 vs 14/14 on the 2026-09-22 corpus, all five errors false positives).
 
     "The NLP analysed this and found nothing" must never be indistinguishable
-    from "the NLP could not look properly", which is the same rule RAY7 follows
-    with RAY7_DEGRADED. Recording the engine is what makes a degraded run
+    from "the NLP could not look properly", which is the same rule BRAYN follows
+    with BRAYN_DEGRADED. Recording the engine is what makes a degraded run
     findable afterwards instead of permanently invisible.
     """
     if not texts:

@@ -642,7 +642,7 @@ def _legacy_writes(raw_message, segments, msg, app, archive_id=None):
                            parsed_oru.get('procedure_code'), obx_types, len(obx_types))
         else:
             # The signature rung decides whether this version replaces the stored
-            # one (see ORU_INSERT_SQL); RAY7's parse already resolved it.
+            # one (see ORU_INSERT_SQL); BRAYN's parse already resolved it.
             parsed_oru['signature_rank'] = msg.ladder_rank if msg.kind == 'result' else None
             _canonical_identity(parsed_oru, msg)
             try:
@@ -710,21 +710,21 @@ def apply_accepted(raw_message, segments, msg, archive_id, app):
 
         persist events/state -> legacy writes -> project -> direct overrides
 
-    Shared by live ingestion and by replay (which is also how the RAY7 console
+    Shared by live ingestion and by replay (which is also how the BRAYN console
     releases a quarantined study). There used to be two copies, and replay's lacked
     the legacy writes, so a released report never reached hl7_oru_reports and a
     released order never reached hl7_orders: the study came back into the reports
     with its report or its order missing, while the console said it was released.
 
-    The order is load-bearing: the projector reads ray7_study_state, which
+    The order is load-bearing: the projector reads brayn_study_state, which
     persist_parsed has just advanced, and hl7_oru_reports, which _legacy_writes has
     just written; operator-configured direct writes run last so an override
-    genuinely overrides the projected value rather than racing it. RAY7's quality
+    genuinely overrides the projected value rather than racing it. BRAYN's quality
     notes come after all of it, because they judge the study as it now stands.
     """
     from utils.hl7_ingest import persist_parsed
     from utils.hl7_project import project_message, apply_direct_overrides
-    from utils.ray7_quality import evaluate_study
+    from utils.brayn_quality import evaluate_study
     parts = [persist_parsed(msg, archive_id)]
     parts += _legacy_writes(raw_message, segments, msg, app, archive_id)
     parts += project_message(msg)
@@ -751,19 +751,19 @@ def _process_message(raw_message, segments, addr, app):
     """
     One message, end to end. Returns True when it was safely archived.
 
-        parse -> archive -> RAY7.screen -> persist events -> legacy writes -> commit
+        parse -> archive -> BRAYN.screen -> persist events -> legacy writes -> commit
 
     Archiving comes FIRST and everything else derives from it, because the archive
     is the only copy this branch will ever have. Everything after it is replayable;
     nothing after it may lose the message.
 
-    The whole thing is ONE transaction. RAY7 and the ingest writers use savepoints
+    The whole thing is ONE transaction. BRAYN and the ingest writers use savepoints
     internally, so an individual failure rolls back only to its own savepoint while
     the archive row, the findings and the events still commit together. A message
     can never end up archived without its verdict, or screened without being stored.
     """
     from db import db
-    from utils import ray7
+    from utils import brayn
     from utils.hl7_parse import parse_message
     from utils.hl7_ingest import (archive, mark_parsed, mark_quarantined,
                                   mark_parse_error)
@@ -778,10 +778,10 @@ def _process_message(raw_message, segments, addr, app):
 
         if redelivered:
             # Expected, not a fault: the SAP Mirth hub redelivers and there is no
-            # fix coming. Counted as the sender's redelivery RATE (RAY7 layer ③),
+            # fix coming. Counted as the sender's redelivery RATE (BRAYN layer ③),
             # so it stays measurable without flooding anything.
             db.session.rollback()
-            ray7.note_redelivery(msg.sending_app, msg.control_id, msg.content_hash)
+            brayn.note_redelivery(msg.sending_app, msg.control_id, msg.content_hash)
             logger.info("HL7 redelivery | type=%s | control_id=%s | from=%s",
                         msg.message_type, msg.control_id, addr[0] if addr else '?')
             return True
@@ -793,8 +793,8 @@ def _process_message(raw_message, segments, addr, app):
             return False
 
         try:
-            verdict = ray7.screen(msg, archive_id)
-            ray7.persist(verdict, msg, archive_id)
+            verdict = brayn.screen(msg, archive_id)
+            brayn.persist(verdict, msg, archive_id)
 
             if verdict.may_project:
                 parts = apply_accepted(raw_message, segments, msg, archive_id, app)
@@ -807,9 +807,9 @@ def _process_message(raw_message, segments, addr, app):
             db.session.commit()
             # After the commit and on its own connection: the counters are hot rows
             # and must not be locked for the length of the ingest transaction.
-            ray7.record_observations(verdict, msg, archive_id)
+            brayn.record_observations(verdict, msg, archive_id)
             logger.info("HL7 %s | type=%s | acc=%s | wrote: %s",
-                        ray7.summary(verdict), msg.message_type, msg.accession_number,
+                        brayn.summary(verdict), msg.message_type, msg.accession_number,
                         written)
             return True
 
@@ -890,16 +890,16 @@ def start_mllp_listener(app, host='0.0.0.0', port=6661):
     Start the MLLP listener in a background daemon thread.
     Called once during Flask app startup.
     """
-    # Warm RAY7's caches before the first message rather than on it. RAY7 screens
+    # Warm BRAYN's caches before the first message rather than on it. BRAYN screens
     # inline, inside the sender's ACK window, so a cold cache would make whichever
     # message happens to arrive first pay three extra queries — and the same again
     # every time the TTL lapses. Failure here is not fatal: the caches fill lazily.
     try:
         with app.app_context():
-            from utils.ray7 import warm_caches
+            from utils.brayn import warm_caches
             warm_caches()
     except Exception:
-        logger.exception("RAY7 cache warm failed at startup; caches will fill lazily")
+        logger.exception("BRAYN cache warm failed at startup; caches will fill lazily")
 
     def _server_loop():
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

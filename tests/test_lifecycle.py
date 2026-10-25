@@ -45,14 +45,14 @@ def happy(pipe):
     return pipe
 
 
-# ── the archive and RAY7's verdicts ───────────────────────────────────────────
+# ── the archive and BRAYN's verdicts ───────────────────────────────────────────
 
 def test_every_message_is_archived(happy):
     assert happy.count('hl7_message_archive') == 7
 
 
 def test_every_message_is_accepted(happy):
-    assert {r['ray7_status'] for r in happy.archive()} == {'accepted'}
+    assert {r['brayn_status'] for r in happy.archive()} == {'accepted'}
 
 
 def test_every_message_is_parsed_and_projected(happy):
@@ -97,13 +97,13 @@ def test_state_columns(happy, column, want):
 
 
 def test_one_state_row_and_no_provisional_left(happy):
-    assert happy.count('ray7_study_state') == 1
-    assert happy.count('ray7_study_state', "accession_number LIKE '~ORD:%'") == 0
+    assert happy.count('brayn_study_state') == 1
+    assert happy.count('brayn_study_state', "accession_number LIKE '~ORD:%'") == 0
 
 
 def test_no_provisional_key_leaks_anywhere(happy):
     for table, col in (('hl7_study_events', 'accession_number'),
-                       ('ray7_findings', 'accession_number'),
+                       ('brayn_findings', 'accession_number'),
                        ('etl_orders', 'accession_number'),
                        ('etl_didb_studies', 'accession_number')):
         assert happy.count(table, f"{col} LIKE '~ORD:%'") == 0, table
@@ -256,7 +256,7 @@ def test_scheduling_rekeys_the_provisional_lifecycle(pipe):
     st = pipe.state(ACC)
     assert st['ordered_at'] == at(60) and st['scheduled_at'] == at(50)
     assert not st['is_provisional']
-    assert pipe.count('ray7_study_state') == 1
+    assert pipe.count('brayn_study_state') == 1
     assert pipe.count('etl_orders') == 1
 
 
@@ -265,7 +265,7 @@ def test_an_order_delivered_after_its_scheduling_joins_the_same_study(pipe):
     must fold into the study SC created rather than open a second, provisional one."""
     pipe.send(k.status('SC', ACC, k.hl7(at(50)), placer=PLACER))
     pipe.send(k.order(PLACER, when=k.hl7(at(60))))
-    assert pipe.count('ray7_study_state') == 1
+    assert pipe.count('brayn_study_state') == 1
     assert pipe.state(ACC)['ordered_at'] == at(60)
     assert pipe.count('etl_orders') == 1
 
@@ -274,7 +274,7 @@ def test_scheduling_twice_does_not_split_the_study(pipe):
     pipe.send(k.order(PLACER, when=k.hl7(at(60))))
     pipe.send(k.status('SC', ACC, k.hl7(at(50)), placer=PLACER))
     pipe.send(k.status('SC', ACC, k.hl7(at(49)), placer=PLACER))
-    assert pipe.count('ray7_study_state') == 1
+    assert pipe.count('brayn_study_state') == 1
     assert pipe.state(ACC)['scheduled_at'] == at(50)
 
 
@@ -283,7 +283,7 @@ def test_one_order_two_accessions(pipe):
     pipe.send(k.order(PLACER, when=k.hl7(at(60))))
     pipe.send(k.status('SC', 'ACC-A', k.hl7(at(50)), placer=PLACER))
     pipe.send(k.status('SC', 'ACC-B', k.hl7(at(49)), placer=PLACER, proc='CTCHEST'))
-    assert {r['accession_number'] for r in pipe.q("SELECT accession_number FROM ray7_study_state")} \
+    assert {r['accession_number'] for r in pipe.q("SELECT accession_number FROM brayn_study_state")} \
         == {'ACC-A', 'ACC-B'}
     assert pipe.count('etl_didb_studies') == 2
 

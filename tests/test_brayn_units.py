@@ -1,9 +1,9 @@
 """
-RAY7's pure functions, without the pipeline: the quality conditions, which rungs are
+BRAYN's pure functions, without the pipeline: the quality conditions, which rungs are
 measured, the verdict mapping, stall bridging, hashing. Replaces the offline
-tests/test_ray7_rules.py script, whose rule functions the four-layer rebuild retired.
+tests/test_brayn_rules.py script, whose rule functions the four-layer rebuild retired.
 
-The ladder profile is pinned straight into RAY7's cache: _cached() serves a fresh
+The ladder profile is pinned straight into BRAYN's cache: _cached() serves a fresh
 entry without calling its loader.
 """
 import datetime as dt
@@ -11,9 +11,9 @@ import time
 
 import pytest
 
-from utils import ray7
-from utils import ray7_quality as quality
-from utils import ray7_sweep as sweep
+from utils import brayn
+from utils import brayn_quality as quality
+from utils import brayn_sweep as sweep
 
 T = lambda h, m=0: dt.datetime(2026, 9, 17, h, m)
 _RUNGS = [('ordered', 20), ('scheduled', 40), ('arrived', 60), ('started', 70),
@@ -22,14 +22,14 @@ ALL = [r for r, _ in _RUNGS]
 
 
 def profile(expected=(), enforced=()):
-    ray7._cache['ladder'] = (time.time(), {
+    brayn._cache['ladder'] = (time.time(), {
         rung: {'rung': rung, 'ladder_rank': rank, 'label': rung,
                'expected': rung in expected, 'enforce_order': rung in enforced}
         for rung, rank in _RUNGS})
 
 
 def cond(**state):
-    return quality.conditions(state, ray7.is_expected)
+    return quality.conditions(state, brayn.is_expected)
 
 
 @pytest.fixture(autouse=True)
@@ -101,32 +101,32 @@ def test_orphan_event_off_without_an_introducing_rung():
 # ── the ladder profile ────────────────────────────────────────────────────────
 
 def test_unconfigured_profile_expects_every_rung():
-    assert all(ray7.is_expected(rank) for _, rank in _RUNGS)
-    assert ray7.profile_configured() is False
+    assert all(brayn.is_expected(rank) for _, rank in _RUNGS)
+    assert brayn.profile_configured() is False
 
 
 def test_configured_profile_expects_only_what_is_switched_on():
     profile(expected=['arrived'])
-    assert ray7.is_expected(60) and not ray7.is_expected(70)
+    assert brayn.is_expected(60) and not brayn.is_expected(70)
 
 
 def test_unknown_rank_counts_as_expected():
     profile(expected=['arrived'])
-    assert ray7.is_expected(999)
+    assert brayn.is_expected(999)
 
 
 def test_measured_ranks_unconfigured_is_everything():
-    assert ray7.measured_ranks() == {20, 40, 60, 70, 100, 120, 140}
+    assert brayn.measured_ranks() == {20, 40, 60, 70, 100, 120, 140}
 
 
 def test_measured_ranks_follow_the_expected_rungs():
     profile(expected=['arrived', 'completed'])
-    assert ray7.measured_ranks() == {60, 100}
+    assert brayn.measured_ranks() == {60, 100}
 
 
 def test_measured_ranks_marked_explicitly():
     profile(expected=ALL, enforced=['completed'])
-    assert ray7.measured_ranks() == {100}
+    assert brayn.measured_ranks() == {100}
 
 
 # ── the verdict ───────────────────────────────────────────────────────────────
@@ -136,35 +136,35 @@ def test_measured_ranks_marked_explicitly():
     (['critical'], 'quarantined'), (['info', 'critical'], 'quarantined'),
 ])
 def test_only_critical_holds(severities, status):
-    v = ray7._verdict([ray7.Finding('X', s) for s in severities])
+    v = brayn._verdict([brayn.Finding('X', s) for s in severities])
     assert v.status == status and v.may_project is (status == 'accepted')
 
 
 def test_observations_never_hold():
-    v = ray7._verdict([], observed=['OUT_OF_SEQUENCE_DELIVERY', 'CONTROL_ID_REUSE'])
+    v = brayn._verdict([], observed=['OUT_OF_SEQUENCE_DELIVERY', 'CONTROL_ID_REUSE'])
     assert v.status == 'accepted'
 
 
 def test_summary_line():
-    v = ray7._verdict([ray7.Finding('UNKNOWN_STATUS_CODE', 'critical')], observed=['X'])
-    assert ray7.summary(v) == 'RAY7 held: UNKNOWN_STATUS_CODE | observed: X'
-    assert ray7.summary(ray7._verdict([])) == 'RAY7 accepted'
+    v = brayn._verdict([brayn.Finding('UNKNOWN_STATUS_CODE', 'critical')], observed=['X'])
+    assert brayn.summary(v) == 'BRAYN held: UNKNOWN_STATUS_CODE | observed: X'
+    assert brayn.summary(brayn._verdict([])) == 'BRAYN accepted'
 
 
 # ── intake as pure functions ──────────────────────────────────────────────────
 
 def test_missing_identifier():
-    assert ray7._intake_missing_identifier(ray7.ParsedMessage(kind='status')).rule_code \
+    assert brayn._intake_missing_identifier(brayn.ParsedMessage(kind='status')).rule_code \
         == 'MISSING_IDENTIFIER'
-    assert ray7._intake_missing_identifier(
-        ray7.ParsedMessage(kind='status', placer_order_number='P1')) is None
-    assert ray7._intake_missing_identifier(ray7.ParsedMessage(kind='adt')) is None
+    assert brayn._intake_missing_identifier(
+        brayn.ParsedMessage(kind='status', placer_order_number='P1')) is None
+    assert brayn._intake_missing_identifier(brayn.ParsedMessage(kind='adt')) is None
 
 
 def test_unknown_status_needs_only_a_missing_rung():
-    assert ray7._intake_unknown_status(ray7.ParsedMessage(kind='status')).rule_code \
+    assert brayn._intake_unknown_status(brayn.ParsedMessage(kind='status')).rule_code \
         == 'UNKNOWN_STATUS_CODE'
-    assert ray7._intake_unknown_status(ray7.ParsedMessage(kind='status', ladder_rank=60)) is None
+    assert brayn._intake_unknown_status(brayn.ParsedMessage(kind='status', ladder_rank=60)) is None
 
 
 # ── stall bridging (the sweep) ────────────────────────────────────────────────
@@ -208,25 +208,25 @@ def test_unconfigured_keeps_the_original_four_stall_rules():
 # ── odds and ends ─────────────────────────────────────────────────────────────
 
 def test_content_hash_ignores_reframing():
-    assert ray7.content_hash("MSH|a\r\nPID|b") == ray7.content_hash("MSH|a\rPID|b")
-    assert ray7.content_hash("MSH|a") != ray7.content_hash("MSH|b")
+    assert brayn.content_hash("MSH|a\r\nPID|b") == brayn.content_hash("MSH|a\rPID|b")
+    assert brayn.content_hash("MSH|a") != brayn.content_hash("MSH|b")
 
 
 def test_as_naive():
     aware = dt.datetime(2026, 9, 17, 9, tzinfo=dt.timezone(dt.timedelta(hours=3)))
-    assert ray7._as_naive(aware).tzinfo is None
-    assert ray7._as_naive(T(9)) == T(9)
-    assert ray7._as_naive(None) is None
+    assert brayn._as_naive(aware).tzinfo is None
+    assert brayn._as_naive(T(9)) == T(9)
+    assert brayn._as_naive(None) is None
 
 
 def test_duplicate_window_resolution(monkeypatch):
     cfgs = {}
-    monkeypatch.setattr(ray7, '_rule_config', lambda code, modality=None: cfgs.get(
+    monkeypatch.setattr(brayn, '_rule_config', lambda code, modality=None: cfgs.get(
         code, {'enabled': True, 'severity': None, 'threshold_minutes': None}))
     cfgs['LOGICAL_DUPLICATE'] = {'threshold_minutes': 25}
     cfgs['REPEATED_TRANSITION'] = {'threshold_minutes': 10}
-    assert ray7._duplicate_window() == 25
+    assert brayn._duplicate_window() == 25
     cfgs['LOGICAL_DUPLICATE'] = {'threshold_minutes': None}
-    assert ray7._duplicate_window() == 10
+    assert brayn._duplicate_window() == 10
     cfgs.clear()
-    assert ray7._duplicate_window() == ray7._DEFAULT_DUPLICATE_WINDOW_MIN
+    assert brayn._duplicate_window() == brayn._DEFAULT_DUPLICATE_WINDOW_MIN

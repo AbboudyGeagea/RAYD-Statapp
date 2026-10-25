@@ -1,12 +1,12 @@
 """
-utils/ray7_quality.py
+utils/brayn_quality.py
 ────────────────────────────────────────────────────────────────
-RAY7 layer ② — data-quality notes on a STUDY.
+BRAYN layer ② — data-quality notes on a STUDY.
 
     accept path ─▶ project ─▶ evaluate_study(accession) ─▶ open / close notes
 
 JUDGED ON THE STUDY, NOT ON THE MESSAGE
-The first RAY7 judged each message against the state as it stood when the message
+The first BRAYN judged each message against the state as it stood when the message
 arrived. A completion delivered ahead of its arrival therefore raised SKIPPED_RUNG
 truthfully, and then the arrival turned up and the finding was simply wrong; a
 special auto-resolve in the sweep existed only to clean up after the engine's own
@@ -30,7 +30,7 @@ import logging
 from sqlalchemy import text
 from db import db
 
-logger = logging.getLogger("RAY7_QUALITY")
+logger = logging.getLogger("BRAYN_QUALITY")
 
 # The ladder as columns, in rank order. Signature rungs are compared with the exam
 # rungs (a report signed before the exam was done is a contradiction) but not with
@@ -49,7 +49,7 @@ QUALITY_RULES = ('TIME_CONTRADICTION', 'SKIPPED_RUNG', 'ORPHAN_EVENT')
 def conditions(state, expected):
     """
     {rule_code: detail} for every quality condition true of this lifecycle. Pure:
-    `state` is a ray7_study_state row as a dict, `expected(rank)` the ladder profile.
+    `state` is a brayn_study_state row as a dict, `expected(rank)` the ladder profile.
     """
     out = {}
     if not state or state.get('cancelled_at'):
@@ -85,11 +85,11 @@ def conditions(state, expected):
 
 
 _OPEN_SQL = """
-INSERT INTO ray7_findings
+INSERT INTO brayn_findings
     (message_archive_id, rule_code, severity, accession_number, patient_id, detail)
 SELECT NULL, :code, :severity, :acc, :pid, CAST(:detail AS jsonb)
  WHERE NOT EXISTS (
-        SELECT 1 FROM ray7_findings f
+        SELECT 1 FROM brayn_findings f
          WHERE f.rule_code = :code AND f.accession_number = :acc
            AND f.message_archive_id IS NULL AND f.resolution = 'ignored')
 ON CONFLICT (rule_code, accession_number)
@@ -98,7 +98,7 @@ DO UPDATE SET detail = EXCLUDED.detail, severity = EXCLUDED.severity
 """
 
 _CLOSE_SQL = """
-UPDATE ray7_findings
+UPDATE brayn_findings
    SET resolved_at = NOW(), resolution = 'cleared',
        resolution_note = 'auto: no longer true of the study'
  WHERE rule_code = :code AND accession_number = :acc
@@ -110,14 +110,14 @@ def evaluate_study(accession_number):
     """Open or close this study's quality notes. Returns log labels; never raises."""
     if not accession_number:
         return []
-    from utils.ray7 import is_expected, _rule_config
+    from utils.brayn import is_expected, _rule_config
     try:
         with db.session.begin_nested():
             row = db.session.execute(text(
-                "SELECT * FROM ray7_study_state WHERE accession_number = :a"),
+                "SELECT * FROM brayn_study_state WHERE accession_number = :a"),
                 {'a': accession_number}).mappings().first()
     except Exception:
-        logger.exception("RAY7 quality: state read failed | acc=%s", accession_number)
+        logger.exception("BRAYN quality: state read failed | acc=%s", accession_number)
         return []
     if not row or row['is_provisional']:
         return []
@@ -126,9 +126,9 @@ def evaluate_study(accession_number):
     try:
         true_now = conditions(state, is_expected)
     except Exception:
-        # Fail-open, like every RAY7 judgement: a bug in a condition must cost the
+        # Fail-open, like every BRAYN judgement: a bug in a condition must cost the
         # notes, never the message being ingested.
-        logger.exception("RAY7 quality: conditions failed | acc=%s", accession_number)
+        logger.exception("BRAYN quality: conditions failed | acc=%s", accession_number)
         return []
     done = []
     for code in QUALITY_RULES:
@@ -147,5 +147,5 @@ def evaluate_study(accession_number):
                                           {'code': code, 'acc': accession_number}).rowcount:
                         done.append('closed:' + code)
         except Exception:
-            logger.exception("RAY7 quality: %s failed | acc=%s", code, accession_number)
+            logger.exception("BRAYN quality: %s failed | acc=%s", code, accession_number)
     return done

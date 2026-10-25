@@ -1,5 +1,5 @@
 """
-RAY7, the four layers (migration 0135), driven through the real ingest path.
+BRAYN, the four layers (migration 0135), driven through the real ingest path.
 
     ① intake     only an unidentifiable or unclassifiable message is HELD
     ② quality    notes on the study, judged on its whole lifecycle, self-closing
@@ -30,7 +30,7 @@ RIS_RUNGS = ['scheduled', 'arrived', 'started', 'completed']
 
 
 def verdicts(pipe):
-    return [r['ray7_status'] for r in pipe.archive()]
+    return [r['brayn_status'] for r in pipe.archive()]
 
 
 def full_exam(pipe, acc='A1', start=300):
@@ -135,14 +135,14 @@ def test_intake_rule_switched_off_does_not_hold(pipe):
 def test_verdict_is_stamped_on_the_archive(pipe):
     pipe.send(k.status('ZZ', 'A1', k.ts(10)))
     a = pipe.archive()[0]
-    assert (a['ray7_status'], a['ray7_severity']) == ('quarantined', 'critical')
-    assert a['ray7_screened_at'] is not None
+    assert (a['brayn_status'], a['brayn_severity']) == ('quarantined', 'critical')
+    assert a['brayn_screened_at'] is not None
 
 
 def test_a_clean_message_is_accepted_with_no_severity(pipe):
     pipe.send(k.status('SC', 'A1', k.ts(10)))
     a = pipe.archive()[0]
-    assert (a['ray7_status'], a['ray7_severity']) == ('accepted', None)
+    assert (a['brayn_status'], a['brayn_severity']) == ('accepted', None)
 
 
 @pytest.mark.parametrize('sender_noise', [
@@ -479,7 +479,7 @@ def test_cancellation_closes_the_notes(pipe):
 def test_a_note_ignored_by_a_person_does_not_reopen(pipe):
     pipe.send(k.status('AR', 'A1', k.hl7(at(100))))
     pipe.send(k.status('CM', 'A1', k.hl7(at(150))))
-    pipe.exec("UPDATE ray7_findings SET resolved_at = NOW(), resolution = 'ignored' "
+    pipe.exec("UPDATE brayn_findings SET resolved_at = NOW(), resolution = 'ignored' "
               "WHERE rule_code = 'TIME_CONTRADICTION'")
     pipe.send(k.status('IP', 'A1', k.hl7(at(120))))
     assert pipe.notes('TIME_CONTRADICTION', open_only=True) == []
@@ -488,7 +488,7 @@ def test_a_note_ignored_by_a_person_does_not_reopen(pipe):
 def test_a_note_cleared_by_a_person_reopens_while_still_true(pipe):
     pipe.send(k.status('AR', 'A1', k.hl7(at(100))))
     pipe.send(k.status('CM', 'A1', k.hl7(at(150))))
-    pipe.exec("UPDATE ray7_findings SET resolved_at = NOW(), resolution = 'cleared' "
+    pipe.exec("UPDATE brayn_findings SET resolved_at = NOW(), resolution = 'cleared' "
               "WHERE rule_code = 'TIME_CONTRADICTION'")
     pipe.send(k.status('IP', 'A1', k.hl7(at(120))))
     assert len(pipe.notes('TIME_CONTRADICTION', open_only=True)) == 1
@@ -508,7 +508,7 @@ def test_disabled_quality_rule_stays_silent(pipe):
 
 
 def test_modality_specific_quality_rule_row_wins(pipe):
-    pipe.exec("INSERT INTO ray7_rules (rule_code, modality, category, title, default_severity, "
+    pipe.exec("INSERT INTO brayn_rules (rule_code, modality, category, title, default_severity, "
               "enabled) VALUES ('ORPHAN_EVENT', 'MR', 'quality', 'x', 'warning', FALSE)")
     pipe.send(k.status('AR', 'A-MR', k.ts(10), mod='MR', ae='MR1'))
     pipe.send(k.status('AR', 'A-CT', k.ts(10), mod='CT'))
@@ -526,66 +526,66 @@ def test_provisional_orders_get_no_notes(pipe):
     assert pipe.notes() == []
 
 
-# ── fail-open: RAY7 must never cost a message ─────────────────────────────────
+# ── fail-open: BRAYN must never cost a message ─────────────────────────────────
 
 def test_an_intake_rule_that_raises_is_ignored(pipe, monkeypatch):
-    from utils import ray7
+    from utils import brayn
 
     def boom(msg):
         raise RuntimeError('rule bug')
-    monkeypatch.setattr(ray7, '_INTAKE', (('MISSING_IDENTIFIER', boom),))
+    monkeypatch.setattr(brayn, '_INTAKE', (('MISSING_IDENTIFIER', boom),))
     assert pipe.send(k.message(k.msh('RIS'), k.pid(), k.orc('SC', status='AR'), k.obr()))
     assert pipe.held() == 0
 
 
 def test_an_observer_that_raises_is_ignored(pipe, monkeypatch):
-    from utils import ray7
+    from utils import brayn
 
     def boom(msg, ctx):
         raise RuntimeError('observer bug')
-    monkeypatch.setattr(ray7, '_OBSERVERS', (('UNKNOWN_AETITLE', boom),))
+    monkeypatch.setattr(brayn, '_OBSERVERS', (('UNKNOWN_AETITLE', boom),))
     assert pipe.send(k.status('SC', 'A1', k.ts(10)))
     assert pipe.state('A1') is not None
 
 
 def test_context_failure_is_counted_and_accepted(pipe, monkeypatch):
-    from utils import ray7
+    from utils import brayn
 
     def boom(*a, **kw):
         raise RuntimeError('context bug')
-    monkeypatch.setattr(ray7, '_Context', boom)
+    monkeypatch.setattr(brayn, '_Context', boom)
     assert pipe.send(k.status('SC', 'A1', k.ts(10)))
-    assert pipe.stat('RAY7_DEGRADED') == 1
+    assert pipe.stat('BRAYN_DEGRADED') == 1
     assert pipe.state('A1') is not None and pipe.held() == 0
 
 
 def test_quality_failure_costs_only_the_note(pipe, monkeypatch):
-    from utils import ray7_quality
+    from utils import brayn_quality
 
     def boom(state, expected):
         raise RuntimeError('quality bug')
-    monkeypatch.setattr(ray7_quality, 'conditions', boom)
+    monkeypatch.setattr(brayn_quality, 'conditions', boom)
     assert pipe.send(k.status('CM', 'A1', k.ts(10)))
     assert pipe.study('A1') is not None
 
 
 def test_counter_failure_costs_only_the_count(pipe, monkeypatch):
-    from utils import ray7_health
-    monkeypatch.setattr(ray7_health, '_STATS_SQL', 'SELECT no_such_function()')
+    from utils import brayn_health
+    monkeypatch.setattr(brayn_health, '_STATS_SQL', 'SELECT no_such_function()')
     assert pipe.send(k.status('SC', 'A1', k.ts(10)))
     assert pipe.state('A1') is not None
 
 
 def test_a_locked_state_row_degrades_measurement_not_the_feed(pipe, app):
-    """Another session holds the table. RAY7's 150 ms read ceiling must turn that
-    into a RAY7_DEGRADED count instead of a stalled socket, and the message must
+    """Another session holds the table. BRAYN's 150 ms read ceiling must turn that
+    into a BRAYN_DEGRADED count instead of a stalled socket, and the message must
     still be archived."""
     pipe.send(k.status('SC', 'A1', k.ts(30)))
     import psycopg2
     dsn = app.config['SQLALCHEMY_DATABASE_URI'].replace('+psycopg2', '')
     blocker = psycopg2.connect(dsn)
     cur = blocker.cursor()
-    cur.execute("LOCK TABLE ray7_study_state IN ACCESS EXCLUSIVE MODE")
+    cur.execute("LOCK TABLE brayn_study_state IN ACCESS EXCLUSIVE MODE")
     release = threading.Timer(1.5, blocker.rollback)
     release.start()
     t0 = time.time()
@@ -595,6 +595,6 @@ def test_a_locked_state_row_degrades_measurement_not_the_feed(pipe, app):
         release.cancel()
         blocker.rollback()
         blocker.close()
-    assert pipe.stat('RAY7_DEGRADED') == 1
+    assert pipe.stat('BRAYN_DEGRADED') == 1
     assert pipe.count('hl7_message_archive') == 2
     assert time.time() - t0 < 10

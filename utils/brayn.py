@@ -1,26 +1,26 @@
 """
-utils/ray7.py
+utils/brayn.py
 ────────────────────────────────────────────────────────────────
-RAY7 — the screening engine between the HL7 listener and the database.
+BRAYN — the screening engine between the HL7 listener and the database.
 
 REBUILT IN FOUR LAYERS (operator decision 2026-10-25, migration 0135)
 ─────────────────────────────────────────────────────────────────────
-The first RAY7 judged every message as it arrived and could quarantine it for
+The first BRAYN judged every message as it arrived and could quarantine it for
 eight different reasons. The end-to-end suite showed what that cost: on the
 2026-09-24 load it held 360 of 660 messages (55%) for control-ID reuse although
 every one of them was valid; holding an out-of-order message protected nothing
 once the lifecycle state was made order-independent; and a held message left its
-study half-projected with nothing in the reports saying so. RAY7 now does four
+study half-projected with nothing in the reports saying so. BRAYN now does four
 different jobs, and only the first can keep data out of the reports:
 
     MLLP ─▶ archive ─▶ ① INTAKE (this module, inline) ──held──▶ stored, nothing derived
                               │                                    fix config + replay
-                              ├─accepted─▶ accept path ─▶ ② QUALITY (utils/ray7_quality)
+                              ├─accepted─▶ accept path ─▶ ② QUALITY (utils/brayn_quality)
                               │                             notes on the STUDY, judged on
                               │                             its whole lifecycle, self-closing
-                              └─▶ ③ INTERFACE (utils/ray7_health)
+                              └─▶ ③ INTERFACE (utils/brayn_health)
                                     per-sender rates; an alert only past threshold_pct
-    ④ WORKFLOW (utils/ray7_sweep), every 15 minutes: stalled, unreported, orphan
+    ④ WORKFLOW (utils/brayn_sweep), every 15 minutes: stalled, unreported, orphan
 
   ① INTAKE asks two questions: can this message be attached to a study (an
     accession or a placer order number), and can it be classified (a rung)? A
@@ -34,11 +34,11 @@ different jobs, and only the first can keep data out of the reports:
   ③ The transport rules — redelivery, control-ID reuse, out-of-order delivery,
     logical duplicates, repeated transitions — and the configuration gaps (unknown
     AE title, result status, unexpected rung) are OBSERVATIONS: counted per sender,
-    never rows per study. The values themselves go to ray7_unknown_values, which is
+    never rows per study. The values themselves go to brayn_unknown_values, which is
     the implementation engineer's mapping to-do list.
 
 
-RAY7 NEVER DROPS A MESSAGE
+BRAYN NEVER DROPS A MESSAGE
 ──────────────────────────
 Unchanged. The archive is the only copy a message will ever have — there is no
 source database to re-extract from on this branch — so rejecting is deleting.
@@ -55,8 +55,8 @@ Everything in screen() is paid inside the sender's timeout window:
      be degraded and cost nothing. The observations need two indexed lookups (the
      duplicate probe and the study state), fetched once in _Context.
   2. The lookups run under a time budget and a per-statement ceiling. A blown
-     budget or a failed lookup is itself an observation (RAY7_BUDGET_EXCEEDED,
-     RAY7_DEGRADED): it costs measurement, never the message.
+     budget or a failed lookup is itself an observation (BRAYN_BUDGET_EXCEEDED,
+     BRAYN_DEGRADED): it costs measurement, never the message.
   3. FAIL-OPEN, always. A rule that raises is logged and produces nothing; the
      message still projects.
 
@@ -74,7 +74,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import text
 from db import db
 
-logger = logging.getLogger("RAY7")
+logger = logging.getLogger("BRAYN")
 
 # ── Severity and disposition ──────────────────────────────────────────────────
 INFO     = 'info'
@@ -93,13 +93,13 @@ QUARANTINED = HELD
 # covers the database lookups too, not just the rules — see screen().
 _TIME_BUDGET_MS = 250
 
-# Ceiling on any single RAY7 query. THE IMPORTANT ONE.
+# Ceiling on any single BRAYN query. THE IMPORTANT ONE.
 #
-# Every RAY7 statement runs inside the sender's ACK window, so an unbounded query is
+# Every BRAYN statement runs inside the sender's ACK window, so an unbounded query is
 # not a slow query — it is a stalled HL7 feed. Without this, a lock held on
-# ray7_study_state or a Postgres hiccup blocks the MLLP socket for as long as it
+# brayn_study_state or a Postgres hiccup blocks the MLLP socket for as long as it
 # lasts, and back-pressures into the hospital's interface engine. With it, the query
-# is cancelled, RAY7 degrades to screening that message with less information, and
+# is cancelled, BRAYN degrades to screening that message with less information, and
 # the message still gets through. Degraded screening is a bad day; a stalled feed is
 # an incident.
 _STATEMENT_TIMEOUT_MS = 150
@@ -118,9 +118,9 @@ _cache = {'rules': (0.0, None), 'status_map': (0.0, None), 'aetitles': (0.0, Non
           'result_map': (0.0, None), 'ladder': (0.0, None)}
 
 
-# ── The contract RAY7 screens ─────────────────────────────────────────────────
+# ── The contract BRAYN screens ─────────────────────────────────────────────────
 #
-# Defined here rather than in the parsers deliberately: RAY7 is the consumer, so its
+# Defined here rather than in the parsers deliberately: BRAYN is the consumer, so its
 # needs constrain what the parsers must produce, not the other way round. A parser
 # for a new message type is correct when it can fill this in.
 @dataclass
@@ -200,7 +200,7 @@ class Verdict:
     findings: list = field(default_factory=list)   # message findings (intake, placeholder)
     notes:    list = field(default_factory=list)   # sticky study notes (FUTURE_EVENT)
     observed: list = field(default_factory=list)   # interface rule codes, counted per sender
-    unknowns: list = field(default_factory=list)   # (kind, value) for ray7_unknown_values
+    unknowns: list = field(default_factory=list)   # (kind, value) for brayn_unknown_values
 
     @property
     def may_project(self):
@@ -248,7 +248,7 @@ def _cached(key, loader):
         except Exception:
             # Keep serving the stale value. Config that is five minutes out of date
             # screens better than config that is missing.
-            logger.exception("RAY7 could not refresh cache '%s'; using previous value", key)
+            logger.exception("BRAYN could not refresh cache '%s'; using previous value", key)
     return value
 
 
@@ -267,13 +267,13 @@ def warm_caches():
         result_status_map()
         ladder_profile()
         logger.info(
-            "RAY7 caches warmed: %d rules, %d status mappings, %d AE titles, "
+            "BRAYN caches warmed: %d rules, %d status mappings, %d AE titles, "
             "%d result statuses, %d ladder rungs (%d marked measure-order)",
             len(_rules() or {}), len(status_map() or {}), len(_known_aetitles() or set()),
             len(result_status_map() or {}), len(ladder_profile() or {}),
             len(enforced_ranks()))
     except Exception:
-        logger.exception("RAY7 cache warm failed; caches will fill lazily instead")
+        logger.exception("BRAYN cache warm failed; caches will fill lazily instead")
 
 
 def _as_naive(value):
@@ -297,13 +297,13 @@ def _as_naive(value):
 # transaction, so an unguarded refresh that timed out would abort that transaction
 # and discard the archived message — the cache being stale is not worth that.
 def _rules():
-    """{(rule_code, modality): {...}} — operator-tuned config from ray7_rules."""
+    """{(rule_code, modality): {...}} — operator-tuned config from brayn_rules."""
     def load():
         rows, err = _bounded_query('rule config load', """
             SELECT rule_code, modality, enabled,
                    COALESCE(severity, default_severity) AS severity,
                    threshold_minutes
-              FROM ray7_rules
+              FROM brayn_rules
         """)
         if err:
             raise RuntimeError(err)     # _cached keeps serving the previous value
@@ -412,7 +412,7 @@ def ladder_profile():
     def load():
         rows, err = _bounded_query('ladder profile load', """
             SELECT rung, ladder_rank, label, expected, enforce_order
-              FROM ray7_ladder_profile
+              FROM brayn_ladder_profile
         """)
         if err:
             raise RuntimeError(err)
@@ -458,7 +458,7 @@ def is_expected(rank):
     """
     Whether a rung is declared present at this install.
 
-    An UNKNOWN rank counts as expected. A rank RAY7 has no profile row for is a gap
+    An UNKNOWN rank counts as expected. A rank BRAYN has no profile row for is a gap
     in configuration, not a statement that the site does not send it, and treating it
     as unexpected would make a missing row silently suppress rules.
 
@@ -491,14 +491,14 @@ def _known_aetitles():
 
 def _bounded_query(label, sql, params=None, one=False):
     """
-    Run one RAY7 statement under a time limit, inside its own SAVEPOINT.
+    Run one BRAYN statement under a time limit, inside its own SAVEPOINT.
 
     Returns (rows, error) — never raises, never leaves the caller's transaction in a
     state the caller did not ask for.
 
     THE SAVEPOINT IS NOT OPTIONAL, and the reason is easy to miss. When Postgres
     cancels a statement for exceeding statement_timeout, it does not just fail that
-    statement — it ABORTS THE TRANSACTION. RAY7 shares the listener's transaction,
+    statement — it ABORTS THE TRANSACTION. BRAYN shares the listener's transaction,
     which also holds the archive INSERT. So a naive timeout here would roll back the
     very row whose survival is the point of the entire design: the engine built to
     guarantee no message is ever lost would become the thing that loses it, and only
@@ -522,7 +522,7 @@ def _bounded_query(label, sql, params=None, one=False):
             rows = result.mappings().first() if one else result.mappings().all()
         return rows, None
     except Exception as exc:
-        logger.warning("RAY7 %s failed or timed out: %s", label, exc)
+        logger.warning("BRAYN %s failed or timed out: %s", label, exc)
         return None, str(exc)
 
 
@@ -536,12 +536,12 @@ class _Context:
 
     Both lookups are time-bounded. When one is cancelled or fails, the context is
     marked DEGRADED rather than the failure being swallowed: the rules that depend on
-    it will quietly find nothing and raise no findings, and "RAY7 saw no problems"
-    must never be indistinguishable from "RAY7 could not look". screen() counts that
-    flag as the sender's RAY7_DEGRADED rate.
+    it will quietly find nothing and raise no findings, and "BRAYN saw no problems"
+    must never be indistinguishable from "BRAYN could not look". screen() counts that
+    flag as the sender's BRAYN_DEGRADED rate.
     """
 
-    # Ladder rungs, in order, mapped to their column in ray7_study_state.
+    # Ladder rungs, in order, mapped to their column in brayn_study_state.
     #
     # This maps RANK to COLUMN, which is schema structure, not clinical policy — it
     # is not the hardcoded status ladder the standing rule warns against. The part
@@ -555,7 +555,7 @@ class _Context:
         self.msg        = msg
         self.archive_id = archive_id
         self.siblings   = []     # other archive rows sharing sender + control ID
-        self.state      = None   # ray7_study_state row, if the study is known
+        self.state      = None   # brayn_study_state row, if the study is known
         self.degraded   = []     # names of lookups that failed or timed out
         self.matched_by = None   # which link in the identity chain found the study
         self.ambiguous  = []     # accessions an order number matched when >1 survived
@@ -590,7 +590,7 @@ class _Context:
 
         At most two lookups, both on an index, because this runs inside the sender's
         ACK window. The accession probe is the primary key; the order-number probe
-        uses idx_ray7_state_placer. The visit tiebreak is applied in Python over the
+        uses idx_brayn_state_placer. The visit tiebreak is applied in Python over the
         handful of rows that came back rather than as a third query.
         """
         msg = self.msg
@@ -599,7 +599,7 @@ class _Context:
         if msg.accession_number:
             row, err = _bounded_query(
                 'study state lookup',
-                "SELECT * FROM ray7_study_state WHERE accession_number = :acc",
+                "SELECT * FROM brayn_study_state WHERE accession_number = :acc",
                 {'acc': msg.accession_number}, one=True,
             )
             if err:
@@ -615,7 +615,7 @@ class _Context:
         #    for the order — the scheduling message that triggers the rekey.
         if msg.placer_order_number:
             rows, err = _bounded_query('study state by order', """
-                SELECT * FROM ray7_study_state
+                SELECT * FROM brayn_study_state
                  WHERE placer_order_number = :placer
                  ORDER BY is_provisional DESC, first_seen_at DESC
                  LIMIT 5
@@ -864,7 +864,7 @@ def screen(msg, archive_id=None):
         try:
             f = _configured(code, fn(msg), msg.modality)
         except Exception:
-            logger.exception("RAY7 intake rule %s raised; ignoring it for this message", code)
+            logger.exception("BRAYN intake rule %s raised; ignoring it for this message", code)
             continue
         if f:
             findings.append(f)
@@ -878,22 +878,22 @@ def screen(msg, archive_id=None):
             # finding otherwise (a placer-only order stamped in the future).
             (notes if msg.accession_number else findings).append(f)
     except Exception:
-        logger.exception("RAY7 FUTURE_EVENT raised; ignoring it for this message")
+        logger.exception("BRAYN FUTURE_EVENT raised; ignoring it for this message")
 
     # ③ observations. The two lookups are the only part that can be slow, so they
     # are what the budget bounds.
     try:
         ctx = _Context(msg, archive_id)
     except Exception:
-        logger.exception("RAY7 could not build context; observations skipped")
+        logger.exception("BRAYN could not build context; observations skipped")
         ctx = None
     if ctx is None or ctx.degraded:
-        observed.append('RAY7_DEGRADED')
+        observed.append('BRAYN_DEGRADED')
     else:
         if (time.monotonic() - started) * 1000 > _TIME_BUDGET_MS:
-            logger.warning("RAY7 budget exceeded before observations | control_id=%s",
+            logger.warning("BRAYN budget exceeded before observations | control_id=%s",
                            msg.control_id)
-            observed.append('RAY7_BUDGET_EXCEEDED')
+            observed.append('BRAYN_BUDGET_EXCEEDED')
         else:
             for code, fn in _OBSERVERS:
                 if not _rule_config(code, msg.modality).get('enabled', True):
@@ -901,7 +901,7 @@ def screen(msg, archive_id=None):
                 try:
                     hit = fn(msg, ctx)
                 except Exception:
-                    logger.exception("RAY7 observation %s raised; ignoring it", code)
+                    logger.exception("BRAYN observation %s raised; ignoring it", code)
                     continue
                 if hit:
                     observed.append(code)
@@ -941,20 +941,20 @@ def persist(verdict, msg, archive_id):
         with db.session.begin_nested():
             db.session.execute(text("""
                 UPDATE hl7_message_archive
-                   SET ray7_status = :status,
-                       ray7_severity = :severity,
-                       ray7_screened_at = NOW()
+                   SET brayn_status = :status,
+                       brayn_severity = :severity,
+                       brayn_screened_at = NOW()
                  WHERE id = :id
             """), {'status': verdict.status, 'severity': verdict.severity, 'id': archive_id})
     except Exception:
-        logger.exception("RAY7 could not stamp verdict on archive_id=%s", archive_id)
+        logger.exception("BRAYN could not stamp verdict on archive_id=%s", archive_id)
 
     # One savepoint per finding: a malformed detail payload costs that finding only.
     for f in verdict.findings:
         try:
             with db.session.begin_nested():
                 db.session.execute(text("""
-                    INSERT INTO ray7_findings
+                    INSERT INTO brayn_findings
                         (message_archive_id, rule_code, severity,
                          accession_number, patient_id, sending_app, detail)
                     VALUES
@@ -973,7 +973,7 @@ def persist(verdict, msg, archive_id):
                 })
         except Exception:
             logger.exception(
-                "RAY7 could not record finding %s for archive_id=%s", f.rule_code, archive_id)
+                "BRAYN could not record finding %s for archive_id=%s", f.rule_code, archive_id)
 
     if not verdict.may_project or not msg.accession_number:
         return
@@ -981,7 +981,7 @@ def persist(verdict, msg, archive_id):
         try:
             with db.session.begin_nested():
                 db.session.execute(text("""
-                    INSERT INTO ray7_findings
+                    INSERT INTO brayn_findings
                         (message_archive_id, rule_code, severity,
                          accession_number, patient_id, sending_app, detail)
                     VALUES (NULL, :rule_code, :severity, :accession, :patient_id, :app,
@@ -995,7 +995,7 @@ def persist(verdict, msg, archive_id):
                     'app': msg.sending_app, 'detail': _json(f.detail),
                 })
         except Exception:
-            logger.exception("RAY7 could not record note %s | acc=%s",
+            logger.exception("BRAYN could not record note %s | acc=%s",
                              f.rule_code, msg.accession_number)
 
 
@@ -1012,8 +1012,8 @@ def record_observations(verdict, msg, archive_id):
     metrics = ['MESSAGES'] + list(verdict.observed)
     if not verdict.may_project:
         metrics.append('HELD')
-    from utils import ray7_health
-    ray7_health.record(msg.sending_app, metrics,
+    from utils import brayn_health
+    brayn_health.record(msg.sending_app, metrics,
                        [(kind, value, archive_id) for kind, value in verdict.unknowns])
 
 
@@ -1027,8 +1027,8 @@ def note_redelivery(sending_app, control_id, hash_value):
     RATE now, per sender — harmless in itself (the SAP Mirth hub redelivers and
     there is no fix coming), worth watching as a trend.
     """
-    from utils import ray7_health
-    ray7_health.record(sending_app, ['MESSAGES', 'EXACT_REDELIVERY'], [])
+    from utils import brayn_health
+    brayn_health.record(sending_app, ['MESSAGES', 'EXACT_REDELIVERY'], [])
 
 
 def _json(obj):
@@ -1039,7 +1039,7 @@ def _json(obj):
 
 
 def summary(verdict):
-    """One-line log form: RAY7 held: UNKNOWN_STATUS_CODE | observed: UNKNOWN_AETITLE"""
+    """One-line log form: BRAYN held: UNKNOWN_STATUS_CODE | observed: UNKNOWN_AETITLE"""
     parts = []
     if verdict.findings:
         parts.append(', '.join(f.rule_code for f in verdict.findings))
@@ -1048,4 +1048,4 @@ def summary(verdict):
     if verdict.observed:
         parts.append('observed: ' + ', '.join(verdict.observed))
     word = 'held' if verdict.status == HELD else 'accepted'
-    return f"RAY7 {word}" + (': ' + ' | '.join(parts) if parts else '')
+    return f"BRAYN {word}" + (': ' + ' | '.join(parts) if parts else '')

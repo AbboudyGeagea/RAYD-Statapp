@@ -2,9 +2,9 @@
 utils/hl7_parse.py
 ────────────────────────────────────────────────────────────────
 HL7 v2 parsing — the canonical home for segment primitives and for the parsers
-that turn a raw message into the ParsedMessage contract RAY7 screens.
+that turn a raw message into the ParsedMessage contract BRAYN screens.
 
-    raw MLLP bytes ─▶ parse_message() ─▶ ParsedMessage ─▶ RAY7.screen() ─▶ project
+    raw MLLP bytes ─▶ parse_message() ─▶ ParsedMessage ─▶ BRAYN.screen() ─▶ project
 
 WHY THIS MODULE EXISTS SEPARATELY FROM hl7_listener.py
 The listener's job is sockets, framing and acknowledgement. Parsing is a different
@@ -38,7 +38,7 @@ and the archive is replayed. Nothing is lost by guessing wrong today — which i
 a licence to guess carelessly, but does mean a wrong guess costs a replay rather
 than a re-send request the hospital would refuse.
 
-Where a field is absent or unmapped the value stays None and RAY7's referential
+Where a field is absent or unmapped the value stays None and BRAYN's referential
 rules (UNKNOWN_AETITLE, UNKNOWN_PERFORMER) record the gap, so a wrong guess shows
 up as a measurable stream of findings rather than as silently missing data.
 """
@@ -46,7 +46,7 @@ import re
 import logging
 from datetime import datetime, date
 
-from utils.ray7 import (ParsedMessage, content_hash, resolve_status,
+from utils.brayn import (ParsedMessage, content_hash, resolve_status,
                         resolve_result_status, ladder_profile)
 
 logger = logging.getLogger("HL7_PARSE")
@@ -103,7 +103,7 @@ def parse_hl7_datetime(val):
     HL7 timestamp (YYYYMMDDHHMMSS and shorter) to a NAIVE datetime.
 
     Naive deliberately: every timestamp column in this schema is `timestamp without
-    time zone`, and RAY7 compares event times against datetime.now(). Returning an
+    time zone`, and BRAYN compares event times against datetime.now(). Returning an
     aware value here would raise TypeError inside a rule, which fail-open swallows,
     silently retiring that rule. The offset is stripped rather than applied because
     no sender on this interface has ever emitted one.
@@ -193,7 +193,7 @@ def extract_signing_physician(obr_fields, result_dt_raw):
 # ER quick-registration admits a patient before they are identified, using a
 # literal 9999-11-11 birth date and sex U. Stored naively that yields a negative
 # age and poisons every age-banded report, so it is neutralised at parse time and
-# recorded in ParsedMessage.placeholders for RAY7 to count.
+# recorded in ParsedMessage.placeholders for BRAYN to count.
 
 _PLACEHOLDER_DOBS = {'99991111', '00000000', '18000101'}
 _MIN_PLAUSIBLE_BIRTH = date(1880, 1, 1)
@@ -242,7 +242,7 @@ def parse_birth_date(raw, placeholders):
 #               use for the performing station, so it is the default here — still
 #               a guess, but at least one that cannot corrupt another field.
 #               Expect this to be absent until a real sample confirms the position;
-#               RAY7 reports that honestly as UNKNOWN_AETITLE rather than the
+#               BRAYN reports that honestly as UNKNOWN_AETITLE rather than the
 #               pipeline inventing a device.
 #   room        PV1-3 is the assigned patient location, whose second component is
 #               the room by definition: point-of-care^room^bed^facility.
@@ -258,7 +258,7 @@ _STATUS_FIELDS = {
 
 
 def _envelope(segments, raw_message, source_ip):
-    """MSH fields plus the identity RAY7's dedupe depends on."""
+    """MSH fields plus the identity BRAYN's dedupe depends on."""
     msh = seg(segments, 'MSH')
     chash = content_hash(raw_message)
     control_id = field(msh, 9)
@@ -377,7 +377,7 @@ def parse_order(segments, msg):
     #
     # Note that an ORM NW usually carries NO ACCESSION: the RIS mints one at
     # scheduling. Identity for this rung therefore rests on the placer order number,
-    # which is why ray7_study_state can hold a provisional key.
+    # which is why brayn_study_state can hold a provisional key.
     msg.canonical_state = 'ordered'
     msg.ladder_rank = (ladder_profile().get('ordered', {}).get('ladder_rank') or 20)
 
@@ -445,7 +445,7 @@ def parse_result(segments, msg):
     parse_oru_r01() already does that for the hl7_oru_reports row, including the
     OBX impression handling, and duplicating it would create two answers to "what
     did the radiologist write". This produces the identity-and-timing view that
-    RAY7 and the projector need, nothing more.
+    BRAYN and the projector need, nothing more.
     """
     obr = seg(segments, 'OBR')
     msg.kind = 'result'
@@ -565,7 +565,7 @@ def parse_message(raw_message, source_ip=None):
             if state:
                 return parse_status_event(segments, msg, state, rank)
 
-            # An unmapped ORC-5 is not an error here — it is RAY7's
+            # An unmapped ORC-5 is not an error here — it is BRAYN's
             # UNKNOWN_STATUS_CODE, which is critical precisely because the
             # transition cannot be classified. Carry the raw values through so the
             # rule can report them, and keep kind='status' so the rule applies.
@@ -582,7 +582,7 @@ def parse_message(raw_message, source_ip=None):
 
     except Exception:
         # Parsing must not be able to cost us a message. The envelope is already
-        # populated, so the caller can still archive it and RAY7 can still see it.
+        # populated, so the caller can still archive it and BRAYN can still see it.
         logger.exception("HL7 parse failed for control_id=%s type=%s",
                          msg.control_id, msg.message_type)
         msg.kind = 'other'

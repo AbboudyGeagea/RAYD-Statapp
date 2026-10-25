@@ -1,13 +1,13 @@
 """
-routes/ray7_console.py
+routes/brayn_console.py
 ────────────────────────────────────────────────────────────────
-The RAY7 console — the operator's window onto the screening engine.
+The BRAYN console — the operator's window onto the screening engine.
 
 An engine whose output nobody can see is an engine nobody trusts, and a held-back
 queue nobody can open is worse than none at all: data stops reaching the reports
 and there is no visible reason why.
 
-ONE VIEW PER QUESTION, matching RAY7's four layers (migration 0135):
+ONE VIEW PER QUESTION, matching BRAYN's four layers (migration 0135):
 
     summary   is anything wrong? — open items per layer and rule
     held      ① what is NOT in the reports, grouped by the thing to fix
@@ -15,28 +15,28 @@ ONE VIEW PER QUESTION, matching RAY7's four layers (migration 0135):
     health    ③ how each sender is behaving, as rates, plus the unknown values
     messages  the archive itself
 
-HELD IS GROUPED BY REASON, not by study. Since the rebuild only a message RAY7
+HELD IS GROUPED BY REASON, not by study. Since the rebuild only a message BRAYN
 cannot identify or classify is held, and the fix is always configuration — map this
 status code, find where this sender puts its accession — after which "Replay held
 messages" re-screens them. There is no release-without-fixing any more: a held
 message has no study to attach to or no rung to record, so forcing it through could
 not produce data.
 
-Gated on the existing 'can_view_etl' permission rather than a new key: RAY7
+Gated on the existing 'can_view_etl' permission rather than a new key: BRAYN
 occupies the position the ETL used to, and raw messages carry patient identifiers.
 """
 import json
 import logging
 
-from flask import Blueprint, render_template, request, jsonify, abort, current_app
+from flask import Blueprint, render_template, request, jsonify, abort, current_app, redirect
 from flask_login import login_required, current_user
 from sqlalchemy import text
 
 from db import db, user_has_page
 
-logger = logging.getLogger("RAY7_CONSOLE")
+logger = logging.getLogger("BRAYN_CONSOLE")
 
-ray7_bp = Blueprint('ray7_console', __name__)
+brayn_bp = Blueprint('brayn_console', __name__)
 
 PER_PAGE = 50
 LAYERS = ('intake', 'quality', 'interface', 'workflow')
@@ -53,7 +53,7 @@ def _rows(sql, params=None):
     try:
         return [dict(r) for r in db.session.execute(text(sql), params or {}).mappings().all()]
     except Exception:
-        logger.exception("RAY7 console query failed")
+        logger.exception("BRAYN console query failed")
         db.session.rollback()
         return []
 
@@ -63,7 +63,7 @@ def _scalar(sql, params=None, default=0):
         v = db.session.execute(text(sql), params or {}).scalar()
         return default if v is None else v
     except Exception:
-        logger.exception("RAY7 console scalar failed")
+        logger.exception("BRAYN console scalar failed")
         db.session.rollback()
         return default
 
@@ -75,29 +75,29 @@ def _summary():
                COUNT(*) FILTER (WHERE r.category = 'workflow'  AND f.resolved_at IS NULL) AS open_workflow,
                COUNT(*) FILTER (WHERE r.category = 'interface' AND f.resolved_at IS NULL) AS open_alerts,
                COUNT(*) FILTER (WHERE f.resolved_at IS NOT NULL)                          AS resolved
-          FROM ray7_findings f
-          LEFT JOIN ray7_rules r ON r.rule_code = f.rule_code AND r.modality = ''
+          FROM brayn_findings f
+          LEFT JOIN brayn_rules r ON r.rule_code = f.rule_code AND r.modality = ''
     """)
     out.update(row[0] if row else {})
     row = _rows("""
         SELECT COUNT(*) AS messages,
-               COUNT(*) FILTER (WHERE ray7_status = 'quarantined') AS held,
+               COUNT(*) FILTER (WHERE brayn_status = 'quarantined') AS held,
                COUNT(*) FILTER (WHERE received_at > NOW() - INTERVAL '24 hours') AS last_24h
           FROM hl7_message_archive
     """)
     out.update(row[0] if row else {})
-    out['studies'] = _scalar("SELECT COUNT(*) FROM ray7_study_state WHERE NOT is_provisional")
-    out['unknown_values'] = _scalar("SELECT COUNT(*) FROM ray7_unknown_values")
+    out['studies'] = _scalar("SELECT COUNT(*) FROM brayn_study_state WHERE NOT is_provisional")
+    out['unknown_values'] = _scalar("SELECT COUNT(*) FROM brayn_unknown_values")
     return out
 
 
 def _health():
     """Per sender: the last hour and the last 24 hours, every metric as count + rate."""
-    from utils.ray7_health import INTERFACE_RULES, rates
+    from utils.brayn_health import INTERFACE_RULES, rates
     try:
         hour, day = rates(60), rates(24 * 60)
     except Exception:
-        logger.exception("RAY7 console: rates failed")
+        logger.exception("BRAYN console: rates failed")
         db.session.rollback()
         hour, day = {}, {}
     senders = []
@@ -118,7 +118,7 @@ def _health():
     return senders
 
 
-@ray7_bp.route('/ray7')
+@brayn_bp.route('/brayn')
 @login_required
 def console():
     _require_access()
@@ -151,8 +151,8 @@ def console():
                    COUNT(DISTINCT f.accession_number)             AS studies,
                    MAX(f.created_at)                              AS last_seen,
                    MAX(r.title) AS title
-              FROM ray7_findings f
-              LEFT JOIN ray7_rules r ON r.rule_code = f.rule_code AND r.modality = ''
+              FROM brayn_findings f
+              LEFT JOIN brayn_rules r ON r.rule_code = f.rule_code AND r.modality = ''
              GROUP BY COALESCE(r.category, 'intake'), f.rule_code
              ORDER BY array_position(ARRAY['intake','quality','interface','workflow'],
                                      COALESCE(r.category, 'intake')),
@@ -177,9 +177,9 @@ def console():
             params['q'] = f'%{search}%'
         clause = ('WHERE ' + ' AND '.join(where)) if where else ''
         joins = """
-              FROM ray7_findings f
+              FROM brayn_findings f
               LEFT JOIN hl7_message_archive a ON a.id = f.message_archive_id
-              LEFT JOIN ray7_rules r ON r.rule_code = f.rule_code AND r.modality = ''
+              LEFT JOIN brayn_rules r ON r.rule_code = f.rule_code AND r.modality = ''
         """
         ctx['total'] = _scalar(f"SELECT COUNT(*) {joins} {clause}",
                                {k: v for k, v in params.items() if k not in ('lim', 'off')})
@@ -199,7 +199,7 @@ def console():
         # Grouped by the thing to fix. The same unmapped code from the same sender is
         # one item however many messages carry it.
         ctx['total'] = _scalar("""
-            SELECT COUNT(*) FROM hl7_message_archive WHERE ray7_status = 'quarantined'
+            SELECT COUNT(*) FROM hl7_message_archive WHERE brayn_status = 'quarantined'
         """)
         ctx['rows'] = _rows("""
             SELECT f.rule_code,
@@ -215,8 +215,8 @@ def console():
                    MAX(a.received_at)                                AS last_held,
                    MAX(a.id)                                         AS sample_archive_id
               FROM hl7_message_archive a
-              JOIN ray7_findings f ON f.message_archive_id = a.id AND f.severity = 'critical'
-             WHERE a.ray7_status = 'quarantined'
+              JOIN brayn_findings f ON f.message_archive_id = a.id AND f.severity = 'critical'
+             WHERE a.brayn_status = 'quarantined'
              GROUP BY 1, 2, 3
              ORDER BY MAX(a.received_at) DESC
              LIMIT :lim OFFSET :off
@@ -226,15 +226,15 @@ def console():
         ctx['rows'] = _health()
         ctx['alerts'] = _rows("""
             SELECT f.id, f.rule_code, f.severity, f.sending_app, f.detail, f.created_at, r.title
-              FROM ray7_findings f
-              LEFT JOIN ray7_rules r ON r.rule_code = f.rule_code AND r.modality = ''
+              FROM brayn_findings f
+              LEFT JOIN brayn_rules r ON r.rule_code = f.rule_code AND r.modality = ''
              WHERE f.message_archive_id IS NULL AND f.accession_number IS NULL
                AND f.resolved_at IS NULL
              ORDER BY f.created_at DESC
         """)
         ctx['unknown'] = _rows("""
             SELECT kind, sending_app, value, n, first_seen, last_seen, sample_archive_id
-              FROM ray7_unknown_values
+              FROM brayn_unknown_values
              ORDER BY last_seen DESC
              LIMIT 200
         """)
@@ -246,16 +246,16 @@ def console():
                          "OR a.message_type ILIKE :q)")
             params['q'] = f'%{search}%'
         if severity:      # reused as the status filter on this view
-            where.append("a.ray7_status = :st"); params['st'] = severity
+            where.append("a.brayn_status = :st"); params['st'] = severity
         clause = ('WHERE ' + ' AND '.join(where)) if where else ''
 
         ctx['total'] = _scalar(f"SELECT COUNT(*) FROM hl7_message_archive a {clause}",
                                {k: v for k, v in params.items() if k not in ('lim', 'off')})
         ctx['rows'] = _rows(f"""
             SELECT a.id, a.message_control_id, a.sending_app, a.message_type,
-                   a.received_at, a.ray7_status, a.ray7_severity,
+                   a.received_at, a.brayn_status, a.brayn_severity,
                    (a.projected_at IS NOT NULL) AS projected,
-                   (SELECT COUNT(*) FROM ray7_findings x WHERE x.message_archive_id = a.id)
+                   (SELECT COUNT(*) FROM brayn_findings x WHERE x.message_archive_id = a.id)
                      AS findings
               FROM hl7_message_archive a {clause}
              ORDER BY a.id DESC LIMIT :lim OFFSET :off
@@ -263,13 +263,21 @@ def console():
 
     ctx['rule_options'] = _rows("""
         SELECT rule_code, COUNT(*) FILTER (WHERE resolved_at IS NULL) AS open
-          FROM ray7_findings GROUP BY rule_code ORDER BY 1
+          FROM brayn_findings GROUP BY rule_code ORDER BY 1
     """)
     ctx['pages'] = max(1, -(-ctx['total'] // PER_PAGE)) if ctx['total'] else 1
-    return render_template('ray7_console.html', **ctx)
+    return render_template('brayn_console.html', **ctx)
 
 
-@ray7_bp.route('/ray7/message/<int:archive_id>')
+@brayn_bp.route('/ray7')
+@brayn_bp.route('/ray7/<path:rest>')
+def old_address(rest=''):
+    """BRAYN was called RAY7 until migration 0137; old bookmarks land on the new page."""
+    qs = request.query_string.decode()
+    return redirect('/brayn' + ('/' + rest if rest else '') + ('?' + qs if qs else ''), code=301)
+
+
+@brayn_bp.route('/brayn/message/<int:archive_id>')
 @login_required
 def message_detail(archive_id):
     """
@@ -284,7 +292,7 @@ def message_detail(archive_id):
         msg = db.session.execute(text("""
             SELECT id, message_control_id, sending_app, sending_facility, message_type,
                    message_datetime, hl7_version, received_at, source_ip,
-                   parse_status, parse_error, ray7_status, ray7_severity,
+                   parse_status, parse_error, brayn_status, brayn_severity,
                    projected_at, raw_message
               FROM hl7_message_archive WHERE id = :id
         """), {'id': archive_id}).mappings().first()
@@ -293,7 +301,7 @@ def message_detail(archive_id):
 
         findings = _rows("""
             SELECT rule_code, severity, detail, created_at, resolved_at
-              FROM ray7_findings WHERE message_archive_id = :id
+              FROM brayn_findings WHERE message_archive_id = :id
              ORDER BY CASE severity WHEN 'critical' THEN 1
                                     WHEN 'warning' THEN 2 ELSE 3 END
         """, {'id': archive_id})
@@ -306,11 +314,11 @@ def message_detail(archive_id):
         out['findings'] = findings
         return jsonify(json.loads(json.dumps(out, default=str)))
     except Exception:
-        logger.exception("RAY7 console: message detail failed | id=%s", archive_id)
+        logger.exception("BRAYN console: message detail failed | id=%s", archive_id)
         return jsonify({'error': 'lookup failed'}), 500
 
 
-@ray7_bp.route('/ray7/held/replay', methods=['POST'])
+@brayn_bp.route('/brayn/held/replay', methods=['POST'])
 @login_required
 def replay_held():
     """
@@ -330,10 +338,10 @@ def replay_held():
     body = request.json or {}
     rule = (request.form.get('rule') or body.get('rule') or '').strip()
 
-    sql = "SELECT a.id FROM hl7_message_archive a WHERE a.ray7_status = 'quarantined'"
+    sql = "SELECT a.id FROM hl7_message_archive a WHERE a.brayn_status = 'quarantined'"
     params = {}
     if rule:
-        sql += """ AND EXISTS (SELECT 1 FROM ray7_findings f
+        sql += """ AND EXISTS (SELECT 1 FROM brayn_findings f
                                 WHERE f.message_archive_id = a.id AND f.rule_code = :rule)"""
         params['rule'] = rule
     ids = [r['id'] for r in _rows(sql + " ORDER BY a.id", params)]
@@ -344,17 +352,17 @@ def replay_held():
         from utils.hl7_replay import replay
         replay(current_app._get_current_object(), archive_ids=ids, rescreen=True)
     except Exception:
-        logger.exception("RAY7 console: replay of held messages failed")
+        logger.exception("BRAYN console: replay of held messages failed")
         return jsonify({'status': 'error', 'error': 'replay failed; nothing was lost, '
                                                     'the messages are still held'}), 500
 
     still = _scalar("SELECT COUNT(*) FROM hl7_message_archive "
-                    "WHERE id = ANY(:ids) AND ray7_status = 'quarantined'", {'ids': ids})
+                    "WHERE id = ANY(:ids) AND brayn_status = 'quarantined'", {'ids': ids})
     return jsonify({'status': 'ok', 'replayed': len(ids), 'released': len(ids) - still,
                     'still_held': still})
 
 
-@ray7_bp.route('/ray7/finding/<int:finding_id>/resolve', methods=['POST'])
+@brayn_bp.route('/brayn/finding/<int:finding_id>/resolve', methods=['POST'])
 @login_required
 def resolve(finding_id):
     """
@@ -372,7 +380,7 @@ def resolve(finding_id):
         return jsonify({'error': 'invalid resolution'}), 400
     try:
         db.session.execute(text("""
-            UPDATE ray7_findings
+            UPDATE brayn_findings
                SET resolved_at = NOW(), resolved_by = :uid,
                    resolution = :res, resolution_note = :note
              WHERE id = :id AND resolved_at IS NULL
@@ -383,5 +391,5 @@ def resolve(finding_id):
                                 'fix the cause, then use "Replay held messages".'})
     except Exception:
         db.session.rollback()
-        logger.exception("RAY7 console: resolve failed | id=%s", finding_id)
+        logger.exception("BRAYN console: resolve failed | id=%s", finding_id)
         return jsonify({'error': 'resolve failed'}), 500

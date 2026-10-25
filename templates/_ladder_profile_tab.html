@@ -1,5 +1,5 @@
 {# ────────────────────────────────────────────────────────────────
-   RAY7 Ladder Profile — lazy-loaded fragment for the studio.
+   BRAYN Ladder Profile — lazy-loaded fragment for the studio.
 
    The implementation engineer's switchboard. Everything ships off, so the banner
    at the top is the normal state on a fresh install rather than an error, and it
@@ -20,17 +20,17 @@
     </h3>
     <p class="text-[11px] text-slate-400 mb-4 leading-relaxed max-w-4xl">
       {% if configured %}
-        <strong class="text-slate-300">Expected</strong> tells RAY7 this site sends the status at
+        <strong class="text-slate-300">Expected</strong> tells BRAYN this site sends the status at
         all — absence rules stop asking for a rung that is switched off, and the stall check
         bridges to the next expected rung instead, so disabling a rung narrows the ladder rather
         than leaving a blind segment.
         <strong class="text-slate-300">Measure order</strong> counts a message of this rung that
-        <em>arrives</em> after a rung above it in the sender's out-of-order rate (RAY7 →
+        <em>arrives</em> after a rung above it in the sender's out-of-order rate (BRAYN →
         Interface health). Nothing is held: the lifecycle does not depend on delivery order.
         With no rung marked, every expected rung is measured.
       {% else %}
         Nothing is configured yet, which is the intended state on a fresh install: until a rung
-        is marked expected RAY7 assumes the site may send any of them, and measures the delivery
+        is marked expected BRAYN assumes the site may send any of them, and measures the delivery
         order of all of them. Switch on the rungs this site actually sends. The
         <strong class="text-slate-300">Seen</strong> column below shows what has genuinely
         arrived, so this is a response to traffic rather than to a spec.

@@ -202,7 +202,7 @@ def test_releasing_one_study_does_not_rewrite_the_others(pipe):
     pipe.send(k.status('AR', 'HELD', k.hl7(at(280))))       # quarantined
     other_before = pipe.state('OTHER')
     ids = [r['id'] for r in pipe.q("SELECT id FROM hl7_message_archive "
-                                    "WHERE ray7_status = 'quarantined'")]
+                                    "WHERE brayn_status = 'quarantined'")]
     pipe.replay(archive_ids=ids, rescreen=False)
     other_after = pipe.state('OTHER')
     for col in ('is_closed', 'completed_at', 'reported_at', 'current_rank', 'ordered_at',

@@ -3,7 +3,7 @@
 
    Two panels, and the order is deliberate. "Seen but not mapped" comes FIRST
    because it is the actionable one: those codes are being quarantined right now,
-   and every row is a real message this site sent that RAY7 could not classify.
+   and every row is a real message this site sent that BRAYN could not classify.
    The mapping table below it is reference.
    ──────────────────────────────────────────────────────────────── #}
 
@@ -16,11 +16,11 @@
       Seen but not mapped — {{ unmapped|length }} code{{ '' if unmapped|length == 1 else 's' }}
     </h3>
     <p class="text-[11px] text-slate-400 mb-4 leading-relaxed">
-      RAY7 received these status codes and could not classify them, so those messages were
+      BRAYN received these status codes and could not classify them, so those messages were
       rated critical and <strong class="text-amber-300">held out of the reporting tables</strong>.
       Map each one to a lifecycle state below. Mapping does not release the messages already
       held — afterwards press <strong class="text-slate-300">Replay held messages</strong> in the
-      RAY7 console (<code class="text-slate-300">/ray7?view=held</code>).
+      BRAYN console (<code class="text-slate-300">/brayn?view=held</code>).
     </p>
     <table class="w-full text-[11px]">
       <thead>
@@ -85,7 +85,7 @@
     <p class="text-[11px] text-slate-500 mb-4 leading-relaxed">
       Blank sender or ORC-1 means <em>any</em>. Lookup is most-specific first, so a rule for one
       sender beats the general one. The lifecycle rank is set from the state — it is what makes
-      RAY7's sequence checks and the projector agree on what "further along" means, so it is not
+      BRAYN's sequence checks and the projector agree on what "further along" means, so it is not
       editable here.
     </p>
 

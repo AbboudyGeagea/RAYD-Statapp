@@ -1,10 +1,10 @@
 """
-utils/ray7_health.py
+utils/brayn_health.py
 ────────────────────────────────────────────────────────────────
-RAY7 layer ③ — interface health: how each SENDER is behaving, as rates.
+BRAYN layer ③ — interface health: how each SENDER is behaving, as rates.
 
-    listener ─▶ record(sender, metrics, unknowns) ─▶ ray7_interface_stats (15-min buckets)
-                                                └─▶ ray7_unknown_values
+    listener ─▶ record(sender, metrics, unknowns) ─▶ brayn_interface_stats (15-min buckets)
+                                                └─▶ brayn_unknown_values
     sweep    ─▶ evaluate_alerts() ─▶ one open alert per (rule, sender) past threshold_pct
 
 WHY RATES AND NOT FINDINGS
@@ -28,7 +28,7 @@ import logging
 from sqlalchemy import text
 from db import db
 
-logger = logging.getLogger("RAY7_HEALTH")
+logger = logging.getLogger("BRAYN_HEALTH")
 
 BUCKET_MINUTES = 15
 WINDOW_MINUTES = 60
@@ -37,11 +37,11 @@ WINDOW_MINUTES = 60
 # out of three is 67% and means nothing.
 MIN_VOLUME = 20
 
-# The interface rules that are rates. Anything else in ray7_rules is not counted here.
+# The interface rules that are rates. Anything else in brayn_rules is not counted here.
 INTERFACE_RULES = (
     'EXACT_REDELIVERY', 'CONTROL_ID_REUSE', 'OUT_OF_SEQUENCE_DELIVERY',
     'LOGICAL_DUPLICATE', 'REPEATED_TRANSITION', 'UNEXPECTED_RUNG', 'UNKNOWN_AETITLE',
-    'UNKNOWN_RESULT_STATUS', 'RAY7_DEGRADED', 'RAY7_BUDGET_EXCEEDED',
+    'UNKNOWN_RESULT_STATUS', 'BRAYN_DEGRADED', 'BRAYN_BUDGET_EXCEEDED',
 )
 
 _BUCKET = (f"date_trunc('hour', LOCALTIMESTAMP) + "
@@ -49,20 +49,20 @@ _BUCKET = (f"date_trunc('hour', LOCALTIMESTAMP) + "
            f"* interval '{BUCKET_MINUTES} minutes'")
 
 _STATS_SQL = f"""
-INSERT INTO ray7_interface_stats (bucket_start, sending_app, metric, n)
+INSERT INTO brayn_interface_stats (bucket_start, sending_app, metric, n)
 SELECT {_BUCKET}, :app, m, 1 FROM unnest(CAST(:metrics AS text[])) AS m
 ON CONFLICT (bucket_start, sending_app, metric) DO UPDATE
-   SET n = ray7_interface_stats.n + 1
+   SET n = brayn_interface_stats.n + 1
 """
 
 _UNKNOWN_SQL = """
-INSERT INTO ray7_unknown_values (kind, sending_app, value, n, sample_archive_id)
+INSERT INTO brayn_unknown_values (kind, sending_app, value, n, sample_archive_id)
 VALUES (:kind, :app, :value, 1, :aid)
 ON CONFLICT (kind, sending_app, value) DO UPDATE
-   SET n = ray7_unknown_values.n + 1,
+   SET n = brayn_unknown_values.n + 1,
        last_seen = NOW(),
        sample_archive_id = COALESCE(EXCLUDED.sample_archive_id,
-                                    ray7_unknown_values.sample_archive_id)
+                                    brayn_unknown_values.sample_archive_id)
 """
 
 
@@ -84,7 +84,7 @@ def record(sending_app, metrics, unknowns):
                 conn.execute(text(_UNKNOWN_SQL), {'kind': kind, 'app': app,
                                                   'value': str(value)[:200], 'aid': archive_id})
     except Exception:
-        logger.exception("RAY7 health: could not record %s for sender %r", metrics, app)
+        logger.exception("BRAYN health: could not record %s for sender %r", metrics, app)
 
 
 def rates(window_minutes=WINDOW_MINUTES):
@@ -95,7 +95,7 @@ def rates(window_minutes=WINDOW_MINUTES):
     """
     rows = db.session.execute(text(f"""
         SELECT sending_app, metric, SUM(n) AS n
-          FROM ray7_interface_stats
+          FROM brayn_interface_stats
          WHERE bucket_start > {_BUCKET} - make_interval(mins => :w)
          GROUP BY sending_app, metric
     """), {'w': window_minutes}).mappings().all()
@@ -106,7 +106,7 @@ def rates(window_minutes=WINDOW_MINUTES):
 
 
 _ALERT_SQL = """
-INSERT INTO ray7_findings
+INSERT INTO brayn_findings
     (message_archive_id, rule_code, severity, accession_number, sending_app, detail)
 VALUES (NULL, :code, :severity, NULL, :app, CAST(:detail AS jsonb))
 ON CONFLICT (rule_code, sending_app)
@@ -115,7 +115,7 @@ DO UPDATE SET detail = EXCLUDED.detail, severity = EXCLUDED.severity
 """
 
 _CLEAR_SQL = """
-UPDATE ray7_findings
+UPDATE brayn_findings
    SET resolved_at = NOW(), resolution = 'cleared',
        resolution_note = 'auto: the rate is back under its threshold'
  WHERE rule_code = :code AND sending_app = :app
@@ -138,7 +138,7 @@ def evaluate_alerts():
     try:
         cfg = db.session.execute(text("""
             SELECT rule_code, COALESCE(severity, default_severity) AS severity, threshold_pct
-              FROM ray7_rules
+              FROM brayn_rules
              WHERE modality = '' AND enabled AND threshold_pct IS NOT NULL
                AND rule_code = ANY(:codes)
         """), {'codes': list(INTERFACE_RULES)}).mappings().all()
@@ -146,7 +146,7 @@ def evaluate_alerts():
             return out
         by_sender = rates()
     except Exception:
-        logger.exception("RAY7 health: could not read rates or rules")
+        logger.exception("BRAYN health: could not read rates or rules")
         return out
 
     for app, counts in by_sender.items():
@@ -172,5 +172,5 @@ def evaluate_alerts():
                         out['cleared'] += db.session.execute(
                             text(_CLEAR_SQL), {'code': rule['rule_code'], 'app': app}).rowcount
             except Exception:
-                logger.exception("RAY7 health: alert %s for %r failed", rule['rule_code'], app)
+                logger.exception("BRAYN health: alert %s for %r failed", rule['rule_code'], app)
     return out

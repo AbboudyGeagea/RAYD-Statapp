@@ -348,7 +348,7 @@ function renderTabs() {
     const n = CAT.fields.filter(f => f.tab === t.id && inDataset(f) && isActive(f, D().criteria[f.id])).length;
     return `<button type="button" role="tab" class="tab${t.id === 'quality' ? ' rayd' : ''}" data-tab="${t.id}" aria-selected="${S.tab === t.id}">${t.label}${n ? `<span class="badge">${n}</span>` : ''}</button>`;
   }).join('');
-  $('tab-note').innerHTML = S.tab === 'quality' ? '<div class="tab-note">These come from RAY7: open data-quality notes and stalls on each study. The RAY7 console has the detail.</div>' : '';
+  $('tab-note').innerHTML = S.tab === 'quality' ? '<div class="tab-note">These come from BRAYN: open data-quality notes and stalls on each study. The BRAYN console has the detail.</div>' : '';
 }
 function renderCriteria() {
   const list = CAT.fields.filter(f => f.tab === S.tab && inDataset(f));

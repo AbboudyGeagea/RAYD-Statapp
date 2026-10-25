@@ -1010,14 +1010,14 @@ For your deployment, calculate peak load:
 The HL7 listener processes each message through:
 1. **Parse** (2-3 ms) - HL7 syntax parsing
 2. **Archive** (20-30 ms) - Store raw message in database
-3. **RAY7 Screen** (50-100 ms) - **BLOCKING** validation/screening
+3. **BRAYN Screen** (50-100 ms) - **BLOCKING** validation/screening
 4. **Persist Verdict** (5-10 ms) - Store screening results
 5. **Project** (10-20 ms) - Write to reporting tables (hl7_orders, hl7_oru_reports)
 6. **Commit** (5-10 ms) - Transaction commit
 
 **Total per message: ~100-170 ms**
 
-The bottleneck is **RAY7 screening**, which runs **synchronously in the ACK response window**. This is intentional for safety: every message must be validated before acknowledging to the sender.
+The bottleneck is **BRAYN screening**, which runs **synchronously in the ACK response window**. This is intentional for safety: every message must be validated before acknowledging to the sender.
 
 At 20 concurrent senders, this creates natural queue depth but remains stable. Beyond 25 threads, Python's Global Interpreter Lock (GIL) causes queue backlog, rapidly degrading latency.
 
@@ -1063,8 +1063,8 @@ docker compose logs rayd-app | grep "HL7.*type="
 
 If your deployment needs higher throughput, these options are available:
 
-**Option 1: Async RAY7 Screening** (2-3x improvement)
-- Move RAY7 validation to background job
+**Option 1: Async BRAYN Screening** (2-3x improvement)
+- Move BRAYN validation to background job
 - Messages briefly unscreened in database
 - ACK latency drops to 50 ms, throughput ~150+ msg/sec
 - Trade-off: Quarantine rules apply asynchronously
@@ -1081,7 +1081,7 @@ If your deployment needs higher throughput, these options are available:
 - Minimal code changes
 
 **Option 4: Hybrid (Recommended)** (3-5x improvement)
-- Async RAY7 + multi-process pool
+- Async BRAYN + multi-process pool
 - Highest throughput with moderate complexity
 - Estimated: 300+ msg/sec
 

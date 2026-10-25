@@ -25,8 +25,8 @@ Connection, in order of preference:
 THE TWO ORIGINAL SCRIPTS (test_hl7_parse.py, test_hl7_fieldmap.py) are excluded
 from collection. They replace sys.modules['db'] with a stub at import time and call
 sys.exit, so importing them here would poison the real db module for every test
-after them. They stay runnable as scripts. (The third, test_ray7_rules.py, tested
-rule functions the 0135 rebuild retired; test_ray7_units.py replaces it.)
+after them. They stay runnable as scripts. (The third, test_brayn_rules.py, tested
+rule functions the 0135 rebuild retired; test_brayn_units.py replaces it.)
 """
 import os
 import re
@@ -55,21 +55,21 @@ TEST_DB = os.environ.get('RAYD_TEST_DB', 'rayd_pytest')
 # volume a TRUNCATE of this set costs ~450 ms and the DELETEs ~3 ms, which is the
 # difference between a five-minute suite and a thirty-second one.
 DATA_TABLES = [
-    'ray7_findings', 'hl7_study_events', 'hl7_patients', 'hl7_message_archive',
-    'ray7_study_state', 'hl7_surrogate_keys',
+    'brayn_findings', 'hl7_study_events', 'hl7_patients', 'hl7_message_archive',
+    'brayn_study_state', 'hl7_surrogate_keys',
     'order_status_log', 'hl7_orders',
     'hl7_oru_analysis', 'ai_nlp_cache', 'crn_notifications', 'hl7_oru_rule_cache',
     'oru_classification_reviews', 'hl7_oru_reports', 'hl7_scn_studies',
     'std_pps_person_reference', 'std_pps', 'etl_didb_raw_images', 'etl_didb_serieses',
     'etl_didb_studies', 'etl_patient_view', 'etl_orders',
     'std_worklist_arrivals', 'std_worklist_exam_done', 'std_worklist_scheduled',
-    'std_resources_ris', 'ray7_interface_stats', 'ray7_unknown_values',
+    'std_resources_ris', 'brayn_interface_stats', 'brayn_unknown_values',
 ]
 
 # Seeded configuration. Snapshotted once after migrations and restored before
 # every test, so a test that edits a rule or the ladder cannot leak that edit.
 CONFIG_TABLES = [
-    'ray7_rules', 'hl7_status_map', 'hl7_result_status_map', 'ray7_ladder_profile',
+    'brayn_rules', 'hl7_status_map', 'hl7_result_status_map', 'brayn_ladder_profile',
     'hl7_field_mappings', 'hl7_field_targets', 'settings', 'aetitle_modality_map',
     # worklists before worklist_versions: deleting a worklist cascades to its versions
     'worklists', 'worklist_versions', 'worklist_shifts',
@@ -231,8 +231,8 @@ def app(database_url):
 
     run_migrations(flask_app)
 
-    from routes.ray7_console import ray7_bp
-    flask_app.register_blueprint(ray7_bp)
+    from routes.brayn_console import brayn_bp
+    flask_app.register_blueprint(brayn_bp)
     from routes.worklists import worklists_bp
     flask_app.register_blueprint(worklists_bp)
 
@@ -269,9 +269,9 @@ def _engine_options():
 
 def _reset_caches():
     import hl7_listener
-    from utils import ray7, hl7_fieldmap, hl7_ingest
-    for k in list(ray7._cache):
-        ray7._cache[k] = (0.0, None)
+    from utils import brayn, hl7_fieldmap, hl7_ingest
+    for k in list(brayn._cache):
+        brayn._cache[k] = (0.0, None)
     hl7_fieldmap.invalidate()
     hl7_fieldmap.invalidate_targets()
     hl7_ingest._PACS_APP.update({'at': 0.0, 'value': None})
@@ -348,7 +348,7 @@ class Pipe:
         return None if row is None else next(iter(row.values()))
 
     def state(self, acc):
-        return self.one("SELECT * FROM ray7_study_state WHERE accession_number = :a", a=acc)
+        return self.one("SELECT * FROM brayn_study_state WHERE accession_number = :a", a=acc)
 
     def study(self, acc):
         return self.one("SELECT * FROM etl_didb_studies WHERE accession_number = :a", a=acc)
@@ -369,7 +369,7 @@ class Pipe:
         return self.q("SELECT * FROM hl7_message_archive ORDER BY id")
 
     def findings(self, rule=None, acc=None, open_only=False):
-        sql = "SELECT * FROM ray7_findings WHERE TRUE"
+        sql = "SELECT * FROM brayn_findings WHERE TRUE"
         if rule:
             sql += " AND rule_code = :r"
         if acc:
@@ -383,35 +383,35 @@ class Pipe:
         return sorted(f['rule_code'] for f in self.findings(acc=acc))
 
     def notes(self, rule=None, acc=None, open_only=False):
-        """Study-level rows: RAY7 quality notes and workflow (absence) findings."""
+        """Study-level rows: BRAYN quality notes and workflow (absence) findings."""
         return [f for f in self.findings(rule=rule, acc=acc, open_only=open_only)
                 if f['message_archive_id'] is None and f['accession_number'] is not None]
 
     def open_notes(self, acc=None):
         return sorted(f['rule_code'] for f in self.notes(acc=acc, open_only=True))
 
-    # RAY7 layer 3: per-sender counters and the unknown-values registry
+    # BRAYN layer 3: per-sender counters and the unknown-values registry
     def stat(self, metric, app=None):
-        sql = "SELECT COALESCE(SUM(n), 0) AS n FROM ray7_interface_stats WHERE metric = :m"
+        sql = "SELECT COALESCE(SUM(n), 0) AS n FROM brayn_interface_stats WHERE metric = :m"
         if app is not None:
             sql += " AND sending_app = :app"
         return int(self.scalar(sql, m=metric, app=app))
 
     def unknown(self, kind=None):
-        sql = "SELECT kind, sending_app, value, n FROM ray7_unknown_values"
+        sql = "SELECT kind, sending_app, value, n FROM brayn_unknown_values"
         if kind:
             sql += " WHERE kind = :k"
         return self.q(sql + " ORDER BY kind, value", k=kind)
 
     def held(self):
-        return self.count('hl7_message_archive', "ray7_status = 'quarantined'")
+        return self.count('hl7_message_archive', "brayn_status = 'quarantined'")
 
     def count(self, table, where='TRUE', **params):
         return self.scalar(f"SELECT COUNT(*) FROM {table} WHERE {where}", **params)
 
     # configuration
     def profile(self, expected=(), enforced=()):
-        self.exec("UPDATE ray7_ladder_profile SET expected = (rung = ANY(:e)), "
+        self.exec("UPDATE brayn_ladder_profile SET expected = (rung = ANY(:e)), "
                   "enforce_order = (rung = ANY(:o))", e=list(expected), o=list(enforced))
         _reset_caches()
 
@@ -422,15 +422,15 @@ class Pipe:
 
     def rule(self, code, modality='', **cols):
         sets = ', '.join(f"{c} = :{c}" for c in cols)
-        n = self.exec(f"UPDATE ray7_rules SET {sets} WHERE rule_code = :code AND modality = :m",
+        n = self.exec(f"UPDATE brayn_rules SET {sets} WHERE rule_code = :code AND modality = :m",
                       code=code, m=modality, **cols)
         if not n:
-            raise AssertionError(f'no ray7_rules row for {code!r}/{modality!r}')
+            raise AssertionError(f'no brayn_rules row for {code!r}/{modality!r}')
         _reset_caches()
 
     # the other two entry points
     def sweep(self):
-        from utils.ray7_sweep import run_sweep
+        from utils.brayn_sweep import run_sweep
         with self.app.app_context():
             return run_sweep()
 
@@ -449,7 +449,7 @@ class Pipe:
                    ordered_at, scheduled_at, arrived_at, started_at, completed_at,
                    pacs_completed_at, reported_at, signed_prelim_at, signed_final_at,
                    cancelled_at, current_rank, is_closed, is_provisional, visit_number
-              FROM ray7_study_state ORDER BY accession_number""")
+              FROM brayn_study_state ORDER BY accession_number""")
         studies = self.q("""
             SELECT accession_number, storing_ae, study_date, study_time, insert_time,
                    study_description, procedure_code, study_modality, patient_class,

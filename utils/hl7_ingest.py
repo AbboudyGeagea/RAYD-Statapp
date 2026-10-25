@@ -2,9 +2,9 @@
 utils/hl7_ingest.py
 ────────────────────────────────────────────────────────────────
 The write side of ingestion: archive a message, then persist what was parsed out
-of it. Sits between the listener (sockets, framing, ACK) and RAY7 (screening).
+of it. Sits between the listener (sockets, framing, ACK) and BRAYN (screening).
 
-    listener ─▶ archive() ─▶ RAY7.screen() ─▶ persist_parsed() ─▶ projector
+    listener ─▶ archive() ─▶ BRAYN.screen() ─▶ persist_parsed() ─▶ projector
                     │                              │
               raw, deduped                hl7_study_events
                                           hl7_patients
@@ -20,7 +20,7 @@ hl7_orders and hl7_oru_reports keep their existing write paths in hl7_listener.
 Orders and reports were never the gap — the lifecycle was. Re-routing two working
 inserts through here would risk live behaviour for no benefit, so the order and the
 report continue where they are, and the projector reads ordered_at from hl7_orders
-and reported_at from hl7_oru_reports when it assembles ray7_study_state.
+and reported_at from hl7_oru_reports when it assembles brayn_study_state.
 
 That is also why hl7_study_events carries only the four RIS lifecycle states and
 cancellation: those are the transitions with no home anywhere else.
@@ -91,7 +91,7 @@ def archive(msg):
     (sending_app, message_control_id, content_hash), so a byte-identical
     redelivery — the permanent SAP Mirth behaviour, not a fault — collides and
     returns no row. A control ID reused for DIFFERENT content does not collide, so
-    that message is stored and RAY7 flags the reuse afterwards. Keeping both
+    that message is stored and BRAYN flags the reuse afterwards. Keeping both
     behaviours in one index is why neither needs a special case here.
 
     (None, False) means the insert itself failed, which the caller must treat as
@@ -115,7 +115,7 @@ def archive(msg):
     try:
         row = db.session.execute(text(_ARCHIVE_SQL), params).first()
     except Exception:
-        logger.exception("RAY7/ingest: archive insert failed for control_id=%s",
+        logger.exception("BRAYN/ingest: archive insert failed for control_id=%s",
                          msg.control_id)
         return None, False
 
@@ -171,7 +171,7 @@ def persist_parsed(msg, archive_id):
     Write the parsed content into the staging tables. Returns a short label of what
     was written, for the log line.
 
-    Each write is wrapped in its own SAVEPOINT for the same reason RAY7's are: a
+    Each write is wrapped in its own SAVEPOINT for the same reason BRAYN's are: a
     constraint violation here must cost this one row, not the archived message and
     not the other writes in the same transaction. Does not commit — the caller owns
     the transaction boundary so that archive, findings and events land together.
@@ -213,11 +213,11 @@ def persist_parsed(msg, archive_id):
                 })
             written.append('patient')
         except Exception:
-            logger.exception("RAY7/ingest: hl7_patients upsert failed for patient_id=%s",
+            logger.exception("BRAYN/ingest: hl7_patients upsert failed for patient_id=%s",
                              msg.patient_id)
 
     # Lifecycle events only. An unclassified status message (no canonical_state) is
-    # deliberately NOT written: RAY7 has already raised UNKNOWN_STATUS_CODE as
+    # deliberately NOT written: BRAYN has already raised UNKNOWN_STATUS_CODE as
     # critical and quarantined it, and inventing a rung for a code we cannot read
     # would put a guess into the lifecycle log. The raw message is archived, so the
     # event can be recovered by replay once the code is mapped.
@@ -272,15 +272,15 @@ def persist_parsed(msg, archive_id):
                     })
                 written.append('event:' + msg.canonical_state)
             except Exception:
-                logger.exception("RAY7/ingest: hl7_study_events insert failed for %s",
+                logger.exception("BRAYN/ingest: hl7_study_events insert failed for %s",
                                  msg.accession_number)
 
-            # Roll the event into the per-study state RAY7 screens the NEXT message
+            # Roll the event into the per-study state BRAYN screens the NEXT message
             # against. Order matters: screening has already happened by this point,
             # so it saw the state as it was before this event.
             update_study_state(msg)
 
-    # A report closes the loop. Without this, ray7_study_state.reported_at stays
+    # A report closes the loop. Without this, brayn_study_state.reported_at stays
     # NULL forever and the UNREPORTED sweep rule fires on every completed study —
     # the rule would be pure noise rather than a signal. The report itself lives in
     # hl7_oru_reports; this only records THAT one exists, so the absence sweep can
@@ -302,20 +302,20 @@ def persist_parsed(msg, archive_id):
                 # LEAST, not COALESCE: "when was it first reported" is the earliest
                 # report time, whichever report happened to be delivered first.
                 db.session.execute(text("""
-                    UPDATE ray7_study_state
+                    UPDATE brayn_study_state
                        SET reported_at = LEAST(reported_at, :reported_at),
                            updated_at  = NOW()
                      WHERE accession_number = :acc
                 """), {'acc': msg.accession_number, 'reported_at': msg.event_time})
             written.append('reported')
         except Exception:
-            logger.exception("RAY7/ingest: reported_at update failed | acc=%s",
+            logger.exception("BRAYN/ingest: reported_at update failed | acc=%s",
                              msg.accession_number)
 
     return ', '.join(written) if written else 'nothing'
 
 
-# Which ray7_study_state column each rung stamps. Values come from a CHECK-
+# Which brayn_study_state column each rung stamps. Values come from a CHECK-
 # constrained set, so this can be interpolated into SQL safely — but it is a
 # whitelist lookup rather than a format of the incoming value, and must stay that
 # way.
@@ -352,8 +352,8 @@ def _rekey_provisional(msg):
     ~ORD:<order>. The scheduling message is the first to carry BOTH identifiers, and
     this is where the two halves become one study.
 
-    Done as an UPDATE of the key rather than a merge because ray7_study_state is the
-    only table keyed on the accession as a primary key; ray7_findings and
+    Done as an UPDATE of the key rather than a merge because brayn_study_state is the
+    only table keyed on the accession as a primary key; brayn_findings and
     hl7_study_events hold it as plain TEXT with no foreign key, so they are rewritten
     alongside rather than cascading.
 
@@ -371,7 +371,7 @@ def _rekey_provisional(msg):
     try:
         with db.session.begin_nested():
             merged = db.session.execute(text("""
-                UPDATE ray7_study_state real_row
+                UPDATE brayn_study_state real_row
                    SET ordered_at    = COALESCE(real_row.ordered_at, p.ordered_at),
                        placer_order_number = COALESCE(real_row.placer_order_number,
                                                       p.placer_order_number),
@@ -379,7 +379,7 @@ def _rekey_provisional(msg):
                        event_count   = real_row.event_count + p.event_count,
                        first_seen_at = LEAST(real_row.first_seen_at, p.first_seen_at),
                        updated_at    = NOW()
-                  FROM ray7_study_state p
+                  FROM brayn_study_state p
                  WHERE real_row.accession_number = :acc
                    AND p.accession_number = :prov
                 RETURNING real_row.accession_number
@@ -387,11 +387,11 @@ def _rekey_provisional(msg):
 
             if merged:
                 db.session.execute(
-                    text("DELETE FROM ray7_study_state WHERE accession_number = :prov"),
+                    text("DELETE FROM brayn_study_state WHERE accession_number = :prov"),
                     {'prov': prov})
             else:
                 db.session.execute(text("""
-                    UPDATE ray7_study_state
+                    UPDATE brayn_study_state
                        SET accession_number = :acc,
                            is_provisional   = FALSE,
                            updated_at       = NOW()
@@ -400,7 +400,7 @@ def _rekey_provisional(msg):
 
             # Findings raised against the provisional key have to follow it.
             db.session.execute(text("""
-                UPDATE ray7_findings SET accession_number = :acc
+                UPDATE brayn_findings SET accession_number = :acc
                  WHERE accession_number = :prov
             """), {'acc': acc, 'prov': prov})
 
@@ -414,7 +414,7 @@ def _rekey_provisional(msg):
             """), {'acc': acc, 'placer': placer})
         return True
     except Exception:
-        logger.exception("RAY7/ingest: rekey of %s to %s failed", prov, acc)
+        logger.exception("BRAYN/ingest: rekey of %s to %s failed", prov, acc)
         return False
 
 
@@ -422,19 +422,19 @@ def accession_for_placer(placer_order_number):
     """
     The accession the RIS minted for this order, if a scheduled study already holds
     it. The most recent wins when one order became several exams. Indexed
-    (idx_ray7_state_placer), and None when anything goes wrong — the caller then
+    (idx_brayn_state_placer), and None when anything goes wrong — the caller then
     opens a provisional lifecycle, which the next scheduling message folds in.
     """
     try:
         row = db.session.execute(text("""
-            SELECT accession_number FROM ray7_study_state
+            SELECT accession_number FROM brayn_study_state
              WHERE placer_order_number = :p AND NOT is_provisional
              ORDER BY first_seen_at DESC
              LIMIT 1
         """), {'p': placer_order_number}).first()
         return row[0] if row else None
     except Exception:
-        logger.exception("RAY7/ingest: placer lookup failed | placer=%s", placer_order_number)
+        logger.exception("BRAYN/ingest: placer lookup failed | placer=%s", placer_order_number)
         return None
 
 
@@ -457,7 +457,7 @@ _REFINED_ORDER = ('(e.ladder_rank BETWEEN 0 AND 100) DESC, e.ladder_rank DESC, '
                   'e.event_time DESC, e.id DESC')
 
 _REFINE_SQL = """
-UPDATE ray7_study_state s
+UPDATE brayn_study_state s
    SET {sets}
   FROM (
         SELECT {aggs}
@@ -475,7 +475,7 @@ UPDATE ray7_study_state s
 
 def update_study_state(msg):
     """
-    Maintain ray7_study_state — the per-accession lifecycle RAY7's sequence rules
+    Maintain brayn_study_state — the per-accession lifecycle BRAYN's sequence rules
     read.
 
     WITHOUT THIS THE SEQUENCE RULES ARE NOT MERELY BLIND, THEY ARE WRONG. Confirmed
@@ -485,7 +485,7 @@ def update_study_state(msg):
     ORPHAN_EVENT fired on every message. False positives on everything are worse
     than silence, because they train people to stop reading the queue.
 
-    Called AFTER RAY7 has screened, never before: screening the current message
+    Called AFTER BRAYN has screened, never before: screening the current message
     must see the state as it was BEFORE that message, or every event would find
     itself already recorded and the comparisons would be meaningless.
 
@@ -533,7 +533,7 @@ def update_study_state(msg):
         column = 'pacs_completed_at'
 
     sql = """
-        INSERT INTO ray7_study_state
+        INSERT INTO brayn_study_state
             (accession_number, placer_order_number, visit_number, is_provisional,
              patient_id, modality, aetitle,
              room_name, procedure_code, procedure_text, patient_class,
@@ -558,22 +558,22 @@ def update_study_state(msg):
              -- is the one the queue most needs to show.
              :rank, 1, :rank >= 140 OR :state = 'cancelled', NOW(), :event_time, NOW())
         ON CONFLICT (accession_number) DO UPDATE SET
-            {col}               = LEAST(ray7_study_state.{col}, EXCLUDED.{col}),
-            placer_order_number = COALESCE(ray7_study_state.placer_order_number, EXCLUDED.placer_order_number),
-            patient_id          = COALESCE(ray7_study_state.patient_id,     EXCLUDED.patient_id),
-            modality            = COALESCE(ray7_study_state.modality,       EXCLUDED.modality),
-            aetitle             = COALESCE(EXCLUDED.aetitle,  ray7_study_state.aetitle),
-            room_name           = COALESCE(EXCLUDED.room_name, ray7_study_state.room_name),
-            procedure_code      = COALESCE(ray7_study_state.procedure_code, EXCLUDED.procedure_code),
-            procedure_text      = COALESCE(ray7_study_state.procedure_text, EXCLUDED.procedure_text),
-            patient_location    = COALESCE(EXCLUDED.patient_location, ray7_study_state.patient_location),
-            patient_class       = COALESCE(EXCLUDED.patient_class, ray7_study_state.patient_class),
-            current_rank        = GREATEST(ray7_study_state.current_rank, EXCLUDED.current_rank),
-            event_count         = ray7_study_state.event_count + 1,
-            last_event_at       = GREATEST(COALESCE(ray7_study_state.last_event_at, EXCLUDED.last_event_at),
-                                           COALESCE(EXCLUDED.last_event_at, ray7_study_state.last_event_at)),
-            visit_number        = COALESCE(ray7_study_state.visit_number, EXCLUDED.visit_number),
-            is_closed           = ray7_study_state.is_closed
+            {col}               = LEAST(brayn_study_state.{col}, EXCLUDED.{col}),
+            placer_order_number = COALESCE(brayn_study_state.placer_order_number, EXCLUDED.placer_order_number),
+            patient_id          = COALESCE(brayn_study_state.patient_id,     EXCLUDED.patient_id),
+            modality            = COALESCE(brayn_study_state.modality,       EXCLUDED.modality),
+            aetitle             = COALESCE(EXCLUDED.aetitle,  brayn_study_state.aetitle),
+            room_name           = COALESCE(EXCLUDED.room_name, brayn_study_state.room_name),
+            procedure_code      = COALESCE(brayn_study_state.procedure_code, EXCLUDED.procedure_code),
+            procedure_text      = COALESCE(brayn_study_state.procedure_text, EXCLUDED.procedure_text),
+            patient_location    = COALESCE(EXCLUDED.patient_location, brayn_study_state.patient_location),
+            patient_class       = COALESCE(EXCLUDED.patient_class, brayn_study_state.patient_class),
+            current_rank        = GREATEST(brayn_study_state.current_rank, EXCLUDED.current_rank),
+            event_count         = brayn_study_state.event_count + 1,
+            last_event_at       = GREATEST(COALESCE(brayn_study_state.last_event_at, EXCLUDED.last_event_at),
+                                           COALESCE(EXCLUDED.last_event_at, brayn_study_state.last_event_at)),
+            visit_number        = COALESCE(brayn_study_state.visit_number, EXCLUDED.visit_number),
+            is_closed           = brayn_study_state.is_closed
                                   OR EXCLUDED.current_rank >= 140
                                   OR EXCLUDED.cancelled_at IS NOT NULL,
             updated_at          = NOW()
@@ -608,7 +608,7 @@ def update_study_state(msg):
             if msg.accession_number:
                 db.session.execute(text(_REFINE_SQL), {'acc': key})
     except Exception:
-        logger.exception("RAY7/ingest: ray7_study_state upsert failed | acc=%s",
+        logger.exception("BRAYN/ingest: brayn_study_state upsert failed | acc=%s",
                          msg.accession_number)
 
 
@@ -616,7 +616,7 @@ def mark_quarantined(archive_id):
     """
     Record that a message was parsed but held out of the reporting tables.
 
-    Distinct from RAY7's own ray7_status stamp: this marks the DATA-flow outcome on
+    Distinct from BRAYN's own brayn_status stamp: this marks the DATA-flow outcome on
     the archive row, so a replay can find every message whose content never reached
     etl_* and re-offer it once the finding is resolved.
     """
@@ -630,7 +630,7 @@ def mark_quarantined(archive_id):
                  WHERE id = :id
             """), {'id': archive_id})
     except Exception:
-        logger.exception("RAY7/ingest: could not mark archive_id=%s quarantined", archive_id)
+        logger.exception("BRAYN/ingest: could not mark archive_id=%s quarantined", archive_id)
 
 
 def mark_parsed(archive_id, projected):
@@ -646,7 +646,7 @@ def mark_parsed(archive_id, projected):
                  WHERE id = :id
             """), {'id': archive_id, 'projected': bool(projected)})
     except Exception:
-        logger.exception("RAY7/ingest: could not stamp archive_id=%s", archive_id)
+        logger.exception("BRAYN/ingest: could not stamp archive_id=%s", archive_id)
 
 
 def mark_parse_error(archive_id, error):
@@ -661,4 +661,4 @@ def mark_parse_error(archive_id, error):
                  WHERE id = :id
             """), {'id': archive_id, 'err': str(error)[:2000]})
     except Exception:
-        logger.exception("RAY7/ingest: could not dead-letter archive_id=%s", archive_id)
+        logger.exception("BRAYN/ingest: could not dead-letter archive_id=%s", archive_id)

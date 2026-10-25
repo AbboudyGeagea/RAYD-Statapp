@@ -3,7 +3,7 @@
 ## Project
 Flask/PostgreSQL radiology statistics platform, **HL7 distribution**. This install never
 connects to any external database — no Oracle, no PACS DB, no RIS DB. All clinical data
-arrives as HL7 v2 over MLLP (port 6661), is screened by RAY7, and is projected into the
+arrives as HL7 v2 over MLLP (port 6661), is screened by BRAYN, and is projected into the
 `etl_*` tables that the reports read.
 
 **This branch is a separate product, not a site variant.** Its schema, data pipeline,
@@ -19,7 +19,7 @@ push HL7 work out to them.
 | ORM | Flask-SQLAlchemy (SQLAlchemy 2) |
 | Database | PostgreSQL 15 (`rayd_db` container) — the only database this app touches |
 | Data source | HL7 v2 over MLLP, port 6661 (`hl7_listener.py`) |
-| Screening | RAY7 (`utils/ray7.py`), inline before the ACK |
+| Screening | BRAYN (`utils/brayn.py`), inline before the ACK |
 | NLP worker | medspaCy in separate `rayd_nlp` container |
 | Reverse proxy | nginx (`rayd_proxy` container) |
 | Scheduling | APScheduler (inside main container) |
@@ -36,24 +36,28 @@ rayd_db      postgres:15                — primary DB, port 5432 (dev: exposed 
 
 ## Data flow
 ```
-MLLP :6661 ─▶ hl7_message_archive (raw, every message) ─▶ RAY7 ① intake (inline)
+MLLP :6661 ─▶ hl7_message_archive (raw, every message) ─▶ BRAYN ① intake (inline)
           ─held─▶ stored, nothing derived (fix config, then "Replay held messages")
-          ─accepted─▶ persist events/state (hl7_study_events, ray7_study_state, hl7_orders,
+          ─accepted─▶ persist events/state (hl7_study_events, brayn_study_state, hl7_orders,
              hl7_oru_reports, hl7_patients) ─▶ projector ─▶ etl_didb_studies,
              etl_patient_view, etl_orders ─▶ reports (report SQL is never touched)
-          ─▶ RAY7 ② quality notes on the study  ─▶ RAY7 ③ per-sender counters
-   sweep (15 min) ─▶ RAY7 ④ workflow: stalled / unreported / unsigned / orphan + ③ alerts
+          ─▶ BRAYN ② quality notes on the study  ─▶ BRAYN ③ per-sender counters
+   sweep (15 min) ─▶ BRAYN ④ workflow: stalled / unreported / unsigned / orphan + ③ alerts
 ```
 
-**RAY7 has four layers (migration 0135).** Only ① can keep data out of the reports,
+**BRAYN has four layers (migration 0135).** Only ① can keep data out of the reports,
 and only for a message it cannot identify (no accession, no placer number) or
 classify (status code with no mapping). ② data-quality notes (time contradiction,
 skipped rung, no order, future time) are judged on the study's whole lifecycle and
 close themselves. ③ transport and configuration signals (redelivery, control-ID
 reuse, out-of-order delivery, duplicates, unknown AE/result status/rung) are
-per-sender rates in `ray7_interface_stats` and values in `ray7_unknown_values`; an
-alert only past `ray7_rules.threshold_pct`. The lifecycle state is order-independent,
+per-sender rates in `brayn_interface_stats` and values in `brayn_unknown_values`; an
+alert only past `brayn_rules.threshold_pct`. The lifecycle state is order-independent,
 so delivery order never changes a projected study.
+
+**BRAYN was called RAY7 until migration 0137** (full rename: tables, columns,
+constraints, indexes, the two engine-named rule codes, files, routes; `/ray7` redirects
+to `/brayn`). Migrations 0119–0136 still say ray7 — they are history, never edit them.
 
 ## Key Files
 ```
@@ -65,16 +69,16 @@ utils/
   hl7_fieldmap.py         — applies operator-configured hl7_field_mappings
   hl7_dictionary.py       — HL7 v2.4 field names for the mapping explorer
   hl7_ingest.py           — archive + persist (events, study state, orders, reports)
-  ray7.py                 — RAY7 ① intake gate + observations (verdict: accepted / held)
-  ray7_quality.py         — RAY7 ② study quality notes, self-closing, never withhold
-  ray7_health.py          — RAY7 ③ per-sender counters, unknown values, rate alerts
-  ray7_sweep.py           — RAY7 ④ absence rules (stalled / unreported) + ③ alerts, 15 min
+  brayn.py                 — BRAYN ① intake gate + observations (verdict: accepted / held)
+  brayn_quality.py         — BRAYN ② study quality notes, self-closing, never withhold
+  brayn_health.py          — BRAYN ③ per-sender counters, unknown values, rate alerts
+  brayn_sweep.py           — BRAYN ④ absence rules (stalled / unreported) + ③ alerts, 15 min
   hl7_project.py          — the projector: HL7 state → etl_* tables, per accession
   hl7_replay.py           — rebuild everything downstream of the archive
   hl7_forward.py          — optional MLLP forwarding of raw messages
   crn_scan.py, crn_dispatcher.py — critical result notifications (sending is a stub)
 routes/
-  ray7_console.py         — RAY7 console: held, notes, interface health, messages
+  brayn_console.py         — BRAYN console: held, notes, interface health, messages
   mapping_controller.py   — HL7 → DB field mapping, modality/procedure config
   hl7_orders.py           — HL7 order analytics
   oru_analytics.py        — ORU report intelligence (NLP, critical findings log)
@@ -90,7 +94,7 @@ ETL_JOBS/daily_analytics.py — 05:30 snapshot for the daily briefing (Postgres 
                               the only module left in ETL_JOBS)
 nlp_worker/worker.py      — standalone medspaCy batch loop (polls every 60s)
 scripts/hl7_scenarios.py  — drive named HL7 scenarios at the listener; reset test data
-tests/                    — pytest suite (~830 tests, see Dev Workflow): parse, every RAY7
+tests/                    — pytest suite (~830 tests, see Dev Workflow): parse, every BRAYN
                             rule, lifecycle/projection, all delivery permutations, sweep,
                             replay == live, console release, MLLP socket, fuzz, concurrency,
                             time zone. Runs in its own throwaway DB `rayd_pytest`, never
@@ -111,13 +115,13 @@ hl7_result_status_map — OBX-11 → signature rungs (prelim / final)
 hl7_study_events      — lifecycle event log per accession
 hl7_patients          — patient demographics from HL7
 hl7_field_mappings, hl7_field_targets — per-site field mapping overrides
-ray7_rules            — rule config (seeded config); category = layer
+brayn_rules            — rule config (seeded config); category = layer
                         (intake | quality | interface | workflow), threshold_pct for rates
-ray7_findings         — held reasons (per message), study notes, interface alerts (per sender)
-ray7_interface_stats  — per-sender counters in 15-min buckets (RAY7 ③)
-ray7_unknown_values   — AE titles / status codes / result statuses / rungs not yet mapped
-ray7_study_state      — one row per study carrying the whole lifecycle
-ray7_ladder_profile   — per-site rungs: expected, and enforce_order (= "measure order")
+brayn_findings         — held reasons (per message), study notes, interface alerts (per sender)
+brayn_interface_stats  — per-sender counters in 15-min buckets (BRAYN ③)
+brayn_unknown_values   — AE titles / status codes / result statuses / rungs not yet mapped
+brayn_study_state      — one row per study carrying the whole lifecycle
+brayn_ladder_profile   — per-site rungs: expected, and enforce_order (= "measure order")
 hl7_orders, hl7_oru_reports, hl7_scn_studies — parsed orders, reports, PACS completions
 hl7_oru_analysis      — written by nlp-worker only
 ```
@@ -163,7 +167,7 @@ projected `etl_didb_studies`, and `go_live_config` is left empty.
 | Role | Who | Access |
 |------|-----|--------|
 | `su` | R&D | everything; only role exempt from license expiry |
-| `implementation` | ATH engineers | mapping (HL7 fields, modalities, procedures), live feed, HL7 orders, Dynamic Worklists (incl. hand-written SQL), RAY7 console |
+| `implementation` | ATH engineers | mapping (HL7 fields, modalities, procedures), live feed, HL7 orders, Dynamic Worklists (incl. hand-written SQL), BRAYN console |
 | `administrator` | radiology manager / chief radiologist | all reports, user management |
 | `user` | read-only staff | reports an administrator grants |
 Old role names (`admin`, `viewer`, `viewer2`, `tec`, `finance`, `secretary`) no longer exist —
@@ -174,19 +178,19 @@ never check for them. Page access goes through `user_has_page()` in `db.py`.
 1. **DB changes** — always via `migrations/NNNN_description.sql`. Migrations apply
    automatically at app startup. Never run DDL from psql directly.
 2. **No external database, ever** — do not add DB drivers, connection settings or ETL jobs.
-3. **RAY7 never drops a message** — verdicts are accepted / held (stored value
+3. **BRAYN never drops a message** — verdicts are accepted / held (stored value
    `quarantined`), both keep the message; the listener ACKs `AA` (AE only if the archive
    insert itself failed). Only intake may hold. Everything inline before the ACK must be
    an indexed O(1) lookup, under the time budget, and fail-open.
 4. **Report SQL is not touched for HL7** — reports keep reading `etl_*`; HL7 data reaches
    them only through the projector. One deliberate exception: the `rpt.*` worklist views
-   read the HL7 tables directly (technician of the Started event, RAY7 notes, order →
+   read the HL7 tables directly (technician of the Started event, BRAYN notes, order →
    exam chain exist nowhere in `etl_*`). Only the worklist module reads them.
 5. **SR exclusion** — every query touching `etl_didb_studies` must filter
    `COALESCE(m.modality, s.study_modality, '') != 'SR'`.
 6. **Modality source** — prefer `aetitle_modality_map.modality` over `study_modality`.
 7. **hl7_oru_analysis** — written only by `nlp_worker/worker.py`.
-8. **Never truncate `ray7_rules`, `hl7_status_map` or `hl7_result_status_map`** — they are
+8. **Never truncate `brayn_rules`, `hl7_status_map` or `hl7_result_status_map`** — they are
    seeded configuration; wiping them silently disables screening.
 
 ## Dev Workflow
@@ -212,7 +216,7 @@ dc up -d
 
 # Tail logs / watch HL7 traffic arrive
 dc logs -f rayd-app
-dc logs -f rayd-app | grep -E "HL7|MLLP|RAY7"
+dc logs -f rayd-app | grep -E "HL7|MLLP|BRAYN"
 
 # Rebuild one service after a code change. The reload matters: recreating the
 # container gives it a new IP and nginx keeps the old one (502 on https://localhost)

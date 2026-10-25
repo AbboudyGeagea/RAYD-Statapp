@@ -22,16 +22,37 @@ def test_every_migration_applies_on_a_fresh_database(pipe):
 
 @pytest.mark.parametrize('table', [
     'hl7_message_archive', 'hl7_surrogate_keys', 'hl7_status_map', 'hl7_study_events',
-    'hl7_patients', 'ray7_rules', 'ray7_findings', 'ray7_study_state',
-    'hl7_field_mappings', 'hl7_field_targets', 'ray7_ladder_profile',
+    'hl7_patients', 'brayn_rules', 'brayn_findings', 'brayn_study_state',
+    'hl7_field_mappings', 'hl7_field_targets', 'brayn_ladder_profile',
     'hl7_result_status_map', 'hl7_orders', 'hl7_oru_reports', 'hl7_scn_studies',
     'etl_didb_studies', 'etl_patient_view', 'etl_orders', 'std_worklist_arrivals',
     'std_worklist_exam_done', 'std_worklist_scheduled', 'std_pps',
     'std_pps_person_reference', 'std_resources_ris', 'aetitle_modality_map',
-    'settings', 'cd_burn_log', 'users', 'ray7_interface_stats', 'ray7_unknown_values',
+    'settings', 'cd_burn_log', 'users', 'brayn_interface_stats', 'brayn_unknown_values',
 ])
 def test_table_exists(pipe, table):
     assert pipe.scalar("SELECT to_regclass(:t) IS NOT NULL", t=f'public.{table}')
+
+
+def test_nothing_is_still_named_ray7(pipe):
+    """0137 renamed RAY7 to BRAYN: every table, column, constraint, index and the
+    findings sequence. 0119..0136 still create the old names on a fresh install, so a
+    leftover here means a ray7_* object 0137 did not reach."""
+    left = pipe.q("""
+        SELECT c.relname AS name FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+         WHERE n.nspname = 'public' AND c.relname LIKE '%ray7%'
+        UNION ALL
+        SELECT a.attname FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid
+          JOIN pg_namespace n ON n.oid = c.relnamespace
+         WHERE n.nspname = 'public' AND a.attnum > 0 AND a.attname LIKE '%ray7%'
+           AND c.relkind IN ('r', 'v', 'm')   -- an index keeps its own stale copy of the
+                                              -- column name; its definition uses the new one
+        UNION ALL
+        SELECT conname FROM pg_constraint WHERE conname LIKE '%ray7%'
+        UNION ALL
+        SELECT rule_code FROM brayn_rules WHERE rule_code LIKE 'RAY7%'
+    """)
+    assert left == []
 
 
 EXPECTED_RULES = [
@@ -40,14 +61,14 @@ EXPECTED_RULES = [
     'ORPHAN_EVENT', 'UNKNOWN_STATUS_CODE', 'MISSING_IDENTIFIER', 'UNKNOWN_PROCEDURE',
     'UNKNOWN_AETITLE', 'UNKNOWN_PERFORMER', 'PLACEHOLDER_DATA', 'STALLED_SCHEDULED',
     'STALLED_ARRIVED', 'STALLED_STARTED', 'UNREPORTED', 'ORPHAN_ORDER',
-    'RAY7_BUDGET_EXCEEDED', 'RAY7_DEGRADED', 'OUT_OF_SEQUENCE_DELIVERY',
+    'BRAYN_BUDGET_EXCEEDED', 'BRAYN_DEGRADED', 'OUT_OF_SEQUENCE_DELIVERY',
     'UNEXPECTED_RUNG', 'UNKNOWN_RESULT_STATUS', 'STALLED_UNSIGNED',
 ]
 
 
 @pytest.mark.parametrize('code', EXPECTED_RULES)
 def test_rule_is_seeded(pipe, code):
-    assert pipe.count('ray7_rules', "rule_code = :c AND modality = ''", c=code) == 1
+    assert pipe.count('brayn_rules', "rule_code = :c AND modality = ''", c=code) == 1
 
 
 @pytest.mark.parametrize('code,state,rank', [
@@ -72,7 +93,7 @@ def test_result_status_map_seed(pipe, code, state, rank):
 
 
 def test_ladder_profile_ships_entirely_off(pipe):
-    rows = pipe.q("SELECT rung, ladder_rank, expected, enforce_order FROM ray7_ladder_profile "
+    rows = pipe.q("SELECT rung, ladder_rank, expected, enforce_order FROM brayn_ladder_profile "
                   "ORDER BY ladder_rank")
     assert [(r['rung'], r['ladder_rank']) for r in rows] == [
         ('ordered', 20), ('scheduled', 40), ('arrived', 60), ('started', 70),
@@ -115,7 +136,7 @@ def test_surrogate_rejects_unknown_entity(pipe):
         pipe.scalar("SELECT hl7_surrogate_id('nonsense', 'X')")
 
 
-# ── RAY7's four layers (migration 0135) ───────────────────────────────────────
+# ── BRAYN's four layers (migration 0135) ───────────────────────────────────────
 
 LAYER = {
     'MISSING_IDENTIFIER': 'intake', 'UNKNOWN_STATUS_CODE': 'intake',
@@ -129,30 +150,30 @@ LAYER = {
 
 @pytest.mark.parametrize('code', EXPECTED_RULES)
 def test_every_rule_is_filed_in_a_layer(pipe, code):
-    layer = pipe.scalar("SELECT category FROM ray7_rules WHERE rule_code = :c AND modality = ''",
+    layer = pipe.scalar("SELECT category FROM brayn_rules WHERE rule_code = :c AND modality = ''",
                         c=code)
     assert layer == LAYER.get(code, 'interface')
 
 
 @pytest.mark.parametrize('code', ['MISSING_IDENTIFIER', 'UNKNOWN_STATUS_CODE'])
 def test_only_intake_is_critical_by_default(pipe, code):
-    assert pipe.scalar("SELECT default_severity FROM ray7_rules WHERE rule_code = :c", c=code) \
+    assert pipe.scalar("SELECT default_severity FROM brayn_rules WHERE rule_code = :c", c=code) \
         == 'critical'
 
 
 def test_nothing_outside_intake_defaults_to_critical(pipe):
-    assert pipe.q("SELECT rule_code FROM ray7_rules WHERE default_severity = 'critical' "
+    assert pipe.q("SELECT rule_code FROM brayn_rules WHERE default_severity = 'critical' "
                   "AND category <> 'intake'") == []
 
 
 @pytest.mark.parametrize('code,pct', [('CONTROL_ID_REUSE', 1), ('OUT_OF_SEQUENCE_DELIVERY', 10),
-                                      ('LOGICAL_DUPLICATE', 5), ('RAY7_DEGRADED', 1),
+                                      ('LOGICAL_DUPLICATE', 5), ('BRAYN_DEGRADED', 1),
                                       ('EXACT_REDELIVERY', None)])
 def test_interface_thresholds_are_seeded(pipe, code, pct):
-    got = pipe.scalar("SELECT threshold_pct FROM ray7_rules WHERE rule_code = :c", c=code)
+    got = pipe.scalar("SELECT threshold_pct FROM brayn_rules WHERE rule_code = :c", c=code)
     assert (float(got) if got is not None else None) == pct
 
 
 def test_ladder_regression_is_retired(pipe):
-    assert pipe.scalar("SELECT enabled FROM ray7_rules WHERE rule_code = 'LADDER_REGRESSION'") \
+    assert pipe.scalar("SELECT enabled FROM brayn_rules WHERE rule_code = 'LADDER_REGRESSION'") \
         is False

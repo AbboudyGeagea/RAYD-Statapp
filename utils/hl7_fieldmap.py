@@ -301,7 +301,7 @@ def available_targets():
     describe — a derived entry keeps the documentation where one exists and falls
     back to the column name where it does not.
 
-    Every direct-to-table target is dangerous by definition: it bypasses RAY7's
+    Every direct-to-table target is dangerous by definition: it bypasses BRAYN's
     screening and the lifecycle entirely, so it is marked so whether or not
     anyone wrote a note about it.
     """

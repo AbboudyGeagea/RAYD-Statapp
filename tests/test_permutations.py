@@ -8,7 +8,7 @@ tests deliver every permutation of a lifecycle and compare the result against wh
 in-order delivery produces.
 
 Out-of-order delivery is still REPORTED — as the sender's OUT_OF_SEQUENCE_DELIVERY
-rate (RAY7 layer 3). The count is exactly predictable for every permutation, and
+rate (BRAYN layer 3). The count is exactly predictable for every permutation, and
 nothing is held: the study is identical to in-order delivery the moment its last
 message lands.
 """
@@ -57,8 +57,8 @@ def summary(pipe):
     return {
         'state': {c: st.get(c) for c in keep_st},
         'study': {c: s.get(c) for c in keep_s},
-        'state_rows': pipe.count('ray7_study_state'),
-        'provisional_rows': pipe.count('ray7_study_state', 'is_provisional'),
+        'state_rows': pipe.count('brayn_study_state'),
+        'provisional_rows': pipe.count('brayn_study_state', 'is_provisional'),
         'study_rows': pipe.count('etl_didb_studies'),
         'order_rows': pipe.count('etl_orders'),
         'unlinked_events': pipe.count('hl7_study_events', 'accession_number IS NULL'),

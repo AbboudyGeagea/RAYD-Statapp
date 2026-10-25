@@ -164,11 +164,11 @@ FIELDS = [
     {'id': 'critical', 'label': 'Critical finding (NLP)', 'tab': 'report', 'type': 'yesno',
      'col': 'critical', 'datasets': {E, R}},
 
-    # ── Data quality (RAY7) ──
-    {'id': 'open_quality_notes', 'label': 'Open RAY7 quality notes', 'tab': 'quality',
+    # ── Data quality (BRAYN) ──
+    {'id': 'open_quality_notes', 'label': 'Open BRAYN quality notes', 'tab': 'quality',
      'type': 'range', 'col': 'open_quality_notes', 'datasets': {E}, 'unit': 'notes',
-     'hint': 'Contradictory times, skipped steps, no order received — see the RAY7 console.'},
-    {'id': 'stalled', 'label': 'Stalled (RAY7 workflow)', 'tab': 'quality', 'type': 'yesno',
+     'hint': 'Contradictory times, skipped steps, no order received — see the BRAYN console.'},
+    {'id': 'stalled', 'label': 'Stalled (BRAYN workflow)', 'tab': 'quality', 'type': 'yesno',
      'col': 'stalled', 'datasets': {E},
      'hint': 'An open stall: scheduled but never arrived, started but never completed, '
              'completed but never reported...'},
@@ -243,7 +243,7 @@ COLUMNS = {
         ('cancelled_at', 'Cancelled'), ('wait_minutes', 'Wait (min)'),
         ('exam_minutes', 'Exam (min)'), ('report_tat_hours', 'Report TAT (h)'),
         ('has_report', 'Report'), ('critical', 'Critical'),
-        ('open_quality_notes', 'RAY7 notes'), ('stalled', 'Stalled'),
+        ('open_quality_notes', 'BRAYN notes'), ('stalled', 'Stalled'),
         ('placer_order_number', 'Order number'), ('visit_number', 'Visit')],
     O: [('ordered_at', 'Ordered'), ('placer_order_number', 'Order number'),
         ('accession', 'Accession'), ('patient_id', 'Patient ID'),

@@ -753,11 +753,11 @@ def create_app():
         replace_existing=True
     )
 
-    def ray7_absence_sweep():
+    def brayn_absence_sweep():
         """
-        RAY7's absence rules — the findings no message can produce.
+        BRAYN's absence rules — the findings no message can produce.
 
-        Everything else RAY7 does runs inline on the ACK path, because it inspects
+        Everything else BRAYN does runs inline on the ACK path, because it inspects
         a message that just arrived. These inspect the absence of one: the entire
         content of STALLED_ARRIVED is that the next message never came, which is
         only observable by waiting.
@@ -769,17 +769,17 @@ def create_app():
         """
         with app.app_context():
             try:
-                from utils.ray7_sweep import run_sweep
+                from utils.brayn_sweep import run_sweep
                 run_sweep()
             except Exception as e:
-                logger.error(f"🛑 [RAY7 sweep] Failed: {e}", exc_info=True)
+                logger.error(f"🛑 [BRAYN sweep] Failed: {e}", exc_info=True)
 
     scheduler.add_job(
-        func=ray7_absence_sweep,
+        func=brayn_absence_sweep,
         trigger='interval',
         minutes=15,
-        id='ray7_absence_sweep',
-        name='RAY7 — absence sweep (stalled studies, unreported exams)',
+        id='brayn_absence_sweep',
+        name='BRAYN — absence sweep (stalled studies, unreported exams)',
         replace_existing=True
     )
 

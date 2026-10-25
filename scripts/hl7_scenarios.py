@@ -158,14 +158,14 @@ def sc_out_of_order():
 
     WHAT THIS EXPECTS DEPENDS ON THE LADDER PROFILE, and that is the point.
 
-    Unconfigured (ray7_ladder_profile as migration 0130 seeds it — every rung off):
+    Unconfigured (brayn_ladder_profile as migration 0130 seeds it — every rung off):
     nothing left OPEN once the sweep has run. CM landing first truthfully raises
     SKIPPED_RUNG and ORPHAN_EVENT (warnings); the sweep closes both when the earlier
     rungs turn up. The projected study is identical to in-order delivery — every
     permutation is proven in tests/test_permutations.py.
 
     Either way the sender's OUT_OF_SEQUENCE_DELIVERY count rises by three (IP, AR
-    and SC each arrived below CM, which landed first) — a rate on RAY7 → Interface
+    and SC each arrived below CM, which landed first) — a rate on BRAYN → Interface
     health, never a hold: since the 0135 rebuild out-of-order delivery is measured,
     not quarantined, because it cannot change the projected study.
 
@@ -193,12 +193,12 @@ def sc_provisional_order():
     rekeyed onto the real accession when SC arrives.
 
     What to check afterwards:
-      * before SC — one ray7_study_state row, is_provisional = true, ordered_at set,
+      * before SC — one brayn_study_state row, is_provisional = true, ordered_at set,
         and NOTHING in etl_didb_studies (an unscheduled order is not a study)
       * after SC  — one row under accession 900010, is_provisional = false, and
         ordered_at STILL SET, carried across by the rekey
-      * no ~ORD: key left anywhere in ray7_study_state, hl7_study_events,
-        ray7_findings or etl_orders.accession_number
+      * no ~ORD: key left anywhere in brayn_study_state, hl7_study_events,
+        brayn_findings or etl_orders.accession_number
     """
     acc, placer = '900010', 'PLACER-PROV-1'
     send('ORM NW, placer only, no accession',
@@ -296,7 +296,7 @@ def sc_duplicates():
 
 
 def sc_unmapped_code():
-    """An ORC-5 nothing maps. Held (RAY7 intake) and listed under Unknown values;
+    """An ORC-5 nothing maps. Held (BRAYN intake) and listed under Unknown values;
     map it in the studio, then Replay held messages."""
     acc = '900005'
     send('ORC-5 = ZZ', [msh('RIS', 'UNK-1', 'ORM^O01', ts(170)), pid(),
@@ -427,7 +427,7 @@ SCENARIOS = {
 
 # ── reset ─────────────────────────────────────────────────────────────────────
 #
-# Everything derived from HL7 traffic. Deliberately NOT ray7_rules,
+# Everything derived from HL7 traffic. Deliberately NOT brayn_rules,
 # hl7_status_map, hl7_field_mappings, hl7_field_targets or aetitle_modality_map:
 # those are seeded CONFIGURATION, not data. Wiping them would silently disable
 # screening and field mapping, and the install would look fine while quietly
@@ -438,8 +438,8 @@ SCENARIOS = {
 # "clean" database kept 215 rows pointing at pps_keys that no longer existed.
 # Technologist attribution on report 35 then read from a mix of two runs.
 _RESET_TABLES = [
-    'hl7_message_archive', 'ray7_findings', 'hl7_study_events', 'hl7_patients',
-    'ray7_study_state', 'hl7_surrogate_keys', 'hl7_orders', 'hl7_oru_reports',
+    'hl7_message_archive', 'brayn_findings', 'hl7_study_events', 'hl7_patients',
+    'brayn_study_state', 'hl7_surrogate_keys', 'hl7_orders', 'hl7_oru_reports',
     'hl7_scn_studies', 'etl_didb_studies', 'etl_patient_view', 'etl_orders',
     'std_worklist_arrivals', 'std_worklist_exam_done', 'std_worklist_scheduled',
     'std_pps', 'std_pps_person_reference',
@@ -451,7 +451,7 @@ def reset(confirmed):
         print("Refusing to wipe without --confirm.\n\nWould TRUNCATE:")
         for t in _RESET_TABLES:
             print(f"    {t}")
-        print("\nConfiguration (ray7_rules, hl7_status_map, hl7_field_mappings,\n"
+        print("\nConfiguration (brayn_rules, hl7_status_map, hl7_field_mappings,\n"
               "aetitle_modality_map) is NOT touched.")
         return 1
     try:

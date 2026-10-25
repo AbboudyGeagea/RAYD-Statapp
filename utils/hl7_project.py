@@ -3,7 +3,7 @@ utils/hl7_project.py
 ────────────────────────────────────────────────────────────────
 The projector: HL7-derived state into the tables the reports already read.
 
-    ray7_study_state  ─┐
+    brayn_study_state  ─┐
     hl7_patients       ├─▶  etl_didb_studies
     hl7_oru_reports    │    etl_patient_view
     hl7_orders        ─┘    etl_orders
@@ -140,7 +140,7 @@ SELECT
     FALSE,
     ref.first_name,
     ref.last_name
-FROM ray7_study_state st
+FROM brayn_study_state st
 LEFT JOIN hl7_patients p ON p.patient_id = st.patient_id
 LEFT JOIN LATERAL (
     SELECT o.result_datetime, o.physician_id
@@ -265,7 +265,7 @@ SELECT
          THEN FLOOR((CURRENT_DATE - p.birth_date) / 365.25)::int::text
     END,
     NOW(),
-    (SELECT count(*) FROM ray7_study_state s WHERE s.patient_id = p.patient_id)
+    (SELECT count(*) FROM brayn_study_state s WHERE s.patient_id = p.patient_id)
 FROM hl7_patients p
 WHERE p.patient_id = :pid
 ON CONFLICT (patient_db_uid) DO UPDATE SET
@@ -316,7 +316,7 @@ SELECT
     st.modality,
     NOT st.is_provisional,
     NOW()
-FROM ray7_study_state st
+FROM brayn_study_state st
 WHERE st.accession_number = :acc
 ON CONFLICT (order_dbid) DO UPDATE SET
     patient_dbid       = COALESCE(EXCLUDED.patient_dbid,       etl_orders.patient_dbid),
@@ -342,7 +342,7 @@ ON CONFLICT (order_dbid) DO UPDATE SET
 # accession minted, but only one projected for this very study.
 _STALE_ORDER_SQL = """
 DELETE FROM etl_orders o
- USING ray7_study_state st, hl7_surrogate_keys k
+ USING brayn_study_state st, hl7_surrogate_keys k
  WHERE st.accession_number = :acc
    AND st.placer_order_number IS NOT NULL
    AND st.placer_order_number <> st.accession_number
@@ -419,7 +419,7 @@ SELECT hl7_surrogate_id('worklist', s.accession_number),
        -- reports' accession COALESCE chain resolves without the 'WL#' fallback.
        s.accession_number,
        NOW()
-FROM ray7_study_state s
+FROM brayn_study_state s
 WHERE s.accession_number = :acc AND s.arrived_at IS NOT NULL
 ON CONFLICT (site_worklist_key, arrived_at) DO NOTHING
 """
@@ -442,13 +442,13 @@ SELECT hl7_surrogate_id('worklist', s.accession_number),
        hl7_surrogate_id('pps', s.accession_number),
        s.completed_at,
        NOW()
-FROM ray7_study_state s
+FROM brayn_study_state s
 WHERE s.accession_number = :acc AND s.completed_at IS NOT NULL
 ON CONFLICT (site_worklist_key, exam_done_at) DO NOTHING
 """
 
 # The scheduled rung, projected for the same reason as the other two — and it was
-# the one missing. ray7_study_state.scheduled_at was being captured from the RIS
+# the one missing. brayn_study_state.scheduled_at was being captured from the RIS
 # "Scheduled" status all along, but nothing carried it into std_worklist_scheduled,
 # so the table sat empty and report 36's patient wait time (scheduled -> arrived)
 # had no left-hand anchor and could never return a row, whatever the join said.
@@ -458,7 +458,7 @@ SELECT hl7_surrogate_id('worklist', s.accession_number),
        hl7_surrogate_id('pps', s.accession_number),
        s.scheduled_at,
        NOW()
-FROM ray7_study_state s
+FROM brayn_study_state s
 WHERE s.accession_number = :acc AND s.scheduled_at IS NOT NULL
 ON CONFLICT (site_worklist_key, scheduled_at) DO NOTHING
 """
@@ -471,7 +471,7 @@ SELECT hl7_surrogate_id('pps', s.accession_number),
        s.procedure_code, s.procedure_text,
        -- The MPPS equivalents: the exam ran from started to completed.
        s.started_at, s.completed_at, s.aetitle
-FROM ray7_study_state s
+FROM brayn_study_state s
 WHERE s.accession_number = :acc
   AND (s.started_at IS NOT NULL OR s.completed_at IS NOT NULL)
 ON CONFLICT (pps_key) DO UPDATE SET
@@ -494,7 +494,7 @@ ON CONFLICT (pps_key) DO UPDATE SET
 # unmodified and an Oracle-sourced install and an HL7 one resolve identically.
 #
 # Only performers already in the roster are linked. An unknown ID is not invented
-# as a person: it stays unresolved, and RAY7's UNKNOWN_PERFORMER is the place
+# as a person: it stays unresolved, and BRAYN's UNKNOWN_PERFORMER is the place
 # that gets reported. Inserting a placeholder would put a fictional member of
 # staff into the technician reports.
 # Upsert, NOT delete-then-insert in one statement.
@@ -685,7 +685,7 @@ def project_message(msg):
         done += project_patient(msg.patient_id)
         try:
             rows = db.session.execute(text(
-                "SELECT accession_number FROM ray7_study_state WHERE patient_id = :pid"
+                "SELECT accession_number FROM brayn_study_state WHERE patient_id = :pid"
             ), {'pid': msg.patient_id}).fetchall()
             for (acc,) in rows:
                 done += project_study(acc)

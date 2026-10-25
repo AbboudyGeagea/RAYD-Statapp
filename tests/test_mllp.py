@@ -80,7 +80,7 @@ def test_ack_means_it_is_stored(pipe, mllp_port):
 def test_quarantined_message_is_still_aa(pipe, mllp_port):
     [ack] = exchange(mllp_port, k.frame(k.status('ZZ', 'A1', k.ts(5))))
     assert msa(ack)[1] == 'AA'
-    assert pipe.archive()[0]['ray7_status'] == 'quarantined'
+    assert pipe.archive()[0]['brayn_status'] == 'quarantined'
 
 
 def test_archive_failure_is_ae(pipe, mllp_port, monkeypatch):
@@ -151,7 +151,7 @@ def test_many_messages_on_one_connection(pipe, mllp_port):
                       for i in range(50))
     acks = exchange(mllp_port, frames, n=50)
     assert [msa(a)[2] for a in acks] == [f'SEQ{i}' for i in range(50)]
-    assert pipe.count('ray7_study_state') == 50
+    assert pipe.count('brayn_study_state') == 50
 
 
 # ── encodings and size ────────────────────────────────────────────────────────

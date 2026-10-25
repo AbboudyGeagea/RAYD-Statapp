@@ -108,7 +108,7 @@ def test_skipped_rung_does_not_flap_with_a_configured_ladder(pipe):
 def test_a_study_that_stalls_again_raises_a_fresh_finding(pipe):
     stuck(pipe, 'A1', 'AR', 260)
     pipe.sweep()
-    pipe.exec("UPDATE ray7_findings SET resolved_at = NOW(), resolution = 'ignored'")
+    pipe.exec("UPDATE brayn_findings SET resolved_at = NOW(), resolution = 'ignored'")
     pipe.sweep()
     assert len(pipe.findings('STALLED_ARRIVED')) == 2
 
@@ -146,7 +146,7 @@ def test_finally_signed_study_is_never_unreported(pipe):
 
 
 def test_per_modality_threshold(pipe):
-    pipe.exec("INSERT INTO ray7_rules (rule_code, modality, category, title, default_severity, "
+    pipe.exec("INSERT INTO brayn_rules (rule_code, modality, category, title, default_severity, "
               "threshold_minutes) VALUES ('STALLED_STARTED', 'DX', 'workflow', 'x', 'warning', 30)")
     stuck(pipe, 'A-DX', 'IP', 60, mod='DX', ae='DR_RH')
     stuck(pipe, 'A-CT', 'IP', 60, mod='CT')
@@ -239,7 +239,7 @@ def seed_rate(pipe, metric, n, messages, app='RIS'):
     bucket = ("date_trunc('hour', LOCALTIMESTAMP) + floor(extract(minute FROM LOCALTIMESTAMP)"
               " / 15) * interval '15 minutes'")
     for m, v in (('MESSAGES', messages), (metric, n)):
-        pipe.exec(f"INSERT INTO ray7_interface_stats (bucket_start, sending_app, metric, n) "
+        pipe.exec(f"INSERT INTO brayn_interface_stats (bucket_start, sending_app, metric, n) "
                   f"VALUES ({bucket}, :app, :m, :v) ON CONFLICT (bucket_start, sending_app, metric) "
                   f"DO UPDATE SET n = EXCLUDED.n", app=app, m=m, v=v)
 
@@ -295,7 +295,7 @@ def test_alert_clears_when_the_rate_recovers(pipe):
 def test_alert_stays_open_while_the_sender_is_quiet(pipe):
     seed_rate(pipe, 'OUT_OF_SEQUENCE_DELIVERY', 30, 100)
     pipe.sweep()
-    pipe.exec("DELETE FROM ray7_interface_stats")
+    pipe.exec("DELETE FROM brayn_interface_stats")
     pipe.sweep()
     assert alerts(pipe)[0]['resolved_at'] is None
 
@@ -307,7 +307,7 @@ def test_redelivery_is_measured_not_alerted_by_default(pipe):
 
 
 def test_alert_threshold_is_operator_config(pipe):
-    pipe.exec("UPDATE ray7_rules SET threshold_pct = 50 WHERE rule_code = 'EXACT_REDELIVERY'")
+    pipe.exec("UPDATE brayn_rules SET threshold_pct = 50 WHERE rule_code = 'EXACT_REDELIVERY'")
     seed_rate(pipe, 'EXACT_REDELIVERY', 90, 100)
     pipe.sweep()
     assert len(alerts(pipe, 'EXACT_REDELIVERY')) == 1
@@ -333,7 +333,7 @@ def test_real_traffic_raises_the_alert(pipe):
 def test_human_resolution_is_left_alone(pipe):
     stuck(pipe, 'A1', 'AR', 300)
     pipe.sweep()
-    pipe.exec("UPDATE ray7_findings SET resolved_at = NOW(), resolution = 'ignored', "
+    pipe.exec("UPDATE brayn_findings SET resolved_at = NOW(), resolution = 'ignored', "
               "resolution_note = 'by hand'")
     pipe.send(k.status('IP', 'A1', k.ts(1)))
     pipe.sweep()

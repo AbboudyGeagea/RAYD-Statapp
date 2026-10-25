@@ -24,13 +24,13 @@ import datetime as dt
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Stub the db module so utils.ray7 (and therefore utils.hl7_parse) imports without
+# Stub the db module so utils.brayn (and therefore utils.hl7_parse) imports without
 # Flask or a database.
 fake_db = types.ModuleType("db")
 fake_db.db = types.SimpleNamespace(session=None)
 sys.modules["db"] = fake_db
 
-import utils.ray7 as ray7
+import utils.brayn as brayn
 import utils.hl7_parse as hp
 
 # The status map normally comes from the database. Pin it to the seeded defaults.
@@ -41,8 +41,8 @@ _MAP = {
     ('', '', 'CM'): ('completed', 100),
     ('', '', 'CA'): ('cancelled', -1),
 }
-ray7.status_map = lambda: _MAP
-hp.resolve_status = ray7.resolve_status
+brayn.status_map = lambda: _MAP
+hp.resolve_status = brayn.resolve_status
 
 
 def segment(name, fields=None):
@@ -110,7 +110,7 @@ print("\nER quick registration — the 9999-11-11 trap")
 m = hp.parse_message(build(MSH_ADT,
                            segment('PID', {3: 'QR001', 7: '99991111', 8: 'U'})))
 check("placeholder birth date nulled", m.birth_date, None)
-check("placeholder recorded for RAY7", len(m.placeholders), 2)
+check("placeholder recorded for BRAYN", len(m.placeholders), 2)
 check("reason names the placeholder",
       any('99991111' in p for p in m.placeholders), True)
 m = hp.parse_message(build(MSH_ADT, segment('PID', {3: 'X', 7: '20991231'})))
@@ -155,7 +155,7 @@ check("modality stays OBR-24, not the AE title", m.modality, 'CT')
 check("room name (PV1-3.2, provisional)", m.room_name, 'CT-ROOM-2')
 check("raw ORC values kept", (m.raw_order_control, m.raw_order_status), ('SC', 'CM'))
 
-print("\nUnmapped status code — must reach RAY7 as UNKNOWN_STATUS_CODE")
+print("\nUnmapped status code — must reach BRAYN as UNKNOWN_STATUS_CODE")
 m = hp.parse_message(build(MSH_RIS,
                            segment('ORC', {1: 'SC', 3: '99^HIS', 5: 'ZZ'}),
                            segment('OBR', {4: 'X^Y'})))
@@ -196,7 +196,7 @@ for label, bad in (("empty string", ""),
     try:
         got = hp.parse_message(bad)
         check(f"{label} -> ParsedMessage, no exception",
-              isinstance(got, ray7.ParsedMessage), True)
+              isinstance(got, brayn.ParsedMessage), True)
         check(f"{label} -> has a usable control_id", bool(got.control_id), True)
     except Exception as exc:
         check(f"{label} -> no exception", f"raised {type(exc).__name__}", "no exception")
