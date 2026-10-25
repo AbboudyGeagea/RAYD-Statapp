@@ -8,6 +8,7 @@ be unable to read anything outside rpt.*, write anything, switch role, or run aw
 """
 import csv
 import io
+import re
 import time
 from datetime import date, datetime, timedelta
 
@@ -797,3 +798,16 @@ def test_a_built_worklist_still_needs_its_dataset(client):
 def test_empty_sql_is_refused(client):
     bad = {**SQL_ONLY, 'definition': {**SQL_ONLY['definition'], 'sql': '   '}}
     assert save(client, bad).status_code == 400
+
+
+def test_confirmations_use_sweetalert2(client):
+    """Every question the editor asks goes through SweetAlert2, like the rest of RAYD
+    (operator, 2026-10-25). The browser's own confirm() stays only as the fallback
+    for an install that cannot load the library."""
+    body = h(client, 'get', '/worklists').data.decode('utf-8')
+    assert 'sweetalert2@11' in body and 'Swal.fire' in body
+    # The whole page, shared header and sidebar included: a fallback is written
+    # window.confirm(...), so a bare confirm( / alert( / prompt( is a native dialog.
+    scripts = ''.join(re.findall(r'<script\b[^>]*>(.*?)</script>', body, re.S))
+    natives = re.findall(r'(?<![.\w])(confirm|alert|prompt)\(', scripts)
+    assert natives == [], natives

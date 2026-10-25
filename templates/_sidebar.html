@@ -310,11 +310,24 @@ function sgToggle(key) {
     setInterval(_hl7Poll, 30000);
 })();
 
+// SweetAlert2 where the page loads it, the browser's own dialog where it does not
+// (the sidebar is on every page, and not every page loads the library).
 async function requestPasswordReset() {
-    if (!confirm('Send a password reset request to the administrator?')) return;
+    const yes = window.Swal
+        ? (await Swal.fire({title: 'Request a password reset?',
+                            text: 'The administrator gets a request to reset your password.',
+                            icon: 'question', showCancelButton: true,
+                            confirmButtonText: 'Send request', cancelButtonText: 'Cancel',
+                            confirmButtonColor: '#60a5fa', cancelButtonColor: '#64748b',
+                            heightAuto: false})).isConfirmed
+        : window.confirm('Send a password reset request to the administrator?');
+    if (!yes) return;
     const res  = await fetch('/user/request-password-reset', {method: 'POST'});
     const data = await res.json();
     if (data.status === 'ok') location.reload();
-    else alert(data.message || 'Failed to send request.');
+    else if (window.Swal) Swal.fire({title: 'Could not send the request',
+                                     text: data.message || 'Try again, or ask the administrator directly.',
+                                     icon: 'error', confirmButtonColor: '#60a5fa', heightAuto: false});
+    else window.alert(data.message || 'Failed to send request.');
 }
 </script>

@@ -6,6 +6,7 @@
     <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
         body { font-family: 'Inter', system-ui, sans-serif; background: #181f1c; color: #e2e8f0; }
         .sidebar-item { transition: all 0.2s; border-radius: 0.75rem; margin-bottom: 0.25rem; cursor: pointer; text-decoration: none !important; color: #94a3b8; }
@@ -278,6 +279,19 @@ async function api(url, body) {
   if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
   return d;
 }
+// Confirmations use SweetAlert2, like the rest of RAYD (user management, reports). The
+// browser's own dialog only if the library could not load, so a question is never skipped.
+async function askYesNo(title, text, {yes = 'Yes', danger = false, icon = 'warning'} = {}) {
+  if (!window.Swal) return window.confirm(title + (text ? '\n\n' + text : ''));
+  const r = await Swal.fire({title, text, icon, showCancelButton: true,
+    confirmButtonText: yes, cancelButtonText: 'Cancel',
+    confirmButtonColor: danger ? '#dc2626' : '#60a5fa', cancelButtonColor: '#64748b',
+    focusCancel: danger,
+    // The page is a fixed-height shell with its own scrolling area; SweetAlert2's default
+    // heightAuto resets html/body height, which hides the bottom save bar and jumps the page.
+    heightAuto: false});
+  return r.isConfirmed;
+}
 let toastTimer;
 function toast(msg) { const t = $('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => t.hidden = true, 3200); }
 function markDirty(on = true) { dirty = on; renderStatus(); }
@@ -363,7 +377,7 @@ function renderTree() {
   $('tree').innerHTML = group('shared') + group('personal');
 }
 async function open(id) {
-  if (dirty && !confirm('Discard the unsaved changes to this worklist?')) return;
+  if (dirty && !(await askYesNo('Discard your changes?', 'This worklist has changes that are not saved.', {yes: 'Discard changes'}))) return;
   try { load(await api('/worklists/api/' + id)); } catch (e) { toast(e.message); }
 }
 
@@ -648,10 +662,13 @@ function changed() { markDirty(); renderTabs(); renderCriteria(); scheduleCompil
 const crit = id => (D().criteria[id] = D().criteria[id] || {});
 
 $('tree').addEventListener('click', e => { const b = e.target.closest('.leaf'); if (b) open(+b.dataset.id); });
-$('btn-new').onclick = () => { if (dirty && !confirm('Discard the unsaved changes?')) return; blank(); toast('New worklist: fill in the fields marked Required, then add criteria.'); $('f-name').focus(); };
+$('btn-new').onclick = async () => {
+  if (dirty && !(await askYesNo('Discard your changes?', 'This worklist has changes that are not saved.', {yes: 'Discard changes'}))) return;
+  blank(); toast('New worklist: fill in the fields marked Required, then add criteria.'); $('f-name').focus();
+};
 $('btn-dup').onclick = () => { const c = clone(S); c.id = null; c.name = S.name + ' (copy)'; c.visibility = 'personal'; c.can_edit = true; c.version = 0; c.versions = []; c.owner_name = null; c.updated_by_name = null; c.updated_at = null; load(c); markDirty(); toast('Duplicated into Personal. Save to keep it.'); };
 $('btn-del').onclick = async () => {
-  if (!S.id || !confirm(`Delete “${S.name}” and its history? This cannot be undone.`)) return;
+  if (!S.id || !(await askYesNo(`Delete “${S.name}”?`, 'Its whole version history goes with it. This cannot be undone.', {yes: 'Delete', danger: true, icon: 'error'}))) return;
   try { await api(`/worklists/api/${S.id}/delete`, {}); markDirty(false); toast('Deleted.'); await loadLibrary(); blank(); } catch (e) { toast(e.message); }
 };
 async function save() {
@@ -690,10 +707,10 @@ $('btn-copy-sql').onclick = () => {
   const t = D().sql != null ? D().sql : (sqlInfo && sqlInfo.sql) || '';
   if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(() => toast('SQL copied.'), () => toast('Copy was blocked; select the SQL and copy it by hand.'));
 };
-function setMode(hand, sql) {
+async function setMode(hand, sql) {
   if (hand === handMode() && sql === undefined) return;
   if (!hand) {
-    if (String(D().sql || '').trim() && !confirm('Go back to the generated SQL? The SQL you wrote is dropped.')) return;
+    if (String(D().sql || '').trim() && !(await askYesNo('Go back to the generated SQL?', 'The SQL you wrote is dropped; the worklist is built from its criteria again.', {yes: 'Use generated SQL'}))) return;
     D().sql = null;
   } else {
     D().sql = sql !== undefined ? sql : ((sqlInfo && sqlInfo.editable_sql) || '');
@@ -704,9 +721,9 @@ function setMode(hand, sql) {
   if (hand) { $('sql-edit').value = D().sql; $('sql-edit').focus(); } else scheduleCompile(0);
 }
 $('sql-seg').addEventListener('click', e => { const b = e.target.closest('[data-mode]'); if (b) setMode(b.dataset.mode === 'hand'); });
-$('btn-start-gen').onclick = () => {
+$('btn-start-gen').onclick = async () => {
   if (!sqlInfo || !sqlInfo.editable_sql) return toast('There is no generated SQL yet: switch to “Generated SQL” and choose a dataset first.');
-  if (String(D().sql || '').trim() && !confirm('Replace your SQL with the generated one?')) return;
+  if (String(D().sql || '').trim() && !(await askYesNo('Replace your SQL?', 'The editor gets the SQL generated from the criteria instead.', {yes: 'Replace'}))) return;
   D().sql = sqlInfo.editable_sql; markDirty(); renderSQL(); $('sql-edit').value = D().sql; $('sql-edit').focus();
 };
 $('sql-edit').addEventListener('input', e => { D().sql = e.target.value; markDirty(); });
@@ -733,13 +750,13 @@ async function openReference() {
         ${REF.examples.map((x, i) => `<div class="rule"><b>${esc(x.title)}</b><span class="hint">${esc(x.what)}</span><pre class="sql" style="margin-top:6px">${highlight(x.sql)}</pre>${CAT.me.can_write_sql ? `<button class="btn small" type="button" data-useex="${i}" style="margin-top:6px">Use this</button>` : ''}</div>`).join('')}
       </div></div></div>`;
     $('ref-close').onclick = close;
-    $('ref-back').addEventListener('click', e => {
+    $('ref-back').addEventListener('click', async e => {
       if (e.target.id === 'ref-back') return close();
       const t = e.target.closest('[data-refview]'); if (t) { view = t.dataset.refview; draw(); return; }
       const u = e.target.closest('[data-useex]');
       if (u) {
         const sql = REF.examples[+u.dataset.useex].sql;
-        if (handMode() && String(D().sql || '').trim() && !confirm('Replace the SQL in the editor with this example?')) return;
+        if (handMode() && String(D().sql || '').trim() && !(await askYesNo('Replace the SQL in the editor?', 'The editor gets this example instead of what is in it now.', {yes: 'Use the example'}))) return;
         close(); setMode(true, sql); toast('Example placed in the SQL editor. Run it, then adjust.');
       }
     });
