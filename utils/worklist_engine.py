@@ -450,9 +450,19 @@ def options(dataset, field_id, limit=OPTIONS_CAP):
 
 
 def validate_for_save(defn):
-    """Compile once so a saved worklist is always runnable; hand SQL is checked too."""
-    compile_definition(defn)
+    """
+    Make sure a saved worklist is runnable: its SQL when it is written in SQL, else
+    its definition, compiled once.
+
+    A worklist written in SQL needs no dataset or output: the SQL names its own
+    views and the result is shown as it comes back. The criteria it may still carry
+    are kept but not used, so they are not held against it.
+    """
+    if not isinstance(defn, dict):
+        raise WorklistError('a worklist definition is an object')
     if defn.get('sql'):
         check_hand_sql(defn['sql'])
+    else:
+        compile_definition(defn)
     json.dumps(defn)
     return defn

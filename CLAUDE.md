@@ -93,7 +93,10 @@ routes/
   report_22.py … report_36.py, super_report.py, er_dashboard.py — reports (read etl_*)
   worklists.py            — Dynamic Worklists (RAYD V2.0 report editor; replaced Custom
                             Reports, same licence key + page permission `custom_reports`)
-utils/worklist_catalog.py — every dataset/field/grouping/measure a worklist may name
+utils/worklist_catalog.py — every dataset/field/grouping/measure a worklist may name, plus
+                            COLUMN_DOCS + SQL_EXAMPLES: the SQL reference for worklists written
+                            in SQL (tests fail if an rpt view column has no description, or an
+                            example stops running)
 utils/worklist_engine.py  — compiler (catalog identifiers only, values bound) + executor
                             (runs on the read-only rpt_<db> role, never the app connection)
 ETL_JOBS/daily_analytics.py — 05:30 snapshot for the daily briefing (Postgres only;

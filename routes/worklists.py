@@ -193,8 +193,9 @@ def api_save():
     if defn.get('sql') and defn.get('sql') != stored_sql and not _can_write_sql():
         return _error('only su or implementation users can write worklist SQL', 403)
 
+    # A worklist written in SQL may have no dataset: it names its own views.
     params = {'name': name, 'desc': (b.get('description') or '')[:2000], 'folder': folder,
-              'vis': visibility, 'ds': defn['dataset'], 'def': json.dumps(defn),
+              'vis': visibility, 'ds': defn.get('dataset') or 'sql', 'def': json.dumps(defn),
               'me': current_user.id}
     try:
         if existing:
@@ -267,12 +268,14 @@ def api_compile():
 def api_run():
     _require_access()
     defn = _body().get('definition')
-    compiled, err = _compiled_or_error(defn)
-    if err:
-        return err
     hand = _hand_sql(defn)
+    compiled = None
+    if not hand:                    # SQL worklists don't use (or need) the definition
+        compiled, err = _compiled_or_error(defn)
+        if err:
+            return err
     try:
-        res = engine.run(compiled=None if hand else compiled, hand_sql=hand)
+        res = engine.run(compiled=compiled, hand_sql=hand)
     except WorklistError as e:
         return _error(e)
     res.update({'kind': 'list' if hand else compiled['kind'],
@@ -289,12 +292,14 @@ def api_csv():
     _require_access()
     b = _body()
     defn = b.get('definition')
-    compiled, err = _compiled_or_error(defn)
-    if err:
-        return err
+    hand = _hand_sql(defn)
+    compiled = None
+    if not hand:
+        compiled, err = _compiled_or_error(defn)
+        if err:
+            return err
     try:
-        res = engine.run(compiled=None if _hand_sql(defn) else compiled,
-                         hand_sql=_hand_sql(defn), cap=engine.CSV_CAP)
+        res = engine.run(compiled=compiled, hand_sql=hand, cap=engine.CSV_CAP)
     except WorklistError as e:
         return _error(e)
     buf = io.StringIO()
@@ -306,6 +311,79 @@ def api_csv():
     return Response('﻿' + buf.getvalue(), mimetype='text/csv',
                     headers={'Content-Disposition': f'attachment; filename="{name}.csv"',
                              'X-Truncated': '1' if res['truncated'] else '0'})
+
+
+_TYPE_WORDS = {'timestamp without time zone': 'date & time', 'date': 'date',
+               'integer': 'whole number', 'bigint': 'whole number', 'numeric': 'number',
+               'boolean': 'true / false', 'text': 'text', 'character varying': 'text'}
+
+
+@worklists_bp.route('/worklists/api/sql-reference')
+@login_required
+def api_sql_reference():
+    """
+    Everything a worklist written in SQL may use: the three views with every
+    column's type (read from the database itself) and meaning (the catalog), the
+    rules of the sandbox, and worked examples.
+
+    Open to everyone who can open the page — it is documentation, and a plain user
+    may want to know what a shared SQL worklist reads. Writing SQL stays su /
+    implementation (api_save).
+    """
+    _require_access()
+    rows = db.session.execute(text("""
+        SELECT table_name, column_name, data_type
+          FROM information_schema.columns
+         WHERE table_schema = 'rpt'
+         ORDER BY table_name, ordinal_position
+    """)).mappings().all()
+    try:
+        from db import session_timezone
+        tz = session_timezone() or 'the server\'s zone'
+    except Exception:
+        tz = 'the server\'s zone'
+    views = []
+    for key, ds in cat.DATASETS.items():
+        name = ds['view'].split('.', 1)[1]
+        docs = cat.COLUMN_DOCS.get(key, {})
+        views.append({
+            'view': ds['view'], 'short': name, 'label': ds['label'], 'about': ds['hint'],
+            'columns': [{'name': r['column_name'], 'type': _TYPE_WORDS.get(r['data_type'], r['data_type']),
+                         'about': docs.get(r['column_name'], '')}
+                        for r in rows if r['table_name'] == name],
+        })
+    rules = [
+        ('What you can read',
+         'Only the three views below: rpt.exams, rpt.orders and rpt.reports (or just exams, '
+         'orders, reports). Any other table, view or schema is refused with "permission denied".'),
+        ('One query',
+         'A single SELECT; WITH ... SELECT is fine, a trailing semicolon too. Nothing that '
+         'changes data (INSERT, UPDATE, DELETE, CREATE, SET): the account the SQL runs as is '
+         'read-only.'),
+        ('Values',
+         "Write values in the SQL itself: 'CT', DATE '2026-10-01', INTERVAL '7 days'. "
+         'There are no parameters, and "ask when run" does not apply to SQL worklists.'),
+        ('Dates and times',
+         f'Every time is hospital time ({tz}) without a time zone. CURRENT_DATE and '
+         'LOCALTIMESTAMP run on the same clock. A month: exam_at >= DATE \'2026-10-01\' '
+         'AND exam_at < DATE \'2026-11-01\'.'),
+        ('Already excluded', 'SR (structured report) studies are left out of all three views.'),
+        ('Limits',
+         f'Run shows the first {engine.ROW_CAP:,} rows; CSV takes up to {engine.CSV_CAP:,}. '
+         f'A query running longer than {engine.STATEMENT_TIMEOUT_MS // 1000} seconds is '
+         'stopped: group (GROUP BY) rather than list when the period is long.'),
+        ('The result',
+         'Shown as a list exactly as the query returns it; your column names become the '
+         'headers, so name them with AS "Exams per day". The worklist\'s criteria and output '
+         'settings are not used while it runs SQL.'),
+        ('Functions', 'Standard PostgreSQL functions work: COUNT, date_trunc, extract, '
+                      'percentile_cont, round, COALESCE ...'),
+        ('Who', 'Only su and implementation users write or change SQL. Everyone who can open '
+                'the worklist can run it.'),
+    ]
+    return jsonify({'views': views,
+                    'rules': [{'title': t, 'text': x} for t, x in rules],
+                    'examples': cat.SQL_EXAMPLES})
 
 
 @worklists_bp.route('/worklists/api/options')

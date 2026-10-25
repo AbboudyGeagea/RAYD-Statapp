@@ -38,6 +38,8 @@
         .wl .layout { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
         @media (min-width: 1100px) { .wl .layout { grid-template-columns: 250px minmax(0, 1fr); } }
         @media (min-width: 1650px) { .wl .layout { grid-template-columns: 250px minmax(0, 1fr) minmax(0, 1fr); } }
+        /* Two columns: SQL & results gets the whole row, not the library's narrow column. */
+        @media (min-width: 1100px) and (max-width: 1649px) { .wl .layout > .sql-panel { grid-column: 1 / -1; } }
         .wl .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
         .wl .panel-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
         .wl .panel-head h2 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; }
@@ -121,8 +123,30 @@
         .wl .chart { width: 100%; height: 360px; }
         .wl .modal-back { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: flex-start; justify-content: center; padding: 6vh 16px; z-index: 50; }
         .wl .modal { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; width: min(640px, 100%); max-height: 86vh; overflow: auto; }
-        .wl .toast { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--line); color: var(--fg); border-radius: 8px; padding: 9px 14px; font-size: 13px; box-shadow: 0 6px 24px rgba(0,0,0,.25); z-index: 60; }
+        .wl .toast { position: fixed; left: 50%; bottom: 86px; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--line); color: var(--fg); border-radius: 8px; padding: 9px 14px; font-size: 13px; box-shadow: 0 6px 24px rgba(0,0,0,.25); z-index: 60; }
         .wl .dirty { color: var(--warn); font-size: 12px; }
+        /* Save bar: always at the bottom of the screen, so nobody scrolls back up to save. */
+        .wl .actionbar { position: sticky; bottom: 0; z-index: 30; margin-top: 14px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 10px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 -8px 24px rgba(0,0,0,.28); }
+        .wl .actionbar .grow { flex: 1; }
+        .wl .actionbar .status { font-size: 13px; color: var(--muted); }
+        .wl .actionbar .status.dirty-on { color: var(--warn); font-weight: 600; }
+        .wl .actionbar .missing { font-size: 12.5px; color: var(--bad); }
+        .wl .actionbar .btn { padding: 8px 18px; font-size: 14px; }
+        /* Required fields stay marked until they are filled. */
+        .wl .req-tag { display: none; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--bad); border: 1px solid var(--bad); border-radius: 4px; padding: 0 4px; margin-left: 6px; font-weight: 600; }
+        .wl .field.missing .req-tag { display: inline-block; }
+        .wl .field.missing .input, .wl .field.missing .seg, .wl .sql-wrap.missing { border-color: var(--bad); box-shadow: 0 0 0 2px rgba(248,113,113,.18); }
+        .wl .placeholder { font-size: 13px; color: var(--muted); border: 1px dashed var(--line); border-radius: 8px; padding: 14px; text-align: center; grid-column: 1 / -1; }
+        /* SQL: generated (read-only) or written, and the reference. */
+        .wl .sql-mode { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+        .wl .modal.wide { width: min(1120px, 100%); }
+        .wl .ref .ref-rules { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+        @media (min-width: 900px) { .wl .ref .ref-rules { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+        .wl .ref .rule { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 12.5px; background: var(--panel-2); }
+        .wl .ref .rule b { display: block; font-size: 12.5px; margin-bottom: 2px; }
+        .wl .ref td, .wl .ref th { text-align: left; white-space: normal; vertical-align: top; }
+        .wl .ref td.col { font-family: var(--mono); white-space: nowrap; }
+        .wl .ref pre.sql { border: 1px solid var(--line); border-radius: 8px; white-space: pre-wrap; }
     </style>
 </head>
 <body class="flex flex-col h-screen overflow-hidden {{ 'light' if theme == 'light' }}">
@@ -161,18 +185,16 @@
               <section class="panel" aria-label="Worklist definition">
                 <div class="panel-head">
                   <h2>Definition</h2>
-                  <span class="dirty" id="dirty" hidden>unsaved changes</span>
                   <div style="margin-left:auto; display:flex; gap:6px; flex-wrap:wrap; align-items:center">
                     <select class="input" id="f-history" style="width:auto; padding:3px 6px; font-size:12px" aria-label="Version history"></select>
-                    <button class="btn small primary" id="btn-save" type="button">Save</button>
                   </div>
                 </div>
                 <div class="panel-body">
                   <div class="def-grid">
-                    <div class="field"><label for="f-name">Name</label><input class="input" id="f-name"></div>
-                    <div class="field"><label for="f-folder">Folder</label><input class="input" id="f-folder" list="folders"><datalist id="folders"></datalist></div>
-                    <div class="field wide"><label for="f-desc">Description</label><textarea class="input" id="f-desc" rows="2"></textarea></div>
-                    <div class="field"><label for="f-ds">Dataset</label><select class="input" id="f-ds"></select><span class="hint" id="ds-hint"></span></div>
+                    <div class="field" id="fw-name"><label for="f-name">Name<span class="req-tag">Required</span></label><input class="input" id="f-name" placeholder="e.g. CT exams per technician"></div>
+                    <div class="field"><label for="f-folder">Folder</label><input class="input" id="f-folder" list="folders" placeholder="General"><datalist id="folders"></datalist></div>
+                    <div class="field wide"><label for="f-desc">Description</label><textarea class="input" id="f-desc" rows="2" placeholder="Optional: what it is for, who uses it"></textarea></div>
+                    <div class="field" id="fw-ds"><label for="f-ds">Dataset<span class="req-tag">Required</span></label><select class="input" id="f-ds"></select><span class="hint" id="ds-hint"></span></div>
                     <div class="field"><span class="label">Visibility</span>
                       <div class="seg" id="f-vis" role="group" aria-label="Visibility">
                         <button type="button" data-v="personal">Personal</button><button type="button" data-v="shared">Shared</button>
@@ -191,21 +213,28 @@
               </section>
 
               <!-- SQL + results -->
-              <section class="panel" aria-label="SQL and results">
+              <section class="panel sql-panel" aria-label="SQL and results">
                 <div class="panel-head">
                   <h2>SQL &amp; results</h2>
                   <button class="btn small primary" id="btn-run" type="button" style="margin-left:auto"><i class="bi bi-play-fill"></i> Run</button>
                 </div>
                 <div class="panel-body">
+                  <div class="sql-mode">
+                    <div class="seg" id="sql-seg" role="group" aria-label="How this worklist gets its data" hidden>
+                      <button type="button" data-mode="gen" aria-pressed="true">Generated SQL</button>
+                      <button type="button" data-mode="hand" aria-pressed="false">Write SQL (IT)</button>
+                    </div>
+                    <button class="btn small" id="btn-ref" type="button"><i class="bi bi-book"></i> SQL reference</button>
+                  </div>
                   <div id="sql-note"></div>
-                  <div class="sql-wrap">
+                  <div class="sql-wrap" id="sql-wrap">
                     <div class="sql-bar">
-                      <span class="grow" id="sql-caption">Built from the criteria. Values are bound as parameters, never pasted into the SQL.</span>
-                      <button class="btn small" id="btn-edit-sql" type="button" hidden>Edit SQL</button>
+                      <span class="grow" id="sql-caption"></span>
+                      <button class="btn small" id="btn-start-gen" type="button" hidden>Start from the generated SQL</button>
                       <button class="btn small" id="btn-copy-sql" type="button">Copy</button>
                     </div>
                     <pre class="sql" id="sql-view"></pre>
-                    <textarea class="sql-edit" id="sql-edit" hidden spellcheck="false" aria-label="SQL editor"></textarea>
+                    <textarea class="sql-edit" id="sql-edit" hidden spellcheck="false" aria-label="SQL editor" placeholder="SELECT modality, COUNT(*) AS &quot;Exams&quot;&#10;FROM rpt.exams&#10;WHERE exam_at >= CURRENT_DATE - 30&#10;GROUP BY modality"></textarea>
                     <div class="params" id="params"></div>
                   </div>
                   <div class="res-head">
@@ -217,6 +246,13 @@
                   <div id="results"><div class="empty">Press Run.</div></div>
                 </div>
               </section>
+            </div>
+            <div class="actionbar" id="actionbar" role="region" aria-label="Save and run">
+              <span class="status" id="bar-status"></span>
+              <span class="missing" id="bar-missing"></span>
+              <span class="grow"></span>
+              <button class="btn" id="btn-run2" type="button"><i class="bi bi-play-fill"></i> Run</button>
+              <button class="btn primary" id="btn-save" type="button" title="Save (Ctrl+S)"><i class="bi bi-check2"></i> Save</button>
             </div>
             <div id="modal"></div>
             <div class="toast" id="toast" hidden></div>
@@ -244,21 +280,26 @@ async function api(url, body) {
 }
 let toastTimer;
 function toast(msg) { const t = $('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => t.hidden = true, 3200); }
-function markDirty(on = true) { dirty = on; $('dirty').hidden = !on; }
+function markDirty(on = true) { dirty = on; renderStatus(); }
 
 // ── State ────────────────────────────────────────────────────────────────────
 const D = () => S.definition;
-const ds = () => CAT.datasets[D().dataset];
+const ds = () => CAT.datasets[D().dataset] || null;
 const inDataset = f => f.datasets.includes(D().dataset);
-function blankDefinition(dataset = 'exams') {
+const handMode = () => D().sql != null;
+// A new worklist starts EMPTY (operator, 2026-10-25): no dataset, no criteria, no output
+// kind. Choosing a dataset keeps the output kind already chosen and fills nothing else.
+function emptyDefinition() {
+  return {dataset: null, criteria: {}, ask: [], output: {kind: null, rows: null, cols: null, measures: ['count'], columns: [], sort: null, desc: true}, sql: null};
+}
+function blankDefinition(dataset, kind = null) {
   const d = CAT.datasets[dataset];
-  const crit = {}; crit[d.default_date] = {mode: 'quick', quick: 'last_month'};
-  return {dataset, criteria: crit, ask: [], output: {kind: 'table', rows: 'modality', cols: null, measures: ['count'], columns: d.list_default.slice(), sort: d.default_date, desc: true}, sql: null};
+  return {dataset, criteria: {}, ask: [], output: {kind, rows: null, cols: null, measures: ['count'], columns: d.list_default.slice(), sort: d.default_date, desc: true}, sql: null};
 }
 function load(w) {
   S = clone(w);
   S.definition.ask = S.definition.ask || [];
-  S.definition.output = Object.assign({kind: 'list', measures: ['count']}, S.definition.output || {});
+  S.definition.output = Object.assign({kind: S.definition.dataset ? 'list' : null, measures: ['count']}, S.definition.output || {});
   S.tab = S.tab || firstActiveTab();
   openCards = {}; Object.keys(D().criteria || {}).forEach(k => openCards[k] = true);
   markDirty(false); lastResult = null;
@@ -266,14 +307,43 @@ function load(w) {
   renderAll(); scheduleCompile(0);
 }
 function firstActiveTab() {
-  const tabs = CAT.datasets[S.definition.dataset].tabs;
-  const withCrit = CAT.fields.find(f => (S.definition.criteria || {})[f.id] && tabs.includes(f.tab));
-  return withCrit ? withCrit.tab : tabs[0];
+  const d = CAT.datasets[S.definition.dataset];
+  if (!d) return null;
+  const withCrit = CAT.fields.find(f => (S.definition.criteria || {})[f.id] && d.tabs.includes(f.tab));
+  return withCrit ? withCrit.tab : d.tabs[0];
 }
 function blank() {
-  load({id: null, name: 'Untitled worklist', description: '', folder: 'General', visibility: 'personal',
-        can_edit: true, version: 0, versions: [], definition: blankDefinition()});
+  load({id: null, name: '', description: '', folder: '', visibility: 'personal',
+        can_edit: true, version: 0, versions: [], definition: emptyDefinition()});
 }
+
+// ── Required fields and the save bar ─────────────────────────────────────────
+// Building: a name, a dataset and how to show it. Written in SQL: a name and the SQL.
+function missingFields() {
+  if (!S) return [];
+  const out = [];
+  if (!String(S.name || '').trim()) out.push(['name', 'Name']);
+  if (handMode()) { if (!String(D().sql || '').trim()) out.push(['sql', 'SQL']); return out; }
+  if (!D().dataset) out.push(['ds', 'Dataset']);
+  if (!(D().output || {}).kind) out.push(['kind', 'Show as']);
+  return out;
+}
+function renderStatus() {
+  if (!S) return;
+  const miss = missingFields(), keys = miss.map(m => m[0]);
+  [['name', 'fw-name'], ['ds', 'fw-ds'], ['kind', 'fw-kind']].forEach(([k, id]) => { const el = $(id); if (el) el.classList.toggle('missing', keys.includes(k)); });
+  $('sql-wrap').classList.toggle('missing', keys.includes('sql'));
+  const st = $('bar-status');
+  st.textContent = dirty ? 'Unsaved changes' : (S.id ? `Saved · version ${S.version}` : 'New worklist · not saved yet');
+  st.classList.toggle('dirty-on', dirty);
+  $('bar-missing').textContent = miss.length ? 'Still to fill: ' + miss.map(m => m[1]).join(', ') : '';
+}
+function focusMissing(key) {
+  const el = {name: $('f-name'), ds: $('f-ds'), sql: $('sql-edit'), kind: document.querySelector('#fw-kind button')}[key];
+  if (el) { el.scrollIntoView({block: 'center', behavior: 'smooth'}); el.focus({preventScroll: true}); }
+}
+// What stops a Run: everything required except the name.
+function runBlockers() { return missingFields().filter(m => m[0] !== 'name'); }
 
 // ── Library ──────────────────────────────────────────────────────────────────
 async function loadLibrary(selectId) {
@@ -300,8 +370,11 @@ async function open(id) {
 // ── Header ───────────────────────────────────────────────────────────────────
 function renderHeader() {
   $('f-name').value = S.name; $('f-desc').value = S.description || ''; $('f-folder').value = S.folder;
-  $('f-ds').innerHTML = Object.entries(CAT.datasets).map(([k, d]) => `<option value="${k}"${k === D().dataset ? ' selected' : ''}>${esc(d.label)}</option>`).join('');
-  $('ds-hint').textContent = ds().hint;
+  $('f-ds').innerHTML = (D().dataset ? '' : '<option value="" selected>Choose a dataset…</option>') +
+    Object.entries(CAT.datasets).map(([k, d]) => `<option value="${k}"${k === D().dataset ? ' selected' : ''}>${esc(d.label)}</option>`).join('');
+  $('f-ds').disabled = handMode();
+  $('ds-hint').textContent = handMode() ? 'Not used: the SQL names its own views.'
+    : ds() ? ds().hint : 'What one row of the result is: an exam, a HIS order or a report.';
   [...$('f-vis').children].forEach(b => {
     b.setAttribute('aria-pressed', String(b.dataset.v === S.visibility));
     b.disabled = b.dataset.v === 'shared' && !CAT.me.can_edit_shared;
@@ -342,15 +415,25 @@ function summary(f, c) {
   return '';
 }
 function renderTabs() {
+  if (handMode() || !ds()) {
+    $('tabs').innerHTML = '';
+    $('tab-note').innerHTML = handMode()
+      ? '<div class="placeholder">Written in SQL: criteria and output are not used. Switch back to “Generated SQL” to build it with criteria again.</div>'
+      : '<div class="placeholder">Choose a dataset first: the criteria and the output depend on it.</div>';
+    return;
+  }
   const avail = ds().tabs;
   if (!avail.includes(S.tab)) S.tab = avail[0];
   $('tabs').innerHTML = CAT.tabs.filter(t => avail.includes(t.id)).map(t => {
     const n = CAT.fields.filter(f => f.tab === t.id && inDataset(f) && isActive(f, D().criteria[f.id])).length;
     return `<button type="button" role="tab" class="tab${t.id === 'quality' ? ' rayd' : ''}" data-tab="${t.id}" aria-selected="${S.tab === t.id}">${t.label}${n ? `<span class="badge">${n}</span>` : ''}</button>`;
   }).join('');
-  $('tab-note').innerHTML = S.tab === 'quality' ? '<div class="tab-note">These come from BRAYN: open data-quality notes and stalls on each study. The BRAYN console has the detail.</div>' : '';
+  const none = !CAT.fields.some(f => inDataset(f) && isActive(f, D().criteria[f.id]));
+  $('tab-note').innerHTML = (S.tab === 'quality' ? '<div class="tab-note">These come from BRAYN: open data-quality notes and stalls on each study. The BRAYN console has the detail.</div>' : '')
+    + (none ? '<div class="hint">No criteria yet: the worklist covers all the data. A date range keeps it fast.</div>' : '');
 }
 function renderCriteria() {
+  if (handMode() || !ds()) { $('crit-list').innerHTML = ''; return; }
   const list = CAT.fields.filter(f => f.tab === S.tab && inDataset(f));
   $('crit-list').innerHTML = list.map(f => {
     const c = D().criteria[f.id] || {}, on = isActive(f, c), isOpen = !!openCards[f.id], ask = D().ask.includes(f.id);
@@ -407,7 +490,14 @@ function critBody(f, c, prefix = '') {
 
 // ── Output ───────────────────────────────────────────────────────────────────
 function renderOutput() {
+  if (handMode()) { $('out').innerHTML = '<div class="placeholder">Written in SQL: the result is shown as a list, exactly as the query returns it.</div>'; return; }
   const o = D().output, d = ds();
+  const kindField = `<div class="field${o.kind ? '' : ' missing'}" id="fw-kind"><span class="label">Show as<span class="req-tag">Required</span></span><div class="seg" id="o-kind" role="group">${[['list','List'],['table','Table'],['chart','Chart']].map(([k, l]) => `<button type="button" data-kind="${k}" aria-pressed="${o.kind === k}">${l}</button>`).join('')}</div></div>`;
+  if (!d || !o.kind) {
+    $('out').innerHTML = kindField + `<div class="placeholder" style="grid-column: span 2">${!d ? 'Choose a dataset to set the columns or the grouping.'
+      : 'List: one row per ' + esc(d.count_label.toLowerCase().replace(/s$/, '')) + ', with the columns you pick. Table: counts and measures grouped by what you choose. Chart: the table as bars.'}</div>`;
+    return;
+  }
   const dimOpts = sel => `<option value="">(none)</option>` + d.dimensions.map(x => `<option value="${x.id}"${x.id === sel ? ' selected' : ''}>${esc(x.label)}</option>`).join('');
   if (o.rows && !d.dimensions.some(x => x.id === o.rows)) o.rows = null;
   if (o.cols && !d.dimensions.some(x => x.id === o.cols)) o.cols = null;
@@ -416,7 +506,7 @@ function renderOutput() {
   o.columns = (o.columns || []).filter(c => d.columns.some(x => x.id === c));
   if (!o.columns.length) o.columns = d.list_default.slice();
   if (!d.columns.some(x => x.id === o.sort)) o.sort = d.default_date;
-  const kind = `<div class="field"><span class="label">Show as</span><div class="seg" id="o-kind" role="group">${[['list','List'],['table','Table'],['chart','Chart']].map(([k, l]) => `<button type="button" data-kind="${k}" aria-pressed="${o.kind === k}">${l}</button>`).join('')}</div></div>`;
+  const kind = kindField;
   if (o.kind === 'list') {
     $('out').innerHTML = kind + `<div class="field"><label for="o-sort">Sort by</label><div class="inline"><select class="input" id="o-sort">${d.columns.map(c => `<option value="${c.id}"${c.id === o.sort ? ' selected' : ''}>${esc(c.label)}</option>`).join('')}</select>
       <select class="input" id="o-dir"><option value="desc"${o.desc !== false ? ' selected' : ''}>newest / largest first</option><option value="asc"${o.desc === false ? ' selected' : ''}>oldest / smallest first</option></select></div></div>
@@ -431,6 +521,8 @@ function renderOutput() {
 // ── SQL ──────────────────────────────────────────────────────────────────────
 function scheduleCompile(ms = 250) { clearTimeout(compileTimer); compileTimer = setTimeout(compile, ms); }
 async function compile() {
+  if (handMode()) return renderSQL();
+  if (!D().dataset || !(D().output || {}).kind) { sqlInfo = {pending: true}; return renderSQL(); }
   try { sqlInfo = await api('/worklists/api/compile', {definition: D()}); }
   catch (e) { sqlInfo = {error: e.message}; }
   renderSQL();
@@ -441,22 +533,27 @@ function highlight(sql) {
     .replace(/(:[a-z_]+)/g, '<span class="p">$1</span>')
     .replace(/\b(SELECT|FROM|WHERE|AND|OR|NOT|GROUP BY|ORDER BY|LIMIT|AS|COUNT|DISTINCT|FILTER|WITHIN GROUP|ANY|ILIKE|ESCAPE|IS|NULL|TRUE|DESC|ASC|NULLS LAST|COALESCE|lower|round|percentile_cont|to_char|date_trunc|lpad)\b/g, '<span class="k">$1</span>');
 }
+// Two clearly separate things (operator, 2026-10-25): the SQL built from the criteria,
+// which is only ever SHOWN (read-only, for everyone), and SQL written by an IT user,
+// a mode of its own for su / implementation, documented by the SQL reference.
 function renderSQL() {
-  const hand = D().sql != null;
-  $('btn-edit-sql').hidden = !CAT.me.can_write_sql;
-  $('btn-edit-sql').textContent = hand ? 'Back to generated SQL' : 'Edit SQL';
-  $('sql-view').hidden = hand && CAT.me.can_write_sql;
-  $('sql-edit').hidden = !(hand && CAT.me.can_write_sql);
+  const hand = handMode(), canSQL = CAT.me.can_write_sql;
+  $('sql-seg').hidden = !canSQL;
+  [...$('sql-seg').children].forEach(b => b.setAttribute('aria-pressed', String((b.dataset.mode === 'hand') === hand)));
+  $('btn-start-gen').hidden = !(hand && canSQL);
+  $('sql-view').hidden = hand && canSQL;
+  $('sql-edit').hidden = !(hand && canSQL);
   if (hand) {
-    if (CAT.me.can_write_sql) { if (document.activeElement !== $('sql-edit')) $('sql-edit').value = D().sql; }
+    if (canSQL) { if (document.activeElement !== $('sql-edit')) $('sql-edit').value = D().sql; }
     else $('sql-view').innerHTML = highlight(D().sql);
-    $('params').innerHTML = '<div class="pv">Hand-written SQL: no parameters. It runs as the read-only worklist role, which can read rpt.exams, rpt.orders and rpt.reports and nothing else.</div>';
-    $('sql-caption').textContent = 'Written by hand.';
-    $('sql-note').innerHTML = `<div class="note warn">This worklist runs hand-written SQL. The criteria and output settings are kept but not used while it does.${CAT.me.can_write_sql ? '' : ' Only su and implementation users can change it.'}</div>`;
+    $('params').innerHTML = '<div class="pv">Runs as the read-only worklist account: rpt.exams, rpt.orders and rpt.reports, nothing else. No parameters: write values in the SQL.</div>';
+    $('sql-caption').textContent = canSQL ? 'Your SQL. The SQL reference lists every view, column and rule.' : 'Written in SQL by an IT user.';
+    $('sql-note').innerHTML = canSQL ? '' : '<div class="note warn">Read-only: only su and implementation users can change this SQL.</div>';
     return;
   }
-  $('sql-caption').textContent = 'Built from the criteria. Values are bound as parameters, never pasted into the SQL.';
-  if (!sqlInfo) return;
+  $('sql-caption').textContent = 'Read-only: built from the criteria and output. Values are bound as parameters, never pasted into the SQL.';
+  $('sql-note').innerHTML = '';
+  if (!sqlInfo || sqlInfo.pending) { $('sql-view').innerHTML = '<span class="hint">The SQL appears here once a dataset and “Show as” are chosen.</span>'; $('params').innerHTML = ''; return; }
   if (sqlInfo.error) { $('sql-note').innerHTML = `<div class="note bad">${esc(sqlInfo.error)}</div>`; $('sql-view').innerHTML = ''; $('params').innerHTML = ''; return; }
   $('sql-note').innerHTML = '';
   $('sql-view').innerHTML = highlight(sqlInfo.sql);
@@ -472,6 +569,8 @@ async function run(defn) {
   renderResults();
 }
 function startRun() {
+  const blockers = runBlockers();
+  if (blockers.length) { toast('Before it can run: ' + blockers.map(m => m[1]).join(', ') + '.'); focusMissing(blockers[0][0]); return; }
   const asked = D().ask.filter(id => FIELD[id] && inDataset(FIELD[id]));
   if (!asked.length || D().sql != null) return run(D());
   const temp = clone(D());
@@ -544,23 +643,31 @@ function renderChart(r, m) {
 window.addEventListener('resize', () => chart && chart.resize());
 
 // ── Render + events ──────────────────────────────────────────────────────────
-function renderAll() { renderTree(); renderHeader(); renderTabs(); renderCriteria(); renderOutput(); renderSQL(); }
+function renderAll() { renderTree(); renderHeader(); renderTabs(); renderCriteria(); renderOutput(); renderSQL(); renderStatus(); }
 function changed() { markDirty(); renderTabs(); renderCriteria(); scheduleCompile(); }
 const crit = id => (D().criteria[id] = D().criteria[id] || {});
 
 $('tree').addEventListener('click', e => { const b = e.target.closest('.leaf'); if (b) open(+b.dataset.id); });
-$('btn-new').onclick = () => { if (dirty && !confirm('Discard the unsaved changes?')) return; blank(); toast('New worklist: pick a dataset, then add criteria.'); };
+$('btn-new').onclick = () => { if (dirty && !confirm('Discard the unsaved changes?')) return; blank(); toast('New worklist: fill in the fields marked Required, then add criteria.'); $('f-name').focus(); };
 $('btn-dup').onclick = () => { const c = clone(S); c.id = null; c.name = S.name + ' (copy)'; c.visibility = 'personal'; c.can_edit = true; c.version = 0; c.versions = []; c.owner_name = null; c.updated_by_name = null; c.updated_at = null; load(c); markDirty(); toast('Duplicated into Personal. Save to keep it.'); };
 $('btn-del').onclick = async () => {
   if (!S.id || !confirm(`Delete “${S.name}” and its history? This cannot be undone.`)) return;
   try { await api(`/worklists/api/${S.id}/delete`, {}); markDirty(false); toast('Deleted.'); await loadLibrary(); blank(); } catch (e) { toast(e.message); }
 };
-$('btn-save').onclick = async () => {
+async function save() {
+  if (!S.can_edit) return toast('Read-only for you: duplicate it into Personal to change it.');
+  const miss = missingFields();
+  if (miss.length) { toast('Fill in the highlighted fields first: ' + miss.map(m => m[1]).join(', ') + '.'); focusMissing(miss[0][0]); return; }
   try {
     const r = await api('/worklists/api/save', {id: S.id, name: S.name, description: S.description, folder: S.folder, visibility: S.visibility, definition: D()});
     markDirty(false); toast(`Saved, version ${r.version}.`); await loadLibrary(r.id);
   } catch (e) { toast(e.message); }
-};
+}
+$('btn-save').onclick = save;
+$('btn-run2').onclick = startRun;
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); if (S) save(); }
+});
 $('f-history').onchange = async e => {
   const v = e.target.value; if (!v || !S.id) return;
   try { const old = await api(`/worklists/api/${S.id}/versions/${v}`); S.definition = old.definition; S.definition.ask = S.definition.ask || []; S.name = old.name; markDirty(); renderAll(); scheduleCompile(0); toast(`Loaded version ${v}. Save to make it current.`); }
@@ -569,6 +676,8 @@ $('f-history').onchange = async e => {
 };
 $('btn-run').onclick = startRun;
 $('btn-csv').onclick = async () => {
+  const blockers = runBlockers();
+  if (blockers.length) { toast('Before it can export: ' + blockers.map(m => m[1]).join(', ') + '.'); focusMissing(blockers[0][0]); return; }
   try {
     const r = await fetch('/worklists/api/csv', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({definition: D(), name: S.name})});
     if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error || 'export failed'); }
@@ -581,18 +690,74 @@ $('btn-copy-sql').onclick = () => {
   const t = D().sql != null ? D().sql : (sqlInfo && sqlInfo.sql) || '';
   if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(() => toast('SQL copied.'), () => toast('Copy was blocked; select the SQL and copy it by hand.'));
 };
-$('btn-edit-sql').onclick = () => {
-  if (D().sql != null) { if (!confirm('Drop the hand-written SQL and go back to the generated one?')) return; D().sql = null; }
-  else D().sql = (sqlInfo && sqlInfo.editable_sql) || '';
-  markDirty(); renderSQL(); if (D().sql != null) $('sql-edit').focus(); else scheduleCompile(0);
+function setMode(hand, sql) {
+  if (hand === handMode() && sql === undefined) return;
+  if (!hand) {
+    if (String(D().sql || '').trim() && !confirm('Go back to the generated SQL? The SQL you wrote is dropped.')) return;
+    D().sql = null;
+  } else {
+    D().sql = sql !== undefined ? sql : ((sqlInfo && sqlInfo.editable_sql) || '');
+  }
+  markDirty(); renderAll();
+  // renderSQL leaves a focused editor alone (so typing is never overwritten); text put
+  // in from outside — the generated SQL, an example — is written here.
+  if (hand) { $('sql-edit').value = D().sql; $('sql-edit').focus(); } else scheduleCompile(0);
+}
+$('sql-seg').addEventListener('click', e => { const b = e.target.closest('[data-mode]'); if (b) setMode(b.dataset.mode === 'hand'); });
+$('btn-start-gen').onclick = () => {
+  if (!sqlInfo || !sqlInfo.editable_sql) return toast('There is no generated SQL yet: switch to “Generated SQL” and choose a dataset first.');
+  if (String(D().sql || '').trim() && !confirm('Replace your SQL with the generated one?')) return;
+  D().sql = sqlInfo.editable_sql; markDirty(); renderSQL(); $('sql-edit').value = D().sql; $('sql-edit').focus();
 };
 $('sql-edit').addEventListener('input', e => { D().sql = e.target.value; markDirty(); });
+
+// ── SQL reference: every view, column and rule a worklist written in SQL may use ──
+let REF = null;
+async function openReference() {
+  if (!REF) { try { REF = await api('/worklists/api/sql-reference'); } catch (e) { return toast(e.message); } }
+  let view = REF.views[0].view;
+  const rows = (v, q) => v.columns.filter(c => !q || (c.name + ' ' + c.about + ' ' + c.type).toLowerCase().includes(q))
+    .map(c => `<tr><td class="col txt">${esc(c.name)}</td><td class="txt hint">${esc(c.type)}</td><td class="txt">${esc(c.about)}</td></tr>`).join('')
+    || '<tr><td colspan="3" class="txt hint">No column matches.</td></tr>';
+  const draw = () => {
+    const v = REF.views.find(x => x.view === view);
+    $('modal').innerHTML = `<div class="modal-back" id="ref-back"><div class="modal wide ref" role="dialog" aria-modal="true" aria-label="SQL reference">
+      <div class="panel-head"><h2>SQL reference · what a worklist written in SQL may read</h2><button class="btn small" id="ref-close" type="button" style="margin-left:auto">Close</button></div>
+      <div class="panel-body">
+        <div class="ref-rules">${REF.rules.map(r => `<div class="rule"><b>${esc(r.title)}</b>${esc(r.text)}</div>`).join('')}</div>
+        <div class="tabs" role="tablist">${REF.views.map(x => `<button type="button" role="tab" class="tab" data-refview="${esc(x.view)}" aria-selected="${x.view === view}">${esc(x.view)} <span class="hint">${esc(x.label)}</span></button>`).join('')}</div>
+        <span class="hint">${esc(v.about)} ${v.columns.length} columns.</span>
+        <input class="input" id="ref-q" type="search" placeholder="Find a column, e.g. technician, TAT, shift…" aria-label="Find a column">
+        <div class="table-wrap" style="max-height:360px"><table><thead><tr><th class="txt">Column</th><th class="txt">Type</th><th class="txt">What it holds</th></tr></thead><tbody id="ref-rows">${rows(v, '')}</tbody></table></div>
+        <div class="panel-head" style="padding:0;border:0"><h2>Examples${CAT.me.can_write_sql ? ' · “Use this” puts one in the SQL editor' : ''}</h2></div>
+        ${REF.examples.map((x, i) => `<div class="rule"><b>${esc(x.title)}</b><span class="hint">${esc(x.what)}</span><pre class="sql" style="margin-top:6px">${highlight(x.sql)}</pre>${CAT.me.can_write_sql ? `<button class="btn small" type="button" data-useex="${i}" style="margin-top:6px">Use this</button>` : ''}</div>`).join('')}
+      </div></div></div>`;
+    $('ref-close').onclick = close;
+    $('ref-back').addEventListener('click', e => {
+      if (e.target.id === 'ref-back') return close();
+      const t = e.target.closest('[data-refview]'); if (t) { view = t.dataset.refview; draw(); return; }
+      const u = e.target.closest('[data-useex]');
+      if (u) {
+        const sql = REF.examples[+u.dataset.useex].sql;
+        if (handMode() && String(D().sql || '').trim() && !confirm('Replace the SQL in the editor with this example?')) return;
+        close(); setMode(true, sql); toast('Example placed in the SQL editor. Run it, then adjust.');
+      }
+    });
+    $('ref-q').addEventListener('input', e => { $('ref-rows').innerHTML = rows(v, e.target.value.trim().toLowerCase()); });
+  };
+  const close = () => { $('modal').innerHTML = ''; document.removeEventListener('keydown', onKey); };
+  const onKey = e => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  draw();
+}
+$('btn-ref').onclick = openReference;
 $('f-name').addEventListener('input', e => { S.name = e.target.value; markDirty(); });
 $('f-desc').addEventListener('input', e => { S.description = e.target.value; markDirty(); });
 $('f-folder').addEventListener('input', e => { S.folder = e.target.value; markDirty(); });
 $('f-ds').addEventListener('change', e => {
-  const old = D(); S.definition = blankDefinition(e.target.value); S.definition.ask = [];
-  Object.entries(old.criteria).forEach(([k, v]) => { if (FIELD[k] && FIELD[k].datasets.includes(e.target.value)) S.definition.criteria[k] = v; });
+  if (!e.target.value) return;
+  const old = D(); S.definition = blankDefinition(e.target.value, (old.output || {}).kind || null); S.definition.ask = [];
+  Object.entries(old.criteria || {}).forEach(([k, v]) => { if (FIELD[k] && FIELD[k].datasets.includes(e.target.value)) S.definition.criteria[k] = v; });
   S.definition.sql = old.sql; markDirty(); S.tab = firstActiveTab(); renderAll(); scheduleCompile(0);
 });
 $('f-vis').addEventListener('click', e => { const b = e.target.closest('button'); if (!b || b.disabled) return; S.visibility = b.dataset.v; markDirty(); renderHeader(); });

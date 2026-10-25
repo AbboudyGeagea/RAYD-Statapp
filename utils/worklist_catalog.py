@@ -264,6 +264,190 @@ COLUMNS = {
 }
 
 
+# ── The SQL reference ─────────────────────────────────────────────────────────
+#
+# What a hand-written worklist may query, column by column. EVERY column of every
+# rpt view is described here — tests/test_worklists.py compares this against the
+# views themselves, so a column added to a view without a description fails the
+# suite rather than reaching an engineer undocumented (operator, 2026-10-25:
+# "writing SQL needs a very perfect documentation ... or disable it").
+# Meanings follow the view definitions in migration 0136.
+
+_STEP_TIME = 'Time of the {} step: the earliest message for it, hospital time.'
+_PATIENT = {
+    'patient_id':       'Patient ID (MRN), PID-3.',
+    'patient_class':    'Patient class code as sent in PV1-2: I, O, E, or another site code.',
+    'patient_type':     'patient_class in words: Inpatient, Outpatient, Emergency; other codes '
+                        'as sent.',
+    'patient_location': 'Point of care from PV1-3 (first component), e.g. ER or RAD.',
+}
+
+COLUMN_DOCS = {
+    E: {
+        'accession':         'Accession number: the RIS study number. One row per accession.',
+        **{k: _PATIENT[k] for k in ('patient_id', 'patient_class', 'patient_type',
+                                    'patient_location')},
+        'sex':               'Sex from the patient\'s ADT (PID-8): M, F, U ...',
+        'age':               'Age in whole years on the exam date, from the ADT birth date. '
+                             'Empty when no birth date is known.',
+        'age_band':          'Age group: 0-17, 18-39, 40-64 or 65+.',
+        'modality':          'Modality: from the device map when the device is known, else the '
+                             'modality the message carried (OBR-24).',
+        'device':            'AE title of the device the exam ran on (OBR-21).',
+        'room':              'Room from the exam messages (PV1-3.2), else the device\'s room in '
+                             'the device map.',
+        'site':              'Site of the device, from the device map. Empty when the device has '
+                             'no site.',
+        'procedure_code':    'Procedure code (OBR-4.1).',
+        'procedure':         'Procedure description (OBR-4.2).',
+        'status':            'Furthest step reached: Ordered, Scheduled, Arrived, Started, '
+                             'Completed, Reported, Signed preliminary, Signed final, or Cancelled.',
+        'ordered_at':        _STEP_TIME.format('Ordered (HIS order)'),
+        'scheduled_at':      _STEP_TIME.format('Scheduled'),
+        'arrived_at':        _STEP_TIME.format('Arrived'),
+        'started_at':        _STEP_TIME.format('Started'),
+        'completed_at':      _STEP_TIME.format('Completed'),
+        'images_at':         'When PACS reported the study complete (images stored).',
+        'prelim_signed_at':  'First preliminary signature of the report.',
+        'final_signed_at':   'Final signature of the report.',
+        'report_final_at':   'End of the report turnaround: the final signature, else the report '
+                             'time when the sender sends no signature level.',
+        'cancelled_at':      'When the study was cancelled.',
+        'exam_at':           'The study\'s date and time: completed, else images in PACS, '
+                             'started, arrived, scheduled, then the report times. The same anchor '
+                             'the reports count a study under, so both agree on the day.',
+        'exam_date':         'exam_at as a date without time, for grouping by day.',
+        'performed_at':      'When the technologist had the patient: started, else completed or '
+                             'images in PACS. hour and shift use this time.',
+        'shift':             'Shift name (AM, PM, NIGHT ...) from the Shift hours, by the hour '
+                             'of performed_at.',
+        'week_of_month':     'Week of the month of exam_at: 1 = days 1-7, 2 = days 8-14, ... '
+                             '5 = days 29-31.',
+        'weekday':           'Weekday of exam_at: 1 = Monday ... 7 = Sunday.',
+        'hour':              'Hour of performed_at, 0-23.',
+        'technician':        'Who the Started message names (ORC-19), else the Completed one.',
+        'radiologist':       'ID of the radiologist who signed the report.',
+        'referring':         'Referring physician\'s name.',
+        'has_report':        'true when a report was received for the study.',
+        'critical':          'true when the NLP found a critical finding in the report.',
+        'open_quality_notes': 'Number of open BRAYN data-quality notes on the study.',
+        'stalled':           'true when the study has an open BRAYN delay note (waiting past a '
+                             'limit).',
+        'wait_minutes':      'Arrived to Started, in minutes.',
+        'exam_minutes':      'Started to Completed, in minutes.',
+        'report_tat_hours':  'Report turnaround: Completed (else images in PACS) to '
+                             'report_final_at, in hours.',
+        'placer_order_number': 'HIS order number (ORC-2).',
+        'visit_number':      'Visit number (PV1-19).',
+    },
+    O: {
+        'order_id':          'Row number of the order in RAYD. One row per HIS order received.',
+        'ordered_at':        'When the HIS sent the order (message time, else the time RAYD '
+                             'received it).',
+        'order_date':        'ordered_at as a date without time.',
+        'placer_order_number': 'HIS order number (ORC-2).',
+        'accession':         'The study\'s accession: from the order when it carried one, else '
+                             'from the study matched by order number. Empty until the RIS '
+                             'schedules it.',
+        **_PATIENT,
+        'procedure_code':    'Procedure code on the order (OBR-4.1).',
+        'procedure':         'Procedure description on the order, else the study\'s.',
+        'modality':          'Modality: device map of the matched study\'s device, else the '
+                             'study\'s, else the order\'s.',
+        'site':              'Site of the matched study\'s device.',
+        'referring':         'Referring physician on the order (PV1-8).',
+        'ordering_physician': 'Ordering provider on the order (ORC-12).',
+        'status':            'Furthest step of the matched study: Not scheduled, Scheduled, '
+                             'Arrived, Started, Completed, Reported, or Cancelled.',
+        'scheduled_at':      'When the RIS scheduled the order.',
+        'performed_at':      'When the exam was done: completed, else images in PACS, else '
+                             'started.',
+        'scheduled':         'true once any step after the order was received (scheduled, '
+                             'arrived, started, completed, images).',
+        'performed':         'true once the exam started, completed or reached PACS.',
+        'reported':          'true once a report or a signature was received.',
+        'cancelled':         'true when the order or its study was cancelled.',
+        'order_to_schedule_hours': 'ordered_at to scheduled_at, in hours.',
+        'order_to_exam_hours': 'ordered_at to completed (else images in PACS), in hours.',
+    },
+    R: {
+        'report_id':         'Row number of the report in RAYD. One row per report.',
+        'accession':         'Accession number of the study the report is for.',
+        'patient_id':        'Patient ID (MRN) from the report, else from the study.',
+        'radiologist':       'ID of the radiologist who signed the report.',
+        'modality':          'Modality: device map of the study\'s device, else the study\'s, '
+                             'else the report\'s.',
+        'procedure':         'Procedure description of the study, else the report\'s.',
+        'device':            'AE title of the study\'s device.',
+        'site':              'Site of the study\'s device.',
+        'patient_class':     'Patient class code of the study (PV1-2).',
+        'patient_type':      'patient_class in words: Inpatient, Outpatient, Emergency.',
+        'report_at':         'Report time the sender put on the report (OBR-22, else OBR-7).',
+        'report_date':       'report_at as a date without time.',
+        'signature':         'Final, Preliminary, or Unspecified when the sender sends no '
+                             'signature level.',
+        'prelim_signed_at':  'First preliminary signature.',
+        'final_signed_at':   'Final signature.',
+        'completed_at':      'When the exam completed (else images in PACS).',
+        'report_tat_hours':  'Report turnaround: completed_at to the final signature (else the '
+                             'report time when no signature level is sent), in hours.',
+        'critical':          'true when the NLP found a critical finding in the report.',
+        'referring':         'Referring physician named on the report.',
+    },
+}
+
+# Worked examples. Every one is run against the sandbox by the test suite, so an
+# example that stops working fails there first.
+SQL_EXAMPLES = [
+    {'title': 'Exams per modality, last month',
+     'what': 'A count per modality for the previous calendar month.',
+     'sql': "SELECT modality, COUNT(*) AS \"Exams\"\n"
+            "FROM rpt.exams\n"
+            "WHERE exam_at >= date_trunc('month', CURRENT_DATE) - INTERVAL '1 month'\n"
+            "  AND exam_at <  date_trunc('month', CURRENT_DATE)\n"
+            "GROUP BY modality\n"
+            "ORDER BY 2 DESC"},
+    {'title': 'Exams per technician on the AM shift, this week',
+     'what': 'Uses the shift column (Shift hours) and the technician of the Started message.',
+     'sql': "SELECT technician, COUNT(*) AS \"Exams\"\n"
+            "FROM rpt.exams\n"
+            "WHERE shift = 'AM'\n"
+            "  AND exam_at >= date_trunc('week', CURRENT_DATE)\n"
+            "GROUP BY technician\n"
+            "ORDER BY 2 DESC"},
+    {'title': 'HIS orders not done after 2 days',
+     'what': 'Orders older than 48 hours that were neither performed nor cancelled.',
+     'sql': "SELECT ordered_at, placer_order_number, patient_id, procedure, status\n"
+            "FROM rpt.orders\n"
+            "WHERE NOT performed AND NOT cancelled\n"
+            "  AND ordered_at < LOCALTIMESTAMP - INTERVAL '2 days'\n"
+            "ORDER BY ordered_at"},
+    {'title': 'Median report turnaround per radiologist, last 30 days',
+     'what': 'Hours from exam completion to final signature, per signing radiologist.',
+     'sql': "SELECT radiologist, COUNT(*) AS \"Reports\",\n"
+            "       round(percentile_cont(0.5) WITHIN GROUP (ORDER BY report_tat_hours)::numeric, 2)\n"
+            "           AS \"Median TAT (h)\"\n"
+            "FROM rpt.reports\n"
+            "WHERE report_at >= CURRENT_DATE - 30 AND report_tat_hours IS NOT NULL\n"
+            "GROUP BY radiologist\n"
+            "ORDER BY 3"},
+    {'title': 'Exams with their HIS order, last 7 days',
+     'what': 'Joins exams to orders on the accession to show the referring doctor and the '
+             'order time beside each exam.',
+     'sql': "SELECT e.exam_at, e.accession, e.modality, o.ordered_at, o.referring\n"
+            "FROM rpt.exams e\n"
+            "JOIN rpt.orders o ON o.accession = e.accession\n"
+            "WHERE e.exam_at >= CURRENT_DATE - 7\n"
+            "ORDER BY e.exam_at DESC"},
+    {'title': 'Studies BRAYN has flagged',
+     'what': 'Studies with open data-quality notes or waiting past a delay limit.',
+     'sql': "SELECT exam_at, accession, modality, status, open_quality_notes, stalled\n"
+            "FROM rpt.exams\n"
+            "WHERE open_quality_notes > 0 OR stalled\n"
+            "ORDER BY exam_at DESC"},
+]
+
+
 def fields_for(dataset):
     return [f for f in FIELDS if dataset in f['datasets']]
 

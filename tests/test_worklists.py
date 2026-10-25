@@ -696,3 +696,104 @@ def test_a_hundred_studies_aggregate_quickly(app, pipe):
                                                                   'quick': 'last_7_days'}},
                      'output': {'kind': 'table', 'rows': 'modality', 'measures': ['count']}})
     assert rows == [{'row': 'CT', 'count': 100}] and time.time() - t0 < 3
+
+
+# ── the page: Save at the bottom, a new worklist empty (operator, 2026-10-25) ──
+
+def test_page_has_save_in_the_bottom_bar_only(client):
+    body = h(client, 'get', '/worklists').data.decode('utf-8')
+    bar = body.split('id="actionbar"', 1)[1].split('</div>', 1)[0]
+    assert 'id="btn-save"' in bar and 'id="btn-run2"' in bar
+    assert body.count('id="btn-save"') == 1
+    assert 'position: sticky; bottom: 0' in body
+
+
+def test_page_marks_the_required_fields(client):
+    body = h(client, 'get', '/worklists').data.decode('utf-8')
+    for wrapper in ('id="fw-name"', 'id="fw-ds"'):
+        assert wrapper in body
+    assert body.count('class="req-tag">Required') >= 2
+
+
+def test_generated_sql_is_read_only_and_writing_is_a_separate_mode(client):
+    body = h(client, 'get', '/worklists').data.decode('utf-8')
+    assert '<pre class="sql" id="sql-view">' in body           # shown, never editable
+    assert 'data-mode="gen"' in body and 'data-mode="hand"' in body
+    assert 'btn-edit-sql' not in body and 'id="btn-ref"' in body
+
+
+# ── the SQL reference: what a worklist written in SQL may read ────────────────
+
+def test_every_view_column_is_documented(pipe):
+    """A column added to an rpt view without a description fails here rather than
+    reaching an engineer undocumented ("a very perfect documentation ... or disable
+    it", operator 2026-10-25). Stale descriptions of removed columns fail too."""
+    for key, ds in cat.DATASETS.items():
+        view = ds['view'].split('.', 1)[1]
+        cols = [r['column_name'] for r in pipe.q(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'rpt' AND table_name = :t ORDER BY ordinal_position", t=view)]
+        docs = cat.COLUMN_DOCS[key]
+        assert cols and set(cols) == set(docs), (view, sorted(set(cols) ^ set(docs)))
+        assert all(len(docs[c].strip()) > 10 for c in cols), view
+
+
+@pytest.mark.parametrize('i', range(len(cat.SQL_EXAMPLES)))
+def test_every_example_runs_in_the_sandbox(app, two, i):
+    res = hand(app, cat.SQL_EXAMPLES[i]['sql'])
+    assert res['columns']
+
+
+def test_sql_reference_endpoint(client):
+    r = h(client, 'get', '/worklists/api/sql-reference').get_json()
+    assert [v['view'] for v in r['views']] == ['rpt.exams', 'rpt.orders', 'rpt.reports']
+    for v in r['views']:
+        assert v['columns'] and all(c['type'] and c['about'] for c in v['columns'])
+    exams = {c['name']: c for c in r['views'][0]['columns']}
+    assert exams['exam_at']['type'] == 'date & time' and exams['stalled']['type'] == 'true / false'
+    titles = [x['title'] for x in r['rules']]
+    assert {'What you can read', 'One query', 'Values', 'Dates and times', 'Limits'} <= set(titles)
+    limits = next(x['text'] for x in r['rules'] if x['title'] == 'Limits')
+    assert f'{eng.ROW_CAP:,}' in limits and f'{eng.CSV_CAP:,}' in limits
+    assert len(r['examples']) == len(cat.SQL_EXAMPLES)
+
+
+def test_sql_reference_needs_page_access(client):
+    assert client.get('/worklists/api/sql-reference').status_code == 401
+    assert h(client, 'get', '/worklists/api/sql-reference', role='user', uid=OTHER).status_code == 403
+
+
+SQL_ONLY = {'name': 'Written in SQL', 'folder': 'Tests', 'visibility': 'personal',
+            'definition': {'dataset': None, 'criteria': {}, 'ask': [],
+                           'output': {'kind': None}, 'sql': 'SELECT count(*) AS n FROM exams'}}
+
+
+def test_a_worklist_written_in_sql_needs_no_dataset(pipe, client):
+    r = save(client, SQL_ONLY)
+    assert r.status_code == 200
+    wid = r.get_json()['id']
+    assert pipe.scalar("SELECT dataset FROM worklists WHERE id = :i", i=wid) == 'sql'
+    got = h(client, 'get', f'/worklists/api/{wid}', role='implementation', uid=IMPL).get_json()
+    assert got['definition']['sql'] == SQL_ONLY['definition']['sql']
+
+
+def test_a_worklist_written_in_sql_is_still_for_it_authors_only(client):
+    assert save(client, SQL_ONLY, role='administrator', uid=ADMIN).status_code == 403
+
+
+def test_run_and_csv_of_sql_without_a_definition(client, two):
+    r = h(client, 'post', '/worklists/api/run', json={'definition': SQL_ONLY['definition']})
+    assert r.status_code == 200 and r.get_json()['rows'] == [[2]]
+    c = h(client, 'post', '/worklists/api/csv', json={'definition': SQL_ONLY['definition'], 'name': 'x'})
+    assert c.status_code == 200 and c.data.decode('utf-8-sig').splitlines() == ['n', '2']
+
+
+def test_a_built_worklist_still_needs_its_dataset(client):
+    empty = {**NEW, 'definition': {'dataset': None, 'criteria': {}, 'output': {'kind': 'list'}}}
+    r = save(client, empty)
+    assert r.status_code == 400 and 'dataset' in r.get_json()['error']
+
+
+def test_empty_sql_is_refused(client):
+    bad = {**SQL_ONLY, 'definition': {**SQL_ONLY['definition'], 'sql': '   '}}
+    assert save(client, bad).status_code == 400
