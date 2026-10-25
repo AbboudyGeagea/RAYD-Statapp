@@ -34,9 +34,12 @@ function live ingestion uses — in archive (arrival) order. Two consequences:
   table — so acknowledging one quarantined study in the console rewrote the
   lifecycle of every other study in the install.
 
-  A released message gets everything an accepted one would have had. The old walk
-  skipped the legacy writes, so a released report never reached hl7_oru_reports and
-  a released order never reached hl7_orders.
+  A released message gets everything an accepted one would have had — including
+  the quality notes. The old walk skipped the legacy writes, so a released report
+  never reached hl7_oru_reports and a released order never reached hl7_orders.
+
+  RAY7's interface counters are NOT touched: they describe the live wire, and a
+  replay is not wire traffic (ray7.record_observations is the listener's alone).
 
 ORDER OF REPLAY STILL MATTERS FOR FINDINGS. RAY7 screens each message against the
 state as it stood beforehand, so a full replay CLEARS ray7_study_state first and
@@ -45,14 +48,6 @@ up again as it goes. Judging every message against the final state would make mo
 of the sequence rules vacuous.
 
 WHERE REPLAY LEGITIMATELY DIFFERS FROM THE LIVE RUN
-  CONTROL_ID_REUSE flags BOTH sides on replay, one side live. Live, the first
-  message is screened before its twin exists, so only the second sees a conflict.
-  On replay the archive is already complete and both see each other.
-
-  EXACT_REDELIVERY is never regenerated. A redelivery has no archive row by
-  definition, so there is nothing to walk. Its existing findings are therefore
-  preserved rather than deleted and lost.
-
   etl_* rows of a study that no longer projects at all (every one of its messages
   now quarantined, say) are left as they were: replay rewrites rows, it does not
   hunt for ones that should no longer exist.
@@ -87,15 +82,12 @@ def replay(app, limit=None, since_id=0, rescreen=True, dry_run=False, archive_id
     parser fix rather than the entire history.
 
     archive_ids scopes it to an explicit set of messages, which is how the RAY7
-    console releases ONE quarantined study: the operator acknowledges the finding and
-    exactly that study's messages are reprojected, rather than the whole archive.
-
-    RELEASING ALWAYS PASSES rescreen=False, and the reason is easy to miss. The
-    screening that quarantined the study would run again here — against a
-    ray7_study_state that now contains the very rungs it complained about — so
-    OUT_OF_SEQUENCE_DELIVERY would fire a second time and re-quarantine the study the
-    operator just cleared. The button would appear to do nothing. The human's
-    acknowledgement IS the judgement; re-running the machine's is not wanted.
+    console releases HELD messages: the operator fixes the configuration (maps the
+    status code, points the accession mapping at the right field) and "Replay held
+    messages" re-screens exactly those, with rescreen=True — since the 0135 rebuild a
+    message is held only when it cannot be identified or classified, so re-screening
+    is how the fix is confirmed. (rescreen=False remains for `app.py -m
+    --no-rescreen`, which reprojects without judging.)
 
     Returns a dict of counters.
     """

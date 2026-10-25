@@ -92,7 +92,7 @@ def test_cancelled_studies_never_stall(pipe, code):
     stuck(pipe, 'A1', code, 3000)
     pipe.send(k.status('CA', 'A1', k.ts(2999)))
     pipe.sweep()
-    assert [f for f in pipe.findings() if f['message_archive_id'] is None] == []
+    assert pipe.findings(open_only=True) == []
 
 
 def test_cancellation_resolves_an_open_stall(pipe):
@@ -121,7 +121,7 @@ def test_finally_signed_study_is_never_unreported(pipe):
 
 def test_per_modality_threshold(pipe):
     pipe.exec("INSERT INTO ray7_rules (rule_code, modality, category, title, default_severity, "
-              "threshold_minutes) VALUES ('STALLED_STARTED', 'DX', 'absence', 'x', 'warning', 30)")
+              "threshold_minutes) VALUES ('STALLED_STARTED', 'DX', 'workflow', 'x', 'warning', 30)")
     stuck(pipe, 'A-DX', 'IP', 60, mod='DX', ae='DR_RH')
     stuck(pipe, 'A-CT', 'IP', 60, mod='CT')
     pipe.sweep()
@@ -206,30 +206,102 @@ def test_recent_order_is_not_an_orphan(pipe):
     assert pipe.findings('ORPHAN_ORDER') == []
 
 
-# ── premature message findings ────────────────────────────────────────────────
+# ── ③ interface alerts: a sender's rate against its threshold ────────────────
 
-def test_skipped_rung_resolves_once_the_rungs_turn_up(pipe):
-    pipe.send(k.status('CM', 'A1', k.ts(100)))
-    assert 'SKIPPED_RUNG' in pipe.codes()
-    pipe.send(k.status('AR', 'A1', k.ts(140)))
-    pipe.send(k.status('IP', 'A1', k.ts(120)))
+def seed_rate(pipe, metric, n, messages, app='RIS'):
+    """Counters as the listener writes them, in the current quarter-hour."""
+    bucket = ("date_trunc('hour', LOCALTIMESTAMP) + floor(extract(minute FROM LOCALTIMESTAMP)"
+              " / 15) * interval '15 minutes'")
+    for m, v in (('MESSAGES', messages), (metric, n)):
+        pipe.exec(f"INSERT INTO ray7_interface_stats (bucket_start, sending_app, metric, n) "
+                  f"VALUES ({bucket}, :app, :m, :v) ON CONFLICT (bucket_start, sending_app, metric) "
+                  f"DO UPDATE SET n = EXCLUDED.n", app=app, m=m, v=v)
+
+
+def alerts(pipe, rule=None):
+    return [f for f in pipe.findings(rule=rule)
+            if f['message_archive_id'] is None and f['accession_number'] is None]
+
+
+def test_alert_is_raised_past_the_threshold(pipe):
+    seed_rate(pipe, 'OUT_OF_SEQUENCE_DELIVERY', 30, 100)        # 30% vs 10%
     pipe.sweep()
-    assert pipe.findings('SKIPPED_RUNG', open_only=True) == []
+    a = alerts(pipe, 'OUT_OF_SEQUENCE_DELIVERY')
+    assert len(a) == 1 and a[0]['sending_app'] == 'RIS'
+    assert (a[0]['detail']['rate_pct'], a[0]['detail']['threshold_pct']) == (30.0, 10.0)
 
 
-def test_orphan_event_resolves_once_introduced(pipe):
-    pipe.send(k.status('AR', 'A1', k.ts(100)))
-    pipe.send(k.status('SC', 'A1', k.ts(140)))
+def test_no_alert_under_the_threshold(pipe):
+    seed_rate(pipe, 'OUT_OF_SEQUENCE_DELIVERY', 5, 100)
     pipe.sweep()
-    assert pipe.findings('ORPHAN_EVENT', open_only=True) == []
+    assert alerts(pipe) == []
 
 
-def test_out_of_sequence_is_never_auto_resolved(pipe):
-    pipe.profile(expected=ALL_RUNGS, enforced=ALL_RUNGS)
-    pipe.send(k.status('CM', 'A1', k.ts(100)))
-    pipe.send(k.status('AR', 'A1', k.ts(140)))
+def test_no_alert_on_too_little_traffic(pipe):
+    seed_rate(pipe, 'CONTROL_ID_REUSE', 5, 10)                  # 50%, but 10 messages
     pipe.sweep()
-    assert len(pipe.findings('OUT_OF_SEQUENCE_DELIVERY', open_only=True)) == 1
+    assert alerts(pipe) == []
+
+
+def test_one_open_alert_per_sender_per_rule(pipe):
+    seed_rate(pipe, 'CONTROL_ID_REUSE', 10, 100)
+    for _ in range(3):
+        pipe.sweep()
+    assert len(alerts(pipe, 'CONTROL_ID_REUSE')) == 1
+
+
+def test_alerts_are_per_sender(pipe):
+    seed_rate(pipe, 'CONTROL_ID_REUSE', 10, 100, app='RIS_A')
+    seed_rate(pipe, 'CONTROL_ID_REUSE', 0, 100, app='RIS_B')
+    pipe.sweep()
+    assert [a['sending_app'] for a in alerts(pipe)] == ['RIS_A']
+
+
+def test_alert_clears_when_the_rate_recovers(pipe):
+    seed_rate(pipe, 'OUT_OF_SEQUENCE_DELIVERY', 30, 100)
+    pipe.sweep()
+    seed_rate(pipe, 'OUT_OF_SEQUENCE_DELIVERY', 1, 200)
+    pipe.sweep()
+    a = alerts(pipe, 'OUT_OF_SEQUENCE_DELIVERY')
+    assert len(a) == 1 and a[0]['resolved_at'] is not None
+
+
+def test_alert_stays_open_while_the_sender_is_quiet(pipe):
+    seed_rate(pipe, 'OUT_OF_SEQUENCE_DELIVERY', 30, 100)
+    pipe.sweep()
+    pipe.exec("DELETE FROM ray7_interface_stats")
+    pipe.sweep()
+    assert alerts(pipe)[0]['resolved_at'] is None
+
+
+def test_redelivery_is_measured_not_alerted_by_default(pipe):
+    seed_rate(pipe, 'EXACT_REDELIVERY', 90, 100)
+    pipe.sweep()
+    assert alerts(pipe) == []
+
+
+def test_alert_threshold_is_operator_config(pipe):
+    pipe.exec("UPDATE ray7_rules SET threshold_pct = 50 WHERE rule_code = 'EXACT_REDELIVERY'")
+    seed_rate(pipe, 'EXACT_REDELIVERY', 90, 100)
+    pipe.sweep()
+    assert len(alerts(pipe, 'EXACT_REDELIVERY')) == 1
+
+
+def test_disabled_rule_raises_no_alert(pipe):
+    pipe.rule('CONTROL_ID_REUSE', enabled=False)
+    seed_rate(pipe, 'CONTROL_ID_REUSE', 50, 100)
+    pipe.sweep()
+    assert alerts(pipe) == []
+
+
+def test_real_traffic_raises_the_alert(pipe):
+    """End to end: 25 studies whose completion overtakes their arrival."""
+    for i in range(25):
+        pipe.send(k.status('CM', f'O{i:02d}', k.ts(100)))
+        pipe.send(k.status('AR', f'O{i:02d}', k.ts(140)))
+    pipe.sweep()
+    a = alerts(pipe, 'OUT_OF_SEQUENCE_DELIVERY')
+    assert len(a) == 1 and a[0]['detail']['rate_pct'] == 50.0
 
 
 def test_human_resolution_is_left_alone(pipe):

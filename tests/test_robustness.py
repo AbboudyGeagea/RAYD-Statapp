@@ -105,8 +105,9 @@ def test_screening_stays_inside_its_budget_under_volume(pipe):
         for code, m in (('SC', 300), ('AR', 280), ('IP', 260), ('CM', 240)):
             assert pipe.send(k.status(code, f'V{i:04d}', k.hl7(at(m)), pat=f'PV{i:04d}'))
     per_message = (time.time() - t0) / 400
-    assert pipe.findings('RAY7_BUDGET_EXCEEDED') == []
-    assert pipe.findings('RAY7_DEGRADED') == []
+    assert pipe.stat('RAY7_BUDGET_EXCEEDED') == 0
+    assert pipe.stat('RAY7_DEGRADED') == 0
+    assert pipe.stat('MESSAGES') == 400
     assert per_message < 0.5, f'{per_message * 1000:.0f} ms per message'
 
 
@@ -146,8 +147,9 @@ def test_a_failed_projection_costs_only_the_projection(pipe, monkeypatch):
 def test_a_failed_finding_write_costs_only_the_finding(pipe, monkeypatch):
     from utils import ray7
     monkeypatch.setattr(ray7, '_json', lambda obj: 'not json')
-    assert pipe.send(k.status('AR', 'A1', k.ts(5)))
-    assert pipe.state('A1') is not None
+    assert pipe.send(k.adt('A01', dob='99991111'))          # raises PLACEHOLDER_DATA
+    assert pipe.findings() == []
+    assert pipe.count('hl7_patients') == 1
 
 
 # ── concurrency inside the pipeline ───────────────────────────────────────────
@@ -195,7 +197,7 @@ def test_identical_message_from_five_connections(pipe):
     raw = k.status('SC', 'A1', k.ts(5))
     assert _parallel(pipe, [raw] * 5) == []
     assert pipe.count('hl7_message_archive') == 1
-    assert pipe.findings('EXACT_REDELIVERY')[0]['detail']['seen'] == 4
+    assert pipe.stat('EXACT_REDELIVERY') == 4
 
 
 def test_forty_studies_interleaved_across_threads(pipe):

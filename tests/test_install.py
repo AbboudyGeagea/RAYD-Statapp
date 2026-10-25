@@ -28,7 +28,7 @@ def test_every_migration_applies_on_a_fresh_database(pipe):
     'etl_didb_studies', 'etl_patient_view', 'etl_orders', 'std_worklist_arrivals',
     'std_worklist_exam_done', 'std_worklist_scheduled', 'std_pps',
     'std_pps_person_reference', 'std_resources_ris', 'aetitle_modality_map',
-    'settings', 'cd_burn_log', 'users',
+    'settings', 'cd_burn_log', 'users', 'ray7_interface_stats', 'ray7_unknown_values',
 ])
 def test_table_exists(pipe, table):
     assert pipe.scalar("SELECT to_regclass(:t) IS NOT NULL", t=f'public.{table}')
@@ -113,3 +113,46 @@ def test_surrogate_rejects_unknown_entity(pipe):
     from sqlalchemy.exc import IntegrityError
     with pytest.raises(IntegrityError):
         pipe.scalar("SELECT hl7_surrogate_id('nonsense', 'X')")
+
+
+# ── RAY7's four layers (migration 0135) ───────────────────────────────────────
+
+LAYER = {
+    'MISSING_IDENTIFIER': 'intake', 'UNKNOWN_STATUS_CODE': 'intake',
+    'TIME_CONTRADICTION': 'quality', 'SKIPPED_RUNG': 'quality', 'ORPHAN_EVENT': 'quality',
+    'FUTURE_EVENT': 'quality', 'PLACEHOLDER_DATA': 'quality', 'LADDER_REGRESSION': 'quality',
+    'STALLED_SCHEDULED': 'workflow', 'STALLED_ARRIVED': 'workflow',
+    'STALLED_STARTED': 'workflow', 'UNREPORTED': 'workflow', 'STALLED_UNSIGNED': 'workflow',
+    'ORPHAN_ORDER': 'workflow',
+}
+
+
+@pytest.mark.parametrize('code', EXPECTED_RULES)
+def test_every_rule_is_filed_in_a_layer(pipe, code):
+    layer = pipe.scalar("SELECT category FROM ray7_rules WHERE rule_code = :c AND modality = ''",
+                        c=code)
+    assert layer == LAYER.get(code, 'interface')
+
+
+@pytest.mark.parametrize('code', ['MISSING_IDENTIFIER', 'UNKNOWN_STATUS_CODE'])
+def test_only_intake_is_critical_by_default(pipe, code):
+    assert pipe.scalar("SELECT default_severity FROM ray7_rules WHERE rule_code = :c", c=code) \
+        == 'critical'
+
+
+def test_nothing_outside_intake_defaults_to_critical(pipe):
+    assert pipe.q("SELECT rule_code FROM ray7_rules WHERE default_severity = 'critical' "
+                  "AND category <> 'intake'") == []
+
+
+@pytest.mark.parametrize('code,pct', [('CONTROL_ID_REUSE', 1), ('OUT_OF_SEQUENCE_DELIVERY', 10),
+                                      ('LOGICAL_DUPLICATE', 5), ('RAY7_DEGRADED', 1),
+                                      ('EXACT_REDELIVERY', None)])
+def test_interface_thresholds_are_seeded(pipe, code, pct):
+    got = pipe.scalar("SELECT threshold_pct FROM ray7_rules WHERE rule_code = :c", c=code)
+    assert (float(got) if got is not None else None) == pct
+
+
+def test_ladder_regression_is_retired(pipe):
+    assert pipe.scalar("SELECT enabled FROM ray7_rules WHERE rule_code = 'LADDER_REGRESSION'") \
+        is False

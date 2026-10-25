@@ -24,15 +24,16 @@
         all — absence rules stop asking for a rung that is switched off, and the stall check
         bridges to the next expected rung instead, so disabling a rung narrows the ladder rather
         than leaving a blind segment.
-        <strong class="text-slate-300">Enforce order</strong> additionally requires the message to
-        <em>arrive</em> in ladder position; one that turns up after a rung above it is rated
-        critical and the study is <strong class="text-amber-300">held out of the reports</strong>
-        until someone acknowledges it in the RAY7 console.
+        <strong class="text-slate-300">Measure order</strong> counts a message of this rung that
+        <em>arrives</em> after a rung above it in the sender's out-of-order rate (RAY7 →
+        Interface health). Nothing is held: the lifecycle does not depend on delivery order.
+        With no rung marked, every expected rung is measured.
       {% else %}
-        Nothing is enforced yet, which is the intended state on a fresh install — sequence
-        enforcement is opt-in precisely because it quarantines. Switch on the rungs this site
-        actually sends. The <strong class="text-slate-300">Seen</strong> column below shows what
-        has genuinely arrived, so this is a response to traffic rather than to a spec.
+        Nothing is configured yet, which is the intended state on a fresh install: until a rung
+        is marked expected RAY7 assumes the site may send any of them, and measures the delivery
+        order of all of them. Switch on the rungs this site actually sends. The
+        <strong class="text-slate-300">Seen</strong> column below shows what has genuinely
+        arrived, so this is a response to traffic rather than to a spec.
       {% endif %}
     </p>
 
@@ -44,7 +45,7 @@
           <th class="text-right">Seen</th>
           <th class="text-left pl-4">Last seen</th>
           <th class="text-center">Expected</th>
-          <th class="text-center">Enforce order</th>
+          <th class="text-center">Measure order</th>
           <th class="text-left pl-4">Notes</th>
         </tr>
       </thead>
@@ -62,10 +63,9 @@
                    class="accent-emerald-500 cursor-pointer">
           </td>
           <td class="text-center">
-            {# Disabled until the rung is expected: a rung the site does not send cannot
-               meaningfully be held to an arrival order, and the server forces the pair
-               off anyway. Showing it as editable would advertise a setting that does
-               nothing. #}
+            {# Disabled until the rung is expected: a rung the site does not send has no
+               arrival order to measure, and the server forces the pair off anyway.
+               Showing it as editable would advertise a setting that does nothing. #}
             <input type="checkbox" data-field="enforce_order" {{ 'checked' if r.enforce_order }}
                    {{ 'disabled' if not r.expected }}
                    class="accent-amber-500 cursor-pointer disabled:opacity-25 disabled:cursor-not-allowed">
@@ -80,9 +80,7 @@
     </table>
 
     <p class="text-[10px] text-slate-600 mt-4 leading-relaxed">
-      Changes save immediately and take effect on the next message. Enabling a rung does not
-      release studies already quarantined — acknowledge those in the RAY7 console, which
-      reprojects them.
+      Changes save immediately and take effect on the next message.
     </p>
   </div>
 

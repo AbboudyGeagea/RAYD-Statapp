@@ -261,40 +261,14 @@ UPDATE ray7_findings f
                                                     s.completed_at IS NOT NULL)) OR
             s.cancelled_at IS NOT NULL
         ))
-        OR
-        -- PREMATURE message findings: true when raised, overtaken since.
-        --
-        -- SKIPPED_RUNG and ORPHAN_EVENT are judged against the state as it stood
-        -- when the message arrived. If a study's completion is delivered FIRST
-        -- and its earlier rungs follow moments later — ordinary out-of-order
-        -- delivery on this interface — both fire truthfully and then become
-        -- wrong, because the rungs were not missing, merely late.
-        --
-        -- At the moment of judgement that case is indistinguishable from a study
-        -- that completes and genuinely never reports an arrival. The engine
-        -- cannot know which it is looking at, so it says what it sees and this
-        -- closes the finding once the rest arrives. Raising nothing instead would
-        -- mean never reporting the genuine case; leaving it open forever would
-        -- fill the queue with studies that turned out fine.
-        --
-        -- Caught by the out_of_order scenario, which is documented as having to
-        -- produce no findings and produced two.
-        -- OUT_OF_SEQUENCE_DELIVERY IS DELIBERATELY ABSENT FROM THIS LIST, and must
-        -- stay absent. The two below were judged against incomplete information and
-        -- became untrue once the rest of the lifecycle turned up. That one was true
-        -- when it was raised and stays true forever: the messages DID arrive out of
-        -- order, and no later message can change what already happened on the wire.
-        -- It is cleared by a human acknowledging it in the RAY7 console, which is
-        -- also what releases the quarantined study. Auto-resolving it would silently
-        -- re-admit data nobody had looked at.
-        (f.message_archive_id IS NOT NULL AND (
-            (f.rule_code = 'SKIPPED_RUNG'
-                 AND s.arrived_at IS NOT NULL AND s.started_at IS NOT NULL) OR
-            (f.rule_code = 'ORPHAN_EVENT'
-                 AND (s.scheduled_at IS NOT NULL OR s.ordered_at IS NOT NULL))
-        ))
    )
 """
+# There used to be a second half here, closing SKIPPED_RUNG and ORPHAN_EVENT raised
+# per MESSAGE against a half-delivered lifecycle once the rest turned up. Since the
+# 0135 rebuild those are study notes judged on the whole lifecycle after every change
+# (utils/ray7_quality.py), which close themselves; the engine no longer makes the
+# premature judgements this existed to clean up after. The cancellation clause above
+# still closes every open study note, quality ones included.
 
 
 def _rule_settings(code):
@@ -365,6 +339,17 @@ def run_sweep():
             resolved = db.session.execute(text(_AUTO_RESOLVE_SQL)).rowcount
     except Exception:
         logger.exception("RAY7 sweep: auto-resolve failed")
+
+    # Layer ③: per-sender rates against their thresholds. Here because the sweep is
+    # already the periodic pass; the counters themselves are written by the listener.
+    try:
+        from utils.ray7_health import evaluate_alerts
+        alerts = evaluate_alerts()
+        if alerts.get('raised'):
+            raised['INTERFACE_ALERTS'] = alerts['raised']
+        resolved += alerts.get('cleared', 0)
+    except Exception:
+        logger.exception("RAY7 sweep: interface alerts failed")
 
     try:
         db.session.commit()

@@ -165,13 +165,13 @@ def test_replay_never_touches_the_archive(pipe):
     assert after == before
 
 
-def test_replay_keeps_redelivery_counts(pipe):
+def test_replay_leaves_the_interface_counters_alone(pipe):
+    """The counters describe the live wire; a replay is not wire traffic."""
     raw = k.status('SC', 'A1', k.ts(10))
     for _ in range(3):
         pipe.send(raw)
     pipe.replay()
-    f = pipe.findings('EXACT_REDELIVERY')
-    assert len(f) == 1 and f[0]['detail']['seen'] == 2
+    assert (pipe.stat('EXACT_REDELIVERY'), pipe.stat('MESSAGES')) == (2, 3)
 
 
 def test_dry_run_changes_nothing(pipe):

@@ -84,33 +84,47 @@
   .kv{display:grid;grid-template-columns:150px 1fr;gap:4px 14px;font-size:12px;margin-bottom:14px}
   .kv .k{color:var(--text-dim)}
 </style>
+<meta name="csrf-token" content="{{ csrf_token() if csrf_token is defined else '' }}">
+<style>
+  .layer{display:inline-block;padding:1px 7px;border-radius:3px;font-size:9.5px;
+         text-transform:uppercase;letter-spacing:.6px;font-weight:600;
+         border:1px solid var(--border2);color:var(--text-dim)}
+  .layer.intake{color:var(--red);border-color:rgba(224,92,92,.35)}
+  .layer.quality{color:var(--yellow);border-color:rgba(244,185,66,.3)}
+  .layer.interface{color:var(--accent);border-color:rgba(0,180,216,.35)}
+  h2{font-size:12px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-dim);
+     margin:22px 0 8px}
+  .bar{display:flex;gap:10px;align-items:center;margin-bottom:12px}
+</style>
 </head>
 <body>
 {% set s = summary %}
 <header>
   <h1>RAY7</h1>
-  <span class="sub">Every HL7 message is screened before its data reaches the reports</span>
+  <span class="sub">Every HL7 message is checked on arrival. Only a message that cannot be
+    identified or classified is kept out of the reports.</span>
 </header>
 
 <div class="wrap">
 
   <div class="tiles">
-    <div class="tile {% if s.open_critical %}crit{% else %}ok{% endif %}">
-      <div class="n">{{ s.open_critical or 0 }}</div><div class="l">Open critical</div></div>
-    <div class="tile {% if s.open_warning %}warn{% endif %}">
-      <div class="n">{{ s.open_warning or 0 }}</div><div class="l">Open warning</div></div>
-    <div class="tile"><div class="n">{{ s.open_info or 0 }}</div><div class="l">Open info</div></div>
-    <div class="tile {% if s.studies_affected %}crit{% endif %}">
-      <div class="n">{{ s.studies_affected or 0 }}</div><div class="l">Studies incomplete</div></div>
+    <div class="tile {% if s.held %}crit{% else %}ok{% endif %}">
+      <div class="n">{{ s.held or 0 }}</div><div class="l">Held messages</div></div>
+    <div class="tile {% if s.open_quality %}warn{% endif %}">
+      <div class="n">{{ s.open_quality or 0 }}</div><div class="l">Study quality notes</div></div>
+    <div class="tile {% if s.open_workflow %}warn{% endif %}">
+      <div class="n">{{ s.open_workflow or 0 }}</div><div class="l">Workflow (stalled…)</div></div>
+    <div class="tile {% if s.open_alerts %}warn{% endif %}">
+      <div class="n">{{ s.open_alerts or 0 }}</div><div class="l">Interface alerts</div></div>
+    <div class="tile"><div class="n">{{ s.unknown_values or 0 }}</div><div class="l">Unknown values</div></div>
     <div class="tile"><div class="n">{{ s.studies or 0 }}</div><div class="l">Studies tracked</div></div>
     <div class="tile"><div class="n">{{ s.messages or 0 }}</div><div class="l">Messages archived</div></div>
     <div class="tile"><div class="n">{{ s.last_24h or 0 }}</div><div class="l">Last 24 hours</div></div>
-    <div class="tile"><div class="n">{{ s.resolved or 0 }}</div><div class="l">Resolved</div></div>
   </div>
 
   <nav>
-    {% for key, label in [('summary','By rule'), ('findings','All findings'),
-                          ('held','Not in reports'), ('messages','Messages')] %}
+    {% for key, label in [('summary','Overview'), ('held','Held'), ('findings','Notes & findings'),
+                          ('health','Interface health'), ('messages','Messages')] %}
       <a href="/ray7?view={{ key }}" class="{{ 'on' if view == key }}">{{ label }}{% if key == 'held' and s.held %}<span class="n">{{ s.held }}</span>{% endif %}</a>
     {% endfor %}
   </nav>
@@ -123,19 +137,21 @@
       on this host and that the firewall allows them.
     </div>
 
-  {# ── BY RULE ─────────────────────────────────────────────────────────── #}
+  {# ── OVERVIEW ────────────────────────────────────────────────────────── #}
   {% elif view == 'summary' %}
     {% if not rows %}
-      <div class="empty">Nothing has been flagged. Every message so far screened clean.</div>
+      <div class="empty">Nothing to report. Every message so far was identified, classified
+        and consistent.</div>
     {% else %}
     <table>
       <thead><tr>
-        <th>Severity</th><th>Rule</th><th class="num">Open</th><th class="num">Total</th>
-        <th class="num">Studies</th><th>Last seen</th><th></th>
+        <th>Layer</th><th>Severity</th><th>Rule</th><th class="num">Open</th>
+        <th class="num">Total</th><th class="num">Studies</th><th>Last seen</th><th></th>
       </tr></thead>
       <tbody>
       {% for r in rows %}
         <tr>
+          <td><span class="layer {{ r.layer }}">{{ r.layer }}</span></td>
           <td><span class="sev {{ r.severity }}">{{ r.severity }}</span></td>
           <td>
             <span class="mono">{{ r.rule_code }}</span>
@@ -145,75 +161,80 @@
           <td class="num dim">{{ r.total }}</td>
           <td class="num dim">{{ r.studies or '—' }}</td>
           <td class="mono dim">{{ r.last_seen.strftime('%m-%d %H:%M') if r.last_seen }}</td>
-          <td><a href="/ray7?view=findings&rule={{ r.rule_code }}&show=open">inspect</a></td>
+          <td><a href="/ray7?view={{ 'held' if r.layer == 'intake' else 'findings' }}&rule={{ r.rule_code }}&show=open">inspect</a></td>
         </tr>
       {% endfor %}
       </tbody>
     </table>
     <p class="dim" style="font-size:12px;margin-top:10px">
-      One row per rule, worst first. A rule firing thousands of times is usually
-      cosmetic; one firing twice is usually not. Follow <em>inspect</em> for the detail.
+      <strong>Intake</strong> items are messages kept out of the reports.
+      <strong>Quality</strong> and <strong>workflow</strong> notes describe studies; they never
+      withhold data, and quality notes close themselves when the study becomes consistent.
+      <strong>Interface</strong> rows are alerts on a sender's rates — see Interface health.
     </p>
     {% endif %}
 
-  {# ── NOT IN REPORTS ──────────────────────────────────────────────────── #}
+  {# ── HELD ────────────────────────────────────────────────────────────── #}
   {% elif view == 'held' %}
     <div class="callout">
-      <h3>What “not in reports” means</h3>
+      <h3>What “held” means</h3>
       <p>
         These messages <strong>were received and are stored safely</strong> — nothing has been
-        lost. RAY7 judged something about them serious enough that it did not copy their
-        contents into the reporting tables.
-      </p>
-      <p>
-        The practical effect: for the studies listed below, the reports are
-        <strong>missing or out of date</strong>. A study may not appear at all, or may be
-        stuck at an earlier stage than it really reached, so counts and turnaround times that
-        include it will be wrong.
+        lost. RAY7 could not attach them to a study (no accession and no order number) or
+        could not classify them (a status code with no mapping), so their contents have not
+        reached the reports.
       </p>
       <p class="fix">
-        To fix one: open the message to see what RAY7 objected to, correct the cause — usually
-        mapping an unknown status code, or a sender reusing a message ID — then re-run
-        <code>python app.py -m</code> to replay the stored messages. Resolving a finding on its
-        own only clears the flag; it does not put the data into the reports.
+        To release them: fix the cause — map the status code in the mapping studio, or point
+        the accession mapping at the field this sender really uses — then press
+        <em>Replay held messages</em>. Each one is checked again; those that now pass go into
+        the reports, the rest stay here.
       </p>
     </div>
 
+    <div class="bar">
+      <button onclick="replayHeld('')" {% if not total %}disabled{% endif %}>Replay held messages</button>
+      <span class="dim" id="replayResult" style="font-size:12px"></span>
+    </div>
+
     {% if not rows %}
-      <div class="empty">Nothing is being held back. Every message received has reached the reports.</div>
+      <div class="empty">Nothing is held. Every message received has reached the reports.</div>
     {% else %}
     <table>
       <thead><tr>
-        <th>Study</th><th>In reports?</th><th class="num">Messages</th>
-        <th>Why</th><th>Type</th><th>Last held</th><th></th>
+        <th>Why</th><th>Sender</th><th>What</th><th class="num">Messages</th>
+        <th class="num">Studies</th><th>Last held</th><th></th>
       </tr></thead>
       <tbody>
       {% for r in rows %}
         <tr>
-          <td class="mono">{{ r.accession }}</td>
-          <td>
-            {% if r.study_exists %}
-              <span style="color:var(--yellow)">partly — out of date</span>
-            {% else %}
-              <span style="color:var(--red)">no — missing entirely</span>
-            {% endif %}
-          </td>
+          <td><span class="sev critical">{{ r.rule_code }}</span></td>
+          <td class="mono">{{ r.sending_app or '—' }}</td>
+          <td class="mono">{{ r.what }}</td>
           <td class="num">{{ r.messages }}</td>
-          <td><span class="sev critical">{{ r.reasons }}</span></td>
-          <td class="mono dim">{{ r.types }}</td>
+          <td class="num dim">{{ r.studies or '—' }}</td>
           <td class="mono dim">{{ r.last_held.strftime('%m-%d %H:%M') if r.last_held }}</td>
-          <td><button onclick="showMessage({{ r.sample_archive_id }})">Message</button></td>
+          <td style="white-space:nowrap">
+            <button onclick="showMessage({{ r.sample_archive_id }})">Sample</button>
+            <button onclick="replayHeld('{{ r.rule_code }}')">Replay these</button>
+          </td>
         </tr>
       {% endfor %}
       </tbody>
     </table>
     {% endif %}
 
-  {# ── ALL FINDINGS ────────────────────────────────────────────────────── #}
+  {# ── NOTES & FINDINGS ────────────────────────────────────────────────── #}
   {% elif view == 'findings' %}
     <form class="filters" method="get">
       <input type="hidden" name="view" value="findings">
-      <input type="search" name="q" placeholder="accession, patient or control ID" value="{{ search }}">
+      <input type="search" name="q" placeholder="accession, patient, sender or control ID" value="{{ search }}">
+      <select name="layer">
+        <option value="">All layers</option>
+        {% for l in layers %}
+        <option value="{{ l }}" {% if layer==l %}selected{% endif %}>{{ l }}</option>
+        {% endfor %}
+      </select>
       <select name="severity">
         <option value="">All severities</option>
         {% for sv in ['critical','warning','info'] %}
@@ -237,19 +258,20 @@
     </form>
 
     {% if not rows %}
-      <div class="empty">No findings match these filters.</div>
+      <div class="empty">Nothing matches these filters.</div>
     {% else %}
     <table>
       <thead><tr>
-        <th>Severity</th><th>Rule</th><th>Study</th><th>Detail</th>
+        <th>Layer</th><th>Severity</th><th>Rule</th><th>Study / sender</th><th>Detail</th>
         <th>When</th><th>Status</th><th></th>
       </tr></thead>
       <tbody>
       {% for f in rows %}
         <tr>
+          <td><span class="layer {{ f.layer }}">{{ f.layer }}</span></td>
           <td><span class="sev {{ f.severity }}">{{ f.severity }}</span></td>
           <td class="mono">{{ f.rule_code }}</td>
-          <td class="mono">{{ f.accession_number or '—' }}</td>
+          <td class="mono">{{ f.accession_number or f.sending_app or '—' }}</td>
           <td class="detail">{{ f.detail }}</td>
           <td class="mono dim">{{ f.created_at.strftime('%m-%d %H:%M') if f.created_at }}</td>
           <td>{% if f.resolved_at %}<span class="dim">{{ f.resolution }}</span>
@@ -259,9 +281,93 @@
               <button onclick="showMessage({{ f.message_archive_id }})">Message</button>
             {% endif %}
             {% if not f.resolved_at %}
-              <button onclick="resolveFinding({{ f.id }})">Resolve</button>
+              <button onclick="resolveFinding({{ f.id }}, 'cleared')">Resolve</button>
+              <button onclick="resolveFinding({{ f.id }}, 'ignored')" title="Close, and do not reopen this note for this study">Ignore</button>
             {% endif %}
           </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+
+  {# ── INTERFACE HEALTH ────────────────────────────────────────────────── #}
+  {% elif view == 'health' %}
+    <p class="dim" style="font-size:12px;margin-top:0">
+      How each sender is behaving. None of this withholds data: redeliveries are stored
+      once, reused control IDs and out-of-order messages are ingested normally — the
+      lifecycle does not depend on delivery order. A rate becomes an alert only when it
+      crosses the threshold set on its rule.
+    </p>
+
+    <h2>Open alerts</h2>
+    {% if not alerts %}
+      <div class="empty">No sender is over a threshold.</div>
+    {% else %}
+    <table>
+      <thead><tr><th>Sender</th><th>Rule</th><th>Last hour</th><th>Since</th><th></th></tr></thead>
+      <tbody>
+      {% for a in alerts %}
+        <tr>
+          <td class="mono">{{ a.sending_app or '—' }}</td>
+          <td><span class="mono">{{ a.rule_code }}</span>
+              {% if a.title %}<div class="dim" style="font-size:11px">{{ a.title }}</div>{% endif %}</td>
+          <td class="mono">{{ a.detail.rate_pct }}% ({{ a.detail.count }} of {{ a.detail.messages }},
+              threshold {{ a.detail.threshold_pct }}%)</td>
+          <td class="mono dim">{{ a.created_at.strftime('%m-%d %H:%M') if a.created_at }}</td>
+          <td><button onclick="resolveFinding({{ a.id }}, 'cleared')">Resolve</button></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+
+    <h2>Senders</h2>
+    {% if not rows %}
+      <div class="empty">No traffic counted in the last 24 hours.</div>
+    {% else %}
+    <table>
+      <thead><tr>
+        <th>Sender</th><th class="num">Msgs 1 h</th><th class="num">Held 1 h</th>
+        <th class="num">Msgs 24 h</th><th class="num">Held 24 h</th><th>Rates (1 h · 24 h)</th>
+      </tr></thead>
+      <tbody>
+      {% for r in rows %}
+        <tr>
+          <td class="mono">{{ r.sending_app }}</td>
+          <td class="num">{{ r.hour_messages }}</td>
+          <td class="num" style="color:{{ 'var(--red)' if r.hour_held else 'var(--text-dim)' }}">{{ r.hour_held }}</td>
+          <td class="num">{{ r.day_messages }}</td>
+          <td class="num" style="color:{{ 'var(--red)' if r.day_held else 'var(--text-dim)' }}">{{ r.day_held }}</td>
+          <td class="detail">
+            {% for m in r.metrics %}
+              <div>{{ m.code }}: {{ m.hour }}{% if m.hour_pct is not none %} ({{ m.hour_pct }}%){% endif %}
+                · {{ m.day }}{% if m.day_pct is not none %} ({{ m.day_pct }}%){% endif %}</div>
+            {% else %}<span class="dim">clean</span>{% endfor %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+
+    <h2>Values this install does not know yet</h2>
+    {% if not unknown %}
+      <div class="empty">None. Every AE title, status code and result status seen is mapped.</div>
+    {% else %}
+    <table>
+      <thead><tr><th>Kind</th><th>Sender</th><th>Value</th><th class="num">Seen</th>
+                 <th>First</th><th>Last</th><th></th></tr></thead>
+      <tbody>
+      {% for u in unknown %}
+        <tr>
+          <td class="mono">{{ u.kind }}</td>
+          <td class="mono">{{ u.sending_app or '—' }}</td>
+          <td class="mono">{{ u.value }}</td>
+          <td class="num">{{ u.n }}</td>
+          <td class="mono dim">{{ u.first_seen.strftime('%m-%d %H:%M') if u.first_seen }}</td>
+          <td class="mono dim">{{ u.last_seen.strftime('%m-%d %H:%M') if u.last_seen }}</td>
+          <td>{% if u.sample_archive_id %}<button onclick="showMessage({{ u.sample_archive_id }})">Sample</button>{% endif %}</td>
         </tr>
       {% endfor %}
       </tbody>
@@ -275,8 +381,8 @@
       <input type="search" name="q" placeholder="control ID, sender or type" value="{{ search }}">
       <select name="severity">
         <option value="">Any outcome</option>
-        {% for st in ['accepted','flagged','quarantined','pending'] %}
-        <option value="{{ st }}" {% if severity==st %}selected{% endif %}>{{ st }}</option>
+        {% for st, label in [('accepted','accepted'),('quarantined','held'),('flagged','flagged (before 0135)'),('pending','pending')] %}
+        <option value="{{ st }}" {% if severity==st %}selected{% endif %}>{{ label }}</option>
         {% endfor %}
       </select>
       <button type="submit">Filter</button>
@@ -300,7 +406,8 @@
           <td class="mono">{{ m.sending_app or '—' }}</td>
           <td class="mono dim">{{ m.message_type or '—' }}</td>
           <td class="mono">{{ m.message_control_id }}</td>
-          <td>{% if m.ray7_severity %}<span class="sev {{ m.ray7_severity }}">{{ m.ray7_status }}</span>
+          <td>{% if m.ray7_status == 'quarantined' %}<span class="sev critical">held</span>
+              {% elif m.ray7_severity %}<span class="sev {{ m.ray7_severity }}">{{ m.ray7_status }}</span>
               {% else %}<span class="dim">{{ m.ray7_status }}</span>{% endif %}</td>
           <td>{% if m.projected %}<span style="color:var(--green)">yes</span>
               {% else %}<span style="color:var(--red)">no</span>{% endif %}</td>
@@ -315,7 +422,7 @@
 
   {% if total and pages > 1 %}
   <div class="pager">
-    {% set base = '/ray7?view=' ~ view ~ '&severity=' ~ severity ~ '&rule=' ~ rule ~ '&show=' ~ show ~ '&q=' ~ search %}
+    {% set base = '/ray7?view=' ~ view ~ '&severity=' ~ severity ~ '&rule=' ~ rule ~ '&layer=' ~ layer ~ '&show=' ~ show ~ '&q=' ~ search %}
     {% if page > 1 %}<a href="{{ base }}&page={{ page - 1 }}">← Previous</a>{% endif %}
     <span>Page {{ page }} of {{ pages }} · {{ total }} rows</span>
     {% if page < pages %}<a href="{{ base }}&page={{ page + 1 }}">Next →</a>{% endif %}
@@ -334,6 +441,15 @@
 <script>
 const esc = s => String(s == null ? '' : s).replace(/[&<>]/g,
   c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+// The app runs CSRFProtect, so every POST carries the page's token. The console
+// sent none before, which made its Resolve button fail with a CSRF error.
+const CSRF = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
+const post = (url, body) => fetch(url, {
+  method: 'POST',
+  headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
+  body: JSON.stringify(body || {})
+});
 
 async function showMessage(id) {
   const dlg = document.getElementById('dlg');
@@ -354,7 +470,8 @@ async function showMessage(id) {
       ['Facility', esc(d.sending_facility)], ['Type', esc(d.message_type)],
       ['HL7 version', esc(d.hl7_version)], ['Sender clock', esc(d.message_datetime)],
       ['Received', esc(d.received_at)], ['Source IP', esc(d.source_ip)],
-      ['RAY7 outcome', esc(d.ray7_status)], ['In reports', inReports],
+      ['RAY7 outcome', esc(d.ray7_status === 'quarantined' ? 'held' : d.ray7_status)],
+      ['In reports', inReports],
       ['Parse status', esc(d.parse_status)], ['Parse error', esc(d.parse_error || '—')],
     ].map(([k, v]) => `<div class="k">${k}</div><div class="mono">${v}</div>`).join('');
 
@@ -378,14 +495,26 @@ async function showMessage(id) {
   }
 }
 
-async function resolveFinding(id) {
-  if (!confirm('Close this finding?\n\nThis does NOT put the held-back data into the '
-             + 'reports. To do that, fix the cause and replay: python app.py -m')) return;
-  const r = await fetch('/ray7/finding/' + id + '/resolve', {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({resolution: 'cleared'})
-  });
+async function resolveFinding(id, resolution) {
+  const ask = resolution === 'ignored'
+    ? 'Ignore this note?\n\nIt is closed and will not reopen for this study.'
+    : 'Close this finding?\n\nThis does NOT release held messages. To do that, fix the '
+      + 'cause and use "Replay held messages".';
+  if (!confirm(ask)) return;
+  const r = await post('/ray7/finding/' + id + '/resolve', {resolution: resolution});
   if (r.ok) location.reload(); else alert('Could not resolve that finding.');
+}
+
+async function replayHeld(rule) {
+  if (!confirm('Check the held messages again' + (rule ? ' (' + rule + ' only)' : '')
+               + ' under the current configuration?\n\nThose that now pass go into the reports.')) return;
+  const out = document.getElementById('replayResult');
+  if (out) out.textContent = 'Replaying…';
+  const r = await post('/ray7/held/replay', {rule: rule});
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { alert(d.error || 'Replay failed. Nothing was lost.'); if (out) out.textContent = ''; return; }
+  alert(d.released + ' released, ' + d.still_held + ' still held.');
+  location.reload();
 }
 </script>
 </body>

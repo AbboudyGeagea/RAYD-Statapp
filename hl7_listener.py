@@ -593,6 +593,24 @@ def _is_pacs_completion(msg, app):
     return (msg.sending_app or '').strip().upper() == configured.strip().upper()
 
 
+def _canonical_identity(row, msg):
+    """
+    Give a legacy row the identity the pipeline resolved, not the one its own parser
+    read from fixed positions.
+
+    parse_orm_o01 / parse_oru_r01 read OBR-3, ORC-2 and PID-3 directly. The
+    ParsedMessage has been through the site's hl7_field_mappings, and for a placer-
+    only order through the lookup that found its scheduled study. Without this a
+    site whose accession lives in a Z-segment got its studies, but every report row
+    with no accession — invisible to the ORU pages and to the study's report link.
+    """
+    for key, value in (('accession_number', msg.accession_number),
+                       ('placer_order_number', msg.placer_order_number),
+                       ('patient_id', msg.patient_id)):
+        if value and key in row:
+            row[key] = value
+
+
 def _legacy_writes(raw_message, segments, msg, app, archive_id=None):
     """
     The type-specific writes that predate this pipeline: hl7_oru_reports,
@@ -626,6 +644,7 @@ def _legacy_writes(raw_message, segments, msg, app, archive_id=None):
             # The signature rung decides whether this version replaces the stored
             # one (see ORU_INSERT_SQL); RAY7's parse already resolved it.
             parsed_oru['signature_rank'] = msg.ladder_rank if msg.kind == 'result' else None
+            _canonical_identity(parsed_oru, msg)
             try:
                 with db.session.begin_nested():
                     db.session.execute(text(ORU_INSERT_SQL), parsed_oru)
@@ -647,6 +666,7 @@ def _legacy_writes(raw_message, segments, msg, app, archive_id=None):
                 seg_dict = {s.split('|')[0]: s for s in segments}
                 parsed = _apply_field_map(seg_dict, parsed, field_map)
             parsed['message_archive_id'] = archive_id
+            _canonical_identity(parsed, msg)
             try:
                 with db.session.begin_nested():
                     db.session.execute(text(INSERT_SQL), parsed)
@@ -699,14 +719,17 @@ def apply_accepted(raw_message, segments, msg, archive_id, app):
     The order is load-bearing: the projector reads ray7_study_state, which
     persist_parsed has just advanced, and hl7_oru_reports, which _legacy_writes has
     just written; operator-configured direct writes run last so an override
-    genuinely overrides the projected value rather than racing it.
+    genuinely overrides the projected value rather than racing it. RAY7's quality
+    notes come after all of it, because they judge the study as it now stands.
     """
     from utils.hl7_ingest import persist_parsed
     from utils.hl7_project import project_message, apply_direct_overrides
+    from utils.ray7_quality import evaluate_study
     parts = [persist_parsed(msg, archive_id)]
     parts += _legacy_writes(raw_message, segments, msg, app, archive_id)
     parts += project_message(msg)
     parts += apply_direct_overrides(msg, segments)
+    parts += evaluate_study(msg.accession_number)
     return parts
 
 
@@ -755,10 +778,10 @@ def _process_message(raw_message, segments, addr, app):
 
         if redelivered:
             # Expected, not a fault: the SAP Mirth hub redelivers and there is no
-            # fix coming. Counted on the original finding rather than logged per
-            # occurrence, so the rate stays measurable without flooding anything.
+            # fix coming. Counted as the sender's redelivery RATE (RAY7 layer ③),
+            # so it stays measurable without flooding anything.
+            db.session.rollback()
             ray7.note_redelivery(msg.sending_app, msg.control_id, msg.content_hash)
-            db.session.commit()
             logger.info("HL7 redelivery | type=%s | control_id=%s | from=%s",
                         msg.message_type, msg.control_id, addr[0] if addr else '?')
             return True
@@ -778,13 +801,16 @@ def _process_message(raw_message, segments, addr, app):
                 written = ', '.join(p for p in parts if p and p != 'nothing') or 'nothing'
                 mark_parsed(archive_id, projected=True)
             else:
-                written = 'QUARANTINED, held out of the reporting tables'
+                written = 'HELD: stored, not projected until its configuration is fixed'
                 mark_quarantined(archive_id)
 
             db.session.commit()
-            logger.info("HL7 %s | type=%s | acc=%s | %s | wrote: %s",
-                        verdict.status, msg.message_type, msg.accession_number,
-                        ray7.summary(verdict), written)
+            # After the commit and on its own connection: the counters are hot rows
+            # and must not be locked for the length of the ingest transaction.
+            ray7.record_observations(verdict, msg, archive_id)
+            logger.info("HL7 %s | type=%s | acc=%s | wrote: %s",
+                        ray7.summary(verdict), msg.message_type, msg.accession_number,
+                        written)
             return True
 
         except Exception as exc:

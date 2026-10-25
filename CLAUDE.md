@@ -36,11 +36,24 @@ rayd_db      postgres:15                — primary DB, port 5432 (dev: exposed 
 
 ## Data flow
 ```
-MLLP :6661 ─▶ hl7_message_archive (raw, every message) ─▶ RAY7.screen()
-          ─▶ persist events/state (hl7_study_events, ray7_study_state, hl7_orders,
+MLLP :6661 ─▶ hl7_message_archive (raw, every message) ─▶ RAY7 ① intake (inline)
+          ─held─▶ stored, nothing derived (fix config, then "Replay held messages")
+          ─accepted─▶ persist events/state (hl7_study_events, ray7_study_state, hl7_orders,
              hl7_oru_reports, hl7_patients) ─▶ projector ─▶ etl_didb_studies,
              etl_patient_view, etl_orders ─▶ reports (report SQL is never touched)
+          ─▶ RAY7 ② quality notes on the study  ─▶ RAY7 ③ per-sender counters
+   sweep (15 min) ─▶ RAY7 ④ workflow: stalled / unreported / unsigned / orphan + ③ alerts
 ```
+
+**RAY7 has four layers (migration 0135).** Only ① can keep data out of the reports,
+and only for a message it cannot identify (no accession, no placer number) or
+classify (status code with no mapping). ② data-quality notes (time contradiction,
+skipped rung, no order, future time) are judged on the study's whole lifecycle and
+close themselves. ③ transport and configuration signals (redelivery, control-ID
+reuse, out-of-order delivery, duplicates, unknown AE/result status/rung) are
+per-sender rates in `ray7_interface_stats` and values in `ray7_unknown_values`; an
+alert only past `ray7_rules.threshold_pct`. The lifecycle state is order-independent,
+so delivery order never changes a projected study.
 
 ## Key Files
 ```
@@ -52,14 +65,16 @@ utils/
   hl7_fieldmap.py         — applies operator-configured hl7_field_mappings
   hl7_dictionary.py       — HL7 v2.4 field names for the mapping explorer
   hl7_ingest.py           — archive + persist (events, study state, orders, reports)
-  ray7.py                 — RAY7 screening engine (verdicts, findings)
-  ray7_sweep.py           — RAY7 absence rules (stalled / unreported), runs every 15 min
+  ray7.py                 — RAY7 ① intake gate + observations (verdict: accepted / held)
+  ray7_quality.py         — RAY7 ② study quality notes, self-closing, never withhold
+  ray7_health.py          — RAY7 ③ per-sender counters, unknown values, rate alerts
+  ray7_sweep.py           — RAY7 ④ absence rules (stalled / unreported) + ③ alerts, 15 min
   hl7_project.py          — the projector: HL7 state → etl_* tables, per accession
   hl7_replay.py           — rebuild everything downstream of the archive
   hl7_forward.py          — optional MLLP forwarding of raw messages
   crn_scan.py, crn_dispatcher.py — critical result notifications (sending is a stub)
 routes/
-  ray7_console.py         — RAY7 findings / quarantine console
+  ray7_console.py         — RAY7 console: held, notes, interface health, messages
   mapping_controller.py   — HL7 → DB field mapping, modality/procedure config
   hl7_orders.py           — HL7 order analytics
   oru_analytics.py        — ORU report intelligence (NLP, critical findings log)
@@ -74,8 +89,8 @@ tests/                    — pytest suite (~830 tests, see Dev Workflow): parse
                             rule, lifecycle/projection, all delivery permutations, sweep,
                             replay == live, console release, MLLP socket, fuzz, concurrency,
                             time zone. Runs in its own throwaway DB `rayd_pytest`, never
-                            etl_db. test_hl7_parse/test_hl7_fieldmap/test_ray7_rules are the
-                            older offline scripts (`python tests/<file>`), not collected.
+                            etl_db. test_hl7_parse/test_hl7_fieldmap are the older
+                            offline scripts (`python tests/<file>`), not collected.
 migrations/NNNN_*.sql     — schema migrations (canonical source of truth)
 install.sh                — production install: no DB/ETL config, first user + license tier
 ```
@@ -91,10 +106,13 @@ hl7_result_status_map — OBX-11 → signature rungs (prelim / final)
 hl7_study_events      — lifecycle event log per accession
 hl7_patients          — patient demographics from HL7
 hl7_field_mappings, hl7_field_targets — per-site field mapping overrides
-ray7_rules            — rule config (seeded config)
-ray7_findings         — findings raised by RAY7
+ray7_rules            — rule config (seeded config); category = layer
+                        (intake | quality | interface | workflow), threshold_pct for rates
+ray7_findings         — held reasons (per message), study notes, interface alerts (per sender)
+ray7_interface_stats  — per-sender counters in 15-min buckets (RAY7 ③)
+ray7_unknown_values   — AE titles / status codes / result statuses / rungs not yet mapped
 ray7_study_state      — one row per study carrying the whole lifecycle
-ray7_ladder_profile   — per-site rung enable/enforce flags (seeded all off)
+ray7_ladder_profile   — per-site rungs: expected, and enforce_order (= "measure order")
 hl7_orders, hl7_oru_reports, hl7_scn_studies — parsed orders, reports, PACS completions
 hl7_oru_analysis      — written by nlp-worker only
 ```
@@ -136,9 +154,10 @@ never check for them. Page access goes through `user_has_page()` in `db.py`.
 1. **DB changes** — always via `migrations/NNNN_description.sql`. Migrations apply
    automatically at app startup. Never run DDL from psql directly.
 2. **No external database, ever** — do not add DB drivers, connection settings or ETL jobs.
-3. **RAY7 never drops a message** — verdicts are accepted / flagged / quarantined, all
-   keep the message; the listener always ACKs `AA`. Rules run inline before the ACK, so
-   every rule must be an indexed O(1) lookup, under the time budget, and fail-open.
+3. **RAY7 never drops a message** — verdicts are accepted / held (stored value
+   `quarantined`), both keep the message; the listener ACKs `AA` (AE only if the archive
+   insert itself failed). Only intake may hold. Everything inline before the ACK must be
+   an indexed O(1) lookup, under the time budget, and fail-open.
 4. **Report SQL is not touched for HL7** — reports keep reading `etl_*`; HL7 data reaches
    them only through the projector.
 5. **SR exclusion** — every query touching `etl_didb_studies` must filter

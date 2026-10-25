@@ -7,10 +7,10 @@ to come out the same — that is what makes the reports trustworthy at all. Thes
 tests deliver every permutation of a lifecycle and compare the result against what
 in-order delivery produces.
 
-With the ladder enforced, out-of-order delivery IS reported (quarantine, by design),
-so there the property is different: the number of OUT_OF_SEQUENCE_DELIVERY
-findings is exactly predictable, and acknowledging them releases a study identical
-to the in-order one.
+Out-of-order delivery is still REPORTED — as the sender's OUT_OF_SEQUENCE_DELIVERY
+rate (RAY7 layer 3). The count is exactly predictable for every permutation, and
+nothing is held: the study is identical to in-order delivery the moment its last
+message lands.
 """
 import itertools
 import random
@@ -102,14 +102,13 @@ def test_ris_lifecycle_any_order(pipe, baseline, order):
 
 
 @pytest.mark.parametrize('order', list(itertools.permutations(RIS)), ids='-'.join)
-def test_premature_findings_are_cleared_once_the_rest_arrives(pipe, order):
-    """SKIPPED_RUNG and ORPHAN_EVENT are true when raised against a half-delivered
-    lifecycle; the sweep closes them once the missing rungs turn up. Nothing above
-    info may be left open for a study whose data is in fact complete."""
+def test_reordering_leaves_no_open_quality_note(pipe, order):
+    """SKIPPED_RUNG and ORPHAN_EVENT are judged on the whole lifecycle, so a note
+    opened while the study was half-delivered closes itself once the rest arrives.
+    Nothing is left open for a study whose data is in fact complete — and no sweep
+    is needed for that any more."""
     deliver(pipe, order)
-    pipe.sweep()
-    left = [f['rule_code'] for f in pipe.findings(open_only=True) if f['severity'] != 'info']
-    assert left == []
+    assert pipe.open_notes(ACC) == []
 
 
 @pytest.mark.parametrize('order', list(itertools.permutations(['NW', 'SC', 'AR', 'CM'])),
@@ -131,11 +130,10 @@ def test_completion_and_signatures_any_order(pipe, baseline, order):
     assert summary(pipe) == want
 
 
-# ── enforced ladder: delivery order is reported, exactly ─────────────────────
+# ── measured ladder: delivery order is COUNTED, exactly, and holds nothing ───
 
 def _expected_oos(order):
-    """Messages delivered below the highest rank already ACCEPTED. Quarantined ones
-    never advance the state, so the running maximum only counts accepted rungs."""
+    """Messages delivered below the highest rank already delivered."""
     best, n = 0, 0
     for c in order:
         if RANK[c] < best:
@@ -146,23 +144,22 @@ def _expected_oos(order):
 
 
 @pytest.mark.parametrize('order', list(itertools.permutations(RIS)), ids='-'.join)
-def test_enforced_ladder_reports_each_late_message(pipe, order):
+def test_out_of_order_rate_counts_each_late_message(pipe, order):
     pipe.profile(expected=ALL_RUNGS, enforced=ALL_RUNGS)
     deliver(pipe, order)
-    assert len(pipe.findings('OUT_OF_SEQUENCE_DELIVERY')) == _expected_oos(order)
-    held = pipe.count('hl7_message_archive', "ray7_status = 'quarantined'")
-    assert held == _expected_oos(order)
+    assert pipe.stat('OUT_OF_SEQUENCE_DELIVERY') == _expected_oos(order)
+    assert pipe.stat('MESSAGES') == len(order)
 
 
 @pytest.mark.parametrize('order', list(itertools.permutations(RIS)), ids='-'.join)
-def test_acknowledging_releases_the_complete_study(pipe, baseline, client, order):
+def test_measured_ladder_holds_nothing_and_projects_the_same_study(pipe, baseline, order):
+    """The old engine quarantined each late message until a person acknowledged the
+    study. The data never depended on delivery order, so now nothing is held and
+    the study is right the moment its last message lands."""
     want = baseline(RIS)
     pipe.profile(expected=ALL_RUNGS, enforced=ALL_RUNGS)
     deliver(pipe, order)
-    r = client.post(f'/ray7/study/{ACC}/acknowledge', json={'note': 'test'},
-                    headers={'X-Test-Role': 'su'})
-    assert r.status_code == 200, r.get_json()
-    assert pipe.count('hl7_message_archive', "ray7_status = 'quarantined'") == 0
+    assert pipe.held() == 0
     assert summary(pipe) == want
 
 

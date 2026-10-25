@@ -874,9 +874,9 @@ def _invalidate_status_cache():
 
 
 def _invalidate_ladder_cache():
-    """Same reasoning as the status map. Matters more here: the ladder profile is
-    what decides whether a message is quarantined, so an engineer who switches a
-    rung off to stop a flood must not have to wait out a TTL to see it stop."""
+    """Same reasoning as the status map: the ladder profile decides which rungs
+    the quality notes and the stall sweep expect, so an engineer who switches a
+    rung off to stop a flood of notes must not have to wait out a TTL to see it."""
     try:
         from utils.ray7 import _cache
         _cache['ladder'] = (0.0, None)
@@ -896,7 +896,8 @@ def _invalidate_ladder_cache():
 #
 # TWO SWITCHES PER RUNG, and the difference matters:
 #   expected       the site sends this status at all
-#   enforce_order  it must also ARRIVE in ladder position, on pain of quarantine
+#   enforce_order  shown as "measure order": its delivery order counts towards the
+#                  sender's out-of-order rate. Nothing is held (RAY7 rebuild, 0135).
 #
 # Turning expected off also BRIDGES the ladder — the sweep pairs each expected rung
 # with the next expected one, so disabling started moves the stall check to
@@ -1073,8 +1074,9 @@ def save_status_code():
         _invalidate_status_cache()
         return jsonify({
             'status': 'ok',
-            'note': 'Mapping saved. Messages already quarantined for this code are not '
-                    're-admitted automatically — replay them with: python app.py -m',
+            'note': 'Mapping saved. Messages already held for this code are not '
+                    're-admitted automatically — use "Replay held messages" in the '
+                    'RAY7 console (or python app.py -m).',
         })
     except Exception as e:
         db.session.rollback()
@@ -1090,7 +1092,7 @@ def delete_status_code():
     Remove a mapping.
 
     Worth understanding before clicking: any future message carrying this code
-    becomes UNKNOWN_STATUS_CODE, which RAY7 rates critical and quarantines. To
+    becomes UNKNOWN_STATUS_CODE, which RAY7 rates critical and holds. To
     retire a code without that consequence, set it inactive instead — the row
     stays and history keeps the meaning it was ingested with.
     """

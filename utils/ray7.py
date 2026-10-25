@@ -3,62 +3,65 @@ utils/ray7.py
 ────────────────────────────────────────────────────────────────
 RAY7 — the screening engine between the HL7 listener and the database.
 
-Every inbound message passes through here after it is archived and before anything
-reaches the reporting tables. RAY7 inspects it, raises findings, and returns a
-verdict that decides whether the message's data is allowed to project.
+REBUILT IN FOUR LAYERS (operator decision 2026-10-25, migration 0135)
+─────────────────────────────────────────────────────────────────────
+The first RAY7 judged every message as it arrived and could quarantine it for
+eight different reasons. The end-to-end suite showed what that cost: on the
+2026-09-24 load it held 360 of 660 messages (55%) for control-ID reuse although
+every one of them was valid; holding an out-of-order message protected nothing
+once the lifecycle state was made order-independent; and a held message left its
+study half-projected with nothing in the reports saying so. RAY7 now does four
+different jobs, and only the first can keep data out of the reports:
 
-    MLLP ─▶ archive (raw) ─▶ RAY7.screen() ─▶ persist events ─▶ project to etl_*
-                                    │
-                                    └─▶ ray7_findings ─▶ studio queue
+    MLLP ─▶ archive ─▶ ① INTAKE (this module, inline) ──held──▶ stored, nothing derived
+                              │                                    fix config + replay
+                              ├─accepted─▶ accept path ─▶ ② QUALITY (utils/ray7_quality)
+                              │                             notes on the STUDY, judged on
+                              │                             its whole lifecycle, self-closing
+                              └─▶ ③ INTERFACE (utils/ray7_health)
+                                    per-sender rates; an alert only past threshold_pct
+    ④ WORKFLOW (utils/ray7_sweep), every 15 minutes: stalled, unreported, orphan
+
+  ① INTAKE asks two questions: can this message be attached to a study (an
+    accession or a placer order number), and can it be classified (a rung)? A
+    message that fails either cannot produce data — there is nothing to attach it to
+    or nothing to say about it — so holding it costs nothing and loses nothing.
+    MISSING_IDENTIFIER and UNKNOWN_STATUS_CODE; held only at severity critical, so
+    an operator can still downgrade either. PLACEHOLDER_DATA and FUTURE_EVENT are
+    recorded here too because they are facts about the message as received, but
+    neither ever holds.
+
+  ③ The transport rules — redelivery, control-ID reuse, out-of-order delivery,
+    logical duplicates, repeated transitions — and the configuration gaps (unknown
+    AE title, result status, unexpected rung) are OBSERVATIONS: counted per sender,
+    never rows per study. The values themselves go to ray7_unknown_values, which is
+    the implementation engineer's mapping to-do list.
 
 
 RAY7 NEVER DROPS A MESSAGE
 ──────────────────────────
-The archive is the only copy a message will ever have — there is no source database
-to re-extract from on this branch — so rejecting is deleting. There is deliberately
-no reject verdict: ACCEPTED, FLAGGED and QUARANTINED all keep the message, and a
-quarantined one is still parsed and stored, just withheld from etl_* until someone
-clears it. The listener answers AA either way; NAK would only make a sender we do
-not control retry something we have already stored safely.
+Unchanged. The archive is the only copy a message will ever have — there is no
+source database to re-extract from on this branch — so rejecting is deleting.
+There is no reject verdict: a held message is stored and parsed, only not
+projected, and the listener answers AA either way; NAK would only make a sender we
+do not control retry something we have already stored safely.
 
 
 RUNS INLINE, BEFORE THE ACK (operator decision, 2026-09-17)
 ───────────────────────────────────────────────────────────
-Everything in this module is paid inside the sender's timeout window, which imposes
-three non-negotiable properties:
+Everything in screen() is paid inside the sender's timeout window:
 
-  1. Every rule is an indexed lookup or pure computation. No rule scans
-     hl7_study_events. That is what ray7_study_state is for — one PK-keyed row
-     carrying the whole lifecycle, so the sequence rules cost one fetch between them.
-  2. The whole pass runs under a time budget. If the budget is blown the remaining
-     rules are skipped and a warning is logged, rather than holding the socket open.
-     Rules are ordered so the critical ones run first and cheap ones run last.
-  3. FAIL-OPEN, always. A rule that raises is logged and produces no finding; the
-     message still projects. A screening engine that can block ingestion by crashing
-     is a bigger risk to the data than the anomalies it was built to catch.
+  1. The intake rules are pure computation over the parsed message; they cannot
+     be degraded and cost nothing. The observations need two indexed lookups (the
+     duplicate probe and the study state), fetched once in _Context.
+  2. The lookups run under a time budget and a per-statement ceiling. A blown
+     budget or a failed lookup is itself an observation (RAY7_BUDGET_EXCEEDED,
+     RAY7_DEGRADED): it costs measurement, never the message.
+  3. FAIL-OPEN, always. A rule that raises is logged and produces nothing; the
+     message still projects.
 
-Database cost per message: two reads in screen() (duplicate probe, study state), then
-in persist() one UPDATE plus one INSERT per finding — so a clean message costs three
-statements and a flagged one a few more. Rule config, the status map and the AE title
-set come from in-process caches, warmed at startup by warm_caches() and refreshed on
-a TTL; a refresh adds three reads to whichever message happens to trip it.
-
-Every one of those statements is time-bounded and runs inside its own SAVEPOINT. See
+Every statement is time-bounded and runs inside its own SAVEPOINT. See
 _bounded_query() for why the savepoint is the load-bearing part.
-
-
-TWO TRAPS THIS ENGINE IS SHAPED AROUND
-──────────────────────────────────────
-"CM before AR" has two causes and only one is a fault. If the messages merely
-arrived out of order on the wire but their timestamps are consistent, that is
-routine — the event-sourced design already handles it and flagging it would be pure
-noise. The finding is when the TIMESTAMPS THEMSELVES contradict the ladder. See
-_rule_ladder_regression vs _rule_time_contradiction, which is the whole distinction.
-
-A repeated Arrived is not automatically a duplicate. This RIS genuinely emits more
-than one Arrived transition for a single worklist entry — the reason the arrivals
-ETL upserts on (site_worklist_key, arrived_at) and not on the key alone. So a repeat
-outside the suppression window is informational, not an error.
 """
 import json
 import time
@@ -80,9 +83,11 @@ CRITICAL = 'critical'
 
 _SEVERITY_RANK = {INFO: 0, WARNING: 1, CRITICAL: 2}
 
-ACCEPTED    = 'accepted'
-FLAGGED     = 'flagged'
-QUARANTINED = 'quarantined'
+ACCEPTED = 'accepted'
+# A HELD message is stored and parsed but not projected. The stored value is the
+# pre-0135 word, kept so the archive's CHECK constraint and its history read on.
+HELD = 'quarantined'
+QUARANTINED = HELD
 
 # How long the whole inline pass may take before remaining work is abandoned. This
 # covers the database lookups too, not just the rules — see screen().
@@ -192,12 +197,15 @@ class Finding:
 class Verdict:
     status:   str = ACCEPTED
     severity: str = None
-    findings: list = field(default_factory=list)
+    findings: list = field(default_factory=list)   # message findings (intake, placeholder)
+    notes:    list = field(default_factory=list)   # sticky study notes (FUTURE_EVENT)
+    observed: list = field(default_factory=list)   # interface rule codes, counted per sender
+    unknowns: list = field(default_factory=list)   # (kind, value) for ray7_unknown_values
 
     @property
     def may_project(self):
-        """Quarantined messages are stored and parsed, but withheld from etl_*."""
-        return self.status != QUARANTINED
+        """Held messages are stored and parsed, but withheld from etl_*."""
+        return self.status != HELD
 
 
 def content_hash(raw_message):
@@ -260,7 +268,7 @@ def warm_caches():
         ladder_profile()
         logger.info(
             "RAY7 caches warmed: %d rules, %d status mappings, %d AE titles, "
-            "%d result statuses, %d ladder rungs (%d enforced)",
+            "%d result statuses, %d ladder rungs (%d marked measure-order)",
             len(_rules() or {}), len(status_map() or {}), len(_known_aetitles() or set()),
             len(result_status_map() or {}), len(ladder_profile() or {}),
             len(enforced_ranks()))
@@ -414,12 +422,8 @@ def ladder_profile():
 
 def enforced_ranks():
     """
-    Ranks that participate in the sequence judgement, ascending.
-
-    A rung must be BOTH expected and enforce_order to appear here. Expected-but-not-
-    enforced is the deliberate middle case: a rung the site does receive over an
-    unreliable path, which should be recorded and time-tracked without its lateness
-    quarantining anything.
+    Ranks explicitly marked "measure order" (expected AND enforce_order), ascending.
+    Reported at startup; measured_ranks() below decides what is actually measured.
     """
     return sorted(
         p['ladder_rank'] for p in ladder_profile().values()
@@ -533,8 +537,8 @@ class _Context:
     Both lookups are time-bounded. When one is cancelled or fails, the context is
     marked DEGRADED rather than the failure being swallowed: the rules that depend on
     it will quietly find nothing and raise no findings, and "RAY7 saw no problems"
-    must never be indistinguishable from "RAY7 could not look". screen() turns that
-    flag into a finding of its own.
+    must never be indistinguishable from "RAY7 could not look". screen() counts that
+    flag as the sender's RAY7_DEGRADED rate.
     """
 
     # Ladder rungs, in order, mapped to their column in ray7_study_state.
@@ -664,42 +668,83 @@ class _Context:
         return [(r, self.state.get(c)) for r, c in self.RUNGS if self.state.get(c)]
 
 
-# ── Rules ─────────────────────────────────────────────────────────────────────
+# ── ① Intake: the only rules that can hold a message ──────────────────────────
 #
-# Registered in execution order: critical and cheap first, so that if the time
-# budget is blown the rules abandoned are the ones that mattered least.
+# Pure functions of the parsed message. Each returns a Finding or None.
 
-# SEEDED BUT NOT IMPLEMENTED HERE, on purpose:
+def _intake_missing_identifier(msg):
+    if msg.kind in ('order', 'status', 'result') \
+            and not msg.accession_number and not msg.placer_order_number:
+        return Finding('MISSING_IDENTIFIER', CRITICAL, {
+            'message_type': msg.message_type,
+            'reason': 'neither an accession number nor a placer order number is present',
+            'effect': 'held: there is no study to attach this message to',
+        })
+
+
+def _intake_unknown_status(msg):
+    # Any status message without a rung, not only one whose ORC-5 is filled. An
+    # ORC-1 = XO with ORC-5 empty used to pass every rule and vanish as "accepted".
+    if msg.kind == 'status' and msg.ladder_rank is None:
+        return Finding('UNKNOWN_STATUS_CODE', CRITICAL, {
+            'order_control': msg.raw_order_control,
+            'order_status': msg.raw_order_status,
+            'sending_app': msg.sending_app,
+            'hint': 'add a row to hl7_status_map for this code, then replay held messages',
+            'effect': 'held: the transition cannot be classified',
+        })
+
+
+_INTAKE = (('MISSING_IDENTIFIER', _intake_missing_identifier),
+           ('UNKNOWN_STATUS_CODE', _intake_unknown_status))
+
+
+def _placeholder(msg):
+    """
+    Reports what the parser already recognised and neutralised, rather than
+    re-deriving it. The parser has to null a 9999-11-11 birth date anyway to keep it
+    out of the age bands; this makes that silent correction visible and countable.
+    """
+    if msg.placeholders:
+        return Finding('PLACEHOLDER_DATA', INFO, {
+            'placeholders': list(msg.placeholders),
+            'patient_id': msg.patient_id,
+        })
+
+
+def _future(msg):
+    """
+    A timestamp ahead of our clock, beyond the skew tolerance — the sender's clock or
+    a mistyped date. A fact about the message as it arrived, so it is judged here
+    and kept as a STICKY study note: once the clock catches up the time looks
+    plausible, which is exactly when nobody would notice it was wrong.
+    """
+    if not msg.event_time:
+        return None
+    skew = _rule_config('FUTURE_EVENT', msg.modality).get('threshold_minutes') \
+        or _FUTURE_SKEW_MINUTES
+    if msg.event_time > datetime.now() + timedelta(minutes=skew):
+        return Finding('FUTURE_EVENT', WARNING, {
+            'event_time': msg.event_time.isoformat(),
+            'state': msg.canonical_state,
+            'local_now': datetime.now().isoformat(timespec='seconds'),
+            'tolerance_minutes': skew,
+        })
+
+
+# ── ③ Interface observations ──────────────────────────────────────────────────
 #
-#   STALLED_SCHEDULED, STALLED_ARRIVED, STALLED_STARTED, UNREPORTED, ORPHAN_ORDER
-#       Absence rules. They cannot run on message arrival — the whole point is that
-#       the next message never came — so they belong to the periodic sweep, which
-#       reads ray7_study_state through its partial stall indexes.
-#
-#   UNKNOWN_PROCEDURE, UNKNOWN_PERFORMER
-#       Both need master data RAYD does not have yet: a procedure catalogue and a
-#       staff roster, which arrive by MFN. Implementing them now would mean checking
-#       every code against an empty table and flagging all of them, which is noise,
-#       not information. The catalogue rows exist so the rules can be switched on the
-#       day MFN lands without a migration.
+# Each returns True (count it), a (kind, value) unknown to register as well, or a
+# falsy value. They read the context the two bounded lookups fetched; none queries.
 
 _DEFAULT_DUPLICATE_WINDOW_MIN = 10
 
 
 def _duplicate_window(modality=None):
     """
-    The boundary between LOGICAL_DUPLICATE and REPEATED_TRANSITION, in minutes.
-
-    One window, read by both rules, because they are two halves of one decision: the
-    same rung reported twice is a duplicate inside the window and a genuine repeat
-    outside it, and there is no coherent configuration where those two numbers
-    differ. LOGICAL_DUPLICATE's own row is authoritative so the studio has an obvious
-    place to edit it; REPEATED_TRANSITION's value is the fallback, which is where the
-    seed migration happens to put it.
-
-    Previously both rules read REPEATED_TRANSITION's threshold directly, so an
-    operator tuning that row silently moved a boundary the other rule never
-    advertised it depended on.
+    The boundary between LOGICAL_DUPLICATE and REPEATED_TRANSITION, in minutes —
+    two halves of one decision, so one window: LOGICAL_DUPLICATE's own row first,
+    then REPEATED_TRANSITION's (where the 0119 seed put it), then the default.
     """
     own = _rule_config('LOGICAL_DUPLICATE', modality).get('threshold_minutes')
     if own:
@@ -708,461 +753,181 @@ def _duplicate_window(modality=None):
     return shared or _DEFAULT_DUPLICATE_WINDOW_MIN
 
 
-_RULES = []
-
-
-def _rule(code, kinds=None):
-    def register(fn):
-        _RULES.append({'code': code, 'kinds': kinds, 'fn': fn})
-        return fn
-    return register
-
-
-@_rule('MISSING_IDENTIFIER', kinds={'order', 'status', 'result'})
-def _rule_missing_identifier(msg, ctx):
-    if not msg.accession_number and not msg.placer_order_number:
-        return [Finding('MISSING_IDENTIFIER', CRITICAL, {
-            'message_type': msg.message_type,
-            'reason': 'neither an accession number nor a placer order number is present',
-        })]
-
-
-@_rule('UNKNOWN_STATUS_CODE', kinds={'status'})
-def _rule_unknown_status(msg, ctx):
-    # The parser resolves the code; an unresolved one arrives here with no rank.
-    #
-    # Any status message without a rung, not only one whose ORC-5 is filled. An
-    # ORC-1 = XO (order changed) with ORC-5 empty used to pass every rule, write
-    # nothing and be stamped "accepted" — precisely the transition dropped on the
-    # floor without anyone noticing that this rule exists to prevent.
-    if msg.ladder_rank is None:
-        return [Finding('UNKNOWN_STATUS_CODE', CRITICAL, {
-            'order_control': msg.raw_order_control,
-            'order_status': msg.raw_order_status,
-            'sending_app': msg.sending_app,
-            'hint': 'add a row to hl7_status_map for this code',
-        })]
-
-
-@_rule('CONTROL_ID_REUSE')
-def _rule_control_id_reuse(msg, ctx):
+def measured_ranks():
     """
-    Another message from the same sender carries this control ID but different
-    content. Both are stored — the dedupe key includes the hash precisely so this
-    one could not be lost — but one of them is almost certainly a sender bug, and
-    whichever downstream consumer keys on control ID will see only one of them.
+    The rungs whose delivery ORDER is measured for OUT_OF_SEQUENCE_DELIVERY.
+
+    The ladder profile's enforce_order switch used to mean "quarantine if late"; it
+    now means "count it if late". With none marked, every expected rung is measured
+    — and every rung on an unconfigured profile, since measuring holds nothing.
     """
-    # Every sibling necessarily differs in content: an identical one would have
-    # collided on the archive's (sender, control_id, hash) key and never become a
-    # separate row. So the mere existence of a sibling is the finding.
-    if ctx.siblings:
-        return [Finding('CONTROL_ID_REUSE', CRITICAL, {
-            'control_id': msg.control_id,
-            'sending_app': msg.sending_app,
-            'conflicting_archive_ids': [s['id'] for s in ctx.siblings],
-        })]
-
-
-# NOTE — EXACT_REDELIVERY is deliberately NOT an inline rule; see note_redelivery()
-# near the bottom of this module. It cannot be one: the archive's unique key is
-# (sending_app, message_control_id, content_hash), so a byte-identical redelivery
-# collides on INSERT and never produces a second archive row for screen() to be
-# called with. A rule here looking for a same-hash sibling would be unreachable code,
-# because such a sibling cannot exist by construction. The redelivery is detected at
-# the insert instead, where the conflict actually surfaces.
-
-
-@_rule('LOGICAL_DUPLICATE', kinds={'status'})
-def _rule_logical_duplicate(msg, ctx):
-    """
-    This rung already has a timestamp and the new one lands on or very near it —
-    the same real-world event reaching us by two routes.
-
-    Split from REPEATED_TRANSITION by the suppression window rather than by exact
-    equality: two routes rarely agree to the second, and treating a four-second
-    difference as a genuine second arrival would be wrong.
-    """
-    if msg.ladder_rank is None or not msg.event_time:
-        return
-    existing = ctx.rung_time(msg.ladder_rank)
-    if not existing:
-        return
-    window = _duplicate_window(msg.modality)
-    if abs((msg.event_time - existing).total_seconds()) <= window * 60:
-        return [Finding('LOGICAL_DUPLICATE', WARNING, {
-            'state': msg.canonical_state,
-            'existing_time': existing.isoformat(),
-            'incoming_time': msg.event_time.isoformat(),
-        })]
-
-
-@_rule('REPEATED_TRANSITION', kinds={'status'})
-def _rule_repeated_transition(msg, ctx):
-    """
-    Same rung again, well outside the suppression window. Legitimate here — a
-    worklist entry can genuinely arrive more than once — so this is informational
-    and exists to make the pattern visible, not to call it an error.
-    """
-    if msg.ladder_rank is None or not msg.event_time:
-        return
-    existing = ctx.rung_time(msg.ladder_rank)
-    if not existing:
-        return
-    window = _duplicate_window(msg.modality)
-    gap = abs((msg.event_time - existing).total_seconds())
-    if gap > window * 60:
-        return [Finding('REPEATED_TRANSITION', INFO, {
-            'state': msg.canonical_state,
-            'previous_time': existing.isoformat(),
-            'incoming_time': msg.event_time.isoformat(),
-            'gap_minutes': round(gap / 60, 1),
-        })]
-
-
-@_rule('LADDER_REGRESSION', kinds={'status'})
-def _rule_ladder_regression(msg, ctx):
-    """
-    THE OUT-OF-ORDER DISTINCTION.
-
-    A lower-ranked event arriving after a higher-ranked one is not by itself a
-    problem — that is ordinary late delivery, and the projector is built to absorb
-    it. It becomes a finding only when the event also CLAIMS TO HAVE HAPPENED LATER
-    than the higher rung it sits below: an Arrived stamped after the Completed that
-    supposedly followed it. That is a contradiction in the source, not in transit.
-    """
-    if msg.ladder_rank is None or not msg.event_time or not ctx.state:
-        return
-    current = ctx.state.get('current_rank') or 0
-    if msg.ladder_rank >= current:
-        return
-    current_time = ctx.rung_time(current)
-    if current_time and msg.event_time > current_time:
-        return [Finding('LADDER_REGRESSION', WARNING, {
-            'incoming_state': msg.canonical_state,
-            'incoming_rank': msg.ladder_rank,
-            'incoming_time': msg.event_time.isoformat(),
-            'reached_rank': current,
-            'reached_time': current_time.isoformat(),
-        })]
-
-
-@_rule('OUT_OF_SEQUENCE_DELIVERY', kinds={'status', 'result'})
-def _rule_out_of_sequence(msg, ctx):
-    """
-    THE MESSAGES ARE SOUND; THE QUEUE THAT DELIVERED THEM WAS NOT.
-
-    This is the third of the three cases that all look like "CM before AR", and the
-    only one nothing caught before:
-
-        TIME_CONTRADICTION        the timestamps disagree — the source is wrong
-        SKIPPED_RUNG              the rung is genuinely absent — no event existed
-        OUT_OF_SEQUENCE_DELIVERY  the timestamps agree, the ARRIVAL ORDER did not
-
-    LADDER_REGRESSION deliberately exempts this case, on the reasoning that the
-    projector absorbs late delivery so flagging it is noise. That holds for the DATA
-    and not for the INTERFACE: a sender whose queue is disturbed is telling us
-    something, and it stays invisible until the day it also loses a message. This
-    rule is that signal, and it is mutually exclusive with LADDER_REGRESSION by
-    construction — that one takes the contradictory-timestamp case, this one takes
-    the consistent-timestamp case, and between them they cover every rank < current.
-
-    Critical, so the study is held out of the reports until a human acknowledges it.
-    Gated on enforced_ranks(), so on an unconfigured install it never fires at all.
-    """
-    if msg.ladder_rank is None or not msg.event_time or not ctx.state:
-        return
-
-    enforced = enforced_ranks()
-    if msg.ladder_rank not in enforced:
-        return
-
-    current = ctx.state.get('current_rank') or 0
-    if msg.ladder_rank >= current:
-        return
-    # A rung the site does not hold to an order cannot be the thing this message is
-    # late relative to, or disabling a rung would still quarantine its neighbours.
-    if current not in enforced:
-        return
-
-    current_time = ctx.rung_time(current)
-
-    # Hand the contradictory case to LADDER_REGRESSION rather than raising both. A
-    # single event producing two findings of different severities would quarantine on
-    # the strength of a rule whose own docstring says it is describing something else.
-    if current_time and msg.event_time > current_time:
-        return
-
-    return [Finding('OUT_OF_SEQUENCE_DELIVERY', CRITICAL, {
-        'incoming_state':      msg.canonical_state,
-        'incoming_rank':       msg.ladder_rank,
-        'incoming_time':       msg.event_time.isoformat(),
-        'already_reached_rank': current,
-        'already_reached_rung': rung_by_rank(current),
-        'already_reached_time': current_time.isoformat() if current_time else None,
-        # False when the higher rung has no timestamp to compare against — the
-        # arrival order is still wrong, but consistency could not be confirmed, and
-        # saying so is cheaper than someone re-deriving it from the queue later.
-        'timestamps_compared': bool(current_time),
-        'matched_by':          ctx.matched_by,
-        'sending_app':         msg.sending_app,
-        'note': 'events are self-consistent; they were delivered in the wrong order',
-    })]
-
-
-@_rule('UNEXPECTED_RUNG', kinds={'status', 'result'})
-def _rule_unexpected_rung(msg, ctx):
-    """
-    A status for a rung this site declared it does not send.
-
-    Info, not a fault: the likeliest explanation is that the ladder profile is out of
-    date, and the useful response is to update it, not to hold traffic. Without this
-    a wrong profile is invisible — and a profile nobody has noticed is wrong silently
-    suppresses the absence rules it governs.
-    """
-    if msg.ladder_rank is None or not profile_configured():
-        return
-    if is_expected(msg.ladder_rank):
-        return
-    return [Finding('UNEXPECTED_RUNG', INFO, {
-        'state': msg.canonical_state,
-        'rank':  msg.ladder_rank,
-        'hint':  'enable this rung in the ladder profile, or ignore if genuinely unused',
-    })]
-
-
-@_rule('UNKNOWN_RESULT_STATUS', kinds={'result'})
-def _rule_unknown_result_status(msg, ctx):
-    """
-    An OBX-11 value with no row in hl7_result_status_map.
-
-    Only raised where the site actually uses the signature rungs; elsewhere the value
-    is genuinely irrelevant and reporting it would be noise.
-    """
-    if not msg.raw_result_status or msg.ladder_rank is not None:
-        return
     profile = ladder_profile()
-    if not any(profile.get(r, {}).get('expected')
-               for r in ('signed_prelim', 'signed_final')):
-        return
-    return [Finding('UNKNOWN_RESULT_STATUS', WARNING, {
-        'result_status': msg.raw_result_status,
-        'sending_app':   msg.sending_app,
-        'hint':          'add a row to hl7_result_status_map for this value',
-        'effect':        'the report still lands; only its signature rung is lost',
-    })]
+    marked = {p['ladder_rank'] for p in profile.values() if p.get('enforce_order')}
+    if marked:
+        return marked
+    if profile_configured():
+        return {p['ladder_rank'] for p in profile.values() if p.get('expected')}
+    return {p['ladder_rank'] for p in profile.values()}
 
 
-@_rule('TIME_CONTRADICTION', kinds={'status'})
-def _rule_time_contradiction(msg, ctx):
-    """
-    The incoming event is stamped earlier than a rung BELOW it on the ladder —
-    completed before arrived, started before scheduled. Left alone this produces
-    negative turnaround times, which is how it usually gets noticed: as a nonsense
-    number in a report rather than as a data problem.
-    """
-    if msg.ladder_rank is None or not msg.event_time:
-        return
-    offenders = [
-        {'rank': rank, 'time': ts.isoformat()}
-        for rank, ts in ctx.recorded_rungs()
-        if rank < msg.ladder_rank and ts > msg.event_time
-    ]
-    if offenders:
-        return [Finding('TIME_CONTRADICTION', WARNING, {
-            'incoming_state': msg.canonical_state,
-            'incoming_rank': msg.ladder_rank,
-            'incoming_time': msg.event_time.isoformat(),
-            'earlier_rungs_stamped_later': offenders,
-        })]
+def _obs_control_id_reuse(msg, ctx):
+    # Every sibling necessarily differs in content: an identical one would have
+    # collided on the archive's (sender, control_id, hash) key.
+    return bool(ctx.siblings)
 
 
-@_rule('SKIPPED_RUNG', kinds={'status'})
-def _rule_skipped_rung(msg, ctx):
-    """
-    Completion arriving for a study with no arrival and no start on record.
-
-    Deliberately narrow: only completion triggers it, and only arrived/started
-    count as missing. A study with no Scheduled is routine (walk-ins and emergencies
-    are never scheduled), so demanding the full ladder would flag normal ER work all
-    day and bury everything else.
-    """
-    if msg.ladder_rank is None or msg.ladder_rank < 100:
-        return
-    # A rung the site does not send is not a rung the exam skipped. Without this
-    # gate, switching started off in the profile would flag every completed study as
-    # missing a start for as long as the setting stood — turning a configuration
-    # choice into a permanent queue of false findings.
-    missing = []
-    for rank, label in ((60, 'arrived'), (70, 'started')):
-        if not is_expected(rank):
-            continue
-        if not ctx.rung_time(rank):
-            missing.append(label)
-    if missing:
-        return [Finding('SKIPPED_RUNG', WARNING, {
-            'completed_at': msg.event_time.isoformat() if msg.event_time else None,
-            'missing_rungs': missing,
-        })]
+def _obs_logical_duplicate(msg, ctx):
+    """The same rung again, within the window: one event reaching us by two routes."""
+    if msg.kind != 'status' or msg.ladder_rank is None or not msg.event_time:
+        return False
+    existing = ctx.rung_time(msg.ladder_rank)
+    return bool(existing) and \
+        abs((msg.event_time - existing).total_seconds()) <= _duplicate_window(msg.modality) * 60
 
 
-@_rule('FUTURE_EVENT')
-def _rule_future_event(msg, ctx):
-    if not msg.event_time:
-        return
-    skew = _rule_config('FUTURE_EVENT', msg.modality).get('threshold_minutes') or _FUTURE_SKEW_MINUTES
-    horizon = datetime.now() + timedelta(minutes=skew)
-    if msg.event_time > horizon:
-        return [Finding('FUTURE_EVENT', WARNING, {
-            'event_time': msg.event_time.isoformat(),
-            'local_now': datetime.now().isoformat(),
-            'tolerance_minutes': skew,
-        })]
+def _obs_repeated_transition(msg, ctx):
+    """The same rung again, well outside the window. This RIS genuinely emits more
+    than one Arrived per worklist entry, so this is a rate worth seeing, not a fault."""
+    if msg.kind != 'status' or msg.ladder_rank is None or not msg.event_time:
+        return False
+    existing = ctx.rung_time(msg.ladder_rank)
+    return bool(existing) and \
+        abs((msg.event_time - existing).total_seconds()) > _duplicate_window(msg.modality) * 60
 
 
-@_rule('ORPHAN_EVENT', kinds={'status'})
-def _rule_orphan_event(msg, ctx):
-    """
-    A lifecycle event for an accession nothing has ever introduced.
-
-    Scheduling is exempt because that is the message that mints the accession in the
-    first place — it is supposed to be the first thing we see for a study.
-    """
-    if ctx.state or not msg.accession_number:
-        return
-    if msg.ladder_rank is not None and msg.ladder_rank <= 40:
-        return
-    return [Finding('ORPHAN_EVENT', WARNING, {
-        'accession_number': msg.accession_number,
-        'state': msg.canonical_state,
-        'note': 'no order or scheduling message has introduced this accession',
-    })]
+def _obs_out_of_sequence(msg, ctx):
+    """Delivered after a later rung of the same study had already arrived."""
+    if msg.ladder_rank is None or msg.ladder_rank < 0 or not ctx.state:
+        return False
+    measured = measured_ranks()
+    current = ctx.state.get('current_rank') or 0
+    return msg.ladder_rank in measured and current in measured and msg.ladder_rank < current
 
 
-@_rule('UNKNOWN_AETITLE', kinds={'status'})
-def _rule_unknown_aetitle(msg, ctx):
-    if not msg.aetitle:
-        return
-    if msg.aetitle.upper() not in _known_aetitles():
-        return [Finding('UNKNOWN_AETITLE', INFO, {
-            'aetitle': msg.aetitle,
-            'note': 'device utilisation will not be attributed until this is mapped',
-        })]
+def _obs_unexpected_rung(msg, ctx):
+    if msg.ladder_rank is None or msg.ladder_rank < 0 or not profile_configured():
+        return False
+    if is_expected(msg.ladder_rank):
+        return False
+    return ('rung', msg.canonical_state or str(msg.ladder_rank))
 
 
-@_rule('PLACEHOLDER_DATA')
-def _rule_placeholder_data(msg, ctx):
-    """
-    Reports what the parser already recognised and neutralised, rather than
-    re-deriving it. The parser has to null a 9999-11-11 birth date anyway to keep it
-    out of the age bands; this makes that silent correction visible and countable.
-    """
-    if msg.placeholders:
-        return [Finding('PLACEHOLDER_DATA', INFO, {
-            'placeholders': list(msg.placeholders),
-            'patient_id': msg.patient_id,
-        })]
+def _obs_unknown_aetitle(msg, ctx):
+    if msg.aetitle and msg.aetitle.upper() not in _known_aetitles():
+        return ('aetitle', msg.aetitle)
+    return False
+
+
+def _obs_unknown_result_status(msg, ctx):
+    if msg.kind == 'result' and msg.raw_result_status and msg.ladder_rank is None:
+        return ('result_status', msg.raw_result_status)
+    return False
+
+
+_OBSERVERS = (
+    ('CONTROL_ID_REUSE',         _obs_control_id_reuse),
+    ('OUT_OF_SEQUENCE_DELIVERY', _obs_out_of_sequence),
+    ('LOGICAL_DUPLICATE',        _obs_logical_duplicate),
+    ('REPEATED_TRANSITION',      _obs_repeated_transition),
+    ('UNEXPECTED_RUNG',          _obs_unexpected_rung),
+    ('UNKNOWN_AETITLE',          _obs_unknown_aetitle),
+    ('UNKNOWN_RESULT_STATUS',    _obs_unknown_result_status),
+)
 
 
 # ── The pass ──────────────────────────────────────────────────────────────────
 
+def _configured(code, finding, modality):
+    """Apply the operator's switch and severity override to one finding."""
+    cfg = _rule_config(code, modality)
+    if not cfg.get('enabled', True) or finding is None:
+        return None
+    finding.severity = cfg.get('severity') or finding.severity
+    return finding
+
+
 def screen(msg, archive_id=None):
     """
-    Run every applicable rule and return a Verdict. Does not write anything.
+    Run the intake gate and the observations. Returns a Verdict; writes nothing.
 
     Never raises. A failure anywhere in here resolves to "accept" — see the
     fail-open note at the top of the module.
     """
     started = time.monotonic()
-    findings = []
+    findings, notes, observed, unknowns = [], [], [], []
 
     # Normalise once, here, rather than in each rule that compares timestamps.
     msg.event_time = _as_naive(msg.event_time)
 
+    # ① intake, plus the two facts about the message as received.
+    for code, fn in _INTAKE + (('PLACEHOLDER_DATA', _placeholder),):
+        try:
+            f = _configured(code, fn(msg), msg.modality)
+        except Exception:
+            logger.exception("RAY7 intake rule %s raised; ignoring it for this message", code)
+            continue
+        if f:
+            findings.append(f)
+    if any(f.rule_code == 'UNKNOWN_STATUS_CODE' for f in findings):
+        unknowns.append(('status_code', '%s/%s' % (msg.raw_order_control or '',
+                                                   msg.raw_order_status or '')))
+    try:
+        f = _configured('FUTURE_EVENT', _future(msg), msg.modality)
+        if f:
+            # A study note when there is a study to attach it to; a message
+            # finding otherwise (a placer-only order stamped in the future).
+            (notes if msg.accession_number else findings).append(f)
+    except Exception:
+        logger.exception("RAY7 FUTURE_EVENT raised; ignoring it for this message")
+
+    # ③ observations. The two lookups are the only part that can be slow, so they
+    # are what the budget bounds.
     try:
         ctx = _Context(msg, archive_id)
     except Exception:
-        logger.exception("RAY7 could not build context; accepting message unscreened")
-        return _verdict([Finding('RAY7_DEGRADED', WARNING, {
-            'phase': 'context',
-            'effect': 'message accepted without being screened at all',
-        })])
-
-    # The budget covers the database work, not just the rules.
-    #
-    # An earlier version started the clock and then checked it only between rules —
-    # which measured nothing that could actually be slow, since every rule is pure
-    # computation over data the context already fetched. The two lookups above are
-    # the only part that can block, so they are what the budget has to bound.
-    elapsed_ms = (time.monotonic() - started) * 1000
-    budget_blown = elapsed_ms > _TIME_BUDGET_MS
-
-    if ctx.degraded:
-        findings.append(Finding('RAY7_DEGRADED', WARNING, {
-            'failed_lookups': list(ctx.degraded),
-            'effect': 'the rules depending on those lookups could not run',
-        }))
-
-    for rule in _RULES:
-        if budget_blown:
-            logger.warning(
-                "RAY7 budget exceeded (%.0fms) — skipping %s and later rules for control_id=%s",
-                elapsed_ms, rule['code'], msg.control_id,
-            )
-            break
-        if rule['kinds'] and msg.kind not in rule['kinds']:
-            continue
-
-        cfg = _rule_config(rule['code'], msg.modality)
-        if not cfg.get('enabled', True):
-            continue
-
-        try:
-            produced = rule['fn'](msg, ctx) or []
-        except Exception:
-            # Fail-open, per rule: one broken rule must not cost us the message.
-            logger.exception("RAY7 rule %s raised; ignoring it for this message", rule['code'])
-            continue
-
-        for f in produced:
-            # Keyed on the code the finding actually carries, not the code the rule
-            # was registered under. They are the same for every rule today, but a
-            # rule that emits a second, related finding would otherwise be given the
-            # wrong rule's operator severity.
-            override = _rule_config(f.rule_code, msg.modality).get('severity')
-            f.severity = override or f.severity
-            findings.append(f)
-
-        elapsed_ms = (time.monotonic() - started) * 1000
-        budget_blown = elapsed_ms > _TIME_BUDGET_MS
-
-    if budget_blown:
-        findings.append(Finding('RAY7_BUDGET_EXCEEDED', INFO, {
-            'elapsed_ms': round(elapsed_ms, 1),
-            'budget_ms': _TIME_BUDGET_MS,
-        }))
-
-    return _verdict(findings)
-
-
-def _verdict(findings):
-    if not findings:
-        return Verdict(status=ACCEPTED, severity=None, findings=[])
-    worst = max(findings, key=lambda f: _SEVERITY_RANK.get(f.severity, 0)).severity
-    if worst == CRITICAL:
-        status = QUARANTINED
-    elif worst == WARNING:
-        status = FLAGGED
+        logger.exception("RAY7 could not build context; observations skipped")
+        ctx = None
+    if ctx is None or ctx.degraded:
+        observed.append('RAY7_DEGRADED')
     else:
-        status = ACCEPTED       # info-only findings are recorded but change nothing
-    return Verdict(status=status, severity=worst, findings=findings)
+        if (time.monotonic() - started) * 1000 > _TIME_BUDGET_MS:
+            logger.warning("RAY7 budget exceeded before observations | control_id=%s",
+                           msg.control_id)
+            observed.append('RAY7_BUDGET_EXCEEDED')
+        else:
+            for code, fn in _OBSERVERS:
+                if not _rule_config(code, msg.modality).get('enabled', True):
+                    continue
+                try:
+                    hit = fn(msg, ctx)
+                except Exception:
+                    logger.exception("RAY7 observation %s raised; ignoring it", code)
+                    continue
+                if hit:
+                    observed.append(code)
+                    if isinstance(hit, tuple):
+                        unknowns.append(hit)
+
+    return _verdict(findings, notes, observed, unknowns)
+
+
+def _verdict(findings, notes=(), observed=(), unknowns=()):
+    v = Verdict(findings=list(findings), notes=list(notes), observed=list(observed),
+                unknowns=list(unknowns))
+    if findings:
+        v.severity = max(findings, key=lambda f: _SEVERITY_RANK.get(f.severity, 0)).severity
+    # ONLY a critical INTAKE finding holds. Severity overrides still apply, so an
+    # operator who rates UNKNOWN_STATUS_CODE a warning lets those messages through.
+    v.status = HELD if v.severity == CRITICAL else ACCEPTED
+    return v
 
 
 def persist(verdict, msg, archive_id):
     """
-    Write the verdict onto the archive row and record its findings.
-
-    Separate from screen() so the engine can be exercised without writing, and so a
-    caller already inside a transaction controls when this lands. Does not commit.
+    Write the verdict onto the archive row, its message findings, and — for an
+    accepted message — its sticky study notes. Does not commit, and does not record
+    the observations: those describe the live wire, so record_observations() is
+    called by the listener only, never by a replay.
 
     Findings upsert on (message_archive_id, rule_code): re-screening a message during
     a replay refreshes its findings instead of stacking a second copy of each.
@@ -1172,8 +937,6 @@ def persist(verdict, msg, archive_id):
 
     # Same savepoint reasoning as the reads: recording a verdict must never be able
     # to abort the caller's transaction and take the archived message down with it.
-    # A finding we failed to write is a gap in the audit trail; a message we failed
-    # to keep is unrecoverable.
     try:
         with db.session.begin_nested():
             db.session.execute(text("""
@@ -1186,83 +949,86 @@ def persist(verdict, msg, archive_id):
     except Exception:
         logger.exception("RAY7 could not stamp verdict on archive_id=%s", archive_id)
 
-    # One savepoint per finding, not one around the batch: a single malformed detail
-    # payload should cost that one finding, not every other finding on the message.
+    # One savepoint per finding: a malformed detail payload costs that finding only.
     for f in verdict.findings:
         try:
             with db.session.begin_nested():
                 db.session.execute(text("""
                     INSERT INTO ray7_findings
                         (message_archive_id, rule_code, severity,
-                         accession_number, patient_id, detail)
+                         accession_number, patient_id, sending_app, detail)
                     VALUES
                         (:archive_id, :rule_code, :severity,
-                         :accession, :patient_id, CAST(:detail AS jsonb))
+                         :accession, :patient_id, :app, CAST(:detail AS jsonb))
                     ON CONFLICT (message_archive_id, rule_code)
                     WHERE message_archive_id IS NOT NULL
                     DO UPDATE SET severity   = EXCLUDED.severity,
                                   detail     = EXCLUDED.detail,
                                   created_at = NOW()
                 """), {
-                    'archive_id': archive_id,
-                    'rule_code': f.rule_code,
-                    'severity': f.severity,
-                    'accession': msg.accession_number,
-                    'patient_id': msg.patient_id,
+                    'archive_id': archive_id, 'rule_code': f.rule_code,
+                    'severity': f.severity, 'accession': msg.accession_number,
+                    'patient_id': msg.patient_id, 'app': msg.sending_app,
                     'detail': _json(f.detail),
                 })
         except Exception:
             logger.exception(
                 "RAY7 could not record finding %s for archive_id=%s", f.rule_code, archive_id)
 
+    if not verdict.may_project or not msg.accession_number:
+        return
+    for f in verdict.notes:
+        try:
+            with db.session.begin_nested():
+                db.session.execute(text("""
+                    INSERT INTO ray7_findings
+                        (message_archive_id, rule_code, severity,
+                         accession_number, patient_id, sending_app, detail)
+                    VALUES (NULL, :rule_code, :severity, :accession, :patient_id, :app,
+                            CAST(:detail AS jsonb))
+                    ON CONFLICT (rule_code, accession_number)
+                        WHERE message_archive_id IS NULL AND resolved_at IS NULL
+                    DO UPDATE SET detail = EXCLUDED.detail
+                """), {
+                    'rule_code': f.rule_code, 'severity': f.severity,
+                    'accession': msg.accession_number, 'patient_id': msg.patient_id,
+                    'app': msg.sending_app, 'detail': _json(f.detail),
+                })
+        except Exception:
+            logger.exception("RAY7 could not record note %s | acc=%s",
+                             f.rule_code, msg.accession_number)
+
+
+def record_observations(verdict, msg, archive_id):
+    """
+    Count this message and what was observed about it, per sender — ③ interface.
+
+    Called by the LISTENER after its commit, in a transaction of its own: the
+    counters are hot rows (every message from one sender in one quarter-hour adds
+    to the same MESSAGES row), and holding their locks for the length of the
+    ingest transaction would serialise every connection behind every other.
+    Never by replay, which would count the same wire traffic twice.
+    """
+    metrics = ['MESSAGES'] + list(verdict.observed)
+    if not verdict.may_project:
+        metrics.append('HELD')
+    from utils import ray7_health
+    ray7_health.record(msg.sending_app, metrics,
+                       [(kind, value, archive_id) for kind, value in verdict.unknowns])
+
 
 def note_redelivery(sending_app, control_id, hash_value):
     """
-    Record a byte-identical redelivery, which the archive INSERT rejected.
+    Count a byte-identical redelivery, which the archive INSERT rejected.
 
     The listener calls this when its ON CONFLICT DO NOTHING returns no row: that
-    conflict IS the detection, and it is the only place the event is visible, since
-    no second archive row exists to screen. The finding is attached to the original
-    row and carries a count, so a hundred redeliveries of one message stay one
-    finding with seen=100 rather than a hundred rows nobody can read past.
-
-    Harmless in itself — the SAP Mirth hub redelivers and there is no fix coming —
-    but the RATE is a real signal about the interface, and a rate is only
-    measurable if each instance is counted somewhere.
+    conflict IS the detection, and it is the only place the event is visible. It
+    used to become a finding on the original message with a seen= counter; it is a
+    RATE now, per sender — harmless in itself (the SAP Mirth hub redelivers and
+    there is no fix coming), worth watching as a trend.
     """
-    row, err = _bounded_query('redelivery lookup', """
-        SELECT id FROM hl7_message_archive
-         WHERE sending_app = :app
-           AND message_control_id = :cid
-           AND content_hash = :hash
-         LIMIT 1
-    """, {'app': sending_app or '', 'cid': control_id, 'hash': hash_value}, one=True)
-    if err or not row:
-        return
-
-    try:
-        with db.session.begin_nested():
-            db.session.execute(text("""
-                INSERT INTO ray7_findings
-                    (message_archive_id, rule_code, severity, detail)
-                VALUES
-                    (:archive_id, 'EXACT_REDELIVERY', :severity,
-                     CAST(:detail AS jsonb))
-                ON CONFLICT (message_archive_id, rule_code)
-                WHERE message_archive_id IS NOT NULL
-                DO UPDATE SET
-                    detail = jsonb_set(
-                        ray7_findings.detail, '{seen}',
-                        to_jsonb(COALESCE((ray7_findings.detail ->> 'seen')::int, 1) + 1)
-                    ),
-                    created_at = NOW()
-            """), {
-                'archive_id': row['id'],
-                'severity': _rule_config('EXACT_REDELIVERY').get('severity') or INFO,
-                'detail': _json({'control_id': control_id, 'seen': 1}),
-            })
-    except Exception:
-        logger.exception("RAY7 could not record redelivery for control_id=%s", control_id)
+    from utils import ray7_health
+    ray7_health.record(sending_app, ['MESSAGES', 'EXACT_REDELIVERY'], [])
 
 
 def _json(obj):
@@ -1273,8 +1039,13 @@ def _json(obj):
 
 
 def summary(verdict):
-    """One-line log form: RAY7 quarantined: CONTROL_ID_REUSE, UNKNOWN_STATUS_CODE"""
-    if not verdict.findings:
-        return "RAY7 accepted"
-    codes = ', '.join(f.rule_code for f in verdict.findings)
-    return f"RAY7 {verdict.status}: {codes}"
+    """One-line log form: RAY7 held: UNKNOWN_STATUS_CODE | observed: UNKNOWN_AETITLE"""
+    parts = []
+    if verdict.findings:
+        parts.append(', '.join(f.rule_code for f in verdict.findings))
+    if verdict.notes:
+        parts.append('notes: ' + ', '.join(f.rule_code for f in verdict.notes))
+    if verdict.observed:
+        parts.append('observed: ' + ', '.join(verdict.observed))
+    word = 'held' if verdict.status == HELD else 'accepted'
+    return f"RAY7 {word}" + (': ' + ' | '.join(parts) if parts else '')

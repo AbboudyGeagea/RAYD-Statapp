@@ -22,10 +22,11 @@ Connection, in order of preference:
                           (defaults: etl_user / etl_pass / localhost / 5432 —
                            the dev stack's published port)
 
-THE THREE ORIGINAL SCRIPTS (test_ray7_rules.py, test_hl7_parse.py,
-test_hl7_fieldmap.py) are excluded from collection. They replace sys.modules['db']
-with a stub at import time and call sys.exit, so importing them here would poison
-the real db module for every test after them. They stay runnable as scripts.
+THE TWO ORIGINAL SCRIPTS (test_hl7_parse.py, test_hl7_fieldmap.py) are excluded
+from collection. They replace sys.modules['db'] with a stub at import time and call
+sys.exit, so importing them here would poison the real db module for every test
+after them. They stay runnable as scripts. (The third, test_ray7_rules.py, tested
+rule functions the 0135 rebuild retired; test_ray7_units.py replaces it.)
 """
 import os
 import re
@@ -43,7 +44,7 @@ for p in (ROOT, TESTS):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-collect_ignore = ['test_ray7_rules.py', 'test_hl7_parse.py', 'test_hl7_fieldmap.py']
+collect_ignore = ['test_hl7_parse.py', 'test_hl7_fieldmap.py']
 
 TEST_DB = os.environ.get('RAYD_TEST_DB', 'rayd_pytest')
 
@@ -62,7 +63,7 @@ DATA_TABLES = [
     'std_pps_person_reference', 'std_pps', 'etl_didb_raw_images', 'etl_didb_serieses',
     'etl_didb_studies', 'etl_patient_view', 'etl_orders',
     'std_worklist_arrivals', 'std_worklist_exam_done', 'std_worklist_scheduled',
-    'std_resources_ris',
+    'std_resources_ris', 'ray7_interface_stats', 'ray7_unknown_values',
 ]
 
 # Seeded configuration. Snapshotted once after migrations and restored before
@@ -213,6 +214,11 @@ def app(database_url):
         TESTING=True, SECRET_KEY='rayd-test', WTF_CSRF_ENABLED=False,
     )
     init_db(flask_app)
+
+    # As in production, so templates get csrf_token(); checks stay off for the
+    # test client (WTF_CSRF_ENABLED=False).
+    from flask_wtf.csrf import CSRFProtect
+    CSRFProtect(flask_app)
 
     login = LoginManager(flask_app)
 
@@ -371,6 +377,30 @@ class Pipe:
     def codes(self, acc=None):
         """Sorted rule codes raised, optionally for one accession."""
         return sorted(f['rule_code'] for f in self.findings(acc=acc))
+
+    def notes(self, rule=None, acc=None, open_only=False):
+        """Study-level rows: RAY7 quality notes and workflow (absence) findings."""
+        return [f for f in self.findings(rule=rule, acc=acc, open_only=open_only)
+                if f['message_archive_id'] is None and f['accession_number'] is not None]
+
+    def open_notes(self, acc=None):
+        return sorted(f['rule_code'] for f in self.notes(acc=acc, open_only=True))
+
+    # RAY7 layer 3: per-sender counters and the unknown-values registry
+    def stat(self, metric, app=None):
+        sql = "SELECT COALESCE(SUM(n), 0) AS n FROM ray7_interface_stats WHERE metric = :m"
+        if app is not None:
+            sql += " AND sending_app = :app"
+        return int(self.scalar(sql, m=metric, app=app))
+
+    def unknown(self, kind=None):
+        sql = "SELECT kind, sending_app, value, n FROM ray7_unknown_values"
+        if kind:
+            sql += " WHERE kind = :k"
+        return self.q(sql + " ORDER BY kind, value", k=kind)
+
+    def held(self):
+        return self.count('hl7_message_archive', "ray7_status = 'quarantined'")
 
     def count(self, table, where='TRUE', **params):
         return self.scalar(f"SELECT COUNT(*) FROM {table} WHERE {where}", **params)

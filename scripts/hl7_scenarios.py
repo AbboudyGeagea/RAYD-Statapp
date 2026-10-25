@@ -164,9 +164,10 @@ def sc_out_of_order():
     rungs turn up. The projected study is identical to in-order delivery — every
     permutation is proven in tests/test_permutations.py.
 
-    With rungs enabled and enforce_order set: one OUT_OF_SEQUENCE_DELIVERY per
-    message that arrived below a rung already reached — here IP, AR and SC, since CM
-    landed first — each CRITICAL, so the study is quarantined until acknowledged.
+    Either way the sender's OUT_OF_SEQUENCE_DELIVERY count rises by three (IP, AR
+    and SC each arrived below CM, which landed first) — a rate on RAY7 → Interface
+    health, never a hold: since the 0135 rebuild out-of-order delivery is measured,
+    not quarantined, because it cannot change the projected study.
 
     WHAT MUST NOT APPEAR IN EITHER MODE is SKIPPED_RUNG or ORPHAN_EVENT. Those fire
     on the state as it stood when the message arrived, so a reversed lifecycle can
@@ -249,11 +250,10 @@ def sc_signature_reversed():
     The final signature delivered BEFORE the preliminary one.
 
     Exercises two things at once: that the most final OBX wins when a report carries
-    mixed statuses, and that a late W behind an already-recorded F is an
-    OUT_OF_SEQUENCE_DELIVERY rather than a regression — the timestamps are
-    consistent, only the delivery was not.
-
-    Silent unless signed_prelim and signed_final are both enabled with enforce_order.
+    mixed statuses, and that a late W behind an already-recorded F is counted as
+    out-of-order delivery rather than a contradiction — the timestamps are
+    consistent, only the delivery was not. The final text and the final signature
+    time must survive the late W.
     """
     acc = '900012'
     for label, segs in lifecycle(acc, 'SIGR', [('SC', 280), ('AR', 240),
@@ -281,7 +281,8 @@ def sc_time_contradiction():
 
 
 def sc_duplicates():
-    """Exact redelivery (expected) and control-ID reuse (critical)."""
+    """Exact redelivery and control-ID reuse: both counted per sender, neither held,
+    and the reused ID's study (900099) is ingested like any other."""
     acc = '900004'
     original = [msh('RIS', 'DUP-1', 'ORM^O01', ts(180)), pid(),
                 seg('ORC', {1: 'SC', 3: f'{acc}^HIS', 5: 'AR', 9: ts(180)}),
@@ -295,7 +296,8 @@ def sc_duplicates():
 
 
 def sc_unmapped_code():
-    """An ORC-5 nothing maps. Critical, quarantined, and listed in the studio."""
+    """An ORC-5 nothing maps. Held (RAY7 intake) and listed under Unknown values;
+    map it in the studio, then Replay held messages."""
     acc = '900005'
     send('ORC-5 = ZZ', [msh('RIS', 'UNK-1', 'ORM^O01', ts(170)), pid(),
                         seg('ORC', {1: 'SC', 3: f'{acc}^HIS', 5: 'ZZ', 9: ts(170)}),

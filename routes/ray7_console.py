@@ -3,30 +3,27 @@ routes/ray7_console.py
 ────────────────────────────────────────────────────────────────
 The RAY7 console — the operator's window onto the screening engine.
 
-Seventeen rules write findings into ray7_findings, and without this the only way
-to read any of it was psql. An engine whose output nobody can see is an engine
-nobody trusts, and a held-back queue nobody can open is worse than none at all:
-studies stop reaching the reports and there is no visible reason why.
+An engine whose output nobody can see is an engine nobody trusts, and a held-back
+queue nobody can open is worse than none at all: data stops reaching the reports
+and there is no visible reason why.
 
-FOUR VIEWS, NOT ONE LONG LIST.
-The first version rendered up to 300 findings and 100 held messages in two flat
-tables. On a real feed that is thousands of rows of which perhaps five matter,
-and a page that shows everything shows nothing — the reader cannot tell a
-recurring known issue from today's new one.
+ONE VIEW PER QUESTION, matching RAY7's four layers (migration 0135):
 
-    summary     one row per rule: how many, how bad, when last seen
-    findings    the flat list, paginated, filtered
-    held        studies not reaching the reports, and why
-    messages    browse the archive itself
+    summary   is anything wrong? — open items per layer and rule
+    held      ① what is NOT in the reports, grouped by the thing to fix
+    findings  ② / ④ the notes on studies (quality, workflow), filterable
+    health    ③ how each sender is behaving, as rates, plus the unknown values
+    messages  the archive itself
 
-Summary is the default because the first question is always "is anything wrong",
-not "show me everything". Every count on it links through to the filtered detail,
-so the long list is somewhere you arrive deliberately rather than somewhere you
-land.
+HELD IS GROUPED BY REASON, not by study. Since the rebuild only a message RAY7
+cannot identify or classify is held, and the fix is always configuration — map this
+status code, find where this sender puts its accession — after which "Replay held
+messages" re-screens them. There is no release-without-fixing any more: a held
+message has no study to attach to or no rung to record, so forcing it through could
+not produce data.
 
-Admin-only, gated on the existing 'can_view_etl' permission rather than a new
-key: RAY7 occupies the position the ETL used to, and raw messages carry patient
-identifiers.
+Gated on the existing 'can_view_etl' permission rather than a new key: RAY7
+occupies the position the ETL used to, and raw messages carry patient identifiers.
 """
 import json
 import logging
@@ -42,6 +39,7 @@ logger = logging.getLogger("RAY7_CONSOLE")
 ray7_bp = Blueprint('ray7_console', __name__)
 
 PER_PAGE = 50
+LAYERS = ('intake', 'quality', 'interface', 'workflow')
 
 
 def _require_access():
@@ -56,6 +54,7 @@ def _rows(sql, params=None):
         return [dict(r) for r in db.session.execute(text(sql), params or {}).mappings().all()]
     except Exception:
         logger.exception("RAY7 console query failed")
+        db.session.rollback()
         return []
 
 
@@ -65,36 +64,58 @@ def _scalar(sql, params=None, default=0):
         return default if v is None else v
     except Exception:
         logger.exception("RAY7 console scalar failed")
+        db.session.rollback()
         return default
 
 
 def _summary():
     out = {}
     row = _rows("""
-        SELECT COUNT(*) FILTER (WHERE severity='critical' AND resolved_at IS NULL) AS open_critical,
-               COUNT(*) FILTER (WHERE severity='warning'  AND resolved_at IS NULL) AS open_warning,
-               COUNT(*) FILTER (WHERE severity='info'     AND resolved_at IS NULL) AS open_info,
-               COUNT(*) FILTER (WHERE resolved_at IS NOT NULL)                     AS resolved
-          FROM ray7_findings
+        SELECT COUNT(*) FILTER (WHERE r.category = 'quality'   AND f.resolved_at IS NULL) AS open_quality,
+               COUNT(*) FILTER (WHERE r.category = 'workflow'  AND f.resolved_at IS NULL) AS open_workflow,
+               COUNT(*) FILTER (WHERE r.category = 'interface' AND f.resolved_at IS NULL) AS open_alerts,
+               COUNT(*) FILTER (WHERE f.resolved_at IS NOT NULL)                          AS resolved
+          FROM ray7_findings f
+          LEFT JOIN ray7_rules r ON r.rule_code = f.rule_code AND r.modality = ''
     """)
     out.update(row[0] if row else {})
     row = _rows("""
         SELECT COUNT(*) AS messages,
-               COUNT(*) FILTER (WHERE ray7_status='quarantined') AS held,
+               COUNT(*) FILTER (WHERE ray7_status = 'quarantined') AS held,
                COUNT(*) FILTER (WHERE received_at > NOW() - INTERVAL '24 hours') AS last_24h
           FROM hl7_message_archive
     """)
     out.update(row[0] if row else {})
-    out['studies'] = _scalar("SELECT COUNT(*) FROM ray7_study_state")
-    # The consequence, stated as a number: studies whose data is incomplete in the
-    # reports because a message about them was held back.
-    out['studies_affected'] = _scalar("""
-        SELECT COUNT(DISTINCT f.accession_number)
-          FROM ray7_findings f
-          JOIN hl7_message_archive a ON a.id = f.message_archive_id
-         WHERE a.ray7_status = 'quarantined' AND f.accession_number IS NOT NULL
-    """)
+    out['studies'] = _scalar("SELECT COUNT(*) FROM ray7_study_state WHERE NOT is_provisional")
+    out['unknown_values'] = _scalar("SELECT COUNT(*) FROM ray7_unknown_values")
     return out
+
+
+def _health():
+    """Per sender: the last hour and the last 24 hours, every metric as count + rate."""
+    from utils.ray7_health import INTERFACE_RULES, rates
+    try:
+        hour, day = rates(60), rates(24 * 60)
+    except Exception:
+        logger.exception("RAY7 console: rates failed")
+        db.session.rollback()
+        hour, day = {}, {}
+    senders = []
+    for app in sorted(set(hour) | set(day)):
+        row = {'sending_app': app or '(blank MSH-3)', 'metrics': []}
+        for window, counts in (('hour', hour.get(app, {})), ('day', day.get(app, {}))):
+            row[window + '_messages'] = counts.get('MESSAGES', 0)
+            row[window + '_held'] = counts.get('HELD', 0)
+        for code in INTERFACE_RULES:
+            h, d = hour.get(app, {}).get(code, 0), day.get(app, {}).get(code, 0)
+            if h or d:
+                row['metrics'].append({
+                    'code': code, 'hour': h, 'day': d,
+                    'hour_pct': round(100.0 * h / row['hour_messages'], 1) if row['hour_messages'] else None,
+                    'day_pct': round(100.0 * d / row['day_messages'], 1) if row['day_messages'] else None,
+                })
+        senders.append(row)
+    return senders
 
 
 @ray7_bp.route('/ray7')
@@ -104,6 +125,7 @@ def console():
     view     = request.args.get('view', 'summary')
     severity = request.args.get('severity', '')
     rule     = request.args.get('rule', '')
+    layer    = request.args.get('layer', '')
     show     = request.args.get('show', 'open')
     search   = (request.args.get('q', '') or '').strip()
     try:
@@ -112,26 +134,28 @@ def console():
         page = 1
     offset = (page - 1) * PER_PAGE
 
-    ctx = {'view': view, 'severity': severity, 'rule': rule, 'show': show,
-           'search': search, 'page': page, 'per_page': PER_PAGE,
-           'summary': _summary(), 'rows': [], 'total': 0}
+    ctx = {'view': view, 'severity': severity, 'rule': rule, 'layer': layer, 'show': show,
+           'search': search, 'page': page, 'per_page': PER_PAGE, 'layers': LAYERS,
+           'summary': _summary(), 'rows': [], 'total': 0, 'alerts': [], 'unknown': []}
 
     if view == 'summary':
-        # One row per rule. This is the whole point of the redesign: a reader can
-        # see at a glance that UNKNOWN_AETITLE has fired 4,000 times and is
-        # cosmetic, while CONTROL_ID_REUSE has fired twice and is not.
+        # One row per rule, grouped by layer: a reader can see at a glance that the
+        # interface is noisy and that nothing is held, or the reverse.
         ctx['rows'] = _rows("""
-            SELECT f.rule_code, f.severity,
-                   COUNT(*)                                   AS total,
-                   COUNT(*) FILTER (WHERE f.resolved_at IS NULL) AS open,
-                   COUNT(DISTINCT f.accession_number)          AS studies,
-                   MAX(f.created_at)                           AS last_seen,
-                   r.title, r.category, r.description
+            SELECT COALESCE(r.category, 'intake') AS layer, f.rule_code,
+                   (ARRAY['info','warning','critical'])[
+                       MAX(array_position(ARRAY['info','warning','critical'], f.severity))
+                   ] AS severity,
+                   COUNT(*)                                       AS total,
+                   COUNT(*) FILTER (WHERE f.resolved_at IS NULL)  AS open,
+                   COUNT(DISTINCT f.accession_number)             AS studies,
+                   MAX(f.created_at)                              AS last_seen,
+                   MAX(r.title) AS title
               FROM ray7_findings f
               LEFT JOIN ray7_rules r ON r.rule_code = f.rule_code AND r.modality = ''
-             GROUP BY f.rule_code, f.severity, r.title, r.category, r.description
-             ORDER BY CASE f.severity WHEN 'critical' THEN 1
-                                      WHEN 'warning'  THEN 2 ELSE 3 END,
+             GROUP BY COALESCE(r.category, 'intake'), f.rule_code
+             ORDER BY array_position(ARRAY['intake','quality','interface','workflow'],
+                                     COALESCE(r.category, 'intake')),
                       COUNT(*) FILTER (WHERE f.resolved_at IS NULL) DESC
         """)
 
@@ -145,26 +169,26 @@ def console():
             where.append("f.severity = :severity"); params['severity'] = severity
         if rule:
             where.append("f.rule_code = :rule"); params['rule'] = rule
+        if layer in LAYERS:
+            where.append("COALESCE(r.category, 'intake') = :layer"); params['layer'] = layer
         if search:
             where.append("(f.accession_number ILIKE :q OR f.patient_id ILIKE :q "
-                         "OR a.message_control_id ILIKE :q)")
+                         "OR a.message_control_id ILIKE :q OR f.sending_app ILIKE :q)")
             params['q'] = f'%{search}%'
         clause = ('WHERE ' + ' AND '.join(where)) if where else ''
-
-        ctx['total'] = _scalar(f"""
-            SELECT COUNT(*) FROM ray7_findings f
-            LEFT JOIN hl7_message_archive a ON a.id = f.message_archive_id {clause}
-        """, {k: v for k, v in params.items() if k not in ('lim', 'off')})
-
-        ctx['rows'] = _rows(f"""
-            SELECT f.id, f.rule_code, f.severity, f.accession_number, f.patient_id,
-                   f.detail, f.created_at, f.resolved_at, f.resolution,
-                   f.message_archive_id, a.message_type, a.sending_app,
-                   a.message_control_id, r.title
+        joins = """
               FROM ray7_findings f
               LEFT JOIN hl7_message_archive a ON a.id = f.message_archive_id
               LEFT JOIN ray7_rules r ON r.rule_code = f.rule_code AND r.modality = ''
-              {clause}
+        """
+        ctx['total'] = _scalar(f"SELECT COUNT(*) {joins} {clause}",
+                               {k: v for k, v in params.items() if k not in ('lim', 'off')})
+        ctx['rows'] = _rows(f"""
+            SELECT f.id, f.rule_code, f.severity, f.accession_number, f.patient_id,
+                   f.sending_app, f.detail, f.created_at, f.resolved_at, f.resolution,
+                   f.message_archive_id, a.message_type, a.message_control_id,
+                   r.title, COALESCE(r.category, 'intake') AS layer
+              {joins} {clause}
              ORDER BY CASE f.severity WHEN 'critical' THEN 1
                                       WHEN 'warning' THEN 2 ELSE 3 END,
                       f.created_at DESC
@@ -172,29 +196,48 @@ def console():
         """, params)
 
     elif view == 'held':
-        # Grouped by STUDY, not by message. The operator's question is "which
-        # studies are wrong in the reports", and one study can have several held
-        # messages; listing messages makes them count the same study repeatedly.
+        # Grouped by the thing to fix. The same unmapped code from the same sender is
+        # one item however many messages carry it.
         ctx['total'] = _scalar("""
             SELECT COUNT(*) FROM hl7_message_archive WHERE ray7_status = 'quarantined'
         """)
         ctx['rows'] = _rows("""
-            SELECT COALESCE(f.accession_number, '(no accession)') AS accession,
-                   COUNT(DISTINCT a.id)              AS messages,
-                   MIN(a.received_at)                AS first_held,
-                   MAX(a.received_at)                AS last_held,
-                   string_agg(DISTINCT f.rule_code, ', ') AS reasons,
-                   string_agg(DISTINCT a.message_type, ', ') AS types,
-                   MAX(a.id)                         AS sample_archive_id,
-                   BOOL_OR(s.accession_number IS NOT NULL) AS study_exists
+            SELECT f.rule_code,
+                   COALESCE(a.sending_app, '')                       AS sending_app,
+                   CASE f.rule_code
+                        WHEN 'UNKNOWN_STATUS_CODE'
+                        THEN COALESCE(f.detail->>'order_control', '') || ' / ' ||
+                             COALESCE(f.detail->>'order_status', '(empty)')
+                        ELSE COALESCE(a.message_type, '') END        AS what,
+                   COUNT(DISTINCT a.id)                              AS messages,
+                   COUNT(DISTINCT f.accession_number)                AS studies,
+                   MIN(a.received_at)                                AS first_held,
+                   MAX(a.received_at)                                AS last_held,
+                   MAX(a.id)                                         AS sample_archive_id
               FROM hl7_message_archive a
               JOIN ray7_findings f ON f.message_archive_id = a.id AND f.severity = 'critical'
-              LEFT JOIN ray7_study_state s ON s.accession_number = f.accession_number
              WHERE a.ray7_status = 'quarantined'
-             GROUP BY COALESCE(f.accession_number, '(no accession)')
+             GROUP BY 1, 2, 3
              ORDER BY MAX(a.received_at) DESC
              LIMIT :lim OFFSET :off
         """, {'lim': PER_PAGE, 'off': offset})
+
+    elif view == 'health':
+        ctx['rows'] = _health()
+        ctx['alerts'] = _rows("""
+            SELECT f.id, f.rule_code, f.severity, f.sending_app, f.detail, f.created_at, r.title
+              FROM ray7_findings f
+              LEFT JOIN ray7_rules r ON r.rule_code = f.rule_code AND r.modality = ''
+             WHERE f.message_archive_id IS NULL AND f.accession_number IS NULL
+               AND f.resolved_at IS NULL
+             ORDER BY f.created_at DESC
+        """)
+        ctx['unknown'] = _rows("""
+            SELECT kind, sending_app, value, n, first_seen, last_seen, sample_archive_id
+              FROM ray7_unknown_values
+             ORDER BY last_seen DESC
+             LIMIT 200
+        """)
 
     elif view == 'messages':
         where, params = [], {'lim': PER_PAGE, 'off': offset}
@@ -267,110 +310,59 @@ def message_detail(archive_id):
         return jsonify({'error': 'lookup failed'}), 500
 
 
-@ray7_bp.route('/ray7/study/<path:accession>/acknowledge', methods=['POST'])
+@ray7_bp.route('/ray7/held/replay', methods=['POST'])
 @login_required
-def acknowledge_study(accession):
+def replay_held():
     """
-    Acknowledge a quarantined study and RELEASE it into the reports.
+    Re-screen the held messages — the release, now that holding means "cannot be
+    identified or classified".
 
-    This is the counterpart to resolve() below, and the difference is the whole
-    point. Resolving closes a flag and explicitly does not move data. Acknowledging
-    says "I have looked at this, the lifecycle is sound, let it through" — and a
-    verdict that does not actually release the data would be a button that lies,
-    because a quarantined study is invisible in every report until something
-    reprojects it.
+    The operator fixes the cause first (maps the status code, points the accession
+    mapping at the right field), then presses this. Each held message is parsed and
+    screened again under today's configuration; those that now pass take the normal
+    accept path — events, state, legacy writes, projection, quality notes — and the
+    rest stay held with their finding refreshed. Optionally limited to one rule.
 
-    STUDY-LEVEL, NOT MESSAGE-LEVEL. A scrambled lifecycle quarantines several
-    messages of one study; acknowledging them one at a time would be busywork and
-    would leave the study half-projected between clicks. One acknowledgement covers
-    the accession.
-
-    The replay runs with rescreen=False. Re-screening would judge these messages
-    against a ray7_study_state that now contains the very rungs they were flagged
-    for arriving after, so OUT_OF_SEQUENCE_DELIVERY would fire again and
-    re-quarantine what was just cleared. The human's judgement replaces the
-    machine's here; that is what acknowledging means.
+    rescreen=True, unlike the old acknowledge: the human's judgement here is the
+    configuration change, and the machine has to confirm it actually took.
     """
     _require_access()
     body = request.json or {}
-    note = (request.form.get('note') or body.get('note') or '')[:2000]
+    rule = (request.form.get('rule') or body.get('rule') or '').strip()
 
-    # The HELD messages of this study — not every message with an open finding. An
-    # accepted message carrying a warning was already projected; re-running it on
-    # release is wasted work, and counting it made "messages released" overstate
-    # what the button actually let through.
-    archive_ids = [
-        r['message_archive_id'] for r in _rows("""
-            SELECT DISTINCT f.message_archive_id
-              FROM ray7_findings f
-              JOIN hl7_message_archive a ON a.id = f.message_archive_id
-             WHERE f.accession_number = :acc
-               AND f.resolved_at IS NULL
-               AND a.ray7_status = 'quarantined'
-        """, {'acc': accession})
-        if r.get('message_archive_id')
-    ]
+    sql = "SELECT a.id FROM hl7_message_archive a WHERE a.ray7_status = 'quarantined'"
+    params = {}
+    if rule:
+        sql += """ AND EXISTS (SELECT 1 FROM ray7_findings f
+                                WHERE f.message_archive_id = a.id AND f.rule_code = :rule)"""
+        params['rule'] = rule
+    ids = [r['id'] for r in _rows(sql + " ORDER BY a.id", params)]
+    if not ids:
+        return jsonify({'status': 'ok', 'replayed': 0, 'released': 0, 'still_held': 0})
 
     try:
-        db.session.execute(text("""
-            UPDATE ray7_findings
-               SET resolved_at = NOW(), resolved_by = :uid,
-                   resolution = 'cleared',
-                   resolution_note = :note
-             WHERE accession_number = :acc AND resolved_at IS NULL
-        """), {'acc': accession, 'uid': current_user.id,
-               'note': note or 'acknowledged in the RAY7 console'})
-
-        # 'flagged' rather than 'accepted': the message genuinely had findings and
-        # that should stay visible. What changes is that it is no longer WITHHELD.
-        # The audit of who released it, and when, lives on the finding rows above.
-        if archive_ids:
-            db.session.execute(text("""
-                UPDATE hl7_message_archive
-                   SET ray7_status = 'flagged'
-                 WHERE id = ANY(:ids) AND ray7_status = 'quarantined'
-            """), {'ids': archive_ids})
-        db.session.commit()
+        from utils.hl7_replay import replay
+        replay(current_app._get_current_object(), archive_ids=ids, rescreen=True)
     except Exception:
-        db.session.rollback()
-        logger.exception("RAY7 console: acknowledge failed | acc=%s", accession)
-        return jsonify({'error': 'acknowledge failed'}), 500
+        logger.exception("RAY7 console: replay of held messages failed")
+        return jsonify({'status': 'error', 'error': 'replay failed; nothing was lost, '
+                                                    'the messages are still held'}), 500
 
-    released = 0
-    if archive_ids:
-        try:
-            from utils.hl7_replay import replay
-            stats = replay(current_app._get_current_object(),
-                           archive_ids=archive_ids, rescreen=False)
-            released = stats.get('projected', 0)
-        except Exception:
-            # The findings are already closed and committed. Say so plainly rather
-            # than reporting a clean release that did not happen — the operator can
-            # retry, and a silent half-success here is how a study goes missing.
-            logger.exception("RAY7 console: release replay failed | acc=%s", accession)
-            return jsonify({
-                'status': 'partial',
-                'error': 'findings were cleared but the study could not be reprojected',
-                'accession': accession,
-            }), 500
-
-    return jsonify({'status': 'ok', 'accession': accession,
-                    'messages_released': len(archive_ids),
-                    'projected': released,
-                    'note': 'Findings acknowledged and the study reprojected into the reports.'})
+    still = _scalar("SELECT COUNT(*) FROM hl7_message_archive "
+                    "WHERE id = ANY(:ids) AND ray7_status = 'quarantined'", {'ids': ids})
+    return jsonify({'status': 'ok', 'replayed': len(ids), 'released': len(ids) - still,
+                    'still_held': still})
 
 
 @ray7_bp.route('/ray7/finding/<int:finding_id>/resolve', methods=['POST'])
 @login_required
 def resolve(finding_id):
     """
-    Close a finding.
+    Close a finding. 'ignored' also stops a study note from reopening itself.
 
-    Resolving does NOT put the held-back data into the reports. The projection
-    either happened or it did not; clearing the flag changes neither. Getting the
-    data in means fixing the cause and replaying, which is what the archive
-    exists for — said in the response so the button cannot imply a power it does
-    not have.
+    Resolving does NOT put held data into the reports — fixing the cause and
+    replaying does — said in the response so the button cannot imply a power it
+    does not have.
     """
     _require_access()
     body = request.json or {}
@@ -387,9 +379,8 @@ def resolve(finding_id):
         """), {'id': finding_id, 'uid': current_user.id, 'res': resolution, 'note': note})
         db.session.commit()
         return jsonify({'status': 'ok',
-                        'note': 'Finding closed. This does not add the held-back data '
-                                'to the reports — fix the cause, then replay with '
-                                'python app.py -m'})
+                        'note': 'Finding closed. This does not release held messages — '
+                                'fix the cause, then use "Replay held messages".'})
     except Exception:
         db.session.rollback()
         logger.exception("RAY7 console: resolve failed | id=%s", finding_id)
