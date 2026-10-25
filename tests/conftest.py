@@ -185,6 +185,16 @@ def database_url():
         conn.close()
 
 
+class _AllFeatures(dict):
+    """A licence where every feature is on: license.get('anything') is True, and
+    every report number is licensed."""
+    def get(self, key, default=None):
+        return list(range(1, 100)) if key == 'reports' else True
+
+    def __getattr__(self, key):
+        return True
+
+
 class FakeUser:
     """Just enough of db.User for flask_login and user_has_page()."""
     is_active = True
@@ -233,6 +243,22 @@ def app(database_url):
 
     from routes.brayn_console import brayn_bp
     flask_app.register_blueprint(brayn_bp)
+    # Full pages include the real _header/_sidebar, which link to every blueprint.
+    # Only the ones under test are registered here, so the others' links render as
+    # '#' rather than a BuildError — the page under test is what is being checked.
+    flask_app.url_build_error_handlers.append(lambda error, endpoint, values: '#')
+    flask_app.add_url_rule('/', 'index', lambda: '')
+    # What app.py's create_app() and registry.py give every template, reduced to
+    # what the shell reads: the page filter, a licence with every feature on, and
+    # the theme / demo values the header expects.
+    from db import user_has_page as _uhp
+    flask_app.add_template_filter(lambda user, key: _uhp(user, key), 'user_has_page')
+
+    @flask_app.context_processor
+    def _shell_context():
+        return {'license': _AllFeatures(), 'config': flask_app.config, 'ui_theme': 'dark',
+                'user_favorites': [], 'demo_mode': False, 'demo_start': '', 'demo_end': '',
+                'demo_user': '', 'pending_approvals_count': 0, 'reset_requests_count': 0}
     from routes.worklists import worklists_bp
     flask_app.register_blueprint(worklists_bp)
 

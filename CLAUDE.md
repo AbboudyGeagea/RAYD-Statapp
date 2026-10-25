@@ -73,12 +73,18 @@ utils/
   brayn_quality.py         — BRAYN ② study quality notes, self-closing, never withhold
   brayn_health.py          — BRAYN ③ per-sender counters, unknown values, rate alerts
   brayn_sweep.py           — BRAYN ④ absence rules (stalled / unreported) + ③ alerts, 15 min
+  brayn_explain.py         — the console's words: rule titles, notes as sentences, a message
+                             explained field by field (used / problem / suggested accession)
   hl7_project.py          — the projector: HL7 state → etl_* tables, per accession
   hl7_replay.py           — rebuild everything downstream of the archive
   hl7_forward.py          — optional MLLP forwarding of raw messages
   crn_scan.py, crn_dispatcher.py — critical result notifications (sending is a stub)
 routes/
-  brayn_console.py         — BRAYN console: held, notes, interface health, messages
+  brayn_console.py         — BRAYN console (/brayn), one screen per operator question: Feed
+                             status, To fix (inline fixes + Reprocess), Messages, Study timeline,
+                             Study notes, Settings (checks editable). Fixes reuse the mapping
+                             studio's endpoints; device / result-status / rule saves live here,
+                             su + implementation only. Wording only in utils/brayn_explain.py
   mapping_controller.py   — HL7 → DB field mapping, modality/procedure config
   hl7_orders.py           — HL7 order analytics
   oru_analytics.py        — ORU report intelligence (NLP, critical findings log)
@@ -94,7 +100,7 @@ ETL_JOBS/daily_analytics.py — 05:30 snapshot for the daily briefing (Postgres 
                               the only module left in ETL_JOBS)
 nlp_worker/worker.py      — standalone medspaCy batch loop (polls every 60s)
 scripts/hl7_scenarios.py  — drive named HL7 scenarios at the listener; reset test data
-tests/                    — pytest suite (~830 tests, see Dev Workflow): parse, every BRAYN
+tests/                    — pytest suite (~1,390 tests, see Dev Workflow): parse, every BRAYN
                             rule, lifecycle/projection, all delivery permutations, sweep,
                             replay == live, console release, MLLP socket, fuzz, concurrency,
                             time zone. Runs in its own throwaway DB `rayd_pytest`, never

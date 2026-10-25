@@ -1,522 +1,835 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>BRAYN — HL7 Screening Console</title>
-<style>
-  :root {
-    --bg:#0d0f14; --surface:#13161e; --surface2:#171b25; --border:#1e2330;
-    --border2:#252a38; --text:#c8cdd8; --text-dim:#5a6070; --text-bright:#eef0f5;
-    --accent:#00b4d8; --green:#00c896; --yellow:#f4b942; --red:#e05c5c;
-    --mono:'IBM Plex Mono',ui-monospace,Consolas,monospace;
-    --sans:'IBM Plex Sans',system-ui,sans-serif;
-  }
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px}
-  a{color:var(--accent);text-decoration:none} a:hover{text-decoration:underline}
-  header{padding:16px 24px;border-bottom:1px solid var(--border);display:flex;
-         align-items:baseline;gap:14px;flex-wrap:wrap}
-  h1{margin:0;font-size:19px;color:var(--text-bright);letter-spacing:.5px}
-  .sub{color:var(--text-dim);font-size:12px}
-  .wrap{padding:18px 24px;max-width:1500px}
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() if csrf_token is defined else '' }}">
+    <title>RAYD | BRAYN</title>
+    <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
+    <style>
+        body { font-family: 'Inter', system-ui, sans-serif; background: #181f1c; color: #e2e8f0; }
+        .sidebar-item { transition: all 0.2s; border-radius: 0.75rem; margin-bottom: 0.25rem; cursor: pointer; text-decoration: none !important; color: #94a3b8; }
+        .sidebar-item:hover { background: #1d2522; color: #60a5fa !important; }
+        .sidebar-item.active { background: #1d2522; color: #60a5fa !important; border-left: 4px solid #60a5fa; }
 
-  nav{display:flex;gap:2px;border-bottom:1px solid var(--border);margin-bottom:18px}
-  nav a{padding:9px 16px;color:var(--text-dim);font-size:12px;font-weight:600;
-        text-transform:uppercase;letter-spacing:.7px;border-bottom:2px solid transparent}
-  nav a:hover{color:var(--text);text-decoration:none}
-  nav a.on{color:var(--accent);border-bottom-color:var(--accent)}
-  nav a .n{font-family:var(--mono);opacity:.75;margin-left:5px}
-
-  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:18px}
-  .tile{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:12px 14px}
-  .tile .n{font-size:24px;font-weight:600;font-family:var(--mono);color:var(--text-bright);line-height:1.1}
-  .tile .l{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.7px;margin-top:4px}
-  .tile.crit .n{color:var(--red)} .tile.warn .n{color:var(--yellow)}
-  .tile.ok .n{color:var(--green)}
-
-  table{width:100%;border-collapse:collapse;background:var(--surface);
-        border:1px solid var(--border);border-radius:6px;overflow:hidden}
-  th{text-align:left;padding:8px 12px;font-size:10px;text-transform:uppercase;
-     letter-spacing:.6px;color:var(--text-dim);background:var(--surface2);
-     border-bottom:1px solid var(--border2);font-weight:600;white-space:nowrap}
-  td{padding:8px 12px;border-bottom:1px solid var(--border);vertical-align:top;font-size:12.5px}
-  tr:last-child td{border-bottom:none}
-  tbody tr:hover td{background:var(--surface2)}
-  .num{text-align:right;font-family:var(--mono)}
-  .mono{font-family:var(--mono);font-size:11.5px}
-  .dim{color:var(--text-dim)}
-
-  .sev{display:inline-block;padding:1px 7px;border-radius:3px;font-size:9.5px;
-       text-transform:uppercase;letter-spacing:.6px;font-weight:600}
-  .sev.critical{background:rgba(224,92,92,.15);color:var(--red);border:1px solid rgba(224,92,92,.35)}
-  .sev.warning{background:rgba(244,185,66,.12);color:var(--yellow);border:1px solid rgba(244,185,66,.3)}
-  .sev.info{background:rgba(90,96,112,.15);color:var(--text-dim);border:1px solid var(--border2)}
-
-  .filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
-  select,input[type=search],button{background:var(--surface);color:var(--text);
-     border:1px solid var(--border2);border-radius:4px;padding:5px 9px;
-     font-family:var(--sans);font-size:12px}
-  button{cursor:pointer} button:hover{border-color:var(--accent);color:var(--text-bright)}
-  .pager{display:flex;gap:6px;align-items:center;margin-top:12px;font-size:12px;color:var(--text-dim)}
-  .pager a{padding:4px 10px;border:1px solid var(--border2);border-radius:4px}
-
-  .callout{background:#1a1512;border:1px solid rgba(224,92,92,.4);border-radius:6px;
-           padding:14px 16px;margin-bottom:16px}
-  .callout h3{margin:0 0 6px;font-size:12px;text-transform:uppercase;
-              letter-spacing:.8px;color:var(--red)}
-  .callout p{margin:0 0 4px;font-size:12.5px;line-height:1.6;color:var(--text)}
-  .callout .fix{color:var(--text-dim);font-size:12px;margin-top:8px}
-  code{font-family:var(--mono);background:var(--bg);padding:1px 5px;border-radius:3px;font-size:11.5px}
-
-  .detail{font-family:var(--mono);font-size:10.5px;color:var(--text-dim);
-          max-width:460px;word-break:break-word;line-height:1.5}
-  .empty{padding:24px;text-align:center;color:var(--text-dim);background:var(--surface);
-         border:1px dashed var(--border2);border-radius:6px;font-size:12.5px}
-  dialog{background:var(--surface);color:var(--text);border:1px solid var(--border2);
-         border-radius:8px;max-width:940px;width:92%;padding:0}
-  dialog::backdrop{background:rgba(0,0,0,.72)}
-  .dh{padding:13px 18px;border-bottom:1px solid var(--border);display:flex;
-      justify-content:space-between;align-items:center}
-  .db{padding:16px 18px;max-height:66vh;overflow:auto}
-  pre{background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:12px;
-      font-family:var(--mono);font-size:11px;line-height:1.65;overflow-x:auto;margin:0}
-  .kv{display:grid;grid-template-columns:150px 1fr;gap:4px 14px;font-size:12px;margin-bottom:14px}
-  .kv .k{color:var(--text-dim)}
-</style>
-<meta name="csrf-token" content="{{ csrf_token() if csrf_token is defined else '' }}">
-<style>
-  .layer{display:inline-block;padding:1px 7px;border-radius:3px;font-size:9.5px;
-         text-transform:uppercase;letter-spacing:.6px;font-weight:600;
-         border:1px solid var(--border2);color:var(--text-dim)}
-  .layer.intake{color:var(--red);border-color:rgba(224,92,92,.35)}
-  .layer.quality{color:var(--yellow);border-color:rgba(244,185,66,.3)}
-  .layer.interface{color:var(--accent);border-color:rgba(0,180,216,.35)}
-  h2{font-size:12px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-dim);
-     margin:22px 0 8px}
-  .bar{display:flex;gap:10px;align-items:center;margin-bottom:12px}
-</style>
+        /* ── BRAYN. Everything below is scoped to .bn so it cannot touch the shell. */
+        .bn {
+            --bg: #181f1c; --panel: #1f2824; --panel-2: #26302b; --line: #2f3b35; --line-2: #3a4842;
+            --text: #e3ebe6; --text-2: #a7b4ae; --dim: #74857d;
+            --accent: #60a5fa; --accent-soft: rgba(96,165,250,.13); --accent-line: rgba(96,165,250,.40);
+            --ok: #34d399; --ok-soft: rgba(52,211,153,.12); --ok-line: rgba(52,211,153,.38);
+            --warn: #fbbf24; --warn-soft: rgba(251,191,36,.11); --warn-line: rgba(251,191,36,.38);
+            --bad: #f87171; --bad-soft: rgba(248,113,113,.12); --bad-line: rgba(248,113,113,.42);
+            --code-bg: #111714;
+            --mono: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+            color: var(--text); font-size: 14px; line-height: 1.5; max-width: 1500px;
+        }
+        .bn * { box-sizing: border-box; }
+        .bn .mono { font-family: var(--mono); font-size: 12.5px; }
+        .bn .dim { color: var(--dim); } .bn .t2 { color: var(--text-2); }
+        .bn a { color: var(--accent); text-decoration: none; } .bn a:hover { text-decoration: underline; }
+        .bn :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+        .bn h1 { font-size: 26px; font-weight: 900; letter-spacing: -.02em; color: #fff; margin: 0; }
+        .bn .top { display: flex; gap: 16px; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; margin-bottom: 14px; }
+        .bn .top p { margin: 2px 0 0; color: var(--text-2); font-size: 13px; max-width: 64ch; }
+        .bn .find { display: flex; gap: 6px; flex: 0 1 400px; min-width: 0; }
+        .bn input[type=search], .bn input[type=text], .bn input.lim { background: var(--panel); border: 1px solid var(--line-2); border-radius: 8px; padding: 7px 11px; color: var(--text); font-size: 13px; }
+        .bn .find input { flex: 1; min-width: 0; }
+        .bn .tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 18px; }
+        .bn .tab { border-bottom: 2px solid transparent; padding: 9px 12px; color: var(--text-2); font-weight: 600; font-size: 13px; display: flex; gap: 7px; align-items: center; }
+        .bn .tab:hover { color: var(--text); text-decoration: none; }
+        .bn .tab.on { color: var(--accent); border-bottom-color: var(--accent); }
+        .bn .badge { font-size: 11px; font-weight: 700; border-radius: 999px; padding: 0 7px; line-height: 18px; background: var(--panel-2); color: var(--text-2); }
+        .bn .badge.bad { background: var(--bad-soft); color: var(--bad); } .bn .badge.warn { background: var(--warn-soft); color: var(--warn); }
+        .bn .btn { background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 13px; font-weight: 500; color: var(--text); white-space: nowrap; }
+        .bn .btn:hover { border-color: var(--accent); color: #fff; text-decoration: none; }
+        .bn .btn.primary { background: var(--accent); border-color: var(--accent); color: #0a1020; font-weight: 700; }
+        .bn .btn.primary:hover { filter: brightness(1.08); color: #0a1020; }
+        .bn .btn.ghost { background: none; }
+        .bn .btn.small { padding: 3px 9px; font-size: 12px; }
+        .bn .btn[disabled] { opacity: .55; cursor: wait; }
+        .bn select.sel { background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 8px; padding: 6px 9px; color: var(--text); font-size: 13px; }
+        .bn .linkish { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font: inherit; }
+        .bn .linkish:hover { text-decoration: underline; }
+        .bn .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; border-radius: 999px; padding: 2px 10px; border: 1px solid; white-space: nowrap; }
+        .bn .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+        .bn .pill.ok { color: var(--ok); border-color: var(--ok-line); background: var(--ok-soft); }
+        .bn .pill.warn { color: var(--warn); border-color: var(--warn-line); background: var(--warn-soft); }
+        .bn .pill.bad { color: var(--bad); border-color: var(--bad-line); background: var(--bad-soft); }
+        .bn .pill.info { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
+        .bn .pill.plain { color: var(--text-2); border-color: var(--line-2); background: none; }
+        .bn .pill.plain::before { display: none; }
+        .bn .banner { display: flex; gap: 14px; align-items: center; justify-content: space-between; flex-wrap: wrap; border: 1px solid var(--bad-line); background: var(--bad-soft); border-radius: 10px; padding: 12px 16px; margin-bottom: 16px; }
+        .bn .banner.ok { border-color: var(--ok-line); background: var(--ok-soft); }
+        .bn .banner strong { font-size: 15px; } .bn .banner p { margin: 2px 0 0; color: var(--text-2); font-size: 13px; }
+        .bn .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 18px; }
+        .bn .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+        .bn .stat b { display: block; font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.15; }
+        .bn .stat span { font-size: 11.5px; color: var(--text-2); }
+        .bn .stat.bad b { color: var(--bad); } .bn .stat.warn b { color: var(--warn); } .bn .stat.ok b { color: var(--ok); }
+        .bn .sec { margin: 22px 0 10px; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+        .bn .sec h2 { font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: .1em; color: var(--text-2); margin: 0; }
+        .bn .sec .dim { font-size: 12px; }
+        .bn .tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+        .bn table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .bn th { text-align: left; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--dim); padding: 9px 12px; border-bottom: 1px solid var(--line-2); background: var(--panel-2); white-space: nowrap; }
+        .bn td { padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+        .bn tr:last-child td { border-bottom: 0; }
+        .bn tbody tr.click { cursor: pointer; } .bn tbody tr.click:hover td { background: var(--panel-2); }
+        .bn td.num, .bn th.num { text-align: right; font-variant-numeric: tabular-nums; }
+        .bn .when b { font-weight: 500; font-variant-numeric: tabular-nums; } .bn .when span { display: block; font-size: 11.5px; color: var(--dim); }
+        .bn .meter { display: flex; align-items: center; gap: 8px; min-width: 150px; }
+        .bn .meter .bar { position: relative; flex: 1; height: 6px; border-radius: 3px; background: var(--line-2); min-width: 70px; }
+        .bn .meter .bar i { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: var(--accent); }
+        .bn .meter .bar u { position: absolute; top: -3px; bottom: -3px; left: 50%; width: 2px; background: var(--text-2); }
+        .bn .meter.over .bar i { background: var(--bad); }
+        .bn .cards { display: flex; flex-direction: column; gap: 10px; }
+        .bn .card { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--line-2); border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 9px; }
+        .bn .card.bad { border-left-color: var(--bad); } .bn .card.warn { border-left-color: var(--warn); } .bn .card.info { border-left-color: var(--accent); } .bn .card.ok { border-left-color: var(--ok); }
+        .bn .card .head { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: flex-start; }
+        .bn .card h3 { font-size: 15px; font-weight: 700; margin: 0; }
+        .bn .card .why { color: var(--text-2); font-size: 13px; margin: 0; max-width: 82ch; }
+        .bn .facts { display: flex; gap: 6px; flex-wrap: wrap; }
+        .bn .act { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding-top: 2px; }
+        .bn .done { color: var(--ok); font-size: 13px; font-weight: 600; }
+        .bn .code { font-family: var(--mono); font-size: 12px; background: var(--code-bg); border: 1px solid var(--line-2); border-radius: 5px; padding: 0 5px; white-space: nowrap; }
+        .bn .chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+        .bn .chip { background: var(--panel); border: 1px solid var(--line-2); border-radius: 999px; padding: 4px 12px; font-size: 12.5px; color: var(--text-2); }
+        .bn .chip:hover { text-decoration: none; color: var(--text); }
+        .bn .chip.on { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent); font-weight: 600; }
+        .bn .chips .lbl { font-size: 12px; color: var(--dim); margin: 0 2px 0 8px; }
+        .bn .explain { font-size: 12.5px; color: var(--text-2); background: var(--panel); border: 1px dashed var(--line-2); border-radius: 10px; padding: 10px 14px; margin-top: 14px; }
+        .bn .pager { display: flex; gap: 8px; align-items: center; margin-top: 12px; font-size: 12.5px; color: var(--dim); }
+        /* study timeline */
+        .bn .study-head { display: flex; justify-content: space-between; gap: 14px; flex-wrap: wrap; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; }
+        .bn .study-head h2 { font-size: 20px; font-weight: 800; font-family: var(--mono); margin: 0; }
+        .bn .kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 4px 18px; font-size: 13px; flex: 1; max-width: 720px; }
+        .bn .kv span { display: block; font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .06em; }
+        .bn .steps { display: flex; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px 10px 14px; margin-bottom: 10px; overflow-x: auto; }
+        .bn .step { position: relative; flex: 1 0 104px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 3px; padding: 0 4px; }
+        .bn .step::before { content: ""; position: absolute; top: 9px; left: -50%; right: 50%; height: 2px; background: var(--line-2); }
+        .bn .step:first-child::before { display: none; }
+        .bn .step .dot { position: relative; z-index: 1; width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--line-2); background: var(--bg); display: grid; place-items: center; font-size: 11px; font-weight: 900; }
+        .bn .step.ok .dot { border-color: var(--ok); background: var(--ok-soft); color: var(--ok); }
+        .bn .step.bad .dot { border-color: var(--bad); background: var(--bad-soft); color: var(--bad); }
+        .bn .step.wait .dot { border-color: var(--warn); background: var(--warn-soft); color: var(--warn); }
+        .bn .step.miss .dot, .bn .step.off .dot { border-style: dashed; }
+        .bn .step b { font-size: 12.5px; } .bn .step .tm { font-family: var(--mono); font-size: 12px; }
+        .bn .step small { font-size: 11px; color: var(--dim); }
+        .bn .step.bad small.note { color: var(--bad); } .bn .step.wait small.note { color: var(--warn); }
+        .bn .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--text-2); margin: 6px 0 12px; }
+        .bn .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+        .bn .cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+        .bn .box { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; min-width: 0; }
+        .bn .box h3 { font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: .1em; color: var(--text-2); margin: 0 0 10px; }
+        .bn .rows { display: flex; flex-direction: column; gap: 7px; font-size: 13px; }
+        .bn .rows > div { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px dashed var(--line); padding-bottom: 6px; }
+        .bn .rows > div:last-child { border-bottom: 0; }
+        .bn .rows > div span:first-child { color: var(--text-2); }
+        .bn .note-item { display: flex; flex-direction: column; gap: 4px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+        .bn .note-item:first-child { padding-top: 0; } .bn .note-item:last-child { border-bottom: 0; padding-bottom: 0; }
+        .bn .toggle { position: relative; width: 34px; height: 20px; border-radius: 999px; background: var(--line-2); border: 0; cursor: pointer; flex: none; }
+        .bn .toggle::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: var(--text-2); transition: left .15s; }
+        .bn .toggle.on { background: var(--accent); } .bn .toggle.on::after { left: 17px; background: #0a1020; }
+        .bn .toggle[disabled] { opacity: .55; cursor: not-allowed; }
+        .bn input.lim { width: 80px; padding: 3px 7px; text-align: right; font-variant-numeric: tabular-nums; }
+        .bn .empty { padding: 26px; text-align: center; color: var(--text-2); background: var(--panel); border: 1px dashed var(--line-2); border-radius: 10px; font-size: 13px; }
+        /* drawer: one message */
+        .bn-drawer { position: fixed; inset: 0; z-index: 60; background: rgba(5,8,7,.72); display: flex; justify-content: flex-end; }
+        .bn-drawer[hidden] { display: none; }
+        .bn-drawer .panel { width: min(1180px, 100%); height: 100%; overflow: auto; background: #181f1c; border-left: 1px solid #3a4842; padding: 18px 20px 28px; }
+        .bn .dhead { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 12px; flex-wrap: wrap; }
+        .bn .dhead h2 { font-size: 18px; font-weight: 800; margin: 0; }
+        .bn .dhead .meta { color: var(--text-2); font-size: 13px; margin-top: 3px; }
+        .bn .verdict { border: 1px solid; border-radius: 10px; padding: 11px 14px; margin-bottom: 12px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: center; }
+        .bn .verdict.in { border-color: var(--ok-line); background: var(--ok-soft); }
+        .bn .verdict.held { border-color: var(--bad-line); background: var(--bad-soft); }
+        .bn .verdict.wait { border-color: var(--line-2); background: var(--panel); }
+        .bn .verdict strong { font-size: 15px; } .bn .verdict p { margin: 2px 0 0; font-size: 13px; color: var(--text-2); max-width: 90ch; }
+        .bn .read { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; margin-bottom: 10px; }
+        .bn .read div { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 11px; min-width: 0; }
+        .bn .read div span { display: block; font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .06em; }
+        .bn .read div b { font-weight: 600; word-break: break-word; }
+        .bn .read div.problem { border-color: var(--bad-line); background: var(--bad-soft); }
+        .bn .split { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 12px; }
+        .bn .raw { background: var(--code-bg); border: 1px solid var(--line); border-radius: 10px; padding: 12px; overflow-x: auto; font-family: var(--mono); font-size: 12px; line-height: 1.85; white-space: pre; }
+        .bn .raw .sg { color: var(--accent); font-weight: 600; }
+        .bn .raw .f { cursor: pointer; border-radius: 3px; }
+        .bn .raw .f:hover { background: var(--panel-2); }
+        .bn .raw .f.used { color: #bfdbfe; background: var(--accent-soft); }
+        .bn .raw .f.prob { color: #fecaca; background: var(--bad-soft); outline: 1px solid var(--bad-line); }
+        .bn .raw .f.sugg { color: #bbf7d0; background: var(--ok-soft); }
+        .bn .raw .f.sel { outline: 2px solid var(--accent); }
+        .bn .tree { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; min-width: 0; }
+        .bn .tree .tg { padding: 8px 12px; background: var(--panel-2); border-bottom: 1px solid var(--line); font-size: 12.5px; }
+        .bn .tree .tg b { font-family: var(--mono); color: var(--accent); }
+        .bn .fr { display: grid; grid-template-columns: 64px minmax(0, 1fr) minmax(0, 1.1fr); gap: 10px; padding: 6px 12px; border-bottom: 1px solid var(--line); font-size: 12.5px; align-items: start; }
+        .bn .fr .k { font-family: var(--mono); color: var(--text-2); }
+        .bn .fr .v { font-family: var(--mono); word-break: break-all; }
+        .bn .fr .v.empty { color: var(--dim); font-style: italic; font-family: inherit; }
+        .bn .fr .why { grid-column: 2 / -1; font-size: 12px; }
+        .bn .fr.used { background: var(--accent-soft); } .bn .fr.used .why { color: var(--accent); }
+        .bn .fr.prob { background: var(--bad-soft); } .bn .fr.prob .why { color: var(--bad); }
+        .bn .fr.sugg { background: var(--ok-soft); } .bn .fr.sugg .why { color: var(--ok); }
+        .bn .fr.sel { outline: 2px solid var(--accent); outline-offset: -2px; }
+        .bn-toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 70; background: #26302b; border: 1px solid rgba(52,211,153,.4); color: #e3ebe6; border-radius: 10px; padding: 10px 16px; box-shadow: 0 10px 30px rgba(0,0,0,.45); max-width: min(680px, calc(100vw - 32px)); font-size: 13.5px; }
+        .bn-toast.err { border-color: rgba(248,113,113,.5); }
+        .bn-toast[hidden] { display: none; }
+        @media (max-width: 1000px) { .bn .split, .bn .cols { grid-template-columns: minmax(0, 1fr); } }
+        @media (max-width: 760px) { .bn .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+        @media (prefers-reduced-motion: reduce) { .bn * { transition: none !important; } }
+    </style>
 </head>
-<body>
-{% set s = summary %}
-<header>
-  <a href="/" class="sub" style="color:var(--accent)" title="Back to RAYD">&larr; RAYD</a>
-  <h1>BRAYN</h1>
-  <span class="sub">Every HL7 message is checked on arrival. Only a message that cannot be
-    identified or classified is kept out of the reports.</span>
+<body class="flex flex-col h-screen overflow-hidden">
+{% include '_header.html' %}
+<div class="flex flex-1 overflow-hidden">
+{% include '_sidebar.html' %}
+<main class="flex-1 overflow-y-auto p-4 md:p-6 bg-[#181f1c]">
+<div class="bn">
+{% macro when(t) %}{% if t %}<b>{{ X.clock(t, now) }}</b><span>{{ X.ago(t, now) }}</span>{% else %}<span class="dim">-</span>{% endif %}{% endmacro %}
+{% macro pill(o) %}<span class="pill {{ o[0] }}">{{ o[1] }}</span>{% endmacro %}
+
+<header class="top">
+  <div>
+    <h1>BRAYN</h1>
+    <p>Every HL7 message RAYD receives: is it in the reports, and if not, what to fix.</p>
+  </div>
+  <form class="find" method="get" action="/brayn" autocomplete="off">
+    <input type="hidden" name="view" value="find">
+    <input type="search" name="q" placeholder="Find an accession, order number, MSH-10 or MRN" aria-label="Find">
+    <button class="btn" type="submit">Find</button>
+  </form>
 </header>
 
-<div class="wrap">
+<nav class="tabs" aria-label="BRAYN sections">
+  {% for key, label in [('status','Feed status'), ('fix','To fix'), ('messages','Messages'), ('study','Study timeline'), ('notes','Study notes'), ('settings','Settings')] %}
+  <a class="tab {{ 'on' if view == key }}" href="/brayn?view={{ key }}">{{ label }}
+    {% if key == 'fix' and c.to_fix %}<span class="badge {{ 'bad' if c.blocking else 'warn' }}">{{ c.to_fix }}</span>{% endif %}
+    {% if key == 'notes' and c.notes %}<span class="badge warn">{{ c.notes }}</span>{% endif %}
+  </a>
+  {% endfor %}
+</nav>
 
-  <div class="tiles">
-    <div class="tile {% if s.held %}crit{% else %}ok{% endif %}">
-      <div class="n">{{ s.held or 0 }}</div><div class="l">Held messages</div></div>
-    <div class="tile {% if s.open_quality %}warn{% endif %}">
-      <div class="n">{{ s.open_quality or 0 }}</div><div class="l">Study quality notes</div></div>
-    <div class="tile {% if s.open_workflow %}warn{% endif %}">
-      <div class="n">{{ s.open_workflow or 0 }}</div><div class="l">Workflow (stalled…)</div></div>
-    <div class="tile {% if s.open_alerts %}warn{% endif %}">
-      <div class="n">{{ s.open_alerts or 0 }}</div><div class="l">Interface alerts</div></div>
-    <div class="tile"><div class="n">{{ s.unknown_values or 0 }}</div><div class="l">Unknown values</div></div>
-    <div class="tile"><div class="n">{{ s.studies or 0 }}</div><div class="l">Studies tracked</div></div>
-    <div class="tile"><div class="n">{{ s.messages or 0 }}</div><div class="l">Messages archived</div></div>
-    <div class="tile"><div class="n">{{ s.last_24h or 0 }}</div><div class="l">Last 24 hours</div></div>
+{% if not c.any_message %}
+  <div class="empty" style="margin-bottom:16px"><strong>No HL7 message has been received yet.</strong><br>
+    RAYD listens for MLLP on port 6661 of this server. Point each sender there and check the
+    firewall; the first message appears on this page as soon as it arrives.{% if view != 'settings' %}
+    Settings can be prepared before then.{% endif %}</div>
+{% endif %}
+
+{# Settings are prepared before the first message arrives; every other screen waits for one. #}
+{% if not c.any_message and view != 'settings' %}
+
+{# ═════════════════════════════ FEED STATUS ═════════════════════════════ #}
+{% elif view == 'status' %}
+  {% if c.held %}
+  <div class="banner"><div><strong>{{ c.held }} message{{ 's are' if c.held != 1 else ' is' }} not in the reports</strong>
+    <p>{{ c.blocking }} configuration fix{{ 'es' if c.blocking != 1 }} will release {{ 'them' if c.held != 1 else 'it' }}. Held messages are stored safely; nothing has been lost.</p></div>
+    <a class="btn primary" href="/brayn?view=fix">Go to To fix</a></div>
+  {% else %}
+  <div class="banner ok"><div><strong>Every message received is in the reports</strong>
+    <p>Nothing is held.{% if c.to_fix %} {{ c.to_fix }} item{{ 's' if c.to_fix != 1 }} in To fix still need{{ 's' if c.to_fix == 1 }} a look.{% endif %}</p></div></div>
+  {% endif %}
+  <div class="stats">
+    <div class="stat {{ 'bad' if c.held else 'ok' }}"><b>{{ c.held }}</b><span>Not in reports (held)</span></div>
+    <div class="stat {{ 'warn' if c.to_fix + c.notes }}"><b>{{ c.to_fix + c.notes }}</b><span>Need a look (to fix + study notes)</span></div>
+    <div class="stat"><b>{{ '{:,}'.format(today) }}</b><span>Messages received today</span></div>
+    <div class="stat ok"><b>{% if today %}{{ '%.1f' % ((today - today_held) * 100.0 / today) }}%{% else %}-{% endif %}</b><span>Of today's messages are in the reports</span></div>
   </div>
 
-  <nav>
-    {% for key, label in [('summary','Overview'), ('held','Held'), ('findings','Notes & findings'),
-                          ('health','Interface health'), ('messages','Messages')] %}
-      <a href="/brayn?view={{ key }}" class="{{ 'on' if view == key }}">{{ label }}{% if key == 'held' and s.held %}<span class="n">{{ s.held }}</span>{% endif %}</a>
+  <div class="sec"><h2>Senders</h2><span class="dim">Last 12 hours · click a sender for its messages</span></div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Sender (MSH-3)</th><th>Status</th><th>Last message</th><th>Per hour</th><th class="num">Last hour</th><th class="num">Today</th><th class="num">Held</th><th>Sender alerts</th></tr></thead>
+    <tbody>
+    {% for s in senders %}
+      <tr class="click" data-href="/brayn?view=messages&sender={{ s.key|urlencode }}">
+        <td><b class="mono">{{ s.app }}</b></td>
+        <td>{{ pill(s.status) }}</td>
+        <td class="when">{{ when(s.last) }}</td>
+        <td><svg width="108" height="26" viewBox="0 0 108 26" aria-hidden="true">{% for v in s.bars %}{% set h = [1.5, (v / s.peak) * 23]|max %}<rect x="{{ '%.1f' % (loop.index0 * 9 + 1) }}" y="{{ '%.1f' % (26 - h) }}" width="7" height="{{ '%.1f' % h }}" rx="1" fill="{{ '#60a5fa' if loop.last else '#3a4842' }}"/>{% endfor %}</svg></td>
+        <td class="num">{{ s.last_hour }}</td>
+        <td class="num">{{ '{:,}'.format(s.today) }}</td>
+        <td class="num" style="color:{{ 'var(--bad)' if s.held else 'var(--dim)' }}">{{ s.held }}</td>
+        <td>{% if s.alerts %}<a class="pill warn" href="/brayn?view=fix">{{ s.alerts }} open</a>{% else %}<span class="dim">none</span>{% endif %}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="8" class="dim">No traffic counted in the last 12 hours.</td></tr>
     {% endfor %}
-  </nav>
+    </tbody></table></div>
 
-  {% if not s.messages %}
-    <div class="empty">
-      <strong>No messages have ever been received.</strong><br>
-      BRAYN is running and has nothing to screen. On this branch that is almost always the
-      interface rather than the application: confirm the senders are pointed at port 6661
-      on this host and that the firewall allows them.
-    </div>
-
-  {# ── OVERVIEW ────────────────────────────────────────────────────────── #}
-  {% elif view == 'summary' %}
-    {% if not rows %}
-      <div class="empty">Nothing to report. Every message so far was identified, classified
-        and consistent.</div>
-    {% else %}
-    <table>
-      <thead><tr>
-        <th>Layer</th><th>Severity</th><th>Rule</th><th class="num">Open</th>
-        <th class="num">Total</th><th class="num">Studies</th><th>Last seen</th><th></th>
-      </tr></thead>
-      <tbody>
-      {% for r in rows %}
-        <tr>
-          <td><span class="layer {{ r.layer }}">{{ r.layer }}</span></td>
-          <td><span class="sev {{ r.severity }}">{{ r.severity }}</span></td>
-          <td>
-            <span class="mono">{{ r.rule_code }}</span>
-            {% if r.title %}<div class="dim" style="font-size:11px">{{ r.title }}</div>{% endif %}
-          </td>
-          <td class="num" style="color:{{ 'var(--yellow)' if r.open else 'var(--text-dim)' }}">{{ r.open }}</td>
-          <td class="num dim">{{ r.total }}</td>
-          <td class="num dim">{{ r.studies or '—' }}</td>
-          <td class="mono dim">{{ r.last_seen.strftime('%m-%d %H:%M') if r.last_seen }}</td>
-          <td><a href="/brayn?view={{ 'held' if r.layer == 'intake' else 'findings' }}&rule={{ r.rule_code }}&show=open">inspect</a></td>
-        </tr>
+  <div class="sec"><h2>Sender behaviour, last hour</h2><span class="dim">Never blocks data. The bar's middle line is the alert limit.</span></div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Sender</th><th>What</th><th class="num">Count</th><th>Rate</th><th class="num">Alert above</th></tr></thead>
+    <tbody>
+    {% for b in behaviour %}
+      {% for m in b.metrics %}
+      <tr>
+        {% if loop.first %}<td rowspan="{{ b.metrics|length }}"><b class="mono">{{ b.app }}</b><span class="dim" style="display:block;font-size:12px">{{ b.messages }} messages</span></td>{% endif %}
+        <td>{{ m.title }}</td>
+        <td class="num">{{ m.n }}</td>
+        <td>{% if m.limit is none %}<span class="dim">{{ 'counted, never an alert' if m.n else 'none' }}</span>
+            {% elif m.pct is none %}<span class="dim">-</span>
+            {% else %}<div class="meter {{ 'over' if m.over }}"><div class="bar"><i style="width:{{ [100, (m.pct / (m.limit * 2) * 100) if m.limit else 100]|min }}%"></i><u></u></div>
+              <span class="mono" style="color:{{ 'var(--bad)' if m.over else 'var(--text-2)' }}">{{ m.pct }}%</span></div>{% endif %}</td>
+        <td class="num dim">{{ (m.limit|string) ~ '%' if m.limit is not none else '-' }}</td>
+      </tr>
       {% endfor %}
-      </tbody>
-    </table>
-    <p class="dim" style="font-size:12px;margin-top:10px">
-      <strong>Intake</strong> items are messages kept out of the reports.
-      <strong>Quality</strong> and <strong>workflow</strong> notes describe studies; they never
-      withhold data, and quality notes close themselves when the study becomes consistent.
-      <strong>Interface</strong> rows are alerts on a sender's rates — see Interface health.
-    </p>
-    {% endif %}
-
-  {# ── HELD ────────────────────────────────────────────────────────────── #}
-  {% elif view == 'held' %}
-    <div class="callout">
-      <h3>What “held” means</h3>
-      <p>
-        These messages <strong>were received and are stored safely</strong> — nothing has been
-        lost. BRAYN could not attach them to a study (no accession and no order number) or
-        could not classify them (a status code with no mapping), so their contents have not
-        reached the reports.
-      </p>
-      <p class="fix">
-        To release them: fix the cause — map the status code in the mapping studio, or point
-        the accession mapping at the field this sender really uses — then press
-        <em>Replay held messages</em>. Each one is checked again; those that now pass go into
-        the reports, the rest stay here.
-      </p>
-    </div>
-
-    <div class="bar">
-      <button onclick="replayHeld('')" {% if not total %}disabled{% endif %}>Replay held messages</button>
-      <span class="dim" id="replayResult" style="font-size:12px"></span>
-    </div>
-
-    {% if not rows %}
-      <div class="empty">Nothing is held. Every message received has reached the reports.</div>
     {% else %}
-    <table>
-      <thead><tr>
-        <th>Why</th><th>Sender</th><th>What</th><th class="num">Messages</th>
-        <th class="num">Studies</th><th>Last held</th><th></th>
-      </tr></thead>
-      <tbody>
-      {% for r in rows %}
-        <tr>
-          <td><span class="sev critical">{{ r.rule_code }}</span></td>
-          <td class="mono">{{ r.sending_app or '—' }}</td>
-          <td class="mono">{{ r.what }}</td>
-          <td class="num">{{ r.messages }}</td>
-          <td class="num dim">{{ r.studies or '—' }}</td>
-          <td class="mono dim">{{ r.last_held.strftime('%m-%d %H:%M') if r.last_held }}</td>
-          <td style="white-space:nowrap">
-            <button onclick="showMessage({{ r.sample_archive_id }})">Sample</button>
-            <button onclick="replayHeld('{{ r.rule_code }}')">Replay these</button>
-          </td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
+      <tr><td colspan="5" class="dim">No messages counted in the last hour.</td></tr>
+    {% endfor %}
+    </tbody></table></div>
+  <div class="explain"><b>ACK:</b> RAYD answers every message with <span class="code">MSA-1 = AA</span>, held ones included, because each message is stored before the answer goes out. Only a failure to store it answers <span class="code">AE</span>. Out-of-order and resent messages never change a study: BRAYN rebuilds each study in time order.</div>
+
+{# ═════════════════════════════ TO FIX ═════════════════════════════ #}
+{% elif view == 'fix' %}
+  <div class="sec" style="margin-top:0"><h2>Blocks data: not in reports</h2><span class="dim">Fix the cause, then reprocess. Nothing is lost while you do.</span></div>
+  <div class="cards">
+  {% for g in c.groups %}
+    {% if g.rule_code == 'UNKNOWN_STATUS_CODE' and not g.order_status %}
+    <article class="card bad">
+      <div class="head"><h3>No status code in ORC-5{% if g.order_control %} (ORC-1 = <span class="code">{{ g.order_control }}</span>){% endif %} from {{ g.sending_app or '(blank MSH-3)' }}</h3>
+        <div class="facts"><span class="pill bad">Not in reports</span><span class="pill plain">{{ g.messages }} message{{ 's' if g.messages != 1 }}</span></div></div>
+      <p class="why">These messages carry no ORC-5 value{% if g.order_control %}, and <span class="code">ORC-1 = {{ g.order_control }}</span> is not a new-order or cancel code{% else %} (or no ORC at all){% endif %}, so BRAYN can't tell which step they are. Usually fixed at the sender (fill ORC-5), or by mapping the field that holds the status in HL7 Mapping → Field mapping, target "order status". Then reprocess. First held {{ X.clock(g.first_held, now) }}, last {{ X.clock(g.last_held, now) }}.</p>
+      <div class="act">
+        <button class="btn" type="button" data-open="{{ g.sample_archive_id }}">See a held message</button>
+        {% if can_configure %}<a class="btn" href="/mapping/hl7">Open HL7 Mapping</a>{% endif %}
+        <button class="btn" type="button" data-replay="UNKNOWN_STATUS_CODE" data-sender="{{ g.sending_app }}">Reprocess</button>
+      </div>
+    </article>
+    {% elif g.rule_code == 'UNKNOWN_STATUS_CODE' %}
+    {% set code = g.order_status %}
+    <article class="card bad">
+      <div class="head"><h3>Status code not mapped: <span class="code">ORC-5 = {{ g.order_status or '(empty)' }}</span> from {{ g.sending_app or '(blank MSH-3)' }}</h3>
+        <div class="facts"><span class="pill bad">Not in reports</span><span class="pill plain">{{ g.messages }} message{{ 's' if g.messages != 1 }}</span>{% if g.studies %}<span class="pill plain">{{ g.studies }} stud{{ 'ies' if g.studies != 1 else 'y' }}</span>{% endif %}</div></div>
+      <p class="why">BRAYN can't tell which lifecycle step <span class="code">{{ code or '(empty)' }}</span> means{% if g.order_control %} (with <span class="code">ORC-1 = {{ g.order_control }}</span>){% endif %}, so these messages are stored but not applied to their studies. First held {{ X.clock(g.first_held, now) }}, last {{ X.clock(g.last_held, now) }}.</p>
+      {% if g.mapped_to %}
+      <div class="act"><span class="done">Mapped since: {{ code }} → {{ X.step_label(g.mapped_to) }}.</span><span class="t2">The held messages wait until you reprocess them.</span>
+        <button class="btn primary" type="button" data-replay="UNKNOWN_STATUS_CODE" data-sender="{{ g.sending_app }}">Reprocess {{ g.messages }} held message{{ 's' if g.messages != 1 }}</button></div>
+      {% elif can_configure and g.order_status %}
+      <form class="act" data-statusmap data-code="{{ g.order_status }}" data-control="">
+        <label class="t2" for="st{{ loop.index }}">Map <span class="code">{{ code }}</span> to</label>
+        <select class="sel" id="st{{ loop.index }}" name="state">{% for s in ['ordered','scheduled','arrived','started','completed','cancelled'] %}<option value="{{ s }}" {{ 'selected' if s == 'arrived' }}>{{ X.step_label(s) }}</option>{% endfor %}</select>
+        <select class="sel" name="scope" aria-label="Applies to">
+          <option value="">for every sender</option>
+          {% if g.sending_app %}<option value="{{ g.sending_app }}">only for {{ g.sending_app }}</option>{% endif %}
+        </select>
+        <button class="btn primary" type="submit">Save mapping</button>
+        <button class="btn ghost" type="button" data-open="{{ g.sample_archive_id }}">See a held message</button>
+      </form>
+      {% else %}
+      <div class="act"><span class="t2">An implementation engineer can map <span class="code">{{ code or '(empty)' }}</span> here or in HL7 Mapping → Status codes.</span>
+        <button class="btn ghost" type="button" data-open="{{ g.sample_archive_id }}">See a held message</button></div>
+      {% endif %}
+    </article>
+    {% elif g.rule_code == 'MISSING_IDENTIFIER' %}
+    <article class="card bad">
+      <div class="head"><h3>No accession or order number in {{ g.message_type or 'messages' }} from {{ g.sending_app or '(blank MSH-3)' }}</h3>
+        <div class="facts"><span class="pill bad">Not in reports</span><span class="pill plain">{{ g.messages }} message{{ 's' if g.messages != 1 }}</span></div></div>
+      <p class="why">BRAYN looks for the accession in <span class="code">ORC-3</span> / <span class="code">OBR-3</span> and the order number in <span class="code">ORC-2</span> / <span class="code">OBR-2</span>. All are empty in these messages, so they can't be attached to a study. If this sender puts the accession elsewhere, pick that field once and reprocess. First held {{ X.clock(g.first_held, now) }}, last {{ X.clock(g.last_held, now) }}.</p>
+      <div class="act">
+        <button class="btn {{ 'primary' if can_configure else '' }}" type="button" data-open="{{ g.sample_archive_id }}" data-pick="{{ 1 if can_configure else '' }}">{{ 'Open a message and pick the field' if can_configure else 'See a held message' }}</button>
+        <button class="btn" type="button" data-replay="MISSING_IDENTIFIER" data-sender="{{ g.sending_app }}">Reprocess {{ g.messages }} held message{{ 's' if g.messages != 1 }}</button>
+      </div>
+    </article>
     {% endif %}
+  {% else %}
+    <div class="explain" style="margin-top:0">Nothing is held. Every message received is in the reports.</div>
+  {% endfor %}
+  </div>
 
-  {# ── NOTES & FINDINGS ────────────────────────────────────────────────── #}
-  {% elif view == 'findings' %}
-    <form class="filters" method="get">
-      <input type="hidden" name="view" value="findings">
-      <input type="search" name="q" placeholder="accession, patient, sender or control ID" value="{{ search }}">
-      <select name="layer">
-        <option value="">All layers</option>
-        {% for l in layers %}
-        <option value="{{ l }}" {% if layer==l %}selected{% endif %}>{{ l }}</option>
-        {% endfor %}
-      </select>
-      <select name="severity">
-        <option value="">All severities</option>
-        {% for sv in ['critical','warning','info'] %}
-        <option value="{{ sv }}" {% if severity==sv %}selected{% endif %}>{{ sv }}</option>
-        {% endfor %}
-      </select>
-      <select name="rule">
-        <option value="">All rules</option>
-        {% for r in rule_options %}
-        <option value="{{ r.rule_code }}" {% if rule==r.rule_code %}selected{% endif %}>
-          {{ r.rule_code }} ({{ r.open }} open)</option>
-        {% endfor %}
-      </select>
-      <select name="show">
-        {% for v,l in [('open','Open only'),('resolved','Resolved only'),('all','Everything')] %}
-        <option value="{{ v }}" {% if show==v %}selected{% endif %}>{{ l }}</option>
-        {% endfor %}
-      </select>
-      <button type="submit">Filter</button>
-      <a href="/brayn?view=findings">Reset</a>
-    </form>
-
-    {% if not rows %}
-      <div class="empty">Nothing matches these filters.</div>
-    {% else %}
-    <table>
-      <thead><tr>
-        <th>Layer</th><th>Severity</th><th>Rule</th><th>Study / sender</th><th>Detail</th>
-        <th>When</th><th>Status</th><th></th>
-      </tr></thead>
-      <tbody>
-      {% for f in rows %}
-        <tr>
-          <td><span class="layer {{ f.layer }}">{{ f.layer }}</span></td>
-          <td><span class="sev {{ f.severity }}">{{ f.severity }}</span></td>
-          <td class="mono">{{ f.rule_code }}</td>
-          <td class="mono">{{ f.accession_number or f.sending_app or '—' }}</td>
-          <td class="detail">{{ f.detail }}</td>
-          <td class="mono dim">{{ f.created_at.strftime('%m-%d %H:%M') if f.created_at }}</td>
-          <td>{% if f.resolved_at %}<span class="dim">{{ f.resolution }}</span>
-              {% else %}<span style="color:var(--yellow)">open</span>{% endif %}</td>
-          <td style="white-space:nowrap">
-            {% if f.message_archive_id %}
-              <button onclick="showMessage({{ f.message_archive_id }})">Message</button>
-            {% endif %}
-            {% if not f.resolved_at %}
-              <button onclick="resolveFinding({{ f.id }}, 'cleared')">Resolve</button>
-              <button onclick="resolveFinding({{ f.id }}, 'ignored')" title="Close, and do not reopen this note for this study">Ignore</button>
-            {% endif %}
-          </td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
+  <div class="sec"><h2>In reports, but incomplete</h2><span class="dim">Values RAYD doesn't know yet</span></div>
+  <div class="cards">
+  {% for u in c.unknowns %}
+    <article class="card warn">
+    {% if u.kind == 'aetitle' %}
+      <div class="head"><h3>Unknown device <span class="code">{{ u.value }}</span> from {{ u.sending_app or '(blank MSH-3)' }}</h3>
+        <div class="facts"><span class="pill ok">In reports</span><span class="pill plain">seen {{ u.n }}×</span><span class="pill plain">since {{ X.clock(u.first_seen, now) }}</span></div></div>
+      <p class="why">These studies are in the reports, but with no modality for this device, so they are missing from every per-modality and per-device chart until it is mapped.</p>
+      <div class="act">
+      {% if can_configure %}<form class="act" data-device data-ae="{{ u.value }}" style="padding:0">
+          <label class="t2" for="ae{{ loop.index }}">{{ u.value }} is a</label>
+          <select class="sel" id="ae{{ loop.index }}" name="modality">{% for m in modalities %}<option>{{ m }}</option>{% endfor %}</select>
+          <button class="btn primary" type="submit">Save device</button></form>
+      {% else %}<span class="t2">An implementation engineer can map this device here or in Mapping → Modality.</span>{% endif %}
+      {% if u.sample_archive_id %}<button class="btn ghost" type="button" data-open="{{ u.sample_archive_id }}">See a message</button>{% endif %}</div>
+    {% elif u.kind == 'result_status' %}
+      <div class="head"><h3>Result status not mapped: <span class="code">OBX-11 = {{ u.value }}</span> from {{ u.sending_app or '(blank MSH-3)' }}</h3>
+        <div class="facts"><span class="pill ok">In reports</span><span class="pill plain">seen {{ u.n }}×</span></div></div>
+      <p class="why">The reports are stored, but BRAYN can't tell whether they are preliminary or final, so their signature times stay empty and turnaround stops at "reported".</p>
+      <div class="act">
+      {% if can_configure %}<form class="act" data-resultmap data-value="{{ u.value }}" data-app="{{ u.sending_app }}" style="padding:0">
+          <label class="t2" for="rs{{ loop.index }}"><span class="code">{{ u.value }}</span> means</label>
+          <select class="sel" id="rs{{ loop.index }}" name="state"><option value="signed_prelim">Preliminary report</option><option value="signed_final">Final report</option></select>
+          <button class="btn primary" type="submit">Save</button></form>
+      {% else %}<span class="t2">An implementation engineer can map this value here.</span>{% endif %}
+      {% if u.sample_archive_id %}<button class="btn ghost" type="button" data-open="{{ u.sample_archive_id }}">See a message</button>{% endif %}</div>
+    {% elif u.kind == 'rung' %}
+      <div class="head"><h3>{{ X.step_label(u.value) }} received from {{ u.sending_app or '(blank MSH-3)' }}, but switched off for this site</h3>
+        <div class="facts"><span class="pill ok">In reports</span><span class="pill plain">seen {{ u.n }}×</span></div></div>
+      <p class="why">The step is recorded, but the delay checks skip it because Settings say this site doesn't send it. Turn it on if this sender really does.</p>
+      <div class="act">
+      {% if can_configure %}<button class="btn primary" type="button" data-rung="{{ u.value }}" data-expected="1">Turn {{ X.step_label(u.value) }} on</button>{% endif %}
+      {% if u.sample_archive_id %}<button class="btn ghost" type="button" data-open="{{ u.sample_archive_id }}">See a message</button>{% endif %}</div>
     {% endif %}
+    </article>
+  {% else %}
+    <div class="explain" style="margin-top:0">Every device, result status and lifecycle step seen is mapped.</div>
+  {% endfor %}
+  </div>
 
-  {# ── INTERFACE HEALTH ────────────────────────────────────────────────── #}
-  {% elif view == 'health' %}
-    <p class="dim" style="font-size:12px;margin-top:0">
-      How each sender is behaving. None of this withholds data: redeliveries are stored
-      once, reused control IDs and out-of-order messages are ingested normally — the
-      lifecycle does not depend on delivery order. A rate becomes an alert only when it
-      crosses the threshold set on its rule.
-    </p>
+  <div class="sec"><h2>Sender behaviour</h2><span class="dim">Only shown when a rate passes its limit</span></div>
+  <div class="cards">
+  {% for a in c.alerts %}
+    <article class="card info">
+      <div class="head"><h3>{{ a.sending_app or '(blank MSH-3)' }}: {{ X.rule_title(a.rule_code) }}</h3>
+        <div class="facts"><span class="pill ok">Data not affected</span><span class="pill plain">since {{ X.clock(a.created_at, now) }}</span></div></div>
+      <p class="why">{{ X.note_sentence(a.rule_code, a.detail, now) }} {{ X.rule_what(a.rule_code) }} It closes by itself when the rate drops back under the limit.</p>
+      <div class="act"><a class="btn" href="/brayn?view=messages&sender={{ (a.sending_app or '')|urlencode }}">See {{ a.sending_app or 'these' }} messages</a>
+        <button class="btn ghost" type="button" data-resolve="{{ a.id }}" data-resolution="cleared" data-msg="Acknowledged. It reopens if the rate is still over the limit at the next check.">Acknowledge</button></div>
+    </article>
+  {% else %}
+    <div class="explain" style="margin-top:0">No sender is over a limit.</div>
+  {% endfor %}
+  </div>
 
-    <h2>Open alerts</h2>
-    {% if not alerts %}
-      <div class="empty">No sender is over a threshold.</div>
-    {% else %}
-    <table>
-      <thead><tr><th>Sender</th><th>Rule</th><th>Last hour</th><th>Since</th><th></th></tr></thead>
-      <tbody>
-      {% for a in alerts %}
-        <tr>
-          <td class="mono">{{ a.sending_app or '—' }}</td>
-          <td><span class="mono">{{ a.rule_code }}</span>
-              {% if a.title %}<div class="dim" style="font-size:11px">{{ a.title }}</div>{% endif %}</td>
-          <td class="mono">{{ a.detail.rate_pct }}% ({{ a.detail.count }} of {{ a.detail.messages }},
-              threshold {{ a.detail.threshold_pct }}%)</td>
-          <td class="mono dim">{{ a.created_at.strftime('%m-%d %H:%M') if a.created_at }}</td>
-          <td><button onclick="resolveFinding({{ a.id }}, 'cleared')">Resolve</button></td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
-    {% endif %}
-
-    <h2>Senders</h2>
-    {% if not rows %}
-      <div class="empty">No traffic counted in the last 24 hours.</div>
-    {% else %}
-    <table>
-      <thead><tr>
-        <th>Sender</th><th class="num">Msgs 1 h</th><th class="num">Held 1 h</th>
-        <th class="num">Msgs 24 h</th><th class="num">Held 24 h</th><th>Rates (1 h · 24 h)</th>
-      </tr></thead>
-      <tbody>
-      {% for r in rows %}
-        <tr>
-          <td class="mono">{{ r.sending_app }}</td>
-          <td class="num">{{ r.hour_messages }}</td>
-          <td class="num" style="color:{{ 'var(--red)' if r.hour_held else 'var(--text-dim)' }}">{{ r.hour_held }}</td>
-          <td class="num">{{ r.day_messages }}</td>
-          <td class="num" style="color:{{ 'var(--red)' if r.day_held else 'var(--text-dim)' }}">{{ r.day_held }}</td>
-          <td class="detail">
-            {% for m in r.metrics %}
-              <div>{{ m.code }}: {{ m.hour }}{% if m.hour_pct is not none %} ({{ m.hour_pct }}%){% endif %}
-                · {{ m.day }}{% if m.day_pct is not none %} ({{ m.day_pct }}%){% endif %}</div>
-            {% else %}<span class="dim">clean</span>{% endfor %}
-          </td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
-    {% endif %}
-
-    <h2>Values this install does not know yet</h2>
-    {% if not unknown %}
-      <div class="empty">None. Every AE title, status code and result status seen is mapped.</div>
-    {% else %}
-    <table>
-      <thead><tr><th>Kind</th><th>Sender</th><th>Value</th><th class="num">Seen</th>
-                 <th>First</th><th>Last</th><th></th></tr></thead>
-      <tbody>
-      {% for u in unknown %}
-        <tr>
-          <td class="mono">{{ u.kind }}</td>
-          <td class="mono">{{ u.sending_app or '—' }}</td>
-          <td class="mono">{{ u.value }}</td>
-          <td class="num">{{ u.n }}</td>
-          <td class="mono dim">{{ u.first_seen.strftime('%m-%d %H:%M') if u.first_seen }}</td>
-          <td class="mono dim">{{ u.last_seen.strftime('%m-%d %H:%M') if u.last_seen }}</td>
-          <td>{% if u.sample_archive_id %}<button onclick="showMessage({{ u.sample_archive_id }})">Sample</button>{% endif %}</td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
-    {% endif %}
-
-  {# ── MESSAGES ────────────────────────────────────────────────────────── #}
-  {% elif view == 'messages' %}
-    <form class="filters" method="get">
-      <input type="hidden" name="view" value="messages">
-      <input type="search" name="q" placeholder="control ID, sender or type" value="{{ search }}">
-      <select name="severity">
-        <option value="">Any outcome</option>
-        {% for st, label in [('accepted','accepted'),('quarantined','held'),('flagged','flagged (before 0135)'),('pending','pending')] %}
-        <option value="{{ st }}" {% if severity==st %}selected{% endif %}>{{ label }}</option>
-        {% endfor %}
-      </select>
-      <button type="submit">Filter</button>
-      <a href="/brayn?view=messages">Reset</a>
-    </form>
-
-    {% if not rows %}
-      <div class="empty">No messages match these filters.</div>
-    {% else %}
-    <table>
-      <thead><tr>
-        <th class="num">#</th><th>Received</th><th>Sender</th><th>Type</th>
-        <th>Control ID</th><th>Outcome</th><th>In reports?</th>
-        <th class="num">Findings</th><th></th>
-      </tr></thead>
-      <tbody>
-      {% for m in rows %}
-        <tr>
-          <td class="num dim">{{ m.id }}</td>
-          <td class="mono dim">{{ m.received_at.strftime('%m-%d %H:%M:%S') if m.received_at }}</td>
-          <td class="mono">{{ m.sending_app or '—' }}</td>
-          <td class="mono dim">{{ m.message_type or '—' }}</td>
-          <td class="mono">{{ m.message_control_id }}</td>
-          <td>{% if m.brayn_status == 'quarantined' %}<span class="sev critical">held</span>
-              {% elif m.brayn_severity %}<span class="sev {{ m.brayn_severity }}">{{ m.brayn_status }}</span>
-              {% else %}<span class="dim">{{ m.brayn_status }}</span>{% endif %}</td>
-          <td>{% if m.projected %}<span style="color:var(--green)">yes</span>
-              {% else %}<span style="color:var(--red)">no</span>{% endif %}</td>
-          <td class="num dim">{{ m.findings or '' }}</td>
-          <td><button onclick="showMessage({{ m.id }})">View</button></td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
-    {% endif %}
+  {% if recent %}
+  <div class="sec"><h2>Closed by people, last 24 hours</h2></div>
+  <div class="tablewrap"><table><tbody>
+    {% for r in recent %}<tr><td>{{ X.rule_title(r.rule_code) }}{% if r.accession_number %} · <a class="mono" href="/brayn?view=study&acc={{ r.accession_number|urlencode }}">{{ r.accession_number }}</a>{% elif r.sending_app %} · {{ r.sending_app }}{% endif %}</td>
+      <td class="t2">{{ {'cleared':'Closed','ignored':"Don't flag again",'fixed_upstream':'Fixed at the sender'}.get(r.resolution, r.resolution) }}</td>
+      <td class="t2">{{ r.username or '' }}</td><td class="dim">{{ X.ago(r.resolved_at, now) }}</td></tr>{% endfor %}
+  </tbody></table></div>
   {% endif %}
 
-  {% if total and pages > 1 %}
+{# ═════════════════════════════ MESSAGES ═════════════════════════════ #}
+{% elif view == 'messages' %}
+  {% set base = '/brayn?view=messages&q=' ~ (q|urlencode) %}
+  <div class="chips">
+    <span class="lbl" style="margin-left:0">Show</span>
+    {% for v, l in [('all','All'), ('in','In reports'), ('held','Not in reports (' ~ c.held ~ ')'), ('error','Could not be processed')] %}
+    <a class="chip {{ 'on' if show == v }}" href="{{ base }}&show={{ v }}&sender={{ sender|urlencode }}&type={{ mtype }}">{{ l }}</a>{% endfor %}
+    <span class="lbl">Sender</span>
+    <a class="chip {{ 'on' if not sender }}" href="{{ base }}&show={{ show }}&type={{ mtype }}">Any</a>
+    {% for s in (sender_options + ([sender] if sender and sender not in sender_options else [])) %}
+    <a class="chip {{ 'on' if sender == s }}" href="{{ base }}&show={{ show }}&sender={{ s|urlencode }}&type={{ mtype }}">{{ s or '(blank)' }}</a>{% endfor %}
+    <span class="lbl">Type</span>
+    {% for t in ['', 'ADT', 'ORM', 'ORU'] %}
+    <a class="chip {{ 'on' if mtype == t }}" href="{{ base }}&show={{ show }}&sender={{ sender|urlencode }}&type={{ t }}">{{ t or 'Any' }}</a>{% endfor %}
+  </div>
+  <form class="find" method="get" action="/brayn" style="margin-bottom:12px;max-width:520px" autocomplete="off">
+    <input type="hidden" name="view" value="messages"><input type="hidden" name="show" value="{{ show }}">
+    <input type="hidden" name="sender" value="{{ sender }}"><input type="hidden" name="type" value="{{ mtype }}">
+    <input type="search" name="q" value="{{ q }}" placeholder="MSH-10, accession, order number, MRN or archive #" aria-label="Search messages">
+    <button class="btn" type="submit">Search</button>{% if q %}<a class="btn ghost" href="/brayn?view=messages">Clear</a>{% endif %}
+  </form>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Received</th><th>Sender</th><th>Type (MSH-9)</th><th>What it says</th><th>Accession</th><th>MSH-10</th><th>Reports</th><th>ACK</th></tr></thead>
+    <tbody>
+    {% for m in rows %}
+      <tr class="click" data-open="{{ m.id }}">
+        <td class="when">{{ when(m.received_at) }}</td>
+        <td class="mono">{{ m.sending_app or '-' }}</td>
+        <td class="mono">{{ m.message_type or '-' }}</td>
+        <td>{{ m.event }}</td>
+        <td class="mono">{% if m.accession %}{{ m.accession }}{% elif m.placer %}<span class="dim">order {{ m.placer }}</span>{% else %}<span class="dim">-</span>{% endif %}</td>
+        <td class="mono">{{ m.message_control_id }}</td>
+        <td>{{ pill(m.outcome) }}{% if m.why %}<span class="dim" style="display:block;font-size:12px;margin-top:3px">{{ m.why }}</span>{% endif %}</td>
+        <td class="mono dim">AA</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="8" class="dim">No message matches these filters.</td></tr>
+    {% endfor %}
+    </tbody></table></div>
   <div class="pager">
-    {% set base = '/brayn?view=' ~ view ~ '&severity=' ~ severity ~ '&rule=' ~ rule ~ '&layer=' ~ layer ~ '&show=' ~ show ~ '&q=' ~ search %}
-    {% if page > 1 %}<a href="{{ base }}&page={{ page - 1 }}">← Previous</a>{% endif %}
-    <span>Page {{ page }} of {{ pages }} · {{ total }} rows</span>
-    {% if page < pages %}<a href="{{ base }}&page={{ page + 1 }}">Next →</a>{% endif %}
+    {% set pbase = base ~ '&show=' ~ show ~ '&sender=' ~ (sender|urlencode) ~ '&type=' ~ mtype %}
+    {% if page > 1 %}<a class="btn small" href="{{ pbase }}&page={{ page - 1 }}">← Newer</a>{% endif %}
+    <span>Page {{ page }} · newest first · click a row for the message, its fields and what BRAYN understood</span>
+    {% if more %}<a class="btn small" href="{{ pbase }}&page={{ page + 1 }}">Older →</a>{% endif %}
+  </div>
+
+{# ═════════════════════════════ STUDY TIMELINE ═════════════════════════════ #}
+{% elif view == 'study' %}
+  <form class="find" method="get" action="/brayn" style="margin-bottom:14px;max-width:460px" autocomplete="off">
+    <input type="hidden" name="view" value="study">
+    <input type="search" name="acc" value="{{ acc }}" placeholder="Accession or order number" aria-label="Accession">
+    <button class="btn" type="submit">Show study</button>
+  </form>
+  {% if not acc %}
+    <div class="sec" style="margin-top:0"><h2>Recently active studies</h2></div>
+    <div class="tablewrap"><table><thead><tr><th>Accession</th><th>Modality</th><th>Device</th><th class="num">Open notes</th><th>Last event</th></tr></thead><tbody>
+    {% for r in recent_studies %}<tr class="click" data-href="/brayn?view=study&acc={{ r.accession_number|urlencode }}"><td class="mono">{{ r.accession_number }}</td><td>{{ r.modality or '-' }}</td><td class="mono">{{ r.aetitle or '-' }}</td><td class="num">{{ r.open_findings or 0 }}</td><td class="when">{{ when(r.last_event_at) }}</td></tr>
+    {% else %}<tr><td colspan="5" class="dim">No study has been seen yet.</td></tr>{% endfor %}
+    </tbody></table></div>
+  {% elif not study %}
+    <div class="empty">No study or order <b class="mono">{{ acc }}</b> in this install. Try the Messages search: a message held for want of an accession has no study yet.</div>
+  {% elif not study.state %}
+    <div class="banner"><div><strong>Study {{ study.accession }} has only held messages</strong><p>None of its messages reached the reports yet, so it has no lifecycle. Fix the cause in To fix, then reprocess.</p></div><a class="btn primary" href="/brayn?view=fix">Go to To fix</a></div>
+  {% else %}
+  {% set s = study.state %}
+  <div class="study-head">
+    <div><span class="dim" style="font-size:11px;text-transform:uppercase;letter-spacing:.08em">{{ 'Order (no accession yet)' if s.is_provisional else 'Accession' }}</span>
+      <h2>{{ s.placer_order_number if s.is_provisional else study.accession }}</h2>
+      <span class="t2">{{ s.procedure_text or s.procedure_code or '' }}</span></div>
+    <div class="kv">
+      <div><span>Patient</span>{{ s.patient_id or '-' }}</div>
+      <div><span>Device</span>{{ s.aetitle or '-' }}{% if s.modality %} → {{ s.modality }}{% endif %}</div>
+      <div><span>Class · location</span>{{ s.patient_class or '-' }} · {{ s.patient_location or '-' }}</div>
+      <div><span>Order number</span>{{ s.placer_order_number or '-' }}</div>
+    </div>
+  </div>
+  {% if study.held %}<div class="banner" style="margin-bottom:12px"><div><strong>{{ study.held }} message{{ 's' if study.held != 1 }} for this study {{ 'are' if study.held != 1 else 'is' }} held</strong><p>Their content is not in the steps below until the cause is fixed and they are reprocessed.</p></div><a class="btn" href="/brayn?view=fix">Go to To fix</a></div>{% endif %}
+  <div class="steps" role="list">
+    {% for st in study.steps %}
+    <div class="step {{ st.status }}" role="listitem">
+      <div class="dot">{{ {'ok':'✓','bad':'!','wait':'…'}.get(st.status, '') }}</div>
+      <b>{{ st.label }}</b>
+      <span class="tm">{{ X.clock(st.time, now) if st.time else '-' }}</span>
+      {% if st.source %}<small><button class="linkish" type="button" data-open="{{ st.source.message_archive_id }}">{{ st.source.sending_app or '?' }} · {{ st.source.raw_order_status or st.source.raw_order_control or (st.source.message_type or '').split('^')[0] }}</button></small>{% endif %}
+      {% if st.note %}<small class="note">{{ st.note }}</small>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  <div class="legend"><span><i style="background:var(--ok)"></i>received</span><span><i style="background:var(--bad)"></i>contradicts another step</span><span><i style="background:var(--warn)"></i>waiting past its limit</span><span><i style="border:1px dashed var(--line-2)"></i>not received / not sent here</span><span>Click a sender label to open that message.</span></div>
+  <div class="cols">
+    <div class="box"><h3>Notes on this study</h3>
+      {% for n in study.notes %}
+      <div class="note-item"><b>{{ n.title }}</b><span class="t2" style="font-size:13px">{{ n.sentence }}</span>
+        <div class="act"><button class="btn small" type="button" data-resolve="{{ n.id }}" data-resolution="cleared" data-msg="Closed. It comes back at the next check if it is still true.">Close</button>
+          <button class="btn small ghost" type="button" data-resolve="{{ n.id }}" data-resolution="ignored" data-msg="BRAYN won't flag this again for this study.">Don't flag this study again</button></div></div>
+      {% else %}<span class="dim" style="font-size:13px">No open notes on this study.</span>{% endfor %}
+    </div>
+    <div class="box"><h3>What the reports show</h3>
+      {% set r = study.report %}
+      {% if not r %}<span class="t2" style="font-size:13px">Not in the reports yet: a study reaches them once it has a dated step (scheduled, completed or reported).</span>
+      {% else %}<div class="rows">
+        <div><span>Counted in reports</span><span>{{ 'yes' if r.counted else 'no: SR (structured report) studies are not counted' }}</span></div>
+        <div><span>Modality</span><span>{{ r.modality or '-' }}{% if r.modality_from_device %} (from device {{ r.storing_ae }}){% endif %}</span></div>
+        <div><span>Study date</span><span>{{ r.study_date or '-' }}</span></div>
+        <div><span>TAT starts at (completed)</span><span>{{ X.clock(r.insert_time, now) if r.insert_time else '-' }}</span></div>
+        <div><span>Final report</span><span>{{ X.clock(r.rep_final_timestamp, now) if r.rep_final_timestamp else ('preliminary ' ~ X.clock(r.rep_prelim_timestamp, now) if r.rep_prelim_timestamp else 'none yet') }}</span></div>
+        {% if r.tat %}<div><span>Turnaround</span><span>{{ r.tat }}</span></div>{% endif %}
+        <div><span>Report / order status</span><span>{{ r.report_status or '-' }} / {{ r.order_status or '-' }}</span></div>
+        <div><span>Referring doctor</span><span>{{ r.referring or '-' }}</span></div>
+        <div><span>Signed by</span><span>{{ r.signer or '-' }}</span></div>
+      </div>{% endif %}
+    </div>
   </div>
   {% endif %}
+  {% if study and study.messages %}
+  <div class="sec"><h2>Messages for this study</h2><span class="dim">Newest first</span></div>
+  <div class="tablewrap"><table><thead><tr><th>Received</th><th>Sender</th><th>What it says</th><th>MSH-10</th><th>Reports</th></tr></thead><tbody>
+    {% for m in study.messages %}<tr class="click" data-open="{{ m.id }}"><td class="when">{{ when(m.received_at) }}</td><td class="mono">{{ m.sending_app }}</td><td>{{ m.event }}</td><td class="mono">{{ m.message_control_id }}</td><td>{{ pill(m.outcome) }}</td></tr>{% endfor %}
+  </tbody></table></div>
+  {% endif %}
+
+{# ═════════════════════════════ STUDY NOTES ═════════════════════════════ #}
+{% elif view == 'notes' %}
+  <div class="chips">
+    <a class="chip {{ 'on' if tab == 'quality' }}" href="/brayn?view=notes&tab=quality&q={{ q|urlencode }}">Data quality ({{ c.quality or 0 }})</a>
+    <a class="chip {{ 'on' if tab == 'delays' }}" href="/brayn?view=notes&tab=delays&q={{ q|urlencode }}">Delays ({{ c.delays or 0 }})</a>
+    <a class="chip {{ 'on' if tab == 'closed' }}" href="/brayn?view=notes&tab=closed&q={{ q|urlencode }}">Closed, last 7 days</a>
+  </div>
+  <p class="t2" style="margin:0 0 12px;font-size:13px">{{ {'quality': "Something in a study's messages doesn't add up. Never blocks data; most notes close themselves once the study's messages agree.",
+      'delays': 'A study has waited longer than its limit for the next step. Checked every 15 minutes; the note closes itself when the step arrives.',
+      'closed': 'Notes closed in the last 7 days, by BRAYN (the problem went away) or by a person.'}[tab] }}</p>
+  <form class="find" method="get" action="/brayn" style="margin-bottom:12px;max-width:440px" autocomplete="off">
+    <input type="hidden" name="view" value="notes"><input type="hidden" name="tab" value="{{ tab }}">
+    <input type="search" name="q" value="{{ q }}" placeholder="Accession or MRN" aria-label="Filter notes">
+    <button class="btn" type="submit">Filter</button>{% if q %}<a class="btn ghost" href="/brayn?view=notes&tab={{ tab }}">Clear</a>{% endif %}
+  </form>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Note</th><th>Study</th><th>Where</th><th>{{ 'Closed' if tab == 'closed' else 'Since' }}</th><th></th></tr></thead>
+    <tbody>
+    {% for n in rows %}
+      <tr>
+        <td><b>{{ n.title }}</b><span class="t2" style="display:block;font-size:13px;margin-top:2px">{{ n.sentence }}</span>
+          {% if tab == 'closed' %}<span class="dim" style="font-size:12px">{% if n.resolved_by %}{{ {'cleared':'Closed','ignored':"Don't flag again",'fixed_upstream':'Fixed at the sender'}.get(n.resolution, n.resolution) }} by a person{% if n.resolution_note %}: {{ n.resolution_note }}{% endif %}{% else %}Closed by BRAYN: the problem went away{% endif %}</span>
+          {% elif n.self_closing %}<span class="dim" style="font-size:12px">Closes by itself when fixed</span>
+          {% else %}<span class="dim" style="font-size:12px">Stays until someone closes it</span>{% endif %}</td>
+        <td><a class="mono" href="/brayn?view=study&acc={{ n.accession_number|urlencode }}">{{ n.accession_number }}</a></td>
+        <td class="t2" style="white-space:nowrap">{{ n.modality or '-' }}{% if n.aetitle %} · {{ n.aetitle }}{% endif %}</td>
+        <td class="dim" style="white-space:nowrap">{{ X.ago(n.resolved_at if tab == 'closed' else n.created_at, now) }}</td>
+        <td style="white-space:nowrap">{% if tab != 'closed' %}
+          <button class="btn small" type="button" data-resolve="{{ n.id }}" data-resolution="cleared" data-msg="Closed. It comes back at the next check (every 15 min) if it is still true." title="Comes back at the next check if it is still true">Close</button>
+          <button class="btn small ghost" type="button" data-resolve="{{ n.id }}" data-resolution="ignored" data-msg="BRAYN won't flag this again for this study." title="Never flag this again for this study">Don't flag again</button>{% endif %}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="5" class="dim">Nothing here.</td></tr>
+    {% endfor %}
+    </tbody></table></div>
+  <div class="pager">
+    {% if page > 1 %}<a class="btn small" href="/brayn?view=notes&tab={{ tab }}&q={{ q|urlencode }}&page={{ page - 1 }}">← Newer</a>{% endif %}
+    <span>Page {{ page }}</span>
+    {% if more %}<a class="btn small" href="/brayn?view=notes&tab={{ tab }}&q={{ q|urlencode }}&page={{ page + 1 }}">Older →</a>{% endif %}
+  </div>
+
+{# ═════════════════════════════ SETTINGS ═════════════════════════════ #}
+{% elif view == 'settings' %}
+  <div class="sec" style="margin-top:0"><h2>Checks</h2><span class="dim">{% if can_configure %}Changes save as you make them and apply to the next message.{% else %}Read-only: only implementation engineers can change checks.{% endif %} The code under each name is for support.</span></div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Check</th><th>On</th><th>Level</th><th>Limit</th><th>Per modality</th></tr></thead>
+    <tbody>
+    {% for g in groups %}
+      <tr><td colspan="5" style="background:var(--panel-2)"><b>{{ g.title }}</b><span class="t2" style="display:block;font-size:12.5px">{{ g.description }}</span></td></tr>
+      {% for r in g.rules %}
+      <tr data-rule="{{ r.rule_code }}">
+        <td><b>{{ r.plain }}</b><span class="t2" style="display:block;font-size:12.5px">{{ r.what }}</span><span class="mono dim" style="font-size:11px">{{ r.rule_code }}</span></td>
+        <td><button class="toggle {{ 'on' if r.enabled }}" type="button" aria-pressed="{{ 'true' if r.enabled else 'false' }}" aria-label="{{ r.plain }} on or off" {% if r.locked or not can_configure %}disabled title="{{ 'Always on' if r.locked else 'Read-only' }}"{% else %}data-rulefield="enabled"{% endif %}></button></td>
+        <td>{% if r.locked %}<span class="pill bad">Holds</span>
+            {% else %}<select class="sel" aria-label="Level for {{ r.plain }}" data-rulefield="severity" {{ 'disabled' if not can_configure }}>{% for lv in ['warning', 'info'] %}<option value="{{ lv }}" {{ 'selected' if r.level == lv }}>{{ lv|capitalize }}</option>{% endfor %}</select>{% endif %}</td>
+        <td style="white-space:nowrap">{% if r.field %}<input class="lim" value="{{ r.limit }}" aria-label="Limit for {{ r.plain }}" data-rulefield="{{ r.field }}" data-unit="{{ r.unit }}" {{ 'disabled' if not can_configure }}> <span class="dim">{{ r.unit }}</span>{% else %}<span class="dim">-</span>{% endif %}</td>
+        <td>{% for pm in r.per_modality %}<span class="pill plain" style="margin:0 4px 4px 0">{{ pm.modality }}: {% if pm.threshold_pct is not none %}{{ pm.threshold_pct }}%{% elif pm.threshold_minutes is not none %}{{ X.duration(pm.threshold_minutes) }}{% else %}{{ 'on' if pm.enabled else 'off' }}{% endif %}</span>{% endfor %}</td>
+      </tr>
+      {% endfor %}
+    {% endfor %}
+    </tbody></table></div>
+  <div class="cols" style="margin-top:12px">
+    <div class="box"><h3>Status codes: ORC-5 → lifecycle step</h3>
+      <div class="tablewrap"><table><thead><tr><th>ORC-5</th><th>ORC-1</th><th>Sender</th><th>Step</th></tr></thead><tbody>
+      {% for m in status_map %}<tr><td class="mono"><b>{{ m.order_status or '(empty)' }}</b></td><td class="mono dim">{{ m.order_control or 'any' }}</td><td class="mono dim">{{ m.sending_app or 'any' }}</td><td>{{ X.step_label(m.canonical_state) }}{% if not m.active %} <span class="pill plain">inactive</span>{% endif %}</td></tr>{% endfor %}
+      </tbody></table></div>
+      <p class="dim" style="font-size:12px;margin:8px 0 0">An unmapped code holds its messages; map it from To fix, then reprocess. Full editing: <a href="/mapping/hl7">HL7 Mapping</a> → Status codes.</p></div>
+    <div class="box"><h3>Lifecycle steps this site sends</h3>
+      <div class="tablewrap"><table><thead><tr><th>Step</th><th>Sent here</th><th>Check order</th></tr></thead><tbody>
+      {% for l in ladder %}<tr data-ladder="{{ l.rung }}"><td>{{ X.step_label(l.rung) }}</td>
+        <td><button class="toggle {{ 'on' if l.expected }}" type="button" data-ladderfield="expected" aria-label="{{ X.step_label(l.rung) }} sent by this site" {{ 'disabled' if not can_configure }}></button></td>
+        <td><button class="toggle {{ 'on' if l.enforce_order }}" type="button" data-ladderfield="enforce_order" aria-label="Check the delivery order of {{ X.step_label(l.rung) }}" {{ 'disabled' if not can_configure or not l.expected }}></button></td></tr>{% endfor %}
+      </tbody></table></div>
+      <p class="dim" style="font-size:12px;margin:8px 0 0">With every step off, BRAYN treats them all as sent. A step switched off is skipped by the delay checks: with Started off, Arrived waits for Completed. "Check order" counts out-of-order delivery for that step; it never blocks data.</p></div>
+  </div>
+  <div class="box" style="margin-top:12px"><h3>Result statuses: OBX-11 → report</h3>
+    <div class="tablewrap"><table><thead><tr><th>OBX-11</th><th>Sender</th><th>Means</th></tr></thead><tbody>
+    {% for m in result_map %}<tr><td class="mono"><b>{{ m.result_status }}</b></td><td class="mono dim">{{ m.sending_app or 'any' }}</td><td>{{ X.step_label(m.canonical_state) }}</td></tr>{% endfor %}
+    </tbody></table></div>
+    <p class="dim" style="font-size:12px;margin:8px 0 0">A value missing here appears in To fix, where it can be mapped.</p></div>
+{% endif %}
+</div>
+</main>
 </div>
 
-<dialog id="dlg">
-  <div class="dh">
-    <strong id="dlgTitle" class="mono">Message</strong>
-    <button onclick="document.getElementById('dlg').close()">Close</button>
-  </div>
-  <div class="db" id="dlgBody"></div>
-</dialog>
+<div class="bn-drawer" id="drawer" hidden>
+  <div class="panel bn" id="drawerPanel" role="dialog" aria-modal="true" aria-label="Message detail"></div>
+</div>
+<div class="bn-toast" id="toast" role="status" hidden></div>
 
 <script>
-const esc = s => String(s == null ? '' : s).replace(/[&<>]/g,
-  c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+(function () {
+  const $ = s => document.querySelector(s);
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  // The app runs CSRFProtect, so every POST carries the page's token.
+  const CSRF = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
+  const post = (url, body) => fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF}, body: JSON.stringify(body || {})})
+    .then(r => r.json().catch(() => ({})).then(d => ({ok: r.ok, status: r.status, d})));
+  const STEP = {ordered:'Ordered', scheduled:'Scheduled', arrived:'Arrived', started:'Started', completed:'Completed', cancelled:'Cancelled'};
 
-// The app runs CSRFProtect, so every POST carries the page's token. The console
-// sent none before, which made its Resolve button fail with a CSRF error.
-const CSRF = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
-const post = (url, body) => fetch(url, {
-  method: 'POST',
-  headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
-  body: JSON.stringify(body || {})
-});
-
-async function showMessage(id) {
-  const dlg = document.getElementById('dlg');
-  document.getElementById('dlgTitle').textContent = 'Message #' + id;
-  document.getElementById('dlgBody').innerHTML = '<div class="dim">Loading…</div>';
-  dlg.showModal();
-  try {
-    const r = await fetch('/brayn/message/' + id);
-    const d = await r.json();
-    if (d.error) throw new Error(d.error);
-
-    const inReports = d.projected_at
-      ? '<span style="color:var(--green)">yes, ' + esc(d.projected_at) + '</span>'
-      : '<span style="color:var(--red)">no — this message\'s data is not in the reports</span>';
-
-    const meta = [
-      ['Control ID', esc(d.message_control_id)], ['Sending app', esc(d.sending_app)],
-      ['Facility', esc(d.sending_facility)], ['Type', esc(d.message_type)],
-      ['HL7 version', esc(d.hl7_version)], ['Sender clock', esc(d.message_datetime)],
-      ['Received', esc(d.received_at)], ['Source IP', esc(d.source_ip)],
-      ['BRAYN outcome', esc(d.brayn_status === 'quarantined' ? 'held' : d.brayn_status)],
-      ['In reports', inReports],
-      ['Parse status', esc(d.parse_status)], ['Parse error', esc(d.parse_error || '—')],
-    ].map(([k, v]) => `<div class="k">${k}</div><div class="mono">${v}</div>`).join('');
-
-    const findings = (d.findings || []).map(f =>
-      `<div style="margin-bottom:7px">
-         <span class="sev ${esc(f.severity)}">${esc(f.severity)}</span>
-         <span class="mono"> ${esc(f.rule_code)}</span>
-         <div class="detail">${esc(JSON.stringify(f.detail))}</div>
-       </div>`).join('') || '<div class="dim">No findings.</div>';
-
-    document.getElementById('dlgBody').innerHTML =
-      `<div class="kv">${meta}</div>
-       <h4 style="margin:0 0 8px;font-size:11px;text-transform:uppercase;
-                  letter-spacing:.8px;color:var(--text-dim)">Findings</h4>${findings}
-       <h4 style="margin:16px 0 8px;font-size:11px;text-transform:uppercase;
-                  letter-spacing:.8px;color:var(--text-dim)">Raw message, exactly as received</h4>
-       <pre>${(d.segments || []).map(esc).join('\n')}</pre>`;
-  } catch (e) {
-    document.getElementById('dlgBody').innerHTML =
-      '<div class="dim">Could not load message: ' + esc(e.message) + '</div>';
+  let tt;
+  function toast(msg, err) {
+    const t = $('#toast'); t.textContent = msg; t.className = 'bn-toast' + (err ? ' err' : ''); t.hidden = false;
+    clearTimeout(tt); tt = setTimeout(() => { t.hidden = true; }, 6000);
   }
-}
+  // A message that should survive the reload the action triggers.
+  function reloadWith(msg, url) {
+    try { sessionStorage.setItem('bn-toast', msg); } catch (e) {}
+    if (url) location.href = url; else location.reload();
+  }
+  try { const m = sessionStorage.getItem('bn-toast'); if (m) { sessionStorage.removeItem('bn-toast'); toast(m); } } catch (e) {}
+  // A check's plain name, from its Settings row, for the confirmation toast.
+  const ruleName = el => ((el.closest('[data-rule]') || {}).querySelector?.('b') || {}).textContent || 'check';
+  const fail = (res, what) => toast((res.d && (res.d.error || res.d.message)) || (what + ' failed (HTTP ' + res.status + '). Nothing was changed.'), true);
 
-async function resolveFinding(id, resolution) {
-  const ask = resolution === 'ignored'
-    ? 'Ignore this note?\n\nIt is closed and will not reopen for this study.'
-    : 'Close this finding?\n\nThis does NOT release held messages. To do that, fix the '
-      + 'cause and use "Replay held messages".';
-  if (!confirm(ask)) return;
-  const r = await post('/brayn/finding/' + id + '/resolve', {resolution: resolution});
-  if (r.ok) location.reload(); else alert('Could not resolve that finding.');
-}
+  /* ── message drawer ─────────────────────────────────────────────── */
+  let current = null, pick = false, sel = null;
+  async function openMessage(id, pickMode) {
+    pick = !!pickMode; sel = null;
+    $('#drawerPanel').innerHTML = '<div class="dim">Loading message #' + esc(id) + '…</div>';
+    $('#drawer').hidden = false;
+    try {
+      const r = await fetch('/brayn/message/' + encodeURIComponent(id));
+      const d = await r.json();
+      if (!r.ok || d.error) throw new Error(d.error || ('HTTP ' + r.status));
+      current = d; renderDrawer();
+    } catch (e) {
+      $('#drawerPanel').innerHTML = '<div class="dhead"><h2>Message #' + esc(id) + '</h2><button class="btn" data-close type="button">Close</button></div><div class="empty">Could not load the message: ' + esc(e.message) + '</div>';
+    }
+  }
+  function renderDrawer() {
+    const d = current, held = d.verdict.state === 'held';
+    const canPick = pick && d.can_configure && held;
+    const rawLines = d.segments.map((s, si) => {
+      const byNum = {}; s.fields.forEach(f => { byNum[f.number] = f; });
+      return '<span class="sg">' + esc(s.name) + '</span>' + rawFields(d, si, s, byNum);
+    }).join('\n');
+    const tree = d.segments.map((s, si) => '<div class="tg"><b>' + esc(s.name) + '</b> <span class="t2">' + esc(s.description || '') + '</span></div>' +
+      s.fields.map(f => {
+        const cls = f.problem ? 'prob' : f.suggested ? 'sugg' : f.used ? 'used' : '';
+        const why = f.problem || f.suggested || f.used || '';
+        const k = si + ':' + f.number;
+        const useBtn = canPick && f.value && s.name !== 'MSH'
+          ? ' <button class="btn small ' + (f.suggested ? 'primary' : 'ghost') + '" type="button" data-usefield="' + esc(s.name) + '|' + f.number + '">Use ' + esc(f.key) + ' as the accession</button>' : '';
+        return '<div class="fr ' + cls + (sel === k ? ' sel' : '') + '" data-k="' + k + '"><span class="k">' + esc(f.key) + '</span><span class="t2">' + esc(f.name) + '</span>' +
+          '<span class="v ' + (f.value ? '' : 'empty') + '">' + (f.value ? esc(f.value) : 'empty') + '</span>' +
+          ((why || useBtn) ? '<span class="why">' + esc(why) + useBtn + '</span>' : '') + '</div>';
+      }).join('')).join('');
+    const read = d.read.map(x => '<div class="' + (x.problem ? 'problem' : '') + '"><span>' + esc(x.label) + '</span><b>' + esc(x.value) + '</b>' +
+      (x.source ? ' <button class="linkish mono" style="font-size:11.5px" type="button" data-findkey="' + esc(x.source.split('.')[0]) + '">' + esc(x.source) + '</button>' : '') + '</div>').join('');
+    const vbtn = held && d.can_configure && !pick && d.findings.some(f => f.rule_code === 'MISSING_IDENTIFIER')
+      ? '<button class="btn primary" type="button" data-pickmode>Pick the accession field</button>'
+      : held ? '<a class="btn primary" href="/brayn?view=fix">Go to To fix</a>'
+      : d.accession ? '<a class="btn" href="/brayn?view=study&acc=' + encodeURIComponent(d.accession) + '">Open study timeline</a>' : '';
+    const sugg = (d.suggestions || [])[0];
+    $('#drawerPanel').innerHTML =
+      '<div class="dhead"><div><h2>' + esc(d.message_type || 'Message') + ' from ' + esc(d.sending_app || '(blank MSH-3)') + '</h2>' +
+      '<div class="meta">MSH-10 <span class="mono">' + esc(d.message_control_id) + '</span> · received ' + esc(d.received) +
+      ' · ACK sent: <span class="mono">' + esc(d.ack) + '</span> · archive #' + esc(d.id) + (d.event ? ' · ' + esc(d.event) : '') + '</div></div>' +
+      '<button class="btn" data-close type="button">Close</button></div>' +
+      '<div class="verdict ' + esc(d.verdict.state) + '"><div><strong>' + esc(d.verdict.title) + '</strong><p>' + esc(d.verdict.text) + '</p></div>' + vbtn + '</div>' +
+      (canPick ? '<div class="explain" style="margin:0 0 12px;border-color:var(--ok-line)">Pick the field this sender uses for the accession. ' +
+        (sugg ? 'BRAYN suggests <b>' + esc(sugg.key) + '</b> (green below): ' + esc(sugg.reason) + ' ' : 'BRAYN found no likely field; pick one below. ') +
+        'Saving applies to every ' + esc(d.message_type) + ' from ' + esc(d.sending_app) + ', including the held ones once you reprocess them.</div>' : '') +
+      (d.findings.length ? '<div class="sec" style="margin-top:4px"><h2>What BRAYN found</h2></div><div class="cards" style="margin-bottom:12px">' +
+        d.findings.map(f => '<div class="card ' + (f.severity === 'critical' ? 'bad' : 'warn') + '" style="padding:10px 14px;gap:4px"><b>' + esc(f.title) + (f.resolved ? ' <span class="pill plain">closed</span>' : '') + '</b><span class="t2" style="font-size:13px">' + esc(f.sentence) + '</span></div>').join('') + '</div>' : '') +
+      '<div class="sec" style="margin-top:4px"><h2>What BRAYN read from it</h2><span class="dim">Click a field reference to find it below</span></div>' +
+      '<div class="read">' + (read || '<div><span>Nothing</span><b>This message type carries no study data.</b></div>') + '</div>' +
+      '<div class="legend"><span><i style="background:var(--accent-soft);outline:1px solid var(--accent-line)"></i>read by BRAYN</span><span><i style="background:var(--bad-soft);outline:1px solid var(--bad-line)"></i>the problem</span><span><i style="background:var(--ok-soft);outline:1px solid var(--ok-line)"></i>suggested</span><span>Click a value in the raw message to see its field.</span></div>' +
+      '<div class="split"><div><div class="sec" style="margin-top:0"><h2>Raw message, as received</h2></div><div class="raw">' + rawLines + '</div></div>' +
+      '<div><div class="sec" style="margin-top:0"><h2>Fields</h2><span class="dim">Filled fields, plus the ones BRAYN looked for</span></div><div class="tree" id="treebox">' + tree + '</div></div></div>';
+  }
+  function rawFields(d, si, s, byNum) {
+    // The raw line rebuilt from the field list, so each value can be clicked.
+    const max = Math.max(0, ...s.fields.map(f => f.number));
+    let out = '';
+    const start = s.name === 'MSH' ? 2 : 1;
+    for (let n = start; n <= max; n++) {
+      const f = byNum[n];
+      const v = f ? f.value : '';
+      const cls = f ? (f.problem ? 'prob' : f.suggested ? 'sugg' : f.used ? 'used' : '') : '';
+      out += '|' + (v ? '<span class="f ' + cls + (sel === si + ':' + n ? ' sel' : '') + '" data-k="' + si + ':' + n + '" title="' + esc(s.name + '-' + n + ' ' + (f && f.name || '')) + '">' + esc(v) + '</span>' : '');
+    }
+    return out;
+  }
+  function closeDrawer() { $('#drawer').hidden = true; current = null; pick = false; }
 
-async function replayHeld(rule) {
-  if (!confirm('Check the held messages again' + (rule ? ' (' + rule + ' only)' : '')
-               + ' under the current configuration?\n\nThose that now pass go into the reports.')) return;
-  const out = document.getElementById('replayResult');
-  if (out) out.textContent = 'Replaying…';
-  const r = await post('/brayn/held/replay', {rule: rule});
-  const d = await r.json().catch(() => ({}));
-  if (!r.ok) { alert(d.error || 'Replay failed. Nothing was lost.'); if (out) out.textContent = ''; return; }
-  alert(d.released + ' released, ' + d.still_held + ' still held.');
-  location.reload();
-}
+  /* ── clicks ─────────────────────────────────────────────────────── */
+  document.addEventListener('click', async e => {
+    if (e.target.id === 'drawer') { closeDrawer(); return; }
+    const t = e.target.closest('[data-close],[data-open],[data-href],[data-pickmode],[data-usefield],[data-findkey],[data-k],[data-replay],[data-resolve],[data-rung],[data-rulefield].toggle,[data-ladderfield]');
+    if (!t) return;
+    const d = t.dataset;
+    if ('close' in d) { closeDrawer(); return; }
+    if (d.open && !e.target.closest('a')) { e.preventDefault(); openMessage(d.open, d.pick); return; }
+    if (d.href && !e.target.closest('a,button')) { location.href = d.href; return; }
+    if ('pickmode' in d) { pick = true; renderDrawer(); return; }
+    if (d.findkey || d.k) {
+      const key = d.k || null;
+      if (key) { sel = key; renderDrawer(); }
+      else {
+        const [segName, num] = d.findkey.split('-');
+        const si = current.segments.findIndex(s => s.name === segName);
+        if (si >= 0) { sel = si + ':' + num; renderDrawer(); }
+      }
+      const row = document.querySelector('#treebox [data-k="' + sel + '"]');
+      if (row) row.scrollIntoView({block: 'nearest', behavior: 'smooth'});
+      return;
+    }
+    if (d.usefield) {
+      const [segName, num] = d.usefield.split('|');
+      const f = current.segments.find(s => s.name === segName).fields.find(x => String(x.number) === num);
+      const comps = (f.value || '').split('^');
+      const sugg = (current.suggestions || []).find(s => s.segment === segName && String(s.field) === num);
+      const comp = sugg ? sugg.component : (comps.length > 1 ? 1 : null);
+      t.disabled = true;
+      const res = await post('/mapping/field-map/save', {sending_app: current.sending_app || '', message_kind: current.message_kind || '',
+        target_kind: 'parsed', target_field: 'accession_number', segment: segName, field_index: Number(num),
+        component_index: comp, priority: 1, transform: 'text', notes: 'set from the BRAYN console'});
+      if (!res.ok) { t.disabled = false; fail(res, 'Saving the field'); return; }
+      reloadWith('Saved: the accession for ' + current.message_type + ' from ' + (current.sending_app || '(blank)') + ' is now read from ' + segName + '-' + num + (comp ? '.' + comp : '') + '. Reprocess the held messages to release them.', '/brayn?view=fix');
+      return;
+    }
+    if (d.replay !== undefined && d.replay !== null && t.matches('[data-replay]')) {
+      t.disabled = true; t.textContent = 'Reprocessing…';
+      const res = await post('/brayn/held/replay', {rule: d.replay, sender: d.sender || ''});
+      if (!res.ok) { t.disabled = false; t.textContent = 'Reprocess'; fail(res, 'Reprocessing'); return; }
+      const r = res.d;
+      reloadWith(r.replayed ? (r.replayed + ' reprocessed: ' + r.released + ' now in the reports, ' + r.still_held + ' still held' + (r.still_held ? '. The cause is not fixed yet for those.' : '.')) : 'Nothing was held for this item any more.');
+      return;
+    }
+    if (d.resolve) {
+      t.disabled = true;
+      const res = await post('/brayn/finding/' + d.resolve + '/resolve', {resolution: d.resolution});
+      if (!res.ok) { t.disabled = false; fail(res, 'Closing'); return; }
+      reloadWith(d.msg || 'Closed.');
+      return;
+    }
+    if (d.rung) {
+      t.disabled = true;
+      const res = await post('/mapping/ladder-profile/save', {rung: d.rung, expected: true, enforce_order: false});
+      if (!res.ok) { t.disabled = false; fail(res, 'Turning the step on'); return; }
+      reloadWith('Turned on: this site sends ' + d.rung.replace('_', ' ') + '. The delay checks now expect it.');
+      return;
+    }
+    if (d.rulefield === 'enabled') {
+      const on = !t.classList.contains('on');
+      const code = t.closest('[data-rule]').dataset.rule;
+      const res = await post('/brayn/rules/save', {rule_code: code, enabled: on});
+      if (!res.ok) { fail(res, 'Saving'); return; }
+      t.classList.toggle('on', on); t.setAttribute('aria-pressed', on);
+      toast((on ? 'On: ' : 'Off: ') + ruleName(t) + '. Applies to the next message.');
+      return;
+    }
+    if (d.ladderfield) {
+      const row = t.closest('[data-ladder]'), rung = row.dataset.ladder;
+      const exp = row.querySelector('[data-ladderfield="expected"]'), enf = row.querySelector('[data-ladderfield="enforce_order"]');
+      const want = {expected: exp.classList.contains('on'), enforce_order: enf.classList.contains('on')};
+      want[d.ladderfield] = !t.classList.contains('on');
+      if (!want.expected) want.enforce_order = false;
+      const res = await post('/mapping/ladder-profile/save', {rung, expected: want.expected, enforce_order: want.enforce_order});
+      if (!res.ok) { fail(res, 'Saving the step'); return; }
+      exp.classList.toggle('on', res.d.expected); enf.classList.toggle('on', res.d.enforce_order); enf.disabled = !res.d.expected;
+      toast('Saved: ' + rung.replace('_', ' ') + (res.d.expected ? ' is sent by this site' : ' is not sent by this site') + (res.d.enforce_order ? ', delivery order counted.' : '.'));
+    }
+  });
+
+  /* ── forms on the To-fix cards, and Settings fields ─────────────── */
+  document.addEventListener('submit', async e => {
+    const f = e.target;
+    if (f.matches('[data-statusmap]')) {
+      e.preventDefault();
+      const state = f.elements.state.value, scope = f.elements.scope.value;
+      const res = await post('/mapping/status-code/save', {sending_app: scope, order_control: f.dataset.control || '',
+        order_status: f.dataset.code, canonical_state: state, active: true, notes: 'set from the BRAYN console'});
+      if (!res.ok) { fail(res, 'Saving the mapping'); return; }
+      reloadWith('Saved: ORC-5 = ' + f.dataset.code + ' now means ' + (STEP[state] || state) + '. Reprocess the held messages to release them.');
+    } else if (f.matches('[data-device]')) {
+      e.preventDefault();
+      const res = await post('/brayn/device/save', {aetitle: f.dataset.ae, modality: f.elements.modality.value});
+      if (!res.ok) { fail(res, 'Saving the device'); return; }
+      reloadWith('Saved: ' + res.d.aetitle + ' is a ' + res.d.modality + ' device. Its studies now count as ' + res.d.modality + '.');
+    } else if (f.matches('[data-resultmap]')) {
+      e.preventDefault();
+      const state = f.elements.state.value;
+      const res = await post('/brayn/result-status/save', {result_status: f.dataset.value, sending_app: f.dataset.app || '', canonical_state: state});
+      if (!res.ok) { fail(res, 'Saving'); return; }
+      reloadWith('Saved: OBX-11 = ' + f.dataset.value + ' means ' + (state === 'signed_final' ? 'a final' : 'a preliminary') + ' report. New reports use it; replay older ones to re-read them.');
+    }
+  });
+  document.addEventListener('change', async e => {
+    const t = e.target;
+    if (!t.matches('[data-rulefield]') || t.matches('.toggle')) return;
+    const code = t.closest('[data-rule]').dataset.rule, field = t.dataset.rulefield;
+    const body = {rule_code: code};
+    if (field === 'severity') body.severity = t.value;
+    else {
+      const v = parseFloat(String(t.value).replace(',', '.'));
+      if (!isFinite(v)) { toast('The limit must be a number.', true); return; }
+      body[field] = t.dataset.unit === 'h' ? Math.round(v * 60) : v;
+    }
+    const res = await post('/brayn/rules/save', body);
+    if (!res.ok) { fail(res, 'Saving'); return; }
+    toast('Saved: ' + ruleName(t) + '. Applies to the next message and the next 15-minute check.');
+  });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#drawer').hidden) closeDrawer(); });
+})();
 </script>
 </body>
 </html>
