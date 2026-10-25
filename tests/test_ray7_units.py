@@ -175,20 +175,26 @@ def bridge(expected):
 
 
 def test_full_ladder_without_signatures_waits_on_any_report():
+    # The awaited rung first, then every later one: a study past a skipped rung is not
+    # stuck there (the old next-rung-only test made the stall flap every sweep).
     b = bridge(['scheduled', 'arrived', 'started', 'completed'])
-    assert b['STALLED_ARRIVED'] == "s.arrived_at IS NOT NULL AND s.started_at IS NULL"
-    assert b['UNREPORTED'] == "s.completed_at IS NOT NULL AND s.reported_at IS NULL"
+    assert b['STALLED_ARRIVED'] == ("s.arrived_at IS NOT NULL AND s.started_at IS NULL "
+                                    "AND s.completed_at IS NULL AND s.pacs_completed_at IS NULL")
+    assert b['UNREPORTED'] == ("s.completed_at IS NOT NULL AND s.reported_at IS NULL "
+                               "AND s.signed_prelim_at IS NULL AND s.signed_final_at IS NULL")
 
 
 def test_disabled_started_bridges_arrived_to_completed():
     b = bridge(['scheduled', 'arrived', 'completed'])
-    assert b['STALLED_ARRIVED'] == "s.arrived_at IS NOT NULL AND s.completed_at IS NULL"
+    assert b['STALLED_ARRIVED'] == ("s.arrived_at IS NOT NULL AND s.completed_at IS NULL "
+                                    "AND s.started_at IS NULL AND s.pacs_completed_at IS NULL")
     assert 'STALLED_STARTED' not in b
 
 
 def test_signature_rungs():
     b = bridge(['completed', 'signed_prelim', 'signed_final'])
-    assert b['UNREPORTED'] == "s.completed_at IS NOT NULL AND s.signed_prelim_at IS NULL"
+    assert b['UNREPORTED'] == ("s.completed_at IS NOT NULL AND s.signed_prelim_at IS NULL "
+                               "AND s.reported_at IS NULL AND s.signed_final_at IS NULL")
     assert b['STALLED_UNSIGNED'] == \
         "s.signed_prelim_at IS NOT NULL AND s.signed_final_at IS NULL"
 

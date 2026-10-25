@@ -37,35 +37,62 @@ from db import db
 logger = logging.getLogger("RAY7_SWEEP")
 
 
+# What "moved on" means for each stall: any of these columns set. ONE list, read by
+# both the rule that raises the stall and the auto-resolve that closes it.
+#
+# They used to be written separately and disagreed. Raising looked only at the next
+# rung (arrived, started still NULL) while closing looked at any later rung, so a
+# study that skipped a rung — arrived, never started, completed — was raised and
+# closed again in the same pass, every pass: 20 closed STALLED_ARRIVED notes on one
+# study in five hours, a new one every 15 minutes for as long as it existed.
+_LATER = {
+    'STALLED_SCHEDULED': ('arrived_at', 'started_at', 'completed_at', 'pacs_completed_at'),
+    'STALLED_ARRIVED':   ('started_at', 'completed_at', 'pacs_completed_at'),
+    'STALLED_STARTED':   ('completed_at', 'pacs_completed_at'),
+    'UNREPORTED':        ('reported_at', 'signed_prelim_at', 'signed_final_at'),
+    'STALLED_UNSIGNED':  ('signed_final_at',),
+}
+
+
+def _stuck_where(code, since, awaited):
+    """
+    Studies sitting at `since` with nothing after it. Written as a conjunction of
+    IS NULL tests rather than COALESCE(...) IS NULL, so it still implies the
+    partial indexes in 0119 (arrived_at IS NOT NULL AND started_at IS NULL, ...)
+    and the planner can keep using them.
+    """
+    cols = [awaited] + [c for c in _LATER[code] if c != awaited]
+    return ' AND '.join([f's.{since} IS NOT NULL'] + [f's.{c} IS NULL' for c in cols])
+
+
 # Each rule: the column whose timestamp starts the clock, and the SQL predicate
-# identifying studies stuck at that rung. The predicates deliberately mirror the
-# partial indexes in 0119 so the planner can use them.
+# identifying studies stuck at that rung.
 _LEGACY_STALL_RULES = (
     {
         'code': 'STALLED_SCHEDULED',
         'since': 'scheduled_at',
-        'where': "s.scheduled_at IS NOT NULL AND s.arrived_at IS NULL",
+        'where': _stuck_where('STALLED_SCHEDULED', 'scheduled_at', 'arrived_at'),
         'note': 'scheduled, and no arrival since — a no-show nobody cancelled, or '
                 'the arrival feed has stopped',
     },
     {
         'code': 'STALLED_ARRIVED',
         'since': 'arrived_at',
-        'where': "s.arrived_at IS NOT NULL AND s.started_at IS NULL",
+        'where': _stuck_where('STALLED_ARRIVED', 'arrived_at', 'started_at'),
         'note': 'patient arrived and the exam never started — a real wait, or a '
                 'missing start event',
     },
     {
         'code': 'STALLED_STARTED',
         'since': 'started_at',
-        'where': "s.started_at IS NOT NULL AND s.completed_at IS NULL",
+        'where': _stuck_where('STALLED_STARTED', 'started_at', 'completed_at'),
         'note': 'an exam left open on the device, or a completion that never '
                 'arrived — inflates every duration metric it touches',
     },
     {
         'code': 'UNREPORTED',
         'since': 'completed_at',
-        'where': "s.completed_at IS NOT NULL AND s.reported_at IS NULL",
+        'where': _stuck_where('UNREPORTED', 'completed_at', 'reported_at'),
         'note': 'the exam completed and no report followed',
     },
 )
@@ -155,7 +182,7 @@ def _stall_rules():
         rules.append({
             'code': code,
             'since': since,
-            'where': f"s.{since} IS NOT NULL AND s.{awaited} IS NULL",
+            'where': _stuck_where(code, since, awaited),
             'note': note,
         })
     return rules
@@ -229,7 +256,11 @@ DO NOTHING
 # the queue as though it were still happening. An operator's own resolution is left
 # alone — only findings RAY7 raised and RAY7 can see are now satisfied get closed,
 # and they are marked distinctly so nobody reads them as human triage.
-_AUTO_RESOLVE_SQL = """
+_MOVED_ON = ' OR\n            '.join(
+    f"(f.rule_code = '{code}' AND COALESCE({', '.join('s.' + c for c in cols)}) IS NOT NULL)"
+    for code, cols in _LATER.items())
+
+_AUTO_RESOLVE_SQL = f"""
 UPDATE ray7_findings f
    SET resolved_at = NOW(),
        resolution  = 'cleared',
@@ -245,16 +276,9 @@ UPDATE ray7_findings f
         -- the old "next rung only" test then waited forever for an event the site
         -- does not send — the finding could be raised but never cleared. A later
         -- rung arriving means the study is not stuck where the finding says.
+        -- Same _LATER list the raise uses, so the two cannot disagree again.
         (f.message_archive_id IS NULL AND (
-            (f.rule_code = 'STALLED_SCHEDULED' AND COALESCE(s.arrived_at, s.started_at,
-                 s.completed_at, s.pacs_completed_at) IS NOT NULL) OR
-            (f.rule_code = 'STALLED_ARRIVED'   AND COALESCE(s.started_at, s.completed_at,
-                 s.pacs_completed_at) IS NOT NULL) OR
-            (f.rule_code = 'STALLED_STARTED'   AND COALESCE(s.completed_at,
-                 s.pacs_completed_at) IS NOT NULL) OR
-            (f.rule_code = 'UNREPORTED'        AND COALESCE(s.reported_at, s.signed_prelim_at,
-                 s.signed_final_at) IS NOT NULL) OR
-            (f.rule_code = 'STALLED_UNSIGNED'  AND s.signed_final_at IS NOT NULL) OR
+            {_MOVED_ON} OR
             (f.rule_code = 'ORPHAN_ORDER'      AND (s.scheduled_at IS NOT NULL OR
                                                     s.arrived_at   IS NOT NULL OR
                                                     s.started_at   IS NOT NULL OR

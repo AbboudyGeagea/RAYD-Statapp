@@ -79,6 +79,32 @@ def test_stall_auto_resolves_when_the_awaited_event_arrives(pipe, rule, code, ne
     assert f[0]['resolution'] == 'cleared'
 
 
+@pytest.mark.parametrize('rule,first,later', [
+    ('STALLED_ARRIVED', 'AR', 'CM'),        # never started, but completed
+    ('STALLED_SCHEDULED', 'SC', 'IP'),      # never arrived, but started
+    ('STALLED_SCHEDULED', 'SC', 'CM'),
+])
+def test_a_study_past_a_skipped_rung_is_not_stalled_there(pipe, rule, first, later):
+    """It used to flap: raised because the NEXT rung was missing, auto-resolved in the
+    same pass because a LATER one was there — a fresh closed note every sweep (20 on
+    one study in five hours on localhost, 2026-10-25)."""
+    threshold = dict((r, t) for r, _, t in STALLS)[rule]
+    stuck(pipe, 'A1', first, threshold + 20)
+    pipe.send(k.status(later, 'A1', k.ts(threshold + 10)))
+    for _ in range(3):
+        pipe.sweep()
+    assert pipe.findings(rule) == []
+
+
+def test_skipped_rung_does_not_flap_with_a_configured_ladder(pipe):
+    pipe.profile(expected=['scheduled', 'arrived', 'started', 'completed'])
+    stuck(pipe, 'A1', 'AR', 300)
+    pipe.send(k.status('CM', 'A1', k.ts(290)))
+    for _ in range(3):
+        pipe.sweep()
+    assert pipe.findings('STALLED_ARRIVED') == []
+
+
 def test_a_study_that_stalls_again_raises_a_fresh_finding(pipe):
     stuck(pipe, 'A1', 'AR', 260)
     pipe.sweep()
