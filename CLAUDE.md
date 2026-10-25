@@ -192,8 +192,10 @@ dc up -d
 dc logs -f rayd-app
 dc logs -f rayd-app | grep -E "HL7|MLLP|RAY7"
 
-# Rebuild one service after a code change
-dc build rayd-app && dc up -d rayd-app
+# Rebuild one service after a code change. The reload matters: recreating the
+# container gives it a new IP and nginx keeps the old one (502 on https://localhost)
+# — update.sh does the same reload in production.
+dc build rayd-app && dc up -d rayd-app && dc exec nginx nginx -s reload
 
 # Replay the archive through parse → screen → persist → project
 dc exec rayd-app python app.py -m              # everything
