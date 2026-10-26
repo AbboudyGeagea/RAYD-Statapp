@@ -169,6 +169,14 @@ class OracleConnector:
 
 def init_db(app):
     db.init_app(app)
+    # BRAYN's own transactions run on hospital time (utils/brayn_shadow.py, clock());
+    # the hook does nothing for any other transaction.
+    try:
+        with app.app_context():
+            from utils.brayn_shadow import install_clock
+            install_clock(db.engine)
+    except Exception:
+        logger.exception("BRAYN clock hook not installed")
 
 def get_pg_engine():
     return db.engine

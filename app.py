@@ -900,6 +900,23 @@ def create_app():
         coalesce=True,
     )
 
+    def brayn_sweep_job():
+        # BRAYN (observing only on LAUMC): stalled / unreported studies and per-sender
+        # alerts. A no-op while settings.brayn_enabled is off (utils/brayn_shadow.py).
+        from utils import brayn_shadow
+        brayn_shadow.sweep(app)
+
+    scheduler.add_job(
+        func=brayn_sweep_job,
+        trigger='interval',
+        minutes=15,
+        id='brayn_sweep',
+        name='BRAYN sweep (every 15 min)',
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+
     # Only start scheduler and HL7 listener when running as server, not manual ETL
     # (manual_mode computed earlier — see STARTUP: AUTO-TRIGGER ETL IF DB IS EMPTY)
     if not manual_mode:

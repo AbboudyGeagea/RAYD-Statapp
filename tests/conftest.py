@@ -59,10 +59,17 @@ DATA_TABLES = [
     'hl7_oru_analysis', 'ai_nlp_cache', 'crn_events', 'crn_notifications',
     'hl7_oru_reports', 'hl7_orders', 'hl7_scn_studies', 'order_status_log',
     'etl_didb_studies', 'etl_patient_view', 'etl_orders',
+    # BRAYN (migration 0133), children of the archive first
+    'brayn_findings', 'hl7_study_events', 'hl7_patients', 'hl7_message_archive',
+    'brayn_study_state', 'brayn_interface_stats', 'brayn_unknown_values',
 ]
 
 # Seeded configuration, snapshotted after migrations and restored before every test.
-CONFIG_TABLES = ['settings', 'aetitle_modality_map']
+CONFIG_TABLES = [
+    'settings', 'aetitle_modality_map',
+    'brayn_rules', 'hl7_status_map', 'hl7_result_status_map', 'brayn_ladder_profile',
+    'hl7_field_mappings', 'hl7_field_targets',
+]
 
 # The bootstrap app.py runs before migrations (inline in create_app()).
 _BOOTSTRAP_SQL = """
@@ -251,6 +258,19 @@ def app(database_url):
 _DATA, _CONFIG = [], []
 
 
+def _reset_caches():
+    import hl7_listener
+    from utils import brayn, brayn_shadow, hl7_fieldmap, hl7_ingest
+    for k in list(brayn._cache):
+        brayn._cache[k] = (0.0, None)
+    hl7_fieldmap.invalidate()
+    hl7_fieldmap.invalidate_targets()
+    hl7_ingest._PACS_APP.update({'at': 0.0, 'value': None})
+    brayn_shadow.reset_switch()
+    hl7_listener._fm_cache = None
+    hl7_listener._fm_loaded_at = 0.0
+
+
 @pytest.fixture(autouse=True)
 def clean(request, app):
     from db import db
@@ -262,7 +282,9 @@ def clean(request, app):
             db.session.execute(text(f'DELETE FROM {t}'))
             db.session.execute(text(f'INSERT INTO {t} SELECT * FROM _snap_{t}'))
         db.session.commit()
+    _reset_caches()
     yield
+    _reset_caches()
 
 
 @pytest.fixture
@@ -280,9 +302,18 @@ def _free_port():
     return port
 
 
+_REAL_START_WORKER = []
+
+
 @pytest.fixture(scope='session')
 def mllp_port(app):
+    """The real listener on a free port. BRAYN's background worker is NOT started
+    with it: tests screen explicitly (Pipe.screen) so what they assert is not a race
+    against a thread. The brayn_worker fixture runs the real worker on purpose."""
     from hl7_listener import start_mllp_listener
+    from utils import brayn_shadow
+    _REAL_START_WORKER.append(brayn_shadow.start_worker)
+    brayn_shadow.start_worker = lambda app: None
     port = _free_port()
     start_mllp_listener(app, host='127.0.0.1', port=port)
     for _ in range(50):
@@ -294,6 +325,14 @@ def mllp_port(app):
     pytest.exit('the MLLP listener did not start')
 
 
+@pytest.fixture
+def brayn_worker(app, mllp_port):
+    from utils import brayn_shadow
+    thread = _REAL_START_WORKER[0](app)
+    yield thread
+    brayn_shadow.stop_worker()
+
+
 class Pipe:
     """Sends messages through the real listener and reads back what landed."""
 
@@ -301,7 +340,10 @@ class Pipe:
         self.app, self.port = app, port
 
     def send(self, raw):
-        """Send one framed message; return the ACK code (AA / AE)."""
+        """Send one framed message; return the ACK code (AA / AE).
+
+        Returns only once the listener has finished with the connection: what it
+        does after the ACK (BRAYN's archive) is done by the time a test looks."""
         import hl7kit as k
         with socket.create_connection(('127.0.0.1', self.port), timeout=10) as s:
             s.sendall(k.frame(raw))
@@ -311,9 +353,24 @@ class Pipe:
                 if not chunk:
                     break
                 buf += chunk
+            s.shutdown(socket.SHUT_WR)
+            while s.recv(4096):
+                pass
         ack = buf.decode('utf-8', 'replace')
         m = re.search(r'MSA\|([A-Z]{2})', ack)
         return m.group(1) if m else None
+
+    def brayn(self, on=True):
+        """Switch BRAYN on (or off), effective for the next message."""
+        self.exec("INSERT INTO settings (key, value) VALUES ('brayn_enabled', :v) "
+                  "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+                  v='true' if on else 'false')
+        _reset_caches()
+
+    def screen(self):
+        """Run BRAYN's worker pass once, here, instead of waiting for the thread."""
+        from utils import brayn_shadow
+        return brayn_shadow.process_pending(self.app)
 
     def _run(self, sql, params, fetch):
         from db import db

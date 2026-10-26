@@ -746,12 +746,27 @@ def _handle_client(conn, addr, app):
                     ack = _build_ack(msh, ACK_AE, str(e)[:80])
 
                 conn.sendall(ack)
+                _brayn_observe(raw_message, addr, app)
 
     except Exception as e:
         logger.error(f"HL7 connection error from {addr}: {e}")
     finally:
         conn.close()
         logger.info(f"HL7 connection closed: {addr[0]}:{addr[1]}")
+
+
+def _brayn_observe(raw_message, addr, app):
+    """
+    Hand the message to BRAYN (utils/brayn_shadow.py) AFTER it was stored and the
+    ACK sent. BRAYN only observes on LAUMC: it archives the message and screens it
+    in the background into its own tables. Off unless settings.brayn_enabled, and
+    nothing it does can reach the write or the ACK above.
+    """
+    try:
+        from utils import brayn_shadow
+        brayn_shadow.observe(raw_message, addr[0] if addr else None, app)
+    except Exception:
+        logger.exception("BRAYN shadow hook failed (message already stored and acknowledged)")
 
 
 def start_mllp_listener(app, host='0.0.0.0', port=6661):
@@ -767,6 +782,13 @@ def start_mllp_listener(app, host='0.0.0.0', port=6661):
             server.listen(10)
             logger.info(f"🏥 HL7 MLLP listener started on {host}:{port}")
             print(f"🏥 HL7 MLLP listener running on port {port}")
+            # BRAYN's screening worker lives with the listener: only the process
+            # that owns the port starts it. Idle while settings.brayn_enabled is off.
+            try:
+                from utils import brayn_shadow
+                brayn_shadow.start_worker(app)
+            except Exception as e:
+                logger.error(f"BRAYN shadow worker did not start: {e}")
             while True:
                 try:
                     conn, addr = server.accept()

@@ -38,6 +38,22 @@ routes/
   mapping_controller.py         — AE/modality/procedure mapping config (lazy-loaded tabs)
   hl7_orders_route.py           — HL7 order analytics
   report_cache.py               — shared cache/dropdown helpers
+hl7_listener.py                 — MLLP :6661: stores ORU (fill-only), orders, PACS completions;
+                                   then hands each message to BRAYN AFTER the ACK
+utils/brayn_shadow.py           — BRAYN on LAUMC, OBSERVING ONLY (migration 0133, 2026-10-26):
+                                   archive after the ACK, background worker screens into
+                                   BRAYN's own tables, 15-min sweep. Off until
+                                   settings.brayn_enabled = 'true'. Never writes etl_*,
+                                   hl7_orders or hl7_oru_reports; never holds a message
+                                   ('quarantined' = "not identified"). Its transactions run
+                                   on hospital time via clock() — LAUMC's Postgres is UTC.
+utils/brayn*.py, hl7_parse.py, hl7_fieldmap.py, hl7_dictionary.py, hl7_ingest.py
+                                — the BRAYN engine, hand-ported unchanged from the HL7
+                                   branch (2026-10-26); hl7_ingest is used for archive +
+                                   persist_parsed only (no projector on LAUMC)
+tests/                          — pytest, own DB rayd_pytest_laumc: listener baseline
+                                   (what LAUMC stores today) + BRAYN shadow, incl. "LAUMC
+                                   writes the same with BRAYN on or off"
 ETL_JOBS/
   etl_job.py                    — Oracle → PostgreSQL ETL pipeline
   etl_analytics_refresh.py      — storage summary rollup (Phase 7 of the main ETL sync,
@@ -176,6 +192,11 @@ procedure_exceptions    — legacy exceptions table (see device_exceptions for c
 4. **Expensive CTEs** — `etl_orders` scans with `MODE() WITHIN GROUP` must use `WITH ... AS MATERIALIZED`.
 5. **hl7_oru_analysis** — written only by `nlp_worker/worker.py`; route handlers read it but never write it.
 6. **Password encryption** — Oracle and external DB passwords are encrypted via `utils/crypto.py` using `SECRET_KEY`.
+7. **BRAYN observes, never decides** — nothing in utils/brayn_shadow.py may write LAUMC's
+   own tables or run before the listener's ACK; every entry point is fail-open. Never
+   truncate `brayn_rules`, `hl7_status_map` or `hl7_result_status_map` (seeded config).
+   RIS-dependent checks (ORPHAN_EVENT, SKIPPED_RUNG, ORPHAN_ORDER, STALLED_*) are seeded
+   OFF until the ATH real-time R2I feed is live.
 
 ## Dev Workflow
 
@@ -202,6 +223,9 @@ docker compose build rayd-app && docker compose up -d rayd-app
 
 # Check NLP worker health
 docker compose logs rayd-nlp --tail 20
+
+# Test suite (any reachable Postgres; creates and drops rayd_pytest_laumc, never etl_db)
+python -m pytest tests
 ```
 
 ## MCP Servers (for Claude Code agents)
