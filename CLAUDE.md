@@ -47,6 +47,11 @@ utils/brayn_shadow.py           — BRAYN on LAUMC, OBSERVING ONLY (migration 01
                                    hl7_orders or hl7_oru_reports; never holds a message
                                    ('quarantined' = "not identified"). Its transactions run
                                    on hospital time via clock() — LAUMC's Postgres is UTC.
+routes/brayn_console.py         — BRAYN console (/brayn, Administration → BRAYN), ADMIN ONLY:
+                                   on/off switch, To fix + Re-check, messages, study
+                                   timeline, notes, settings. Writes BRAYN tables only
+                                   (status map, accession field, steps, checks); devices
+                                   stay in Mapping. "Not identified" = HL7's "held"
 utils/brayn*.py, hl7_parse.py, hl7_fieldmap.py, hl7_dictionary.py, hl7_ingest.py
                                 — the BRAYN engine, hand-ported unchanged from the HL7
                                    branch (2026-10-26); hl7_ingest is used for archive +

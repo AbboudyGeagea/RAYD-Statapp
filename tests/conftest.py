@@ -239,6 +239,8 @@ def app(database_url):
         return {'license': _AllFeatures(), 'config': flask_app.config, 'ui_theme': 'dark',
                 'user_favorites': [], 'demo_mode': False, 'demo_start': '', 'demo_end': '',
                 'demo_user': '', 'pending_approvals_count': 0, 'reset_requests_count': 0}
+    from routes.brayn_console import brayn_bp
+    flask_app.register_blueprint(brayn_bp)
 
     from db import db
     from sqlalchemy import text

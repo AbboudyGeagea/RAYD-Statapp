@@ -43,6 +43,7 @@ from routes.custom_reports      import custom_reports_bp
 from routes.health_bp           import health_bp
 from routes.resource_monitor    import resource_monitor_bp
 from routes.crn_admin           import crn_admin_bp
+from routes.brayn_console       import brayn_bp
 
 logger = logging.getLogger("REGISTRY")
 
@@ -274,6 +275,7 @@ def register_blueprints(app):
     app.register_blueprint(financial_config_bp)   # admin config — always on
     app.register_blueprint(groups_bp)
     app.register_blueprint(crn_admin_bp)
+    app.register_blueprint(brayn_bp)              # BRAYN console, admin only
 
     # ── Licensed reports (auto-discovered from report_registry) ─
     licensed_reports = lic.get('reports', [])

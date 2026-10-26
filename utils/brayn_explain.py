@@ -86,16 +86,16 @@ RULES = {
                              'A status for a lifecycle step that is switched off in '
                              '"Lifecycle steps this site sends".'),
     'UNKNOWN_AETITLE':      ('Unknown device',
-                             'An AE title with no modality, so its studies miss every '
-                             'per-modality and per-device chart.'),
+                             'An AE title with no modality in Mapping, the device map the '
+                             'reports also use.'),
     'UNKNOWN_RESULT_STATUS': ('Result status not mapped',
                              'An OBX-11 / OBR-25 value with no meaning in the result-status map.'),
     'UNKNOWN_PROCEDURE':    ('Unknown procedure', 'A procedure code not in the catalogue.'),
     'UNKNOWN_PERFORMER':    ('Unknown performer',
                              'A technician or radiologist BRAYN does not recognise.'),
     'BRAYN_BUDGET_EXCEEDED': ('Screening too slow',
-                             'BRAYN ran out of its time budget before the ACK and accepted '
-                             'the message without its remaining checks.'),
+                             'BRAYN ran out of its time budget and skipped its remaining '
+                             'checks for the message.'),
     'BRAYN_DEGRADED':       ('Screening degraded',
                              'A lookup failed, so BRAYN accepted the message without its '
                              'checks. Nothing is lost; the checks were skipped.'),
@@ -103,9 +103,11 @@ RULES = {
 
 # The four layers, in the reader's terms. Order is the order the console shows.
 GROUPS = (
-    ('intake',    'Held until fixed',
-     "Keep a message out of the reports until its cause is fixed. Always on: a message "
-     "BRAYN can't attach to a study or a step can't produce data."),
+    # LAUMC copy: BRAYN only observes here (utils/brayn_shadow.py), so nothing is
+    # held — the listener has already stored the message.
+    ('intake',    'Not identified',
+     "A message BRAYN can't attach to a study or a step. LAUMC stores it as usual; "
+     "BRAYN can't use it until the cause is fixed and it is re-checked. Always on."),
     ('quality',   'Data quality notes',
      'Judged on the whole study after every message. Never block data; most close '
      "themselves once the study's messages agree."),
@@ -420,7 +422,7 @@ def explain(raw_message, msg, *, held_rules=(), mapped=None, known_aetitle=None,
     if 'UNKNOWN_STATUS_CODE' in held_rules:
         seg, num = (sources.get('raw_order_status') or ('ORC', 5, None, 0))[:2]
         problem[(seg, num, 0)] = (f"{getattr(msg, 'raw_order_status', None) or 'Empty'}: not in the "
-                                  'status map, so the step is unknown. Message held.')
+                                  'status map, so the step is unknown.')
     if 'MISSING_IDENTIFIER' in held_rules:
         for seg, num, what in (('ORC', 3, 'accession'), ('OBR', 3, 'accession'),
                                ('ORC', 2, 'order number'), ('OBR', 2, 'order number')):
@@ -429,8 +431,7 @@ def explain(raw_message, msg, *, held_rules=(), mapped=None, known_aetitle=None,
     if getattr(msg, 'aetitle', None) and known_aetitle is False:
         pos = sources.get('aetitle')
         if pos:
-            problem[(pos[0], pos[1], pos[3])] = (f'{msg.aetitle} has no modality yet, so these '
-                                                 'studies miss the per-modality charts.')
+            problem[(pos[0], pos[1], pos[3])] = (f'{msg.aetitle} has no modality in Mapping yet.')
     if kind == 'result' and getattr(msg, 'raw_result_status', None) and result_mapped is False:
         pos = sources.get('raw_result_status')
         if pos:

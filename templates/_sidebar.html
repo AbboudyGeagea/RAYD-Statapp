@@ -33,7 +33,7 @@
 {# ── Active-group detection ────────────────────────────────────────── #}
 {% set ep = request.endpoint or '' %}
 {% set overview_on   = ep.startswith('viewer.') %}
-{% set admin_on      = ep in ['admin.admin_dashboard','admin.user_management','admin.audit_log','admin.hl7_forward_config'] or ep.startswith('db_manager.') or ep.startswith('mapping.') or ep.startswith('crn_admin.') %}
+{% set admin_on      = ep in ['admin.admin_dashboard','admin.user_management','admin.audit_log','admin.hl7_forward_config'] or ep.startswith('db_manager.') or ep.startswith('mapping.') or ep.startswith('crn_admin.') or ep.startswith('brayn_console.') %}
 {% set ops_on        = ep.startswith('live_feed.') or ep.startswith('hl7_orders.') or ep.startswith('report_31.') or (ep.startswith('crn_admin.') and current_user.role != 'admin') %}
 {% set analytics_on  = ep.startswith('oru.') or ep.startswith('referring_intel.') or ep.startswith('custom_reports.') %}
 {% set ai_on         = ep.startswith('report_ai.') %}
@@ -121,6 +121,10 @@
             <a href="{{ url_for('crn_admin.board_page') }}"
                class="sidebar-item {% if ep.startswith('crn_admin.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
                 <i class="bi bi-broadcast flex-shrink-0" style="color:#f87171;"></i> CRN
+            </a>
+            <a href="{{ url_for('brayn_console.console') }}"
+               class="sidebar-item {% if ep.startswith('brayn_console.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
+                <i class="bi bi-activity flex-shrink-0" style="color:#34d399;"></i> BRAYN
             </a>
             {% endif %}
         </div>

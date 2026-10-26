@@ -192,7 +192,7 @@ _PENDING_SQL = """
 """
 
 
-def screen_one(archive_id):
+def screen_one(archive_id, live=True):
     """
     Screen one archived message and write BRAYN's own tables, in one transaction.
     Call inside an app context and clock(). Returns True if it was screened, False
@@ -202,6 +202,11 @@ def screen_one(archive_id):
     data (legacy writes, projection, direct overrides). A message that fails is
     marked (parse_status 'error', brayn_status 'flagged') so the worker never loops
     on it.
+
+    live=False is the console's re-check of a message BRAYN could not identify:
+    its old message findings go first, so a check that no longer fires leaves
+    nothing behind, and it is not counted again per sender — that traffic was
+    counted when it arrived.
     """
     from utils import brayn
     from utils.brayn_quality import evaluate_study
@@ -210,12 +215,15 @@ def screen_one(archive_id):
     try:
         row = db.session.execute(text("""
             SELECT id, raw_message, source_ip FROM hl7_message_archive
-             WHERE id = :id AND brayn_status = 'pending'
+             WHERE id = :id AND brayn_status = :status
              FOR UPDATE SKIP LOCKED
-        """), {'id': archive_id}).first()
+        """), {'id': archive_id, 'status': 'pending' if live else 'quarantined'}).first()
         if row is None:
             db.session.rollback()
             return False
+        if not live:
+            db.session.execute(text("DELETE FROM brayn_findings WHERE message_archive_id = :id"),
+                               {'id': archive_id})
         msg = parse_message(row.raw_message, source_ip=row.source_ip)
         verdict = brayn.screen(msg, archive_id)
         brayn.persist(verdict, msg, archive_id)
@@ -226,7 +234,8 @@ def screen_one(archive_id):
         else:
             mark_quarantined(archive_id)              # "not identified"; LAUMC stored it anyway
         db.session.commit()
-        brayn.record_observations(verdict, msg, archive_id)
+        if live:
+            brayn.record_observations(verdict, msg, archive_id)
         return True
     except Exception as exc:
         db.session.rollback()
@@ -266,6 +275,32 @@ def process_pending(app, limit=None):
                         done += 1
                     if limit and done >= limit:
                         return done
+
+
+def recheck(archive_ids):
+    """
+    Screen messages BRAYN could not identify again, under today's configuration —
+    after a status code or the accession field was mapped. Call inside an app
+    context. Returns how many were re-checked.
+    """
+    done = 0
+    with clock():
+        for archive_id in archive_ids:
+            if screen_one(archive_id, live=False):
+                done += 1
+    return done
+
+
+def set_enabled(on):
+    """The console's switch. Takes effect on the next message."""
+    db.session.execute(text("""
+        INSERT INTO settings (key, value) VALUES ('brayn_enabled', :v)
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+    """), {'v': 'true' if on else 'false'})
+    db.session.commit()
+    reset_switch()
+    if on:
+        wake()
 
 
 def start_worker(app):
