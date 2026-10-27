@@ -6,6 +6,11 @@
 # ETL. Orders arrive as HL7 ORM on port 6661; patients log in on /portal.
 # Every secret (app key, database password, first admin password) is generated
 # here, per install — nothing is shared between sites.
+#
+# Answers can be piped in, one per prompt (HL7 senders, hostname, admin user):
+#   printf '10.1.2.3\nresults.hospital.com\nadmin\n' | sudo bash install.sh
+# docker compose gets </dev/null so it cannot swallow them, and a prompt that
+# runs out of input takes its default.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -115,7 +120,7 @@ else
     echo ""
     echo "  HL7 senders: the RIS/HIS addresses allowed to send orders to port 6661."
     echo "  Anyone else who can reach that port could create patient accounts."
-    read -r -p "  Allowed sender IPs/CIDRs, comma-separated (blank = any, NOT recommended): " HL7_SENDERS
+    read -r -p "  Allowed sender IPs/CIDRs, comma-separated (blank = any, NOT recommended): " HL7_SENDERS || HL7_SENDERS=""
     [ -z "$HL7_SENDERS" ] && warn "No HL7 sender list — port 6661 accepts any host. Restrict it with a firewall."
 
     umask 077
@@ -147,7 +152,7 @@ info "Step 3/5 — Setting up TLS certificate..."
 CERT_DIR="./nginx/certs"
 mkdir -p "$CERT_DIR"
 
-read -r -p "  Hostname or IP users will type in the browser [$(hostname)]: " CERT_CN
+read -r -p "  Hostname or IP users will type in the browser [$(hostname)]: " CERT_CN || CERT_CN=""
 CERT_CN="${CERT_CN:-$(hostname)}"
 if [[ "$CERT_CN" =~ ^[0-9]+(\.[0-9]+){3}$ ]]; then
     SAN="IP:${CERT_CN},IP:127.0.0.1"
@@ -224,13 +229,13 @@ fi
 # ──────────────────────────────────────────────────────
 info "Step 4/5 — Building, licensing and starting containers..."
 
-$COMPOSE down --remove-orphans 2>/dev/null || true
-$COMPOSE build
+$COMPOSE down --remove-orphans </dev/null 2>/dev/null || true
+$COMPOSE build </dev/null
 md5sum requirements.txt 2>/dev/null | awk '{print $1}' > .last_req_hash
 
 # Database first: the app reads its license once, at startup, so the license
 # row must exist before the app's first start.
-$COMPOSE up -d db
+$COMPOSE up -d db </dev/null
 info "Waiting for database to be ready (a first start loads the schema — minutes on a slow disk)..."
 # pg_isready already says yes while the first-start init is still loading
 # schema.sql on a temporary server, before etl_db is complete. Wait for the init
@@ -252,7 +257,7 @@ pg_exec "INSERT INTO settings (key, value) VALUES ('license', '${LICENSE_JSON}')
 pg_exec "INSERT INTO settings (key, value) VALUES ('demo_mode', 'false') ON CONFLICT (key) DO UPDATE SET value = 'false';"
 ok "License: patient portal only."
 
-$COMPOSE up -d
+$COMPOSE up -d </dev/null
 
 wait_for_app() {
     local w=0
@@ -280,7 +285,7 @@ info "Step 5/5 — Creating the first admin..."
 USER_COUNT=$(docker exec rayd_db psql -U "$PG_USER" -d "$PG_DB" -tAc "SELECT count(*) FROM users;")
 ADMIN_LINE=""
 if [ "${USER_COUNT:-0}" -eq 0 ]; then
-    read -r -p "  First admin username [admin]: " ADMIN_USER
+    read -r -p "  First admin username [admin]: " ADMIN_USER || ADMIN_USER=""
     ADMIN_USER="${ADMIN_USER:-admin}"
     [[ "$ADMIN_USER" =~ ^[A-Za-z0-9._-]{3,50}$ ]] || error "Username: 3-50 letters, digits, dot, dash or underscore."
     # Random password, shown once; the admin must change it at first login.
