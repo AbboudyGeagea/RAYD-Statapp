@@ -20,7 +20,6 @@
             --success: #3db87a;
             --warn:    #e0943a;
         }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
             font-family: 'IBM Plex Sans', sans-serif;
             background: var(--bg);
@@ -30,24 +29,6 @@
         }
         ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 10px; }
-
-        /* sidebar items */
-        .sidebar-item {
-            transition: all 0.2s;
-            border-radius: 0.75rem;
-            margin-bottom: 0.25rem;
-            text-decoration: none !important;
-            color: #94a3b8;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 10px 16px;
-            font-size: 14px;
-            font-weight: 700;
-        }
-        .sidebar-item:hover { background: #1d2522; color: #60a5fa; }
-        .sidebar-item.active { background: #1d2522; color: #60a5fa; border-left: 4px solid #60a5fa; }
-        .sidebar-item i { font-size: 1.1rem; width: 1.5rem; text-align: center; }
 
         /* section cards */
         .cfg-card {
@@ -87,7 +68,7 @@
         .cfg-body { padding: 22px; }
 
         /* inputs */
-        label {
+        main label {
             display: block;
             font-size: 11px;
             font-weight: 700;
@@ -167,17 +148,13 @@
             align-items: center;
             justify-content: center;
             overflow: hidden;
-            cursor: pointer;
-            transition: border-color 0.2s;
-            position: relative;
         }
-        .logo-preview:hover { border-color: var(--accent); }
         .logo-preview img { max-height: 100px; max-width: 100%; object-fit: contain; }
         .logo-placeholder { text-align: center; color: var(--muted); }
         .logo-placeholder i { font-size: 28px; display: block; margin-bottom: 6px; }
         .logo-placeholder span { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
 
-        /* test connection badge */
+        /* status badges */
         .conn-badge {
             display: inline-flex;
             align-items: center;
@@ -210,6 +187,18 @@
         }
         .var-chip:hover { background: rgba(56,173,169,0.25); }
 
+        /* contract box */
+        .contract {
+            background: var(--bg);
+            border: 1px solid var(--border2);
+            border-radius: 10px;
+            padding: 14px 16px;
+            font-size: 12px;
+            color: var(--text);
+            line-height: 1.7;
+        }
+        .contract code { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--accent2); }
+
         /* toast */
         .toast {
             position: fixed; bottom: 24px; right: 24px;
@@ -230,57 +219,11 @@
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
 
-    <!-- Header -->
-    <header class="bg-[#232b28] border-b border-[#28332e] px-8 py-4 flex items-center justify-center shadow-md z-30 shrink-0">
-        <div class="flex items-center gap-5">
-            <img src="{{ url_for('static', filename='RAYD.png') }}" class="h-12 w-auto opacity-90">
-            <div class="flex flex-col items-center">
-                <div class="h-px w-52 bg-gradient-to-r from-transparent via-[#60a5fa] to-transparent mb-1.5"></div>
-                <p class="text-[9px] font-black text-[#60a5fa] uppercase tracking-[0.35em]">Reliable Analytics for Your Department</p>
-                <div class="h-px w-52 bg-gradient-to-r from-transparent via-[#60a5fa] to-transparent mt-1.5"></div>
-            </div>
-        </div>
-    </header>
+    {% include '_header.html' %}
 
     <div class="flex flex-1 overflow-hidden">
 
-        <!-- Sidebar -->
-        <aside class="w-72 bg-[#232b28] border-r border-[#28332e] flex flex-col p-6 shadow-xl z-20 shrink-0">
-            <div class="flex items-center gap-3 mb-10 px-2">
-                <div class="bg-[#60a5fa] p-2.5 rounded-xl text-white shadow-lg shadow-blue-400/20"><i class="bi bi-cpu-fill text-xl"></i></div>
-                <div>
-                    <h1 class="font-black text-[#e2e8f0] tracking-tighter uppercase leading-none text-xl">RAYD</h1>
-                    <p class="text-[9px] font-black text-[#60a5fa] uppercase tracking-widest mt-1">Intelligence Hub</p>
-                </div>
-            </div>
-            <nav class="flex-1 space-y-1">
-                <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-4">Main Menu</p>
-                <a href="{{ url_for('viewer.viewer_dashboard') }}" class="sidebar-item">
-                    <i class="bi bi-speedometer2"></i> Viewer Dashboard
-                </a>
-                <a href="{{ url_for('admin.admin_dashboard') }}" class="sidebar-item">
-                    <i class="bi bi-cpu"></i> ETL Control Room
-                </a>
-                <a href="{{ url_for('mapping.mapping_page') }}" class="sidebar-item">
-                    <i class="bi bi-calendar-week"></i> Modality / Procedures Config
-                </a>
-                <div class="pt-4 pb-2">
-                    <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest px-2 mb-2">RIS</p>
-                </div>
-                <a href="{{ url_for('hl7_orders.hl7_orders_page') }}" class="sidebar-item">
-                    <i class="bi bi-activity"></i> HL7 Orders
-                </a>
-                <a href="{{ url_for('portal_admin.portal_users') }}" target="_blank" class="sidebar-item active">
-                    <i class="bi bi-person-vcard"></i> Patient Portal
-                </a>
-            </nav>
-            <div class="mt-auto p-4 bg-[#181f1c] rounded-2xl border border-[#28332e]">
-                <p class="text-[10px] uppercase text-slate-500 font-bold mb-1">System Health</p>
-                <p class="text-xs text-green-400 font-mono flex items-center gap-2">
-                    <span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span> All Systems Operational
-                </p>
-            </div>
-        </aside>
+        {% include '_sidebar.html' %}
 
         <!-- Main -->
         <main class="flex-1 overflow-y-auto bg-[#0a0f0d]">
@@ -293,11 +236,11 @@
                         <p class="text-sm text-[var(--muted)] mt-1">Manage patient portal settings, integrations and branding</p>
                     </div>
                     <a href="{{ url_for('portal_admin.portal_users') }}" class="btn btn-ghost">
-                        <i class="bi bi-arrow-left"></i> Back to Users
+                        <i class="bi bi-arrow-left"></i> Back to Patients
                     </a>
                 </div>
 
-                <form method="POST" action="{{ url_for('portal_admin.portal_config') }}" enctype="multipart/form-data" id="cfg-form">
+                <form method="POST" action="{{ url_for('portal_admin.portal_config') }}" id="cfg-form" autocomplete="off">
 
                 <!-- ── 1. HOSPITAL BRANDING ───────────────────────────── -->
                 <div class="cfg-card">
@@ -315,80 +258,81 @@
                             <label>Hospital Name</label>
                             <input type="text" name="cfg_hospital_name" class="inp"
                                    placeholder="e.g. Beirut Medical Center — Radiology"
-                                   value="{{ configs | selectattr('config_key','equalto','hospital_name') | map(attribute='config_value') | first | default('') }}">
+                                   value="{{ cfg.hospital_name }}">
                         </div>
                         <div class="field-row cols-2" style="align-items:start;">
                             <div>
-                                <label>Hospital Logo</label>
-                                <div class="logo-preview" id="logo-drop" onclick="document.getElementById('logo-file').click()">
-                                    {% set logo = configs | selectattr('config_key','equalto','hospital_logo_url') | map(attribute='config_value') | first | default('') %}
-                                    {% if logo %}
-                                    <img id="logo-img" src="{{ logo }}" alt="Hospital Logo">
+                                <label>Logo Preview</label>
+                                <div class="logo-preview">
+                                    {% if cfg.hospital_logo_url %}
+                                    <img src="{{ cfg.hospital_logo_url }}" alt="Hospital Logo">
                                     {% else %}
-                                    <div class="logo-placeholder" id="logo-placeholder">
+                                    <div class="logo-placeholder">
                                         <i class="bi bi-image"></i>
-                                        <span>Click to upload</span>
+                                        <span>No logo</span>
                                     </div>
                                     {% endif %}
                                 </div>
-                                <input type="file" id="logo-file" name="hospital_logo" accept="image/*" class="hidden">
-                                <p class="text-[10px] text-[var(--muted)] mt-2">PNG, JPG or SVG · max 2 MB · shown at 72×72 px</p>
                             </div>
                             <div>
-                                <label>Logo URL (or uploaded path)</label>
+                                <label>Logo URL</label>
                                 <input type="text" name="cfg_hospital_logo_url" class="inp inp-mono"
-                                       id="logo-url-field"
-                                       placeholder="/static/hospital_logo.png"
-                                       value="{{ logo }}">
-                                <p class="text-[10px] text-[var(--muted)] mt-2">Auto-filled on upload, or enter a URL manually</p>
+                                       placeholder="https://hospital.com/logo.png or /static/hospital_logo.png"
+                                       value="{{ cfg.hospital_logo_url }}">
+                                <p class="text-[10px] text-[var(--muted)] mt-2">An https:// address, or a file placed in the app's static/ folder</p>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- ── 2. VIEWER URL ──────────────────────────────────── -->
+                <!-- ── 2. VIEWER LINK ─────────────────────────────────── -->
                 <div class="cfg-card">
                     <div class="cfg-card-head">
                         <div class="cfg-card-icon" style="background:rgba(56,173,169,0.12);color:var(--accent2);">
                             <i class="bi bi-display"></i>
                         </div>
                         <div>
-                            <div class="cfg-card-title">DICOM Viewer</div>
-                            <div class="cfg-card-desc">The viewer patients are redirected to after login</div>
+                            <div class="cfg-card-title">DICOM Viewer Link</div>
+                            <div class="cfg-card-desc">After login the patient is sent to their own study through a signed link that expires</div>
                         </div>
                     </div>
                     <div class="cfg-body space-y-4">
                         <div>
-                            <label>Viewer Base URL</label>
-                            <input type="url" name="cfg_viewer_base_url" class="inp inp-mono"
-                                   placeholder="https://viewer.hospital.com/viewer"
-                                   value="{{ configs | selectattr('config_key','equalto','viewer_base_url') | map(attribute='config_value') | first | default('') }}">
+                            <label>Viewer Link Template</label>
+                            <input type="text" name="cfg_viewer_url_template" class="inp inp-mono"
+                                   placeholder="https://pacs.hospital.com/viewer?acc={accession}&amp;mrn={mrn}&amp;exp={expires}&amp;n={nonce}&amp;sig={signature}"
+                                   value="{{ cfg.viewer_url_template }}">
+                            <p class="text-[10px] text-[var(--muted)] mt-1">Must contain {accession}, {expires} and {signature}; {mrn} and {nonce} are optional</p>
                         </div>
-                        <div class="field-row cols-3">
+                        <div class="field-row cols-2">
                             <div>
-                                <label>Viewer Username</label>
-                                <input type="text" name="cfg_viewer_username" class="inp inp-mono"
-                                       placeholder="viewer_user"
-                                       value="{{ configs | selectattr('config_key','equalto','viewer_username') | map(attribute='config_value') | first | default('') }}">
-                            </div>
-                            <div>
-                                <label>Viewer Password</label>
-                                <div class="relative">
-                                    <input type="password" name="cfg_viewer_password" class="inp inp-mono" id="vp-field"
-                                           placeholder="••••••••"
-                                           value="{{ configs | selectattr('config_key','equalto','viewer_password') | map(attribute='config_value') | first | default('') }}">
-                                    <button type="button" onclick="togglePw('vp-field',this)"
-                                            class="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--muted)] hover:text-white transition-colors text-sm">
-                                        <i class="bi bi-eye"></i>
+                                <label>Signing Secret
+                                    {% if secret_set.get('viewer_signing_secret') %}<span class="conn-badge ok" style="margin-left:6px;">Set</span>{% else %}<span class="conn-badge fail" style="margin-left:6px;">Not set</span>{% endif %}
+                                </label>
+                                <div class="flex gap-2">
+                                    <input type="password" name="cfg_viewer_signing_secret" class="inp inp-mono" id="vs-field"
+                                           placeholder="{{ 'Leave blank to keep the current secret' if secret_set.get('viewer_signing_secret') else 'At least 32 characters' }}"
+                                           value="" autocomplete="new-password">
+                                    <button type="button" class="btn btn-ghost" onclick="generateSecret()" title="Generate a random secret">
+                                        <i class="bi bi-shuffle"></i>
                                     </button>
                                 </div>
+                                <p class="text-[10px] text-[var(--muted)] mt-1">Shared with the PACS viewer only. Stored encrypted, never shown again after saving.</p>
                             </div>
                             <div>
-                                <label>Accession Param Name</label>
-                                <input type="text" name="cfg_viewer_accession_param" class="inp inp-mono"
-                                       placeholder="accession"
-                                       value="{{ configs | selectattr('config_key','equalto','viewer_accession_param') | map(attribute='config_value') | first | default('accession') }}">
+                                <label>Link Lifetime (seconds)</label>
+                                <input type="number" name="cfg_viewer_link_ttl_seconds" class="inp inp-mono"
+                                       min="30" max="3600" value="{{ cfg.viewer_link_ttl_seconds }}">
+                                <p class="text-[10px] text-[var(--muted)] mt-1">30 – 3600. The patient must open the link within this time.</p>
                             </div>
+                        </div>
+                        <div class="contract">
+                            <p class="font-bold mb-1">What the PACS viewer must check</p>
+                            <p><code>payload = accession|mrn|expires|nonce</code></p>
+                            <p><code>signature = hex( HMAC-SHA256( secret, payload ) )</code></p>
+                            <p>Open that one study without a login only if the signature matches and the current Unix time is before
+                               <code>expires</code>; refuse a <code>nonce</code> already used. No shared viewer account reaches the patient,
+                               and changing the accession breaks the signature.</p>
                         </div>
                     </div>
                 </div>
@@ -410,19 +354,15 @@
                                 <label>Twilio Account SID</label>
                                 <input type="text" name="cfg_twilio_account_sid" class="inp inp-mono"
                                        placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-                                       value="{{ configs | selectattr('config_key','equalto','twilio_account_sid') | map(attribute='config_value') | first | default('') }}">
+                                       value="{{ cfg.twilio_account_sid }}">
                             </div>
                             <div>
-                                <label>Twilio Auth Token</label>
-                                <div class="relative">
-                                    <input type="password" name="cfg_twilio_auth_token" class="inp inp-mono" id="ta-field"
-                                           placeholder="••••••••••••••••••••••••••••••••"
-                                           value="{{ configs | selectattr('config_key','equalto','twilio_auth_token') | map(attribute='config_value') | first | default('') }}">
-                                    <button type="button" onclick="togglePw('ta-field',this)"
-                                            class="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--muted)] hover:text-white transition-colors text-sm">
-                                        <i class="bi bi-eye"></i>
-                                    </button>
-                                </div>
+                                <label>Twilio Auth Token
+                                    {% if secret_set.get('twilio_auth_token') %}<span class="conn-badge ok" style="margin-left:6px;">Set</span>{% else %}<span class="conn-badge fail" style="margin-left:6px;">Not set</span>{% endif %}
+                                </label>
+                                <input type="password" name="cfg_twilio_auth_token" class="inp inp-mono"
+                                       placeholder="{{ 'Leave blank to keep the current token' if secret_set.get('twilio_auth_token') else 'Twilio auth token' }}"
+                                       value="" autocomplete="new-password">
                             </div>
                         </div>
                         <div class="field-row cols-2">
@@ -430,15 +370,15 @@
                                 <label>WhatsApp From Number</label>
                                 <input type="text" name="cfg_twilio_whatsapp_from" class="inp inp-mono"
                                        placeholder="+1415XXXXXXX"
-                                       value="{{ configs | selectattr('config_key','equalto','twilio_whatsapp_from') | map(attribute='config_value') | first | default('') }}">
+                                       value="{{ cfg.twilio_whatsapp_from }}">
                                 <p class="text-[10px] text-[var(--muted)] mt-1">Your Twilio WhatsApp-enabled number</p>
                             </div>
                             <div>
                                 <label>Portal Base URL</label>
                                 <input type="url" name="cfg_portal_base_url" class="inp inp-mono"
-                                       placeholder="https://hospital.com"
-                                       value="{{ configs | selectattr('config_key','equalto','portal_base_url') | map(attribute='config_value') | first | default('') }}">
-                                <p class="text-[10px] text-[var(--muted)] mt-1">Used to build the login link in the WhatsApp message</p>
+                                       placeholder="https://results.hospital.com"
+                                       value="{{ cfg.portal_base_url }}">
+                                <p class="text-[10px] text-[var(--muted)] mt-1">Public address patients open — used for the link in the WhatsApp message</p>
                             </div>
                         </div>
 
@@ -460,6 +400,7 @@
                                 </span>
                             </div>
                         </div>
+                        <p class="text-[10px] text-[var(--muted)]">The test uses the saved settings — save first.</p>
                     </div>
                 </div>
 
@@ -489,7 +430,7 @@
                             <label>English Template</label>
                             <textarea name="cfg_whatsapp_message_template" class="inp" rows="7"
                                       id="tpl-en-area"
-                                      placeholder="Hello {name}, your radiology results are ready...">{{ configs | selectattr('config_key','equalto','whatsapp_message_template') | map(attribute='config_value') | first | default('') }}</textarea>
+                                      placeholder="Hello {name}, your radiology results are ready...">{{ cfg.whatsapp_message_template }}</textarea>
                         </div>
 
                         <!-- AR template -->
@@ -497,17 +438,17 @@
                             <label>Arabic Template (RTL)</label>
                             <textarea name="cfg_whatsapp_message_template_ar" class="inp inp-arabic" rows="7"
                                       id="tpl-ar-area"
-                                      placeholder="مرحباً {name}، نتائج فحصك الإشعاعي جاهزة...">{{ configs | selectattr('config_key','equalto','whatsapp_message_template_ar') | map(attribute='config_value') | first | default('') }}</textarea>
+                                      placeholder="مرحباً {name}، نتائج فحصك الإشعاعي جاهزة...">{{ cfg.whatsapp_message_template_ar }}</textarea>
                         </div>
 
                         <!-- Variable chips -->
                         <div>
                             <p class="text-[10px] font-bold text-[var(--muted)] uppercase tracking-wider mb-2">Available Variables — click to insert</p>
                             <div>
-                                <span class="var-chip" onclick="insertVar('{name}')        ">{name}</span>
-                                <span class="var-chip" onclick="insertVar('{username}')    ">{username}</span>
-                                <span class="var-chip" onclick="insertVar('{password}')    ">{password}</span>
-                                <span class="var-chip" onclick="insertVar('{portal_url}')  ">{portal_url}</span>
+                                <span class="var-chip" onclick="insertVar('{name}')">{name}</span>
+                                <span class="var-chip" onclick="insertVar('{username}')">{username}</span>
+                                <span class="var-chip" onclick="insertVar('{password}')">{password}</span>
+                                <span class="var-chip" onclick="insertVar('{portal_url}')">{portal_url}</span>
                                 <span class="var-chip" onclick="insertVar('{hospital_name}')">{hospital_name}</span>
                             </div>
                         </div>
@@ -539,26 +480,30 @@
     <div class="toast" id="toast"></div>
 
     <script>
-    // ── Password toggle ───────────────────────────────────────────────
-    function togglePw(fieldId, btn) {
-        const f = document.getElementById(fieldId);
-        const showing = f.type === 'text';
-        f.type = showing ? 'password' : 'text';
-        btn.innerHTML = showing ? '<i class="bi bi-eye"></i>' : '<i class="bi bi-eye-slash"></i>';
+    // ── Theme (the shared header calls toggleTheme) ───────────────────
+    function applyTheme(theme) {
+        document.body.classList.toggle('light', theme === 'light');
+        const icon = document.getElementById('theme-icon');
+        if (icon) icon.className = theme === 'light' ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
+    }
+    applyTheme({{ ui_theme|tojson }});
+    function toggleTheme() {
+        const next = document.body.classList.contains('light') ? 'dark' : 'light';
+        applyTheme(next);
+        fetch('/user/theme', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({theme: next}) });
     }
 
-    // ── Logo preview ──────────────────────────────────────────────────
-    document.getElementById('logo-file').addEventListener('change', function() {
-        const file = this.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = e => {
-            const drop = document.getElementById('logo-drop');
-            drop.innerHTML = `<img src="${e.target.result}" style="max-height:100px;max-width:100%;object-fit:contain;">`;
-            document.getElementById('logo-url-field').value = file.name;
-        };
-        reader.readAsDataURL(file);
-    });
+    // ── Signing secret generator ──────────────────────────────────────
+    // Shown once in the field so it can be handed to the PACS team before saving.
+    function generateSecret() {
+        const bytes = new Uint8Array(32);
+        crypto.getRandomValues(bytes);
+        const f = document.getElementById('vs-field');
+        f.value = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+        f.type = 'text';
+        f.select();
+        showToast('New secret generated — copy it for the PACS team, then save', 'success');
+    }
 
     // ── Language toggle ───────────────────────────────────────────────
     let activeLang = 'en';
@@ -582,8 +527,8 @@
             : document.getElementById('tpl-ar-area');
         const start = ta.selectionStart;
         const end   = ta.selectionEnd;
-        ta.value = ta.value.slice(0, start) + v.trim() + ta.value.slice(end);
-        ta.selectionStart = ta.selectionEnd = start + v.trim().length;
+        ta.value = ta.value.slice(0, start) + v + ta.value.slice(end);
+        ta.selectionStart = ta.selectionEnd = start + v.length;
         ta.focus();
         updatePreview();
     }
@@ -648,15 +593,16 @@
         const t = document.getElementById('toast');
         t.textContent = msg;
         t.className = `toast ${type} show`;
-        setTimeout(() => t.classList.remove('show'), 3500);
+        setTimeout(() => t.classList.remove('show'), 5000);
     }
 
     // ── Flash messages as toast ───────────────────────────────────────
     {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
-    {% for category, message in messages %}
-    document.addEventListener('DOMContentLoaded', () => showToast('{{ message }}', '{{ "success" if category == "success" else "error" }}'));
-    {% endfor %}
+    document.addEventListener('DOMContentLoaded', () => {
+        const msgs = {{ messages|tojson }};
+        showToast(msgs.map(m => m[1]).join('  ·  '), msgs.some(m => m[0] !== 'success') ? 'error' : 'success');
+    });
     {% endif %}
     {% endwith %}
     </script>

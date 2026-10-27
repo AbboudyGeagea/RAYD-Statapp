@@ -1,7 +1,7 @@
 """
 routes/portal_bp.py
 -------------------
-Patient Portal — login, masked redirect, HL7 ORM hook, WhatsApp dispatch.
+Patient Portal — login, signed viewer link, HL7 ORM hook, WhatsApp dispatch.
 
 Wire up in registry.py:
     from routes.portal_bp import portal_bp
@@ -9,36 +9,49 @@ Wire up in registry.py:
 
 Add to requirements.txt:
     twilio==8.5.0
+
+Viewer link contract (what the PACS viewer must check):
+    payload   = f"{accession}|{mrn}|{expires}|{nonce}"
+    signature = hex(HMAC-SHA256(viewer_signing_secret, payload))
+    The viewer opens that one study, without a login, only if the signature
+    matches and the current Unix time is before `expires`. It should also
+    refuse a nonce it has already seen. The URL is built from
+    viewer_url_template, e.g.
+      https://pacs.example/viewer?acc={accession}&mrn={mrn}&exp={expires}&n={nonce}&sig={signature}
+    No shared viewer account ever reaches the patient's browser, and
+    changing the accession breaks the signature.
 """
 
-import os
 import re
+import hmac
 import time
 import secrets
 import string
 import hashlib
 import logging
-import threading
-from datetime import datetime
-from flask import Blueprint, render_template, request, redirect, session, abort, url_for
+from urllib.parse import quote
+from flask import Blueprint, render_template, request, redirect, session, url_for
 from sqlalchemy import text
+from werkzeug.security import generate_password_hash, check_password_hash
 from db import db
 
 logger = logging.getLogger("PATIENT_PORTAL")
 portal_bp = Blueprint("portal", __name__)
 
-# Server-side one-time token map: token → {"url": str, "ts": float}
-# Viewer credentials never touch the session cookie.
-_viewer_token_map: dict = {}
-_viewer_token_lock = threading.Lock()
-_VIEWER_TOKEN_TTL  = 30  # seconds — single-use, short-lived
+_MAX_FAILED_LOGINS       = 10       # then the account locks ...
+_LOCKOUT_MINUTES         = 15       # ... for this long
+_PATIENT_SESSION_SECONDS = 15 * 60  # a patient session only exists to reach the viewer
+_VIEWER_LINK_TTL_DEFAULT = 300
+
+# Checked when the username is unknown, so a miss takes as long as a hit.
+_DUMMY_HASH = generate_password_hash(secrets.token_hex(16), method='pbkdf2:sha256')
 
 
 # ─────────────────────────────────────────────
 #  HELPERS
 # ─────────────────────────────────────────────
 
-_PORTAL_ENCRYPTED_KEYS = frozenset({'viewer_password', 'twilio_auth_token'})
+PORTAL_ENCRYPTED_KEYS = frozenset({'viewer_signing_secret', 'twilio_auth_token'})
 
 
 def _get_config():
@@ -48,7 +61,7 @@ def _get_config():
         text("SELECT config_key, config_value FROM portal_config")
     ).fetchall()
     return {
-        r[0]: (_dec(r[1]) if r[0] in _PORTAL_ENCRYPTED_KEYS else r[1])
+        r[0]: (_dec(r[1]) if r[0] in PORTAL_ENCRYPTED_KEYS else (r[1] or ''))
         for r in rows
     }
 
@@ -61,6 +74,58 @@ def _generate_password(length=12):
         string.digits.replace('0', '').replace('1', '')
     )
     return ''.join(secrets.choice(chars) for _ in range(length))
+
+
+def _fill(template, values):
+    """
+    Replace {key} for the given keys only. Never str.format(): its {x.attr}
+    and {x[i]} syntax lets whoever writes the template read Python objects.
+    """
+    return re.sub(r'\{(\w+)\}', lambda m: str(values.get(m.group(1), m.group(0))), template or '')
+
+
+def _password_ok(stored_hash, password):
+    try:
+        return check_password_hash(stored_hash or _DUMMY_HASH, password)
+    except ValueError:
+        # Placeholder hash from migration 0023 (old plaintext row): needs a reset.
+        return False
+
+
+def _mask(value):
+    """Last 3 characters only — logs carry no phone number or MRN in clear."""
+    s = str(value or '')
+    return '***' + s[-3:] if len(s) > 3 else '***'
+
+
+def _mask_digits(message):
+    """Twilio errors quote the phone number; hide any long digit run."""
+    return re.sub(r'\+?\d[\d \-]{5,}\d', '***', str(message))
+
+
+def viewer_link_ttl(config):
+    try:
+        ttl = int(config.get('viewer_link_ttl_seconds') or _VIEWER_LINK_TTL_DEFAULT)
+    except ValueError:
+        ttl = _VIEWER_LINK_TTL_DEFAULT
+    return max(30, min(ttl, 3600))
+
+
+def build_viewer_link(config, accession, mrn, now=None):
+    """Signed, expiring link to one study (contract in the module docstring). None if not configured."""
+    template = (config.get('viewer_url_template') or '').strip()
+    secret   = config.get('viewer_signing_secret') or ''
+    if not template or not secret or not accession:
+        return None
+    expires   = int((now if now is not None else time.time()) + viewer_link_ttl(config))
+    nonce     = secrets.token_hex(16)
+    payload   = f"{accession}|{mrn}|{expires}|{nonce}"
+    signature = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
+    values = {
+        'accession': accession, 'mrn': mrn or '', 'expires': expires,
+        'nonce': nonce, 'signature': signature,
+    }
+    return _fill(template, {k: quote(str(v), safe='') for k, v in values.items()})
 
 
 def _parse_pid_from_hl7(raw_message):
@@ -116,21 +181,20 @@ def _send_whatsapp(phone, mrn, password, accession, config):
         token      = config.get('twilio_auth_token', '').strip()
         from_num   = config.get('twilio_whatsapp_from', '').strip()
         portal_url = config.get('portal_base_url', '').rstrip('/') + '/portal'
-        hospital   = config.get('hospital_name', 'Our Hospital')
+        hospital   = config.get('hospital_name', '') or 'Our Hospital'
         template   = config.get('whatsapp_message_template', '')
 
         if not all([sid, token, from_num]):
             logger.warning("Twilio credentials not configured — WhatsApp not sent.")
             return False, "Twilio not configured"
 
-        first_name = mrn  # fallback if name not available
-        message_body = template.format(
-            name=first_name,
-            portal_url=portal_url,
-            username=mrn,
-            password=password,
-            hospital_name=hospital
-        )
+        message_body = _fill(template, {
+            'name':          mrn,  # the ORM name is not passed here; the MRN stands in
+            'portal_url':    portal_url,
+            'username':      mrn,
+            'password':      password,
+            'hospital_name': hospital,
+        })
 
         client = Client(sid, token)
         client.messages.create(
@@ -138,12 +202,13 @@ def _send_whatsapp(phone, mrn, password, accession, config):
             from_=f"whatsapp:{from_num}" if not from_num.startswith('whatsapp:') else from_num,
             to=f"whatsapp:{phone}"
         )
-        logger.info(f"WhatsApp sent to {phone} for MRN {mrn}")
+        logger.info(f"WhatsApp sent to {_mask(phone)}")
         return True, None
 
     except Exception as e:
-        logger.error(f"WhatsApp send failed for {phone}: {e}")
-        return False, str(e)
+        err = _mask_digits(e)
+        logger.error(f"WhatsApp send failed for {_mask(phone)}: {err}")
+        return False, err
 
 
 # ─────────────────────────────────────────────
@@ -175,7 +240,6 @@ def process_orm_for_portal(raw_message, accession_number):
         # clause deliberately omits password_hash, so the generated value is never
         # applied and the existing patient's login is preserved.
         password = _generate_password()
-        from werkzeug.security import generate_password_hash
         pwd_hash = generate_password_hash(password, method='pbkdf2:sha256')
 
         result = db.session.execute(text("""
@@ -199,7 +263,7 @@ def process_orm_for_portal(raw_message, accession_number):
 
         if not is_new:
             # Existing patient — credentials unchanged, no WhatsApp needed.
-            logger.info(f"Portal: updated accession {accession_number} for existing MRN {mrn} (no password change)")
+            logger.info(f"Portal: new accession for existing patient {_mask(mrn)} (no password change)")
             return
 
         # Send WhatsApp only for newly created patients (and only if phone is available)
@@ -213,10 +277,10 @@ def process_orm_for_portal(raw_message, accession_number):
                 """), {"mrn": mrn})
                 db.session.commit()
         else:
-            logger.warning(f"No phone for MRN {mrn} — WhatsApp skipped.")
+            logger.warning(f"No phone for patient {_mask(mrn)} — WhatsApp skipped.")
 
     except Exception as e:
-        logger.error(f"Portal ORM hook error: {e}", exc_info=True)
+        logger.error(f"Portal ORM hook error for patient {_mask(mrn)}: {_mask_digits(e)}")
         db.session.rollback()
         # Persist to dead-letter table so the hook can be retried or investigated.
         try:
@@ -239,6 +303,18 @@ def process_orm_for_portal(raw_message, accession_number):
 #  PATIENT-FACING ROUTES
 # ─────────────────────────────────────────────
 
+def _end_patient_session():
+    for key in ('portal_uid', 'portal_login_at'):
+        session.pop(key, None)
+
+
+@portal_bp.after_request
+def _no_store(response):
+    # Patient pages and the signed viewer redirect must never be cached.
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
 @portal_bp.route("/portal", methods=["GET", "POST"])
 def portal_login():
     """Patient login page — username (MRN) + password."""
@@ -250,36 +326,44 @@ def portal_login():
         password = request.form.get("password", "").strip()
 
         row = db.session.execute(text("""
-            SELECT id, mrn, full_name, accession_number, password_hash, is_active
+            SELECT id, password_hash, is_active,
+                   (locked_until IS NOT NULL AND locked_until > NOW()) AS locked
             FROM patient_portal_users
             WHERE username = :u
         """), {"u": username}).fetchone()
 
-        if not row:
-            error = "Invalid username or password."
+        if row and row.locked:
+            error = f"Too many failed attempts. Please wait {_LOCKOUT_MINUTES} minutes and try again."
         else:
-            from werkzeug.security import check_password_hash as _chk
-            pw_ok = bool(row[4] and _chk(row[4], password))
+            pw_ok = _password_ok(row.password_hash if row else None, password)
+            if not row or not pw_ok:
+                error = "Invalid username or password."
+                if row:
+                    db.session.execute(text("""
+                        UPDATE patient_portal_users
+                        SET failed_login_count = CASE WHEN failed_login_count + 1 >= :max
+                                                      THEN 0 ELSE failed_login_count + 1 END,
+                            locked_until       = CASE WHEN failed_login_count + 1 >= :max
+                                                      THEN NOW() + make_interval(mins => :mins)
+                                                      ELSE locked_until END
+                        WHERE id = :id
+                    """), {"id": row.id, "max": _MAX_FAILED_LOGINS, "mins": _LOCKOUT_MINUTES})
+                    db.session.commit()
+            elif not row.is_active:
+                error = "Your account has been deactivated. Please contact the radiology department."
+            else:
+                db.session.execute(text("""
+                    UPDATE patient_portal_users
+                    SET last_login = NOW(), failed_login_count = 0, locked_until = NULL
+                    WHERE id = :id
+                """), {"id": row.id})
+                db.session.commit()
 
-        if not row or not pw_ok:
-            error = "Invalid username or password."
-        elif not row[5]:
-            error = "Your account has been deactivated. Please contact the radiology department."
-        else:
-            # Store in session and redirect to masked viewer
-            session['portal_mrn']       = row[1]
-            session['portal_name']      = row[2]
-            session['portal_accession'] = row[3]
-            session['portal_uid']       = row[0]
-
-            # Update last login
-            db.session.execute(
-                text("UPDATE patient_portal_users SET last_login = NOW() WHERE id = :id"),
-                {"id": row[0]}
-            )
-            db.session.commit()
-
-            return redirect(url_for("portal.portal_redirect"))
+                # Fresh session: nothing carried over from before the login.
+                session.clear()
+                session['portal_uid']      = row.id
+                session['portal_login_at'] = int(time.time())
+                return redirect(url_for("portal.portal_redirect"))
 
     return render_template("patient_portal.html",
                            error=error,
@@ -288,58 +372,28 @@ def portal_login():
 
 @portal_bp.route("/portal/view")
 def portal_redirect():
-    """
-    Masked redirect — builds the real viewer URL server-side
-    and 302s the patient. Credentials never exposed to browser.
-    """
-    if 'portal_mrn' not in session:
+    """Send the logged-in patient to their own study through a signed, expiring link."""
+    uid      = session.get('portal_uid')
+    login_at = session.get('portal_login_at', 0)
+    if not uid or time.time() - login_at > _PATIENT_SESSION_SECONDS:
+        _end_patient_session()
         return redirect(url_for("portal.portal_login"))
 
-    config    = _get_config()
-    accession = session.get('portal_accession', '')
+    row = db.session.execute(text("""
+        SELECT mrn, accession_number, is_active
+        FROM patient_portal_users WHERE id = :id
+    """), {"id": uid}).fetchone()
+    if not row or not row.is_active:
+        _end_patient_session()
+        return redirect(url_for("portal.portal_login"))
 
-    base_url     = config.get('viewer_base_url', '').rstrip('/')
-    viewer_user  = config.get('viewer_username', '')
-    viewer_pass  = config.get('viewer_password', '')
-    acc_param    = config.get('viewer_accession_param', 'accession')
-
-    if not base_url:
+    link = build_viewer_link(_get_config(), row.accession_number, row.mrn)
+    if not link:
         return "Viewer not configured. Please contact the radiology department.", 503
-
-    viewer_url = f"{base_url}?user={viewer_user}&pass={viewer_pass}&{acc_param}={accession}"
-
-    # Store credentials in server-side map only — never in the session cookie.
-    now = time.time()
-    token = hashlib.sha256(
-        f"{accession}{now}{os.urandom(16).hex()}".encode()
-    ).hexdigest()[:48]
-    with _viewer_token_lock:
-        # Evict expired tokens
-        expired = [k for k, v in _viewer_token_map.items() if now - v["ts"] > _VIEWER_TOKEN_TTL]
-        for k in expired:
-            del _viewer_token_map[k]
-        _viewer_token_map[token] = {"url": viewer_url, "ts": now}
-
-    session['viewer_token'] = token
-    return redirect(url_for('portal.portal_viewer_proxy', token=token))
-
-
-@portal_bp.route("/portal/view/<token>")
-def portal_viewer_proxy(token):
-    """Proxy the viewer redirect so credentials never appear in browser history or the session cookie."""
-    if session.pop('viewer_token', None) != token or 'portal_mrn' not in session:
-        return redirect(url_for("portal.portal_login"))
-    with _viewer_token_lock:
-        entry = _viewer_token_map.pop(token, None)
-    if not entry or (time.time() - entry["ts"]) > _VIEWER_TOKEN_TTL:
-        return redirect(url_for("portal.portal_login"))
-    return redirect(entry["url"])
+    return redirect(link)
 
 
 @portal_bp.route("/portal/logout")
 def portal_logout():
-    session.pop('portal_mrn', None)
-    session.pop('portal_name', None)
-    session.pop('portal_accession', None)
-    session.pop('portal_uid', None)
+    _end_patient_session()
     return redirect(url_for("portal.portal_login"))

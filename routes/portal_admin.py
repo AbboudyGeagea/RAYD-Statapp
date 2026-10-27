@@ -11,12 +11,14 @@ Wire up in registry.py:
     app.register_blueprint(portal_admin_bp)
 """
 
+import re
 import logging
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, abort
 from flask_login import login_required, current_user
 from sqlalchemy import text
 from db import db, user_has_page
-from routes.portal_bp import _generate_password, _send_whatsapp, _get_config
+from routes.portal_bp import (_generate_password, _send_whatsapp, _get_config,
+                              PORTAL_ENCRYPTED_KEYS, viewer_link_ttl)
 
 logger = logging.getLogger("PORTAL_ADMIN")
 portal_admin_bp = Blueprint("portal_admin", __name__)
@@ -42,7 +44,7 @@ def portal_users():
     """Patient portal user list with search and filters."""
     search  = request.args.get("q", "").strip()
     status  = request.args.get("status", "all")
-    page    = int(request.args.get("page", 1))
+    page    = max(request.args.get("page", 1, type=int), 1)
     per_page = 50
 
     filters = ["1=1"]
@@ -232,13 +234,36 @@ def test_whatsapp():
 
 _PORTAL_CONFIG_ALLOWED_KEYS = frozenset({
     'hospital_name', 'hospital_logo_url',
-    'viewer_base_url', 'viewer_username', 'viewer_password', 'viewer_accession_param',
+    'viewer_url_template', 'viewer_signing_secret', 'viewer_link_ttl_seconds',
     'twilio_account_sid', 'twilio_auth_token', 'twilio_whatsapp_from',
     'portal_base_url',
     'whatsapp_message_template', 'whatsapp_message_template_ar',
 })
-# Keys whose values are encrypted at rest with utils/crypto.encrypt()
-_PORTAL_CONFIG_ENCRYPTED_KEYS = frozenset({'viewer_password', 'twilio_auth_token'})
+_VIEWER_TEMPLATE_REQUIRED = ('{accession}', '{expires}', '{signature}')
+
+
+def _config_errors(values):
+    """Reasons the submitted settings cannot be saved (empty list = fine)."""
+    errors = []
+    tpl = values.get('viewer_url_template', '')
+    if tpl:
+        if not re.match(r'^https?://', tpl, re.I):
+            errors.append("Viewer link template must start with https:// (or http://).")
+        missing = [p for p in _VIEWER_TEMPLATE_REQUIRED if p not in tpl]
+        if missing:
+            errors.append("Viewer link template must contain " + ", ".join(missing)
+                          + " — an unsigned link would let patients open any study.")
+    secret = values.get('viewer_signing_secret', '')
+    if secret and len(secret) < 32:
+        errors.append("Viewer signing secret must be at least 32 characters.")
+    ttl = values.get('viewer_link_ttl_seconds', '')
+    if ttl and not (ttl.isdigit() and 30 <= int(ttl) <= 3600):
+        errors.append("Viewer link lifetime must be between 30 and 3600 seconds.")
+    for key in ('portal_base_url', 'hospital_logo_url'):
+        v = values.get(key, '')
+        if v and not (re.match(r'^https?://', v, re.I) or (key == 'hospital_logo_url' and v.startswith('/static/'))):
+            errors.append(f"{key.replace('_', ' ').capitalize()} must be an http(s) address.")
+    return errors
 
 
 @portal_admin_bp.route("/admin/portal/config", methods=["GET", "POST"])
@@ -248,30 +273,37 @@ def portal_config():
     """View and edit portal configuration."""
     if request.method == "POST":
         from utils.crypto import encrypt as _enc
-        for key, value in request.form.items():
-            if not key.startswith("cfg_"):
-                continue
-            config_key = key[4:]
-            if config_key not in _PORTAL_CONFIG_ALLOWED_KEYS:
-                continue  # reject unknown keys (mass-assignment guard)
-            val = value.strip()
-            if not val and config_key in _PORTAL_CONFIG_ENCRYPTED_KEYS:
-                continue  # blank password field = keep existing encrypted value
-            if val and config_key in _PORTAL_CONFIG_ENCRYPTED_KEYS:
+        values = {
+            key[4:]: value.strip()
+            for key, value in request.form.items()
+            if key.startswith("cfg_") and key[4:] in _PORTAL_CONFIG_ALLOWED_KEYS  # mass-assignment guard
+        }
+        errors = _config_errors(values)
+        if errors:
+            for e in errors:
+                flash(e, "danger")
+            return redirect(url_for("portal_admin.portal_config"))
+
+        for config_key, val in values.items():
+            if config_key in PORTAL_ENCRYPTED_KEYS:
+                if not val:
+                    continue  # blank secret field = keep the stored value
                 val = _enc(val)
             db.session.execute(text("""
-                UPDATE portal_config
-                SET config_value = :v, updated_at = NOW()
-                WHERE config_key = :k
+                INSERT INTO portal_config (config_key, config_value, updated_at)
+                VALUES (:k, :v, NOW())
+                ON CONFLICT (config_key) DO UPDATE
+                SET config_value = EXCLUDED.config_value, updated_at = NOW()
             """), {"v": val, "k": config_key})
         db.session.commit()
         flash("Configuration saved.", "success")
         return redirect(url_for("portal_admin.portal_config"))
 
-    configs = db.session.execute(
-        text("SELECT config_key, config_value, description FROM portal_config ORDER BY id")
-    ).mappings().fetchall()
-
-    # Group configs for display
-    sensitive = ['viewer_username', 'viewer_password', 'twilio_auth_token', 'twilio_account_sid']
-    return render_template("portal_config.html", configs=configs, sensitive=sensitive)
+    rows = db.session.execute(
+        text("SELECT config_key, config_value FROM portal_config")
+    ).fetchall()
+    # Secrets never go back to the browser: the page only learns whether one is set.
+    cfg = {k: ('' if k in PORTAL_ENCRYPTED_KEYS else (v or '')) for k, v in rows}
+    secret_set = {k: bool(v) for k, v in rows if k in PORTAL_ENCRYPTED_KEYS}
+    cfg['viewer_link_ttl_seconds'] = str(viewer_link_ttl(cfg))
+    return render_template("portal_config.html", cfg=cfg, secret_set=secret_set)

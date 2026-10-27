@@ -834,6 +834,7 @@ CREATE TABLE public.patient_portal_users (
     accession_number VARCHAR(100),
     username         VARCHAR(50) UNIQUE NOT NULL,
     password_plain   VARCHAR(50),
+    password_hash    VARCHAR(256),
     is_active        BOOLEAN DEFAULT TRUE,
     last_login       TIMESTAMP WITHOUT TIME ZONE,
     whatsapp_sent    BOOLEAN DEFAULT FALSE,

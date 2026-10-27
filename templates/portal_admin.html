@@ -60,8 +60,8 @@
         <div class="flex-1 overflow-hidden flex flex-col">
         <!-- Tab bar -->
         <div class="flex gap-1 px-6 pt-4 border-b border-slate-800 bg-[#181f1c] shrink-0">
-            <div class="tab active" onclick="switchTab('users', this)">👥 Portal Users</div>
-            <div class="tab"        onclick="switchTab('config', this)">⚙️ Configuration</div>
+            <div class="tab active">👥 Portal Users</div>
+            <a class="tab" href="{{ url_for('portal_admin.portal_config') }}">⚙️ Configuration</a>
         </div>
 
         <div class="flex-1 overflow-y-auto p-6 bg-[#181f1c] space-y-6">
@@ -134,11 +134,8 @@
                                     <td class="text-slate-400">{{ u.phone or '—' }}</td>
                                     <td class="font-mono text-[11px] text-slate-400">{{ u.accession_number or '—' }}</td>
                                     <td>
-                                        <div class="flex items-center gap-2">
-                                            <span class="pw-cell text-emerald-400" id="pw-{{ u.id }}">••••••••</span>
-                                            <button onclick="togglePw({{ u.id }}, '{{ u.password_plain }}')"
-                                                    class="text-slate-600 hover:text-slate-300 text-[10px]" title="Show/hide">👁</button>
-                                        </div>
+                                        {# Only hashes are stored: a password is visible here only right after a reset. #}
+                                        <span class="pw-cell text-emerald-400" id="pw-{{ u.id }}">••••••••</span>
                                     </td>
                                     <td>
                                         <span class="badge {% if u.is_active %}badge-green{% else %}badge-red{% endif %}">
@@ -161,8 +158,10 @@
                                     <td>
                                         <div class="flex items-center gap-2">
                                             <!-- Reset Password -->
+                                            {# Name comes from HL7: passed as data, never inside the JS source. #}
                                             <button class="btn btn-teal"
-                                                    onclick="resetPassword({{ u.id }}, '{{ u.full_name or u.mrn }}')"
+                                                    data-name="{{ u.full_name or u.mrn }}"
+                                                    onclick="resetPassword({{ u.id }}, this.dataset.name)"
                                                     title="Reset password & resend WhatsApp">
                                                 🔄 Reset
                                             </button>
@@ -198,54 +197,16 @@
                         <span class="text-[11px] text-slate-500">Page {{ page }} of {{ total_pages }} · {{ total }} total</span>
                         <div class="flex gap-2">
                             {% if page > 1 %}
-                            <a href="?page={{ page - 1 }}&q={{ search }}&status={{ status_filter }}"
+                            <a href="?page={{ page - 1 }}&q={{ search|urlencode }}&status={{ status_filter|urlencode }}"
                                class="btn btn-teal">← Prev</a>
                             {% endif %}
                             {% if page < total_pages %}
-                            <a href="?page={{ page + 1 }}&q={{ search }}&status={{ status_filter }}"
+                            <a href="?page={{ page + 1 }}&q={{ search|urlencode }}&status={{ status_filter|urlencode }}"
                                class="btn btn-teal">Next →</a>
                             {% endif %}
                         </div>
                     </div>
                     {% endif %}
-                </div>
-            </div>
-
-            <!-- ══ CONFIG PANEL ══ -->
-            <div id="panel-config" class="panel space-y-6">
-                <div class="card">
-                    <div class="card-header">Portal Configuration</div>
-                    <form method="POST" action="{{ url_for('portal_admin.portal_config') }}" class="p-6 space-y-5">
-                        {% for cfg in configs %}
-                        <div>
-                            <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
-                                {{ cfg.config_key.replace('_', ' ').title() }}
-                                <span class="text-slate-700 font-normal normal-case ml-2 text-[10px]">{{ cfg.description }}</span>
-                            </label>
-                            {% if cfg.config_key == 'whatsapp_message_template' %}
-                            <textarea name="cfg_{{ cfg.config_key }}"
-                                      rows="5"
-                                      class="input-dark w-full resize-y"
-                                      style="min-height:100px;">{{ cfg.config_value or '' }}</textarea>
-                            {% elif cfg.config_key in ['viewer_password', 'twilio_auth_token'] %}
-                            <input type="password"
-                                   name="cfg_{{ cfg.config_key }}"
-                                   class="input-dark w-full"
-                                   value="{{ cfg.config_value or '' }}"
-                                   autocomplete="new-password">
-                            {% else %}
-                            <input type="text"
-                                   name="cfg_{{ cfg.config_key }}"
-                                   class="input-dark w-full"
-                                   value="{{ cfg.config_value or '' }}"
-                                   placeholder="Not configured">
-                            {% endif %}
-                        </div>
-                        {% endfor %}
-                        <div class="pt-4 border-t border-slate-800">
-                            <button type="submit" class="btn btn-solid">Save Configuration</button>
-                        </div>
-                    </form>
                 </div>
             </div>
 
@@ -269,29 +230,12 @@
     </div>
 
     <script>
-    // ── Tabs ──────────────────────────────────────────
-    function switchTab(name, el) {
-        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-        el.classList.add('active');
-        document.getElementById('panel-' + name).classList.add('active');
-    }
-
     // ── Toast ─────────────────────────────────────────
     function showToast(msg, type = 'success') {
         const t = document.getElementById('toast');
         t.textContent = msg;
         t.className = `toast ${type} show`;
         setTimeout(() => t.classList.remove('show'), 3500);
-    }
-
-    // ── Password reveal ───────────────────────────────
-    const pwVisible = {};
-    function togglePw(id, pw) {
-        const el = document.getElementById('pw-' + id);
-        pwVisible[id] = !pwVisible[id];
-        el.textContent = pwVisible[id] ? pw : '••••••••';
-        el.style.color = pwVisible[id] ? '#34d399' : '#34d399';
     }
 
     // ── Reset password ────────────────────────────────
@@ -314,10 +258,7 @@
             if (data.success) {
                 // Update visible password in table
                 const el = document.getElementById('pw-' + resetTarget);
-                if (el) {
-                    pwVisible[resetTarget] = true;
-                    el.textContent = data.new_password;
-                }
+                if (el) el.textContent = data.new_password;
                 const waMsg = data.whatsapp_sent ? ' · WhatsApp sent ✓' : ` · WhatsApp failed: ${data.whatsapp_error}`;
                 showToast(`Password reset to: ${data.new_password}${waMsg}`, 'success');
             } else {
