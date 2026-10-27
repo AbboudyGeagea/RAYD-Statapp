@@ -117,11 +117,14 @@ def reset_password(user_id):
     from werkzeug.security import generate_password_hash
     new_hash = generate_password_hash(new_password, method='pbkdf2:sha256')
 
+    # A reset is also how staff unlock a patient locked out by wrong passwords.
     db.session.execute(text("""
         UPDATE patient_portal_users
-        SET password_hash  = :pwd_hash,
-            whatsapp_sent  = FALSE,
-            updated_at     = NOW()
+        SET password_hash      = :pwd_hash,
+            whatsapp_sent      = FALSE,
+            failed_login_count = 0,
+            locked_until       = NULL,
+            updated_at         = NOW()
         WHERE id = :id
     """), {"pwd_hash": new_hash, "id": user_id})
     db.session.commit()
