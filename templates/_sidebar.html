@@ -30,6 +30,10 @@
     .sg-chevron.open { transform:rotate(180deg); }
 </style>
 
+{% if portal_only %}
+{% include '_sidebar_portal.html' %}
+{% else %}
+
 {# ── Active-group detection ────────────────────────────────────────── #}
 {% set ep = request.endpoint or '' %}
 {% set overview_on   = ep.startswith('viewer.') %}
@@ -317,3 +321,4 @@ async function requestPasswordReset() {
     else alert(data.message || 'Failed to send request.');
 }
 </script>
+{% endif %}

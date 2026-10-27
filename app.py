@@ -228,6 +228,9 @@ def create_app():
 
     @app.errorhandler(CSRFError)
     def handle_csrf_error(e):
+        # Patients never see the staff login: send them back to the portal page.
+        if request.path.startswith('/portal') and 'portal' in app.blueprints:
+            return redirect(url_for('portal.portal_login')), 302
         _flash('Your session expired or the request was invalid. Please try again.', 'warning')
         return redirect(url_for('auth.login')), 302
 
@@ -290,6 +293,16 @@ def create_app():
     # --- AUTH CHECKS ---
     _AUTH_PASSTHROUGH = frozenset({'auth.login', 'auth.logout', 'auth.register', 'auth.profile_password', 'static', 'health.health', 'health.readiness'})
 
+    # Portal-only installs (license tier "portal") open the patient portal and the
+    # staff pages that run it; every other RAYD page is closed.
+    _PORTAL_ONLY_STAFF = frozenset({
+        'index', 'preferences.set_theme',
+        'admin.user_management', 'admin.update_user_permissions', 'admin.update_user_role',
+        'admin.approve_user', 'admin.reject_user', 'admin.disable_user', 'admin.enable_user',
+        'admin.force_password_reset', 'admin.set_user_password', 'admin.revoke_session',
+        'admin.revoke_all_sessions', 'admin.delete_user', 'admin.audit_log', 'admin.audit_log_export',
+    })
+
     @app.before_request
     def check_auth():
         ep = request.endpoint or ''
@@ -326,11 +339,18 @@ def create_app():
                 logout_user()
                 return redirect(url_for('auth.login'))
 
+        if app.config.get('PORTAL_ONLY') and ep not in _PORTAL_ONLY_STAFF and not ep.startswith('portal_admin.'):
+            if request.method == 'GET':
+                return redirect(url_for('portal_admin.portal_users'))
+            abort(403)
+
     # --- ROOT REDIRECT ---
     @app.route('/')
     def index():
         if not current_user.is_authenticated:
             return redirect(url_for('auth.login'))
+        if app.config.get('PORTAL_ONLY'):
+            return redirect(url_for('portal_admin.portal_users'))
         if current_user.role == 'tec':
             return redirect(url_for('live_feed.live_page'))
         return redirect(url_for('viewer.welcome'))
@@ -652,7 +672,9 @@ def create_app():
         except Exception:
             pass
 
-        if demo_mode:
+        if app.config.get('PORTAL_ONLY'):
+            logger.info("⏸  [Startup Check] Portal-only install — no ETL.")
+        elif demo_mode:
             logger.info("⏸  [Startup Check] Demo mode — skipping ETL.")
         elif not has_oracle:
             logger.info("⏸  [Startup Check] No Oracle source configured — skipping ETL.")
@@ -793,6 +815,11 @@ def create_app():
         name='Purge query audit log > 10 days',
         replace_existing=True
     )
+
+    if app.config.get('PORTAL_ONLY'):
+        # No PACS/RIS source on a portal-only install: only housekeeping runs.
+        for job_id in ('daily_etl_sync', 'daily_analytics_snapshot', 'adapter_etl_runner', 'cd_surf_etl'):
+            scheduler.remove_job(job_id)
 
     # Only start scheduler and HL7 listener when running as server, not manual ETL
     manual_mode = len(sys.argv) > 1 and sys.argv[1] == '-m'

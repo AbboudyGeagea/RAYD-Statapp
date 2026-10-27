@@ -1,0 +1,58 @@
+{# Sidebar of a portal-only install (license tier "portal"): only the pages app.py leaves open. #}
+{% set ep = request.endpoint or '' %}
+{% set can_portal = current_user.role == 'admin' or current_user|user_has_page('patient_portal') %}
+
+<aside class="w-60 bg-[#232b28] border-r border-[#28332e] flex flex-col p-3 shadow-xl z-20 overflow-y-auto flex-shrink-0">
+
+    <!-- Brand -->
+    <div class="flex items-center gap-3 mb-6 px-2">
+        <div class="bg-[#60a5fa] p-2 rounded-xl text-white shadow-lg shadow-blue-400/20 flex-shrink-0">
+            <i class="bi bi-person-vcard text-lg"></i>
+        </div>
+        <div>
+            <h1 class="font-black text-[#e2e8f0] tracking-tighter uppercase leading-none text-lg">RAYD</h1>
+            <p class="text-[9px] font-black text-[#60a5fa] uppercase tracking-widest mt-0.5">Patient Portal</p>
+        </div>
+    </div>
+
+    <nav class="flex-1 space-y-1">
+
+        {% if can_portal %}
+        <p class="sg-btn" style="cursor:default;"><span class="flex items-center gap-2"><i class="bi bi-person-vcard" style="color:#fb923c;"></i> Patient Portal</span></p>
+        <div class="space-y-0.5 mb-2">
+            <a href="{{ url_for('portal_admin.portal_users') }}"
+               class="sidebar-item {% if ep == 'portal_admin.portal_users' %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
+                <i class="bi bi-people-fill flex-shrink-0" style="color:#fb923c;"></i> Patients
+            </a>
+            <a href="{{ url_for('portal_admin.portal_config') }}"
+               class="sidebar-item {% if ep == 'portal_admin.portal_config' %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
+                <i class="bi bi-sliders flex-shrink-0" style="color:#fb923c;"></i> Configuration
+            </a>
+        </div>
+        {% endif %}
+
+        {% if current_user.role == 'admin' %}
+        <p class="sg-btn" style="cursor:default;"><span class="flex items-center gap-2"><i class="bi bi-shield-lock-fill" style="color:#f59e0b;"></i> Administration</span></p>
+        <div class="space-y-0.5 mb-2">
+            <a href="{{ url_for('admin.user_management') }}"
+               class="sidebar-item {% if ep == 'admin.user_management' %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
+                <i class="bi bi-people flex-shrink-0" style="color:#f59e0b;"></i> Staff Users
+                {% if pending_approvals_count %}<span class="ml-auto text-[9px] font-black text-amber-300">{{ pending_approvals_count }}</span>{% endif %}
+            </a>
+            <a href="{{ url_for('admin.audit_log') }}"
+               class="sidebar-item {% if ep == 'admin.audit_log' %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
+                <i class="bi bi-journal-check flex-shrink-0" style="color:#f59e0b;"></i> Activity Log
+            </a>
+        </div>
+        {% endif %}
+
+    </nav>
+
+    <!-- Logout -->
+    <div class="mt-auto mb-3">
+        <a href="{{ url_for('auth.logout') }}"
+            class="w-full flex items-center gap-3 px-3 py-2.5 text-xs font-bold rounded-xl border border-[#28332e] text-slate-500 hover:text-red-400 hover:border-red-400/30 transition-all">
+            <i class="bi bi-box-arrow-right flex-shrink-0"></i> Logout
+        </a>
+    </div>
+</aside>

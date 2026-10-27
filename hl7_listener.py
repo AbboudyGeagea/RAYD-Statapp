@@ -12,6 +12,7 @@ import logging
 import re
 import time
 import json
+import ipaddress
 from datetime import datetime
 
 logger = logging.getLogger("HL7_LISTENER")
@@ -627,23 +628,25 @@ def _handle_client(conn, addr, app):
 
                                 logger.info(
                                     f"✅ HL7 stored | msg_id={parsed['message_id']} "
-                                    f"| patient={parsed['patient_id']} "
                                     f"| accession={parsed['accession_number']}"
                                 )
 
-                                try:
-                                    from routes.portal_bp import process_orm_for_portal
-                                    with app.app_context():
-                                        process_orm_for_portal(
-                                            raw_message,
-                                            parsed.get('accession_number', '')
+                                # Only when the portal is switched on: otherwise
+                                # patients would get credentials for a closed portal.
+                                if 'portal' in app.blueprints:
+                                    try:
+                                        from routes.portal_bp import process_orm_for_portal
+                                        with app.app_context():
+                                            process_orm_for_portal(
+                                                raw_message,
+                                                parsed.get('accession_number', '')
+                                            )
+                                        logger.info(
+                                            f"✅ Portal hook fired | "
+                                            f"accession={parsed.get('accession_number')}"
                                         )
-                                    logger.info(
-                                        f"✅ Portal hook fired | "
-                                        f"accession={parsed.get('accession_number')}"
-                                    )
-                                except Exception as portal_err:
-                                    logger.warning(f"⚠ Portal hook error: {portal_err}")
+                                    except Exception as portal_err:
+                                        logger.warning(f"⚠ Portal hook error: {portal_err}")
 
                     ack = _build_ack(msh, ACK_AA)
 
@@ -660,11 +663,43 @@ def _handle_client(conn, addr, app):
         logger.info(f"HL7 connection closed: {addr[0]}:{addr[1]}")
 
 
+def _parse_allowed_senders(spec):
+    """'10.0.0.5, 10.1.0.0/16' → list of networks. Empty spec → None (any sender)."""
+    nets = []
+    for part in (spec or '').split(','):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            nets.append(ipaddress.ip_network(part, strict=False))
+        except ValueError:
+            logger.error(f"HL7_ALLOWED_SENDERS: ignoring invalid entry '{part}'")
+    return nets or None
+
+
+def _sender_allowed(ip, allowed):
+    if allowed is None:
+        return True
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return any(addr in net for net in allowed)
+
+
 def start_mllp_listener(app, host='0.0.0.0', port=6661):
     """
     Start the MLLP listener in a background daemon thread.
     Called once during Flask app startup.
     """
+    # Anyone who can reach 6661 can create patient-portal accounts, so a site
+    # lists its RIS/HIS senders in HL7_ALLOWED_SENDERS; others are dropped.
+    allowed = _parse_allowed_senders(app.config.get('HL7_ALLOWED_SENDERS', ''))
+    if allowed is None:
+        logger.warning("HL7_ALLOWED_SENDERS is empty — accepting HL7 from any host.")
+    else:
+        logger.info(f"HL7 senders allowed: {', '.join(str(n) for n in allowed)}")
+
     def _server_loop():
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -676,6 +711,10 @@ def start_mllp_listener(app, host='0.0.0.0', port=6661):
             while True:
                 try:
                     conn, addr = server.accept()
+                    if not _sender_allowed(addr[0], allowed):
+                        logger.warning(f"HL7 connection refused from {addr[0]} (not in HL7_ALLOWED_SENDERS)")
+                        conn.close()
+                        continue
                     t = threading.Thread(
                         target=_handle_client,
                         args=(conn, addr, app),

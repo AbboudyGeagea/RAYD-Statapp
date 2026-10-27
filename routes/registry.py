@@ -130,6 +130,32 @@ TIER_PRESETS = {
         "max_studies_per_report": 0,
     },
     "enterprise": DEFAULT_LICENSE.copy(),
+    # Portal — the patient portal alone: no reports, no ETL, staff see only
+    # the portal pages, user management and the activity log (see app.py).
+    "portal": {
+        "tier": "portal",
+        "reports": [],
+        "export":          False,
+        "adapter_mapper":  False,
+        "hl7_orders":      False,
+        "oru_analytics":   False,
+        "custom_reports":  False,
+        "cd_print":        False,
+        "er_dashboard":    False,
+        "capacity_ladder": False,
+        "saved_reports":   False,
+        "super_report":    False,
+        "referring_intel": False,
+        "financial":       False,
+        "scheduling":      False,
+        "live_feed":       False,
+        "patient_portal":  True,
+        "ai_report":       False,
+        "max_users":              0,
+        "max_sessions":           0,
+        "expires":                "",
+        "max_studies_per_report": 0,
+    },
 }
 
 
@@ -240,6 +266,8 @@ def _register_not_licensed_route(app, url, feature_name, tier):
 def register_blueprints(app):
     lic = _load_license(app)
     app.config['LICENSE'] = lic
+    portal_only = lic.get('tier') == 'portal'
+    app.config['PORTAL_ONLY'] = portal_only
     logger.info(f"License tier: {lic.get('tier', 'unknown')} — reports: {lic.get('reports', [])}")
 
     # ── Check expiry at startup ───────────────────────────────
@@ -308,10 +336,12 @@ def register_blueprints(app):
                 _register_not_licensed_route(app, url, display_name, tier)
 
     # ── Patient Portal (Enterprise — license + config flag) ──────
-    if lic.get('patient_portal', False) and app.config.get("PATIENT_PORTAL_ENABLED", True):
+    if lic.get('patient_portal', False) and (portal_only or app.config.get("PATIENT_PORTAL_ENABLED", True)):
         app.register_blueprint(portal_bp)
         app.register_blueprint(portal_admin_bp)
         logger.info("  patient_portal: enabled")
+    elif lic.get('patient_portal', False):
+        logger.info("  patient_portal: licensed but PATIENT_PORTAL_ENABLED is off — skipped")
     else:
         logger.info("  patient_portal: not licensed — skipped")
 
@@ -335,5 +365,6 @@ def register_blueprints(app):
     def inject_license():
         return {
             "license":              lic,
+            "portal_only":          portal_only,
             "portal_admin_enabled": "portal_admin" in app.blueprints,
         }

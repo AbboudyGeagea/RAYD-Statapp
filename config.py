@@ -49,6 +49,8 @@ class Config:
     # ── HL7 / Patient Portal ──────────────────────────────────
     HL7_ENABLED            = _bool("HL7_ENABLED",            default=True)
     PATIENT_PORTAL_ENABLED = _bool("PATIENT_PORTAL_ENABLED", default=True)
+    # Comma-separated IPs/CIDRs allowed to send on the MLLP port; empty = any.
+    HL7_ALLOWED_SENDERS    = os.environ.get("HL7_ALLOWED_SENDERS", "")
 
     # ── Live AE Feed ──────────────────────────────────────────
     LIVE_FEED_ENABLED = _bool("LIVE_FEED_ENABLED", default=True)

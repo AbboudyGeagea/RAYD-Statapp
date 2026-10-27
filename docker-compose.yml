@@ -43,8 +43,11 @@ services:
       - MASTER_ADMIN_KEY=${MASTER_ADMIN_KEY}
 
       # ── Feature Flags ─────────────────────────────────────────
-      - PATIENT_PORTAL_ENABLED=${PATIENT_PORTAL_ENABLED:-false}
+      - PATIENT_PORTAL_ENABLED=${PATIENT_PORTAL_ENABLED:-true}
       - LIVE_FEED_ENABLED=${LIVE_FEED_ENABLED:-true}
+
+      # ── HL7 senders allowed on 6661 (IPs/CIDRs, comma-separated; empty = any) ──
+      - HL7_ALLOWED_SENDERS=${HL7_ALLOWED_SENDERS:-}
 
     volumes:
       - /opt/rayd/logs:/opt/rayd/logs
@@ -54,9 +57,12 @@ services:
       db:
         condition: service_healthy
 
+  # Report NLP is part of the full RAYD product, not the portal: it starts only
+  # with COMPOSE_PROFILES=analytics in .env.
   rayd-nlp:
     build: ./nlp_worker
     container_name: rayd_nlp
+    profiles: ["analytics"]
     restart: always
     env_file:
       - .env
