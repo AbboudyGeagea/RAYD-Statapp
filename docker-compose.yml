@@ -39,9 +39,6 @@ services:
       - POSTGRES_PORT=${POSTGRES_PORT:-5432}
       - POSTGRES_DB=${POSTGRES_DB}
 
-      # ── Master Admin ──────────────────────────────────────────
-      - MASTER_ADMIN_KEY=${MASTER_ADMIN_KEY}
-
       # ── Feature Flags ─────────────────────────────────────────
       - PATIENT_PORTAL_ENABLED=${PATIENT_PORTAL_ENABLED:-true}
       - LIVE_FEED_ENABLED=${LIVE_FEED_ENABLED:-true}

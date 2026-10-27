@@ -231,12 +231,20 @@ md5sum requirements.txt 2>/dev/null | awk '{print $1}' > .last_req_hash
 # Database first: the app reads its license once, at startup, so the license
 # row must exist before the app's first start.
 $COMPOSE up -d db
-info "Waiting for database to be ready..."
+info "Waiting for database to be ready (a first start loads the schema — minutes on a slow disk)..."
+# pg_isready already says yes while the first-start init is still loading
+# schema.sql on a temporary server, before etl_db is complete. Wait for the init
+# to finish (or be skipped, on an existing volume) and for the schema to answer.
+db_ready() {
+    docker logs rayd_db 2>&1 | grep -qE "init process complete|Skipping initialization" \
+        && docker exec rayd_db psql -U "$PG_USER" -d "$PG_DB" -tAc "SELECT 1 FROM settings LIMIT 1" >/dev/null 2>&1
+}
 WAIT=0
-until docker exec rayd_db pg_isready -U "$PG_USER" -d "$PG_DB" -q 2>/dev/null || [ $WAIT -ge 90 ]; do
-    sleep 3; WAIT=$((WAIT+3))
+until db_ready || [ $WAIT -ge 900 ]; do
+    sleep 5; WAIT=$((WAIT+5))
 done
-docker exec rayd_db pg_isready -U "$PG_USER" -d "$PG_DB" -q 2>/dev/null || error "Database did not become ready in time. Check: $COMPOSE logs db"
+db_ready || error "Database did not become ready in time. Check: $COMPOSE logs db"
+ok "Database ready."
 
 pg_exec "ALTER TABLE public.settings ALTER COLUMN key TYPE TEXT, ALTER COLUMN value TYPE TEXT;"
 LICENSE_JSON='{"tier":"portal","reports":[],"export":false,"adapter_mapper":false,"hl7_orders":false,"oru_analytics":false,"custom_reports":false,"cd_print":false,"er_dashboard":false,"capacity_ladder":false,"saved_reports":false,"super_report":false,"referring_intel":false,"financial":false,"scheduling":false,"live_feed":false,"patient_portal":true,"ai_report":false,"max_users":0,"max_sessions":0,"expires":"","max_studies_per_report":0}'
