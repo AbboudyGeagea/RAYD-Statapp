@@ -125,7 +125,7 @@ for f in $(ls "$SCRIPT_DIR/migrations"/[0-9]*.sql 2>/dev/null | sort); do
 
     info "  Applying: $name"
     docker cp "$f" rayd_db:/tmp/rayd_migration.sql
-    if docker exec rayd_db psql -U "$PG_USER" -d "$PG_DB" -f /tmp/rayd_migration.sql -q 2>/dev/null; then
+    if docker exec rayd_db psql -U "$PG_USER" -d "$PG_DB" -v ON_ERROR_STOP=1 -f /tmp/rayd_migration.sql -q 2>/dev/null; then
         pg_exec "INSERT INTO schema_migrations (name) VALUES ('${name}');" 2>/dev/null || true
         ok "  Applied : $name"
         APPLIED=$((APPLIED+1))
