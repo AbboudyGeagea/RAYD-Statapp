@@ -62,6 +62,10 @@ git checkout "$BRANCH" || error "git checkout $BRANCH failed."
 git reset --hard "origin/$BRANCH" || error "git reset failed."
 ok "Code up to date with '$BRANCH'."
 
+# nginx includes this site file (staff networks); it must exist even if empty.
+[ -f nginx/conf.d/staff_networks.local ] || \
+    printf '# Extra staff networks for nginx: "CIDR 1;" allows, "CIDR 0;" blocks.\n' > nginx/conf.d/staff_networks.local
+
 # ──────────────────────────────────────────────────────
 # STEP 2: Build new image (old containers keep running)
 # ──────────────────────────────────────────────────────
@@ -97,11 +101,11 @@ ok "Database ready."
 # ──────────────────────────────────────────────────────
 info "Step 3/3 — Applying pending migrations..."
 
-# Ensure migration tracking table exists
+# Same tracking table the app uses at startup (db_migrations.py): column "name".
 pg_exec "
 CREATE TABLE IF NOT EXISTS schema_migrations (
-    filename TEXT PRIMARY KEY,
-    applied_at TIMESTAMP DEFAULT now()
+    name        VARCHAR(255) PRIMARY KEY,
+    applied_at  TIMESTAMP DEFAULT NOW()
 );" 2>/dev/null || true
 
 APPLIED=0
@@ -112,7 +116,7 @@ for f in $(ls "$SCRIPT_DIR/migrations"/[0-9]*.sql 2>/dev/null | sort); do
     name=$(basename "$f")
 
     already=$(docker exec rayd_db psql -U "$PG_USER" -d "$PG_DB" -tAc \
-        "SELECT COUNT(*) FROM schema_migrations WHERE filename='${name}';" 2>/dev/null || echo "0")
+        "SELECT COUNT(*) FROM schema_migrations WHERE name='${name}';" 2>/dev/null || echo "0")
 
     if [ "${already:-0}" -gt "0" ]; then
         SKIPPED=$((SKIPPED+1))
@@ -122,7 +126,7 @@ for f in $(ls "$SCRIPT_DIR/migrations"/[0-9]*.sql 2>/dev/null | sort); do
     info "  Applying: $name"
     docker cp "$f" rayd_db:/tmp/rayd_migration.sql
     if docker exec rayd_db psql -U "$PG_USER" -d "$PG_DB" -f /tmp/rayd_migration.sql -q 2>/dev/null; then
-        pg_exec "INSERT INTO schema_migrations (filename) VALUES ('${name}');" 2>/dev/null || true
+        pg_exec "INSERT INTO schema_migrations (name) VALUES ('${name}');" 2>/dev/null || true
         ok "  Applied : $name"
         APPLIED=$((APPLIED+1))
     else

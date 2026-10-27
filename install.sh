@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
-# install.sh — RAYD full deployment setup
-# Run as: sudo bash install.sh   (from the StatsApp directory)
+# install.sh — RAYD Patient Portal (PortalSA) installation
+# Run as: sudo bash install.sh   (from the repository directory)
+#
+# Installs RAYD licensed as the patient portal alone: no PACS/RIS database, no
+# ETL. Orders arrive as HL7 ORM on port 6661; patients log in on /portal.
+# Every secret (app key, database password, first admin password) is generated
+# here, per install — nothing is shared between sites.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,40 +17,29 @@ ok()    { echo -e "${GREEN}[OK]${NC}    $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error() { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 
-# ── Fixed PostgreSQL credentials (never changes across deployments) ────────────
 PG_USER="etl_user"
 PG_DB="etl_db"
-PG_PASSWORD="SecureCrynBabe"
+# The app key every main-branch install shipped with; never accept it here.
+SHARED_SECRET_KEY="c0f1a2b3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1"
 
-# ── Fixed app secret key (must match the key used to encrypt Oracle password) ──
-# WARNING: changing this will invalidate all encrypted DB passwords stored in db_params
-FIXED_SECRET_KEY="c0f1a2b3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1"
-
-# ── Fixed Oracle PACS credentials (only host changes per site) ────────────────
-ORACLE_PORT=1521
-ORACLE_SID="mst1"
-ORACLE_USER="sys"
-# Pre-encrypted with FIXED_SECRET_KEY above — update both together if password changes
-ORACLE_PASS_ENCRYPTED="gAAAAABp7K-egdXV1gJMKghGHJ3Iji-v81_fe1hL3EZ5krpgHT4YThnzsXVYUQkG_LJxfY8utazmYqc5EWPww7gh8D7LaI61VQ=="
-
-# Run SQL against the Postgres container
 pg_exec() {
-    docker exec rayd_db psql -U "$PG_USER" -d "$PG_DB" -c "$1" -q
+    docker exec rayd_db psql -U "$PG_USER" -d "$PG_DB" -v ON_ERROR_STOP=1 -q -c "$1"
 }
 
 echo ""
 echo "=================================================="
-echo "        RAYD — Production Install Script"
+echo "     RAYD Patient Portal — Install Script"
 echo "=================================================="
 echo ""
 
 # ──────────────────────────────────────────────────────
-# STEP 1: Check prerequisites
+# STEP 1: Prerequisites
 # ──────────────────────────────────────────────────────
-info "Step 1/7 — Checking prerequisites..."
+info "Step 1/5 — Checking prerequisites..."
 
-command -v docker   >/dev/null 2>&1 || error "Docker is not installed. Install it from https://docs.docker.com/engine/install/"
-command -v openssl  >/dev/null 2>&1 || error "'openssl' is required. Run: apt-get install -y openssl"
+[ "$(id -u)" -eq 0 ] || error "Run as root: sudo bash install.sh"
+command -v docker  >/dev/null 2>&1 || error "Docker is not installed. Install it from https://docs.docker.com/engine/install/"
+command -v openssl >/dev/null 2>&1 || error "'openssl' is required. Run: apt-get install -y openssl"
 
 if docker compose version >/dev/null 2>&1; then
     COMPOSE="docker compose"
@@ -54,42 +48,26 @@ elif command -v docker-compose >/dev/null 2>&1; then
 else
     error "Docker Compose is not installed. Run: apt-get install -y docker-compose-plugin"
 fi
-
 ok "Docker found: $(docker --version)"
-ok "Docker Compose found: $($COMPOSE version)"
 
-# ── BuildKit cache garbage collection ─────────────────────────────────────────
-# Every rebuild of rayd-app/rayd-nlp adds a new ~3.5GB cache layer (Oracle Instant
-# Client + the Python deps) that is never reused again. Nothing evicts it by
-# default, so it grows unbounded: measured 56GB on LAUMC, 55GB of it reclaimable,
-# on a host whose images totalled under 3GB. Operators chasing a full disk reach
-# for `docker image prune` and reclaim nothing, because images were never the
-# problem.
-#
-# This is GC, NOT `docker builder prune`. The difference matters and update.sh
-# documents why: pruning was tried there twice and both times wiped the cache the
-# NEXT build needed, turning every deploy into a full re-download of apt and pip.
-# GC instead keeps the most recently used cache up to defaultKeepStorage and
-# evicts only the oldest beyond it -- the layers you are actively rebuilding
-# against stay, the six-week-old orphans go.
-#
-# Idempotent and conservative: skipped entirely if a builder config already
-# exists, so a hand-tuned daemon.json is never overwritten.
+# Container names are fixed (rayd_*): another RAYD stack on this host would clash.
+OTHER=$(docker ps -a --filter "name=^rayd_" --format '{{.Names}} {{.Label "com.docker.compose.project.working_dir"}}' \
+        | awk -v d="$SCRIPT_DIR" '$2 != d {print $1 " (" $2 ")"}')
+if [ -n "$OTHER" ]; then
+    echo "$OTHER"
+    error "Another RAYD installation owns the containers above. Stop it first from its own folder: sudo docker compose down"
+fi
+
+# ── BuildKit cache garbage collection (keeps rebuilds from filling the disk) ──
 GC_KEEP="${RAYD_BUILD_CACHE_KEEP:-20GB}"
 DAEMON_JSON="/etc/docker/daemon.json"
-
-if [ "$(id -u)" -ne 0 ]; then
-    warn "Not root — skipping BuildKit cache GC setup. Re-run as root, or see docs."
-elif ! command -v python3 >/dev/null 2>&1; then
+if ! command -v python3 >/dev/null 2>&1; then
     warn "python3 not found — skipping BuildKit cache GC setup (JSON edit needs it)."
 elif [ -f "$DAEMON_JSON" ] && grep -q '"builder"' "$DAEMON_JSON" 2>/dev/null; then
     ok "BuildKit cache GC already configured in $DAEMON_JSON — left as is."
 else
     info "Configuring BuildKit cache GC (keep ${GC_KEEP})..."
     [ -f "$DAEMON_JSON" ] && cp -a "$DAEMON_JSON" "${DAEMON_JSON}.rayd.bak"
-    # Merge into whatever is already there rather than clobbering it -- this file
-    # commonly holds unrelated daemon settings (log driver, registry mirrors,
-    # storage driver) that must survive.
     if python3 - "$DAEMON_JSON" "$GC_KEEP" <<'PYGC'
 import json, os, sys
 path, keep = sys.argv[1], sys.argv[2]
@@ -110,10 +88,6 @@ with open(path, "w") as fh:
     fh.write("\n")
 PYGC
     then
-        # A restart is required for builder GC; on a fresh install nothing is
-        # serving traffic yet, so this is the one safe moment to do it. update.sh
-        # deliberately only warns instead, since restarting the daemon mid-update
-        # would bounce a live site.
         if systemctl restart docker 2>/dev/null; then
             ok "BuildKit cache GC enabled (keep ${GC_KEEP}); docker restarted."
         else
@@ -126,83 +100,61 @@ PYGC
 fi
 
 # ──────────────────────────────────────────────────────
-# STEP 2: Oracle Instant Client 21.13
+# STEP 2: Environment file (secrets generated per install)
 # ──────────────────────────────────────────────────────
-info "Step 2/7 — Checking Oracle Instant Client..."
-
-ORACLE_DIR="/opt/oracle/instantclient_21_13"
-ORACLE_ZIP="instantclient-basiclite-linux.x64-21.13.0.0.0dbru.zip"
-ORACLE_URL="https://download.oracle.com/otn_software/linux/instantclient/2113000/${ORACLE_ZIP}"
-
-if [ -d "$ORACLE_DIR" ]; then
-    ok "Oracle Instant Client 21.13 already installed at $ORACLE_DIR"
-else
-    warn "Oracle Instant Client not found. Installing..."
-    apt-get update -qq
-    apt-get install -y -qq libaio-dev unzip wget
-    apt-get install -y -qq libaio1t64 2>/dev/null || apt-get install -y -qq libaio1 2>/dev/null || warn "libaio not found — Oracle client may not work. Install libaio1 or libaio1t64 manually."
-
-    mkdir -p /opt/oracle
-    cd /opt/oracle
-
-    if [ ! -f "$ORACLE_ZIP" ]; then
-        info "Downloading Oracle Instant Client..."
-        wget -q "$ORACLE_URL" -O "$ORACLE_ZIP" || error "Download failed. Download manually from https://www.oracle.com/database/technologies/instant-client/linux-x86-64-downloads.html and place at /opt/oracle/${ORACLE_ZIP}"
-    fi
-
-    unzip -q "$ORACLE_ZIP" -d /opt/oracle
-    cd "$SCRIPT_DIR"
-
-    echo "$ORACLE_DIR" | tee /etc/ld.so.conf.d/oracle-instantclient.conf
-    ldconfig
-    ok "Oracle Instant Client 21.13 installed."
-fi
-
-# ──────────────────────────────────────────────────────
-# STEP 3: Environment file
-# ──────────────────────────────────────────────────────
-info "Step 3/7 — Setting up .env..."
+info "Step 2/5 — Setting up .env..."
 
 if [ -f ".env" ] && grep -q "^SECRET_KEY=.\+" .env; then
-    ok ".env already exists with SECRET_KEY — skipping. Edit it manually if needed."
+    ok ".env already exists — keeping its secrets."
+    if grep -q "^SECRET_KEY=${SHARED_SECRET_KEY}$" .env; then
+        warn "SECRET_KEY is the key shared by every old install — replacing it."
+        sed -i "s/^SECRET_KEY=.*/SECRET_KEY=$(openssl rand -hex 32)/" .env
+        warn "Re-enter the viewer signing secret and Twilio token in Portal Configuration (they were encrypted with the old key)."
+    fi
 else
-    [ -f ".env" ] && warn ".env exists but is missing SECRET_KEY — regenerating..."
     echo ""
-    read -r -p "  Master admin registration key [auto-generate]: " MASTER_ADMIN_KEY
-    MASTER_ADMIN_KEY="${MASTER_ADMIN_KEY:-$(openssl rand -hex 12)}"
+    echo "  HL7 senders: the RIS/HIS addresses allowed to send orders to port 6661."
+    echo "  Anyone else who can reach that port could create patient accounts."
+    read -r -p "  Allowed sender IPs/CIDRs, comma-separated (blank = any, NOT recommended): " HL7_SENDERS
+    [ -z "$HL7_SENDERS" ] && warn "No HL7 sender list — port 6661 accepts any host. Restrict it with a firewall."
 
+    umask 077
     cat > .env <<EOF
-SECRET_KEY=${FIXED_SECRET_KEY}
-MASTER_ADMIN_KEY=${MASTER_ADMIN_KEY}
+SECRET_KEY=$(openssl rand -hex 32)
 
 POSTGRES_USER=${PG_USER}
-POSTGRES_PASSWORD=${PG_PASSWORD}
+POSTGRES_PASSWORD=$(openssl rand -hex 24)
 POSTGRES_HOST=db
 POSTGRES_PORT=5432
 POSTGRES_DB=${PG_DB}
 
 TZ=Asia/Beirut
-LIVE_FEED_ENABLED=true
+PATIENT_PORTAL_ENABLED=true
+LIVE_FEED_ENABLED=false
+HL7_ALLOWED_SENDERS=${HL7_SENDERS}
 EOF
-
-    ok ".env created."
+    umask 022
+    ok ".env created (secrets generated for this install, file readable by root only)."
 fi
 
-# Load .env so later steps can read it
 set -a; source .env; set +a
 
 # ──────────────────────────────────────────────────────
-# STEP 4: SSL certificates (private CA → trusted HTTPS)
+# STEP 3: TLS certificate (private CA → trusted HTTPS on the LAN)
 # ──────────────────────────────────────────────────────
-info "Step 4/7 — Setting up SSL certificates..."
+info "Step 3/5 — Setting up TLS certificate..."
 
 CERT_DIR="./nginx/certs"
 mkdir -p "$CERT_DIR"
 
-read -r -p "  Server hostname users will type in the browser [$(hostname)]: " CERT_CN
+read -r -p "  Hostname or IP users will type in the browser [$(hostname)]: " CERT_CN
 CERT_CN="${CERT_CN:-$(hostname)}"
+if [[ "$CERT_CN" =~ ^[0-9]+(\.[0-9]+){3}$ ]]; then
+    SAN="IP:${CERT_CN},IP:127.0.0.1"
+else
+    SAN="DNS:${CERT_CN},IP:127.0.0.1"
+fi
 
-# --- 4a. Generate private CA (once per organization) ---
 if [ ! -f "${CERT_DIR}/rayd-ca.key" ] || [ ! -f "${CERT_DIR}/rayd-ca.crt" ]; then
     info "Generating RAYD private Certificate Authority..."
     openssl genrsa -out "${CERT_DIR}/rayd-ca.key" 4096 2>/dev/null
@@ -210,7 +162,7 @@ if [ ! -f "${CERT_DIR}/rayd-ca.key" ] || [ ! -f "${CERT_DIR}/rayd-ca.crt" ]; the
         -key  "${CERT_DIR}/rayd-ca.key" \
         -sha256 -days 3650 \
         -out  "${CERT_DIR}/rayd-ca.crt" \
-        -subj "/CN=RAYD Internal CA/O=Intermedic/OU=IT" \
+        -subj "/CN=RAYD Internal CA/O=RAYD/OU=IT" \
         -addext "basicConstraints=critical,CA:true" \
         -addext "keyUsage=critical,keyCertSign,cRLSign" \
         2>/dev/null
@@ -220,12 +172,10 @@ else
     ok "Private CA already exists — reusing it."
 fi
 
-# --- 4b. Generate server cert signed by our CA ---
 REGEN_CERT=false
 if [ ! -f "${CERT_DIR}/fullchain.pem" ] || [ ! -f "${CERT_DIR}/privkey.pem" ]; then
     REGEN_CERT=true
 else
-    # Regenerate if the hostname in the existing cert doesn't match
     EXISTING_CN=$(openssl x509 -noout -subject -in "${CERT_DIR}/fullchain.pem" 2>/dev/null | sed 's/.*CN\s*=\s*//' | cut -d',' -f1 | tr -d ' ')
     if [ "$EXISTING_CN" != "$CERT_CN" ]; then
         warn "Hostname changed ($EXISTING_CN → $CERT_CN) — regenerating server certificate."
@@ -236,79 +186,51 @@ else
 fi
 
 if [ "$REGEN_CERT" = true ]; then
-    info "Generating server certificate for '${CERT_CN}'..."
-
     openssl genrsa -out "${CERT_DIR}/privkey.pem" 2048 2>/dev/null
     chmod 600 "${CERT_DIR}/privkey.pem"
-
-    openssl req -new \
-        -key  "${CERT_DIR}/privkey.pem" \
-        -out  "${CERT_DIR}/server.csr" \
-        -subj "/CN=${CERT_CN}/O=Intermedic/OU=IT" \
-        2>/dev/null
-
-    # SAN extension file (modern browsers require this)
+    openssl req -new -key "${CERT_DIR}/privkey.pem" -out "${CERT_DIR}/server.csr" \
+        -subj "/CN=${CERT_CN}/O=RAYD/OU=IT" 2>/dev/null
     cat > "${CERT_DIR}/server-ext.cnf" <<SRVEXT
 [ext]
-subjectAltName     = DNS:${CERT_CN},IP:127.0.0.1
+subjectAltName     = ${SAN}
 basicConstraints   = CA:false
 keyUsage           = critical,digitalSignature,keyEncipherment
 extendedKeyUsage   = serverAuth
 SRVEXT
-
-    openssl x509 -req \
-        -in      "${CERT_DIR}/server.csr" \
-        -CA      "${CERT_DIR}/rayd-ca.crt" \
-        -CAkey   "${CERT_DIR}/rayd-ca.key" \
-        -CAcreateserial \
-        -out     "${CERT_DIR}/fullchain.pem" \
-        -days    825 \
-        -sha256  \
-        -extfile "${CERT_DIR}/server-ext.cnf" \
-        -extensions ext \
-        2>/dev/null
-
+    openssl x509 -req -in "${CERT_DIR}/server.csr" \
+        -CA "${CERT_DIR}/rayd-ca.crt" -CAkey "${CERT_DIR}/rayd-ca.key" -CAcreateserial \
+        -out "${CERT_DIR}/fullchain.pem" -days 825 -sha256 \
+        -extfile "${CERT_DIR}/server-ext.cnf" -extensions ext 2>/dev/null
     rm -f "${CERT_DIR}/server.csr" "${CERT_DIR}/server-ext.cnf" "${CERT_DIR}/rayd-ca.srl"
     ok "Server certificate signed by RAYD CA for '${CERT_CN}'."
 fi
+echo "  Staff PCs: install ${CERT_DIR}/rayd-ca.crt once as a trusted root"
+echo "  (Windows, as Administrator: certutil -addstore Root rayd-ca.crt)."
+echo "  Patients on the internet need a public certificate for the portal's public name."
 
-echo ""
-echo "  ┌─────────────────────────────────────────────────────────┐"
-echo "  │  CLIENT SETUP — install CA cert once on each PC         │"
-echo "  │                                                          │"
-echo "  │  CA file:  ${CERT_DIR}/rayd-ca.crt                      │"
-echo "  │                                                          │"
-echo "  │  Windows (run as Administrator):                         │"
-echo "  │    certutil -addstore Root nginx/certs/rayd-ca.crt       │"
-echo "  │  Or: double-click → Install → Trusted Root CAs           │"
-echo "  │                                                          │"
-echo "  │  Linux/Mac:                                              │"
-echo "  │    See nginx/certs/README.md                             │"
-echo "  └─────────────────────────────────────────────────────────┘"
-echo ""
-
-# ──────────────────────────────────────────────────────
-# STEP 5: Build and start containers
-# ──────────────────────────────────────────────────────
-info "Step 5/7 — Building and starting Docker containers..."
-
-$COMPOSE down --remove-orphans 2>/dev/null || true
-
-# Only reinstall Python packages if requirements.txt changed since last build
-REQ_HASH=$(md5sum requirements.txt 2>/dev/null | awk '{print $1}')
-LAST_HASH=$(cat .last_req_hash 2>/dev/null || echo "")
-
-if [ "$REQ_HASH" != "$LAST_HASH" ]; then
-    info "requirements.txt changed — installing packages..."
-    $COMPOSE build
-    echo "$REQ_HASH" > .last_req_hash
-else
-    ok "Python packages unchanged — skipping pip install."
-    $COMPOSE build  # rebuilds app code only; pip layer served from Docker cache
+# Staff networks (see nginx/conf.d/default.conf); untracked, survives updates.
+STAFF_NETS="nginx/conf.d/staff_networks.local"
+if [ ! -f "$STAFF_NETS" ]; then
+    cat > "$STAFF_NETS" <<'NETS'
+# Extra staff networks for nginx (private ranges are already allowed).
+# One entry per line: "CIDR 1;" allows staff pages, "CIDR 0;" blocks them.
+# Example — the firewall's NAT address for internet traffic: 10.0.0.1 0;
+NETS
+    ok "Created $STAFF_NETS (staff pages: private networks only)."
 fi
 
-$COMPOSE up -d
+# ──────────────────────────────────────────────────────
+# STEP 4: Build and start containers
+# ──────────────────────────────────────────────────────
+info "Step 4/5 — Building, licensing and starting containers..."
 
+$COMPOSE down --remove-orphans 2>/dev/null || true
+$COMPOSE build
+md5sum requirements.txt 2>/dev/null | awk '{print $1}' > .last_req_hash
+
+# Database first: the app reads its license once, at startup, so the license
+# row must exist before the app's first start.
+$COMPOSE up -d db
 info "Waiting for database to be ready..."
 WAIT=0
 until docker exec rayd_db pg_isready -U "$PG_USER" -d "$PG_DB" -q 2>/dev/null || [ $WAIT -ge 90 ]; do
@@ -316,287 +238,62 @@ until docker exec rayd_db pg_isready -U "$PG_USER" -d "$PG_DB" -q 2>/dev/null ||
 done
 docker exec rayd_db pg_isready -U "$PG_USER" -d "$PG_DB" -q 2>/dev/null || error "Database did not become ready in time. Check: $COMPOSE logs db"
 
-WAIT=0
-until $COMPOSE ps | grep rayd_service | grep -q "Up" || [ $WAIT -ge 60 ]; do
-    sleep 3; WAIT=$((WAIT+3))
-done
-$COMPOSE ps | grep rayd_service | grep -q "Up" || error "rayd_service failed to start. Check logs: $COMPOSE logs rayd-app"
+pg_exec "ALTER TABLE public.settings ALTER COLUMN key TYPE TEXT, ALTER COLUMN value TYPE TEXT;"
+LICENSE_JSON='{"tier":"portal","reports":[],"export":false,"adapter_mapper":false,"hl7_orders":false,"oru_analytics":false,"custom_reports":false,"cd_print":false,"er_dashboard":false,"capacity_ladder":false,"saved_reports":false,"super_report":false,"referring_intel":false,"financial":false,"scheduling":false,"live_feed":false,"patient_portal":true,"ai_report":false,"max_users":0,"max_sessions":0,"expires":"","max_studies_per_report":0}'
+pg_exec "INSERT INTO settings (key, value) VALUES ('license', '${LICENSE_JSON}') ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;"
+pg_exec "INSERT INTO settings (key, value) VALUES ('demo_mode', 'false') ON CONFLICT (key) DO UPDATE SET value = 'false';"
+ok "License: patient portal only."
 
+$COMPOSE up -d
+
+wait_for_app() {
+    local w=0
+    until docker exec rayd_service curl -sf http://localhost:8080/health -o /dev/null 2>/dev/null || [ $w -ge 120 ]; do
+        sleep 3; w=$((w+3))
+    done
+    docker exec rayd_service curl -sf http://localhost:8080/health -o /dev/null 2>/dev/null \
+        || error "rayd_service did not come up. Check logs: $COMPOSE logs rayd-app --tail 60"
+}
+wait_for_app
+$COMPOSE exec -T nginx nginx -s reload 2>/dev/null || true
 ok "All containers are running."
 
-# ──────────────────────────────────────────────────────
-# STEP 6: Database configuration
-# ──────────────────────────────────────────────────────
-info "Step 6/7 — Configuring database..."
-
-# ── 6a. Truncate all ETL tables ───────────────────────
-info "Truncating all ETL tables (RESTART IDENTITY CASCADE)..."
-pg_exec "
-DO \$\$
-DECLARE
-    t text;
-BEGIN
-    FOR t IN
-        SELECT tablename FROM pg_tables
-        WHERE schemaname = 'public' AND tablename LIKE 'etl_%'
-        ORDER BY tablename
-    LOOP
-        EXECUTE 'TRUNCATE TABLE public.' || quote_ident(t) || ' RESTART IDENTITY CASCADE';
-        RAISE NOTICE 'Truncated: %', t;
-    END LOOP;
-END \$\$;
-"
-ok "ETL tables truncated."
-
-# ── 6a-2. Schema migrations ───────────────────────────
-pg_exec "ALTER TABLE public.settings ALTER COLUMN key TYPE TEXT, ALTER COLUMN value TYPE TEXT;"
-ok "settings table widened to TEXT."
-
-# ── 6b. PACS Oracle connection ────────────────────────
-echo ""
-echo "  ── PACS Oracle Connection ──────────────────────"
-echo "  (All credentials are fixed — only the host IP changes per site)"
-echo ""
-
-read -r -p "  Oracle PACS host IP or hostname: " ORACLE_HOST
-while [ -z "$ORACLE_HOST" ]; do
-    read -r -p "  Oracle PACS host IP or hostname (required): " ORACLE_HOST
-done
-
-pg_exec "
-INSERT INTO db_params (name, db_role, db_type, host, port, sid, username, password, mode)
-VALUES (
-    'oracle_ris',
-    'source',
-    'oracle',
-    '${ORACLE_HOST}',
-    ${ORACLE_PORT},
-    '${ORACLE_SID}',
-    '${ORACLE_USER}',
-    '${ORACLE_PASS_ENCRYPTED}',
-    ''
-)
-ON CONFLICT (name) DO UPDATE SET
-    host     = EXCLUDED.host,
-    port     = EXCLUDED.port,
-    sid      = EXCLUDED.sid,
-    username = EXCLUDED.username,
-    password = EXCLUDED.password;
-"
-ok "Oracle PACS connection saved (${ORACLE_USER}@${ORACLE_HOST}:${ORACLE_PORT}/${ORACLE_SID}) — password pre-encrypted."
-
-# ── 6c. License Tier ─────────────────────────────
-echo ""
-echo "  ── License Tier ───────────────────────────────────────────────────────────"
-echo "  1) Essential    — Viewer dashboard, all reports, ETL view, user mgmt,"
-echo "                    activity log, modality/procedure config, export"
-echo "                    Unlimited users/sessions"
-echo ""
-echo "  2) Professional — Everything in Essential, plus:"
-echo "                    HL7 orders, report intelligence, custom reports,"
-echo "                    patient CD log, ER dashboard, capacity ladder,"
-echo "                    saved reports, referring intel"
-echo "                    Unlimited users/sessions"
-echo ""
-echo "  3) Enterprise   — Everything in Professional, plus:"
-echo "                    Revenue intelligence, AI assistant + teaching center,"
-echo "                    scheduling, live AE status, patient portal"
-echo "                    Unlimited users/sessions"
-echo ""
-echo "  4) Custom       — Start from Enterprise and toggle features manually"
-echo "  ─────────────────────────────────────────────────────────────────────────"
-echo ""
-read -r -p "  Select license tier [1-4] (default: 3): " TIER_CHOICE
-TIER_CHOICE="${TIER_CHOICE:-3}"
-
-case "$TIER_CHOICE" in
-    1) TIER_KEY="essential" ;;
-    2) TIER_KEY="professional" ;;
-    4) TIER_KEY="custom" ;;
-    *) TIER_KEY="enterprise" ;;
-esac
-
-# Tier presets inlined — no Flask/Python import needed on the host
-_JSON_ESS='{"tier":"essential","reports":[22,23,25,27,29,30],"export":true,"adapter_mapper":true,"hl7_orders":false,"oru_analytics":false,"custom_reports":false,"cd_print":false,"er_dashboard":false,"capacity_ladder":false,"saved_reports":false,"super_report":false,"referring_intel":false,"financial":false,"scheduling":false,"live_feed":false,"patient_portal":false,"ai_report":false,"max_users":0,"max_sessions":0,"expires":"","max_studies_per_report":0}'
-_JSON_PRO='{"tier":"professional","reports":[22,23,25,27,29,30],"export":true,"adapter_mapper":true,"hl7_orders":true,"oru_analytics":true,"custom_reports":true,"cd_print":true,"er_dashboard":true,"capacity_ladder":true,"saved_reports":true,"super_report":true,"referring_intel":true,"financial":false,"scheduling":false,"live_feed":false,"patient_portal":false,"ai_report":false,"max_users":0,"max_sessions":0,"expires":"","max_studies_per_report":0}'
-_JSON_ENT='{"tier":"enterprise","reports":[22,23,25,27,29,30],"export":true,"adapter_mapper":true,"hl7_orders":true,"oru_analytics":true,"custom_reports":true,"cd_print":true,"er_dashboard":true,"capacity_ladder":true,"saved_reports":true,"super_report":true,"referring_intel":true,"financial":true,"scheduling":true,"live_feed":true,"patient_portal":true,"ai_report":true,"max_users":0,"max_sessions":0,"expires":"","max_studies_per_report":0}'
-
-case "$TIER_KEY" in
-    essential)    LICENSE_JSON="$_JSON_ESS" ;;
-    professional) LICENSE_JSON="$_JSON_PRO" ;;
-    *)            LICENSE_JSON="$_JSON_ENT" ;;
-esac
-
-if [[ "$TIER_KEY" == "custom" ]]; then
-    echo ""
-    echo "  Starting from Enterprise tier. Edit the JSON below."
-    echo "  Current license JSON:"
-    echo "  $LICENSE_JSON" | python3 -m json.tool 2>/dev/null || echo "  $LICENSE_JSON"
-    echo ""
-
-    read -r -p "  Licensed report IDs (comma-separated, e.g. 22,23,25,27,29,30): " CUSTOM_REPORTS
-    if [ -n "$CUSTOM_REPORTS" ]; then
-        LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-d['reports'] = [int(x.strip()) for x in '${CUSTOM_REPORTS}'.split(',') if x.strip().isdigit()]
-d['tier'] = 'custom'
-print(json.dumps(d))
-")
-    fi
-
-    read -r -p "  Max users (0 = unlimited): " CUSTOM_MAX_USERS
-    if [ -n "$CUSTOM_MAX_USERS" ]; then
-        LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-d['max_users'] = int('${CUSTOM_MAX_USERS}') if '${CUSTOM_MAX_USERS}'.isdigit() else 0
-print(json.dumps(d))
-")
-    fi
-
-    read -r -p "  Max concurrent sessions (0 = unlimited): " CUSTOM_MAX_SESS
-    if [ -n "$CUSTOM_MAX_SESS" ]; then
-        LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-d['max_sessions'] = int('${CUSTOM_MAX_SESS}') if '${CUSTOM_MAX_SESS}'.isdigit() else 0
-print(json.dumps(d))
-")
-    fi
-
-    read -r -p "  Expiry date (YYYY-MM-DD, blank = never): " CUSTOM_EXPIRY
-    if [ -n "$CUSTOM_EXPIRY" ]; then
-        LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-d['expires'] = '${CUSTOM_EXPIRY}'
-print(json.dumps(d))
-")
-    fi
-
-    read -r -p "  Max studies per report (0 = unlimited): " CUSTOM_STUDY_CAP
-    if [ -n "$CUSTOM_STUDY_CAP" ]; then
-        LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-d['max_studies_per_report'] = int('${CUSTOM_STUDY_CAP}') if '${CUSTOM_STUDY_CAP}'.isdigit() else 0
-print(json.dumps(d))
-")
-    fi
-
-    echo ""
-    echo "  Professional features:"
-    for feat in hl7_orders oru_analytics custom_reports cd_print er_dashboard capacity_ladder saved_reports referring_intel super_report; do
-        CURRENT=$(echo "$LICENSE_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('$feat', False))")
-        read -r -p "    Enable $feat? (current: $CURRENT) [y/n/Enter=keep]: " TOGGLE
-        if [[ "${TOGGLE,,}" == "y" ]]; then
-            LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); d['$feat']=True; print(json.dumps(d))")
-        elif [[ "${TOGGLE,,}" == "n" ]]; then
-            LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); d['$feat']=False; print(json.dumps(d))")
-        fi
-    done
-
-    echo ""
-    echo "  Enterprise features:"
-    for feat in financial scheduling live_feed patient_portal ai_report; do
-        CURRENT=$(echo "$LICENSE_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('$feat', False))")
-        read -r -p "    Enable $feat? (current: $CURRENT) [y/n/Enter=keep]: " TOGGLE
-        if [[ "${TOGGLE,,}" == "y" ]]; then
-            LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); d['$feat']=True; print(json.dumps(d))")
-        elif [[ "${TOGGLE,,}" == "n" ]]; then
-            LICENSE_JSON=$(echo "$LICENSE_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); d['$feat']=False; print(json.dumps(d))")
-        fi
-    done
-fi
-
-pg_exec "
-INSERT INTO settings (key, value) VALUES ('license', '${LICENSE_JSON}')
-ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
-"
-
-echo ""
-echo "  Final license:"
-echo "  $LICENSE_JSON" | python3 -m json.tool 2>/dev/null || echo "  $LICENSE_JSON"
-ok "License tier '${TIER_KEY}' saved."
-
-# ── 6d. Demo mode / Go-live date ──────────────────────
-echo ""
-echo "  ── Deployment Type ─────────────────────────────"
-read -r -p "  Is this a demo installation? (y/N): " IS_DEMO
-IS_DEMO="${IS_DEMO,,}"
-
-if [[ "$IS_DEMO" == "y" || "$IS_DEMO" == "yes" ]]; then
-
-    read -r -p "  Demo start date (YYYY-MM-DD): " DEMO_START
-    while ! [[ "$DEMO_START" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; do
-        read -r -p "  Invalid format. Demo start date (YYYY-MM-DD): " DEMO_START
-    done
-
-    read -r -p "  Demo end date (YYYY-MM-DD): " DEMO_END
-    while ! [[ "$DEMO_END" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; do
-        read -r -p "  Invalid format. Demo end date (YYYY-MM-DD): " DEMO_END
-    done
-
-    read -r -p "  Demo username (the account that gets full access): " DEMO_USER
-    while [ -z "$DEMO_USER" ]; do
-        read -r -p "  Demo username (required): " DEMO_USER
-    done
-
-    pg_exec "
-INSERT INTO settings (key, value) VALUES
-    ('demo_mode',  'true'),
-    ('demo_start', '${DEMO_START}'),
-    ('demo_end',   '${DEMO_END}'),
-    ('demo_user',  '${DEMO_USER}')
-ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
-"
-    ok "Demo mode activated (${DEMO_START} → ${DEMO_END}, user: ${DEMO_USER})."
-
+if docker logs rayd_service 2>&1 | grep -q "License tier: portal"; then
+    ok "App running in portal-only mode."
 else
-    pg_exec "
-INSERT INTO settings (key, value) VALUES ('demo_mode', 'false')
-ON CONFLICT (key) DO UPDATE SET value = 'false';
-"
-    ok "Demo mode is OFF."
-
-    echo ""
-    read -r -p "  Go-live date for ETL (YYYY-MM-DD) — ETL will pull data from this date onwards: " GO_LIVE
-    while ! [[ "$GO_LIVE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; do
-        read -r -p "  Invalid format. Go-live date (YYYY-MM-DD): " GO_LIVE
-    done
-
-    pg_exec "
-TRUNCATE go_live_config RESTART IDENTITY;
-INSERT INTO go_live_config (go_live_date) VALUES ('${GO_LIVE}');
-"
-    ok "Go-live date set to ${GO_LIVE}."
+    warn "Could not confirm portal-only mode — check: $COMPOSE logs rayd-app | grep 'License tier'"
 fi
 
 # ──────────────────────────────────────────────────────
-# STEP 7: Remove legacy Qwen2.5-7B / llama.cpp installation
-# Runs once — sentinel at /opt/rayd/.qwen_removed prevents repeat.
+# STEP 5: First admin
 # ──────────────────────────────────────────────────────
-_QWEN_CLEANUP_DONE="/opt/rayd/.qwen_removed"
-if [ ! -f "$_QWEN_CLEANUP_DONE" ]; then
-    info "Step 7/7 — Removing legacy Qwen/llama.cpp AI installation..."
+info "Step 5/5 — Creating the first admin..."
 
-    for svc in qwen-server llama-server bitnet; do
-        systemctl stop    "$svc" 2>/dev/null || true
-        systemctl disable "$svc" 2>/dev/null || true
-        rm -f "/etc/systemd/system/${svc}.service"
-    done
-    systemctl daemon-reload 2>/dev/null || true
-
-    rm -rf /opt/llama.cpp
-    rm -rf /home/stats/Qwen
-    rm -rf /opt/bitnet
-
-    mkdir -p /opt/rayd
-    touch "$_QWEN_CLEANUP_DONE"
-    ok "Legacy AI files removed."
+USER_COUNT=$(docker exec rayd_db psql -U "$PG_USER" -d "$PG_DB" -tAc "SELECT count(*) FROM users;")
+ADMIN_LINE=""
+if [ "${USER_COUNT:-0}" -eq 0 ]; then
+    read -r -p "  First admin username [admin]: " ADMIN_USER
+    ADMIN_USER="${ADMIN_USER:-admin}"
+    [[ "$ADMIN_USER" =~ ^[A-Za-z0-9._-]{3,50}$ ]] || error "Username: 3-50 letters, digits, dot, dash or underscore."
+    # Random password, shown once; the admin must change it at first login.
+    ADMIN_PASS=$(docker exec -e RAYD_NEW_ADMIN="$ADMIN_USER" rayd_service python3 -c '
+import os, secrets, string, psycopg2
+from werkzeug.security import generate_password_hash
+alpha = "".join(c for c in string.ascii_letters + string.digits if c not in "O0oIl1")
+pw = "".join(secrets.choice(alpha) for _ in range(16))
+conn = psycopg2.connect(host=os.environ["POSTGRES_HOST"], port=os.environ["POSTGRES_PORT"],
+                        dbname=os.environ["POSTGRES_DB"], user=os.environ["POSTGRES_USER"],
+                        password=os.environ["POSTGRES_PASSWORD"])
+with conn, conn.cursor() as cur:
+    cur.execute("""INSERT INTO users (username, password_hash, role, full_name, status, must_change_password)
+                   VALUES (%s, %s, %s, %s, %s, TRUE)""",
+                (os.environ["RAYD_NEW_ADMIN"], generate_password_hash(pw), "admin", "Administrator", "active"))
+print(pw)
+') || error "Could not create the first admin."
+    ADMIN_LINE="  Admin:    ${ADMIN_USER} / ${ADMIN_PASS}   (shown once — change it at first login)"
+    ok "First admin '${ADMIN_USER}' created."
 else
-    info "Step 7/7 — Qwen cleanup already done, skipping."
+    ok "Users already exist (${USER_COUNT}) — no admin created."
 fi
 
 # ──────────────────────────────────────────────────────
@@ -604,14 +301,18 @@ fi
 # ──────────────────────────────────────────────────────
 echo ""
 echo "=================================================="
-echo -e "${GREEN}  RAYD installation complete!${NC}"
+echo -e "${GREEN}  RAYD Patient Portal installed${NC}"
 echo "=================================================="
 echo ""
-echo "  App:      https://$(hostname)"
-echo "  Logs:     $COMPOSE logs -f"
-echo "  Restart:  $COMPOSE restart"
-echo "  Stop:     $COMPOSE down"
+echo "  Patients: https://${CERT_CN}/portal"
+echo "  Staff:    https://${CERT_CN}/login   (private networks only)"
+[ -n "$ADMIN_LINE" ] && echo "$ADMIN_LINE"
 echo ""
-echo "  To run a manual ETL sync:"
-echo "    $COMPOSE exec rayd-app python app.py -m"
+echo "  Next, in Patient Portal → Configuration:"
+echo "    1. Viewer link template + signing secret (agreed with the PACS team)"
+echo "    2. Twilio WhatsApp credentials and the portal's public address"
+echo "  Firewall: 6661/tcp only from the RIS/HIS; 443/tcp from wherever patients connect."
+echo ""
+echo "  Logs:     $COMPOSE logs -f rayd-app"
+echo "  Update:   sudo bash update.sh"
 echo ""

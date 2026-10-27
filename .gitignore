@@ -20,3 +20,4 @@ instance/
 graphify-out/
 RAYD-Statapp/
 .last_req_hash
+nginx/conf.d/*.local
