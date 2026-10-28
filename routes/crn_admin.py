@@ -182,7 +182,7 @@ def settings_page():
                 flash(e, 'error')
         else:
             _audit('crn_settings_saved', {k: v for k, v in request.form.items()
-                                          if k not in ('crn_gateway_api_key', 'csrf_token')})
+                                          if k not in ('crn_gateway_api_key', 'crn_sms_password', 'csrf_token')})
             flash('Settings saved.', 'success')
         return redirect(url_for('crn_admin.settings_page'))
     cfg = ops.load_settings()
@@ -193,6 +193,7 @@ def settings_page():
                                         (cfg['crn_public_base_url'] or 'https://crn.hospital') + '/n/AbCdEfGhIjKlMnOpQrStUv')
     return render_template('crn_settings.html', cfg=cfg, checks=ops.readiness(cfg), contacts=contacts,
                            sample=sample, api_key_set=bool(cfg['crn_gateway_api_key']),
+                           sms_password_set=bool(cfg['crn_sms_password']), sms_providers=ops.SMS_PROVIDERS,
                            link_fixed=bool(ops.dispatch.PUBLIC_BASE_URL_OVERRIDE))
 
 

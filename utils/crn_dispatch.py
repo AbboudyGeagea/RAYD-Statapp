@@ -47,6 +47,7 @@ DEFAULTS = {
     'crn_live_since': '', 'crn_resend_min': '15', 'crn_fallback_min': '30', 'crn_overdue_min': '60',
     'crn_link_ttl_hours': '72', 'crn_fallback_code': '', 'crn_public_base_url': '',
     'crn_sms_provider': 'log', 'crn_sms_template': DEFAULT_TEMPLATE,
+    'crn_sms_username': '', 'crn_sms_password': '', 'crn_sms_sender': '',
     'crn_gateway_url': '', 'crn_gateway_api_key': '', 'crn_gateway_event_cursor': '0',
     'crn_hospital_name': '', 'crn_page_footer': '',
 }
@@ -241,7 +242,7 @@ def _send(n, role, contact, cfg, event_type):
 
     base = (cfg['crn_public_base_url'] or PLACEHOLDER_BASE_URL).rstrip('/')
     body, template_ok = render_sms(cfg['crn_sms_template'], n['ref_code'], f'{base}/n/{token}')
-    result = send_sms(cfg['crn_sms_provider'], rec['phone_e164'], body)
+    result = send_sms(cfg, rec['phone_e164'], body)
     detail = {'role': role, 'contact_code': rec['contact_code'], 'contact_name': rec['contact_name'],
               'phone': rec['phone_e164'], 'provider': result['provider'], 'message_id': result['message_id'],
               'dry_run': result['dry_run'], 'chars': len(body),

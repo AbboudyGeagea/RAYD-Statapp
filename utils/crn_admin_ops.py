@@ -18,7 +18,7 @@ from utils import crn_dispatch as dispatch
 from utils import crn_gateway_client as gateway
 from utils.crypto import decrypt, encrypt
 from utils.crn_contacts import normalize_phone
-from utils.crn_sms import send_sms
+from utils.crn_sms import PROVIDERS as SMS_PROVIDERS, etec_configured, send_sms
 
 OPEN_STATUSES = ('detected', 'sent', 'overdue', 'unroutable', 'send_failed')
 STATUS_LABELS = {
@@ -86,6 +86,21 @@ def save_settings(form):
     values['crn_hospital_name'] = (form.get('crn_hospital_name') or '').strip()[:120]
     values['crn_page_footer'] = (form.get('crn_page_footer') or '').strip()[:300]
 
+    provider = form.get('crn_sms_provider') or 'log'
+    if provider not in SMS_PROVIDERS:
+        errors.append('Choose an SMS provider.')
+    values['crn_sms_provider'] = provider
+    values['crn_sms_username'] = (form.get('crn_sms_username') or '').strip()[:100]
+    sender = (form.get('crn_sms_sender') or '').strip()
+    if len(sender) > (15 if sender.isdigit() else 11):
+        errors.append('The sender name is at most 11 characters (15 digits for a phone number).')
+    values['crn_sms_sender'] = sender
+    sms_password = (form.get('crn_sms_password') or '').strip()
+    has_password = bool(sms_password) or (not form.get('clear_sms_password') and bool(db.session.execute(text(
+        "SELECT 1 FROM settings WHERE key = 'crn_sms_password' AND value <> ''")).fetchone()))
+    if provider == 'etec' and not (values['crn_sms_username'] and sender and has_password):
+        errors.append('e-tec SMS needs a username, a password and a sender name.')
+
     if errors:
         db.session.rollback()
         return errors
@@ -96,6 +111,10 @@ def save_settings(form):
         _set('crn_gateway_api_key', '')
     elif key:
         _set('crn_gateway_api_key', encrypt(key))
+    if form.get('clear_sms_password'):
+        _set('crn_sms_password', '')
+    elif sms_password:
+        _set('crn_sms_password', encrypt(sms_password))
     db.session.commit()
     return []
 
@@ -118,9 +137,15 @@ def readiness(cfg, check_gateway=True):
         rows.append(('ok' if ok else 'bad', 'CRN gateway', detail))
     rows.append(('ok' if cfg['crn_public_base_url'] else 'bad', 'Link address',
                  cfg['crn_public_base_url'] or 'not set: links in the SMS would point nowhere'))
-    rows.append(('warn' if cfg['crn_sms_provider'] == 'log' else 'ok', 'SMS provider',
-                 'dry run: messages are recorded, not sent' if cfg['crn_sms_provider'] == 'log'
-                 else cfg['crn_sms_provider']))
+    provider = cfg['crn_sms_provider']
+    if provider == 'log':
+        rows.append(('warn', 'SMS provider', 'dry run: messages are recorded, not sent'))
+    elif provider == 'etec' and etec_configured(cfg):
+        rows.append(('ok', 'SMS provider', f"e-tec SMS, sender {cfg['crn_sms_sender']}"))
+    elif provider == 'etec':
+        rows.append(('bad', 'SMS provider', 'e-tec SMS: username, password or sender name not set'))
+    else:
+        rows.append(('bad', 'SMS provider', f'unknown provider {provider}'))
     db.session.rollback()
     return rows
 
@@ -157,7 +182,7 @@ def test_send(contact_code):
         return False, f'The test page could not be placed: {error}', None
     link = f"{(cfg['crn_public_base_url'] or dispatch.PLACEHOLDER_BASE_URL).rstrip('/')}/n/{token}"
     body, _ = dispatch.render_sms(cfg['crn_sms_template'], ref, link)
-    result = send_sms(cfg['crn_sms_provider'], contact['phone_e164'], 'TEST ' + body)
+    result = send_sms(cfg, contact['phone_e164'], 'TEST ' + body)
     if not result['ok']:
         return False, f"The SMS could not be sent: {result['error']}", link
     note = ' (dry run: the SMS was recorded, not sent)' if result['dry_run'] else ''

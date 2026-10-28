@@ -10,7 +10,9 @@ Tolerant by design, because the file comes from Excel exports:
     which also covers French accents)
   * separator: comma, semicolon, tab or pipe, sniffed from the file
   * headers: matched by common names; with no recognisable header row the
-    columns are read in the order code, name, phone, email
+    columns are read in the order code, name, phone, email. The hospital's
+    export is "Doctor Code, Doctor Name, Other, E-Mail": Other is the mobile
+    and is often empty
   * empty cells and placeholders (NULL, N/A, -, nan, ...) are missing values,
     never an error
   * phones: Lebanese numbers are normalised to +961... ("03/123456" is read as
@@ -29,7 +31,7 @@ HEADER_NAMES = {
     'full_name':   {'fullname', 'name', 'doctorname', 'drname', 'doctor', 'physician',
                     'physicianname', 'referringdoctor'},
     'phone':       {'phone', 'mobile', 'phonenumber', 'mobilenumber', 'tel', 'telephone', 'cell',
-                    'cellphone', 'gsm', 'mobilephone', 'sms'},
+                    'cellphone', 'gsm', 'mobilephone', 'sms', 'other'},
     'email':       {'email', 'mail', 'emailaddress', 'courriel'},
 }
 COUNTRY_CODE = '961'   # Lebanon

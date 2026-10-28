@@ -109,6 +109,29 @@
                     </section>
 
                     <section class="card">
+                        <h3>SMS provider</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div><label class="label">Provider</label>
+                                <select name="crn_sms_provider" class="input-field">
+                                    {% for key, label in sms_providers.items() %}
+                                    <option value="{{ key }}" {{ 'selected' if key == cfg.crn_sms_provider }}>{{ label }}</option>
+                                    {% endfor %}
+                                </select></div>
+                            <div><label class="label">Sender name</label>
+                                <input name="crn_sms_sender" value="{{ cfg.crn_sms_sender }}" maxlength="15" placeholder="as registered with e-tec" class="input-field"></div>
+                            <div><label class="label">Username</label>
+                                <input name="crn_sms_username" value="{{ cfg.crn_sms_username }}" autocomplete="off" class="input-field"></div>
+                            <div><label class="label">Password</label>
+                                <input name="crn_sms_password" type="password" autocomplete="new-password"
+                                       placeholder="{{ '•••••••• saved (leave empty to keep)' if sms_password_set else 'not set' }}" class="input-field">
+                                {% if sms_password_set %}<label class="muted text-xs mt-1 inline-flex gap-2 items-center"><input type="checkbox" name="clear_sms_password"> remove the saved password</label>{% endif %}
+                            </div>
+                        </div>
+                        <p class="muted text-xs mt-3">e-tec SMS: sent by POST to e-tecsms.com, up to 50 numbers per request. The password is stored encrypted.
+                            With e-tec selected, real phones are texted: the Test above, and every CRN while CRN is ON.</p>
+                    </section>
+
+                    <section class="card">
                         <h3>SMS and notification page</h3>
                         <label class="label">SMS text</label>
                         <textarea id="tpl" name="crn_sms_template" rows="2" class="input-field font-mono">{{ cfg.crn_sms_template }}</textarea>
