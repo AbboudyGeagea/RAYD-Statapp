@@ -106,19 +106,103 @@ document.addEventListener('DOMContentLoaded', function() {
 </style>
 <script>
 // ── Print main content only ───────────────────────────────────────────────
+// Prints the report on A4 landscape at its on-screen size. Nothing may be wider
+// than the paper: Chrome then shrinks the whole page, numbers included, which
+// made printed reports unreadable. So every chart is redrawn at the width it gets
+// on paper and placed as a sharp image (3x), and tables and scroll boxes unfold
+// to the page width.
+const PRINT_WIDTH_PX = 1047;     // A4 landscape: 297 mm less 2 x 10 mm margins, at 96 px per inch
+const PRINT_HEIGHT_PX = 718;     // 210 mm less 2 x 10 mm
+const PRINT_PIXEL_RATIO = 3;
+const PRINT_CSS = `
+@page { size: A4 landscape; margin: 10mm; }
+* { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.rayd-print-main { display: block !important; height: auto !important; overflow: visible !important; padding: 0 !important; }
+img.rayd-print-chart { display: block; width: 100%; height: auto; }
+.rayd-print-box { height: auto !important; min-height: 0 !important; }
+img, svg, canvas, table, pre { max-width: 100% !important; }
+table { width: 100% !important; }
+th, td { white-space: normal !important; overflow-wrap: break-word; }
+[class*="overflow-"], [style*="overflow"] { overflow: visible !important; }
+[class*="max-h-"], [style*="max-height"] { max-height: none !important; }
+button { display: none !important; }
+tr, .rayd-print-box, [data-rayd-print-keep] { break-inside: avoid; }
+`;
+
+function _printChartImages(main) {
+    // Map of chart element -> {url, width}: ECharts containers and Chart.js / plain canvases.
+    const contentW = Math.max(1, ...[...main.children].map(c => c.offsetWidth));
+    const s = Math.min(1, PRINT_WIDTH_PX / contentW);
+    const shots = new Map();
+    main.querySelectorAll('[_echarts_instance_]').forEach(el => {
+        const inst = window.echarts && echarts.getInstanceByDom(el);
+        if (!inst || !el.offsetWidth) return;
+        const width = Math.round(el.offsetWidth * s), still = { animation: { duration: 0 } };
+        inst.resize({ width: width, height: el.offsetHeight, ...still });
+        shots.set(el, { url: inst.getDataURL({ type: 'png', pixelRatio: PRINT_PIXEL_RATIO }), width: width });
+        inst.resize(still);
+    });
+    main.querySelectorAll('canvas').forEach(cv => {
+        if (!cv.offsetWidth || cv.closest('[_echarts_instance_]')) return;
+        const chart = window.Chart && Chart.getChart && Chart.getChart(cv);
+        const width = Math.round(cv.offsetWidth * s);
+        if (!chart) {
+            try { shots.set(cv, { url: cv.toDataURL('image/png'), width: width }); } catch (e) { /* tainted */ }
+            return;
+        }
+        const ratio = chart.config.options.devicePixelRatio, height = cv.offsetHeight;
+        chart.stop();                                  // a running animation would be captured half-drawn
+        chart.config.options.devicePixelRatio = PRINT_PIXEL_RATIO;
+        chart.update('none');
+        chart.resize(width, height);
+        chart.update('none');
+        shots.set(cv, { url: chart.toBase64Image(), width: width });
+        if (ratio === undefined) delete chart.config.options.devicePixelRatio;
+        else chart.config.options.devicePixelRatio = ratio;
+        chart.update('none');
+        chart.resize();
+    });
+    return shots;
+}
+
+function _printDocument(main) {
+    const shots = _printChartImages(main);
+    // Keep each chart on one page with its title: mark its largest ancestor that fits a page.
+    const kept = [...shots.keys()].map(el => {
+        let box = el;
+        while (box.parentElement && box.parentElement !== main && box.parentElement.offsetHeight <= PRINT_HEIGHT_PX)
+            box = box.parentElement;
+        box.setAttribute('data-rayd-print-keep', '');
+        return box;
+    });
+    const clone = main.cloneNode(true);
+    kept.forEach(box => box.removeAttribute('data-rayd-print-keep'));
+    const selector = '[_echarts_instance_], canvas';
+    const copies = clone.querySelectorAll(selector);
+    main.querySelectorAll(selector).forEach((orig, i) => {
+        const shot = shots.get(orig);
+        if (!shot) return;
+        const img = document.createElement('img');
+        img.src = shot.url;
+        img.className = 'rayd-print-chart';
+        img.style.maxWidth = shot.width + 'px';
+        if (orig.tagName === 'CANVAS') copies[i].replaceWith(img);
+        else { copies[i].replaceChildren(img); copies[i].classList.add('rayd-print-box'); }
+    });
+    clone.classList.add('rayd-print-main');
+    const styles = [...document.querySelectorAll('link[rel="stylesheet"], style')]
+        .map(el => el.outerHTML).join('\n');
+    return '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + document.title + '</title>' + styles +
+        '<style>' + PRINT_CSS + 'body{background:' + getComputedStyle(main).backgroundColor + ';}</style>' +
+        '</head><body class="' + document.body.className + '">' + clone.outerHTML + '</body></html>';
+}
+
 function printMainContent() {
     const main = document.querySelector('main');
     if (!main) { window.print(); return; }
-
-    const styles = [...document.querySelectorAll('link[rel="stylesheet"], style')]
-        .map(el => el.outerHTML).join('\n');
-
-    const pw = window.open('', '_blank', 'width=900,height=700');
-    pw.document.write(
-        '<!DOCTYPE html><html><head><meta charset="utf-8">' + styles +
-        '<style>body{background:white;color:black;padding:20px;}</style>' +
-        '</head><body>' + main.innerHTML + '</body></html>'
-    );
+    const html = _printDocument(main);
+    const pw = window.open('', '_blank', 'width=1100,height=800');
+    pw.document.write(html);
     pw.document.close();
     pw.focus();
     pw.onload = function() { pw.print(); };
