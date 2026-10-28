@@ -127,8 +127,13 @@
                                 {% if sms_password_set %}<label class="muted text-xs mt-1 inline-flex gap-2 items-center"><input type="checkbox" name="clear_sms_password"> remove the saved password</label>{% endif %}
                             </div>
                         </div>
+                        <div class="mt-4" style="max-width:480px;">
+                            <label class="label">Pilot: real SMS only to</label>
+                            <input name="crn_pilot_codes" value="{{ cfg.crn_pilot_codes }}" placeholder="doctor codes, e.g. MO1, RH1" class="input-field font-mono">
+                            <p class="muted text-xs mt-1">While filled, only these contacts are really texted; every other CRN SMS is recorded as a dry run. Empty = everyone (live).</p>
+                        </div>
                         <p class="muted text-xs mt-3">e-tec SMS: sent by POST to e-tecsms.com, up to 50 numbers per request. The password is stored encrypted.
-                            With e-tec selected, real phones are texted: the Test above, and every CRN while CRN is ON.</p>
+                            With e-tec selected, real phones are texted: the Test above, and every CRN while CRN is ON (only the pilot contacts, if any).</p>
                     </section>
 
                     <section class="card">

@@ -52,7 +52,7 @@ DEFAULTS = {
     'crn_live_since': '', 'crn_resend_min': '15', 'crn_fallback_min': '30', 'crn_overdue_min': '60',
     'crn_link_ttl_hours': '72', 'crn_fallback_code': '', 'crn_public_base_url': '',
     'crn_sms_provider': 'log', 'crn_sms_template': DEFAULT_TEMPLATE,
-    'crn_sms_username': '', 'crn_sms_password': '', 'crn_sms_sender': '',
+    'crn_sms_username': '', 'crn_sms_password': '', 'crn_sms_sender': '', 'crn_pilot_codes': '',
     'crn_gateway_url': '', 'crn_gateway_api_key': '', 'crn_gateway_event_cursor': '0',
     'crn_hospital_name': '', 'crn_page_footer': '',
 }
@@ -70,6 +70,12 @@ def _settings():
         except (TypeError, ValueError):
             cfg[key] = int(DEFAULTS[key])
     return cfg
+
+
+def pilot_codes(cfg):
+    """Doctor codes that get a real SMS during a pilot (settings.crn_pilot_codes);
+    every other SMS is recorded as a dry run. Empty = everyone (live)."""
+    return {c.strip().upper() for c in (cfg.get('crn_pilot_codes') or '').split(',') if c.strip()}
 
 
 def sample_link(base):
@@ -280,11 +286,15 @@ def _send(n, role, contact, cfg, event_type):
     base = (cfg['crn_public_base_url'] or PLACEHOLDER_BASE_URL).rstrip('/')
     body, template_ok = render_sms(cfg['crn_sms_template'], n['ref_code'], f'{base}/n/{token}',
                                    patient_name(n['accession_number']))
-    result = send_sms(cfg, rec['phone_e164'], body)
+    pilot = pilot_codes(cfg)
+    held_back = bool(pilot) and cfg['crn_sms_provider'] != 'log' and rec['contact_code'] not in pilot
+    result = send_sms({**cfg, 'crn_sms_provider': 'log'} if held_back else cfg, rec['phone_e164'], body)
     detail = {'role': role, 'contact_code': rec['contact_code'], 'contact_name': rec['contact_name'],
               'phone': rec['phone_e164'], 'provider': result['provider'], 'message_id': result['message_id'],
               'dry_run': result['dry_run'], 'chars': len(body),
               'template_sha256': hashlib.sha256(cfg['crn_sms_template'].encode()).hexdigest()[:16]}
+    if held_back:
+        detail['reason'] = 'pilot: not in the pilot list, recorded but not sent'
     if not template_ok:
         detail['template_note'] = 'the saved template is invalid, the default text was used'
     if not cfg['crn_public_base_url']:

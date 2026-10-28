@@ -101,6 +101,13 @@ def save_settings(form):
         "SELECT 1 FROM settings WHERE key = 'crn_sms_password' AND value <> ''")).fetchone()))
     if provider == 'etec' and not (values['crn_sms_username'] and sender and has_password):
         errors.append('e-tec SMS needs a username, a password and a sender name.')
+    pilot = sorted(dispatch.pilot_codes(form))
+    known = {r[0] for r in db.session.execute(text("SELECT doctor_code FROM crn_contacts WHERE doctor_code = ANY(:c)"),
+                                              {'c': pilot})} if pilot else set()
+    for code in pilot:
+        if code not in known:
+            errors.append(f'Pilot contact {code} is not in the contact list.')
+    values['crn_pilot_codes'] = ', '.join(pilot)
 
     if errors:
         db.session.rollback()
@@ -147,6 +154,8 @@ def readiness(cfg, check_gateway=True):
         rows.append(('bad', 'SMS provider', 'e-tec SMS: username, password or sender name not set'))
     else:
         rows.append(('bad', 'SMS provider', f'unknown provider {provider}'))
+    if provider != 'log' and cfg['crn_pilot_codes']:
+        rows.append(('warn', 'Pilot', f"real SMS only to {cfg['crn_pilot_codes']}; everyone else is recorded, not sent"))
     db.session.rollback()
     return rows
 

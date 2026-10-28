@@ -7,13 +7,14 @@ the RIS does, then follows the notification through detection (NLP worker) and
 routing (dispatcher) and prints where to see it.
 
 Refuses to send unless:
-  - the SMS provider is the dry run ('log'): with a real provider the test would
-    text a real phone
+  - the SMS provider is the dry run ('log'), or the test contact is in the pilot
+    list (Admin > CRN > Settings, "Pilot: real SMS only to"): then that contact,
+    and only that contact, gets a real SMS (proof of concept)
   - CRN is switched on (Admin > CRN > Settings), otherwise the marker is ignored
   - the CRN gateway is configured, otherwise the page cannot be opened
   - the test contact exists, is active and has a mobile number
 
-The fake patient is MRN CRNTEST, name TEST^CRN, accession CRNTEST<date-time>,
+The fake patient is MRN CRNTEST, name TEST PATIENT, accession CRNTEST<date-time>,
 ordered by the test contact. It stays in the HL7 tables and in the CRN history
 (append-only by design).
 
@@ -112,9 +113,16 @@ def main():
     conn.rollback()
 
     print("Checks")
-    if cfg.get('crn_sms_provider', 'log') != 'log':
-        _stop(f"an SMS provider is connected ({cfg['crn_sms_provider']}): this test would text a real phone.")
-    print("  OK  SMS provider is the dry run: nothing will be texted")
+    provider = cfg.get('crn_sms_provider') or 'log'
+    pilot = {c.strip().upper() for c in cfg.get('crn_pilot_codes', '').split(',') if c.strip()}
+    real_sms = provider != 'log'
+    if not real_sms:
+        print("  OK  SMS provider is the dry run: nothing will be texted")
+    elif code in pilot:
+        print(f"  OK  SMS provider {provider}, {code} is in the pilot list: {code} gets a REAL SMS")
+    else:
+        _stop(f"an SMS provider is connected ({provider}) and {code} is not in the pilot list "
+              f"(Admin > CRN > Settings, 'Pilot: real SMS only to'): this test would text a real phone.")
     if not cfg.get('crn_live_since'):
         _stop("CRN is OFF. Switch it on first: Admin > CRN > Settings > Switch on.")
     print(f"  OK  CRN is ON since {cfg['crn_live_since'].replace('T', ' ')}")
@@ -135,7 +143,7 @@ def main():
     now = datetime.now()
     ts = now.strftime('%Y%m%d%H%M%S')
     acc = f"CRNTEST{now:%y%m%d%H%M%S}"
-    pid = _segment('PID', {1: '1', 3: 'CRNTEST^^^TEST', 5: 'TEST^CRN'})
+    pid = _segment('PID', {1: '1', 3: 'CRNTEST^^^TEST', 5: 'PATIENT^TEST'})
     proc = 'CRNTEST^CRN workflow test'
 
     orm = '\r'.join([
@@ -189,8 +197,9 @@ def main():
         sys.exit(1)
     nid, ref = row
     print(f"  OK  notification {ref} created")
-    routed = _wait(conn, """SELECT MAX(r.page_pushed_at) FROM crn_recipients r WHERE r.notification_id = %s""",
-                   (nid,), ROUTE_TIMEOUT_S, 'routing: page placed on the CRN gateway, SMS recorded')
+    routed = _wait(conn, """SELECT MAX(r.last_sent_at) FROM crn_recipients r WHERE r.notification_id = %s""",
+                   (nid,), ROUTE_TIMEOUT_S,
+                   f"routing: page placed on the CRN gateway, SMS {'sent' if real_sms else 'recorded'}")
     status = _one(conn, "SELECT status FROM crn_notifications WHERE id = %s", (nid,))[0]
     last = _one(conn, "SELECT event_type, detail->>'error' FROM crn_events WHERE notification_id = %s "
                       "ORDER BY id DESC LIMIT 1", (nid,))
@@ -201,7 +210,11 @@ def main():
               f"{' (' + last[1] + ')' if last and last[1] else ''}")
 
     print(f"\nNext: open RAYD in the browser at  /admin/crn/notification/{nid}")
-    print("      and click 'Open link (dry run)' to see the page as the doctor and acknowledge it.")
+    if real_sms:
+        print(f"      {code} ({contact[1]}) should have the SMS now. Opening the link and pressing")
+        print("      acknowledge shows on that page within a minute. Not opened in 15 min = resent.")
+    else:
+        print("      and click 'Show SMS (dry run)' to see the page as the doctor and acknowledge it.")
     conn.close()
 
 
