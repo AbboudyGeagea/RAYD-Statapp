@@ -114,8 +114,19 @@ document.addEventListener('DOMContentLoaded', function() {
 const PRINT_WIDTH_PX = 1047;     // A4 landscape: 297 mm less 2 x 10 mm margins, at 96 px per inch
 const PRINT_HEIGHT_PX = 718;     // 210 mm less 2 x 10 mm
 const PRINT_PIXEL_RATIO = 3;
+const PRINT_LOGO_URL = new URL({{ url_for('static', filename='hospital_logo.png')|tojson }}, location.href).href;
+const PRINT_USER = {{ current_user.username|tojson }};
 const PRINT_CSS = `
 @page { size: A4 landscape; margin: 10mm; }
+.rayd-print-frame { width: 100%; border-collapse: collapse; border-spacing: 0; }
+.rayd-print-frame > * > tr { break-inside: auto !important; }
+.rayd-print-frame > * > tr > td { padding: 0 !important; border: 0 !important; background: none !important;
+    font: inherit !important; color: inherit !important; text-align: left !important; vertical-align: top !important; }
+.rayd-print-head { display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    padding-bottom: 8px; margin-bottom: 14px; border-bottom: 2px solid #60a5fa; }
+.rayd-print-head img { height: 56px; width: auto; background: #fff; border-radius: 8px; padding: 4px 8px; }
+.rayd-print-head .t { font-size: 18px; font-weight: 900; text-align: right; }
+.rayd-print-head .s { font-size: 11px; opacity: .7; text-align: right; margin-top: 2px; }
 * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .rayd-print-main { display: block !important; height: auto !important; overflow: visible !important; padding: 0 !important; }
 img.rayd-print-chart { display: block; width: 100%; height: auto; }
@@ -123,6 +134,7 @@ img.rayd-print-chart { display: block; width: 100%; height: auto; }
 img, svg, canvas, table, pre { max-width: 100% !important; }
 table { width: 100% !important; }
 th, td { white-space: normal !important; overflow-wrap: break-word; }
+.rayd-print-squeeze th, .rayd-print-squeeze td { overflow-wrap: anywhere; }
 [class*="overflow-"], [style*="overflow"] { overflow: visible !important; }
 [class*="max-h-"], [style*="max-height"] { max-height: none !important; }
 button { display: none !important; }
@@ -165,6 +177,27 @@ function _printChartImages(main) {
     return shots;
 }
 
+function _printLetterhead() {
+    // Hospital logo, report name and who printed it. Sits in a table header, which
+    // Chrome repeats at the top of every printed page.
+    const head = document.createElement('div');
+    head.className = 'rayd-print-head';
+    const logo = document.createElement('img');
+    logo.src = PRINT_LOGO_URL;
+    logo.alt = '';
+    const text = document.createElement('div');
+    const title = document.createElement('div');
+    title.className = 't';
+    title.textContent = document.title.split('|').pop().trim();
+    const sub = document.createElement('div');
+    sub.className = 's';
+    sub.textContent = 'Printed ' + new Date().toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric',
+        hour: '2-digit', minute: '2-digit' }) + ' by ' + PRINT_USER;
+    text.append(title, sub);
+    head.append(logo, text);
+    return head.outerHTML;
+}
+
 function _printDocument(main) {
     const shots = _printChartImages(main);
     // Keep each chart on one page with its title: mark its largest ancestor that fits a page.
@@ -194,18 +227,30 @@ function _printDocument(main) {
         .map(el => el.outerHTML).join('\n');
     return '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + document.title + '</title>' + styles +
         '<style>' + PRINT_CSS + 'body{background:' + getComputedStyle(main).backgroundColor + ';}</style>' +
-        '</head><body class="' + document.body.className + '">' + clone.outerHTML + '</body></html>';
+        '</head><body class="' + document.body.className + '">' +
+        '<table class="rayd-print-frame"><thead><tr><td>' + _printLetterhead() + '</td></tr></thead>' +
+        '<tbody><tr><td>' + clone.outerHTML + '</td></tr></tbody></table></body></html>';
+}
+
+function _printSqueezeTables(doc) {
+    // A table still wider than the page would make Chrome shrink every page: let
+    // that table alone break long words instead.
+    const pageW = doc.documentElement.clientWidth;
+    doc.querySelectorAll('.rayd-print-main table').forEach(t => {
+        if (t.getBoundingClientRect().right > pageW + 1) t.classList.add('rayd-print-squeeze');
+    });
 }
 
 function printMainContent() {
     const main = document.querySelector('main');
     if (!main) { window.print(); return; }
     const html = _printDocument(main);
-    const pw = window.open('', '_blank', 'width=1100,height=800');
+    // Opened at the printable width, so the table check measures the printed layout.
+    const pw = window.open('', '_blank', 'width=' + (PRINT_WIDTH_PX + 20) + ',height=800');
     pw.document.write(html);
     pw.document.close();
     pw.focus();
-    pw.onload = function() { pw.print(); };
+    pw.onload = function() { _printSqueezeTables(pw.document); pw.print(); };
 }
 
 // ── Async filter-option loader ────────────────────────────────────────────
