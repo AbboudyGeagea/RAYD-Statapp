@@ -387,9 +387,10 @@ def report(start, end):
     return {
         'summary': summary,
         'by_doctor': group(lambda r: f"{r['doctor_code'] or '—'} {r['doctor_name'] or ''}".strip()),
-        'by_radiologist': group(lambda r: r['signing_radiologist'] or '—'),
+        'by_radiologist': group(lambda r: dispatch.radiologist_name(r['signing_radiologist']) or '—'),
         'by_how': sorted(by_how.items(), key=lambda kv: -kv[1]),
-        'rows': [dict(r, how=how(r)) for r in rows],
+        'rows': [dict(r, how=how(r), signing_radiologist=dispatch.radiologist_name(r['signing_radiologist']))
+                 for r in rows],
     }
 
 

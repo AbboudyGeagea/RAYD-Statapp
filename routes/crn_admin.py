@@ -87,7 +87,8 @@ def _notification_view(notification_id, test_sms=None):
         test_sms['body'], _ = ops.dispatch.render_sms(cfg['crn_sms_template'], n['ref_code'], test_sms['link'],
                                                       ops.dispatch.patient_name(n['accession_number']))
     return render_template('crn_notification.html', n=n, recipients=recipients, events=events,
-                           labels=ops.STATUS_LABELS, dry_run=cfg['crn_sms_provider'] == 'log', test_sms=test_sms)
+                           labels=ops.STATUS_LABELS, dry_run=cfg['crn_sms_provider'] == 'log', test_sms=test_sms,
+                           radiologist=ops.dispatch.radiologist_name(n['signing_radiologist']))
 
 
 @crn_admin_bp.route('/notification/<int:notification_id>')

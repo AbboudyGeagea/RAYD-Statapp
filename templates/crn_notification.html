@@ -82,7 +82,7 @@
                             <dt>Accession</dt><dd class="font-mono">{{ n.accession_number or '—' }}</dd>
                             <dt>Patient MRN</dt><dd class="font-mono">{{ n.patient_id or '—' }}</dd>
                             <dt>Ordering doctor</dt><dd>{% if n.doctor_code %}<span class="font-mono">{{ n.doctor_code }}</span> {{ n.doctor_name or '' }}{% else %}<span class="muted">not resolved</span>{% endif %}</dd>
-                            <dt>Radiologist</dt><dd>{{ n.signing_radiologist or '—' }}</dd>
+                            <dt>Radiologist</dt><dd>{{ radiologist or '—' }}</dd>
                             <dt>Report received</dt><dd>{{ n.report_received_at.strftime('%Y-%m-%d %H:%M:%S') if n.report_received_at else '—' }}</dd>
                             <dt>Detected</dt><dd>{{ n.detected_at.strftime('%Y-%m-%d %H:%M:%S') }}</dd>
                             <dt>First SMS</dt><dd>{{ n.first_sent_at.strftime('%Y-%m-%d %H:%M:%S') if n.first_sent_at else '—' }}</dd>

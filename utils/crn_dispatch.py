@@ -159,6 +159,20 @@ def _recipients(notification_id):
     """), {'n': notification_id}).mappings().fetchall()}
 
 
+def radiologist_name(value):
+    """The report signer as Mazloum's RIS sends it in OBR-32, 'ID&name&name'
+    (e.g. 'R2&nisrine&taleb', '&Lakis&Sara'), as a readable name: 'Nisrine Taleb',
+    'Lakis Sara'. The names keep the order received (the RIS mixes family and given
+    name order); an all-lowercase name is capitalised; the id is dropped."""
+    v = (value or '').strip()
+    if '&' not in v:
+        return v or None
+    names = [p.strip() for p in v.split('&')[1:] if p.strip()]
+    if not names:
+        return v.split('&')[0].strip() or None
+    return ' '.join(p.title() if p.islower() else p for p in names)
+
+
 def _exam_facts(accession):
     """(exam date, signing radiologist) for the page. The exam date is when the exam
     was done: PACS completion (HL7), else the PACS study date and time, else the
@@ -219,7 +233,7 @@ def _page_payload(n, rec, cfg):
                   'exam_date': fmt(exam_at),
                   'ordered_by': n['doctor_name'] or order.get('ordering_physician')},
         'report': {'text': (report.get('impression_text') or '').strip() or report.get('report_text'),
-                   'signed_by': pacs_signer or report.get('physician_id'),
+                   'signed_by': pacs_signer or radiologist_name(report.get('physician_id')),
                    'signed_at': fmt(report.get('result_datetime'))},
     }
 
