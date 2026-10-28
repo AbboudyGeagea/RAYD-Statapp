@@ -61,6 +61,7 @@
     <h2>Exam</h2>
     <dl>
       <dt>Procedure</dt><dd>{{ o.procedure or '—' }}</dd>
+      <dt>Exam date</dt><dd>{{ o.exam_date or '—' }}</dd>
       {% if o.modality %}<dt>Modality</dt><dd>{{ o.modality }}</dd>{% endif %}
       <dt>Accession</dt><dd>{{ o.accession or '—' }}</dd>
       {% if o.ordered_by %}<dt>Ordered by</dt><dd>{{ o.ordered_by }}</dd>{% endif %}
@@ -69,9 +70,12 @@
 
   {% set r = p.report or {} %}
   <div class="card">
-    <h2>Report{% if r.signed_at %} · {{ r.signed_at }}{% endif %}</h2>
+    <h2>Report</h2>
+    <dl style="margin-bottom:10px;">
+      <dt>Signed by</dt><dd>{{ r.signed_by or '—' }}</dd>
+      <dt>Signed on</dt><dd>{{ r.signed_at or '—' }}</dd>
+    </dl>
     <div class="report">{{ r.text or 'Report text not available.' }}</div>
-    {% if r.signed_by %}<p style="color:var(--muted);margin:10px 0 0;">Reported by {{ r.signed_by }}</p>{% endif %}
   </div>
 
   <div class="card">

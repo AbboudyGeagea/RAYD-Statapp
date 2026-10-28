@@ -159,6 +159,40 @@ def _recipients(notification_id):
     """), {'n': notification_id}).mappings().fetchall()}
 
 
+def _exam_facts(accession):
+    """(exam date, signing radiologist) for the page. The exam date is when the exam
+    was done: PACS completion (HL7), else the PACS study date and time, else the
+    order's scheduled time. The radiologist's name comes from PACS (alias map
+    first) once the study is there; None otherwise."""
+    if not accession:
+        return None, None
+    return db.session.execute(text("""
+        WITH pacs AS (
+            SELECT s.study_date, s.study_time,
+                   NULLIF(TRIM(CONCAT(s.signing_physician_first_name, ' ', s.signing_physician_last_name)), '') AS signer,
+                   NULLIF(TRIM(s.rep_final_signed_by), '') AS rep_signer
+            FROM etl_didb_studies s
+            LEFT JOIN aetitle_modality_map m ON m.aetitle = s.storing_ae
+            WHERE s.accession_number = :acc AND COALESCE(m.modality, s.study_modality, '') != 'SR'
+            ORDER BY s.insert_time DESC NULLS LAST
+            LIMIT 1
+        )
+        SELECT COALESCE(
+                   (SELECT MAX(COALESCE(pacs_done_at, done_at)) FROM hl7_orders WHERE accession_number = :acc),
+                   (SELECT study_date::timestamp + CASE
+                               WHEN study_time ~ '^[0-9]{6}' THEN make_interval(
+                                   hours => SUBSTRING(study_time, 1, 2)::int, mins => SUBSTRING(study_time, 3, 2)::int,
+                                   secs => SUBSTRING(study_time, 5, 2)::int)
+                               WHEN study_time ~ '^[0-9]{2}:[0-9]{2}' THEN study_time::interval
+                               ELSE '0'::interval END
+                    FROM pacs),
+                   (SELECT MAX(scheduled_datetime) FROM hl7_orders WHERE accession_number = :acc)),
+               (SELECT COALESCE(pam.canonical_name, p.signer, p.rep_signer) FROM pacs p
+                LEFT JOIN physician_alias_map pam
+                       ON pam.dismissed = false AND pam.alias = COALESCE(p.signer, p.rep_signer))
+    """), {'acc': accession}).fetchone()
+
+
 def _page_payload(n, rec, cfg):
     """What the notification page shows: patient, exam, report. It goes only to the
     gateway (encrypted at rest there), never into the SMS."""
@@ -172,6 +206,7 @@ def _page_payload(n, rec, cfg):
         ORDER BY received_at DESC LIMIT 1
     """), {'acc': n['accession_number']}).mappings().fetchone() if n['accession_number'] else None
     order = order or {}
+    exam_at, pacs_signer = _exam_facts(n['accession_number'])
     fmt = lambda v, n_chars=16: str(v)[:n_chars] if v else None
     return {
         'hospital': {'name': cfg['crn_hospital_name'] or None, 'footer': cfg['crn_page_footer'] or None},
@@ -181,9 +216,11 @@ def _page_payload(n, rec, cfg):
         'order': {'accession': n['accession_number'],
                   'procedure': report.get('procedure_name') or order.get('procedure_text'),
                   'modality': report.get('modality') or order.get('modality'),
+                  'exam_date': fmt(exam_at),
                   'ordered_by': n['doctor_name'] or order.get('ordering_physician')},
         'report': {'text': (report.get('impression_text') or '').strip() or report.get('report_text'),
-                   'signed_by': report.get('physician_id'), 'signed_at': fmt(report.get('result_datetime'))},
+                   'signed_by': pacs_signer or report.get('physician_id'),
+                   'signed_at': fmt(report.get('result_datetime'))},
     }
 
 

@@ -159,7 +159,7 @@ def main():
                          8: 'ORU^R01', 9: f'CRNTEST-ORU-{ts}', 10: 'P', 11: '2.3'}),
         pid,
         _segment('OBR', {1: '1', 2: acc, 3: acc, 4: proc, 7: ts, 16: doctor, 22: ts, 24: 'OT', 25: 'F',
-                         32: 'CRNTEST'}),
+                         32: 'TEST RADIOLOGIST'}),
         _segment('OBX', {1: '1', 2: 'TX', 3: 'REPORT^Report', 5: 'TEST REPORT - NOT A REAL PATIENT.', 11: 'F'}),
         _segment('OBX', {1: '2', 2: 'TX', 3: 'REPORT^Report',
                          5: f'{marker} This tests the critical result notification workflow. No action is needed.',

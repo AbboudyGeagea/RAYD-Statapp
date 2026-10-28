@@ -180,12 +180,14 @@ def test_send(contact_code):
     token = secrets.token_urlsafe(16)
     ref = 'TEST-' + secrets.token_hex(2).upper()
     expires = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    now = datetime.now().strftime('%Y-%m-%d %H:%M')
     payload = {
         'hospital': {'name': cfg['crn_hospital_name'] or None, 'footer': 'TEST notification. No patient data.'},
         'recipient': {'name': contact['full_name'], 'role': 'doctor'},
         'patient': {'name': 'TEST - no patient', 'mrn': 'TEST'},
-        'order': {'accession': 'TEST', 'procedure': 'Test of Critical Result Notification'},
-        'report': {'text': 'This is a test of Critical Result Notification. No action is needed.'},
+        'order': {'accession': 'TEST', 'procedure': 'Test of Critical Result Notification', 'exam_date': now},
+        'report': {'text': 'This is a test of Critical Result Notification. No action is needed.',
+                   'signed_by': 'TEST RADIOLOGIST', 'signed_at': now},
     }
     ok, error = gateway.push_page(cfg, hashlib.sha256(token.encode()).hexdigest(), ref, 0, expires, payload)
     if not ok:
