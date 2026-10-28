@@ -17,8 +17,9 @@ CRN dispatcher, run every 30 s by the scheduler (app.py). One pass:
 
 Every notification is handled in its own transaction under FOR UPDATE SKIP
 LOCKED, so two dispatchers can never text the same person twice. Nothing runs
-while settings.crn_live_since is empty (CRN off). The SMS carries only the
-reference code and the link, never patient data.
+while settings.crn_live_since is empty (CRN off). The SMS carries the patient's
+name as received in the order and the link, in one SMS (MAX_SMS_CHARS); the
+report itself is only on the gateway page.
 """
 import hashlib
 import json
@@ -38,11 +39,15 @@ from utils import crn_gateway_client as gateway
 logger = logging.getLogger("CRN_DISPATCH")
 
 MAX_SEND_FAILURES = 5
-DEFAULT_TEMPLATE = 'Critical result for your patient. Ref {ref}. View and acknowledge: {link}'
+DEFAULT_TEMPLATE = 'Critical result (CRN) for {patient}: {link}'
+MAX_SMS_CHARS = 160        # one SMS
+NAME_ROOM_MIN = 20         # characters a template must leave for {patient}
+TOKEN_CHARS = 22           # len(secrets.token_urlsafe(16))
 PLACEHOLDER_BASE_URL = 'https://crn-gateway.invalid'
-# Hardcoded link address (public test, 2026-10-12): every SMS link and "Open link (dry run)"
-# use it, whatever Admin > CRN > Settings holds. Empty = back to the setting.
-PUBLIC_BASE_URL_OVERRIDE = 'https://194.147.127.3'
+# Hardcoded link address (the hospital's hostname for the gateway, 2026-10-28): every SMS
+# link and "Open link (dry run)" use it, whatever Admin > CRN > Settings holds. Empty = back
+# to the setting.
+PUBLIC_BASE_URL_OVERRIDE = 'https://criticalresults.newmazloum.com'
 DEFAULTS = {
     'crn_live_since': '', 'crn_resend_min': '15', 'crn_fallback_min': '30', 'crn_overdue_min': '60',
     'crn_link_ttl_hours': '72', 'crn_fallback_code': '', 'crn_public_base_url': '',
@@ -67,17 +72,49 @@ def _settings():
     return cfg
 
 
-def render_sms(template, ref, link):
-    """(body, template_ok). Only {ref} and {link} may appear in the template, and
-    {link} must: anything else falls back to the default text, so a template edit
-    can never put patient data in an SMS or drop the link."""
+def sample_link(base):
+    """A link as long as a real one, for previews and length checks."""
+    return f"{(base or PLACEHOLDER_BASE_URL).rstrip('/')}/n/{'x' * TOKEN_CHARS}"
+
+
+def template_problem(template, link, ref='CRN-XXXX-XXXX'):
+    """Why a template cannot be used, or None. Only {patient}, {ref} and {link} may
+    appear, {link} must, and with the link it must leave room for the name in one SMS."""
     try:
         fields = {f for _, f, _, _ in string.Formatter().parse(template) if f is not None}
     except ValueError:
         fields = None
-    if fields is None or not fields <= {'ref', 'link'} or 'link' not in fields:
-        return DEFAULT_TEMPLATE.format(ref=ref, link=link), False
-    return template.format(ref=ref, link=link), True
+    if fields is None or not fields <= {'patient', 'ref', 'link'} or 'link' not in fields:
+        return 'The SMS text may only use {patient}, {ref} and {link}, and must contain {link}.'
+    fixed = len(template.format(patient='', ref=ref, link=link))
+    room = NAME_ROOM_MIN if 'patient' in fields else 0
+    if fixed + room > MAX_SMS_CHARS:
+        return (f'The SMS text is too long: {fixed} characters with the link, and one SMS is '
+                f'{MAX_SMS_CHARS}' + (f' with at least {room} left for the patient name.' if room else '.'))
+    return None
+
+
+def render_sms(template, ref, link, patient=None):
+    """(body, template_ok). A template with a problem falls back to the default
+    text, so an edit can never drop the link or overflow one SMS. A long patient
+    name is shortened to fit in MAX_SMS_CHARS; the link never is."""
+    ok = template_problem(template, link, ref) is None
+    if not ok:
+        template = DEFAULT_TEMPLATE
+    fixed = len(template.format(patient='', ref=ref, link=link))
+    name = ((patient or '').strip() or 'your patient')[:max(0, MAX_SMS_CHARS - fixed)].rstrip()
+    return template.format(patient=name, ref=ref, link=link), ok
+
+
+def patient_name(accession):
+    """The patient's name as received in the order (PID-5), or None."""
+    if not accession:
+        return None
+    return db.session.execute(text("""
+        SELECT patient_name FROM hl7_orders
+        WHERE accession_number = :acc AND patient_name IS NOT NULL
+        ORDER BY received_at DESC LIMIT 1
+    """), {'acc': accession}).scalar()
 
 
 def _event(notification_id, event_type, detail):
@@ -241,7 +278,8 @@ def _send(n, role, contact, cfg, event_type):
             return False
 
     base = (cfg['crn_public_base_url'] or PLACEHOLDER_BASE_URL).rstrip('/')
-    body, template_ok = render_sms(cfg['crn_sms_template'], n['ref_code'], f'{base}/n/{token}')
+    body, template_ok = render_sms(cfg['crn_sms_template'], n['ref_code'], f'{base}/n/{token}',
+                                   patient_name(n['accession_number']))
     result = send_sms(cfg, rec['phone_e164'], body)
     detail = {'role': role, 'contact_code': rec['contact_code'], 'contact_name': rec['contact_name'],
               'phone': rec['phone_e164'], 'provider': result['provider'], 'message_id': result['message_id'],

@@ -77,11 +77,12 @@ def save_settings(form):
             errors.append(f'{key.replace("crn_", "").replace("_", " ")} must start with https://')
         values[key] = url
 
-    template = form.get('crn_sms_template') or ''
-    _body, template_ok = dispatch.render_sms(template, 'CRN-XXXX-XXXX', 'https://x/n/y')
-    if not template_ok:
-        errors.append('The SMS text may only use {ref} and {link}, and must contain {link}.')
-    values['crn_sms_template'] = template.strip()
+    template = (form.get('crn_sms_template') or '').strip()
+    problem = dispatch.template_problem(template, dispatch.sample_link(
+        dispatch.PUBLIC_BASE_URL_OVERRIDE or values.get('crn_public_base_url')))
+    if problem:
+        errors.append(problem)
+    values['crn_sms_template'] = template
 
     values['crn_hospital_name'] = (form.get('crn_hospital_name') or '').strip()[:120]
     values['crn_page_footer'] = (form.get('crn_page_footer') or '').strip()[:300]
@@ -181,8 +182,8 @@ def test_send(contact_code):
     if not ok:
         return False, f'The test page could not be placed: {error}', None
     link = f"{(cfg['crn_public_base_url'] or dispatch.PLACEHOLDER_BASE_URL).rstrip('/')}/n/{token}"
-    body, _ = dispatch.render_sms(cfg['crn_sms_template'], ref, link)
-    result = send_sms(cfg, contact['phone_e164'], 'TEST ' + body)
+    body, _ = dispatch.render_sms(cfg['crn_sms_template'], ref, link, 'TEST PATIENT')
+    result = send_sms(cfg, contact['phone_e164'], body)
     if not result['ok']:
         return False, f"The SMS could not be sent: {result['error']}", link
     note = ' (dry run: the SMS was recorded, not sent)' if result['dry_run'] else ''

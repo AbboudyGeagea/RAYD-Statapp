@@ -35,6 +35,7 @@ logger = logging.getLogger("CRN_ADMIN")
 crn_admin_bp = Blueprint('crn_admin', __name__, url_prefix='/admin/crn')
 
 MAX_UPLOAD_BYTES = 2 * 1024 * 1024
+SAMPLE_PATIENT = 'ROUAIDA FAYSAL KHALIL'   # settings preview only
 
 
 BOARD_ROLES = ('admin', 'viewer', 'viewer2')
@@ -83,7 +84,8 @@ def _notification_view(notification_id, test_sms=None):
         abort(404)
     cfg = ops.load_settings()
     if test_sms:
-        test_sms['body'], _ = ops.dispatch.render_sms(cfg['crn_sms_template'], n['ref_code'], test_sms['link'])
+        test_sms['body'], _ = ops.dispatch.render_sms(cfg['crn_sms_template'], n['ref_code'], test_sms['link'],
+                                                      ops.dispatch.patient_name(n['accession_number']))
     return render_template('crn_notification.html', n=n, recipients=recipients, events=events,
                            labels=ops.STATUS_LABELS, dry_run=cfg['crn_sms_provider'] == 'log', test_sms=test_sms)
 
@@ -190,11 +192,13 @@ def settings_page():
         SELECT doctor_code, full_name, phone_e164 FROM crn_contacts WHERE active ORDER BY doctor_code
     """)).mappings().fetchall()
     sample, _ = ops.dispatch.render_sms(cfg['crn_sms_template'], 'CRN-J2N8-L38G',
-                                        (cfg['crn_public_base_url'] or 'https://crn.hospital') + '/n/AbCdEfGhIjKlMnOpQrStUv')
+                                        (cfg['crn_public_base_url'] or 'https://crn.hospital') + '/n/AbCdEfGhIjKlMnOpQrStUv',
+                                        SAMPLE_PATIENT)
     return render_template('crn_settings.html', cfg=cfg, checks=ops.readiness(cfg), contacts=contacts,
                            sample=sample, api_key_set=bool(cfg['crn_gateway_api_key']),
                            sms_password_set=bool(cfg['crn_sms_password']), sms_providers=ops.SMS_PROVIDERS,
-                           link_fixed=bool(ops.dispatch.PUBLIC_BASE_URL_OVERRIDE))
+                           link_fixed=bool(ops.dispatch.PUBLIC_BASE_URL_OVERRIDE), sample_patient=SAMPLE_PATIENT,
+                           max_sms=ops.dispatch.MAX_SMS_CHARS)
 
 
 @crn_admin_bp.route('/settings/live', methods=['POST'])

@@ -98,7 +98,7 @@
                                 <input name="crn_gateway_url" value="{{ cfg.crn_gateway_url }}" placeholder="https://crn.hospital-domain" class="input-field"></div>
                             <div><label class="label">Link address (in the SMS)</label>
                                 <input name="crn_public_base_url" value="{{ cfg.crn_public_base_url }}" placeholder="https://crn.hospital-domain" class="input-field"{% if link_fixed %} readonly{% endif %}>
-                                {% if link_fixed %}<p class="text-amber-300 text-xs mt-1">Fixed in code (utils/crn_dispatch.py) for the public test.</p>{% endif %}</div>
+                                {% if link_fixed %}<p class="text-amber-300 text-xs mt-1">Fixed in code (utils/crn_dispatch.py).</p>{% endif %}</div>
                             <div><label class="label">API key</label>
                                 <input name="crn_gateway_api_key" type="password" autocomplete="new-password"
                                        placeholder="{{ '•••••••• saved (leave empty to keep)' if api_key_set else 'not set' }}" class="input-field">
@@ -135,7 +135,8 @@
                         <h3>SMS and notification page</h3>
                         <label class="label">SMS text</label>
                         <textarea id="tpl" name="crn_sms_template" rows="2" class="input-field font-mono">{{ cfg.crn_sms_template }}</textarea>
-                        <p class="muted text-xs mt-1">Only <code>{ref}</code> and <code>{link}</code> can be used, and <code>{link}</code> is required. No patient details go by SMS.</p>
+                        <p class="muted text-xs mt-1"><code>{patient}</code> is the patient's name as received in the order, <code>{link}</code> is required, <code>{ref}</code> is the CRN reference.
+                            Every SMS fits in one message ({{ max_sms }} characters): a long name is shortened, never the link.</p>
                         <p class="label mt-4">Preview <span id="cnt" class="muted"></span></p>
                         <div id="preview" class="sms">{{ sample }}</div>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
@@ -153,12 +154,17 @@
         (function () {
             const tpl = document.getElementById('tpl'), out = document.getElementById('preview'), cnt = document.getElementById('cnt');
             const base = {{ ((cfg.crn_public_base_url or 'https://crn.hospital') ~ '/n/AbCdEfGhIjKlMnOpQrStUv')|tojson }};
+            const patient = {{ sample_patient|tojson }}, max = {{ max_sms }};
             function render() {
-                const text = tpl.value.replaceAll('{ref}', 'CRN-J2N8-L38G').replaceAll('{link}', base);
-                const bad = /\{(?!ref\}|link\})[^}]*\}/.test(tpl.value) || !tpl.value.includes('{link}');
-                out.textContent = bad ? 'Not allowed: use only {ref} and {link}, and keep {link}.' : text;
-                out.style.color = bad ? '#f87171' : '';
-                cnt.textContent = bad ? '' : `· ${text.length} characters${text.length > 160 ? ' (more than one SMS)' : ''}`;
+                const text = tpl.value.trim().replaceAll('{ref}', 'CRN-J2N8-L38G').replaceAll('{link}', base);
+                const fixed = text.replaceAll('{patient}', '').length;
+                const bad = /\{(?!ref\}|link\}|patient\})[^}]*\}/.test(tpl.value) || !tpl.value.includes('{link}');
+                const tooLong = fixed + (tpl.value.includes('{patient}') ? 20 : 0) > max;
+                const shown = text.replaceAll('{patient}', patient);
+                out.textContent = bad ? 'Not allowed: use only {patient}, {ref} and {link}, and keep {link}.'
+                    : tooLong ? `Too long: ${fixed} characters with the link, one SMS is ${max} with at least 20 left for the name.` : shown;
+                out.style.color = bad || tooLong ? '#f87171' : '';
+                cnt.textContent = bad || tooLong ? '' : `· ${shown.length} of ${max} characters with this name`;
             }
             tpl.addEventListener('input', render); render();
         })();
