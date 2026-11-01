@@ -220,6 +220,34 @@ def test_without_a_named_patient_record_the_his_order_names_the_patient(app, dev
     assert (w['accession'], w['patient']) == ('A7', 'JANE M DOE')
 
 
+def test_floor_plan_positions_and_the_site_filter(app, devices):
+    """Each device carries its place on the plan; a site keeps its own devices and the
+    ones with no site; every site's plan image is listed."""
+    sites = {r['code']: r['id'] for r in devices.q("SELECT id, code FROM sites")}
+    if len(sites) < 2:
+        devices.exec("INSERT INTO sites (code, name) VALUES ('TS1', 'Test site 1'), ('TS2', 'Test site 2')")
+        sites = {r['code']: r['id'] for r in devices.q("SELECT id, code FROM sites")}
+    one, two = sorted(sites)[:2]
+    devices.exec("""UPDATE aetitle_modality_map SET site_id = :s, floor_x = 25, floor_y = 40
+                     WHERE aetitle = 'CT64_RH'""", s=sites[one])
+    devices.exec("UPDATE aetitle_modality_map SET site_id = :s WHERE aetitle = 'CT2_RH'", s=sites[two])
+    devices.exec("UPDATE aetitle_modality_map SET site_id = NULL WHERE aetitle = 'DR_RH'")
+    devices.exec("""INSERT INTO floor_plans (site_id, image_path, image_width, image_height)
+                    VALUES (:s, 'floor_plans/plan.png', 1600, 900)""", s=sites[one])
+    try:
+        b = get_board(app, site=one)
+        aes = {d['aetitle'] for lane in b['lanes'] for d in lane['devices']}
+        assert 'CT64_RH' in aes and 'DR_RH' in aes and 'CT2_RH' not in aes
+        assert (device(b, 'CT64_RH')['x'], device(b, 'CT64_RH')['y']) == (25.0, 40.0)
+        assert device(b, 'DR_RH')['x'] is None
+        assert [(p['site_code'], p['image_path'], p['width']) for p in b['plans']] == \
+               [(one, 'floor_plans/plan.png', 1600)]
+        assert 'CT2_RH' in {d['aetitle'] for lane in get_board(app)['lanes'] for d in lane['devices']}
+    finally:
+        devices.exec("DELETE FROM floor_plans")
+        devices.exec("DELETE FROM sites WHERE code IN ('TS1', 'TS2')")
+
+
 # ── page and API ──────────────────────────────────────────────────────────────
 
 def h(client, url, role='su', uid=SU):
@@ -248,7 +276,7 @@ def test_anonymous_is_refused(client):
 def test_page_renders_and_its_script_is_valid(client):
     r = h(client, '/viewer/department')
     html = r.get_data(as_text=True)
-    assert r.status_code == 200 and 'id="board"' in html and 'Live Department' in html
+    assert r.status_code == 200 and 'id="plan-box"' in html and 'Live Department' in html
     if not shutil.which('node'):
         pytest.skip('node not installed')
     script = re.search(r'<script>\n(.*?)</script>', html, re.S).group(1)

@@ -12,6 +12,11 @@ projector's study ladder (brayn_study_state), so it moves with the RIS messages.
     incoming      ordered or scheduled in the last 24 h, not arrived
     done today    completed (else images in PACS) since midnight
 
+Each device carries its floor-plan position (aetitle_modality_map.floor_x / floor_y,
+percent of the plan, set in Admin > Floor plan), and the board lists every site's
+plan image (floor_plans). A site filter keeps that site's devices and the ones with
+no site, which belong to no plan.
+
 A study with no device yet (an order the RIS has not assigned) sits in its
 modality's "Unassigned" card. A device that sends messages but is not in the AE
 map gets a card of its own, flagged, so nothing it does is hidden. A device with no
@@ -142,6 +147,7 @@ _DEVICES_SQL = """
 SELECT m.aetitle, upper(btrim(m.aetitle)) AS ae_key, m.modality,
        NULLIF(btrim(m.display_aetitle), '') AS display_name,
        NULLIF(btrim(m.room_name), '') AS room, si.code AS site_code, si.name AS site_name,
+       m.floor_x, m.floor_y,
        COALESCE(ex.actual_opening_minutes, dwa.available_minutes, m.daily_capacity_minutes,
                 ws.std_opening_minutes) AS opening_minutes,
        (ex.actual_opening_minutes IS NOT NULL) AS has_exception, ex.reason AS exception_reason
@@ -213,12 +219,15 @@ def build_board(site=None, now=None):
 
     devices = {}
     for d in db.session.execute(text(_DEVICES_SQL), {'day0': day0, 'dow': now.weekday()}).mappings():
-        if site and d['site_code'] != site:
-            continue
+        if site and d['site_code'] and d['site_code'] != site:
+            continue                       # another site's device; one with no site shows everywhere
+        placed = d['floor_x'] is not None and d['floor_y'] is not None
         devices[d['ae_key']] = {
             'aetitle': d['aetitle'], 'name': d['display_name'] or d['aetitle'],
             'room': d['room'], 'modality': (d['modality'] or 'OT').upper(),
             'site': d['site_name'], 'site_code': d['site_code'], 'mapped': True,
+            'x': float(d['floor_x']) if placed else None,
+            'y': float(d['floor_y']) if placed else None,
             'opening_minutes': d['opening_minutes'] or 0,
             'exception': d['exception_reason'] if d['has_exception'] else None,
             'in_progress': [], 'waiting': [], 'incoming': [], 'intervals': [],
@@ -243,12 +252,12 @@ def build_board(site=None, now=None):
         dev = devices.get(ae_key) if ae_key else None
         if ae_key and dev is None:
             mod = (r['modality'] or 'OT').upper()
-            if mod in _NOT_LANES or (site is not None):
-                continue                       # an unmapped device has no site to filter on
+            if mod in _NOT_LANES:
+                continue
             dev = devices[ae_key] = {
                 'aetitle': r['aetitle'].strip(), 'name': r['aetitle'].strip(),
                 'room': r['room_name'], 'modality': mod, 'site': None, 'site_code': None,
-                'mapped': False, 'opening_minutes': 0, 'exception': None,
+                'mapped': False, 'x': None, 'y': None, 'opening_minutes': 0, 'exception': None,
                 'in_progress': [], 'waiting': [], 'incoming': [], 'intervals': [],
                 'done_today': 0, 'last_done_at': None,
             }
@@ -334,7 +343,16 @@ def build_board(site=None, now=None):
                [w for lane in out if lane['unassigned'] for w in lane['unassigned']['waiting']]
     busy = sum(d['busy_min'] for d in all_dev)
     opened = sum(d['open_min'] for d in all_dev)
-    sites = db.session.execute(text("SELECT code, name FROM sites ORDER BY name")).mappings().all()
+    sites = db.session.execute(text(
+        "SELECT code, name FROM sites WHERE active IS NOT FALSE ORDER BY name")).mappings().all()
+    # The floor plan of each site (Admin > Floor plan): the image, under static/.
+    plans = db.session.execute(text("""
+        SELECT si.code AS site_code, si.name AS site_name, fp.image_path,
+               fp.image_width AS width, fp.image_height AS height
+          FROM floor_plans fp JOIN sites si ON si.id = fp.site_id
+         WHERE fp.image_path IS NOT NULL AND si.active IS NOT FALSE
+         ORDER BY si.name
+    """)).mappings().all()
     return {
         'now': _iso(now), 'day_start': _iso(day0 + timedelta(hours=day_start_hour)),
         'lanes': out,
@@ -350,6 +368,8 @@ def build_board(site=None, now=None):
             'utilization_pct': round(100 * busy / opened) if opened else None,
         },
         'sites': [dict(s) for s in sites],
+        'plans': [dict(p) for p in plans],
+        'site': site,
         'thresholds': {'wait_warn_min': WAIT_WARN_MIN, 'wait_alert_min': WAIT_ALERT_MIN},
     }
 
@@ -382,6 +402,7 @@ def _finish_device(dev, now, day0, day_start_hour):
     return {
         'aetitle': dev['aetitle'], 'name': dev['name'], 'room': dev['room'],
         'modality': dev['modality'], 'site': dev['site'], 'site_code': dev['site_code'],
+        'x': dev['x'], 'y': dev['y'],
         'mapped': dev['mapped'], 'status': status, 'exception': dev['exception'],
         'current': current, 'also_in_progress': also,
         'waiting': dev['waiting'], 'incoming': dev['incoming'],
