@@ -405,6 +405,8 @@ function renderDrawer() {
       </div>`;
   }
   $('drawer').innerHTML = html;
+  // Below the top bar, so the clock, filters and the initials toggle stay usable.
+  $('drawer').style.top = document.querySelector('.top').offsetHeight + 'px';
   $('drawer').hidden = false;
 }
 function closeDrawer() { open = null; $('drawer').hidden = true; $('drawer').innerHTML = ''; }
