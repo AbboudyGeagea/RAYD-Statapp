@@ -409,12 +409,25 @@ def sc_load(studies=100):
 
 # ── a department's day, for the Live Department board ─────────────────────────
 #
-# Fake but plausible: every device works from the day start to now, the latest study
-# is in progress (some past their expected end), patients wait at the desk, orders
-# keep coming, and a few HIS orders have no device yet. Patient IDs, accessions and
-# procedure codes all start with DEMO, so the fake data is never mistaken for real.
-# The board's expected finish reads procedure_duration_map: add the DEMO codes there
-# (Modality / Procedures) to see per-procedure durations, else it assumes a default.
+# Fake but plausible: every device works from the day start to now, then is in one of
+# the SITUATIONS below, in turn, so a run over six devices or more shows every state
+# the board has: busy, overrun, nearly done, just started, free with a queue, idle;
+# waits under 30 min, past 30 and past 60. Orders keep coming, and a few HIS orders
+# have no device yet. --closed names devices to leave without any activity (give
+# them a device exception for today to see them "Closed").
+# Patient IDs, accessions and procedure codes all start with DEMO, so the fake data is
+# never mistaken for real. The board's expected finish reads procedure_duration_map:
+# add the DEMO codes there (Modality / Procedures) to see per-procedure durations,
+# else it assumes a default.
+
+SITUATIONS = [               # (what the device is doing now, minutes each patient has waited)
+    ('busy',         [9, 38]),
+    ('overrun',      [16, 47, 78]),
+    ('queue',        [4, 24, 66]),       # free between studies, patients waiting
+    ('nearly_done',  [33]),
+    ('idle',         []),                # free, nobody waiting, orders coming
+    ('just_started', [12]),
+]
 
 DEMO_PROCEDURES = {
     'CT': [('DEMO-CTHEAD', 'CT HEAD WITHOUT CONTRAST', 15), ('DEMO-CTABD', 'CT ABDOMEN AND PELVIS', 25),
@@ -434,10 +447,11 @@ _DEMO_LAST = ['HADDAD', 'KHOURY', 'SAAB', 'NASSAR', 'AOUN', 'HAJJ', 'MANSOUR', '
 DEMO_DEVICES = 'CT=CT64_RH;MR=MR1;DX=DR_RH'
 
 
-def sc_department_day(devices=DEMO_DEVICES, seed=None):
-    """A department's day so far, for the Live Department board (--devices)."""
+def sc_department_day(devices=DEMO_DEVICES, seed=None, closed=()):
+    """A department's day so far, for the Live Department board (--devices, --closed)."""
     import random
     rnd = random.Random(seed)
+    closed, used = set(closed), []
     now = datetime.now().replace(second=0, microsecond=0)
     # Work from 07:00, at most the last 7 hours: a device's opening is usually 8 hours,
     # and a day simulated to 23:00 would read as 200 % used. Before 09:00, the last 3 hours.
@@ -482,35 +496,56 @@ def sc_department_day(devices=DEMO_DEVICES, seed=None):
             seg('OBR', {3: f'{acc}^HIS', 4: f'{proc[0]}^{proc[1]}', 21: ae, 24: mod}),
         ]))
 
+    def study(proc, start, end, ae, mod, room):
+        """One study's RIS events: scheduled, arrived, started, and completed if `end`."""
+        pat, name, acc = patient()
+        arrived = start - timedelta(minutes=rnd.randint(3, 25))
+        status(arrived - timedelta(minutes=rnd.randint(20, 120)), 'SC', acc, pat, name, proc, ae, mod, room)
+        status(arrived, 'AR', acc, pat, name, proc, ae, mod, room)
+        status(start, 'IP', acc, pat, name, proc, ae, mod, room)
+        if end:
+            status(end, 'CM', acc, pat, name, proc, ae, mod, room)
+
+    k = 0
     for mod, aes in lanes.items():
         procs = DEMO_PROCEDURES.get(mod, [('DEMO-EXAM', f'{mod} EXAM', 20)])
         for i, ae in enumerate(aes):
             room = f'{mod} ROOM {i + 1}'
-            load = rnd.uniform(0.45, 0.95)              # how busy this device has been
+            if ae in closed:                              # no work today: closed on the board
+                used.append((ae, 'closed (no activity sent)'))
+                continue
+            situation, waits = SITUATIONS[k % len(SITUATIONS)]
+            k += 1
+            used.append((ae, situation))
+            current = rnd.choice(procs)
+            planned = current[2]
+            # When the device's history stops: the start of the study in the room now, or
+            # the end of its last study when it is free.
+            cur_start = {'busy': now - timedelta(minutes=round(planned * 0.4)),
+                         'overrun': now - timedelta(minutes=round(planned * 1.45) + 4),
+                         'nearly_done': now - timedelta(minutes=max(1, planned - 2)),
+                         'just_started': now - timedelta(minutes=2)}.get(situation)
+            free_since = now - timedelta(minutes=6 if situation == 'queue' else rnd.randint(18, 40))
+            limit = cur_start or free_since
+            load = rnd.uniform(0.5, 0.92)                # how busy this device has been
             t = day_start + timedelta(minutes=rnd.randint(0, 15))
-            while True:
+            while True:                                   # the day so far
                 proc = rnd.choice(procs)
-                planned = proc[2]
-                gap = max(0, int(planned * (1 - load) / load * rnd.uniform(0.4, 1.6)))
+                gap = max(0, int(proc[2] * (1 - load) / load * rnd.uniform(0.4, 1.6)))
                 start = t + timedelta(minutes=gap)
-                actual = max(3, round(planned * rnd.uniform(0.8, 1.35)))
-                pat, name, acc = patient()
-                arrived = start - timedelta(minutes=rnd.randint(3, 25))
-                scheduled = arrived - timedelta(minutes=rnd.randint(20, 120))
-                if start >= now:
+                end = start + timedelta(minutes=max(3, round(proc[2] * rnd.uniform(0.8, 1.3))))
+                if end > limit - timedelta(minutes=2):
                     break
-                status(scheduled, 'SC', acc, pat, name, proc, ae, mod, room)
-                status(arrived, 'AR', acc, pat, name, proc, ae, mod, room)
-                status(start, 'IP', acc, pat, name, proc, ae, mod, room)
-                end = start + timedelta(minutes=actual)
-                if end >= now:                           # the study in progress now
-                    break
-                status(end, 'CM', acc, pat, name, proc, ae, mod, room)
+                study(proc, start, end, ae, mod, room)
                 t = end
-            for _ in range(rnd.randint(0, 4)):            # at the desk, not started
+            if cur_start:                                 # in the room now, not completed
+                study(current, cur_start, None, ae, mod, room)
+            elif free_since - timedelta(minutes=planned) > t:
+                study(current, free_since - timedelta(minutes=planned), free_since, ae, mod, room)
+            for w in waits:                               # at the desk, not started
                 pat, name, acc = patient()
                 proc = rnd.choice(procs)
-                arrived = now - timedelta(minutes=rnd.randint(2, 85))
+                arrived = now - timedelta(minutes=w)
                 status(arrived - timedelta(minutes=rnd.randint(20, 90)), 'SC', acc, pat, name,
                        proc, ae, mod, room)
                 status(arrived, 'AR', acc, pat, name, proc, ae, mod, room)
@@ -535,6 +570,8 @@ def sc_department_day(devices=DEMO_DEVICES, seed=None):
     events.sort(key=lambda e: e[0])
     print(f"  {len(events)} messages for {sum(len(a) for a in lanes.values())} devices, "
           f"{counter[0]} patients, from {day_start:%H:%M} to {now:%H:%M} (run {run})")
+    for ae, situation in used:
+        print(f"    {ae:16} {situation}")
     for _at, label, segments in events:
         send(label, segments, quiet=True)
 
@@ -631,6 +668,8 @@ def main():
     ap.add_argument('--devices', default=DEMO_DEVICES,
                     help='for department_day: "CT=AE1,AE2;MR=AE3" (default %(default)s)')
     ap.add_argument('--seed', type=int, default=None, help='for department_day: repeatable')
+    ap.add_argument('--closed', default='',
+                    help='for department_day: AE titles to leave without activity, comma-separated')
     args = ap.parse_args()
 
     if args.list:
@@ -653,7 +692,8 @@ def main():
     elif args.scenario == 'load':
         sc_load(args.studies)
     elif args.scenario == 'department_day':
-        sc_department_day(args.devices, args.seed)
+        sc_department_day(args.devices, args.seed,
+                          [a.strip() for a in args.closed.split(',') if a.strip()])
     elif args.scenario in SCENARIOS:
         SCENARIOS[args.scenario]()
     else:
