@@ -322,7 +322,7 @@ _TYPE_WORDS = {'timestamp without time zone': 'date & time', 'date': 'date',
 @login_required
 def api_sql_reference():
     """
-    Everything a worklist written in SQL may use: the three views with every
+    Everything a worklist written in SQL may use: the rpt views with every
     column's type (read from the database itself) and meaning (the catalog), the
     rules of the sandbox, and worked examples.
 
@@ -352,10 +352,12 @@ def api_sql_reference():
                          'about': docs.get(r['column_name'], '')}
                         for r in rows if r['table_name'] == name],
         })
+    names = [ds['view'] for ds in cat.DATASETS.values()]
     rules = [
         ('What you can read',
-         'Only the three views below: rpt.exams, rpt.orders and rpt.reports (or just exams, '
-         'orders, reports). Any other table, view or schema is refused with "permission denied".'),
+         f'Only the views below: {", ".join(names)} (or just '
+         f'{", ".join(n.split(".", 1)[1] for n in names)}). Any other table, view or schema is '
+         'refused with "permission denied".'),
         ('One query',
          'A single SELECT; WITH ... SELECT is fine, a trailing semicolon too. Nothing that '
          'changes data (INSERT, UPDATE, DELETE, CREATE, SET): the account the SQL runs as is '
@@ -367,7 +369,7 @@ def api_sql_reference():
          f'Every time is hospital time ({tz}) without a time zone. CURRENT_DATE and '
          'LOCALTIMESTAMP run on the same clock. A month: exam_at >= DATE \'2026-10-01\' '
          'AND exam_at < DATE \'2026-11-01\'.'),
-        ('Already excluded', 'SR (structured report) studies are left out of all three views.'),
+        ('Already excluded', 'SR (structured report) studies are left out of every view.'),
         ('Limits',
          f'Run shows the first {engine.ROW_CAP:,} rows; CSV takes up to {engine.CSV_CAP:,}. '
          f'A query running longer than {engine.STATEMENT_TIMEOUT_MS // 1000} seconds is '

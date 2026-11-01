@@ -59,9 +59,19 @@ DATASETS = {
         'list_default': ['report_at', 'accession', 'radiologist', 'modality', 'procedure',
                          'signature', 'report_tat_hours'],
     },
+    'findings': {
+        'label': 'NLP findings',
+        'view': 'rpt.findings',
+        'hint': 'One row per finding the NLP affirmed in a report (negations and history '
+                'removed, benign findings left out).',
+        'count_label': 'Findings',
+        'default_date': 'report_at',
+        'list_default': ['report_at', 'accession', 'finding', 'modality', 'procedure',
+                         'radiologist'],
+    },
 }
 
-E, O, R = 'exams', 'orders', 'reports'
+E, O, R, F = 'exams', 'orders', 'reports', 'findings'
 
 WEEKDAYS = [(1, 'Mon'), (2, 'Tue'), (3, 'Wed'), (4, 'Thu'), (5, 'Fri'), (6, 'Sat'), (7, 'Sun')]
 
@@ -72,15 +82,15 @@ FIELDS = [
     {'id': 'status', 'label': 'Status', 'tab': 'primary', 'type': 'multi', 'col': 'status',
      'datasets': {E, O}, 'options': 'distinct', 'group': True},
     {'id': 'modality', 'label': 'Modality', 'tab': 'primary', 'type': 'multi', 'col': 'modality',
-     'datasets': {E, O, R}, 'options': 'distinct', 'group': True,
+     'datasets': {E, O, R, F}, 'options': 'distinct', 'group': True,
      'hint': 'From the device map where the device is known, else the message.'},
     {'id': 'site', 'label': 'Site', 'tab': 'primary', 'type': 'multi', 'col': 'site',
-     'datasets': {E, O, R}, 'options': 'distinct', 'group': True,
+     'datasets': {E, O, R, F}, 'options': 'distinct', 'group': True,
      'hint': 'From the device the exam ran on (Modality / Procedures → device map).'},
 
     # ── Patient ──
     {'id': 'patient_id', 'label': 'Patient ID', 'tab': 'patient', 'type': 'text',
-     'col': 'patient_id', 'datasets': {E, O, R}},
+     'col': 'patient_id', 'datasets': {E, O, R, F}},
     {'id': 'sex', 'label': 'Sex', 'tab': 'patient', 'type': 'multi', 'col': 'sex',
      'datasets': {E}, 'options': 'distinct', 'group': True},
     {'id': 'age', 'label': 'Age at exam', 'tab': 'patient', 'type': 'range', 'col': 'age',
@@ -89,7 +99,7 @@ FIELDS = [
      'datasets': {E}, 'options': [('0-17', '0-17'), ('18-39', '18-39'), ('40-64', '40-64'),
                                   ('65+', '65+')], 'group': True},
     {'id': 'patient_type', 'label': 'Patient type', 'tab': 'patient', 'type': 'multi',
-     'col': 'patient_type', 'datasets': {E, O, R}, 'options': 'distinct', 'group': True,
+     'col': 'patient_type', 'datasets': {E, O, R, F}, 'options': 'distinct', 'group': True,
      'hint': 'PV1-2: Inpatient, Outpatient, Emergency (other codes as sent).'},
     {'id': 'patient_location', 'label': 'Patient location', 'tab': 'patient', 'type': 'multi',
      'col': 'patient_location', 'datasets': {E, O}, 'options': 'distinct', 'group': True},
@@ -120,11 +130,11 @@ FIELDS = [
     {'id': 'performed_at', 'label': 'Performed date', 'tab': 'exam', 'type': 'date',
      'col': 'performed_at', 'datasets': {E, O}},
     {'id': 'accession', 'label': 'Accession', 'tab': 'exam', 'type': 'text', 'col': 'accession',
-     'datasets': {E, O, R}},
+     'datasets': {E, O, R, F}},
     {'id': 'procedure', 'label': 'Procedure', 'tab': 'exam', 'type': 'multi', 'col': 'procedure',
-     'datasets': {E, O, R}, 'options': 'distinct', 'group': True},
+     'datasets': {E, O, R, F}, 'options': 'distinct', 'group': True},
     {'id': 'device', 'label': 'Device (AE title)', 'tab': 'exam', 'type': 'multi', 'col': 'device',
-     'datasets': {E, R}, 'options': 'distinct', 'group': True},
+     'datasets': {E, R, F}, 'options': 'distinct', 'group': True},
     {'id': 'room', 'label': 'Room', 'tab': 'exam', 'type': 'multi', 'col': 'room',
      'datasets': {E}, 'options': 'distinct', 'group': True},
     {'id': 'technician', 'label': 'Technician', 'tab': 'exam', 'type': 'multi',
@@ -149,11 +159,11 @@ FIELDS = [
     {'id': 'has_report', 'label': 'Has a report', 'tab': 'report', 'type': 'yesno',
      'col': 'has_report', 'datasets': {E}},
     {'id': 'report_at', 'label': 'Report date', 'tab': 'report', 'type': 'date',
-     'col': 'report_at', 'datasets': {R}},
+     'col': 'report_at', 'datasets': {R, F}},
     {'id': 'final_signed_at', 'label': 'Final signature date', 'tab': 'report', 'type': 'date',
      'col': 'final_signed_at', 'datasets': {E, R}},
     {'id': 'radiologist', 'label': 'Radiologist', 'tab': 'report', 'type': 'multi',
-     'col': 'radiologist', 'datasets': {E, R}, 'options': 'distinct', 'group': True},
+     'col': 'radiologist', 'datasets': {E, R, F}, 'options': 'distinct', 'group': True},
     {'id': 'signature', 'label': 'Signature', 'tab': 'report', 'type': 'multi', 'col': 'signature',
      'datasets': {R}, 'options': [('Final', 'Final'), ('Preliminary', 'Preliminary'),
                                   ('Unspecified', 'Unspecified')], 'group': True},
@@ -163,6 +173,11 @@ FIELDS = [
              'is sent).'},
     {'id': 'critical', 'label': 'Critical finding (NLP)', 'tab': 'report', 'type': 'yesno',
      'col': 'critical', 'datasets': {E, R}},
+    {'id': 'findings', 'label': 'Findings (NLP)', 'tab': 'report', 'type': 'text',
+     'col': 'findings', 'datasets': {E, R},
+     'hint': 'The NLP findings of the report, comma-separated: use "contains", e.g. Pneumothorax.'},
+    {'id': 'finding', 'label': 'Finding (NLP)', 'tab': 'report', 'type': 'multi',
+     'col': 'finding', 'datasets': {F}, 'options': 'distinct', 'group': True},
 
     # ── Data quality (BRAYN) ──
     {'id': 'open_quality_notes', 'label': 'Open BRAYN quality notes', 'tab': 'quality',
@@ -189,9 +204,11 @@ QUICK_DATES = [
 # sql runs over the view aliased d. additive: may be summed into a Total.
 MEASURES = {
     'count':               {'label': None, 'sql': 'COUNT(*)', 'additive': True,
-                            'datasets': {E, O, R}},
+                            'datasets': {E, O, R, F}},
     'patients':            {'label': 'Patients', 'sql': 'COUNT(DISTINCT d.patient_id)',
-                            'additive': False, 'datasets': {E, O, R}},
+                            'additive': False, 'datasets': {E, O, R, F}},
+    'reports':             {'label': 'Reports', 'sql': 'COUNT(DISTINCT d.report_id)',
+                            'additive': False, 'datasets': {F}},
     'reported':            {'label': 'With a report',
                             'sql': 'COUNT(*) FILTER (WHERE d.has_report)', 'additive': True,
                             'datasets': {E}},
@@ -244,7 +261,8 @@ COLUMNS = {
         ('exam_minutes', 'Exam (min)'), ('report_tat_hours', 'Report TAT (h)'),
         ('has_report', 'Report'), ('critical', 'Critical'),
         ('open_quality_notes', 'BRAYN notes'), ('stalled', 'Stalled'),
-        ('placer_order_number', 'Order number'), ('visit_number', 'Visit')],
+        ('placer_order_number', 'Order number'), ('visit_number', 'Visit'),
+        ('findings', 'Findings (NLP)')],
     O: [('ordered_at', 'Ordered'), ('placer_order_number', 'Order number'),
         ('accession', 'Accession'), ('patient_id', 'Patient ID'),
         ('patient_type', 'Patient type'), ('patient_location', 'Location'),
@@ -260,7 +278,11 @@ COLUMNS = {
         ('signature', 'Signature'), ('prelim_signed_at', 'Prelim signed'),
         ('final_signed_at', 'Final signed'), ('completed_at', 'Exam completed'),
         ('report_tat_hours', 'Report TAT (h)'), ('critical', 'Critical'),
-        ('referring', 'Referring')],
+        ('referring', 'Referring'), ('findings', 'Findings (NLP)')],
+    F: [('report_at', 'Reported'), ('accession', 'Accession'), ('patient_id', 'Patient ID'),
+        ('finding', 'Finding'), ('radiologist', 'Radiologist'), ('modality', 'Modality'),
+        ('procedure', 'Procedure'), ('device', 'Device'), ('site', 'Site'),
+        ('patient_type', 'Patient type'), ('report_date', 'Report day'), ('report_id', 'Report ID')],
 }
 
 
@@ -339,6 +361,8 @@ COLUMN_DOCS = {
                              'report_final_at, in hours.',
         'placer_order_number': 'HIS order number (ORC-2).',
         'visit_number':      'Visit number (PV1-19).',
+        'findings':          'The NLP findings of the report, comma-separated (negations and '
+                             'history removed, benign findings left out).',
     },
     O: {
         'order_id':          'Row number of the order in RAYD. One row per HIS order received.',
@@ -393,6 +417,22 @@ COLUMN_DOCS = {
                              'report time when no signature level is sent), in hours.',
         'critical':          'true when the NLP found a critical finding in the report.',
         'referring':         'Referring physician named on the report.',
+        'findings':          'The NLP findings of the report, comma-separated.',
+    },
+    F: {
+        'report_id':         'Row number of the report the finding is in.',
+        'accession':         'Accession number of the report.',
+        'patient_id':        'Patient ID (MRN) of the report.',
+        'radiologist':       'ID of the radiologist who signed the report.',
+        'modality':          'Modality of the report (as rpt.reports).',
+        'procedure':         'Procedure of the report (as rpt.reports).',
+        'device':            'AE title of the study\'s device.',
+        'site':              'Site of the study\'s device.',
+        'patient_type':      'Inpatient, Outpatient, Emergency (other codes as sent).',
+        'report_at':         'Report time the sender put on the report (OBR-22, else OBR-7).',
+        'report_date':       'report_at as a date without time.',
+        'finding':           'One finding the NLP affirmed (a label of the diagnosis vocabulary). '
+                             'One row per finding per report.',
     },
 }
 
@@ -445,6 +485,13 @@ SQL_EXAMPLES = [
             "FROM rpt.exams\n"
             "WHERE open_quality_notes > 0 OR stalled\n"
             "ORDER BY exam_at DESC"},
+    {'title': 'Pneumothorax reports, last 90 days',
+     'what': 'One NLP finding, with the report it came from.',
+     'sql': "SELECT report_at, accession, modality, procedure, radiologist\n"
+            "FROM rpt.findings\n"
+            "WHERE finding = 'Pneumothorax'\n"
+            "  AND report_at >= CURRENT_DATE - 90\n"
+            "ORDER BY report_at DESC"},
 ]
 
 

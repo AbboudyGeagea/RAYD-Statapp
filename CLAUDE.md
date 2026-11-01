@@ -153,9 +153,10 @@ users                — role is su | implementation | administrator | user (mig
 analytics_snapshots  — daily briefing data
 ```
 
-### Dynamic Worklists (migration 0136)
+### Dynamic Worklists (migrations 0136, 0139)
 ```
 rpt.exams / rpt.orders / rpt.reports — flat datasets the worklist editor queries
+rpt.findings                         — one row per NLP finding (hl7_oru_analysis labels)
 worklists, worklist_versions        — saved definitions; every save is kept
 worklist_shifts                      — shift hours behind the "shift" field (seeded AM/PM/NIGHT)
 rpt_<database> login role            — SELECT on rpt.* only, read-only, 30 s timeout,

@@ -426,7 +426,8 @@ def run(compiled=None, hand_sql=None, cap=ROW_CAP):
         if 'statement timeout' in msg:
             msg = f'the query ran longer than {STATEMENT_TIMEOUT_MS // 1000} s and was stopped'
         elif 'permission denied' in msg:
-            msg += ' — worklists can read the rpt views only (rpt.exams, rpt.orders, rpt.reports)'
+            msg += (' — worklists can read the rpt views only ('
+                    + ', '.join(d['view'] for d in cat.DATASETS.values()) + ')')
         logger.info("worklist query refused or failed: %s", msg)
         raise WorklistError(msg)
     truncated = len(rows) > cap

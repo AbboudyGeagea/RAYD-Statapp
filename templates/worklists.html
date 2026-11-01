@@ -34,6 +34,9 @@
         }
         body.light main { background: #f0f4f8 !important; }
         .wl *, .wl *::before, .wl *::after { box-sizing: border-box; }
+        /* The rules below set display on .seg, .sql-edit ...; [hidden] must still hide them
+           (the SQL editor in generated mode, the SQL mode switch for users who cannot write SQL). */
+        .wl [hidden] { display: none !important; }
         .wl button, .wl input, .wl select, .wl textarea { font: inherit; color: inherit; }
         .wl :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
         .wl .layout { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
@@ -388,7 +391,7 @@ function renderHeader() {
     Object.entries(CAT.datasets).map(([k, d]) => `<option value="${k}"${k === D().dataset ? ' selected' : ''}>${esc(d.label)}</option>`).join('');
   $('f-ds').disabled = handMode();
   $('ds-hint').textContent = handMode() ? 'Not used: the SQL names its own views.'
-    : ds() ? ds().hint : 'What one row of the result is: an exam, a HIS order or a report.';
+    : ds() ? ds().hint : 'What one row of the result is: an exam, a HIS order, a report or an NLP finding.';
   [...$('f-vis').children].forEach(b => {
     b.setAttribute('aria-pressed', String(b.dataset.v === S.visibility));
     b.disabled = b.dataset.v === 'shared' && !CAT.me.can_edit_shared;
@@ -560,7 +563,7 @@ function renderSQL() {
   if (hand) {
     if (canSQL) { if (document.activeElement !== $('sql-edit')) $('sql-edit').value = D().sql; }
     else $('sql-view').innerHTML = highlight(D().sql);
-    $('params').innerHTML = '<div class="pv">Runs as the read-only worklist account: rpt.exams, rpt.orders and rpt.reports, nothing else. No parameters: write values in the SQL.</div>';
+    $('params').innerHTML = '<div class="pv">Runs as the read-only worklist account: the rpt views (' + esc(Object.keys(CAT.datasets).join(', ')) + '), nothing else. No parameters: write values in the SQL.</div>';
     $('sql-caption').textContent = canSQL ? 'Your SQL. The SQL reference lists every view, column and rule.' : 'Written in SQL by an IT user.';
     $('sql-note').innerHTML = canSQL ? '' : '<div class="note warn">Read-only: only su and implementation users can change this SQL.</div>';
     return;

@@ -113,7 +113,7 @@ def test_every_criterion_compiles_and_runs(app, pipe, dataset, fid):
 
 EXAMPLES = ['Exams per modality, by month', 'Technicians: AM shift, first week of the month',
             'Report turnaround by radiologist', 'Orders not performed', 'Emergency exams today',
-            'Exams with open data-quality notes']
+            'Exams with open data-quality notes', 'Most frequent findings by modality']
 
 
 @pytest.mark.parametrize('name', EXAMPLES)
@@ -246,6 +246,49 @@ def test_reports_dataset(one_study):
     assert (r['accession'], r['radiologist'], r['signature'], r['modality']) == \
            ('A1', 'rad@sjh.com', 'Final', 'CT')
     assert float(r['report_tat_hours']) == 1.0
+
+
+def _analyse(pipe, acc, labels, critical):
+    """What the NLP worker writes for the report of `acc` (it runs outside the tests)."""
+    pipe.exec("""INSERT INTO hl7_oru_analysis (report_id, affirmed_labels, is_critical, nlp_version)
+                 SELECT id, :l, :c, 'medspacy-v2' FROM hl7_oru_reports WHERE accession_number = :a""",
+              l=labels, c=critical, a=acc)
+
+
+def test_nlp_findings_on_exams_and_reports(one_study):
+    assert exam_row(one_study)['findings'] is None
+    _analyse(one_study, 'A1', ['Pneumothorax', 'Pleural Effusion'], True)
+    e = exam_row(one_study)
+    assert (e['findings'], e['critical']) == ('Pneumothorax, Pleural Effusion', True)
+    assert one_study.one("SELECT findings FROM rpt.reports")['findings'] == \
+           'Pneumothorax, Pleural Effusion'
+
+
+def test_findings_dataset_one_row_per_finding(app, one_study):
+    _analyse(one_study, 'A1', ['Pneumothorax', 'Pleural Effusion'], True)
+    rows = one_study.q("SELECT * FROM rpt.findings ORDER BY finding")
+    assert [(r['finding'], r['accession'], r['modality'], r['radiologist']) for r in rows] == \
+           [('Pleural Effusion', 'A1', 'CT', 'rad@sjh.com'), ('Pneumothorax', 'A1', 'CT', 'rad@sjh.com')]
+    got = run(app, {'dataset': 'findings', 'criteria': {'finding': {'values': ['Pneumothorax']}},
+                    'output': {'kind': 'table', 'rows': 'modality', 'measures': ['count', 'reports']}})
+    assert got == [{'row': 'CT', 'count': 1, 'reports': 1}]
+    exams = run(app, {'dataset': 'exams', 'criteria': {'findings': {'op': 'contains', 'value': 'pneumo'}},
+                      'output': {'kind': 'list', 'columns': ['accession']}})
+    assert exams == [{'accession': 'A1'}]
+
+
+def test_findings_view_is_readable_in_the_sandbox(app, one_study):
+    _analyse(one_study, 'A1', ['Pneumothorax'], True)
+    assert hand(app, 'SELECT finding FROM findings')['rows'] == [['Pneumothorax']]
+
+
+def test_hidden_editor_parts_stay_hidden():
+    """The editor's CSS gives .seg and .sql-edit a display; [hidden] must still win, or
+    the SQL editor shows in generated mode and non-SQL users see the SQL switch."""
+    import os
+    page = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                             'templates', 'worklists.html'), encoding='utf-8').read()
+    assert re.search(r'\.wl \[hidden\] \{ display: none !important; \}', page)
 
 
 # ── criteria do what they say ─────────────────────────────────────────────────
@@ -533,7 +576,7 @@ def test_user_granted_the_page_gets_in(pipe, client):
 
 def test_catalog(client):
     c = h(client, 'get', '/worklists/api/catalog').get_json()
-    assert set(c['datasets']) == {'exams', 'orders', 'reports'}
+    assert set(c['datasets']) == {'exams', 'orders', 'reports', 'findings'}
     assert c['me']['can_write_sql'] is True
     assert any(f['id'] == 'technician' for f in c['fields'])
 
@@ -747,7 +790,8 @@ def test_every_example_runs_in_the_sandbox(app, two, i):
 
 def test_sql_reference_endpoint(client):
     r = h(client, 'get', '/worklists/api/sql-reference').get_json()
-    assert [v['view'] for v in r['views']] == ['rpt.exams', 'rpt.orders', 'rpt.reports']
+    assert [v['view'] for v in r['views']] == ['rpt.exams', 'rpt.orders', 'rpt.reports',
+                                               'rpt.findings']
     for v in r['views']:
         assert v['columns'] and all(c['type'] and c['about'] for c in v['columns'])
     exams = {c['name']: c for c in r['views'][0]['columns']}
