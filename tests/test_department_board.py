@@ -212,6 +212,14 @@ def test_patient_name_comes_from_the_patient_record(app, devices):
     assert (w['patient'], w['patient_id']) == ('RIMA HADDAD', 'P0042')
 
 
+def test_without_a_named_patient_record_the_his_order_names_the_patient(app, devices):
+    devices.send(k.order('PL7', acc='A7', pat='P0077', when=k.ts(30)))
+    study(devices, 'A7', scheduled=20, arrived=10, pat='P0077')
+    devices.exec("UPDATE hl7_patients SET patient_name = NULL WHERE patient_id = 'P0077'")
+    w = device(get_board(app), 'CT64_RH')['waiting'][0]
+    assert (w['accession'], w['patient']) == ('A7', 'JANE M DOE')
+
+
 # ── page and API ──────────────────────────────────────────────────────────────
 
 def h(client, url, role='su', uid=SU):

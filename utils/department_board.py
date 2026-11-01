@@ -15,7 +15,8 @@ projector's study ladder (brayn_study_state), so it moves with the RIS messages.
 A study with no device yet (an order the RIS has not assigned) sits in its
 modality's "Unassigned" card. A device that sends messages but is not in the AE
 map gets a card of its own, flagged, so nothing it does is hidden. A device with no
-room in the AE map shows the room its messages carry (PV1-3.2).
+room in the AE map shows the room its messages carry (PV1-3.2). Patient names come
+from the patient record (ADT), else from the patient's latest HIS order.
 
 Expected finish = start + the procedure's duration (procedure_duration_map), else
 the median duration of the device's modality there, else DEFAULT_MINUTES. Past it,
@@ -116,7 +117,8 @@ WITH cand AS (
     UNION
     SELECT accession_number FROM brayn_study_state WHERE pacs_completed_at >= :day0
 )
-SELECT s.accession_number, s.placer_order_number, s.patient_id, p.patient_name,
+SELECT s.accession_number, s.placer_order_number, s.patient_id,
+       COALESCE(NULLIF(btrim(p.patient_name), ''), o.patient_name) AS patient_name,
        s.modality, s.aetitle, s.room_name, s.procedure_code, s.procedure_text,
        s.patient_class, s.patient_location, s.ordered_at, s.scheduled_at,
        s.arrived_at, s.started_at, COALESCE(s.completed_at, s.pacs_completed_at) AS done_at,
@@ -124,6 +126,15 @@ SELECT s.accession_number, s.placer_order_number, s.patient_id, p.patient_name,
   FROM cand
   JOIN brayn_study_state s USING (accession_number)
   LEFT JOIN hl7_patients p ON p.patient_id = s.patient_id
+  -- No name in the patient record (a site without ADT; RIS status messages leave it
+  -- alone): the name the HIS put on the patient's latest order.
+  LEFT JOIN LATERAL (
+      SELECT ho.patient_name FROM hl7_orders ho
+       WHERE NULLIF(btrim(p.patient_name), '') IS NULL
+         AND ho.patient_id = s.patient_id AND NULLIF(btrim(ho.patient_name), '') IS NOT NULL
+       ORDER BY ho.received_at DESC NULLS LAST
+       LIMIT 1
+  ) o ON TRUE
  WHERE s.cancelled_at IS NULL
 """
 

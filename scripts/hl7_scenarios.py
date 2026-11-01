@@ -445,7 +445,20 @@ def sc_department_day(devices=DEMO_DEVICES, seed=None):
     if day_start > now - timedelta(hours=2):
         day_start = now - timedelta(hours=3)
     run = f'{now:%H%M}{rnd.randint(0, 99):02d}'
-    events, counter = [], [0]
+    events, counter, registered = [], [0], set()
+
+    def adt(at, pat, name):
+        """The HIS registers each patient before the RIS sees them: the names the
+        board shows come from the patient record, which ADT fills."""
+        if pat in registered:
+            return
+        registered.add(pat)
+        when = (at - timedelta(minutes=1)).strftime('%Y%m%d%H%M%S')
+        events.append((at - timedelta(minutes=1), f'{pat} ADT', [
+            msh('SAP_HIS', f'DD-{pat}-ADT', 'ADT^A04', when),
+            seg('PID', {3: f'{pat}^^^HIS', 5: name, 7: '19800101', 8: 'F'}),
+            seg('PV1', {2: 'O', 3: 'RAD^WAITING^^RH'}),
+        ]))
 
     lanes = {}
     for part in devices.split(';'):
@@ -459,6 +472,7 @@ def sc_department_day(devices=DEMO_DEVICES, seed=None):
                 f'DEMO{run}{n:03d}')
 
     def status(at, code, acc, pat, name, proc, ae, mod, room):
+        adt(at, pat, name)
         events.append((at, f'{acc} {code}', [
             msh('RIS', f'DD-{acc}-{code}', 'ORM^O01', at.strftime('%Y%m%d%H%M%S')),
             seg('PID', {3: f'{pat}^^^HIS', 5: name, 7: '19800101', 8: rnd.choice('MF')}),
@@ -509,6 +523,7 @@ def sc_department_day(devices=DEMO_DEVICES, seed=None):
             proc = rnd.choice(procs)
             at = now - timedelta(minutes=rnd.randint(2, 40))
             placer = f'DEMO-PL{run}{counter[0]:03d}'
+            adt(at, pat, name)
             events.append((at, f'{placer} NW', [
                 msh('SAP_HIS', f'DD-{placer}', 'ORM^O01', at.strftime('%Y%m%d%H%M%S')),
                 seg('PID', {3: f'{pat}^^^HIS', 5: name, 7: '19800101', 8: 'F'}),
