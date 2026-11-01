@@ -73,6 +73,8 @@ CONFIG_TABLES = [
     'hl7_field_mappings', 'hl7_field_targets', 'settings', 'aetitle_modality_map',
     # worklists before worklist_versions: deleting a worklist cascades to its versions
     'worklists', 'worklist_versions', 'worklist_shifts',
+    # what the Department Live board reads for durations and opening minutes
+    'procedure_duration_map', 'device_weekly_schedule', 'device_exceptions',
 ]
 
 # The bootstrap app.py runs before migrations, reproduced here because it is inline
@@ -261,6 +263,8 @@ def app(database_url):
                 'demo_user': '', 'pending_approvals_count': 0, 'reset_requests_count': 0}
     from routes.worklists import worklists_bp
     flask_app.register_blueprint(worklists_bp)
+    from routes.department_board import department_board_bp
+    flask_app.register_blueprint(department_board_bp)
 
     from db import db
     from sqlalchemy import text

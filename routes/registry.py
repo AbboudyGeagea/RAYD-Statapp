@@ -327,6 +327,9 @@ def register_blueprints(app):
     # ── Live AE Feed (Enterprise — license + config flag) ────────
     if lic.get('live_feed', False) and app.config.get("LIVE_FEED_ENABLED", True):
         app.register_blueprint(live_feed_bp)
+        # The Live Department board on HL7 data, which /viewer/live now opens.
+        from routes.department_board import department_board_bp
+        app.register_blueprint(department_board_bp)
         logger.info("  live_feed: enabled")
     else:
         logger.info("  live_feed: not licensed — skipped")

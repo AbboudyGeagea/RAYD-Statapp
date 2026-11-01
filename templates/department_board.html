@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>RAYD | Live Department</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
+    <style>
+        :root {
+            --bg: #0a0f0d; --panel: #111714; --panel-2: #172019; --line: #223029;
+            --fg: #e6eee9; --muted: #8fa199; --faint: #5f7069;
+            --free: #34d399; --free-soft: rgba(52,211,153,.12);
+            --busy: #60a5fa; --busy-soft: rgba(96,165,250,.14);
+            --over: #f87171; --over-soft: rgba(248,113,113,.14);
+            --warn: #fbbf24; --warn-soft: rgba(251,191,36,.14);
+            --closed: #64748b;
+            --mono: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+        }
+        body.light {
+            --bg: #eef3f0; --panel: #ffffff; --panel-2: #f5f8f6; --line: #d6e0da;
+            --fg: #18221d; --muted: #586a62; --faint: #8a9a93;
+            --free: #047857; --free-soft: rgba(4,120,87,.10);
+            --busy: #1d4ed8; --busy-soft: rgba(29,78,216,.10);
+            --over: #b91c1c; --over-soft: rgba(185,28,28,.10);
+            --warn: #b45309; --warn-soft: rgba(180,83,9,.12);
+        }
+        * { box-sizing: border-box; }
+        [hidden] { display: none !important; }
+        body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.4 'Inter', system-ui, sans-serif; }
+        button, select { font: inherit; color: inherit; }
+        .top { position: sticky; top: 0; z-index: 10; display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center;
+               padding: 10px 18px; background: var(--panel); border-bottom: 1px solid var(--line); }
+        .top h1 { margin: 0; font-size: 18px; font-weight: 800; letter-spacing: -.01em; display: flex; gap: 8px; align-items: center; }
+        .live-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--free); box-shadow: 0 0 0 3px var(--free-soft); }
+        .live-dot.stale { background: var(--over); box-shadow: 0 0 0 3px var(--over-soft); }
+        .clock { font: 600 22px/1 var(--mono); }
+        .date { color: var(--muted); font-size: 12px; }
+        .kpis { display: flex; flex-wrap: wrap; gap: 8px; }
+        .kpi { background: var(--panel-2); border: 1px solid var(--line); border-radius: 9px; padding: 5px 10px; min-width: 88px; }
+        .kpi b { display: block; font-size: 18px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+        .kpi span { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+        .controls { margin-left: auto; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+        .chip { border: 1px solid var(--line); background: var(--panel-2); border-radius: 999px; padding: 4px 11px; cursor: pointer; font-size: 12px; }
+        .chip[aria-pressed="true"] { border-color: var(--busy); color: var(--busy); background: var(--busy-soft); font-weight: 700; }
+        select.chip { padding-right: 6px; }
+        .updated { color: var(--muted); font-size: 12px; min-width: 120px; text-align: right; }
+        .banner { margin: 10px 18px 0; padding: 8px 12px; border-radius: 8px; background: var(--over-soft); color: var(--over); font-size: 13px; }
+        main { padding: 12px 18px 24px; display: flex; flex-direction: column; gap: 12px; }
+        .lane { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 12px; background: var(--panel);
+                border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+        @media (max-width: 760px) { .lane { grid-template-columns: minmax(0, 1fr); } }
+        .lane-head .mod { font-size: 28px; font-weight: 900; letter-spacing: -.02em; }
+        .lane-head .stat { color: var(--muted); font-size: 12px; display: flex; justify-content: space-between; gap: 8px; }
+        .lane-head .stat b { color: var(--fg); font-variant-numeric: tabular-nums; }
+        .devices { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(275px, 1fr)); align-items: start; }
+        .card { background: var(--panel-2); border: 1px solid var(--line); border-left: 5px solid var(--closed); border-radius: 10px;
+                padding: 10px 11px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+        .card.free { border-left-color: var(--free); }
+        .card.busy { border-left-color: var(--busy); }
+        .card.overrun { border-left-color: var(--over); }
+        .card.closed { opacity: .62; }
+        .card.unassigned { border-left: 1px dashed var(--line); border-style: dashed; }
+        .c-head { display: flex; gap: 8px; align-items: flex-start; }
+        .c-name { font-weight: 800; font-size: 15px; overflow-wrap: anywhere; }
+        .c-sub { color: var(--muted); font-size: 12px; }
+        .pill { margin-left: auto; flex: none; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em;
+                border-radius: 999px; padding: 2px 9px; white-space: nowrap; }
+        .pill.free { color: var(--free); background: var(--free-soft); }
+        .pill.busy { color: var(--busy); background: var(--busy-soft); }
+        .pill.overrun { color: var(--over); background: var(--over-soft); }
+        .pill.closed { color: var(--closed); background: rgba(100,116,139,.15); }
+        .flag { font-size: 10px; color: var(--warn); border: 1px solid var(--warn); border-radius: 4px; padding: 0 4px; }
+        .now { border-radius: 8px; padding: 7px 9px; background: var(--busy-soft); }
+        .now.overrun { background: var(--over-soft); }
+        .now .who { font-weight: 700; }
+        .now .what { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .now .times { display: flex; justify-content: space-between; gap: 6px; font-size: 12px; margin-top: 4px; font-variant-numeric: tabular-nums; }
+        .now .left { font-weight: 800; }
+        .now.overrun .left { color: var(--over); }
+        .bar { height: 6px; border-radius: 99px; background: var(--line); overflow: hidden; margin-top: 5px; }
+        .bar > i { display: block; height: 100%; background: var(--busy); border-radius: 99px; }
+        .now.overrun .bar > i { background: var(--over); }
+        .idle { font-size: 12px; color: var(--muted); }
+        .sec-title { display: flex; justify-content: space-between; font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 700; }
+        .list { list-style: none; margin: 3px 0 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+        .list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; font-size: 12.5px; align-items: baseline; }
+        .list .p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .list .p small { color: var(--muted); }
+        .wait { font: 700 12px/1 var(--mono); padding: 2px 6px; border-radius: 6px; background: var(--free-soft); color: var(--free); }
+        .wait.warn { background: var(--warn-soft); color: var(--warn); }
+        .wait.alert { background: var(--over-soft); color: var(--over); }
+        .t { font: 12px/1 var(--mono); color: var(--muted); }
+        .more { font-size: 11.5px; color: var(--faint); }
+        .util { display: flex; flex-direction: column; gap: 3px; border-top: 1px solid var(--line); padding-top: 7px; }
+        .util .row { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); gap: 6px; }
+        .util .row b { color: var(--fg); font-variant-numeric: tabular-nums; }
+        .util .bar > i { background: var(--free); }
+        .util .bar.over > i { background: var(--warn); }
+        .empty { color: var(--muted); padding: 40px; text-align: center; }
+        .legend { display: flex; flex-wrap: wrap; gap: 14px; color: var(--muted); font-size: 12px; padding: 0 18px 18px; }
+        .legend i.sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+    </style>
+</head>
+<body class="{{ 'light' if ui_theme == 'light' }}">
+<header class="top">
+    <h1><span class="live-dot" id="dot" title="Live"></span> Live Department</h1>
+    <div><div class="clock" id="clock">--:--</div><div class="date" id="date"></div></div>
+    <div class="kpis" id="kpis"></div>
+    <div class="controls">
+        <div id="mod-chips" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+        <select class="chip" id="site" aria-label="Site" hidden></select>
+        <button class="chip" id="names" type="button" aria-pressed="false" title="Show patient names or initials only">
+            <i class="bi bi-eye-slash"></i> Initials</button>
+        <span class="updated" id="updated"></span>
+    </div>
+</header>
+<div class="banner" id="banner" hidden></div>
+<main id="board"><div class="empty">Loading the department…</div></main>
+<div class="legend">
+    <span><i class="sw" style="background:var(--free)"></i>Free</span>
+    <span><i class="sw" style="background:var(--busy)"></i>Busy (expected finish from the procedure duration)</span>
+    <span><i class="sw" style="background:var(--over)"></i>Overrun (past its expected finish)</span>
+    <span><i class="sw" style="background:var(--closed)"></i>Closed today</span>
+    <span id="legend-wait"></span>
+    <span>Utilization: busy time ÷ opening time so far today.</span>
+</div>
+
+<script>
+(function () {
+'use strict';
+const REFRESH = {{ refresh_seconds|int }} * 1000;
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('deptboard.' + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem('deptboard.' + k, JSON.stringify(v)); } catch (e) { /* private mode */ } },
+};
+let B = null, offset = 0, lastOk = null, mods = store.get('mods', []), initials = store.get('initials', false);
+let site = store.get('site', '');
+
+// Server time is the hospital clock; the browser's may differ. Every countdown runs on
+// server time = browser time + offset, measured at each fetch.
+const serverNow = () => new Date(Date.now() + offset);
+const parse = s => s ? new Date(s) : null;          // naive ISO = hospital local time
+const hm = d => d ? d.toTimeString().slice(0, 5) : '';
+const mins = (a, b) => (a - b) / 60000;
+function dur(m) {
+  m = Math.max(0, Math.round(m));
+  return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}`;
+}
+function who(it) {
+  const n = it.patient || '';
+  if (!initials) return n;
+  return n.split(/\s+/).filter(Boolean).map(w => w[0].toUpperCase() + '.').join(' ') || '—';
+}
+function waitLevel(m) {
+  const t = B.thresholds;
+  return m >= t.wait_alert_min ? 'alert' : m >= t.wait_warn_min ? 'warn' : '';
+}
+
+async function load() {
+  try {
+    const r = await fetch('/viewer/department/api/board' + (site ? '?site=' + encodeURIComponent(site) : ''),
+                          {headers: {'Accept': 'application/json'}});
+    if (r.status === 401 || r.redirected) { location.reload(); return; }
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'HTTP ' + r.status);
+    B = d; offset = parse(d.now) - Date.now(); lastOk = Date.now();
+    $('banner').hidden = true;
+    render();
+  } catch (e) {
+    $('banner').hidden = false;
+    $('banner').textContent = 'The board could not be refreshed (' + e.message + '). ' +
+      (lastOk ? 'Showing the data from ' + hm(new Date(lastOk + offset)) + '.' : '');
+  }
+}
+
+function render() {
+  if (!B) return;
+  const t = B.totals;
+  $('legend-wait').innerHTML = `<i class="sw" style="background:var(--warn)"></i>Waiting ≥ ${B.thresholds.wait_warn_min} min · <i class="sw" style="background:var(--over)"></i>≥ ${B.thresholds.wait_alert_min} min`;
+  $('kpis').innerHTML = [
+    [`${t.busy}/${t.devices}`, 'Busy devices'],
+    [t.overrun, 'Overrun'],
+    [t.waiting, 'Waiting'],
+    [t.longest_wait_since, 'Longest wait'],
+    [t.incoming, 'Coming'],
+    [t.done_today, 'Done today'],
+    [t.utilization_pct == null ? '—' : t.utilization_pct + '%', 'Utilization'],
+  ].map(([v, l]) => l === 'Longest wait'
+      ? `<div class="kpi"><b>${v ? `<span data-since="${esc(v)}">${dur(t.longest_wait_min)}</span>` : '—'}</b><span>${l}</span></div>`
+      : `<div class="kpi"><b>${esc(v)}</b><span>${esc(l)}</span></div>`).join('');
+
+  const all = B.lanes.map(l => l.modality);
+  mods = mods.filter(m => all.includes(m));
+  $('mod-chips').innerHTML = `<button class="chip" type="button" data-mod="" aria-pressed="${!mods.length}">All</button>` +
+    all.map(m => `<button class="chip" type="button" data-mod="${esc(m)}" aria-pressed="${mods.includes(m)}">${esc(m)}</button>`).join('');
+  if (B.sites.length > 1) {
+    $('site').hidden = false;
+    $('site').innerHTML = '<option value="">All sites</option>' + B.sites.map(s =>
+      `<option value="${esc(s.code)}"${s.code === site ? ' selected' : ''}>${esc(s.name)}</option>`).join('');
+  }
+  $('names').setAttribute('aria-pressed', String(initials));
+
+  const lanes = B.lanes.filter(l => !mods.length || mods.includes(l.modality));
+  $('board').innerHTML = lanes.length ? lanes.map(lane).join('') :
+    '<div class="empty">No devices to show. Devices come from Modality / Procedures (the AE map).</div>';
+  tick();
+}
+
+function lane(l) {
+  const s = l.summary;
+  const stat = (k, v) => `<div class="stat"><span>${k}</span><b>${v}</b></div>`;
+  return `<section class="lane" aria-label="${esc(l.modality)}">
+    <div class="lane-head">
+      <div class="mod">${esc(l.modality)}</div>
+      ${stat('Busy', `${s.busy}/${s.devices}`)}${stat('Waiting', s.waiting)}
+      ${stat('Longest wait', s.longest_wait_since == null ? '—' : `<span data-since="${esc(s.longest_wait_since)}">${dur(s.longest_wait_min)}</span>`)}
+      ${stat('Coming', s.incoming)}${stat('Done today', s.done_today)}
+      ${stat('Utilization', s.utilization_pct == null ? '—' : s.utilization_pct + '%')}
+    </div>
+    <div class="devices">${l.devices.map(device).join('')}${l.unassigned ? unassigned(l.unassigned) : ''}</div>
+  </section>`;
+}
+
+function waitingList(items, max) {
+  if (!items.length) return '';
+  const longest = items[0];
+  return `<div><div class="sec-title"><span>Waiting ${items.length}</span><span>longest <span data-since="${esc(longest.arrived_at)}" data-fmt="dur">${dur(longest.wait_min)}</span></span></div>
+    <ul class="list">${items.slice(0, max).map(w => `<li><span class="p">${esc(who(w))} <small>· ${esc(w.procedure)}</small></span>
+      <span class="wait" data-since="${esc(w.arrived_at)}" data-fmt="wait">${dur(w.wait_min)}</span></li>`).join('')}</ul>
+    ${items.length > max ? `<div class="more">+ ${items.length - max} more waiting</div>` : ''}</div>`;
+}
+
+function incomingList(items, max) {
+  if (!items.length) return '';
+  return `<div><div class="sec-title"><span>Coming ${items.length}</span><span>not arrived</span></div>
+    <ul class="list">${items.slice(0, max).map(o => `<li><span class="p">${esc(who(o))} <small>· ${esc(o.procedure)}</small></span>
+      <span class="t" title="${esc(o.state)}">${esc(o.state === 'Scheduled' ? 'sch ' : 'ord ')}${hm(parse(o.since))}</span></li>`).join('')}</ul>
+    ${items.length > max ? `<div class="more">+ ${items.length - max} more coming</div>` : ''}</div>`;
+}
+
+function device(d) {
+  const label = {free: 'Free', busy: 'Busy', overrun: 'Overrun', closed: 'Closed'}[d.status];
+  const sub = [d.aetitle !== d.name ? d.aetitle : '', d.room, d.site].filter(Boolean).join(' · ');
+  let now = '';
+  if (d.current) {
+    const c = d.current;
+    now = `<div class="now ${d.status}" data-start="${esc(c.started_at)}" data-end="${esc(c.expected_end)}">
+      <div class="who">${esc(who(c))}</div>
+      <div class="what" title="${esc(c.procedure)}">${esc(c.procedure)}</div>
+      <div class="bar"><i style="width:0%"></i></div>
+      <div class="times"><span>Started ${hm(parse(c.started_at))} · ends ~${hm(parse(c.expected_end))}</span><span class="left"></span></div>
+      ${c.expected_source === 'default' ? '<div class="more">No duration for this procedure: ' + c.expected_minutes + ' min assumed.</div>' : ''}
+      ${d.also_in_progress ? `<div class="more">${d.also_in_progress} older study still open (no completion received).</div>` : ''}
+    </div>`;
+  } else if (d.status === 'closed') {
+    now = `<div class="idle">Closed today${d.exception ? ' · ' + esc(d.exception) : ''}</div>`;
+  } else {
+    now = `<div class="idle">${d.last_done_at ? 'Free since ' + hm(parse(d.last_done_at)) : 'No study in progress'}</div>`;
+  }
+  const u = d.utilization_pct;
+  return `<article class="card ${d.status}">
+    <div class="c-head"><div><div class="c-name">${esc(d.name)} ${d.mapped ? '' : '<span class="flag" title="Sends messages but is not in the AE map">not mapped</span>'}</div>
+      <div class="c-sub">${esc(sub) || '&nbsp;'}</div></div><span class="pill ${d.status}">${label}</span></div>
+    ${now}
+    ${waitingList(d.waiting, 4)}
+    ${incomingList(d.incoming, 3)}
+    <div class="util">
+      <div class="row"><span>Utilization so far</span><b>${u == null ? '—' : u + '%'}</b></div>
+      <div class="bar${u > 100 ? ' over' : ''}"><i style="width:${Math.min(100, u || 0)}%"></i></div>
+      <div class="row"><span>${dur(d.busy_min)} busy of ${dur(d.open_min)} open</span><span>Done ${d.done_today}</span></div>
+      ${d.queue_clear_at ? `<div class="row"><span>Queue clears</span><b>~${hm(parse(d.queue_clear_at))}</b></div>` : ''}
+    </div>
+  </article>`;
+}
+
+function unassigned(u) {
+  const inprog = u.in_progress.length ? `<div class="more">${u.in_progress.length} in progress with no device in the messages.</div>` : '';
+  return `<article class="card unassigned">
+    <div class="c-head"><div><div class="c-name">Not yet on a device</div>
+      <div class="c-sub">Orders and arrivals the RIS has not tied to an AE title</div></div></div>
+    ${inprog}${waitingList(u.waiting, 4)}${incomingList(u.incoming, 6)}
+  </article>`;
+}
+
+// Every second: the clock, every wait, every countdown and progress bar.
+function tick() {
+  const n = serverNow();
+  $('clock').textContent = n.toTimeString().slice(0, 8);
+  $('date').textContent = n.toLocaleDateString(undefined, {weekday: 'long', day: 'numeric', month: 'long'});
+  document.querySelectorAll('[data-since]').forEach(el => {
+    const m = mins(n, parse(el.dataset.since));
+    el.textContent = dur(m);
+    if (el.dataset.fmt === 'wait') el.className = 'wait ' + waitLevel(m);
+  });
+  document.querySelectorAll('.now[data-start]').forEach(el => {
+    const s = parse(el.dataset.start), e = parse(el.dataset.end);
+    const left = mins(e, n), pct = Math.min(100, Math.max(0, 100 * mins(n, s) / Math.max(1, mins(e, s))));
+    el.querySelector('.bar > i').style.width = pct + '%';
+    el.querySelector('.left').textContent = left >= 0 ? dur(left) + ' left' : '+' + dur(-left) + ' over';
+    el.classList.toggle('overrun', left < 0);
+    const card = el.closest('.card'), pill = card.querySelector('.pill');
+    if (left < 0 && !card.classList.contains('overrun')) {
+      card.classList.replace('busy', 'overrun'); pill.className = 'pill overrun'; pill.textContent = 'Overrun';
+    }
+  });
+  const age = lastOk ? Math.round((Date.now() - lastOk) / 1000) : null;
+  $('updated').textContent = age == null ? '' : `Updated ${age < 5 ? 'just now' : age + ' s ago'}`;
+  $('dot').classList.toggle('stale', age == null || age > 3 * REFRESH / 1000);
+}
+
+$('mod-chips').addEventListener('click', e => {
+  const b = e.target.closest('[data-mod]'); if (!b) return;
+  const m = b.dataset.mod;
+  mods = !m ? [] : mods.includes(m) ? mods.filter(x => x !== m) : [...mods, m];
+  store.set('mods', mods); render();
+});
+$('site').addEventListener('change', e => { site = e.target.value; store.set('site', site); load(); });
+$('names').addEventListener('click', () => { initials = !initials; store.set('initials', initials); render(); });
+
+load();
+setInterval(load, REFRESH);
+setInterval(tick, 1000);
+})();
+</script>
+</body>
+</html>

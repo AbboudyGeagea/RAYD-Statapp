@@ -8,6 +8,7 @@ Drive named HL7 scenarios at the MLLP listener, and reset the test database.
     python scripts/hl7_scenarios.py happy_path
     python scripts/hl7_scenarios.py --all
     python scripts/hl7_scenarios.py load --studies 500
+    python scripts/hl7_scenarios.py department_day --devices "CT=CT64_RH;MR=MR1"
     python scripts/hl7_scenarios.py --reset --confirm
 
 WHY THIS EXISTS AS A COMMITTED SCRIPT RATHER THAN A SCRATCH FILE
@@ -406,6 +407,121 @@ def sc_load(studies=100):
           f"({studies * 4 / total:.1f}/s, {total / (studies * 4) * 1000:.0f}ms each)")
 
 
+# ── a department's day, for the Live Department board ─────────────────────────
+#
+# Fake but plausible: every device works from the day start to now, the latest study
+# is in progress (some past their expected end), patients wait at the desk, orders
+# keep coming, and a few HIS orders have no device yet. Patient IDs, accessions and
+# procedure codes all start with DEMO, so the fake data is never mistaken for real.
+# The board's expected finish reads procedure_duration_map: add the DEMO codes there
+# (Modality / Procedures) to see per-procedure durations, else it assumes a default.
+
+DEMO_PROCEDURES = {
+    'CT': [('DEMO-CTHEAD', 'CT HEAD WITHOUT CONTRAST', 15), ('DEMO-CTABD', 'CT ABDOMEN AND PELVIS', 25),
+           ('DEMO-CTCHEST', 'CT CHEST', 15), ('DEMO-CTA', 'CT ANGIOGRAPHY CHEST', 30)],
+    'MR': [('DEMO-MRBRAIN', 'MRI BRAIN', 35), ('DEMO-MRKNEE', 'MRI KNEE', 30),
+           ('DEMO-MRSPINE', 'MRI LUMBAR SPINE', 40)],
+    'US': [('DEMO-USABD', 'US ABDOMEN', 20), ('DEMO-USTHY', 'US THYROID', 15),
+           ('DEMO-USDOP', 'US DOPPLER LOWER LIMB', 30)],
+    'DX': [('DEMO-XRCHEST', 'XR CHEST PA', 5), ('DEMO-XRKNEE', 'XR KNEE 2 VIEWS', 8)],
+    'CR': [('DEMO-XRCHEST', 'XR CHEST PA', 5), ('DEMO-XRSPINE', 'XR LUMBAR SPINE', 10)],
+    'MG': [('DEMO-MGSCREEN', 'MAMMOGRAPHY SCREENING', 15), ('DEMO-MGTOMO', 'MAMMOGRAPHY TOMOSYNTHESIS', 20)],
+}
+_DEMO_FIRST = ['RIMA', 'KARIM', 'MAYA', 'ELIE', 'NOUR', 'SAMI', 'LINA', 'TAREK', 'HALA', 'JAD',
+               'RANA', 'FADI', 'MIRA', 'ZIAD', 'DANA', 'OMAR', 'YARA', 'NADIM', 'SARA', 'RAMI']
+_DEMO_LAST = ['HADDAD', 'KHOURY', 'SAAB', 'NASSAR', 'AOUN', 'HAJJ', 'MANSOUR', 'SALEH', 'FARES',
+              'ISSA', 'GEMAYEL', 'ZEIN', 'KARAM', 'RIZK', 'TANNOUS']
+DEMO_DEVICES = 'CT=CT64_RH;MR=MR1;DX=DR_RH'
+
+
+def sc_department_day(devices=DEMO_DEVICES, seed=None):
+    """A department's day so far, for the Live Department board (--devices)."""
+    import random
+    rnd = random.Random(seed)
+    now = datetime.now().replace(second=0, microsecond=0)
+    day_start = now.replace(hour=7, minute=0)
+    if day_start > now - timedelta(hours=2):
+        day_start = now - timedelta(hours=3)          # before 09:00: show the last 3 hours
+    run = f'{now:%H%M}{rnd.randint(0, 99):02d}'
+    events, counter = [], [0]
+
+    lanes = {}
+    for part in devices.split(';'):
+        mod, _, aes = part.partition('=')
+        lanes[mod.strip().upper()] = [a.strip() for a in aes.split(',') if a.strip()]
+
+    def patient():
+        counter[0] += 1
+        n = counter[0]
+        return (f'DEMO-{run}{n:03d}', f'{rnd.choice(_DEMO_LAST)}^{rnd.choice(_DEMO_FIRST)}',
+                f'DEMO{run}{n:03d}')
+
+    def status(at, code, acc, pat, name, proc, ae, mod, room):
+        events.append((at, f'{acc} {code}', [
+            msh('RIS', f'DD-{acc}-{code}', 'ORM^O01', at.strftime('%Y%m%d%H%M%S')),
+            seg('PID', {3: f'{pat}^^^HIS', 5: name, 7: '19800101', 8: rnd.choice('MF')}),
+            seg('PV1', {2: rnd.choice('OOOIE'), 3: f'RAD^{room}^^RH', 8: '20000191^WAKIM^GERARD'}),
+            seg('ORC', {1: 'SC', 3: f'{acc}^HIS', 5: code, 9: at.strftime('%Y%m%d%H%M%S'),
+                        19: 'TECH01^HADDAD^RIMA'}),
+            seg('OBR', {3: f'{acc}^HIS', 4: f'{proc[0]}^{proc[1]}', 21: ae, 24: mod}),
+        ]))
+
+    for mod, aes in lanes.items():
+        procs = DEMO_PROCEDURES.get(mod, [('DEMO-EXAM', f'{mod} EXAM', 20)])
+        for i, ae in enumerate(aes):
+            room = f'{mod} ROOM {i + 1}'
+            load = rnd.uniform(0.45, 0.95)              # how busy this device has been
+            t = day_start + timedelta(minutes=rnd.randint(0, 15))
+            while True:
+                proc = rnd.choice(procs)
+                planned = proc[2]
+                gap = max(0, int(planned * (1 - load) / load * rnd.uniform(0.4, 1.6)))
+                start = t + timedelta(minutes=gap)
+                actual = max(3, round(planned * rnd.uniform(0.8, 1.35)))
+                pat, name, acc = patient()
+                arrived = start - timedelta(minutes=rnd.randint(3, 25))
+                scheduled = arrived - timedelta(minutes=rnd.randint(20, 120))
+                if start >= now:
+                    break
+                status(scheduled, 'SC', acc, pat, name, proc, ae, mod, room)
+                status(arrived, 'AR', acc, pat, name, proc, ae, mod, room)
+                status(start, 'IP', acc, pat, name, proc, ae, mod, room)
+                end = start + timedelta(minutes=actual)
+                if end >= now:                           # the study in progress now
+                    break
+                status(end, 'CM', acc, pat, name, proc, ae, mod, room)
+                t = end
+            for _ in range(rnd.randint(0, 4)):            # at the desk, not started
+                pat, name, acc = patient()
+                proc = rnd.choice(procs)
+                arrived = now - timedelta(minutes=rnd.randint(2, 85))
+                status(arrived - timedelta(minutes=rnd.randint(20, 90)), 'SC', acc, pat, name,
+                       proc, ae, mod, room)
+                status(arrived, 'AR', acc, pat, name, proc, ae, mod, room)
+            for _ in range(rnd.randint(1, 3)):            # scheduled, not arrived yet
+                pat, name, acc = patient()
+                status(now - timedelta(minutes=rnd.randint(5, 150)), 'SC', acc, pat, name,
+                       rnd.choice(procs), ae, mod, room)
+        for _ in range(rnd.randint(1, 2)):                # HIS orders with no device yet
+            pat, name, _acc = patient()
+            proc = rnd.choice(procs)
+            at = now - timedelta(minutes=rnd.randint(2, 40))
+            placer = f'DEMO-PL{run}{counter[0]:03d}'
+            events.append((at, f'{placer} NW', [
+                msh('SAP_HIS', f'DD-{placer}', 'ORM^O01', at.strftime('%Y%m%d%H%M%S')),
+                seg('PID', {3: f'{pat}^^^HIS', 5: name, 7: '19800101', 8: 'F'}),
+                seg('PV1', {2: 'O', 3: 'RAD^WAITING^^RH', 8: '20000191^WAKIM^GERARD'}),
+                seg('ORC', {1: 'NW', 2: f'{placer}^HIS', 9: at.strftime('%Y%m%d%H%M%S')}),
+                seg('OBR', {2: f'{placer}^HIS', 4: f'{proc[0]}^{proc[1]}', 24: mod}),
+            ]))
+
+    events.sort(key=lambda e: e[0])
+    print(f"  {len(events)} messages for {sum(len(a) for a in lanes.values())} devices, "
+          f"{counter[0]} patients, from {day_start:%H:%M} to {now:%H:%M} (run {run})")
+    for _at, label, segments in events:
+        send(label, segments, quiet=True)
+
+
 SCENARIOS = {
     'happy_path':          sc_happy_path,
     'out_of_order':        sc_out_of_order,
@@ -495,6 +611,9 @@ def main():
     ap.add_argument('--reset', action='store_true')
     ap.add_argument('--confirm', action='store_true', help='required by --reset')
     ap.add_argument('--studies', type=int, default=100, help='for load')
+    ap.add_argument('--devices', default=DEMO_DEVICES,
+                    help='for department_day: "CT=AE1,AE2;MR=AE3" (default %(default)s)')
+    ap.add_argument('--seed', type=int, default=None, help='for department_day: repeatable')
     args = ap.parse_args()
 
     if args.list:
@@ -503,6 +622,8 @@ def main():
             first = (fn.__doc__ or '').strip().split('\n')[0]
             print(f"  {name:22} {first}")
         print(f"  {'load':22} Volume test (--studies N)")
+        print(f"  {'department_day':22} A department's day so far, for the Live Department "
+              f"board (--devices, --seed)")
         return 0
 
     if args.reset:
@@ -514,6 +635,8 @@ def main():
             fn()
     elif args.scenario == 'load':
         sc_load(args.studies)
+    elif args.scenario == 'department_day':
+        sc_department_day(args.devices, args.seed)
     elif args.scenario in SCENARIOS:
         SCENARIOS[args.scenario]()
     else:

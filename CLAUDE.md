@@ -93,6 +93,12 @@ routes/
   report_22.py … report_36.py, super_report.py, er_dashboard.py — reports (read etl_*)
   worklists.py            — Dynamic Worklists (RAYD V2.0 report editor; replaced Custom
                             Reports, same licence key + page permission `custom_reports`)
+  department_board.py     — Live Department board (/viewer/department): per device, the study
+                            in progress + expected finish, who waits and how long, what is
+                            coming, utilization so far. Reads brayn_study_state only; data in
+                            utils/department_board.py. /viewer/live (live_feed, RIS SPS via
+                            Oracle) redirects here. Licence + page permission `live_feed`.
+                            Fake data: `scripts/hl7_scenarios.py department_day`
 utils/worklist_catalog.py — every dataset/field/grouping/measure a worklist may name, plus
                             COLUMN_DOCS + SQL_EXAMPLES: the SQL reference for worklists written
                             in SQL (tests fail if an rpt view column has no description, or an

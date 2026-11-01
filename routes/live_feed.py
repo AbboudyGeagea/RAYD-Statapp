@@ -73,9 +73,13 @@ live_feed_bp = Blueprint("live_feed", __name__)
 @live_feed_bp.route("/viewer/live")
 @login_required
 def live_page():
+    """This page reads the RIS SPS table through Oracle, which the HL7 distribution
+    does not have; the Live Department board (routes/department_board.py) shows the
+    department from the HL7 projector instead."""
     if not user_has_page(current_user, 'live_feed'):
         abort(403)
-    return render_template("live_feed.html")
+    from flask import redirect, url_for
+    return redirect(url_for('department_board.page'))
 
 
 # ── API — full device status snapshot (live RIS SPS query) ────────────────────
