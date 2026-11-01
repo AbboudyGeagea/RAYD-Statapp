@@ -439,9 +439,11 @@ def sc_department_day(devices=DEMO_DEVICES, seed=None):
     import random
     rnd = random.Random(seed)
     now = datetime.now().replace(second=0, microsecond=0)
-    day_start = now.replace(hour=7, minute=0)
+    # Work from 07:00, at most the last 7 hours: a device's opening is usually 8 hours,
+    # and a day simulated to 23:00 would read as 200 % used. Before 09:00, the last 3 hours.
+    day_start = max(now.replace(hour=7, minute=0), now - timedelta(hours=7))
     if day_start > now - timedelta(hours=2):
-        day_start = now - timedelta(hours=3)          # before 09:00: show the last 3 hours
+        day_start = now - timedelta(hours=3)
     run = f'{now:%H%M}{rnd.randint(0, 99):02d}'
     events, counter = [], [0]
 
