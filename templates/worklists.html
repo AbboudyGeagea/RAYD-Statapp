@@ -1,0 +1,874 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | Dynamic Worklists</title>
+    <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <style>
+        body { font-family: 'Inter', system-ui, sans-serif; background: #181f1c; color: #e2e8f0; }
+        .sidebar-item { transition: all 0.2s; border-radius: 0.75rem; margin-bottom: 0.25rem; cursor: pointer; text-decoration: none !important; color: #94a3b8; }
+        .sidebar-item:hover { background: #1d2522; color: #60a5fa !important; }
+        .sidebar-item.active { background: #1d2522; color: #60a5fa !important; border-left: 4px solid #60a5fa; }
+
+        /* ── The editor. Everything below is scoped to .wl so it cannot touch the shell. */
+        .wl {
+            --bg: #181f1c; --panel: #1f2824; --panel-2: #26302b; --line: #2f3b35;
+            --fg: #e3ebe6; --muted: #8fa199; --faint: #5f7069;
+            --accent: #60a5fa; --accent-ink: #0b1a2b; --accent-soft: rgba(96,165,250,.15);
+            --rayd: #34d399; --rayd-soft: rgba(52,211,153,.14);
+            --warn: #f59e0b; --warn-soft: rgba(245,158,11,.14); --bad: #f87171;
+            --code-bg: #111714; --kw: #93c5fd; --str: #fbbf24; --param: #34d399; --num: #f9a8d4;
+            --mono: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+            color: var(--fg); font-size: 14px; line-height: 1.45;
+        }
+        body.light .wl {
+            --bg: #eef3f0; --panel: #ffffff; --panel-2: #f5f8f6; --line: #d6e0da;
+            --fg: #18221d; --muted: #586a62; --faint: #8a9a93;
+            --accent: #2563eb; --accent-ink: #ffffff; --accent-soft: rgba(37,99,235,.10);
+            --rayd: #047857; --rayd-soft: rgba(4,120,87,.10);
+            --warn: #b45309; --warn-soft: rgba(180,83,9,.10); --bad: #b91c1c;
+            --code-bg: #f3f7f5; --kw: #1d4ed8; --str: #b45309; --param: #047857; --num: #be185d;
+        }
+        body.light main { background: #f0f4f8 !important; }
+        .wl *, .wl *::before, .wl *::after { box-sizing: border-box; }
+        /* The rules below set display on .seg, .sql-edit ...; [hidden] must still hide them
+           (the SQL editor in generated mode, the SQL mode switch for non-admins). */
+        .wl [hidden] { display: none !important; }
+        .wl button, .wl input, .wl select, .wl textarea { font: inherit; color: inherit; }
+        .wl :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+        .wl .layout { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+        @media (min-width: 1100px) { .wl .layout { grid-template-columns: 250px minmax(0, 1fr); } }
+        @media (min-width: 1650px) { .wl .layout { grid-template-columns: 250px minmax(0, 1fr) minmax(0, 1fr); } }
+        /* Two columns: SQL & results gets the whole row, not the library's narrow column. */
+        @media (min-width: 1100px) and (max-width: 1649px) { .wl .layout > .sql-panel { grid-column: 1 / -1; } }
+        .wl .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
+        .wl .panel-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+        .wl .panel-head h2 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; }
+        .wl .panel-body { padding: 12px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+        .wl .btn { border: 1px solid var(--line); background: var(--panel-2); border-radius: 7px; padding: 6px 10px; cursor: pointer; white-space: nowrap; font-size: 13px; }
+        .wl .btn:hover:not(:disabled) { border-color: var(--accent); }
+        .wl .btn:disabled { opacity: .4; cursor: not-allowed; }
+        .wl .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+        .wl .btn.small { padding: 3px 8px; font-size: 12px; }
+        .wl .btn.danger:hover:not(:disabled) { border-color: var(--bad); color: var(--bad); }
+        .wl .lib-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+        .wl .tree { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+        .wl .tree ul { list-style: none; margin: 0; padding-left: 14px; border-left: 1px dashed var(--line); margin-left: 7px; display: flex; flex-direction: column; gap: 2px; }
+        .wl .folder { color: var(--muted); font-weight: 600; padding: 4px; display: flex; gap: 6px; align-items: center; }
+        .wl .folder .count { font-weight: 400; font-size: 11px; color: var(--faint); }
+        .wl .leaf { width: 100%; text-align: left; border: 0; background: transparent; padding: 5px 8px; border-radius: 6px; cursor: pointer; display: flex; gap: 8px; align-items: baseline; }
+        .wl .leaf:hover { background: var(--panel-2); }
+        .wl .leaf.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+        .wl .leaf .glyph { font-family: var(--mono); font-size: 10px; color: var(--faint); }
+        .wl .lib-note { font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 10px; }
+        .wl .def-grid { display: grid; gap: 10px 14px; grid-template-columns: minmax(0, 1fr); }
+        @media (min-width: 640px) { .wl .def-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+        .wl .field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+        .wl .field.wide { grid-column: 1 / -1; }
+        .wl .label, .wl .field > label { font-size: 12px; color: var(--muted); font-weight: 500; }
+        .wl .input { background: var(--panel-2); border: 1px solid var(--line); border-radius: 7px; padding: 7px 9px; width: 100%; min-width: 0; }
+        .wl textarea.input { resize: vertical; min-height: 40px; }
+        .wl .hint { font-size: 12px; color: var(--muted); }
+        .wl .seg { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel-2); }
+        .wl .seg button { border: 0; background: transparent; padding: 6px 12px; cursor: pointer; font-size: 13px; }
+        .wl .seg button + button { border-left: 1px solid var(--line); }
+        .wl .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+        .wl .seg button:disabled { opacity: .4; cursor: not-allowed; }
+        .wl .tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--line); }
+        .wl .tab { border: 1px solid transparent; border-bottom: 0; background: transparent; padding: 7px 12px; border-radius: 7px 7px 0 0; cursor: pointer; color: var(--muted); font-size: 13px; display: inline-flex; align-items: center; gap: 6px; margin-bottom: -1px; }
+        .wl .tab[aria-selected="true"] { background: var(--panel); border-color: var(--line); color: var(--fg); font-weight: 600; }
+        .wl .tab .badge { background: var(--accent); color: var(--accent-ink); border-radius: 999px; font-size: 11px; padding: 0 6px; font-weight: 700; }
+        .wl .tab.rayd, .wl .tab.rayd[aria-selected="true"] { color: var(--rayd); }
+        .wl .tab-note { font-size: 12px; color: var(--rayd); background: var(--rayd-soft); border-radius: 7px; padding: 7px 10px; }
+        .wl .crit-list { display: flex; flex-direction: column; gap: 6px; }
+        .wl .crit { border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); }
+        .wl .crit.on { border-color: var(--accent); }
+        .wl .crit-head { display: flex; align-items: center; gap: 10px; padding: 8px 10px; cursor: pointer; width: 100%; border: 0; background: transparent; text-align: left; }
+        .wl .chev { width: 14px; color: var(--muted); font-size: 11px; transition: transform .15s; flex: none; }
+        .wl .crit[data-open="true"] .chev { transform: rotate(90deg); }
+        .wl .crit-title { font-weight: 600; }
+        .wl .crit-col { font-family: var(--mono); font-size: 11px; color: var(--faint); }
+        .wl .crit-ask { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--warn); border: 1px solid var(--warn); border-radius: 4px; padding: 0 4px; }
+        .wl .crit-sum { margin-left: auto; font-size: 12px; color: var(--accent); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 55%; }
+        .wl .crit-body { padding: 4px 12px 12px 34px; display: flex; flex-direction: column; gap: 10px; }
+        .wl .radio-row, .wl .checks { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+        .wl .radio-row label, .wl .checks label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; font-size: 13px; }
+        .wl .inline { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+        .wl .inline .input { width: auto; }
+        .wl .chips { display: flex; flex-wrap: wrap; gap: 6px; max-height: 220px; overflow-y: auto; }
+        .wl .chip { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 3px 10px; cursor: pointer; font-size: 12px; }
+        .wl .chip[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+        .wl .linkbtn { border: 0; background: none; color: var(--accent); cursor: pointer; padding: 0; font-size: 12px; }
+        .wl .out-grid { display: grid; gap: 10px 14px; grid-template-columns: minmax(0, 1fr); }
+        @media (min-width: 640px) { .wl .out-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+        .wl .sql-wrap { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+        .wl .sql-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 7px 10px; background: var(--panel-2); border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+        .wl .sql-bar .grow { flex: 1; }
+        .wl pre.sql, .wl textarea.sql-edit { margin: 0; padding: 12px; background: var(--code-bg); font-family: var(--mono); font-size: 12.5px; line-height: 1.55; overflow-x: auto; white-space: pre; tab-size: 2; }
+        .wl textarea.sql-edit { width: 100%; border: 0; min-height: 230px; resize: vertical; color: var(--fg); display: block; }
+        .wl .k { color: var(--kw); font-weight: 500; } .wl .s { color: var(--str); } .wl .p { color: var(--param); } .wl .n { color: var(--num); }
+        .wl .params { padding: 10px 12px; background: var(--panel-2); border-top: 1px solid var(--line); font-family: var(--mono); font-size: 12px; display: flex; flex-direction: column; gap: 3px; }
+        .wl .params .pk { color: var(--param); } .wl .params .pv { color: var(--muted); word-break: break-word; }
+        .wl .note { font-size: 12px; padding: 7px 10px; border-radius: 7px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+        .wl .note.warn { color: var(--warn); background: var(--warn-soft); }
+        .wl .note.bad { color: var(--bad); background: rgba(248,113,113,.12); }
+        .wl .res-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+        .wl .res-head .grow { flex: 1; }
+        .wl .table-wrap { overflow: auto; border: 1px solid var(--line); border-radius: 8px; max-height: 620px; }
+        .wl table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+        .wl th, .wl td { padding: 6px 10px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+        .wl th { color: var(--muted); font-weight: 600; font-size: 12px; background: var(--panel-2); position: sticky; top: 0; }
+        .wl th:first-child, .wl td:first-child, .wl td.txt, .wl th.txt { text-align: left; }
+        .wl tr.total td { font-weight: 700; border-top: 2px solid var(--line); }
+        .wl .empty { color: var(--muted); font-size: 13px; padding: 16px; text-align: center; }
+        .wl .chart { width: 100%; height: 360px; }
+        .wl .modal-back { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: flex-start; justify-content: center; padding: 6vh 16px; z-index: 50; }
+        .wl .modal { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; width: min(640px, 100%); max-height: 86vh; overflow: auto; }
+        .wl .toast { position: fixed; left: 50%; bottom: 86px; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--line); color: var(--fg); border-radius: 8px; padding: 9px 14px; font-size: 13px; box-shadow: 0 6px 24px rgba(0,0,0,.25); z-index: 60; }
+        .wl .dirty { color: var(--warn); font-size: 12px; }
+        /* Save bar: always at the bottom of the screen, so nobody scrolls back up to save. */
+        .wl .actionbar { position: sticky; bottom: 0; z-index: 30; margin-top: 14px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 10px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 -8px 24px rgba(0,0,0,.28); }
+        .wl .actionbar .grow { flex: 1; }
+        .wl .actionbar .status { font-size: 13px; color: var(--muted); }
+        .wl .actionbar .status.dirty-on { color: var(--warn); font-weight: 600; }
+        .wl .actionbar .missing { font-size: 12.5px; color: var(--bad); }
+        .wl .actionbar .btn { padding: 8px 18px; font-size: 14px; }
+        /* Required fields stay marked until they are filled. */
+        .wl .req-tag { display: none; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--bad); border: 1px solid var(--bad); border-radius: 4px; padding: 0 4px; margin-left: 6px; font-weight: 600; }
+        .wl .field.missing .req-tag { display: inline-block; }
+        .wl .field.missing .input, .wl .field.missing .seg, .wl .sql-wrap.missing { border-color: var(--bad); box-shadow: 0 0 0 2px rgba(248,113,113,.18); }
+        .wl .placeholder { font-size: 13px; color: var(--muted); border: 1px dashed var(--line); border-radius: 8px; padding: 14px; text-align: center; grid-column: 1 / -1; }
+        /* SQL: generated (read-only) or written, and the reference. */
+        .wl .sql-mode { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+        .wl .modal.wide { width: min(1120px, 100%); }
+        .wl .ref .ref-rules { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+        @media (min-width: 900px) { .wl .ref .ref-rules { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+        .wl .ref .rule { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 12.5px; background: var(--panel-2); }
+        .wl .ref .rule b { display: block; font-size: 12.5px; margin-bottom: 2px; }
+        .wl .ref td, .wl .ref th { text-align: left; white-space: normal; vertical-align: top; }
+        .wl .ref td.col { font-family: var(--mono); white-space: nowrap; }
+        .wl .ref pre.sql { border: 1px solid var(--line); border-radius: 8px; white-space: pre-wrap; }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden {{ 'light' if ui_theme == 'light' }}">
+    {% include '_header.html' %}
+
+    <div class="flex flex-1 overflow-hidden">
+        {% include '_sidebar.html' %}
+
+        <main class="flex-1 overflow-y-auto p-4 bg-[#181f1c]">
+          <div class="wl">
+            <div class="flex items-baseline gap-3 mb-3 flex-wrap">
+                <h1 class="text-xl font-black tracking-tight">Dynamic Worklists</h1>
+                <span class="hint">PACS studies, series and orders, ORU reports and their NLP findings,
+                    storage and CRN. Pick a dataset, add criteria, choose how to show it. Values are always
+                    bound as parameters; the SQL shown is the SQL that runs, read-only.</span>
+            </div>
+
+            <div class="layout">
+              <!-- Library -->
+              <aside class="panel" aria-label="Saved worklists">
+                <div class="panel-head"><h2>Saved worklists</h2></div>
+                <div class="panel-body">
+                  <div class="lib-actions">
+                    <button class="btn" id="btn-new" type="button">New</button>
+                    <button class="btn" id="btn-dup" type="button">Duplicate</button>
+                    <button class="btn danger" id="btn-del" type="button">Delete</button>
+                  </div>
+                  <ul class="tree" id="tree"></ul>
+                  <div class="lib-note">Shared worklists are visible to everyone with access to this page.
+                      Personal ones are yours until you share them.</div>
+                </div>
+              </aside>
+
+              <!-- Definition -->
+              <section class="panel" aria-label="Worklist definition">
+                <div class="panel-head">
+                  <h2>Definition</h2>
+                  <div style="margin-left:auto; display:flex; gap:6px; flex-wrap:wrap; align-items:center">
+                    <select class="input" id="f-history" style="width:auto; padding:3px 6px; font-size:12px" aria-label="Version history"></select>
+                  </div>
+                </div>
+                <div class="panel-body">
+                  <div class="def-grid">
+                    <div class="field" id="fw-name"><label for="f-name">Name<span class="req-tag">Required</span></label><input class="input" id="f-name" placeholder="e.g. CT studies per technologist"></div>
+                    <div class="field"><label for="f-folder">Folder</label><input class="input" id="f-folder" list="folders" placeholder="General"><datalist id="folders"></datalist></div>
+                    <div class="field wide"><label for="f-desc">Description</label><textarea class="input" id="f-desc" rows="2" placeholder="Optional: what it is for, who uses it"></textarea></div>
+                    <div class="field" id="fw-ds"><label for="f-ds">Dataset<span class="req-tag">Required</span></label><select class="input" id="f-ds"></select><span class="hint" id="ds-hint"></span></div>
+                    <div class="field"><span class="label">Visibility</span>
+                      <div class="seg" id="f-vis" role="group" aria-label="Visibility">
+                        <button type="button" data-v="personal">Personal</button><button type="button" data-v="shared">Shared</button>
+                      </div>
+                      <span class="hint" id="owner-hint"></span>
+                    </div>
+                  </div>
+
+                  <div class="tabs" role="tablist" id="tabs"></div>
+                  <div id="tab-note"></div>
+                  <div class="crit-list" id="crit-list"></div>
+
+                  <div class="panel-head" style="padding:0; border:0"><h2>Output</h2></div>
+                  <div class="out-grid" id="out"></div>
+                </div>
+              </section>
+
+              <!-- SQL + results -->
+              <section class="panel sql-panel" aria-label="SQL and results">
+                <div class="panel-head">
+                  <h2>SQL &amp; results</h2>
+                  <button class="btn small primary" id="btn-run" type="button" style="margin-left:auto"><i class="bi bi-play-fill"></i> Run</button>
+                </div>
+                <div class="panel-body">
+                  <div class="sql-mode">
+                    <div class="seg" id="sql-seg" role="group" aria-label="How this worklist gets its data" hidden>
+                      <button type="button" data-mode="gen" aria-pressed="true">Generated SQL</button>
+                      <button type="button" data-mode="hand" aria-pressed="false">Write SQL (admin)</button>
+                    </div>
+                    <button class="btn small" id="btn-ref" type="button"><i class="bi bi-book"></i> SQL reference</button>
+                  </div>
+                  <div id="sql-note"></div>
+                  <div class="sql-wrap" id="sql-wrap">
+                    <div class="sql-bar">
+                      <span class="grow" id="sql-caption"></span>
+                      <button class="btn small" id="btn-start-gen" type="button" hidden>Start from the generated SQL</button>
+                      <button class="btn small" id="btn-copy-sql" type="button">Copy</button>
+                    </div>
+                    <pre class="sql" id="sql-view"></pre>
+                    <textarea class="sql-edit" id="sql-edit" hidden spellcheck="false" aria-label="SQL editor" placeholder="SELECT modality, COUNT(*) AS &quot;Studies&quot;&#10;FROM rpt.studies&#10;WHERE study_date >= CURRENT_DATE - 30&#10;GROUP BY modality"></textarea>
+                    <div class="params" id="params"></div>
+                  </div>
+                  <div class="res-head">
+                    <strong id="res-title">Results</strong>
+                    <span class="hint" id="res-meta"></span>
+                    <span class="grow"></span>
+                    <button class="btn small" id="btn-csv" type="button"><i class="bi bi-download"></i> CSV</button>
+                  </div>
+                  <div id="results"><div class="empty">Press Run.</div></div>
+                </div>
+              </section>
+            </div>
+            <div class="actionbar" id="actionbar" role="region" aria-label="Save and run">
+              <span class="status" id="bar-status"></span>
+              <span class="missing" id="bar-missing"></span>
+              <span class="grow"></span>
+              <button class="btn" id="btn-run2" type="button"><i class="bi bi-play-fill"></i> Run</button>
+              <button class="btn primary" id="btn-save" type="button" title="Save (Ctrl+S)"><i class="bi bi-check2"></i> Save</button>
+            </div>
+            <div id="modal"></div>
+            <div class="toast" id="toast" hidden></div>
+          </div>
+        </main>
+    </div>
+
+<script>
+// ── Theme and sidebar: the shared header and sidebar call these ─────────────
+const _savedTheme = "{{ ui_theme }}";
+function applyTheme(theme) {
+    document.body.classList.toggle('light', theme === 'light');
+    const icon = document.getElementById('theme-icon');
+    if (icon) icon.className = theme === 'light' ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
+}
+applyTheme(_savedTheme);
+
+function toggleTheme() {
+    const next = document.body.classList.contains('light') ? 'dark' : 'light';
+    applyTheme(next);
+    fetch('/user/theme', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ theme: next })
+    });
+}
+
+function toggleSidebar() {
+    const sb = document.getElementById('sidebar');
+    if (!sb) return;
+    sb.classList.toggle('w-72');
+    sb.classList.toggle('w-14');
+    sb.querySelectorAll('.sidebar-text').forEach(el => el.classList.toggle('hidden'));
+}
+
+(function () {
+'use strict';
+const $ = id => document.getElementById(id);
+const clone = o => JSON.parse(JSON.stringify(o));
+const esc = s => String(s ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[ch]);
+const BLANK = '(blank)';
+let CAT, FIELD = {}, LIB = [], S = null, openCards = {}, optionCache = {}, sqlInfo = null,
+    dirty = false, compileTimer = null, chart = null, lastResult = null;
+
+async function api(url, body) {
+  const opt = body === undefined ? {} : {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)};
+  const r = await fetch(url, opt);
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+  return d;
+}
+// Confirmations use SweetAlert2, like the rest of RAYD (user management, reports). The
+// browser's own dialog only if the library could not load, so a question is never skipped.
+async function askYesNo(title, text, {yes = 'Yes', danger = false, icon = 'warning'} = {}) {
+  if (!window.Swal) return window.confirm(title + (text ? '\n\n' + text : ''));
+  const r = await Swal.fire({title, text, icon, showCancelButton: true,
+    confirmButtonText: yes, cancelButtonText: 'Cancel',
+    confirmButtonColor: danger ? '#dc2626' : '#60a5fa', cancelButtonColor: '#64748b',
+    focusCancel: danger,
+    // The page is a fixed-height shell with its own scrolling area; SweetAlert2's default
+    // heightAuto resets html/body height, which hides the bottom save bar and jumps the page.
+    heightAuto: false});
+  return r.isConfirmed;
+}
+let toastTimer;
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => t.hidden = true, 3200); }
+function markDirty(on = true) { dirty = on; renderStatus(); }
+
+// ── State ────────────────────────────────────────────────────────────────────
+const D = () => S.definition;
+const ds = () => CAT.datasets[D().dataset] || null;
+const inDataset = f => f.datasets.includes(D().dataset);
+const handMode = () => D().sql != null;
+// A new worklist starts EMPTY (operator, 2026-10-25): no dataset, no criteria, no output
+// kind. Choosing a dataset keeps the output kind already chosen and fills nothing else.
+function emptyDefinition() {
+  return {dataset: null, criteria: {}, ask: [], output: {kind: null, rows: null, cols: null, measures: [], columns: [], sort: null, desc: true}, sql: null};
+}
+// The measure a dataset starts with: a count, or gigabytes for Storage.
+function blankDefinition(dataset, kind = null) {
+  const d = CAT.datasets[dataset];
+  return {dataset, criteria: {}, ask: [], output: {kind, rows: null, cols: null, measures: [d.default_measure], columns: d.list_default.slice(), sort: d.default_date, desc: true}, sql: null};
+}
+function load(w) {
+  S = clone(w);
+  S.definition.ask = S.definition.ask || [];
+  const d0 = CAT.datasets[S.definition.dataset];
+  S.definition.output = Object.assign({kind: S.definition.dataset ? 'list' : null, measures: d0 ? [d0.default_measure] : []}, S.definition.output || {});
+  S.tab = S.tab || firstActiveTab();
+  openCards = {}; Object.keys(D().criteria || {}).forEach(k => openCards[k] = true);
+  markDirty(false); lastResult = null;
+  $('results').innerHTML = '<div class="empty">Press Run.</div>'; $('res-meta').textContent = '';
+  renderAll(); scheduleCompile(0);
+}
+function firstActiveTab() {
+  const d = CAT.datasets[S.definition.dataset];
+  if (!d) return null;
+  const withCrit = CAT.fields.find(f => (S.definition.criteria || {})[f.id] && d.tabs.includes(f.tab));
+  return withCrit ? withCrit.tab : d.tabs[0];
+}
+function blank() {
+  load({id: null, name: '', description: '', folder: '', visibility: 'personal',
+        can_edit: true, version: 0, versions: [], definition: emptyDefinition()});
+}
+
+// ── Required fields and the save bar ─────────────────────────────────────────
+// Building: a name, a dataset and how to show it. Written in SQL: a name and the SQL.
+function missingFields() {
+  if (!S) return [];
+  const out = [];
+  if (!String(S.name || '').trim()) out.push(['name', 'Name']);
+  if (handMode()) { if (!String(D().sql || '').trim()) out.push(['sql', 'SQL']); return out; }
+  if (!D().dataset) out.push(['ds', 'Dataset']);
+  if (!(D().output || {}).kind) out.push(['kind', 'Show as']);
+  return out;
+}
+function renderStatus() {
+  if (!S) return;
+  const miss = missingFields(), keys = miss.map(m => m[0]);
+  [['name', 'fw-name'], ['ds', 'fw-ds'], ['kind', 'fw-kind']].forEach(([k, id]) => { const el = $(id); if (el) el.classList.toggle('missing', keys.includes(k)); });
+  $('sql-wrap').classList.toggle('missing', keys.includes('sql'));
+  const st = $('bar-status');
+  st.textContent = dirty ? 'Unsaved changes' : (S.id ? `Saved · version ${S.version}` : 'New worklist · not saved yet');
+  st.classList.toggle('dirty-on', dirty);
+  $('bar-missing').textContent = miss.length ? 'Still to fill: ' + miss.map(m => m[1]).join(', ') : '';
+}
+function focusMissing(key) {
+  const el = {name: $('f-name'), ds: $('f-ds'), sql: $('sql-edit'), kind: document.querySelector('#fw-kind button')}[key];
+  if (el) { el.scrollIntoView({block: 'center', behavior: 'smooth'}); el.focus({preventScroll: true}); }
+}
+// What stops a Run: everything required except the name.
+function runBlockers() { return missingFields().filter(m => m[0] !== 'name'); }
+
+// ── Library ──────────────────────────────────────────────────────────────────
+async function loadLibrary(selectId) {
+  LIB = await api('/worklists/api/list');
+  renderTree();
+  $('folders').innerHTML = [...new Set(LIB.map(w => w.folder))].map(f => `<option value="${esc(f)}">`).join('');
+  if (selectId) await open(selectId);
+}
+function renderTree() {
+  const group = vis => {
+    const items = LIB.filter(w => w.visibility === vis), folders = {};
+    items.forEach(w => (folders[w.folder] = folders[w.folder] || []).push(w));
+    const inner = Object.keys(folders).sort().map(f => `<li><div class="folder">${esc(f)} <span class="count">${folders[f].length}</span></div><ul>${
+      folders[f].map(w => `<li><button type="button" class="leaf${S && S.id === w.id ? ' active' : ''}" data-id="${w.id}"><span class="glyph">▤</span><span>${esc(w.name)}</span></button></li>`).join('')}</ul></li>`).join('');
+    return `<li><div class="folder">${vis === 'shared' ? 'Shared' : 'Personal'} <span class="count">${items.length}</span></div><ul>${inner || '<li class="hint" style="padding:4px 8px">none yet</li>'}</ul></li>`;
+  };
+  $('tree').innerHTML = group('shared') + group('personal');
+}
+async function open(id) {
+  if (dirty && !(await askYesNo('Discard your changes?', 'This worklist has changes that are not saved.', {yes: 'Discard changes'}))) return;
+  try { load(await api('/worklists/api/' + id)); } catch (e) { toast(e.message); }
+}
+
+// ── Header ───────────────────────────────────────────────────────────────────
+function renderHeader() {
+  $('f-name').value = S.name; $('f-desc').value = S.description || ''; $('f-folder').value = S.folder;
+  $('f-ds').innerHTML = (D().dataset ? '' : '<option value="" selected>Choose a dataset…</option>') +
+    Object.entries(CAT.datasets).map(([k, d]) => `<option value="${k}"${k === D().dataset ? ' selected' : ''}>${esc(d.label)}</option>`).join('');
+  $('f-ds').disabled = handMode();
+  $('ds-hint').textContent = handMode() ? 'Not used: the SQL names its own views.'
+    : ds() ? ds().hint : 'What one row of the result is: a study, a series, an order, a report, an NLP finding, a storage day or a CRN.';
+  [...$('f-vis').children].forEach(b => {
+    b.setAttribute('aria-pressed', String(b.dataset.v === S.visibility));
+    b.disabled = b.dataset.v === 'shared' && !CAT.me.can_edit_shared;
+  });
+  $('owner-hint').textContent = S.id ? `v${S.version}${S.owner_name ? ' · owner ' + S.owner_name : ''}${S.updated_by_name ? ' · last saved by ' + S.updated_by_name : ''}${S.updated_at ? ' ' + S.updated_at : ''}` : 'not saved yet';
+  $('f-history').innerHTML = `<option value="">History…</option>` + (S.versions || []).map(v => `<option value="${v.version}">v${v.version} · ${esc(v.saved_at)}${v.saved_by ? ' · ' + esc(v.saved_by) : ''}</option>`).join('');
+  $('f-history').hidden = !(S.versions || []).length;
+  $('btn-save').disabled = !S.can_edit; $('btn-del').disabled = !S.id || !S.can_edit;
+  $('btn-save').title = S.can_edit ? '' : 'Read-only for you: duplicate it into Personal to change it';
+}
+
+// ── Criteria ─────────────────────────────────────────────────────────────────
+function isActive(f, c) {
+  if (!c) return false;
+  if (f.type === 'date') return c.mode && c.mode !== 'none';
+  if (f.type === 'multi') return (c.values || []).length > 0;
+  if (f.type === 'text') return !!String(c.value || '').trim();
+  if (f.type === 'yesno') return c.value === 'yes' || c.value === 'no';
+  if (f.type === 'range') return (c.min !== '' && c.min != null) || (c.max !== '' && c.max != null);
+  return false;
+}
+function optLabel(f, v) {
+  const o = Array.isArray(f.options) ? f.options : optionCache[D().dataset + '|' + f.id];
+  const hit = (o || []).find(x => x.value === v);
+  return hit ? hit.label : String(v);
+}
+function summary(f, c) {
+  if (!isActive(f, c)) return '';
+  if (f.type === 'date') {
+    if (c.mode === 'quick') return (CAT.quick_dates.find(q => q.id === c.quick) || {}).label || c.quick;
+    if (c.mode === 'relative') return `${c.dir === 'next' ? 'Next' : 'Previous'} ${c.n} ${c.unit}`;
+    if (c.mode === 'fixed') return c.from === c.to ? c.from : `${c.from} → ${c.to}`;
+  }
+  if (f.type === 'multi') return c.values.map(v => optLabel(f, v)).join(', ');
+  if (f.type === 'text') return `${c.op || 'contains'} “${c.value}”`;
+  if (f.type === 'yesno') return c.value === 'yes' ? 'Yes' : 'No';
+  if (f.type === 'range') return [c.min !== '' && c.min != null ? `≥ ${c.min}` : '', c.max !== '' && c.max != null ? `≤ ${c.max}` : ''].filter(Boolean).join(' and ');
+  return '';
+}
+// Tabs whose fields come from outside PACS say where.
+const TAB_NOTES = {
+  nlp: 'These come from the NLP worker\'s reading of the ORU reports (Report Intelligence): negations and history removed, benign findings left out.',
+  crn: 'These come from Critical Result Notification (Admin > CRN), matched by accession.',
+};
+function renderTabs() {
+  if (handMode() || !ds()) {
+    $('tabs').innerHTML = '';
+    $('tab-note').innerHTML = handMode()
+      ? '<div class="placeholder">Written in SQL: criteria and output are not used. Switch back to “Generated SQL” to build it with criteria again.</div>'
+      : '<div class="placeholder">Choose a dataset first: the criteria and the output depend on it.</div>';
+    return;
+  }
+  const avail = ds().tabs;
+  if (!avail.includes(S.tab)) S.tab = avail[0];
+  $('tabs').innerHTML = CAT.tabs.filter(t => avail.includes(t.id)).map(t => {
+    const n = CAT.fields.filter(f => f.tab === t.id && inDataset(f) && isActive(f, D().criteria[f.id])).length;
+    return `<button type="button" role="tab" class="tab${TAB_NOTES[t.id] ? ' rayd' : ''}" data-tab="${t.id}" aria-selected="${S.tab === t.id}">${t.label}${n ? `<span class="badge">${n}</span>` : ''}</button>`;
+  }).join('');
+  const none = !CAT.fields.some(f => inDataset(f) && isActive(f, D().criteria[f.id]));
+  $('tab-note').innerHTML = (TAB_NOTES[S.tab] ? `<div class="tab-note">${TAB_NOTES[S.tab]}</div>` : '')
+    + (none ? '<div class="hint">No criteria yet: the worklist covers all the data. A date range keeps it fast.</div>' : '');
+}
+function renderCriteria() {
+  if (handMode() || !ds()) { $('crit-list').innerHTML = ''; return; }
+  const list = CAT.fields.filter(f => f.tab === S.tab && inDataset(f));
+  $('crit-list').innerHTML = list.map(f => {
+    const c = D().criteria[f.id] || {}, on = isActive(f, c), isOpen = !!openCards[f.id], ask = D().ask.includes(f.id);
+    return `<div class="crit${on ? ' on' : ''}" data-open="${isOpen}">
+      <button type="button" class="crit-head" data-toggle="${f.id}" aria-expanded="${isOpen}">
+        <span class="chev">▶</span><span class="crit-title">${esc(f.label)}</span><span class="crit-col">${esc(f.col)}</span>
+        ${ask ? '<span class="crit-ask">asked at run</span>' : ''}<span class="crit-sum">${esc(summary(f, c))}</span>
+      </button>
+      ${isOpen ? `<div class="crit-body">${critBody(f, c)}${f.hint ? `<span class="hint">${esc(f.hint)}</span>` : ''}
+        <div class="inline"><label class="hint" style="display:inline-flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" data-ask="${f.id}"${ask ? ' checked' : ''}> Ask for this when the worklist is run</label>
+        ${on ? `<button type="button" class="linkbtn" data-clear="${f.id}">Clear this criterion</button>` : ''}</div></div>` : ''}
+    </div>`;
+  }).join('');
+  list.filter(f => openCards[f.id] && f.type === 'multi' && f.options === 'distinct').forEach(f => ensureOptions(f));
+}
+async function ensureOptions(f) {
+  const key = D().dataset + '|' + f.id;
+  if (optionCache[key]) return;
+  optionCache[key] = 'loading';
+  try { optionCache[key] = await api(`/worklists/api/options?dataset=${encodeURIComponent(D().dataset)}&field=${encodeURIComponent(f.id)}`); }
+  catch (e) { optionCache[key] = []; toast(e.message); }
+  if (S.tab === f.tab) renderCriteria();
+}
+function critBody(f, c, prefix = '') {
+  const id = f.id, a = `data-f="${id}"`;
+  if (f.type === 'date') {
+    const mode = c.mode || 'none';
+    const modes = [['none','None'],['quick','Quick'],['relative','Prev / next N'],['fixed','Fixed dates']];
+    let body = '';
+    if (mode === 'quick') body = `<select class="input" data-k="quick" ${a} style="max-width:260px">${CAT.quick_dates.map(q => `<option value="${q.id}"${c.quick === q.id ? ' selected' : ''}>${q.label}</option>`).join('')}</select><span class="hint">Worked out on the day it runs, on the hospital clock.</span>`;
+    if (mode === 'relative') body = `<div class="inline"><select class="input" data-k="dir" ${a}><option value="prev"${c.dir !== 'next' ? ' selected' : ''}>Previous</option><option value="next"${c.dir === 'next' ? ' selected' : ''}>Next</option></select>
+      <input class="input" type="number" min="1" data-k="n" ${a} value="${c.n || 7}" style="width:90px" aria-label="Amount">
+      <select class="input" data-k="unit" ${a}><option${c.unit !== 'hours' ? ' selected' : ''}>days</option><option${c.unit === 'hours' ? ' selected' : ''}>hours</option></select></div>`;
+    if (mode === 'fixed') body = `<div class="inline"><span class="label">From</span><input class="input" type="date" data-k="from" ${a} value="${c.from || ''}" aria-label="From">
+      <span class="label">to (including)</span><input class="input" type="date" data-k="to" ${a} value="${c.to || ''}" aria-label="To"></div>`;
+    return `<div class="radio-row" role="radiogroup">${modes.map(([v, l]) => `<label><input type="radio" name="${prefix}mode-${id}" data-k="mode" ${a} value="${v}"${mode === v ? ' checked' : ''}>${l}</label>`).join('')}</div>${body}`;
+  }
+  if (f.type === 'multi') {
+    const sel = c.values || [];
+    let opts = Array.isArray(f.options) ? f.options : optionCache[D().dataset + '|' + id];
+    if (opts === 'loading' || opts === undefined) return '<span class="hint">Loading the values in the data…</span>';
+    opts = opts.concat([{value: BLANK, label: BLANK}]);
+    const extra = sel.filter(v => !opts.some(o => o.value === v)).map(v => ({value: v, label: String(v)}));
+    return `<div class="chips">${opts.concat(extra).map(o => `<button type="button" class="chip" data-chip="${id}" data-v='${esc(JSON.stringify(o.value))}' aria-pressed="${sel.includes(o.value)}">${esc(o.label)}</button>`).join('')}</div>
+      <div class="inline"><button type="button" class="linkbtn" data-none="${id}">Select none</button>${opts.length > 1 ? '' : '<span class="hint">No values in the data yet.</span>'}</div>`;
+  }
+  if (f.type === 'text') return `<div class="inline"><select class="input" data-k="op" ${a}>${['contains','equals','starts with','does not contain'].map(o => `<option${(c.op || 'contains') === o ? ' selected' : ''}>${o}</option>`).join('')}</select>
+    <input class="input" data-k="value" ${a} value="${esc(c.value || '')}" placeholder="text" style="min-width:200px" aria-label="${esc(f.label)}"></div>`;
+  if (f.type === 'yesno') return `<div class="seg" role="group">${[['any','Any'],['yes','Yes'],['no','No']].map(([v, l]) => `<button type="button" data-yn="${id}" data-v="${v}" aria-pressed="${(c.value || 'any') === v}">${l}</button>`).join('')}</div>`;
+  if (f.type === 'range') return `<div class="inline"><span class="label">From</span><input class="input" type="number" step="any" data-k="min" ${a} value="${c.min ?? ''}" style="width:110px" aria-label="Minimum">
+    <span class="label">to</span><input class="input" type="number" step="any" data-k="max" ${a} value="${c.max ?? ''}" style="width:110px" aria-label="Maximum">${f.unit ? `<span class="hint">${esc(f.unit)}</span>` : ''}</div>`;
+  return '';
+}
+
+// ── Output ───────────────────────────────────────────────────────────────────
+function renderOutput() {
+  if (handMode()) { $('out').innerHTML = '<div class="placeholder">Written in SQL: the result is shown as a list, exactly as the query returns it.</div>'; return; }
+  const o = D().output, d = ds();
+  const kindField = `<div class="field${o.kind ? '' : ' missing'}" id="fw-kind"><span class="label">Show as<span class="req-tag">Required</span></span><div class="seg" id="o-kind" role="group">${[['list','List'],['table','Table'],['chart','Chart']].map(([k, l]) => `<button type="button" data-kind="${k}" aria-pressed="${o.kind === k}">${l}</button>`).join('')}</div></div>`;
+  if (!d || !o.kind) {
+    $('out').innerHTML = kindField + `<div class="placeholder" style="grid-column: span 2">${!d ? 'Choose a dataset to set the columns or the grouping.'
+      : 'List: one row per ' + esc(d.count_label.toLowerCase().replace(/s$/, '')) + ', with the columns you pick. Table: counts and measures grouped by what you choose. Chart: the table as bars.'}</div>`;
+    return;
+  }
+  const dimOpts = sel => `<option value="">(none)</option>` + d.dimensions.map(x => `<option value="${x.id}"${x.id === sel ? ' selected' : ''}>${esc(x.label)}</option>`).join('');
+  if (o.rows && !d.dimensions.some(x => x.id === o.rows)) o.rows = null;
+  if (o.cols && !d.dimensions.some(x => x.id === o.cols)) o.cols = null;
+  o.measures = (o.measures || []).filter(m => d.measures.some(x => x.id === m));
+  if (!o.measures.length) o.measures = [d.default_measure];
+  o.columns = (o.columns || []).filter(c => d.columns.some(x => x.id === c));
+  if (!o.columns.length) o.columns = d.list_default.slice();
+  if (!d.columns.some(x => x.id === o.sort)) o.sort = d.default_date;
+  const kind = kindField;
+  if (o.kind === 'list') {
+    $('out').innerHTML = kind + `<div class="field"><label for="o-sort">Sort by</label><div class="inline"><select class="input" id="o-sort">${d.columns.map(c => `<option value="${c.id}"${c.id === o.sort ? ' selected' : ''}>${esc(c.label)}</option>`).join('')}</select>
+      <select class="input" id="o-dir"><option value="desc"${o.desc !== false ? ' selected' : ''}>newest / largest first</option><option value="asc"${o.desc === false ? ' selected' : ''}>oldest / smallest first</option></select></div></div>
+      <div class="field wide"><span class="label">Columns</span><div class="checks" id="o-cols-list">${d.columns.map(c => `<label><input type="checkbox" data-col="${c.id}"${o.columns.includes(c.id) ? ' checked' : ''}>${esc(c.label)}</label>`).join('')}</div></div>`;
+  } else {
+    $('out').innerHTML = kind + `<div class="field"><label for="o-rows">Group rows by</label><select class="input" id="o-rows">${dimOpts(o.rows)}</select></div>
+      <div class="field"><label for="o-colsplit">Split columns by</label><select class="input" id="o-colsplit">${dimOpts(o.cols)}</select></div>
+      <div class="field wide"><span class="label">Measures${o.cols ? ' — split by columns shows the first one' : ''}</span><div class="checks" id="o-measures">${d.measures.map(m => `<label><input type="checkbox" data-m="${m.id}"${o.measures.includes(m.id) ? ' checked' : ''}>${esc(m.label)}</label>`).join('')}</div></div>`;
+  }
+}
+
+// ── SQL ──────────────────────────────────────────────────────────────────────
+function scheduleCompile(ms = 250) { clearTimeout(compileTimer); compileTimer = setTimeout(compile, ms); }
+async function compile() {
+  if (handMode()) return renderSQL();
+  if (!D().dataset || !(D().output || {}).kind) { sqlInfo = {pending: true}; return renderSQL(); }
+  try { sqlInfo = await api('/worklists/api/compile', {definition: D()}); }
+  catch (e) { sqlInfo = {error: e.message}; }
+  renderSQL();
+}
+function highlight(sql) {
+  return esc(sql)
+    .replace(/(&#39;[^&]*?&#39;)/g, '<span class="s">$1</span>')
+    .replace(/(:[a-z_]+)/g, '<span class="p">$1</span>')
+    .replace(/\b(SELECT|FROM|WHERE|AND|OR|NOT|GROUP BY|ORDER BY|LIMIT|AS|COUNT|SUM|AVG|DISTINCT|FILTER|WITHIN GROUP|ANY|ILIKE|ESCAPE|IS|NULL|TRUE|DESC|ASC|NULLS LAST|COALESCE|CAST|LEFT JOIN|JOIN|ON|lower|round|percentile_cont|to_char|date_trunc|lpad)\b/g, '<span class="k">$1</span>');
+}
+// Two clearly separate things: the SQL built from the criteria, which is only ever
+// SHOWN (read-only, for everyone), and SQL written by an admin, a mode of its own,
+// documented by the SQL reference.
+function renderSQL() {
+  const hand = handMode(), canSQL = CAT.me.can_write_sql;
+  $('sql-seg').hidden = !canSQL;
+  [...$('sql-seg').children].forEach(b => b.setAttribute('aria-pressed', String((b.dataset.mode === 'hand') === hand)));
+  $('btn-start-gen').hidden = !(hand && canSQL);
+  $('sql-view').hidden = hand && canSQL;
+  $('sql-edit').hidden = !(hand && canSQL);
+  if (hand) {
+    if (canSQL) { if (document.activeElement !== $('sql-edit')) $('sql-edit').value = D().sql; }
+    else $('sql-view').innerHTML = highlight(D().sql);
+    $('params').innerHTML = '<div class="pv">Runs as the read-only worklist account: the rpt views (' + esc(Object.keys(CAT.datasets).join(', ')) + '), nothing else. No parameters: write values in the SQL.</div>';
+    $('sql-caption').textContent = canSQL ? 'Your SQL. The SQL reference lists every view, column and rule.' : 'Written in SQL by an admin.';
+    $('sql-note').innerHTML = canSQL ? '' : '<div class="note warn">Read-only: only an admin can change this SQL.</div>';
+    return;
+  }
+  $('sql-caption').textContent = 'Read-only: built from the criteria and output. Values are bound as parameters, never pasted into the SQL.';
+  $('sql-note').innerHTML = '';
+  if (!sqlInfo || sqlInfo.pending) { $('sql-view').innerHTML = '<span class="hint">The SQL appears here once a dataset and “Show as” are chosen.</span>'; $('params').innerHTML = ''; return; }
+  if (sqlInfo.error) { $('sql-note').innerHTML = `<div class="note bad">${esc(sqlInfo.error)}</div>`; $('sql-view').innerHTML = ''; $('params').innerHTML = ''; return; }
+  $('sql-note').innerHTML = '';
+  $('sql-view').innerHTML = highlight(sqlInfo.sql);
+  const p = Object.entries(sqlInfo.params || {});
+  $('params').innerHTML = p.length ? p.map(([k, v]) => `<div><span class="pk">:${esc(k)}</span> <span class="pv">= ${esc(Array.isArray(v) ? JSON.stringify(v) : v)}</span></div>`).join('') : '<div class="pv">No parameters.</div>';
+}
+
+// ── Run & results ────────────────────────────────────────────────────────────
+async function run(defn) {
+  $('results').innerHTML = '<div class="empty">Running…</div>'; $('res-meta').textContent = '';
+  try { lastResult = await api('/worklists/api/run', {definition: defn}); }
+  catch (e) { lastResult = null; $('results').innerHTML = `<div class="note bad">${esc(e.message)}</div>`; return; }
+  renderResults();
+}
+function startRun() {
+  const blockers = runBlockers();
+  if (blockers.length) { toast('Before it can run: ' + blockers.map(m => m[1]).join(', ') + '.'); focusMissing(blockers[0][0]); return; }
+  const asked = D().ask.filter(id => FIELD[id] && inDataset(FIELD[id]));
+  if (!asked.length || D().sql != null) return run(D());
+  const temp = clone(D());
+  $('modal').innerHTML = `<div class="modal-back"><div class="modal"><div class="panel-head"><h2>Before it runs</h2></div><div class="panel-body" id="ask-body">${
+    asked.map(id => `<div class="field"><span class="label">${esc(FIELD[id].label)}</span>${critBody(FIELD[id], temp.criteria[id] || {}, 'ask-')}</div>`).join('')}
+    <div class="inline" style="justify-content:flex-end"><button class="btn" id="ask-cancel" type="button">Cancel</button><button class="btn primary" id="ask-go" type="button">Run</button></div></div></div></div>`;
+  const body = $('ask-body');
+  const onAsk = e => { const t = e.target, f = t.dataset.f, k = t.dataset.k; if (!f) return;
+    const c = (temp.criteria[f] = temp.criteria[f] || {});
+    if (k) { c[k] = k === 'n' ? Math.max(1, parseInt(t.value || '1', 10)) : t.value;
+      if (k === 'mode') { if (c.mode === 'quick') c.quick = c.quick || 'last_month'; if (c.mode === 'relative') { c.dir = c.dir || 'prev'; c.n = c.n || 7; c.unit = c.unit || 'days'; } }
+      if (e.type === 'change' && (k === 'mode')) rerender(); } };
+  const rerender = () => { asked.forEach((id, i) => { body.children[i].innerHTML = `<span class="label">${esc(FIELD[id].label)}</span>${critBody(FIELD[id], temp.criteria[id] || {}, 'ask-')}`; }); };
+  body.addEventListener('change', onAsk); body.addEventListener('input', onAsk);
+  body.addEventListener('click', e => { const t = e.target.closest('button'); if (!t) return;
+    if (t.dataset.chip) { const c = (temp.criteria[t.dataset.chip] = temp.criteria[t.dataset.chip] || {}); const v = JSON.parse(t.getAttribute('data-v')); c.values = (c.values || []).includes(v) ? c.values.filter(x => x !== v) : [...(c.values || []), v]; t.setAttribute('aria-pressed', String(c.values.includes(v))); }
+    if (t.dataset.yn) { (temp.criteria[t.dataset.yn] = temp.criteria[t.dataset.yn] || {}).value = t.dataset.v; rerender(); } });
+  $('ask-cancel').onclick = () => $('modal').innerHTML = '';
+  $('ask-go').onclick = () => { $('modal').innerHTML = ''; run(temp); };
+}
+const fmt = v => v == null ? '' : (typeof v === 'number' ? (Number.isInteger(v) ? v.toLocaleString() : v.toLocaleString(undefined, {maximumFractionDigits: 2})) : String(v));
+function renderResults() {
+  const r = lastResult; if (!r) return;
+  $('res-title').textContent = S.name || 'Results';
+  $('res-meta').textContent = `${r.rows.length.toLocaleString()} row${r.rows.length === 1 ? '' : 's'}${r.truncated ? ` (first ${r.cap.toLocaleString()} — use CSV for all)` : ''} · ${r.elapsed_ms} ms`;
+  if (chart) { chart.dispose(); chart = null; }
+  if (!r.rows.length) { $('results').innerHTML = '<div class="empty">No rows match.</div>'; return; }
+  if (r.kind === 'list') {
+    const labels = r.column_labels ? r.column_labels.map(c => c.label) : r.columns;
+    $('results').innerHTML = `<div class="table-wrap"><table><thead><tr>${labels.map(l => `<th class="txt">${esc(l)}</th>`).join('')}</tr></thead><tbody>${
+      r.rows.map(row => `<tr>${row.map(v => `<td class="${typeof v === 'number' ? '' : 'txt'}">${esc(fmt(v))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+    return;
+  }
+  const m = matrix(r);
+  if (r.kind === 'table') return renderTable(r, m);
+  renderChart(r, m);
+}
+function matrix(r) {
+  const nd = r.dims.length, meas = r.measures;
+  if (nd === 2) {
+    const rows = [...new Set(r.rows.map(x => x[0]))], cols = [...new Set(r.rows.map(x => x[1]))].sort();
+    const cell = {}; r.rows.forEach(x => cell[x[0] + '\u0000' + x[1]] = x[2]);
+    return {rows, series: cols.map(c => ({label: c, additive: meas[0].additive})), data: rows.map(a => cols.map(b => cell[a + '\u0000' + b] ?? 0)), rowLabel: r.dims[0].label, measureLabel: meas[0].label};
+  }
+  const rows = nd ? r.rows.map(x => x[0]) : ['All'];
+  return {rows, series: meas.map(x => ({label: x.label, additive: x.additive})), data: r.rows.map(x => x.slice(nd)), rowLabel: nd ? r.dims[0].label : '', measureLabel: ''};
+}
+function renderTable(r, m) {
+  const split = r.dims.length === 2, allAdd = m.series.every(s => s.additive);
+  const head = `<tr><th class="txt">${esc(m.rowLabel)}${split ? ` <span class="hint">· ${esc(m.measureLabel)}</span>` : ''}</th>${m.series.map(s => `<th>${esc(s.label)}</th>`).join('')}${split && allAdd ? '<th>Total</th>' : ''}</tr>`;
+  const body = m.rows.map((row, i) => `<tr><td class="txt">${esc(row)}</td>${m.data[i].map(v => `<td>${fmt(v)}</td>`).join('')}${split && allAdd ? `<td>${fmt(m.data[i].reduce((a, b) => a + (+b || 0), 0))}</td>` : ''}</tr>`).join('');
+  const total = m.rows.length > 1 ? `<tr class="total"><td class="txt">Total</td>${m.series.map((s, j) => `<td>${s.additive ? fmt(m.data.reduce((a, row) => a + (+row[j] || 0), 0)) : ''}</td>`).join('')}${split && allAdd ? `<td>${fmt(m.data.flat().reduce((a, b) => a + (+b || 0), 0))}</td>` : ''}</tr>` : '';
+  $('results').innerHTML = `<div class="table-wrap"><table><thead>${head}</thead><tbody>${body}${total}</tbody></table></div>`;
+}
+function renderChart(r, m) {
+  $('results').innerHTML = '<div class="chart" id="chart"></div>';
+  if (!window.echarts) { $('results').innerHTML = '<div class="note bad">The chart library could not be loaded. Use Table.</div>'; return; }
+  const cs = getComputedStyle(document.querySelector('.wl'));
+  const fg = cs.getPropertyValue('--muted').trim(), line = cs.getPropertyValue('--line').trim();
+  chart = echarts.init($('chart'));
+  chart.setOption({
+    color: ['#60a5fa', '#34d399', '#fbbf24', '#f472b6', '#a78bfa', '#fb923c', '#22d3ee', '#f87171'],
+    tooltip: {trigger: 'axis'}, legend: {textStyle: {color: fg}, top: 0, type: 'scroll'},
+    grid: {left: 50, right: 16, top: 36, bottom: 60, containLabel: true},
+    xAxis: {type: 'category', data: m.rows, axisLabel: {color: fg, rotate: m.rows.length > 8 ? 35 : 0}, axisLine: {lineStyle: {color: line}}, name: m.rowLabel, nameLocation: 'middle', nameGap: 44, nameTextStyle: {color: fg}},
+    yAxis: {type: 'value', axisLabel: {color: fg}, splitLine: {lineStyle: {color: line}}},
+    series: m.series.map((s, j) => ({name: s.label, type: 'bar', data: m.data.map(row => row[j]), stack: r.dims.length === 2 ? 'split' : undefined})),
+  });
+}
+window.addEventListener('resize', () => chart && chart.resize());
+
+// ── Render + events ──────────────────────────────────────────────────────────
+function renderAll() { renderTree(); renderHeader(); renderTabs(); renderCriteria(); renderOutput(); renderSQL(); renderStatus(); }
+function changed() { markDirty(); renderTabs(); renderCriteria(); scheduleCompile(); }
+const crit = id => (D().criteria[id] = D().criteria[id] || {});
+
+$('tree').addEventListener('click', e => { const b = e.target.closest('.leaf'); if (b) open(+b.dataset.id); });
+$('btn-new').onclick = async () => {
+  if (dirty && !(await askYesNo('Discard your changes?', 'This worklist has changes that are not saved.', {yes: 'Discard changes'}))) return;
+  blank(); toast('New worklist: fill in the fields marked Required, then add criteria.'); $('f-name').focus();
+};
+$('btn-dup').onclick = () => { const c = clone(S); c.id = null; c.name = S.name + ' (copy)'; c.visibility = 'personal'; c.can_edit = true; c.version = 0; c.versions = []; c.owner_name = null; c.updated_by_name = null; c.updated_at = null; load(c); markDirty(); toast('Duplicated into Personal. Save to keep it.'); };
+$('btn-del').onclick = async () => {
+  if (!S.id || !(await askYesNo(`Delete “${S.name}”?`, 'Its whole version history goes with it. This cannot be undone.', {yes: 'Delete', danger: true, icon: 'error'}))) return;
+  try { await api(`/worklists/api/${S.id}/delete`, {}); markDirty(false); toast('Deleted.'); await loadLibrary(); blank(); } catch (e) { toast(e.message); }
+};
+async function save() {
+  if (!S.can_edit) return toast('Read-only for you: duplicate it into Personal to change it.');
+  const miss = missingFields();
+  if (miss.length) { toast('Fill in the highlighted fields first: ' + miss.map(m => m[1]).join(', ') + '.'); focusMissing(miss[0][0]); return; }
+  try {
+    const r = await api('/worklists/api/save', {id: S.id, name: S.name, description: S.description, folder: S.folder, visibility: S.visibility, definition: D()});
+    markDirty(false); toast(`Saved, version ${r.version}.`); await loadLibrary(r.id);
+  } catch (e) { toast(e.message); }
+}
+$('btn-save').onclick = save;
+$('btn-run2').onclick = startRun;
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); if (S) save(); }
+});
+$('f-history').onchange = async e => {
+  const v = e.target.value; if (!v || !S.id) return;
+  try { const old = await api(`/worklists/api/${S.id}/versions/${v}`); S.definition = old.definition; S.definition.ask = S.definition.ask || []; S.name = old.name; markDirty(); renderAll(); scheduleCompile(0); toast(`Loaded version ${v}. Save to make it current.`); }
+  catch (err) { toast(err.message); }
+  e.target.value = '';
+};
+$('btn-run').onclick = startRun;
+$('btn-csv').onclick = async () => {
+  const blockers = runBlockers();
+  if (blockers.length) { toast('Before it can export: ' + blockers.map(m => m[1]).join(', ') + '.'); focusMissing(blockers[0][0]); return; }
+  try {
+    const r = await fetch('/worklists/api/csv', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({definition: D(), name: S.name})});
+    if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error || 'export failed'); }
+    const blob = await r.blob(), a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = (S.name || 'worklist') + '.csv'; a.click(); URL.revokeObjectURL(a.href);
+    if (r.headers.get('X-Truncated') === '1') toast('Export capped at 100,000 rows.');
+  } catch (e) { toast(e.message); }
+};
+$('btn-copy-sql').onclick = () => {
+  const t = D().sql != null ? D().sql : (sqlInfo && sqlInfo.sql) || '';
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(() => toast('SQL copied.'), () => toast('Copy was blocked; select the SQL and copy it by hand.'));
+};
+async function setMode(hand, sql) {
+  if (hand === handMode() && sql === undefined) return;
+  if (!hand) {
+    if (String(D().sql || '').trim() && !(await askYesNo('Go back to the generated SQL?', 'The SQL you wrote is dropped; the worklist is built from its criteria again.', {yes: 'Use generated SQL'}))) return;
+    D().sql = null;
+  } else {
+    D().sql = sql !== undefined ? sql : ((sqlInfo && sqlInfo.editable_sql) || '');
+  }
+  markDirty(); renderAll();
+  // renderSQL leaves a focused editor alone (so typing is never overwritten); text put
+  // in from outside — the generated SQL, an example — is written here.
+  if (hand) { $('sql-edit').value = D().sql; $('sql-edit').focus(); } else scheduleCompile(0);
+}
+$('sql-seg').addEventListener('click', e => { const b = e.target.closest('[data-mode]'); if (b) setMode(b.dataset.mode === 'hand'); });
+$('btn-start-gen').onclick = async () => {
+  if (!sqlInfo || !sqlInfo.editable_sql) return toast('There is no generated SQL yet: switch to “Generated SQL” and choose a dataset first.');
+  if (String(D().sql || '').trim() && !(await askYesNo('Replace your SQL?', 'The editor gets the SQL generated from the criteria instead.', {yes: 'Replace'}))) return;
+  D().sql = sqlInfo.editable_sql; markDirty(); renderSQL(); $('sql-edit').value = D().sql; $('sql-edit').focus();
+};
+$('sql-edit').addEventListener('input', e => { D().sql = e.target.value; markDirty(); });
+
+// ── SQL reference: every view, column and rule a worklist written in SQL may use ──
+let REF = null;
+async function openReference() {
+  if (!REF) { try { REF = await api('/worklists/api/sql-reference'); } catch (e) { return toast(e.message); } }
+  let view = REF.views[0].view;
+  const rows = (v, q) => v.columns.filter(c => !q || (c.name + ' ' + c.about + ' ' + c.type).toLowerCase().includes(q))
+    .map(c => `<tr><td class="col txt">${esc(c.name)}</td><td class="txt hint">${esc(c.type)}</td><td class="txt">${esc(c.about)}</td></tr>`).join('')
+    || '<tr><td colspan="3" class="txt hint">No column matches.</td></tr>';
+  const draw = () => {
+    const v = REF.views.find(x => x.view === view);
+    $('modal').innerHTML = `<div class="modal-back" id="ref-back"><div class="modal wide ref" role="dialog" aria-modal="true" aria-label="SQL reference">
+      <div class="panel-head"><h2>SQL reference · what a worklist written in SQL may read</h2><button class="btn small" id="ref-close" type="button" style="margin-left:auto">Close</button></div>
+      <div class="panel-body">
+        <div class="ref-rules">${REF.rules.map(r => `<div class="rule"><b>${esc(r.title)}</b>${esc(r.text)}</div>`).join('')}</div>
+        <div class="tabs" role="tablist">${REF.views.map(x => `<button type="button" role="tab" class="tab" data-refview="${esc(x.view)}" aria-selected="${x.view === view}">${esc(x.view)} <span class="hint">${esc(x.label)}</span></button>`).join('')}</div>
+        <span class="hint">${esc(v.about)} ${v.columns.length} columns.</span>
+        <input class="input" id="ref-q" type="search" placeholder="Find a column, e.g. technologist, TAT, protocol…" aria-label="Find a column">
+        <div class="table-wrap" style="max-height:360px"><table><thead><tr><th class="txt">Column</th><th class="txt">Type</th><th class="txt">What it holds</th></tr></thead><tbody id="ref-rows">${rows(v, '')}</tbody></table></div>
+        <div class="panel-head" style="padding:0;border:0"><h2>Examples${CAT.me.can_write_sql ? ' · “Use this” puts one in the SQL editor' : ''}</h2></div>
+        ${REF.examples.map((x, i) => `<div class="rule"><b>${esc(x.title)}</b><span class="hint">${esc(x.what)}</span><pre class="sql" style="margin-top:6px">${highlight(x.sql)}</pre>${CAT.me.can_write_sql ? `<button class="btn small" type="button" data-useex="${i}" style="margin-top:6px">Use this</button>` : ''}</div>`).join('')}
+      </div></div></div>`;
+    $('ref-close').onclick = close;
+    $('ref-back').addEventListener('click', async e => {
+      if (e.target.id === 'ref-back') return close();
+      const t = e.target.closest('[data-refview]'); if (t) { view = t.dataset.refview; draw(); return; }
+      const u = e.target.closest('[data-useex]');
+      if (u) {
+        const sql = REF.examples[+u.dataset.useex].sql;
+        if (handMode() && String(D().sql || '').trim() && !(await askYesNo('Replace the SQL in the editor?', 'The editor gets this example instead of what is in it now.', {yes: 'Use the example'}))) return;
+        close(); setMode(true, sql); toast('Example placed in the SQL editor. Run it, then adjust.');
+      }
+    });
+    $('ref-q').addEventListener('input', e => { $('ref-rows').innerHTML = rows(v, e.target.value.trim().toLowerCase()); });
+  };
+  const close = () => { $('modal').innerHTML = ''; document.removeEventListener('keydown', onKey); };
+  const onKey = e => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  draw();
+}
+$('btn-ref').onclick = openReference;
+$('f-name').addEventListener('input', e => { S.name = e.target.value; markDirty(); });
+$('f-desc').addEventListener('input', e => { S.description = e.target.value; markDirty(); });
+$('f-folder').addEventListener('input', e => { S.folder = e.target.value; markDirty(); });
+$('f-ds').addEventListener('change', e => {
+  if (!e.target.value) return;
+  const old = D(); S.definition = blankDefinition(e.target.value, (old.output || {}).kind || null); S.definition.ask = [];
+  Object.entries(old.criteria || {}).forEach(([k, v]) => { if (FIELD[k] && FIELD[k].datasets.includes(e.target.value)) S.definition.criteria[k] = v; });
+  S.definition.sql = old.sql; markDirty(); S.tab = firstActiveTab(); renderAll(); scheduleCompile(0);
+});
+$('f-vis').addEventListener('click', e => { const b = e.target.closest('button'); if (!b || b.disabled) return; S.visibility = b.dataset.v; markDirty(); renderHeader(); });
+$('tabs').addEventListener('click', e => { const b = e.target.closest('.tab'); if (!b) return; S.tab = b.dataset.tab; renderTabs(); renderCriteria(); });
+$('crit-list').addEventListener('click', e => {
+  const t = e.target;
+  const tog = t.closest('[data-toggle]'); if (tog) { openCards[tog.dataset.toggle] = !openCards[tog.dataset.toggle]; renderCriteria(); return; }
+  const chip = t.closest('[data-chip]');
+  if (chip) { const c = crit(chip.dataset.chip); const v = JSON.parse(chip.getAttribute('data-v')); c.values = (c.values || []).includes(v) ? c.values.filter(x => x !== v) : [...(c.values || []), v]; changed(); return; }
+  if (t.dataset.none) { crit(t.dataset.none).values = []; changed(); return; }
+  if (t.dataset.yn) { crit(t.dataset.yn).value = t.dataset.v; changed(); return; }
+  if (t.dataset.clear) { delete D().criteria[t.dataset.clear]; D().ask = D().ask.filter(x => x !== t.dataset.clear); changed(); }
+});
+function onCritInput(e) {
+  const t = e.target;
+  if (t.dataset.ask) { D().ask = t.checked ? [...new Set([...D().ask, t.dataset.ask])] : D().ask.filter(x => x !== t.dataset.ask); markDirty(); renderCriteria(); return; }
+  const f = t.dataset.f, k = t.dataset.k; if (!f || !k) return;
+  const c = crit(f);
+  if (k === 'mode') {
+    c.mode = t.value;
+    if (c.mode === 'quick' && !c.quick) c.quick = 'last_month';
+    if (c.mode === 'relative') { c.dir = c.dir || 'prev'; c.n = c.n || 7; c.unit = c.unit || 'days'; }
+    if (c.mode === 'fixed') { const today = new Date().toISOString().slice(0, 10); c.from = c.from || today; c.to = c.to || today; }
+    changed(); return;
+  }
+  c[k] = k === 'n' ? Math.max(1, parseInt(t.value || '1', 10)) : t.value;
+  markDirty();
+  if (e.type === 'change' || t.tagName === 'SELECT') changed();
+  else { renderTabs(); scheduleCompile(); const s = t.closest('.crit')?.querySelector('.crit-sum'); if (s) s.textContent = summary(FIELD[f], c); }
+}
+$('crit-list').addEventListener('change', onCritInput);
+$('crit-list').addEventListener('input', e => { if (e.target.tagName === 'INPUT' && e.target.type !== 'radio' && e.target.type !== 'checkbox') onCritInput(e); });
+$('out').addEventListener('click', e => { const b = e.target.closest('[data-kind]'); if (!b) return; D().output.kind = b.dataset.kind; markDirty(); renderOutput(); scheduleCompile(0); });
+$('out').addEventListener('change', e => {
+  const o = D().output, t = e.target;
+  if (t.id === 'o-rows') o.rows = t.value || null;
+  else if (t.id === 'o-colsplit') o.cols = t.value || null;
+  else if (t.id === 'o-sort') o.sort = t.value;
+  else if (t.id === 'o-dir') o.desc = t.value !== 'asc';
+  else if (t.dataset.m) o.measures = t.checked ? [...o.measures, t.dataset.m] : o.measures.filter(x => x !== t.dataset.m);
+  else if (t.dataset.col) {
+    const order = ds().columns.map(c => c.id);
+    o.columns = (t.checked ? [...o.columns, t.dataset.col] : o.columns.filter(x => x !== t.dataset.col)).sort((a, b) => order.indexOf(a) - order.indexOf(b));
+  }
+  markDirty(); renderOutput(); scheduleCompile(0);
+});
+window.addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+
+// ── Start ────────────────────────────────────────────────────────────────────
+(async () => {
+  try { CAT = await api('/worklists/api/catalog'); } catch (e) { $('results').innerHTML = `<div class="note bad">${esc(e.message)}</div>`; return; }
+  CAT.fields.forEach(f => FIELD[f.id] = f);
+  await loadLibrary();
+  const wanted = +(new URLSearchParams(location.search).get('id') || 0);
+  const first = wanted || (LIB[0] && LIB[0].id);
+  if (first) await open(first); else blank();
+})();
+})();
+</script>
+{% include '_footer.html' %}
+</body>
+</html>

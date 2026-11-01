@@ -647,7 +647,7 @@ def _get_user_page_columns():
         ('cd_print',        'Patient CD Log'),
         ('oru',             'Report Intelligence'),
         ('referring_intel', 'Referring Intel'),
-        ('custom_reports',  'Custom Reports'),
+        ('custom_reports',  'Dynamic Worklists'),
         ('mapping',         'Modality / Procedures'),
         ('report_ai',       'AI Reports'),
         ('financial',       'Revenue Intelligence'),

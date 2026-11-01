@@ -40,6 +40,11 @@ routes/
   bitnet_service.py             — Qwen2.5-7B AI assistant proxy (ChatML format)
   hl7_orders_route.py           — HL7 order analytics
   report_cache.py               — shared cache/dropdown helpers
+  worklists.py                  — Dynamic Worklists editor (replaced Custom Reports; key custom_reports)
+utils/
+  worklist_catalog.py           — datasets, fields, measures, column docs the worklist compiler allows
+  worklist_engine.py            — definition → SQL compiler + rpt_<db> sandbox executor
+tests/                          — pytest against a throwaway Postgres (see tests/conftest.py)
 ETL_JOBS/
   etl_job.py                    — Oracle → PostgreSQL ETL pipeline
   etl_analytics_refresh.py      — analytics snapshot rollup (runs nightly at 05:30)
@@ -164,6 +169,17 @@ analytics_snapshots
 
 procedure_exceptions    — legacy exceptions table (see device_exceptions for current)
 ```
+
+### Dynamic Worklists (migrations 0064, 0065)
+```
+rpt.studies / rpt.series / rpt.orders     PACS (etl_didb_studies, etl_didb_serieses, etl_orders)
+rpt.reports / rpt.findings                ORU reports + NLP labels (hl7_oru_reports, hl7_oru_analysis)
+rpt.storage / rpt.crn                     summary_storage_daily, crn_notifications (+ events)
+worklists, worklist_versions              saved definitions, every save kept
+rpt_<db> login role                       read-only, rpt.* only; credentials in settings worklist_db_*
+```
+A column added to an rpt view needs a COLUMNS entry and a COLUMN_DOCS line in
+`utils/worklist_catalog.py` (tests fail otherwise). Worklist SQL runs only on the rpt_ role.
 
 ## Critical Conventions
 
