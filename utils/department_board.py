@@ -386,7 +386,7 @@ def _finish_device(dev, now, day0, day_start_hour):
         'current': current, 'also_in_progress': also,
         'waiting': dev['waiting'], 'incoming': dev['incoming'],
         'free_at': _iso(free_at) if current else None,
-        'queue_clear_at': _iso(queue_clear) if (current or dev['waiting']) else None,
+        'queue_clear_at': _iso(queue_clear) if dev['waiting'] else None,
         'done_today': dev['done_today'], 'last_done_at': _iso(dev['last_done_at']),
         'opening_minutes': dev['opening_minutes'], 'window_start': _iso(start),
         'busy_min': round(busy, 1), 'open_min': round(opened, 1),

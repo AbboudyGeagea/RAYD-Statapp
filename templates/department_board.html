@@ -38,7 +38,7 @@
         .kpis { display: flex; flex-wrap: wrap; gap: 8px; }
         .kpi { background: var(--panel-2); border: 1px solid var(--line); border-radius: 9px; padding: 5px 10px; min-width: 88px; }
         .kpi b { display: block; font-size: 18px; line-height: 1.1; font-variant-numeric: tabular-nums; }
-        .kpi span { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+        .kpi .lbl { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
         .controls { margin-left: auto; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
         .chip { border: 1px solid var(--line); background: var(--panel-2); border-radius: 999px; padding: 4px 11px; cursor: pointer; font-size: 12px; }
         .chip[aria-pressed="true"] { border-color: var(--busy); color: var(--busy); background: var(--busy-soft); font-weight: 700; }
@@ -188,8 +188,8 @@ function render() {
     [t.done_today, 'Done today'],
     [t.utilization_pct == null ? '—' : t.utilization_pct + '%', 'Utilization'],
   ].map(([v, l]) => l === 'Longest wait'
-      ? `<div class="kpi"><b>${v ? `<span data-since="${esc(v)}">${dur(t.longest_wait_min)}</span>` : '—'}</b><span>${l}</span></div>`
-      : `<div class="kpi"><b>${esc(v)}</b><span>${esc(l)}</span></div>`).join('');
+      ? `<div class="kpi"><b>${v ? `<span data-since="${esc(v)}">${dur(t.longest_wait_min)}</span>` : '—'}</b><span class="lbl">${l}</span></div>`
+      : `<div class="kpi"><b>${esc(v)}</b><span class="lbl">${esc(l)}</span></div>`).join('');
 
   const all = B.lanes.map(l => l.modality);
   mods = mods.filter(m => all.includes(m));
