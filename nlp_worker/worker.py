@@ -209,7 +209,8 @@ def _init_vocabulary():
 # negation, so rows it produced must be identifiable and re-analysable once
 # medspaCy is healthy again. Query for the fallback value to find them:
 #   SELECT count(*) FROM hl7_oru_analysis WHERE nlp_version = 'rulebased-v1';
-_ENGINE_MEDSPACY = 'medspacy-v1'
+# v2 = ": no" also negates the finding after it, "Impression: No X" (2026-11-01).
+_ENGINE_MEDSPACY = 'medspacy-v2'
 _ENGINE_FALLBACK = 'rulebased-v1'
 _NLP_MODEL_VERSION = _ENGINE_MEDSPACY      # kept for callers that import it
 
@@ -232,6 +233,25 @@ _NLP = None
 _NLP_WORKERS = max(1, int((os.cpu_count() or 4) * 0.75))
 
 
+def _colon_no_scope(target, modifier, span_between):
+    """ConText on_modifies callback for ": no". Before the colon it negates as
+    medspaCy's stock rule did ("Pneumothorax: no"). After it, it negates like
+    "no" ("Impression: No pneumothorax or effusion"), except a finding that is a
+    checklist label of its own, or one past another label's colon: in
+    "Pneumothorax: no, pleural effusion: moderate" the effusion keeps its value."""
+    if target.start < modifier.start:
+        return True
+    if any(tok.text == ':' for tok in span_between):
+        return False
+    # A label: a colon follows in the same clause.
+    for tok in target.doc[target.start:target.sent.end]:
+        if tok.text == ':':
+            return False
+        if tok.text in (',', ';', '.'):
+            break
+    return True
+
+
 def _load_medspacy():
     global _NLP
     if _NLP is not None:
@@ -242,6 +262,21 @@ def _load_medspacy():
         from medspacy.context import ConTextRule
 
         nlp = medspacy.load(enable=["sentencizer", "medspacy_target_matcher", "medspacy_context"])
+
+        # medspaCy's stock ": no" rule is BACKWARD only, made for checklist lines such
+        # as "Pneumothorax: no". The matcher keeps the longest match, so in "Impression:
+        # No pneumothorax" or "CT head: no intracranial hemorrhage" it beat the FORWARD
+        # "no", negated the word before the colon and left the finding AFFIRMED (a false
+        # critical). Rebuild ConText from the stock rules without it and add ": no" back
+        # as BIDIRECTIONAL, scoped by _colon_no_scope. ": none" stays stock (BACKWARD):
+        # it answers a label ("Pneumothorax: none") and rarely introduces findings.
+        # Same fix as CHN c4cd0a49 and Bekaa cad13d5b.
+        nlp.replace_pipe("medspacy_context", "medspacy_context", config={"rules": None})
+        context = nlp.get_pipe("medspacy_context")
+        context.add([r for r in ConTextRule.from_json(context.DEFAULT_RULES_FILEPATH)
+                     if r.literal.strip().lower() != ': no'])
+        context.add([ConTextRule(": no", "NEGATED_EXISTENCE", direction="BIDIRECTIONAL",
+                                 on_modifies=_colon_no_scope)])
 
         target_matcher = nlp.get_pipe("medspacy_target_matcher")
         seen, rules = set(), []
@@ -594,6 +629,33 @@ def _process_job(conn, job_id, days):
 
 # ── Main loop ─────────────────────────────────────────────────────────────────
 
+def _requeue_colon_no_reports():
+    """Drop medspacy-v1 analysis rows of reports with ": no" in the analysed text, so
+    run_batch re-analyses them with the ": no" fix and the critical findings log is
+    corrected both ways. Skipped while medspaCy is down: the rule-based fallback would
+    stamp them rulebased-v1 instead. Touches v1 rows only, so it is a no-op once they
+    are gone; rulebased-v1 rows are left for the operator, as before."""
+    if _NLP is None:
+        print("[NLP Worker] medspaCy not loaded -- requeue postponed to the next start.")
+        return
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(r"""
+                DELETE FROM hl7_oru_analysis a
+                USING  hl7_oru_reports r
+                WHERE  a.report_id = r.id
+                  AND  a.nlp_version = 'medspacy-v1'
+                  AND  COALESCE(NULLIF(r.impression_text, ''), r.report_text, '') ~* ':\s*no\M'
+            """)
+            requeued = cur.rowcount
+        conn.commit()
+        if requeued:
+            print(f"[NLP Worker] Requeued {requeued} report(s) for the \": no\" fix.")
+    finally:
+        conn.close()
+
+
 def main():
     print("[NLP Worker] Starting up...")
 
@@ -610,6 +672,10 @@ def main():
     print("[NLP Worker] DB ready.")
     _init_vocabulary()
     _load_medspacy()
+    try:
+        _requeue_colon_no_reports()
+    except Exception as e:
+        print(f"[NLP Worker] Requeue for the \": no\" fix failed: {e}")
     print(f"[NLP Worker] Polling jobs every {_JOB_POLL_SECONDS}s, "
           f"medspaCy batch every {_POLL_SECONDS}s.")
 
