@@ -107,6 +107,7 @@
 
         /* ── quiet devices: one line each ── */
         .q-mod { font-size: 10.5px; font-weight: 800; color: var(--muted); letter-spacing: .06em; margin-top: 3px; }
+        .q-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px; }
         .mini { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; gap: 6px; align-items: center;
                 padding: 3px 6px; border-radius: 6px; background: var(--panel-2); font-size: 12px; }
         .mini .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--free); }
@@ -306,15 +307,16 @@ function quietLane(groups) {
   const n = groups.reduce((a, g) => a + g.devices.length, 0);
   const mini = d => {
     const u = d.utilization_pct;
-    const tip = d.status === 'closed' ? 'Closed today' + (d.exception ? ': ' + d.exception : '')
-              : d.last_done_at ? 'Free since ' + hm(parse(d.last_done_at)) : 'Nothing today yet';
+    const tip = [subOf(d), d.status === 'closed' ? 'Closed today' + (d.exception ? ': ' + d.exception : '')
+              : d.last_done_at ? 'Free since ' + hm(parse(d.last_done_at)) : 'Nothing today yet',
+              `utilization ${u == null ? '—' : u + '%'}, ${d.done_today} done today`].filter(Boolean).join(' · ');
     return `<div class="mini ${d.status}" title="${esc(tip)}"><i class="dot"></i>
-      <span class="m-name"><b>${esc(d.name)}</b> <small>${esc(subOf(d))}</small>${d.mapped ? '' : ' <span class="flag">not mapped</span>'}</span>
+      <span class="m-name"><b>${esc(d.name)}</b>${d.mapped ? '' : ' <span class="flag">not mapped</span>'}</span>
       <span class="m-right">${d.status === 'closed' ? 'closed' : `<b>${u == null ? '—' : u + '%'}</b> · ${d.done_today}`}</span></div>`;
   };
   return `<section class="lane" aria-label="Quiet now">
     <div class="lane-head"><span class="mod">Quiet now</span><span class="ls"><b>${n}</b> devices · util · done</span></div>
-    ${groups.map(g => `<div class="q-mod">${esc(g.modality)}</div>${g.devices.map(mini).join('')}`).join('')}
+    ${groups.map(g => `<div class="q-mod">${esc(g.modality)}</div><div class="q-grid">${g.devices.map(mini).join('')}</div>`).join('')}
   </section>`;
 }
 
