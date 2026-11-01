@@ -57,25 +57,29 @@
                       background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; }
 
         /* a device: on the plan, in the rail, or in the tile fallback */
-        .dev { position: absolute; transform: translate(-50%, -50%); width: 158px; text-align: left; cursor: pointer;
-               background: var(--panel); border: 2px solid var(--closed); border-radius: 10px; padding: 0; overflow: hidden;
+        /* Sizes in em: on the plan the badge grows with the plan (container units), so a
+           wall screen gets big badges and a laptop small ones. */
+        .plan { container-type: size; }
+        .dev { position: absolute; transform: translate(-50%, -50%); width: 158px; font-size: 13px; text-align: left; cursor: pointer;
+               background: var(--panel); border: 2px solid var(--closed); border-radius: .75em; padding: 0; overflow: hidden;
                box-shadow: 0 4px 16px rgba(0,0,0,.35); transition: opacity .2s; }
+        .plan .dev { width: clamp(150px, 15cqw, 270px); font-size: clamp(12px, 1.05cqw, 19px); }
         .dev.static { position: relative; transform: none; width: auto; box-shadow: none; }
         .dev:focus-visible { outline: 3px solid var(--fg); }
         .dev.dim { opacity: .18; }
-        .dev .d-top { display: flex; align-items: center; gap: 6px; padding: 4px 8px; background: var(--closed); color: #fff; }
-        .dev .d-name { font-weight: 800; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-        .dev .d-state { margin-left: auto; font-size: 10px; font-weight: 900; letter-spacing: .06em; text-transform: uppercase; flex: none; }
-        .dev .d-sub { font-size: 10.5px; color: var(--muted); padding: 2px 8px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .dev .d-main { font-weight: 700; font-size: 13px; padding: 1px 8px 3px; white-space: nowrap; font-variant-numeric: tabular-nums; }
-        .dev .d-stats { display: flex; gap: 4px; padding: 0 6px 5px; }
-        .st { flex: 1; display: flex; flex-direction: column; align-items: center; border-radius: 6px; background: var(--panel-2);
-              padding: 2px 0; min-width: 0; }
-        .st b { font-size: 15px; line-height: 1.1; font-variant-numeric: tabular-nums; }
-        .st small { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
+        .dev .d-top { display: flex; align-items: center; gap: .45em; padding: .3em .6em; background: var(--closed); color: #fff; }
+        .dev .d-name { font-weight: 800; font-size: 1.05em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+        .dev .d-state { margin-left: auto; font-size: .74em; font-weight: 900; letter-spacing: .06em; text-transform: uppercase; flex: none; }
+        .dev .d-sub { font-size: .8em; color: var(--muted); padding: .15em .75em 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .dev .d-main { font-weight: 700; font-size: 1em; padding: .05em .6em .25em; white-space: nowrap; font-variant-numeric: tabular-nums; }
+        .dev .d-stats { display: flex; gap: .3em; padding: 0 .45em .4em; }
+        .st { flex: 1; display: flex; flex-direction: column; align-items: center; border-radius: .45em; background: var(--panel-2);
+              padding: .15em 0; min-width: 0; }
+        .st b { font-size: 1.18em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+        .st small { font-size: .68em; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
         .st.warn { background: var(--warn-soft); } .st.warn b { color: var(--warn); }
         .st.alert { background: var(--over-soft); } .st.alert b { color: var(--over); }
-        .dev .d-util { height: 4px; background: var(--line); }
+        .dev .d-util { height: .3em; min-height: 3px; background: var(--line); }
         .dev .d-util i { display: block; height: 100%; background: var(--free); }
         .dev.free { border-color: var(--free); } .dev.free .d-top { background: var(--free); }
         .dev.busy { border-color: var(--busy); } .dev.busy .d-top { background: var(--busy); }
@@ -112,6 +116,9 @@
         .mini .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
         .mini .nm small { color: var(--muted); font-weight: 400; }
         .mini .u { font: 10.5px/1 var(--mono); color: var(--muted); }
+        .idle-mods { font-size: 11.5px; color: var(--muted); padding: 4px 2px 0; border-top: 1px solid var(--line); margin-top: 4px; }
+        .idle-mods b { color: var(--fg); }
+        .linkbtn { border: 0; background: none; color: var(--busy); cursor: pointer; padding: 0; font-size: 11.5px; }
         .urow { display: flex; justify-content: space-between; gap: 8px; width: 100%; border: 1px dashed var(--line);
                 background: transparent; border-radius: 6px; padding: 4px 8px; cursor: pointer; margin-bottom: 4px; }
         .urow:hover { background: var(--panel-2); }
@@ -184,7 +191,8 @@ const store = {
   get(k, d) { try { const v = localStorage.getItem('deptboard.' + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
   set(k, v) { try { localStorage.setItem('deptboard.' + k, JSON.stringify(v)); } catch (e) { /* private mode */ } },
 };
-let B = null, offset = 0, lastOk = null, open = null;
+const QUIET_FOLD = 8;                    // more idle devices off the plan than this: folded
+let B = null, offset = 0, lastOk = null, open = null, showIdle = store.get('showIdle', false);
 let mods = store.get('mods', []), initials = store.get('initials', false), site = store.get('site', null);
 
 // Server time is the hospital clock; the browser's may differ. Every countdown runs on
@@ -319,7 +327,10 @@ function fitPlan() {
 window.addEventListener('resize', fitPlan);
 
 function renderRail(offPlan) {
-  const rows = B.lanes.filter(l => l.devices.length || l.unassigned).map(l => {
+  // A modality with nothing busy, waiting, coming or done today is one name in the idle line.
+  const idleLane = l => !l.unassigned && !l.summary.busy && !l.summary.waiting && !l.summary.incoming && !l.summary.done_today;
+  const idle = B.lanes.filter(l => l.devices.length && idleLane(l));
+  const rows = B.lanes.filter(l => (l.devices.length || l.unassigned) && !idleLane(l)).map(l => {
     const s = l.summary;
     return `<button type="button" class="mrow" data-mod="${esc(l.modality)}" aria-pressed="${mods.includes(l.modality)}" title="Show only ${esc(l.modality)}">
       <span class="m">${esc(l.modality)}</span>
@@ -343,11 +354,15 @@ function renderRail(offPlan) {
       <span class="u">${d.status === 'closed' ? 'closed' : (d.utilization_pct == null ? '—' : d.utilization_pct + '%')}</span></button>`;
   $('rail').innerHTML = `
     <div class="box"><h2>By modality</h2>
-      <div class="mrow head"><span></span><span>busy</span><span>waiting</span><span>coming</span><span>util</span></div>${rows}</div>
+      <div class="mrow head"><span></span><span>busy</span><span>waiting</span><span>coming</span><span>util</span></div>${rows}
+      ${idle.length ? `<div class="idle-mods">Idle today: ${idle.map(l => `<b>${esc(l.modality)}</b> (${l.devices.length})`).join(', ')}</div>` : ''}</div>
     ${un ? `<div class="box"><h2>Not yet on a device</h2>${un}</div>` : ''}
     ${off.length ? `<div class="box"><h2>Not on the plan (${off.length})</h2>
       ${offBusy.length ? `<div class="unplaced">${offBusy.map(d => badge(d, 'rail')).join('')}</div>` : ''}
-      ${offQuiet.length ? `<div class="minis">${offQuiet.map(mini).join('')}</div>` : ''}</div>` : ''}
+      ${offQuiet.length > QUIET_FOLD && !showIdle
+        ? `<button type="button" class="linkbtn" data-idle="show">Show ${offQuiet.length} idle devices not on the plan</button>`
+        : offQuiet.length ? `<div class="minis">${offQuiet.map(mini).join('')}</div>
+          ${offQuiet.length > QUIET_FOLD ? '<button type="button" class="linkbtn" data-idle="hide">Hide idle devices</button>' : ''}` : ''}</div>` : ''}
     <div class="box legend">
       <span><i class="sw" style="background:var(--free)"></i>Free · <i class="sw" style="background:var(--busy)"></i>Busy, ends at its procedure's duration · <i class="sw" style="background:var(--over)"></i>Overrun · <i class="sw" style="background:var(--closed)"></i>Closed today</span>
       <span>Waiting box: amber from ${B.thresholds.wait_warn_min} min, red from ${B.thresholds.wait_alert_min} min of the longest wait.</span>
@@ -454,6 +469,8 @@ document.addEventListener('click', e => {
   if (un) { open = {unassigned: un.dataset.unassigned}; renderDrawer(); tick(); return; }
   const row = e.target.closest('.mrow[data-mod]');
   if (row) { toggleMod(row.dataset.mod); return; }
+  const fold = e.target.closest('[data-idle]');
+  if (fold) { showIdle = fold.dataset.idle === 'show'; store.set('showIdle', showIdle); render(); return; }
   if (e.target.closest('[data-close]')) closeDrawer();
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && open) closeDrawer(); });
