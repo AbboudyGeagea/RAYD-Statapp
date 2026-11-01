@@ -104,6 +104,14 @@
         .mrow .w.warn b { color: var(--warn); } .mrow .w.alert b { color: var(--over); }
         .mrow small { color: var(--muted); font-size: 10px; display: block; }
         .unplaced { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+        .minis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px; margin-top: 6px; }
+        .mini { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; gap: 6px; align-items: center; width: 100%;
+                border: 0; background: var(--panel-2); border-radius: 6px; padding: 3px 6px; cursor: pointer; text-align: left; font-size: 11.5px; }
+        .mini .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--free); }
+        .mini.closed { opacity: .6; } .mini.closed .dot { background: var(--closed); }
+        .mini .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+        .mini .nm small { color: var(--muted); font-weight: 400; }
+        .mini .u { font: 10.5px/1 var(--mono); color: var(--muted); }
         .urow { display: flex; justify-content: space-between; gap: 8px; width: 100%; border: 1px dashed var(--line);
                 background: transparent; border-radius: 6px; padding: 4px 8px; cursor: pointer; margin-bottom: 4px; }
         .urow:hover { background: var(--panel-2); }
@@ -327,11 +335,19 @@ function renderRail(offPlan) {
       <b>${esc(l.modality)}</b><span>${u.waiting.length} waiting · ${u.incoming.length} coming${u.in_progress.length ? ' · ' + u.in_progress.length + ' in progress' : ''}</span></button>`;
   }).join('');
   const off = offPlan.filter(shown);
+  // Off the plan, a device with nothing in the room, waiting or coming is one line.
+  const quiet = d => !d.current && !d.waiting.length && !d.incoming.length;
+  const offBusy = off.filter(d => !quiet(d)), offQuiet = off.filter(quiet);
+  const mini = d => `<button type="button" class="mini ${d.status}" data-ae="${esc(d.aetitle)}" title="${esc(d.modality + ' · ' + d.aetitle)} — click for details">
+      <i class="dot"></i><span class="nm">${esc(d.room || d.name)} <small>${esc(d.modality)}</small></span>
+      <span class="u">${d.status === 'closed' ? 'closed' : (d.utilization_pct == null ? '—' : d.utilization_pct + '%')}</span></button>`;
   $('rail').innerHTML = `
     <div class="box"><h2>By modality</h2>
       <div class="mrow head"><span></span><span>busy</span><span>waiting</span><span>coming</span><span>util</span></div>${rows}</div>
     ${un ? `<div class="box"><h2>Not yet on a device</h2>${un}</div>` : ''}
-    ${off.length ? `<div class="box"><h2>Not on the plan (${off.length})</h2><div class="unplaced">${off.map(d => badge(d, 'rail')).join('')}</div></div>` : ''}
+    ${off.length ? `<div class="box"><h2>Not on the plan (${off.length})</h2>
+      ${offBusy.length ? `<div class="unplaced">${offBusy.map(d => badge(d, 'rail')).join('')}</div>` : ''}
+      ${offQuiet.length ? `<div class="minis">${offQuiet.map(mini).join('')}</div>` : ''}</div>` : ''}
     <div class="box legend">
       <span><i class="sw" style="background:var(--free)"></i>Free · <i class="sw" style="background:var(--busy)"></i>Busy, ends at its procedure's duration · <i class="sw" style="background:var(--over)"></i>Overrun · <i class="sw" style="background:var(--closed)"></i>Closed today</span>
       <span>Waiting box: amber from ${B.thresholds.wait_warn_min} min, red from ${B.thresholds.wait_alert_min} min of the longest wait.</span>
@@ -430,7 +446,7 @@ function toggleMod(m) {
 }
 $('mod-chips').addEventListener('click', e => { const b = e.target.closest('[data-mod]'); if (b) toggleMod(b.dataset.mod); });
 document.addEventListener('click', e => {
-  const dev = e.target.closest('.dev[data-ae]');
+  const dev = e.target.closest('.dev[data-ae], .mini[data-ae]');
   if (dev) { open = {ae: dev.dataset.ae}; renderDrawer(); tick(); return; }
   const un = e.target.closest('[data-unassigned]');
   if (un) { open = {unassigned: un.dataset.unassigned}; renderDrawer(); tick(); return; }
