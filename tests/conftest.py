@@ -370,6 +370,10 @@ def mllp_port(app):
 @pytest.fixture
 def brayn_worker(app, mllp_port):
     from utils import brayn_shadow
+    # Earlier tests' messages left wake-ups queued: the worker would read the on/off
+    # switch at once, and a read racing the test's pipe.brayn() caches "off" for 30 s.
+    while not brayn_shadow._wake.empty():
+        brayn_shadow._wake.get_nowait()
     thread = _REAL_START_WORKER[0](app)
     yield thread
     brayn_shadow.stop_worker()
