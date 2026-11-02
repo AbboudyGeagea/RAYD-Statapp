@@ -58,11 +58,21 @@ TEST_DB = os.environ.get('RAYD_TEST_DB', 'rayd_pytest_laumc')
 DATA_TABLES = [
     'hl7_oru_analysis', 'ai_nlp_cache', 'crn_events', 'crn_notifications',
     'hl7_oru_reports', 'hl7_orders', 'hl7_scn_studies', 'order_status_log',
+    # what the Dynamic Worklist views read (migration 0136): the RIS and PACS detail,
+    # before the PACS studies they point at (std_pps.study_db_uid)
+    'std_pps_person_reference', 'std_worklist_scheduled', 'std_worklist_arrivals',
+    'std_worklist_exam_done', 'std_worklist_cancellations', 'std_reports', 'std_pps',
+    'std_patient_ids', 'std_patients_ris', 'std_resources_ris', 'std_procedure_priorities',
+    'etl_didb_serieses', 'summary_storage_daily',
     'etl_didb_studies', 'etl_patient_view', 'etl_orders',
     # BRAYN (migration 0133), children of the archive first
     'brayn_findings', 'hl7_study_events', 'hl7_patients', 'hl7_message_archive',
     'brayn_study_state', 'brayn_interface_stats', 'brayn_unknown_values',
 ]
+
+# Emptied with TRUNCATE before the DELETEs: crn_events rejects DELETE (an append-only
+# trigger, migration 0129), and crn_notifications / crn_recipients point at each other.
+TRUNCATE_TABLES = ['crn_events', 'crn_recipients', 'crn_notifications']
 
 # Seeded configuration, snapshotted after migrations and restored before every test.
 CONFIG_TABLES = [
@@ -71,6 +81,8 @@ CONFIG_TABLES = [
     'hl7_field_mappings', 'hl7_field_targets',
     # what the Live Department board reads for durations and opening minutes
     'procedure_duration_map', 'device_weekly_schedule', 'device_exceptions',
+    # name merging the worklist views read
+    'physician_alias_map',
 ]
 
 # The bootstrap app.py runs before migrations (inline in create_app()).
@@ -225,7 +237,24 @@ def app(database_url):
     @login.request_loader
     def _load(req):
         role = req.headers.get('X-Test-Role')
-        return FakeUser(role, int(req.headers.get('X-Test-Uid', 4242))) if role else None
+        if role:
+            return FakeUser(role, int(req.headers.get('X-Test-Uid', 4242)))
+        # A user id alone: a real row of users (what saved worklists point at).
+        uid = req.headers.get('X-Test-Uid')
+        if not uid:
+            return None
+        from db import db
+        from sqlalchemy import text
+        row = db.session.execute(text('SELECT id, role FROM users WHERE id = :id'),
+                                 {'id': int(uid)}).first()
+        return FakeUser(row[1], row[0]) if row else None
+
+    # A test may hold an app context across requests (tests/test_worklists.py), and a
+    # request reuses it, so Flask-Login's cached user would outlive its request.
+    @flask_app.before_request
+    def _forget_cached_user():
+        from flask import g
+        g.pop('_login_user', None)
 
     run_migrations(flask_app)
 
@@ -245,8 +274,10 @@ def app(database_url):
     flask_app.register_blueprint(brayn_bp)
     from routes.live_feed import live_feed_bp
     from routes.department_board import department_board_bp
+    from routes.worklists import worklists_bp
     flask_app.register_blueprint(live_feed_bp)
     flask_app.register_blueprint(department_board_bp)
+    flask_app.register_blueprint(worklists_bp)
 
     from db import db
     from sqlalchemy import text
@@ -254,7 +285,8 @@ def app(database_url):
         global _DATA, _CONFIG
         exists = lambda t: db.session.execute(text("SELECT to_regclass(:t) IS NOT NULL"),
                                               {'t': f'public.{t}'}).scalar()
-        _DATA = [t for t in DATA_TABLES if exists(t)]
+        _TRUNCATE[:] = [t for t in TRUNCATE_TABLES if exists(t)]
+        _DATA = [t for t in DATA_TABLES if exists(t) and t not in _TRUNCATE]
         _CONFIG = [t for t in CONFIG_TABLES if exists(t)]
         for t in _CONFIG:
             db.session.execute(text(f'DROP TABLE IF EXISTS _snap_{t}'))
@@ -263,7 +295,7 @@ def app(database_url):
     return flask_app
 
 
-_DATA, _CONFIG = [], []
+_DATA, _CONFIG, _TRUNCATE = [], [], []
 
 
 def _reset_caches():
@@ -284,6 +316,8 @@ def clean(request, app):
     from db import db
     from sqlalchemy import text
     with app.app_context():
+        if _TRUNCATE:
+            db.session.execute(text(f'TRUNCATE {", ".join(_TRUNCATE)} CASCADE'))
         for t in _DATA:
             db.session.execute(text(f'DELETE FROM {t}'))
         for t in _CONFIG:

@@ -45,6 +45,15 @@ routes/
                                    in progress until the R2I lifecycle feed is live.
                                    /viewer/live (live_feed, RIS SPS via Oracle) redirects here.
                                    Licence + page permission `live_feed`
+  worklists.py                  — Dynamic Worklists (/worklists; RAYD V2.0 editor from HL7 via
+                                   Bekaa, 2026-11-02) — REPLACED Custom Reports (custom_reports.py,
+                                   report_widgets.py and 3 templates removed; same licence key +
+                                   page permission `custom_reports`; /reports/custom redirects).
+                                   Reads only the rpt.* views of migration 0136: rpt.exams (RIS
+                                   exam from the Oracle RIS ETL, Report 35's definitions) + Bekaa's
+                                   PACS views (studies, series, reports, findings, storage, crn).
+                                   Catalog in utils/worklist_catalog.py (tests fail if a view
+                                   column is undocumented); SQL runs only as the rpt_<db> role
   report_cache.py               — shared cache/dropdown helpers
 hl7_listener.py                 — MLLP :6661: stores ORU (fill-only), orders, PACS completions;
                                    then hands each message to BRAYN AFTER the ACK
