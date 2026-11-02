@@ -34,7 +34,7 @@
 {% set ep = request.endpoint or '' %}
 {% set overview_on   = ep.startswith('viewer.') %}
 {% set admin_on      = ep in ['admin.admin_dashboard','admin.user_management','admin.audit_log','admin.hl7_forward_config'] or ep.startswith('db_manager.') or ep.startswith('mapping.') or ep.startswith('crn_admin.') or ep.startswith('brayn_console.') %}
-{% set ops_on        = ep.startswith('live_feed.') or ep.startswith('hl7_orders.') or ep.startswith('report_31.') or (ep.startswith('crn_admin.') and current_user.role != 'admin') %}
+{% set ops_on        = ep.startswith('live_feed.') or ep.startswith('department_board.') or ep.startswith('hl7_orders.') or ep.startswith('report_31.') or (ep.startswith('crn_admin.') and current_user.role != 'admin') %}
 {% set analytics_on  = ep.startswith('oru.') or ep.startswith('referring_intel.') or ep.startswith('custom_reports.') %}
 {% set ai_on         = ep.startswith('report_ai.') %}
 {% set finance_on    = ep.startswith('financial_dashboard.') %}
@@ -142,8 +142,8 @@
         </button>
         <div id="sg-ops" class="sg-body {% if not ops_on %}closed{% endif %} space-y-0.5 mb-2">
             {% if license.get('live_feed') and (current_user.role == 'admin' or current_user|user_has_page('live_feed')) %}
-            <a href="{{ url_for('live_feed.live_page') }}" target="_blank"
-               class="sidebar-item {% if ep.startswith('live_feed.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
+            <a href="{{ url_for('department_board.page') }}" target="_blank"
+               class="sidebar-item {% if ep.startswith('live_feed.') or ep.startswith('department_board.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
                 <i class="bi bi-activity flex-shrink-0" style="color:#22c55e;"></i> Live Department View
                 <span style="font-size:8px;font-weight:900;padding:1px 5px;border-radius:4px;background:rgba(34,197,94,0.15);color:#22c55e;text-transform:uppercase;letter-spacing:0.08em;">LIVE</span>
             </a>

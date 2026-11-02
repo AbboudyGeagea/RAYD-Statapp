@@ -73,9 +73,13 @@ live_feed_bp = Blueprint("live_feed", __name__)
 @live_feed_bp.route("/viewer/live")
 @login_required
 def live_page():
+    """Replaced by the Live Department board (routes/department_board.py, ported from
+    the HL7 branch, operator 2026-11-02). This page's /status and the rest below still
+    answer; templates/live_feed.html is kept, no longer linked."""
     if not user_has_page(current_user, 'live_feed'):
         abort(403)
-    return render_template("live_feed.html")
+    from flask import redirect, url_for
+    return redirect(url_for('department_board.page'))
 
 
 # ── API — full device status snapshot (live RIS SPS query) ────────────────────

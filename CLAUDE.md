@@ -37,6 +37,14 @@ routes/
   viewer_controller.py          — daily briefing, home dashboard
   mapping_controller.py         — AE/modality/procedure mapping config (lazy-loaded tabs)
   hl7_orders_route.py           — HL7 order analytics
+  department_board.py           — Live Department board (/viewer/department), ported from HL7
+                                   (2026-11-02): per device, study in progress + expected
+                                   finish, who waits, what is coming, utilization. Reads
+                                   brayn_study_state only (data in utils/department_board.py),
+                                   on hospital time — EMPTY while BRAYN is off; no waiting /
+                                   in progress until the R2I lifecycle feed is live.
+                                   /viewer/live (live_feed, RIS SPS via Oracle) redirects here.
+                                   Licence + page permission `live_feed`
   report_cache.py               — shared cache/dropdown helpers
 hl7_listener.py                 — MLLP :6661: stores ORU (fill-only), orders, PACS completions;
                                    then hands each message to BRAYN AFTER the ACK

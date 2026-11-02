@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>RAYD | Live Department</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
+    <style>
+        :root {
+            --bg: #0a0f0d; --panel: #111714; --panel-2: #172019; --line: #223029;
+            --fg: #e6eee9; --muted: #8fa199; --faint: #5f7069;
+            --free: #22c55e; --free-soft: rgba(34,197,94,.14);
+            --busy: #3b82f6; --busy-soft: rgba(59,130,246,.16);
+            --over: #ef4444; --over-soft: rgba(239,68,68,.16);
+            --warn: #f59e0b; --warn-soft: rgba(245,158,11,.16);
+            --closed: #64748b;
+            --mono: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+        }
+        body.light {
+            --bg: #eef3f0; --panel: #ffffff; --panel-2: #f5f8f6; --line: #d6e0da;
+            --fg: #18221d; --muted: #586a62; --faint: #8a9a93;
+            --free: #15803d; --busy: #1d4ed8; --over: #b91c1c; --warn: #b45309;
+        }
+        * { box-sizing: border-box; }
+        [hidden] { display: none !important; }
+        html, body { height: 100%; }
+        body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.35 'Inter', system-ui, sans-serif;
+               display: flex; flex-direction: column; overflow: hidden; }
+        button, select { font: inherit; color: inherit; }
+
+        /* ── top bar ── */
+        .top { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; padding: 6px 12px;
+               background: var(--panel); border-bottom: 1px solid var(--line); flex: none; }
+        .top h1 { margin: 0; font-size: 16px; font-weight: 800; display: flex; gap: 7px; align-items: center; white-space: nowrap; }
+        .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--free); box-shadow: 0 0 0 3px var(--free-soft); }
+        .live-dot.stale { background: var(--over); box-shadow: 0 0 0 3px var(--over-soft); }
+        .clock { font: 600 18px/1 var(--mono); }
+        .date { color: var(--muted); font-size: 11px; }
+        .kpis { display: flex; flex-wrap: wrap; gap: 6px; }
+        .kpi { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 3px 9px; }
+        .kpi b { font-size: 15px; font-variant-numeric: tabular-nums; margin-right: 5px; }
+        .kpi .lbl { color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; }
+        .controls { margin-left: auto; display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+        .chip { border: 1px solid var(--line); background: var(--panel-2); border-radius: 999px; padding: 2px 9px; cursor: pointer; font-size: 11.5px; }
+        .chip[aria-pressed="true"] { border-color: var(--busy); color: var(--busy); background: var(--busy-soft); font-weight: 700; }
+        .updated { color: var(--muted); font-size: 11px; min-width: 96px; text-align: right; }
+        .banner { margin: 8px 12px 0; padding: 6px 10px; border-radius: 8px; background: var(--over-soft); color: var(--over); flex: none; }
+
+        /* ── stage: the plan, and the rail beside it ── */
+        .stage { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 10px; padding: 10px; }
+        .plan-box { position: relative; min-height: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+                    display: flex; align-items: center; justify-content: center; overflow: hidden; }
+        .plan { position: relative; flex: none; }
+        .plan img { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 6px; user-select: none; pointer-events: none; }
+        body:not(.light) .plan img { filter: brightness(.82) contrast(1.05); }
+        .plan-title { position: absolute; left: 12px; top: 8px; z-index: 2; font-size: 11px; color: var(--muted);
+                      background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; }
+
+        /* a device: on the plan, in the rail, or in the tile fallback */
+        /* Sizes in em: on the plan the badge grows with the plan (container units), so a
+           wall screen gets big badges and a laptop small ones. */
+        .plan { container-type: size; }
+        .dev { position: absolute; transform: translate(-50%, -50%); width: 158px; font-size: 13px; text-align: left; cursor: pointer;
+               background: var(--panel); border: 2px solid var(--closed); border-radius: .75em; padding: 0; overflow: hidden;
+               box-shadow: 0 4px 16px rgba(0,0,0,.35); transition: opacity .2s; }
+        .plan .dev { width: clamp(150px, 15cqw, 270px); font-size: clamp(12px, 1.05cqw, 19px); }
+        .dev.static { position: relative; transform: none; width: auto; box-shadow: none; }
+        .dev:focus-visible { outline: 3px solid var(--fg); }
+        .dev.dim { opacity: .18; }
+        .dev .d-top { display: flex; align-items: center; gap: .45em; padding: .3em .6em; background: var(--closed); color: #fff; }
+        .dev .d-name { font-weight: 800; font-size: 1.05em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+        .dev .d-state { margin-left: auto; font-size: .74em; font-weight: 900; letter-spacing: .06em; text-transform: uppercase; flex: none; }
+        .dev .d-sub { font-size: .8em; color: var(--muted); padding: .15em .75em 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .dev .d-main { font-weight: 700; font-size: 1em; padding: .05em .6em .25em; white-space: nowrap; font-variant-numeric: tabular-nums; }
+        .dev .d-stats { display: flex; gap: .3em; padding: 0 .45em .4em; }
+        .st { flex: 1; display: flex; flex-direction: column; align-items: center; border-radius: .45em; background: var(--panel-2);
+              padding: .15em 0; min-width: 0; }
+        .st b { font-size: 1.18em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+        .st small { font-size: .68em; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
+        .st.warn { background: var(--warn-soft); } .st.warn b { color: var(--warn); }
+        .st.alert { background: var(--over-soft); } .st.alert b { color: var(--over); }
+        .dev .d-util { height: .3em; min-height: 3px; background: var(--line); }
+        .dev .d-util i { display: block; height: 100%; background: var(--free); }
+        .dev.free { border-color: var(--free); } .dev.free .d-top { background: var(--free); }
+        .dev.busy { border-color: var(--busy); } .dev.busy .d-top { background: var(--busy); }
+        .dev.overrun { border-color: var(--over); } .dev.overrun .d-top { background: var(--over); }
+        .dev.overrun .d-main { color: var(--over); }
+        .dev.closed { opacity: .65; }
+
+        .tiles { align-self: stretch; width: 100%; overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+        .tiles .hint { color: var(--muted); font-size: 12px; }
+        .tile-row { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 10px; align-items: start; }
+        .tile-row .mod { font-size: 20px; font-weight: 900; padding-top: 4px; }
+        .tile-row .devs { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(165px, 1fr)); }
+
+        /* ── rail ── */
+        .rail { min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
+        .box { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px; }
+        .box h2 { margin: 0 0 6px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
+        .mrow { display: grid; grid-template-columns: 38px repeat(4, minmax(0, 1fr)); gap: 4px; align-items: center; width: 100%;
+                border: 0; background: transparent; padding: 3px 2px; border-radius: 6px; cursor: pointer; text-align: center; }
+        .mrow:hover { background: var(--panel-2); }
+        .mrow[aria-pressed="true"] { background: var(--busy-soft); }
+        .mrow.head { cursor: default; font-size: 9.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+        .mrow.head:hover { background: transparent; }
+        .mrow .m { font-weight: 900; text-align: left; font-size: 14px; }
+        .mrow b { font-variant-numeric: tabular-nums; }
+        .mrow .w.warn b { color: var(--warn); } .mrow .w.alert b { color: var(--over); }
+        .mrow small { color: var(--muted); font-size: 10px; display: block; }
+        .unplaced { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+        .minis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px; margin-top: 6px; }
+        .mini { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; gap: 6px; align-items: center; width: 100%;
+                border: 0; background: var(--panel-2); border-radius: 6px; padding: 3px 6px; cursor: pointer; text-align: left; font-size: 11.5px; }
+        .mini .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--free); }
+        .mini.closed { opacity: .6; } .mini.closed .dot { background: var(--closed); }
+        .mini .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+        .mini .nm small { color: var(--muted); font-weight: 400; }
+        .mini .u { font: 10.5px/1 var(--mono); color: var(--muted); }
+        .idle-mods { font-size: 11.5px; color: var(--muted); padding: 4px 2px 0; border-top: 1px solid var(--line); margin-top: 4px; }
+        .idle-mods b { color: var(--fg); }
+        .linkbtn { border: 0; background: none; color: var(--busy); cursor: pointer; padding: 0; font-size: 11.5px; }
+        .urow { display: flex; justify-content: space-between; gap: 8px; width: 100%; border: 1px dashed var(--line);
+                background: transparent; border-radius: 6px; padding: 4px 8px; cursor: pointer; margin-bottom: 4px; }
+        .urow:hover { background: var(--panel-2); }
+        .legend { font-size: 11px; color: var(--muted); display: flex; flex-direction: column; gap: 3px; }
+        .legend i.sw { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+
+        /* ── details drawer ── */
+        .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(440px, 100%); z-index: 30; background: var(--panel);
+                  border-left: 1px solid var(--line); box-shadow: -12px 0 32px rgba(0,0,0,.4); display: flex; flex-direction: column; }
+        .dr-head { padding: 12px 14px; border-bottom: 1px solid var(--line); display: flex; gap: 10px; align-items: flex-start; }
+        .dr-head h3 { margin: 0; font-size: 18px; }
+        .dr-head .sub { color: var(--muted); font-size: 12px; }
+        .dr-close { margin-left: auto; border: 1px solid var(--line); background: var(--panel-2); border-radius: 8px; padding: 4px 10px; cursor: pointer; }
+        .dr-body { padding: 12px 14px; overflow: auto; display: flex; flex-direction: column; gap: 14px; }
+        .dr-sec h4 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted);
+                     display: flex; justify-content: space-between; }
+        .now { border-radius: 8px; padding: 8px 10px; background: var(--busy-soft); }
+        .now.overrun { background: var(--over-soft); }
+        .now .who { font-weight: 800; font-size: 15px; }
+        .now .what { color: var(--muted); }
+        .now .times { display: flex; justify-content: space-between; margin-top: 6px; font-variant-numeric: tabular-nums; }
+        .now .left { font-weight: 800; }
+        .now.overrun .left { color: var(--over); }
+        .bar { height: 6px; border-radius: 99px; background: var(--line); overflow: hidden; margin-top: 5px; }
+        .bar > i { display: block; height: 100%; background: var(--busy); border-radius: 99px; }
+        .now.overrun .bar > i { background: var(--over); }
+        .ubar > i { background: var(--free); }
+        .list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+        .list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: baseline;
+                   padding: 4px 6px; border-radius: 6px; background: var(--panel-2); }
+        .list .p b { font-weight: 700; } .list .p small { color: var(--muted); display: block; }
+        .wait { font: 700 12px/1 var(--mono); padding: 3px 6px; border-radius: 6px; background: var(--free-soft); color: var(--free); white-space: nowrap; }
+        .wait.warn { background: var(--warn-soft); color: var(--warn); }
+        .wait.alert { background: var(--over-soft); color: var(--over); }
+        .t { font: 12px/1 var(--mono); color: var(--muted); white-space: nowrap; }
+        .kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; font-size: 12.5px; }
+        .kv span { color: var(--muted); }
+        .none { color: var(--muted); font-size: 12px; }
+        @media (max-width: 900px) { .stage { grid-template-columns: minmax(0, 1fr); } body { overflow: auto; } }
+    </style>
+</head>
+<body class="{{ 'light' if ui_theme == 'light' }}">
+<header class="top">
+    <h1><span class="live-dot" id="dot" title="Live"></span> Live Department</h1>
+    <div><div class="clock" id="clock">--:--</div><div class="date" id="date"></div></div>
+    <div class="kpis" id="kpis"></div>
+    <div class="controls">
+        <div id="mod-chips" style="display:flex;flex-wrap:wrap;gap:5px"></div>
+        <select class="chip" id="site" aria-label="Site" hidden></select>
+        <button class="chip" id="names" type="button" aria-pressed="false" title="In the details: patient names or initials only">
+            <i class="bi bi-eye-slash"></i> Initials</button>
+        <span class="updated" id="updated"></span>
+    </div>
+</header>
+<div class="banner" id="banner" hidden></div>
+<div class="stage">
+    <section class="plan-box" id="plan-box" aria-label="Department"><div class="none">Loading the department…</div></section>
+    <aside class="rail" id="rail" aria-label="Modalities"></aside>
+</div>
+<aside class="drawer" id="drawer" hidden role="dialog" aria-modal="false" aria-labelledby="dr-title"></aside>
+
+<script>
+(function () {
+'use strict';
+const REFRESH = {{ refresh_seconds|int }} * 1000;
+const STATIC = "{{ url_for('static', filename='') }}";
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('deptboard.' + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem('deptboard.' + k, JSON.stringify(v)); } catch (e) { /* private mode */ } },
+};
+const QUIET_FOLD = 8;                    // more idle devices off the plan than this: folded
+let B = null, offset = 0, lastOk = null, open = null, showIdle = store.get('showIdle', false);
+let mods = store.get('mods', []), initials = store.get('initials', false), site = store.get('site', null);
+
+// Server time is the hospital clock; the browser's may differ. Every countdown runs on
+// server time = browser time + offset, measured at each fetch.
+const serverNow = () => new Date(Date.now() + offset);
+const parse = s => s ? new Date(s) : null;          // naive ISO = hospital local time
+const hm = d => d ? d.toTimeString().slice(0, 5) : '';
+const mins = (a, b) => (a - b) / 60000;
+function dur(m) {
+  m = Math.max(0, Math.round(m));
+  return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}`;
+}
+const short = m => { m = Math.max(0, Math.round(m)); return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}`; };
+function who(it) {
+  const n = it.patient || '';
+  if (!initials) return n;
+  return n.split(/\s+/).filter(Boolean).map(w => w[0].toUpperCase() + '.').join(' ') || '—';
+}
+const level = m => m == null ? '' : m >= B.thresholds.wait_alert_min ? 'alert' : m >= B.thresholds.wait_warn_min ? 'warn' : '';
+const LABEL = {free: 'Free', busy: 'Busy', overrun: 'Overrun', closed: 'Closed'};
+const allDevices = () => B.lanes.flatMap(l => l.devices);
+const shown = d => !mods.length || mods.includes(d.modality);
+
+async function load() {
+  try {
+    const q = site ? '?site=' + encodeURIComponent(site) : '';
+    const r = await fetch('/viewer/department/api/board' + q, {headers: {'Accept': 'application/json'}});
+    if (r.status === 401 || r.redirected) { location.reload(); return; }
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'HTTP ' + r.status);
+    // First visit with floor plans: open the plan that has the most devices placed.
+    if (site === null && d.plans.length) {
+      const placed = c => d.lanes.flatMap(l => l.devices).filter(x => x.site_code === c && x.x != null).length;
+      site = [...d.plans].sort((a, b) => placed(b.site_code) - placed(a.site_code))[0].site_code;
+      store.set('site', site);
+      return load();
+    }
+    B = d; offset = parse(d.now) - Date.now(); lastOk = Date.now();
+    $('banner').hidden = true;
+    render();
+  } catch (e) {
+    $('banner').hidden = false;
+    $('banner').textContent = 'The board could not be refreshed (' + e.message + '). ' +
+      (lastOk ? 'Showing the data from ' + hm(new Date(lastOk + offset)) + '.' : '');
+  }
+}
+
+// ── one device badge ──────────────────────────────────────────────────────────
+function badge(d, where) {
+  const c = d.current;
+  let main;
+  if (c) main = `<span data-end="${esc(c.expected_end)}">ends ${hm(parse(c.expected_end))}</span>`;
+  else if (d.status === 'closed') main = 'Closed today';
+  else main = d.last_done_at ? `free since ${hm(parse(d.last_done_at))}` : 'free';
+  const w = d.waiting.length, first = d.waiting[0];
+  const u = d.utilization_pct;
+  const label = d.room || d.name;
+  const sub = [d.room ? d.name : '', d.mapped ? '' : 'not in AE map'].filter(Boolean).join(' · ');
+  const pos = where === 'plan' ? ` style="left:${d.x}%;top:${d.y}%"` : '';
+  return `<button type="button" class="dev ${d.status}${where === 'plan' ? '' : ' static'}${shown(d) ? '' : ' dim'}"${pos}
+      data-ae="${esc(d.aetitle)}" title="${esc(d.modality + ' · ' + d.aetitle)} — click for details">
+    <div class="d-top"><span class="d-name">${esc(label)}</span><span class="d-state">${LABEL[d.status]}</span></div>
+    ${sub ? `<div class="d-sub">${esc(sub)}</div>` : ''}
+    <div class="d-main">${main}</div>
+    <div class="d-stats">
+      <span class="st ${w ? level(first.wait_min) : ''}" title="Waiting, and the longest wait"><b>${w}</b><small>${w ? `wait <span data-since="${esc(first.arrived_at)}" data-fmt="short">${short(first.wait_min)}</span>` : 'waiting'}</small></span>
+      <span class="st" title="Coming: ordered or scheduled, not arrived"><b>${d.incoming.length}</b><small>coming</small></span>
+      <span class="st" title="Utilization so far today"><b>${u == null ? '—' : u + '%'}</b><small>util</small></span>
+    </div>
+    <div class="d-util"><i style="width:${Math.min(100, u || 0)}%"></i></div>
+  </button>`;
+}
+
+// ── render ────────────────────────────────────────────────────────────────────
+function render() {
+  if (!B) return;
+  const t = B.totals;
+  const kpi = (v, l) => `<div class="kpi"><b>${v}</b><span class="lbl">${esc(l)}</span></div>`;
+  $('kpis').innerHTML = kpi(`${t.busy}/${t.devices}`, 'busy') + kpi(t.overrun, 'overrun') +
+    kpi(t.waiting, 'waiting') +
+    kpi(t.longest_wait_since ? `<span data-since="${esc(t.longest_wait_since)}">${dur(t.longest_wait_min)}</span>` : '—', 'longest wait') +
+    kpi(t.incoming, 'coming') + kpi(t.done_today, 'done today') +
+    kpi(t.utilization_pct == null ? '—' : t.utilization_pct + '%', 'utilization');
+
+  const all = B.lanes.map(l => l.modality);
+  mods = mods.filter(m => all.includes(m));
+  $('mod-chips').innerHTML = `<button class="chip" type="button" data-mod="" aria-pressed="${!mods.length}">All</button>` +
+    all.map(m => `<button class="chip" type="button" data-mod="${esc(m)}" aria-pressed="${mods.includes(m)}">${esc(m)}</button>`).join('');
+  if (B.sites.length > 1 || B.plans.length) {
+    $('site').hidden = false;
+    $('site').innerHTML = '<option value="">All sites</option>' + B.sites.map(s =>
+      `<option value="${esc(s.code)}"${s.code === site ? ' selected' : ''}>${esc(s.name)}${B.plans.some(p => p.site_code === s.code) ? ' · plan' : ''}</option>`).join('');
+  }
+  $('names').setAttribute('aria-pressed', String(initials));
+
+  const plan = B.plans.find(p => p.site_code === site);
+  const devs = allDevices();
+  const onPlan = plan ? devs.filter(d => d.x != null && d.site_code === site) : [];
+  const offPlan = devs.filter(d => !onPlan.includes(d));
+
+  if (plan) {
+    $('plan-box').innerHTML = `<div class="plan-title">${esc(plan.site_name)} · floor plan</div>
+      <div class="plan" id="plan" data-w="${plan.width || 1600}" data-h="${plan.height || 900}">
+        <img src="${esc(STATIC + plan.image_path)}" alt="">${onPlan.map(d => badge(d, 'plan')).join('')}</div>`;
+    if (!plan.width || !plan.height) {           // size not stored at upload: read it off the image
+      const img = $('plan').querySelector('img');
+      img.addEventListener('load', () => {
+        $('plan').dataset.w = img.naturalWidth; $('plan').dataset.h = img.naturalHeight; fitPlan();
+      }, {once: true});
+    }
+    fitPlan();
+  } else {
+    $('plan-box').innerHTML = `<div class="tiles">
+      <div class="hint"><i class="bi bi-info-circle"></i> ${site ? 'No floor plan for this site yet' : 'Showing every site'}:
+        devices are grouped by modality. Upload a plan and place the devices in Admin › Floor plan to see them where they are.</div>
+      ${B.lanes.filter(l => l.devices.length).map(l => `<div class="tile-row"><div class="mod">${esc(l.modality)}</div>
+        <div class="devs">${l.devices.map(d => badge(d, 'tile')).join('')}</div></div>`).join('')}</div>`;
+  }
+  renderRail(plan ? offPlan : []);
+  if (open) renderDrawer();
+  tick();
+}
+
+function fitPlan() {
+  const box = $('plan-box'), p = $('plan');
+  if (!p) return;
+  const W = +p.dataset.w, H = +p.dataset.h, pad = 20;
+  const s = Math.min((box.clientWidth - pad) / W, (box.clientHeight - pad) / H);
+  p.style.width = Math.max(100, W * s) + 'px';
+  p.style.height = Math.max(60, H * s) + 'px';
+}
+window.addEventListener('resize', fitPlan);
+
+function renderRail(offPlan) {
+  // A modality with nothing busy, waiting, coming or done today is one name in the idle line.
+  const idleLane = l => !l.unassigned && !l.summary.busy && !l.summary.waiting && !l.summary.incoming && !l.summary.done_today;
+  const idle = B.lanes.filter(l => l.devices.length && idleLane(l));
+  const rows = B.lanes.filter(l => (l.devices.length || l.unassigned) && !idleLane(l)).map(l => {
+    const s = l.summary;
+    return `<button type="button" class="mrow" data-mod="${esc(l.modality)}" aria-pressed="${mods.includes(l.modality)}" title="Show only ${esc(l.modality)}">
+      <span class="m">${esc(l.modality)}</span>
+      <span><b>${s.busy}/${s.devices}</b><small>busy</small></span>
+      <span class="w ${level(s.longest_wait_min)}"><b>${s.waiting}</b><small>${s.longest_wait_since ? `<span data-since="${esc(s.longest_wait_since)}" data-fmt="short">${short(s.longest_wait_min)}</span>` : 'waiting'}</small></span>
+      <span><b>${s.incoming}</b><small>coming</small></span>
+      <span><b>${s.utilization_pct == null ? '—' : s.utilization_pct + '%'}</b><small>util</small></span>
+    </button>`;
+  }).join('');
+  const un = B.lanes.filter(l => l.unassigned && shown({modality: l.modality})).map(l => {
+    const u = l.unassigned;
+    return `<button type="button" class="urow" data-unassigned="${esc(l.modality)}">
+      <b>${esc(l.modality)}</b><span>${u.waiting.length} waiting · ${u.incoming.length} coming${u.in_progress.length ? ' · ' + u.in_progress.length + ' in progress' : ''}</span></button>`;
+  }).join('');
+  const off = offPlan.filter(shown);
+  // Off the plan, a device with nothing in the room, waiting or coming is one line.
+  const quiet = d => !d.current && !d.waiting.length && !d.incoming.length;
+  const offBusy = off.filter(d => !quiet(d)), offQuiet = off.filter(quiet);
+  const mini = d => `<button type="button" class="mini ${d.status}" data-ae="${esc(d.aetitle)}" title="${esc(d.modality + ' · ' + d.aetitle)} — click for details">
+      <i class="dot"></i><span class="nm">${esc(d.room || d.name)} <small>${esc(d.modality)}</small></span>
+      <span class="u">${d.status === 'closed' ? 'closed' : (d.utilization_pct == null ? '—' : d.utilization_pct + '%')}</span></button>`;
+  $('rail').innerHTML = `
+    <div class="box"><h2>By modality</h2>
+      <div class="mrow head"><span></span><span>busy</span><span>waiting</span><span>coming</span><span>util</span></div>${rows}
+      ${idle.length ? `<div class="idle-mods">Idle today: ${idle.map(l => `<b>${esc(l.modality)}</b> (${l.devices.length})`).join(', ')}</div>` : ''}</div>
+    ${un ? `<div class="box"><h2>Not yet on a device</h2>${un}</div>` : ''}
+    ${off.length ? `<div class="box"><h2>Not on the plan (${off.length})</h2>
+      ${offBusy.length ? `<div class="unplaced">${offBusy.map(d => badge(d, 'rail')).join('')}</div>` : ''}
+      ${offQuiet.length > QUIET_FOLD && !showIdle
+        ? `<button type="button" class="linkbtn" data-idle="show">Show ${offQuiet.length} idle devices not on the plan</button>`
+        : offQuiet.length ? `<div class="minis">${offQuiet.map(mini).join('')}</div>
+          ${offQuiet.length > QUIET_FOLD ? '<button type="button" class="linkbtn" data-idle="hide">Hide idle devices</button>' : ''}` : ''}</div>` : ''}
+    <div class="box legend">
+      <span><i class="sw" style="background:var(--free)"></i>Free · <i class="sw" style="background:var(--busy)"></i>Busy, ends at its procedure's duration · <i class="sw" style="background:var(--over)"></i>Overrun · <i class="sw" style="background:var(--closed)"></i>Closed today</span>
+      <span>Waiting box: amber from ${B.thresholds.wait_warn_min} min, red from ${B.thresholds.wait_alert_min} min of the longest wait.</span>
+      <span>Utilization: busy time ÷ opening time so far today. Click a device for its patients.</span>
+    </div>`;
+}
+
+// ── details ───────────────────────────────────────────────────────────────────
+function list(items, kind) {
+  if (!items.length) return '<div class="none">None.</div>';
+  return `<ul class="list">${items.map(x => `<li><span class="p"><b>${esc(who(x))}</b><small>${esc(x.procedure)}${x.accession ? ' · ' + esc(x.accession) : x.order ? ' · order ' + esc(x.order) : ''}</small></span>
+    ${kind === 'wait' ? `<span class="wait" data-since="${esc(x.arrived_at)}" data-fmt="wait">${dur(x.wait_min)}</span>`
+                      : `<span class="t">${esc(x.state === 'Scheduled' ? 'scheduled ' : 'ordered ')}${hm(parse(x.since))}</span>`}</li>`).join('')}</ul>`;
+}
+
+function renderDrawer() {
+  let html;
+  if (open.unassigned) {
+    const lane = B.lanes.find(l => l.modality === open.unassigned);
+    const u = lane && lane.unassigned;
+    if (!u) { closeDrawer(); return; }
+    html = `<div class="dr-head"><div><h3 id="dr-title">${esc(open.unassigned)} · not yet on a device</h3>
+        <div class="sub">Orders and arrivals the RIS has not tied to an AE title</div></div>
+        <button class="dr-close" type="button" data-close>Close</button></div>
+      <div class="dr-body">
+        <div class="dr-sec"><h4><span>Waiting ${u.waiting.length}</span></h4>${list(u.waiting, 'wait')}</div>
+        <div class="dr-sec"><h4><span>Coming ${u.incoming.length}</span><span>not arrived</span></h4>${list(u.incoming, 'coming')}</div>
+      </div>`;
+  } else {
+    const d = allDevices().find(x => x.aetitle === open.ae);
+    if (!d) { closeDrawer(); return; }
+    const c = d.current, u = d.utilization_pct;
+    const now = c ? `<div class="now ${d.status}" data-start="${esc(c.started_at)}" data-end="${esc(c.expected_end)}">
+        <div class="who">${esc(who(c))}</div><div class="what">${esc(c.procedure)}${c.accession ? ' · ' + esc(c.accession) : ''}</div>
+        <div class="bar"><i style="width:0%"></i></div>
+        <div class="times"><span>Started ${hm(parse(c.started_at))} · expected end ${hm(parse(c.expected_end))}</span><span class="left"></span></div>
+        <div class="none" style="margin-top:4px">${c.expected_minutes} min for this ${c.expected_source === 'procedure' ? 'procedure' : c.expected_source === 'modality' ? 'modality (no duration for the procedure)' : 'study (no duration known, default)'}</div>
+        ${d.also_in_progress ? `<div class="none">${d.also_in_progress} older study still open: no completion received.</div>` : ''}</div>`
+      : `<div class="none">${d.status === 'closed' ? 'Closed today' + (d.exception ? ': ' + esc(d.exception) : '') : d.last_done_at ? 'Free since ' + hm(parse(d.last_done_at)) : 'No study in progress.'}</div>`;
+    html = `<div class="dr-head"><div><h3 id="dr-title">${esc(d.room || d.name)}</h3>
+        <div class="sub">${esc([d.modality, d.room ? d.name : '', d.aetitle !== d.name ? d.aetitle : '', d.site].filter(Boolean).join(' · '))}</div></div>
+        <span class="chip" style="cursor:default">${LABEL[d.status]}</span>
+        <button class="dr-close" type="button" data-close>Close</button></div>
+      <div class="dr-body">
+        <div class="dr-sec"><h4><span>In the room</span></h4>${now}</div>
+        <div class="dr-sec"><h4><span>Waiting ${d.waiting.length}</span>${d.queue_clear_at ? `<span>queue clears ~${hm(parse(d.queue_clear_at))}</span>` : ''}</h4>${list(d.waiting, 'wait')}</div>
+        <div class="dr-sec"><h4><span>Coming ${d.incoming.length}</span><span>not arrived</span></h4>${list(d.incoming, 'coming')}</div>
+        <div class="dr-sec"><h4><span>Utilization so far today</span><span>${u == null ? '—' : u + '%'}</span></h4>
+          <div class="bar ubar"><i style="width:${Math.min(100, u || 0)}%"></i></div>
+          <div class="kv" style="margin-top:8px">
+            <span>Busy</span><b>${dur(d.busy_min)}</b>
+            <span>Open so far</span><b>${dur(d.open_min)} of ${dur(d.opening_minutes)} today, from ${hm(parse(d.window_start))}</b>
+            <span>Done today</span><b>${d.done_today}</b>
+          </div></div>
+      </div>`;
+  }
+  $('drawer').innerHTML = html;
+  // Below the top bar, so the clock, filters and the initials toggle stay usable.
+  $('drawer').style.top = document.querySelector('.top').offsetHeight + 'px';
+  $('drawer').hidden = false;
+}
+function closeDrawer() { open = null; $('drawer').hidden = true; $('drawer').innerHTML = ''; }
+
+// ── every second: clock, waits, countdowns ────────────────────────────────────
+function tick() {
+  const n = serverNow();
+  $('clock').textContent = n.toTimeString().slice(0, 8);
+  $('date').textContent = n.toLocaleDateString(undefined, {weekday: 'long', day: 'numeric', month: 'long'});
+  document.querySelectorAll('[data-since]').forEach(el => {
+    const m = mins(n, parse(el.dataset.since));
+    el.textContent = el.dataset.fmt === 'short' ? short(m) : dur(m);
+    if (el.dataset.fmt === 'wait') el.className = 'wait ' + level(m);
+  });
+  document.querySelectorAll('.dev [data-end]').forEach(el => {
+    const left = mins(parse(el.dataset.end), n);
+    el.textContent = left >= 0 ? `ends ${hm(parse(el.dataset.end))} · ${short(left)}` : `+${short(-left)} over`;
+    const dev = el.closest('.dev');
+    if (left < 0 && dev.classList.contains('busy')) {
+      dev.classList.replace('busy', 'overrun'); dev.querySelector('.d-state').textContent = 'Overrun';
+    }
+  });
+  document.querySelectorAll('.now[data-start]').forEach(el => {
+    const s = parse(el.dataset.start), e = parse(el.dataset.end);
+    const left = mins(e, n), pct = Math.min(100, Math.max(0, 100 * mins(n, s) / Math.max(1, mins(e, s))));
+    el.querySelector('.bar > i').style.width = pct + '%';
+    el.querySelector('.left').textContent = left >= 0 ? dur(left) + ' left' : '+' + dur(-left) + ' over';
+    el.classList.toggle('overrun', left < 0);
+  });
+  const age = lastOk ? Math.round((Date.now() - lastOk) / 1000) : null;
+  $('updated').textContent = age == null ? '' : `Updated ${age < 5 ? 'just now' : age + ' s ago'}`;
+  $('dot').classList.toggle('stale', age == null || age > 3 * REFRESH / 1000);
+}
+
+// ── events ────────────────────────────────────────────────────────────────────
+function toggleMod(m) {
+  mods = !m ? [] : mods.includes(m) ? mods.filter(x => x !== m) : [...mods, m];
+  store.set('mods', mods); render();
+}
+$('mod-chips').addEventListener('click', e => { const b = e.target.closest('[data-mod]'); if (b) toggleMod(b.dataset.mod); });
+document.addEventListener('click', e => {
+  const dev = e.target.closest('.dev[data-ae], .mini[data-ae]');
+  if (dev) { open = {ae: dev.dataset.ae}; renderDrawer(); tick(); return; }
+  const un = e.target.closest('[data-unassigned]');
+  if (un) { open = {unassigned: un.dataset.unassigned}; renderDrawer(); tick(); return; }
+  const row = e.target.closest('.mrow[data-mod]');
+  if (row) { toggleMod(row.dataset.mod); return; }
+  const fold = e.target.closest('[data-idle]');
+  if (fold) { showIdle = fold.dataset.idle === 'show'; store.set('showIdle', showIdle); render(); return; }
+  if (e.target.closest('[data-close]')) closeDrawer();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && open) closeDrawer(); });
+$('site').addEventListener('change', e => { site = e.target.value; store.set('site', site); closeDrawer(); load(); });
+$('names').addEventListener('click', () => { initials = !initials; store.set('initials', initials); render(); });
+
+load();
+setInterval(load, REFRESH);
+setInterval(tick, 1000);
+})();
+</script>
+</body>
+</html>

@@ -69,6 +69,8 @@ CONFIG_TABLES = [
     'settings', 'aetitle_modality_map',
     'brayn_rules', 'hl7_status_map', 'hl7_result_status_map', 'brayn_ladder_profile',
     'hl7_field_mappings', 'hl7_field_targets',
+    # what the Live Department board reads for durations and opening minutes
+    'procedure_duration_map', 'device_weekly_schedule', 'device_exceptions',
 ]
 
 # The bootstrap app.py runs before migrations (inline in create_app()).
@@ -241,6 +243,10 @@ def app(database_url):
                 'demo_user': '', 'pending_approvals_count': 0, 'reset_requests_count': 0}
     from routes.brayn_console import brayn_bp
     flask_app.register_blueprint(brayn_bp)
+    from routes.live_feed import live_feed_bp
+    from routes.department_board import department_board_bp
+    flask_app.register_blueprint(live_feed_bp)
+    flask_app.register_blueprint(department_board_bp)
 
     from db import db
     from sqlalchemy import text
