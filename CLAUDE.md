@@ -40,7 +40,7 @@ routes/
   bitnet_service.py             — Qwen2.5-7B AI assistant proxy (ChatML format)
   hl7_orders_route.py           — HL7 order analytics
   report_cache.py               — shared cache/dropdown helpers
-  worklists.py                  — Dynamic Worklists editor (replaced Custom Reports; key custom_reports)
+  worklists.py                  — Report Composer editor (replaced Custom Reports; key custom_reports)
 utils/
   worklist_catalog.py           — datasets, fields, measures, column docs the worklist compiler allows
   worklist_engine.py            — definition → SQL compiler + rpt_<db> sandbox executor
@@ -170,7 +170,9 @@ analytics_snapshots
 procedure_exceptions    — legacy exceptions table (see device_exceptions for current)
 ```
 
-### Dynamic Worklists (migrations 0064, 0065)
+### Report Composer (migrations 0064, 0065)
+Renamed 2026-11-04: Philips uses its earlier name, which must appear nowhere, on any branch
+(see tests/test_report_composer_name.py). Tables, code and API paths still say worklist.
 ```
 rpt.studies / rpt.series / rpt.orders     PACS (etl_didb_studies, etl_didb_serieses, etl_orders)
 rpt.reports / rpt.findings                ORU reports + NLP labels (hl7_oru_reports, hl7_oru_analysis)

@@ -1,4 +1,4 @@
--- Migration 0064: Dynamic Worklists, Bekaa's PACS data layer.
+-- Migration 0064: Report Composer, Bekaa's PACS data layer.
 --
 -- Replaces the Custom Reports composer. The editor (routes/worklists.py) comes from
 -- the HL7 branch (19d63c56 / 9401bdda / 5bdaee02); its HL7 views read the RIS order

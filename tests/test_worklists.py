@@ -1,5 +1,5 @@
 """
-tests/test_worklists.py — Dynamic Worklists on Bekaa's PACS data layer.
+tests/test_worklists.py — Report Composer on Bekaa's PACS data layer.
 
     catalog ↔ views     every column, field, grouping, measure and example runs
     views               what one row says, from seeded PACS / ORU / NLP / CRN rows
@@ -82,7 +82,7 @@ def run_defn(defn, now=None):
 
 def test_migrations_applied_through_the_app_runner(app):
     names = {r['name'] for r in sql("SELECT name FROM schema_migrations")}
-    assert {'0064_dynamic_worklists.sql', '0065_worklist_indexes.sql'} <= names
+    assert {'0064_report_composer.sql', '0065_worklist_indexes.sql'} <= names
     idx = {r['indexname'] for r in sql("SELECT indexname FROM pg_indexes")}
     assert {'idx_oru_reports_accession', 'idx_etl_didb_serieses_study_db_uid',
             'idx_etl_patient_view_mdl_patient_dbid'} <= idx
@@ -638,10 +638,23 @@ def test_sql_reference_documents_every_column(client):
     assert len(ref['examples']) == len(cat.SQL_EXAMPLES)
 
 
-def test_old_custom_reports_address_redirects(client):
+@pytest.mark.parametrize('old, new', [
+    ('/reports/custom', '/report-composer'),
+    ('/reports/custom/12/view', '/report-composer'),
+    ('/worklists', '/report-composer'),
+    ('/worklists?id=7', '/report-composer?id=7'),       # a bookmark of one report
+    ('/worklists?id=x&_external=1', '/report-composer'),
+])
+def test_earlier_addresses_redirect(client, old, new):
     users()
-    r = h(client, 'get', '/reports/custom/12/view', uid=VIEWER)
-    assert r.status_code == 302 and r.headers['Location'].endswith('/worklists')
+    r = h(client, 'get', old, uid=VIEWER)
+    assert r.status_code == 302 and r.headers['Location'].endswith(new)
+
+
+def test_the_page_is_report_composer(app):
+    assert '/report-composer' in {rule.rule for rule in app.url_map.iter_rules()}
+    src = open(os.path.join(ROOT, 'templates', 'worklists.html'), encoding='utf-8').read()
+    assert '<title>RAYD | Report Composer</title>' in src and '>Report Composer</h1>' in src
 
 
 # ── the page ──────────────────────────────────────────────────────────────────

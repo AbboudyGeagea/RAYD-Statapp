@@ -1,4 +1,4 @@
--- Migration 0065: indexes the Dynamic Worklist views (0064) rely on.
+-- Migration 0065: indexes the Report Composer views (0064) rely on.
 --
 --   hl7_oru_reports(accession_number)      rpt.studies finds a study's ORU reports
 --   etl_didb_serieses(study_db_uid)        rpt.series filtered by the study's date

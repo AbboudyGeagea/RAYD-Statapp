@@ -286,10 +286,11 @@ def register_blueprints(app):
         # ── Tier 2: Professional ─────────────────────────────
         'hl7_orders':      (hl7_orders_bp,       {}, [('/hl7/orders',                  'HL7 Orders')]),
         'oru_analytics':   (oru_bp,              {}, [('/oru',                         'Report Intelligence')]),
-        # Dynamic Worklists took Custom Reports' place (and its licence key and page
+        # Report Composer took Custom Reports' place (and its licence key and page
         # permission, so licences, role defaults and grants carry over unchanged).
-        'custom_reports':  (worklists_bp,        {}, [('/worklists',                   'Dynamic Worklists'),
-                                                      ('/reports/custom',              'Dynamic Worklists')]),
+        'custom_reports':  (worklists_bp,        {}, [('/report-composer',             'Report Composer'),
+                                                      ('/worklists',                   'Report Composer'),
+                                                      ('/reports/custom',              'Report Composer')]),
         'er_dashboard':    (er_bp,               {}, [('/er',                          'ER Dashboard')]),
         'capacity_ladder': (capacity_ladder_bp,  {}, [('/viewer/capacity-ladder',      'Capacity Ladder')]),
         'saved_reports':   (saved_reports_bp,    {'url_prefix': '/saved'}, []),

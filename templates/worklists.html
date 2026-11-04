@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>RAYD | Dynamic Worklists</title>
+    <title>RAYD | Report Composer</title>
     <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
@@ -162,7 +162,7 @@
         <main class="flex-1 overflow-y-auto p-4 bg-[#181f1c]">
           <div class="wl">
             <div class="flex items-baseline gap-3 mb-3 flex-wrap">
-                <h1 class="text-xl font-black tracking-tight">Dynamic Worklists</h1>
+                <h1 class="text-xl font-black tracking-tight">Report Composer</h1>
                 <span class="hint">PACS studies, series and orders, ORU reports and their NLP findings,
                     storage and CRN. Pick a dataset, add criteria, choose how to show it. Values are always
                     bound as parameters; the SQL shown is the SQL that runs, read-only.</span>
@@ -170,8 +170,8 @@
 
             <div class="layout">
               <!-- Library -->
-              <aside class="panel" aria-label="Saved worklists">
-                <div class="panel-head"><h2>Saved worklists</h2></div>
+              <aside class="panel" aria-label="Report library">
+                <div class="panel-head"><h2>Report library</h2></div>
                 <div class="panel-body">
                   <div class="lib-actions">
                     <button class="btn" id="btn-new" type="button">New</button>
@@ -179,13 +179,13 @@
                     <button class="btn danger" id="btn-del" type="button">Delete</button>
                   </div>
                   <ul class="tree" id="tree"></ul>
-                  <div class="lib-note">Shared worklists are visible to everyone with access to this page.
+                  <div class="lib-note">Shared reports are visible to everyone with access to this page.
                       Personal ones are yours until you share them.</div>
                 </div>
               </aside>
 
               <!-- Definition -->
-              <section class="panel" aria-label="Worklist definition">
+              <section class="panel" aria-label="Report definition">
                 <div class="panel-head">
                   <h2>Definition</h2>
                   <div style="margin-left:auto; display:flex; gap:6px; flex-wrap:wrap; align-items:center">
@@ -223,7 +223,7 @@
                 </div>
                 <div class="panel-body">
                   <div class="sql-mode">
-                    <div class="seg" id="sql-seg" role="group" aria-label="How this worklist gets its data" hidden>
+                    <div class="seg" id="sql-seg" role="group" aria-label="How this report gets its data" hidden>
                       <button type="button" data-mode="gen" aria-pressed="true">Generated SQL</button>
                       <button type="button" data-mode="hand" aria-pressed="false">Write SQL (admin)</button>
                     </div>
@@ -378,7 +378,7 @@ function renderStatus() {
   [['name', 'fw-name'], ['ds', 'fw-ds'], ['kind', 'fw-kind']].forEach(([k, id]) => { const el = $(id); if (el) el.classList.toggle('missing', keys.includes(k)); });
   $('sql-wrap').classList.toggle('missing', keys.includes('sql'));
   const st = $('bar-status');
-  st.textContent = dirty ? 'Unsaved changes' : (S.id ? `Saved · version ${S.version}` : 'New worklist · not saved yet');
+  st.textContent = dirty ? 'Unsaved changes' : (S.id ? `Saved · version ${S.version}` : 'New report · not saved yet');
   st.classList.toggle('dirty-on', dirty);
   $('bar-missing').textContent = miss.length ? 'Still to fill: ' + miss.map(m => m[1]).join(', ') : '';
 }
@@ -407,7 +407,7 @@ function renderTree() {
   $('tree').innerHTML = group('shared') + group('personal');
 }
 async function open(id) {
-  if (dirty && !(await askYesNo('Discard your changes?', 'This worklist has changes that are not saved.', {yes: 'Discard changes'}))) return;
+  if (dirty && !(await askYesNo('Discard your changes?', 'This report has changes that are not saved.', {yes: 'Discard changes'}))) return;
   try { load(await api('/worklists/api/' + id)); } catch (e) { toast(e.message); }
 }
 
@@ -479,7 +479,7 @@ function renderTabs() {
   }).join('');
   const none = !CAT.fields.some(f => inDataset(f) && isActive(f, D().criteria[f.id]));
   $('tab-note').innerHTML = (TAB_NOTES[S.tab] ? `<div class="tab-note">${TAB_NOTES[S.tab]}</div>` : '')
-    + (none ? '<div class="hint">No criteria yet: the worklist covers all the data. A date range keeps it fast.</div>' : '');
+    + (none ? '<div class="hint">No criteria yet: the report covers all the data. A date range keeps it fast.</div>' : '');
 }
 function renderCriteria() {
   if (handMode() || !ds()) { $('crit-list').innerHTML = ''; return; }
@@ -492,7 +492,7 @@ function renderCriteria() {
         ${ask ? '<span class="crit-ask">asked at run</span>' : ''}<span class="crit-sum">${esc(summary(f, c))}</span>
       </button>
       ${isOpen ? `<div class="crit-body">${critBody(f, c)}${f.hint ? `<span class="hint">${esc(f.hint)}</span>` : ''}
-        <div class="inline"><label class="hint" style="display:inline-flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" data-ask="${f.id}"${ask ? ' checked' : ''}> Ask for this when the worklist is run</label>
+        <div class="inline"><label class="hint" style="display:inline-flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" data-ask="${f.id}"${ask ? ' checked' : ''}> Ask for this when the report is run</label>
         ${on ? `<button type="button" class="linkbtn" data-clear="${f.id}">Clear this criterion</button>` : ''}</div></div>` : ''}
     </div>`;
   }).join('');
@@ -595,7 +595,7 @@ function renderSQL() {
   if (hand) {
     if (canSQL) { if (document.activeElement !== $('sql-edit')) $('sql-edit').value = D().sql; }
     else $('sql-view').innerHTML = highlight(D().sql);
-    $('params').innerHTML = '<div class="pv">Runs as the read-only worklist account: the rpt views (' + esc(Object.keys(CAT.datasets).join(', ')) + '), nothing else. No parameters: write values in the SQL.</div>';
+    $('params').innerHTML = '<div class="pv">Runs as the read-only reporting account: the rpt views (' + esc(Object.keys(CAT.datasets).join(', ')) + '), nothing else. No parameters: write values in the SQL.</div>';
     $('sql-caption').textContent = canSQL ? 'Your SQL. The SQL reference lists every view, column and rule.' : 'Written in SQL by an admin.';
     $('sql-note').innerHTML = canSQL ? '' : '<div class="note warn">Read-only: only an admin can change this SQL.</div>';
     return;
@@ -698,8 +698,8 @@ const crit = id => (D().criteria[id] = D().criteria[id] || {});
 
 $('tree').addEventListener('click', e => { const b = e.target.closest('.leaf'); if (b) open(+b.dataset.id); });
 $('btn-new').onclick = async () => {
-  if (dirty && !(await askYesNo('Discard your changes?', 'This worklist has changes that are not saved.', {yes: 'Discard changes'}))) return;
-  blank(); toast('New worklist: fill in the fields marked Required, then add criteria.'); $('f-name').focus();
+  if (dirty && !(await askYesNo('Discard your changes?', 'This report has changes that are not saved.', {yes: 'Discard changes'}))) return;
+  blank(); toast('New report: fill in the fields marked Required, then add criteria.'); $('f-name').focus();
 };
 $('btn-dup').onclick = () => { const c = clone(S); c.id = null; c.name = S.name + ' (copy)'; c.visibility = 'personal'; c.can_edit = true; c.version = 0; c.versions = []; c.owner_name = null; c.updated_by_name = null; c.updated_at = null; load(c); markDirty(); toast('Duplicated into Personal. Save to keep it.'); };
 $('btn-del').onclick = async () => {
@@ -734,7 +734,7 @@ $('btn-csv').onclick = async () => {
     const r = await fetch('/worklists/api/csv', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({definition: D(), name: S.name})});
     if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error || 'export failed'); }
     const blob = await r.blob(), a = document.createElement('a');
-    a.href = URL.createObjectURL(blob); a.download = (S.name || 'worklist') + '.csv'; a.click(); URL.revokeObjectURL(a.href);
+    a.href = URL.createObjectURL(blob); a.download = (S.name || 'report') + '.csv'; a.click(); URL.revokeObjectURL(a.href);
     if (r.headers.get('X-Truncated') === '1') toast('Export capped at 100,000 rows.');
   } catch (e) { toast(e.message); }
 };
@@ -745,7 +745,7 @@ $('btn-copy-sql').onclick = () => {
 async function setMode(hand, sql) {
   if (hand === handMode() && sql === undefined) return;
   if (!hand) {
-    if (String(D().sql || '').trim() && !(await askYesNo('Go back to the generated SQL?', 'The SQL you wrote is dropped; the worklist is built from its criteria again.', {yes: 'Use generated SQL'}))) return;
+    if (String(D().sql || '').trim() && !(await askYesNo('Go back to the generated SQL?', 'The SQL you wrote is dropped; the report is built from its criteria again.', {yes: 'Use generated SQL'}))) return;
     D().sql = null;
   } else {
     D().sql = sql !== undefined ? sql : ((sqlInfo && sqlInfo.editable_sql) || '');
@@ -774,7 +774,7 @@ async function openReference() {
   const draw = () => {
     const v = REF.views.find(x => x.view === view);
     $('modal').innerHTML = `<div class="modal-back" id="ref-back"><div class="modal wide ref" role="dialog" aria-modal="true" aria-label="SQL reference">
-      <div class="panel-head"><h2>SQL reference · what a worklist written in SQL may read</h2><button class="btn small" id="ref-close" type="button" style="margin-left:auto">Close</button></div>
+      <div class="panel-head"><h2>SQL reference · what a report written in SQL may read</h2><button class="btn small" id="ref-close" type="button" style="margin-left:auto">Close</button></div>
       <div class="panel-body">
         <div class="ref-rules">${REF.rules.map(r => `<div class="rule"><b>${esc(r.title)}</b>${esc(r.text)}</div>`).join('')}</div>
         <div class="tabs" role="tablist">${REF.views.map(x => `<button type="button" role="tab" class="tab" data-refview="${esc(x.view)}" aria-selected="${x.view === view}">${esc(x.view)} <span class="hint">${esc(x.label)}</span></button>`).join('')}</div>

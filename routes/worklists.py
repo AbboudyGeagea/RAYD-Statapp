@@ -1,13 +1,16 @@
 """
-routes/worklists.py — Dynamic Worklists, replacing Custom Reports.
+routes/worklists.py — Report Composer, replacing Custom Reports.
 
 The editor of the HL7 branch (RAYD V2.0) on Bekaa's PACS data layer: the rpt.* views
 of migration 0064 (studies, series, orders, ORU reports, NLP findings, storage, CRN).
 
-    /worklists                 the editor (saved tree · definition · SQL & results)
+What people read says Report Composer and "report". The code keeps the word worklist
+(tables, modules, API paths): renaming those would change nothing anyone sees.
+
+    /report-composer           the editor (saved tree · definition · SQL & results)
     /worklists/api/...         catalog, list, load, save, delete, versions,
                                compile, run, csv, options, sql-reference
-    /reports/custom[/...]      the old Custom Reports address, now a redirect here
+    /worklists, /reports/custom[/...]   earlier addresses, now redirects here
 
 ACCESS
     page / run / personal worklists   the 'custom_reports' page permission (the key
@@ -99,19 +102,20 @@ def _shift_hours():
 
 # ── the page ──────────────────────────────────────────────────────────────────
 
-@worklists_bp.route('/worklists')
+@worklists_bp.route('/report-composer')
 @login_required
 def page():
     _require_access()
     return render_template('worklists.html', can_write_sql=_can_write_sql())
 
 
+@worklists_bp.route('/worklists')
 @worklists_bp.route('/reports/custom')
 @worklists_bp.route('/reports/custom/<path:_rest>')
 @login_required
-def old_custom_reports(_rest=None):
-    """Custom Reports is gone; its bookmarks land on the editor that replaced it."""
-    return redirect(url_for('worklists.page'))
+def old_addresses(_rest=None):
+    """Bookmarks of its earlier addresses land on the editor, on the report they named."""
+    return redirect(url_for('worklists.page', id=request.args.get('id', type=int)))
 
 
 # ── catalog and library ───────────────────────────────────────────────────────
@@ -193,11 +197,11 @@ def api_save():
     visibility = b.get('visibility') or 'personal'
     defn = b.get('definition')
     if not name:
-        return _error('a worklist needs a name')
+        return _error('a report needs a name')
     if visibility not in ('personal', 'shared'):
         return _error('visibility is personal or shared')
     if visibility == 'shared' and current_user.role not in EDITOR_ROLES:
-        return _error('only an admin can share a worklist', 403)
+        return _error('only an admin can share a report', 403)
     try:
         engine.validate_for_save(defn)
     except WorklistError as e:
@@ -205,12 +209,12 @@ def api_save():
 
     existing = _row(int(b['id'])) if b.get('id') else None
     if existing and not _can_edit(existing):
-        return _error('you cannot edit this worklist — duplicate it into your personal folder', 403)
+        return _error('you cannot edit this report — duplicate it into your personal folder', 403)
     # Only an admin may introduce or change hand-written SQL. Anyone allowed to edit
     # may still rename or move a worklist that carries some.
     stored_sql = (existing or {}).get('definition', {}).get('sql') if existing else None
     if defn.get('sql') and defn.get('sql') != stored_sql and not _can_write_sql():
-        return _error('only an admin can write worklist SQL', 403)
+        return _error('only an admin can write report SQL', 403)
 
     # A worklist written in SQL may have no dataset: it names its own views.
     params = {'name': name, 'desc': (b.get('description') or '')[:2000], 'folder': folder,
@@ -240,7 +244,7 @@ def api_save():
     except Exception:
         db.session.rollback()
         logger.exception("worklist save failed")
-        return _error('could not save the worklist', 500)
+        return _error('could not save the report', 500)
     return jsonify({'status': 'ok', 'id': row[0], 'version': row[1]})
 
 
@@ -250,7 +254,7 @@ def api_delete(worklist_id):
     _require_access()
     r = _row(worklist_id)
     if not _can_edit(r):
-        return _error('you cannot delete this worklist', 403)
+        return _error('you cannot delete this report', 403)
     db.session.execute(text("DELETE FROM worklists WHERE id = :id"), {'id': worklist_id})
     db.session.commit()
     return jsonify({'status': 'ok'})
@@ -326,7 +330,7 @@ def api_csv():
     w.writerow(res['columns'])
     w.writerows(res['rows'])
     name = ''.join(ch if ch.isalnum() or ch in '-_ ' else '_'
-                   for ch in (b.get('name') or 'worklist')).strip() or 'worklist'
+                   for ch in (b.get('name') or 'report')).strip() or 'report'
     return Response('﻿' + buf.getvalue(), mimetype='text/csv',
                     headers={'Content-Disposition': f'attachment; filename="{name}.csv"',
                              'X-Truncated': '1' if res['truncated'] else '0'})
@@ -378,7 +382,7 @@ def api_sql_reference():
          'read-only.'),
         ('Values',
          "Write values in the SQL itself: 'CT', DATE '2026-10-01', INTERVAL '7 days'. "
-         'There are no parameters, and "ask when run" does not apply to SQL worklists.'),
+         'There are no parameters, and "ask when run" does not apply to SQL reports.'),
         ('Dates and times',
          f'Every time is hospital time ({tz}) without a time zone. CURRENT_DATE and '
          'LOCALTIMESTAMP run on the same clock. Filter studies on study_date (indexed): '
@@ -391,11 +395,11 @@ def api_sql_reference():
          'stopped: group (GROUP BY) rather than list when the period is long.'),
         ('The result',
          'Shown as a list exactly as the query returns it; your column names become the '
-         'headers, so name them with AS "Studies per day". The worklist\'s criteria and output '
+         'headers, so name them with AS "Studies per day". The report\'s criteria and output '
          'settings are not used while it runs SQL.'),
         ('Functions', 'Standard PostgreSQL functions work: COUNT, date_trunc, extract, '
                       'percentile_cont, round, COALESCE ...'),
-        ('Who', 'Only admins write or change SQL. Everyone who can open the worklist can run it.'),
+        ('Who', 'Only admins write or change SQL. Everyone who can open the report can run it.'),
     ]
     return jsonify({'views': views,
                     'rules': [{'title': t, 'text': x} for t, x in rules],
