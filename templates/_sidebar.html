@@ -199,7 +199,7 @@
             {% if license.get('custom_reports') and (current_user.role == 'admin' or current_user|user_has_page('custom_reports')) %}
             <a href="{{ url_for('worklists.page') }}"
                class="sidebar-item {% if ep.startswith('worklists.') %}active{% endif %} flex items-center gap-3 px-3 py-2 text-xs font-bold">
-                <i class="bi bi-list-columns-reverse flex-shrink-0" style="color:#60a5fa;"></i> Dynamic Worklists
+                <i class="bi bi-list-columns-reverse flex-shrink-0" style="color:#60a5fa;"></i> Report Composer
             </a>
             {% endif %}
         </div>

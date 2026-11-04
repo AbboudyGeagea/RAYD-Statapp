@@ -12,7 +12,7 @@ on this branch the message handling lives inside the connection loop — the soc
 IS the entry point, and testing anything below it would test something LAUMC never
 runs.
 
-Why this suite exists (2026-10-26): BRAYN and Dynamic Worklists are being brought
+Why this suite exists (2026-10-26): BRAYN and Report Composer are being brought
 to LAUMC "without breaking anything". tests/test_listener_baseline.py pins down
 what the listener does TODAY — the fill-only report upsert, orders, PACS
 completions, ADT — so every later change is checked against it.
@@ -56,9 +56,10 @@ TEST_DB = os.environ.get('RAYD_TEST_DB', 'rayd_pytest_laumc')
 # DELETE in foreign-key order (children first), not TRUNCATE: much faster on
 # Docker Desktop volumes.
 DATA_TABLES = [
+    'worklist_email_runs', 'worklist_email_schedules',
     'hl7_oru_analysis', 'ai_nlp_cache', 'crn_events', 'crn_notifications',
     'hl7_oru_reports', 'hl7_orders', 'hl7_scn_studies', 'order_status_log',
-    # what the Dynamic Worklist views read (migration 0136): the RIS and PACS detail,
+    # what the Report Composer views read (migration 0136): the RIS and PACS detail,
     # before the PACS studies they point at (std_pps.study_db_uid)
     'std_pps_person_reference', 'std_worklist_scheduled', 'std_worklist_arrivals',
     'std_worklist_exam_done', 'std_worklist_cancellations', 'std_reports', 'std_pps',

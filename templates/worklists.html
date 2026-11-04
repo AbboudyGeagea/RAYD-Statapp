@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>RAYD | Dynamic Worklists</title>
+    <title>RAYD | Report Composer</title>
     <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
@@ -151,6 +151,12 @@
         .wl .ref td, .wl .ref th { text-align: left; white-space: normal; vertical-align: top; }
         .wl .ref td.col { font-family: var(--mono); white-space: nowrap; }
         .wl .ref pre.sql { border: 1px solid var(--line); border-radius: 8px; white-space: pre-wrap; }
+        /* Scheduled emails */
+        .wl .sc td, .wl .sc th { text-align: left; white-space: normal; vertical-align: top; }
+        .wl .sc .run-failed { color: var(--bad); font-weight: 600; }
+        .wl .sc .run-partial { color: var(--warn); font-weight: 600; }
+        .wl .sc .run-sent { color: var(--rayd); font-weight: 600; }
+        .wl .sc .pick { flex-direction: column; flex-wrap: nowrap; max-height: 200px; overflow-y: auto; border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; background: var(--panel-2); }
     </style>
 </head>
 <body class="flex flex-col h-screen overflow-hidden {{ 'light' if ui_theme == 'light' }}">
@@ -162,7 +168,7 @@
         <main class="flex-1 overflow-y-auto p-4 bg-[#181f1c]">
           <div class="wl">
             <div class="flex items-baseline gap-3 mb-3 flex-wrap">
-                <h1 class="text-xl font-black tracking-tight">Dynamic Worklists</h1>
+                <h1 class="text-xl font-black tracking-tight">Report Composer</h1>
                 <span class="hint">RIS exams, PACS studies and series, reports and their NLP findings,
                     storage and CRN. Pick a dataset, add criteria, choose how to show it. Values are always
                     bound as parameters; the SQL shown is the SQL that runs, read-only.</span>
@@ -170,22 +176,23 @@
 
             <div class="layout">
               <!-- Library -->
-              <aside class="panel" aria-label="Saved worklists">
-                <div class="panel-head"><h2>Saved worklists</h2></div>
+              <aside class="panel" aria-label="Report library">
+                <div class="panel-head"><h2>Report library</h2></div>
                 <div class="panel-body">
                   <div class="lib-actions">
                     <button class="btn" id="btn-new" type="button">New</button>
                     <button class="btn" id="btn-dup" type="button">Duplicate</button>
                     <button class="btn danger" id="btn-del" type="button">Delete</button>
                   </div>
+                  <button class="btn" id="btn-sched" type="button" hidden><i class="bi bi-envelope"></i> Scheduled emails</button>
                   <ul class="tree" id="tree"></ul>
-                  <div class="lib-note">Shared worklists are visible to everyone with access to this page.
+                  <div class="lib-note">Shared reports are visible to everyone with access to this page.
                       Personal ones are yours until you share them.</div>
                 </div>
               </aside>
 
               <!-- Definition -->
-              <section class="panel" aria-label="Worklist definition">
+              <section class="panel" aria-label="Report definition">
                 <div class="panel-head">
                   <h2>Definition</h2>
                   <div style="margin-left:auto; display:flex; gap:6px; flex-wrap:wrap; align-items:center">
@@ -223,7 +230,7 @@
                 </div>
                 <div class="panel-body">
                   <div class="sql-mode">
-                    <div class="seg" id="sql-seg" role="group" aria-label="How this worklist gets its data" hidden>
+                    <div class="seg" id="sql-seg" role="group" aria-label="How this report gets its data" hidden>
                       <button type="button" data-mode="gen" aria-pressed="true">Generated SQL</button>
                       <button type="button" data-mode="hand" aria-pressed="false">Write SQL (admin)</button>
                     </div>
@@ -378,7 +385,7 @@ function renderStatus() {
   [['name', 'fw-name'], ['ds', 'fw-ds'], ['kind', 'fw-kind']].forEach(([k, id]) => { const el = $(id); if (el) el.classList.toggle('missing', keys.includes(k)); });
   $('sql-wrap').classList.toggle('missing', keys.includes('sql'));
   const st = $('bar-status');
-  st.textContent = dirty ? 'Unsaved changes' : (S.id ? `Saved · version ${S.version}` : 'New worklist · not saved yet');
+  st.textContent = dirty ? 'Unsaved changes' : (S.id ? `Saved · version ${S.version}` : 'New report · not saved yet');
   st.classList.toggle('dirty-on', dirty);
   $('bar-missing').textContent = miss.length ? 'Still to fill: ' + miss.map(m => m[1]).join(', ') : '';
 }
@@ -407,7 +414,7 @@ function renderTree() {
   $('tree').innerHTML = group('shared') + group('personal');
 }
 async function open(id) {
-  if (dirty && !(await askYesNo('Discard your changes?', 'This worklist has changes that are not saved.', {yes: 'Discard changes'}))) return;
+  if (dirty && !(await askYesNo('Discard your changes?', 'This report has changes that are not saved.', {yes: 'Discard changes'}))) return;
   try { load(await api('/worklists/api/' + id)); } catch (e) { toast(e.message); }
 }
 
@@ -480,7 +487,7 @@ function renderTabs() {
   }).join('');
   const none = !CAT.fields.some(f => inDataset(f) && isActive(f, D().criteria[f.id]));
   $('tab-note').innerHTML = (TAB_NOTES[S.tab] ? `<div class="tab-note">${TAB_NOTES[S.tab]}</div>` : '')
-    + (none ? '<div class="hint">No criteria yet: the worklist covers all the data. A date range keeps it fast.</div>' : '');
+    + (none ? '<div class="hint">No criteria yet: the report covers all the data. A date range keeps it fast.</div>' : '');
 }
 function renderCriteria() {
   if (handMode() || !ds()) { $('crit-list').innerHTML = ''; return; }
@@ -493,7 +500,7 @@ function renderCriteria() {
         ${ask ? '<span class="crit-ask">asked at run</span>' : ''}<span class="crit-sum">${esc(summary(f, c))}</span>
       </button>
       ${isOpen ? `<div class="crit-body">${critBody(f, c)}${f.hint ? `<span class="hint">${esc(f.hint)}</span>` : ''}
-        <div class="inline"><label class="hint" style="display:inline-flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" data-ask="${f.id}"${ask ? ' checked' : ''}> Ask for this when the worklist is run</label>
+        <div class="inline"><label class="hint" style="display:inline-flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" data-ask="${f.id}"${ask ? ' checked' : ''}> Ask for this when the report is run</label>
         ${on ? `<button type="button" class="linkbtn" data-clear="${f.id}">Clear this criterion</button>` : ''}</div></div>` : ''}
     </div>`;
   }).join('');
@@ -596,7 +603,7 @@ function renderSQL() {
   if (hand) {
     if (canSQL) { if (document.activeElement !== $('sql-edit')) $('sql-edit').value = D().sql; }
     else $('sql-view').innerHTML = highlight(D().sql);
-    $('params').innerHTML = '<div class="pv">Runs as the read-only worklist account: the rpt views (' + esc(Object.keys(CAT.datasets).join(', ')) + '), nothing else. No parameters: write values in the SQL.</div>';
+    $('params').innerHTML = '<div class="pv">Runs as the read-only reporting account: the rpt views (' + esc(Object.keys(CAT.datasets).join(', ')) + '), nothing else. No parameters: write values in the SQL.</div>';
     $('sql-caption').textContent = canSQL ? 'Your SQL. The SQL reference lists every view, column and rule.' : 'Written in SQL by an admin.';
     $('sql-note').innerHTML = canSQL ? '' : '<div class="note warn">Read-only: only an admin can change this SQL.</div>';
     return;
@@ -699,8 +706,8 @@ const crit = id => (D().criteria[id] = D().criteria[id] || {});
 
 $('tree').addEventListener('click', e => { const b = e.target.closest('.leaf'); if (b) open(+b.dataset.id); });
 $('btn-new').onclick = async () => {
-  if (dirty && !(await askYesNo('Discard your changes?', 'This worklist has changes that are not saved.', {yes: 'Discard changes'}))) return;
-  blank(); toast('New worklist: fill in the fields marked Required, then add criteria.'); $('f-name').focus();
+  if (dirty && !(await askYesNo('Discard your changes?', 'This report has changes that are not saved.', {yes: 'Discard changes'}))) return;
+  blank(); toast('New report: fill in the fields marked Required, then add criteria.'); $('f-name').focus();
 };
 $('btn-dup').onclick = () => { const c = clone(S); c.id = null; c.name = S.name + ' (copy)'; c.visibility = 'personal'; c.can_edit = true; c.version = 0; c.versions = []; c.owner_name = null; c.updated_by_name = null; c.updated_at = null; load(c); markDirty(); toast('Duplicated into Personal. Save to keep it.'); };
 $('btn-del').onclick = async () => {
@@ -735,7 +742,7 @@ $('btn-csv').onclick = async () => {
     const r = await fetch('/worklists/api/csv', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({definition: D(), name: S.name})});
     if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error || 'export failed'); }
     const blob = await r.blob(), a = document.createElement('a');
-    a.href = URL.createObjectURL(blob); a.download = (S.name || 'worklist') + '.csv'; a.click(); URL.revokeObjectURL(a.href);
+    a.href = URL.createObjectURL(blob); a.download = (S.name || 'report') + '.csv'; a.click(); URL.revokeObjectURL(a.href);
     if (r.headers.get('X-Truncated') === '1') toast('Export capped at 100,000 rows.');
   } catch (e) { toast(e.message); }
 };
@@ -746,7 +753,7 @@ $('btn-copy-sql').onclick = () => {
 async function setMode(hand, sql) {
   if (hand === handMode() && sql === undefined) return;
   if (!hand) {
-    if (String(D().sql || '').trim() && !(await askYesNo('Go back to the generated SQL?', 'The SQL you wrote is dropped; the worklist is built from its criteria again.', {yes: 'Use generated SQL'}))) return;
+    if (String(D().sql || '').trim() && !(await askYesNo('Go back to the generated SQL?', 'The SQL you wrote is dropped; the report is built from its criteria again.', {yes: 'Use generated SQL'}))) return;
     D().sql = null;
   } else {
     D().sql = sql !== undefined ? sql : ((sqlInfo && sqlInfo.editable_sql) || '');
@@ -775,7 +782,7 @@ async function openReference() {
   const draw = () => {
     const v = REF.views.find(x => x.view === view);
     $('modal').innerHTML = `<div class="modal-back" id="ref-back"><div class="modal wide ref" role="dialog" aria-modal="true" aria-label="SQL reference">
-      <div class="panel-head"><h2>SQL reference · what a worklist written in SQL may read</h2><button class="btn small" id="ref-close" type="button" style="margin-left:auto">Close</button></div>
+      <div class="panel-head"><h2>SQL reference · what a report written in SQL may read</h2><button class="btn small" id="ref-close" type="button" style="margin-left:auto">Close</button></div>
       <div class="panel-body">
         <div class="ref-rules">${REF.rules.map(r => `<div class="rule"><b>${esc(r.title)}</b>${esc(r.text)}</div>`).join('')}</div>
         <div class="tabs" role="tablist">${REF.views.map(x => `<button type="button" role="tab" class="tab" data-refview="${esc(x.view)}" aria-selected="${x.view === view}">${esc(x.view)} <span class="hint">${esc(x.label)}</span></button>`).join('')}</div>
@@ -804,6 +811,148 @@ async function openReference() {
   draw();
 }
 $('btn-ref').onclick = openReference;
+
+// ── Scheduled emails: which saved worklists go to whom, and when (admin) ─────
+// One view at a time (list, a schedule's form, its history, the mail server), so nothing
+// redraws over a form someone is filling in.
+const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const RUN_WORDS = {running: 'Running', sent: 'Sent', partial: 'Sent, incomplete', failed: 'Failed'};
+const SECURITY_WORDS = {starttls: 'STARTTLS (usually port 587)', ssl: 'SSL/TLS (usually port 465)',
+  starttls_unverified: 'STARTTLS, certificate not checked (private certificate authority)',
+  none: 'None: not encrypted (internal relay only)'};
+let SC = null;
+const scWhen = s => (s.frequency === 'weekly' ? 'Every ' + WEEKDAYS[s.weekday]
+  : s.frequency === 'monthly' ? `Day ${s.month_day} of each month` : 'Every day') + ' at ' + s.send_time;
+const scRun = r => r ? `<span class="run-${esc(r.status)}">${esc(RUN_WORDS[r.status] || r.status)}</span> <span class="hint">${esc(r.started_at)}</span>` : '<span class="hint">Not sent yet</span>';
+function scEntry(e) {
+  if (e.error) return `<span class="run-failed">${esc(e.name)}: ${esc(e.error)}</span>`;
+  const rows = e.rows === 1 ? '1 row' : `${(e.rows || 0).toLocaleString()} rows`;
+  const note = e.too_large ? ', too large to attach' : e.truncated ? ', capped' : e.rows ? '' : ', nothing attached';
+  return `${esc(e.name)} <span class="hint">v${esc(e.version)}: ${rows}${note}</span>`;
+}
+function scListView() {
+  const rows = SC.schedules.map(s => `<tr>
+    <td class="txt"><b>${esc(s.name)}</b>${s.enabled ? '' : ' <span class="crit-ask">paused</span>'}<br><span class="hint">${s.worklists.map(w => esc(w.name)).join(' · ')}</span></td>
+    <td class="txt">${esc(scWhen(s))}${s.enabled ? `<br><span class="hint">Next: ${esc(s.next_run_at)}</span>` : ''}</td>
+    <td class="txt">${s.recipients.map(esc).join('<br>')}</td>
+    <td class="txt">${scRun(s.last_run)}</td>
+    <td class="txt"><div class="inline">
+      <button class="btn small" type="button" data-act="edit" data-id="${s.id}">Edit</button>
+      <button class="btn small" type="button" data-act="send" data-id="${s.id}"${SC.ready ? '' : ' disabled'}>Send now</button>
+      <button class="btn small" type="button" data-act="runs" data-id="${s.id}">History</button>
+      <button class="btn small danger" type="button" data-act="del" data-id="${s.id}">Delete</button>
+    </div></td></tr>`).join('');
+  return `${SC.ready ? '' : '<div class="note warn">Nothing can be sent until the mail server is set.</div>'}
+    <div class="inline">
+      <button class="btn small primary" type="button" data-act="new"${SC.ready ? '' : ' disabled'}>New schedule</button>
+      <button class="btn small" type="button" data-act="mail"><i class="bi bi-gear"></i> Mail server</button>
+    </div>
+    ${rows ? `<div class="table-wrap"><table><thead><tr><th>Schedule</th><th>When (hospital time)</th><th>Recipients</th><th>Last run</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+      : '<div class="empty">No scheduled emails yet.</div>'}`;
+}
+function scFormView() {
+  const s = SC.edit, chosen = (s.worklists || []).map(w => w.id);
+  // Your library, plus what the schedule already holds (another admin's personal worklist).
+  const pool = LIB.map(w => ({id: w.id, name: w.name, folder: w.visibility === 'shared' ? w.folder : 'Personal'}))
+    .concat((s.worklists || []).filter(w => !LIB.some(x => x.id === w.id)).map(w => ({...w, folder: 'Another admin\'s'})));
+  return `<div class="def-grid">
+      <div class="field wide"><label for="sc-name">Name</label><input class="input" id="sc-name" value="${esc(s.name || '')}" placeholder="e.g. Monday morning pack"><span class="hint">Becomes the subject of the email.</span></div>
+      <div class="field wide"><span class="label">Reports</span><div class="checks pick" id="sc-pick">${pool.map(w => `<label><input type="checkbox" value="${w.id}"${chosen.includes(w.id) ? ' checked' : ''}><span>${esc(w.name)} <span class="hint">${esc(w.folder)}</span></span></label>`).join('') || '<span class="hint">Save a report first.</span>'}</div>
+        <span class="hint">Each email runs the last saved version, with its dates worked out on the day it goes. Criteria marked “ask when run” use their saved values. A chart arrives as its table.</span></div>
+      <div class="field wide"><label for="sc-to">Recipients</label><textarea class="input" id="sc-to" rows="2" placeholder="one@laumc.com, two@laumc.com">${esc((s.recipients || []).join(', '))}</textarea>
+        <span class="hint">The attachments can hold patient data, so only addresses at ${esc(SC.mail.smtp_allowed_domains)} are accepted.</span></div>
+      <div class="field"><label for="sc-freq">How often</label><select class="input" id="sc-freq">${[['daily', 'Every day'], ['weekly', 'Every week'], ['monthly', 'Every month']].map(([v, l]) => `<option value="${v}"${(s.frequency || 'daily') === v ? ' selected' : ''}>${l}</option>`).join('')}</select></div>
+      <div class="field"><label for="sc-time">At (hospital time)</label><input class="input" type="time" id="sc-time" value="${esc(s.send_time || '07:00')}"></div>
+      <div class="field" id="sc-weekly"><label for="sc-weekday">On</label><select class="input" id="sc-weekday">${WEEKDAYS.map((d, i) => `<option value="${i}"${(s.weekday ?? 0) === i ? ' selected' : ''}>${d}</option>`).join('')}</select></div>
+      <div class="field" id="sc-monthly"><label for="sc-day">On day</label><input class="input" type="number" min="1" max="31" id="sc-day" value="${esc(s.month_day ?? 1)}"><span class="hint">A shorter month sends on its last day.</span></div>
+      <label class="field wide" style="flex-direction:row;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" id="sc-on"${s.enabled === false ? '' : ' checked'}> Active (untick to pause it)</label>
+    </div>
+    <div class="inline" style="justify-content:flex-end"><button class="btn" type="button" data-act="back">Cancel</button><button class="btn primary" type="button" data-act="save">Save schedule</button></div>`;
+}
+function scMailView() {
+  const m = SC.mail;
+  return `<div class="def-grid">
+      <div class="field"><label for="mx-host">Server</label><input class="input" id="mx-host" value="${esc(m.smtp_host)}" placeholder="relay.laumc.com"><span class="hint">Empty: nothing is sent.</span></div>
+      <div class="field"><label for="mx-port">Port</label><input class="input" type="number" id="mx-port" value="${esc(m.smtp_port)}"></div>
+      <div class="field wide"><label for="mx-sec">Security</label><select class="input" id="mx-sec">${Object.entries(SECURITY_WORDS).map(([v, l]) => `<option value="${v}"${m.smtp_security === v ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
+      <div class="field"><label for="mx-user">Username</label><input class="input" id="mx-user" autocomplete="off" value="${esc(m.smtp_username)}" placeholder="Empty if the relay needs no login"></div>
+      <div class="field"><label for="mx-pass">Password</label><input class="input" type="password" id="mx-pass" autocomplete="new-password" placeholder="${m.password_set ? 'Saved: leave empty to keep it' : 'None saved'}">
+        ${m.password_set ? '<label class="hint" style="display:inline-flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="mx-clear"> Remove the saved password</label>' : ''}</div>
+      <div class="field"><label for="mx-from">From address</label><input class="input" id="mx-from" value="${esc(m.smtp_from)}" placeholder="rayd@laumc.com"></div>
+      <div class="field"><label for="mx-dom">Allowed recipient domains</label><input class="input" id="mx-dom" value="${esc(m.smtp_allowed_domains)}" placeholder="laumc.com"><span class="hint">Comma-separated. The attachments can hold patient data: they go to these domains and no others.</span></div>
+    </div>
+    <div class="inline" style="justify-content:flex-end"><button class="btn" type="button" data-act="back">Back</button><button class="btn primary" type="button" data-act="mail-save">Save mail server</button></div>
+    <div class="panel-head" style="padding:0;border:0"><h2>Try it</h2></div>
+    <div class="inline"><input class="input" id="mx-to" placeholder="you@laumc.com" aria-label="Test address" style="min-width:260px"><button class="btn" type="button" data-act="mail-test">Save and send a test email</button></div>`;
+}
+function scRunsView() {
+  const rows = SC.runs.list.map(r => `<tr>
+    <td class="txt">${esc(r.started_at)}<br><span class="hint">${r.started_by ? 'Sent by ' + esc(r.started_by) : 'On schedule'}</span></td>
+    <td class="txt"><span class="run-${esc(r.status)}">${esc(RUN_WORDS[r.status] || r.status)}</span>${r.error ? `<br><span class="hint">${esc(r.error)}</span>` : ''}</td>
+    <td class="txt">${r.detail.map(scEntry).join('<br>')}</td>
+    <td class="txt">${r.recipients.map(esc).join('<br>')}</td></tr>`).join('');
+  return `<strong>${esc(SC.runs.name)}</strong>
+    ${rows ? `<div class="table-wrap"><table><thead><tr><th>When</th><th>Result</th><th>Reports</th><th>Sent to</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<div class="empty">Not sent yet.</div>'}
+    <div class="inline" style="justify-content:flex-end"><button class="btn" type="button" data-act="back">Back</button></div>`;
+}
+function scDraw() {
+  const views = {list: scListView, edit: scFormView, mail: scMailView, runs: scRunsView};
+  $('modal').innerHTML = `<div class="modal-back"><div class="modal wide sc" id="sc" role="dialog" aria-modal="true" aria-label="Scheduled emails">
+    <div class="panel-head"><h2>Scheduled emails</h2><button class="btn small" type="button" data-act="close" style="margin-left:auto">Close</button></div>
+    <div class="panel-body">${views[SC.view]()}</div></div></div>`;
+  $('sc').addEventListener('click', scClick);
+  if (SC.view === 'edit') { $('sc-freq').addEventListener('change', scFreq); scFreq(); }
+}
+function scFreq() { $('sc-weekly').hidden = $('sc-freq').value !== 'weekly'; $('sc-monthly').hidden = $('sc-freq').value !== 'monthly'; }
+function scClose() { SC = null; $('modal').innerHTML = ''; document.removeEventListener('keydown', scKey); }
+function scKey(e) { if (e.key === 'Escape' && SC && SC.view === 'list' && !document.querySelector('.swal2-container')) scClose(); }
+async function scOpen(view = 'list') {
+  const was = SC;
+  try { SC = await api('/worklists/api/schedules'); } catch (e) { SC = was; return toast(e.message); }
+  SC.view = view; scDraw();
+}
+const scMailForm = () => ({smtp_host: $('mx-host').value, smtp_port: $('mx-port').value, smtp_security: $('mx-sec').value,
+  smtp_username: $('mx-user').value, smtp_password: $('mx-pass').value, smtp_from: $('mx-from').value,
+  smtp_allowed_domains: $('mx-dom').value, clear_password: !!($('mx-clear') && $('mx-clear').checked)});
+async function scClick(e) {
+  const b = e.target.closest('button[data-act]'); if (!b) return;
+  const act = b.dataset.act, s = SC.schedules.find(x => x.id === +b.dataset.id);
+  // A slow answer must not be asked for twice: above all not a second email.
+  const busy = async (label, work) => { const old = b.innerHTML; b.disabled = true; b.textContent = label; try { await work(); } catch (err) { toast(err.message); } if (b.isConnected) { b.disabled = false; b.innerHTML = old; } };
+  if (act === 'close') return scClose();
+  if (act === 'back') { SC.view = 'list'; return scDraw(); }
+  if (act === 'new') { SC.edit = {}; SC.view = 'edit'; return scDraw(); }
+  if (act === 'edit') { SC.edit = s; SC.view = 'edit'; return scDraw(); }
+  if (act === 'mail') { SC.view = 'mail'; return scDraw(); }
+  if (act === 'runs') return busy('Loading…', async () => { SC.runs = {name: s.name, list: await api(`/worklists/api/schedules/${s.id}/runs`)}; SC.view = 'runs'; scDraw(); });
+  if (act === 'save') return busy('Saving…', async () => {
+    await api('/worklists/api/schedules/save', {id: SC.edit.id, name: $('sc-name').value, recipients: $('sc-to').value,
+      worklist_ids: [...document.querySelectorAll('#sc-pick input:checked')].map(i => +i.value),
+      frequency: $('sc-freq').value, send_time: $('sc-time').value, weekday: +$('sc-weekday').value, month_day: $('sc-day').value, enabled: $('sc-on').checked});
+    toast('Schedule saved.'); await scOpen();
+  });
+  if (act === 'del') {
+    if (!(await askYesNo(`Delete “${s.name}”?`, 'It stops being sent. The record of what it already sent is kept.', {yes: 'Delete', danger: true, icon: 'error'}))) return;
+    return busy('Deleting…', async () => { await api(`/worklists/api/schedules/${s.id}/delete`, {}); toast('Deleted.'); await scOpen(); });
+  }
+  if (act === 'send') {
+    if (!(await askYesNo(`Send “${s.name}” now?`, `To ${s.recipients.join(', ')}. Its next regular send stays as it is.`, {yes: 'Send now', icon: 'question'}))) return;
+    return busy('Sending…', async () => {
+      const r = await api(`/worklists/api/schedules/${s.id}/send`, {});
+      toast(r.status === 'sent' ? 'Sent.' : r.status === 'partial' ? 'Sent, but something is missing: see History.' : 'Not sent: ' + (r.error || 'see History.'));
+      await scOpen();
+    });
+  }
+  if (act === 'mail-save') return busy('Saving…', async () => { const r = await api('/worklists/api/mail-settings', scMailForm()); SC.mail = r.mail; SC.ready = r.ready; toast('Mail server saved.'); SC.view = 'list'; scDraw(); });
+  if (act === 'mail-test') return busy('Sending…', async () => {
+    const to = $('mx-to').value;
+    const r = await api('/worklists/api/mail-settings', scMailForm()); SC.mail = r.mail; SC.ready = r.ready;
+    await api('/worklists/api/mail-settings/test', {to});
+    toast('Test email sent to ' + to + '.');
+  });
+}
+$('btn-sched').onclick = () => { document.addEventListener('keydown', scKey); scOpen(); };
+
 $('f-name').addEventListener('input', e => { S.name = e.target.value; markDirty(); });
 $('f-desc').addEventListener('input', e => { S.description = e.target.value; markDirty(); });
 $('f-folder').addEventListener('input', e => { S.folder = e.target.value; markDirty(); });
@@ -863,6 +1012,7 @@ window.addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); 
 (async () => {
   try { CAT = await api('/worklists/api/catalog'); } catch (e) { $('results').innerHTML = `<div class="note bad">${esc(e.message)}</div>`; return; }
   CAT.fields.forEach(f => FIELD[f.id] = f);
+  $('btn-sched').hidden = !CAT.me.can_schedule;
   await loadLibrary();
   const wanted = +(new URLSearchParams(location.search).get('id') || 0);
   const first = wanted || (LIB[0] && LIB[0].id);

@@ -917,6 +917,32 @@ def create_app():
         coalesce=True,
     )
 
+    def worklist_email_job():
+        # Scheduled email of saved Report Composer reports (utils/worklist_email.py). A
+        # no-op until an admin has set the mail server. Same licence key as the composer.
+        if not app.config.get('LICENSE', {}).get('custom_reports'):
+            return
+        with app.app_context():
+            try:
+                from utils.worklist_email import run_due
+                sent = run_due()
+                if sent:
+                    logger.info(f"[Report Composer] {sent} scheduled email(s) processed")
+            except Exception as e:
+                db.session.rollback()
+                logger.error(f"🛑 [Report Composer] scheduled email pass failed: {e}", exc_info=True)
+
+    scheduler.add_job(
+        func=worklist_email_job,
+        trigger='interval',
+        minutes=1,
+        id='worklist_email',
+        name='Report Composer scheduled emails (every minute)',
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+
     # Only start scheduler and HL7 listener when running as server, not manual ETL
     # (manual_mode computed earlier — see STARTUP: AUTO-TRIGGER ETL IF DB IS EMPTY)
     if not manual_mode:

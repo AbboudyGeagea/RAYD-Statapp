@@ -1,4 +1,4 @@
--- Migration 0136: Dynamic Worklists on LAUMC — the RIS and PACS data layer.
+-- Migration 0136: Report Composer on LAUMC — the RIS and PACS data layer.
 --
 -- Replaces the Custom Reports composer (operator, 2026-11-02). The editor
 -- (routes/worklists.py) is Bekaa's (5d06f2cc), itself the HL7 branch's RAYD V2.0 editor.
@@ -768,9 +768,9 @@ SELECT w.id, 1, w.name, w.definition FROM worklists w
 -- Migration 0032 seeded a Custom Reports entry. Only that seeded row is rewritten: an
 -- operator's own wording (Admin > AI Docs) is left alone.
 UPDATE ai_doc_chunks
-   SET section    = 'Dynamic Worklists',
-       keywords   = 'worklist,dynamic worklist,custom report,ad hoc,custom,build report,custom query,sql',
-       content    = 'Dynamic Worklists (sidebar: Analytics) replaced Custom Reports. Pick a dataset (RIS exams, PACS studies or series, reports, NLP findings, storage or CRN), add criteria on its tabs, and show it as a list, a table or a chart; save it, export it as CSV. Admins can share worklists and write their SQL by hand.',
+   SET section    = 'Report Composer',
+       keywords   = 'report composer,scheduled email,worklist,custom report,ad hoc,custom,build report,custom query,sql',
+       content    = 'Report Composer (sidebar: Analytics) replaced Custom Reports. Pick a dataset (RIS exams, PACS studies or series, reports, NLP findings, storage or CRN), add criteria on its tabs, and show it as a list, a table or a chart; save it, export it as CSV. Admins can share reports, write their SQL by hand, and email saved reports on a schedule.',
        updated_at = NOW()
  WHERE section = 'Custom Reports'
    AND content = 'Custom Reports lets you build ad-hoc queries on study data by selecting fields, filters, and date ranges without writing SQL.';

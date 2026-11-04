@@ -1,4 +1,4 @@
--- Migration 0137: indexes the Dynamic Worklist views (0136) rely on.
+-- Migration 0137: indexes the Report Composer views (0136) rely on.
 --
 --   etl_didb_serieses(study_db_uid)   rpt.series filtered by the study's date
 --   etl_didb_studies(study_date)      every study date filter (the compiler bounds

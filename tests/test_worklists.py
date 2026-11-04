@@ -1,5 +1,5 @@
 """
-tests/test_worklists.py — Dynamic Worklists on LAUMC's RIS and PACS data.
+tests/test_worklists.py — Report Composer on LAUMC's RIS and PACS data.
 
 Bekaa's suite (5d06f2cc), with its PACS orders replaced by the RIS exam and LAUMC's
 own rules added (the RIS MRN, sites, pickers bounded to a year).
@@ -152,7 +152,7 @@ def run_defn(defn, now=None):
 
 def test_migrations_applied_through_the_app_runner(app):
     names = {r['name'] for r in sql("SELECT name FROM schema_migrations")}
-    assert {'0136_dynamic_worklists.sql', '0137_worklist_indexes.sql'} <= names
+    assert {'0136_report_composer.sql', '0137_worklist_indexes.sql'} <= names
     idx = {r['indexname'] for r in sql("SELECT indexname FROM pg_indexes")}
     assert {'idx_etl_didb_serieses_study_db_uid', 'idx_etl_didb_studies_study_date'} <= idx
     role = sql("SELECT value FROM settings WHERE key = 'worklist_db_role'")[0]['value']
@@ -167,7 +167,7 @@ def test_custom_reports_is_gone(app):
         assert not os.path.exists(os.path.join(ROOT, path)), path
     # the AI assistant points to the editor that replaced it
     sections = {r['section'] for r in sql('SELECT section FROM ai_doc_chunks')}
-    assert 'Dynamic Worklists' in sections and 'Custom Reports' not in sections
+    assert 'Report Composer' in sections and 'Custom Reports' not in sections
 
 
 # ── catalog ↔ views ───────────────────────────────────────────────────────────
@@ -784,13 +784,14 @@ def test_catalog(client):
         "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value")
     c = h(client, 'get', '/worklists/api/catalog').get_json()
     assert set(c['datasets']) == set(cat.DATASETS)
-    assert c['me'] == {'id': ADMIN, 'role': 'admin', 'can_write_sql': True, 'can_edit_shared': True}
+    assert c['me'] == {'id': ADMIN, 'role': 'admin', 'can_write_sql': True, 'can_edit_shared': True,
+                       'can_schedule': True}
     shift = next(f for f in c['fields'] if f['id'] == 'shift')
     assert 'Morning 6–15 h' in shift['hint']
     assert c['datasets']['storage']['default_measure'] == 'gb'
     assert c['datasets']['exams']['tabs'][:3] == ['primary', 'patient', 'exam']
     v = h(client, 'get', '/worklists/api/catalog', uid=VIEWER).get_json()['me']
-    assert (v['can_write_sql'], v['can_edit_shared']) == (False, False)
+    assert (v['can_write_sql'], v['can_edit_shared'], v['can_schedule']) == (False, False, False)
 
 
 NEW = {'name': 'Mine', 'folder': 'Me', 'visibility': 'personal',
@@ -877,19 +878,27 @@ def test_sql_reference_documents_every_column(client):
     assert len(ref['examples']) == len(cat.SQL_EXAMPLES)
 
 
-def test_old_custom_reports_address_redirects(client):
+@pytest.mark.parametrize('old, new', [
+    ('/reports/custom', '/report-composer'),
+    ('/reports/custom/12/view', '/report-composer'),
+    ('/worklists', '/report-composer'),
+    ('/worklists?id=7', '/report-composer?id=7'),       # a bookmark of one report
+    ('/worklists?id=x&_external=1', '/report-composer'),
+])
+def test_earlier_addresses_redirect(client, old, new):
     users()
-    r = h(client, 'get', '/reports/custom/12/view', uid=VIEWER)
-    assert r.status_code == 302 and r.headers['Location'].endswith('/worklists')
+    r = h(client, 'get', old, uid=VIEWER)
+    assert r.status_code == 302 and r.headers['Location'].endswith(new)
 
 
 # ── the page ──────────────────────────────────────────────────────────────────
 
 def test_page_renders_for_a_viewer(client):
     users()
-    r = h(client, 'get', '/worklists', uid=VIEWER)
+    r = h(client, 'get', '/report-composer', uid=VIEWER)
     html = r.get_data(as_text=True)
-    assert r.status_code == 200 and 'Dynamic Worklists' in html and 'csrf-token' in html
+    assert r.status_code == 200 and 'Report Composer' in html and 'csrf-token' in html
+    assert 'href="/report-composer"' in html        # the sidebar
 
 
 def test_page_template_parses_and_its_script_is_valid_js():

@@ -24,6 +24,13 @@ MIGRATIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "migra
 # each other, not a correctness bug, but there's no reason to ever change it).
 _MIGRATION_LOCK_ID = 872951064
 
+# Migration files renamed after they ran: (LIKE pattern of the old name, new name).
+# schema_migrations knows a file only by its name, so without this the new name looks
+# pending and the file runs a second time on every database that already has it.
+_RENAMED_MIGRATIONS = [
+    (r'0136\_dynamic%', '0136_report_composer.sql'),
+]
+
 
 def run_migrations(app):
     from db import db
@@ -65,6 +72,14 @@ def _run_pending_migrations(db):
             applied_at  TIMESTAMP DEFAULT NOW()
         )
     """))
+    db.session.commit()
+
+    for old, new in _RENAMED_MIGRATIONS:
+        db.session.execute(text("""
+            UPDATE schema_migrations SET name = :new
+             WHERE name LIKE :old
+               AND NOT EXISTS (SELECT 1 FROM schema_migrations WHERE name = :new)
+        """), {"old": old, "new": new})
     db.session.commit()
 
     # Get already-applied migrations

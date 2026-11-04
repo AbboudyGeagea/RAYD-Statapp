@@ -1,14 +1,18 @@
 """
-routes/worklists.py — Dynamic Worklists, replacing Custom Reports.
+routes/worklists.py — Report Composer, replacing Custom Reports.
 
 The editor of the HL7 branch (RAYD V2.0), as Bekaa runs it, on LAUMC's RIS and PACS
 data: the rpt.* views of migration 0136 (RIS exams, PACS studies and series, reports,
 NLP findings, storage, CRN). Ported 2026-11-02, replacing Custom Reports.
 
-    /worklists                 the editor (saved tree · definition · SQL & results)
+What people read says Report Composer and "report". The code keeps the word worklist
+(tables, modules, API paths): renaming those would change nothing anyone sees.
+
+    /report-composer           the editor (saved tree · definition · SQL & results)
     /worklists/api/...         catalog, list, load, save, delete, versions,
-                               compile, run, csv, options, sql-reference
-    /reports/custom[/...]      the old Custom Reports address, now a redirect here
+                               compile, run, csv, options, sql-reference,
+                               schedules, mail-settings
+    /worklists, /reports/custom[/...]   earlier addresses, now redirects here
 
 ACCESS
     page / run / personal worklists   the 'custom_reports' page permission (the key
@@ -16,9 +20,11 @@ ACCESS
                                       and existing grants carry over unchanged)
     share, edit a shared worklist     admin (an owner may edit their own)
     write SQL by hand                 admin
+    schedule emails, the mail server  admin (rows can leave the hospital this way)
 
 A personal worklist is visible to its owner only. Every save is kept in
 worklist_versions. Shift hours are Report 25's (settings shift_*), edited there.
+Scheduled emails are sent by utils/worklist_email.py.
 """
 import csv
 import io
@@ -31,7 +37,9 @@ from sqlalchemy import text
 
 from db import db, user_has_page
 from utils import worklist_catalog as cat
+from utils import worklist_email as mailer
 from utils import worklist_engine as engine
+from utils.worklist_email import ScheduleError
 from utils.worklist_engine import WorklistError
 
 logger = logging.getLogger("WORKLISTS")
@@ -40,6 +48,7 @@ worklists_bp = Blueprint('worklists', __name__)
 
 EDITOR_ROLES = ('admin',)
 SQL_ROLES = ('admin',)
+SCHEDULE_ROLES = ('admin',)
 
 
 def _require_access():
@@ -49,8 +58,18 @@ def _require_access():
         abort(403)
 
 
+def _require_scheduling():
+    _require_access()
+    if not _can_schedule():
+        abort(403)
+
+
 def _can_write_sql():
     return current_user.role in SQL_ROLES
+
+
+def _can_schedule():
+    return current_user.role in SCHEDULE_ROLES
 
 
 def _can_edit(row):
@@ -100,19 +119,20 @@ def _shift_hours():
 
 # ── the page ──────────────────────────────────────────────────────────────────
 
-@worklists_bp.route('/worklists')
+@worklists_bp.route('/report-composer')
 @login_required
 def page():
     _require_access()
     return render_template('worklists.html', can_write_sql=_can_write_sql())
 
 
+@worklists_bp.route('/worklists')
 @worklists_bp.route('/reports/custom')
 @worklists_bp.route('/reports/custom/<path:_rest>')
 @login_required
-def old_custom_reports(_rest=None):
-    """Custom Reports is gone; its bookmarks land on the editor that replaced it."""
-    return redirect(url_for('worklists.page'))
+def old_addresses(_rest=None):
+    """Bookmarks of its earlier addresses land on the editor, on the report they named."""
+    return redirect(url_for('worklists.page', id=request.args.get('id', type=int)))
 
 
 # ── catalog and library ───────────────────────────────────────────────────────
@@ -128,7 +148,8 @@ def api_catalog():
             f['hint'] = f"{f['hint']} Now: {shifts}."
     out['me'] = {'id': current_user.id, 'role': current_user.role,
                  'can_write_sql': _can_write_sql(),
-                 'can_edit_shared': current_user.role in EDITOR_ROLES}
+                 'can_edit_shared': current_user.role in EDITOR_ROLES,
+                 'can_schedule': _can_schedule()}
     return jsonify(out)
 
 
@@ -194,11 +215,11 @@ def api_save():
     visibility = b.get('visibility') or 'personal'
     defn = b.get('definition')
     if not name:
-        return _error('a worklist needs a name')
+        return _error('a report needs a name')
     if visibility not in ('personal', 'shared'):
         return _error('visibility is personal or shared')
     if visibility == 'shared' and current_user.role not in EDITOR_ROLES:
-        return _error('only an admin can share a worklist', 403)
+        return _error('only an admin can share a report', 403)
     try:
         engine.validate_for_save(defn)
     except WorklistError as e:
@@ -206,12 +227,12 @@ def api_save():
 
     existing = _row(int(b['id'])) if b.get('id') else None
     if existing and not _can_edit(existing):
-        return _error('you cannot edit this worklist — duplicate it into your personal folder', 403)
+        return _error('you cannot edit this report — duplicate it into your personal folder', 403)
     # Only an admin may introduce or change hand-written SQL. Anyone allowed to edit
     # may still rename or move a worklist that carries some.
     stored_sql = (existing or {}).get('definition', {}).get('sql') if existing else None
     if defn.get('sql') and defn.get('sql') != stored_sql and not _can_write_sql():
-        return _error('only an admin can write worklist SQL', 403)
+        return _error('only an admin can write report SQL', 403)
 
     # A worklist written in SQL may have no dataset: it names its own views.
     params = {'name': name, 'desc': (b.get('description') or '')[:2000], 'folder': folder,
@@ -241,7 +262,7 @@ def api_save():
     except Exception:
         db.session.rollback()
         logger.exception("worklist save failed")
-        return _error('could not save the worklist', 500)
+        return _error('could not save the report', 500)
     return jsonify({'status': 'ok', 'id': row[0], 'version': row[1]})
 
 
@@ -251,7 +272,11 @@ def api_delete(worklist_id):
     _require_access()
     r = _row(worklist_id)
     if not _can_edit(r):
-        return _error('you cannot delete this worklist', 403)
+        return _error('you cannot delete this report', 403)
+    used = mailer.schedules_using(worklist_id)
+    if used:
+        return _error(f'this report is emailed by: {", ".join(used)}. '
+                      'An admin must take it out of those schedules first.', 409)
     db.session.execute(text("DELETE FROM worklists WHERE id = :id"), {'id': worklist_id})
     db.session.commit()
     return jsonify({'status': 'ok'})
@@ -326,8 +351,7 @@ def api_csv():
     w = csv.writer(buf)
     w.writerow(res['columns'])
     w.writerows(res['rows'])
-    name = ''.join(ch if ch.isalnum() or ch in '-_ ' else '_'
-                   for ch in (b.get('name') or 'worklist')).strip() or 'worklist'
+    name = engine.file_name(b.get('name'))
     return Response('﻿' + buf.getvalue(), mimetype='text/csv',
                     headers={'Content-Disposition': f'attachment; filename="{name}.csv"',
                              'X-Truncated': '1' if res['truncated'] else '0'})
@@ -379,7 +403,7 @@ def api_sql_reference():
          'read-only.'),
         ('Values',
          "Write values in the SQL itself: 'CT', DATE '2026-10-01', INTERVAL '7 days'. "
-         'There are no parameters, and "ask when run" does not apply to SQL worklists.'),
+         'There are no parameters, and "ask when run" does not apply to SQL reports.'),
         ('Dates and times',
          f'Every time is hospital time ({tz}) without a time zone. CURRENT_DATE and '
          'LOCALTIMESTAMP run on the same clock. Filter studies on study_date (indexed): '
@@ -392,11 +416,11 @@ def api_sql_reference():
          'stopped: group (GROUP BY) rather than list when the period is long.'),
         ('The result',
          'Shown as a list exactly as the query returns it; your column names become the '
-         'headers, so name them with AS "Studies per day". The worklist\'s criteria and output '
+         'headers, so name them with AS "Studies per day". The report\'s criteria and output '
          'settings are not used while it runs SQL.'),
         ('Functions', 'Standard PostgreSQL functions work: COUNT, date_trunc, extract, '
                       'percentile_cont, round, COALESCE ...'),
-        ('Who', 'Only admins write or change SQL. Everyone who can open the worklist can run it.'),
+        ('Who', 'Only admins write or change SQL. Everyone who can open the report can run it.'),
     ]
     return jsonify({'views': views,
                     'rules': [{'title': t, 'text': x} for t, x in rules],
@@ -411,3 +435,86 @@ def api_options():
         return jsonify(engine.options(request.args.get('dataset'), request.args.get('field')))
     except WorklistError as e:
         return _error(e)
+
+
+# ── Scheduled emails ──────────────────────────────────────────────────────────
+
+@worklists_bp.route('/worklists/api/schedules')
+@login_required
+def api_schedules():
+    _require_scheduling()
+    cfg = mailer.mail_config()
+    return jsonify({'schedules': mailer.list_schedules(), 'mail': mailer.public_config(cfg),
+                    'ready': mailer.is_ready(cfg)})
+
+
+@worklists_bp.route('/worklists/api/schedules/save', methods=['POST'])
+@login_required
+def api_schedule_save():
+    _require_scheduling()
+    try:
+        return jsonify({'status': 'ok', 'id': mailer.save_schedule(_body(), current_user.id)})
+    except ScheduleError as e:
+        return _error(e)
+
+
+@worklists_bp.route('/worklists/api/schedules/<int:schedule_id>/delete', methods=['POST'])
+@login_required
+def api_schedule_delete(schedule_id):
+    _require_scheduling()
+    mailer.delete_schedule(schedule_id)
+    return jsonify({'status': 'ok'})
+
+
+@worklists_bp.route('/worklists/api/schedules/<int:schedule_id>/runs')
+@login_required
+def api_schedule_runs(schedule_id):
+    _require_scheduling()
+    return jsonify(mailer.list_runs(schedule_id))
+
+
+@worklists_bp.route('/worklists/api/schedules/<int:schedule_id>/send', methods=['POST'])
+@login_required
+def api_schedule_send(schedule_id):
+    """Send it now, whether paused or not; its next regular send stays as it is."""
+    _require_scheduling()
+    s = mailer.get_schedule(schedule_id)
+    if not s:
+        abort(404)
+    if not mailer.is_ready(mailer.mail_config()):
+        return _error('set up the mail server first')
+    return jsonify(mailer.send_schedule(s, started_by=current_user.id))
+
+
+@worklists_bp.route('/worklists/api/mail-settings', methods=['POST'])
+@login_required
+def api_mail_settings():
+    _require_scheduling()
+    try:
+        mailer.save_mail_config(_body())
+    except ScheduleError as e:
+        return _error(e)
+    cfg = mailer.mail_config()
+    return jsonify({'status': 'ok', 'mail': mailer.public_config(cfg), 'ready': mailer.is_ready(cfg)})
+
+
+@worklists_bp.route('/worklists/api/mail-settings/test', methods=['POST'])
+@login_required
+def api_mail_test():
+    """A message with no data in it, to prove the relay takes mail for this address."""
+    _require_scheduling()
+    cfg = mailer.mail_config()
+    if not mailer.is_ready(cfg):
+        return _error('save the mail server first')
+    try:
+        to = mailer.clean_recipients(_body().get('to'), cfg)
+        refused = mailer.send_mail(cfg, to, 'RAYD test email',
+                                   'The mail server is set up correctly.\n\nSent by RAYD, Report Composer.')
+    except ScheduleError as e:
+        return _error(e)
+    except Exception as e:
+        logger.warning("worklist test email failed: %s", e)
+        return _error(f'the mail server did not take the message: {e}', 502)
+    if refused:
+        return _error('the mail server refused: ' + ', '.join(sorted(refused)), 502)
+    return jsonify({'status': 'ok'})

@@ -1,7 +1,7 @@
 """
 utils/worklist_engine.py
 ────────────────────────────────────────────────────────────────
-Dynamic Worklists: definition → SQL → rows.
+Report Composer: definition → SQL → rows.
 
     definition (JSON) ──compile()──▶ SQL + bound parameters ──run()──▶ rows
                                                     │
@@ -241,7 +241,7 @@ def compile_definition(defn, now=None):
     Raises WorklistError for anything the catalog does not offer.
     """
     if not isinstance(defn, dict):
-        raise WorklistError('a worklist definition is an object')
+        raise WorklistError('a report definition is an object')
     ds = defn.get('dataset')
     if ds not in cat.DATASETS:
         raise WorklistError(f'unknown dataset {ds!r}')
@@ -359,7 +359,7 @@ def _credentials():
     )).fetchall()
     found = {k: v for k, v in rows}
     if not found.get('worklist_db_role') or not found.get('worklist_db_password'):
-        raise WorklistError('the worklist database role is not set up (migration 0136)')
+        raise WorklistError('the report database role is not set up (migration 0136)')
     return found['worklist_db_role'], found['worklist_db_password']
 
 
@@ -405,12 +405,18 @@ def check_hand_sql(sql):
     if not sql:
         raise WorklistError('the SQL is empty')
     if not _SELECT_START.match(sql):
-        raise WorklistError('worklist SQL must be a single SELECT (or WITH ... SELECT)')
+        raise WorklistError('report SQL must be a single SELECT (or WITH ... SELECT)')
     return sql
 
 
 def view_names():
     return ', '.join(d['view'] for d in cat.DATASETS.values())
+
+
+def file_name(name):
+    """A report's name as a safe file name, without its extension."""
+    return ''.join(ch if ch.isalnum() or ch in '-_ ' else '_'
+                   for ch in (name or 'report')).strip() or 'report'
 
 
 def run(compiled=None, hand_sql=None, cap=ROW_CAP):
@@ -446,7 +452,7 @@ def run(compiled=None, hand_sql=None, cap=ROW_CAP):
         if 'statement timeout' in msg:
             msg = f'the query ran longer than {STATEMENT_TIMEOUT_MS // 1000} s and was stopped'
         elif 'permission denied' in msg:
-            msg += f' — worklists can read the rpt views only ({view_names()})'
+            msg += f' — reports can read the rpt views only ({view_names()})'
         logger.info("worklist query refused or failed: %s", msg)
         raise WorklistError(msg)
     truncated = len(rows) > cap
@@ -491,7 +497,7 @@ def validate_for_save(defn):
     are kept but not used, so they are not held against it.
     """
     if not isinstance(defn, dict):
-        raise WorklistError('a worklist definition is an object')
+        raise WorklistError('a report definition is an object')
     if defn.get('sql'):
         check_hand_sql(defn['sql'])
     else:
