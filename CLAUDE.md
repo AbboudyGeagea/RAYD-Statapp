@@ -91,7 +91,7 @@ routes/
   cd_log_route.py         — POST /cd-burn API (CD/DVD burn events → cd_burn_log)
   cd_log_ui.py            — CD burn log screens; Report 30 reads cd_burn_log
   report_22.py … report_36.py, super_report.py, er_dashboard.py — reports (read etl_*)
-  worklists.py            — Dynamic Worklists (RAYD V2.0 report editor; replaced Custom
+  worklists.py            — Report Composer (RAYD V2.0 report editor; replaced Custom
                             Reports, same licence key + page permission `custom_reports`)
   department_board.py     — Live Department board (/viewer/department): per device, the study
                             in progress + expected finish, who waits and how long, what is
@@ -159,7 +159,9 @@ users                — role is su | implementation | administrator | user (mig
 analytics_snapshots  — daily briefing data
 ```
 
-### Dynamic Worklists (migrations 0136, 0139)
+### Report Composer (migrations 0136, 0139)
+Renamed 2026-11-04: Philips uses its earlier name, which must appear nowhere, on any branch
+(see tests/test_report_composer_name.py). Tables, code and API paths still say worklist.
 ```
 rpt.exams / rpt.orders / rpt.reports — flat datasets the worklist editor queries
 rpt.findings                         — one row per NLP finding (hl7_oru_analysis labels)
@@ -183,7 +185,7 @@ projected `etl_didb_studies`, and `go_live_config` is left empty.
 | Role | Who | Access |
 |------|-----|--------|
 | `su` | R&D | everything; only role exempt from license expiry |
-| `implementation` | ATH engineers | mapping (HL7 fields, modalities, procedures), live feed, HL7 orders, Dynamic Worklists (incl. hand-written SQL), BRAYN console |
+| `implementation` | ATH engineers | mapping (HL7 fields, modalities, procedures), live feed, HL7 orders, Report Composer (incl. hand-written SQL), BRAYN console |
 | `administrator` | radiology manager / chief radiologist | all reports, user management |
 | `user` | read-only staff | reports an administrator grants |
 Old role names (`admin`, `viewer`, `viewer2`, `tec`, `finance`, `secretary`) no longer exist —

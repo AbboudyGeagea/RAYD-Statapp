@@ -1,4 +1,4 @@
--- Migration 0136: Dynamic Worklists — RAYD V2.0's report editor, HL7 data layer.
+-- Migration 0136: Report Composer — RAYD V2.0's report editor, HL7 data layer.
 --
 -- Replaces the Custom Reports composer. Modelled on the Carestream RIS "Dynamic
 -- Worklist Editor": a saved-worklist tree, criteria on tabs, date modes, pickers,

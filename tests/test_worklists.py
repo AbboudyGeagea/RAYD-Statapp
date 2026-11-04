@@ -1,5 +1,5 @@
 """
-Dynamic Worklists: the rpt datasets, the compiler, the sandbox they run in, and the
+Report Composer: the rpt datasets, the compiler, the sandbox they run in, and the
 editor's API.
 
 The sandbox tests are the ones that matter most. Worklist SQL — including SQL an IT
@@ -726,10 +726,17 @@ def test_shift_hours_validated(client, shifts):
     assert len(h(client, 'get', '/worklists/api/shifts').get_json()) == 3
 
 
-@pytest.mark.parametrize('url', ['/reports/custom', '/reports/custom/5/edit', '/reports/custom/new'])
-def test_old_custom_reports_addresses_redirect(client, url):
+@pytest.mark.parametrize('url, new', [
+    ('/reports/custom', '/report-composer'),
+    ('/reports/custom/5/edit', '/report-composer'),
+    ('/reports/custom/new', '/report-composer'),
+    ('/worklists', '/report-composer'),
+    ('/worklists?id=7', '/report-composer?id=7'),       # a bookmark of one report
+    ('/worklists?id=x&_external=1', '/report-composer'),
+])
+def test_earlier_addresses_redirect(client, url, new):
     r = h(client, 'get', url)
-    assert r.status_code == 302 and r.headers['Location'].endswith('/worklists')
+    assert r.status_code == 302 and r.headers['Location'].endswith(new)
 
 
 def test_a_hundred_studies_aggregate_quickly(app, pipe):
@@ -745,7 +752,7 @@ def test_a_hundred_studies_aggregate_quickly(app, pipe):
 # ── the page: Save at the bottom, a new worklist empty (operator, 2026-10-25) ──
 
 def test_page_has_save_in_the_bottom_bar_only(client):
-    body = h(client, 'get', '/worklists').data.decode('utf-8')
+    body = h(client, 'get', '/report-composer').data.decode('utf-8')
     bar = body.split('id="actionbar"', 1)[1].split('</div>', 1)[0]
     assert 'id="btn-save"' in bar and 'id="btn-run2"' in bar
     assert body.count('id="btn-save"') == 1
@@ -753,14 +760,14 @@ def test_page_has_save_in_the_bottom_bar_only(client):
 
 
 def test_page_marks_the_required_fields(client):
-    body = h(client, 'get', '/worklists').data.decode('utf-8')
+    body = h(client, 'get', '/report-composer').data.decode('utf-8')
     for wrapper in ('id="fw-name"', 'id="fw-ds"'):
         assert wrapper in body
     assert body.count('class="req-tag">Required') >= 2
 
 
 def test_generated_sql_is_read_only_and_writing_is_a_separate_mode(client):
-    body = h(client, 'get', '/worklists').data.decode('utf-8')
+    body = h(client, 'get', '/report-composer').data.decode('utf-8')
     assert '<pre class="sql" id="sql-view">' in body           # shown, never editable
     assert 'data-mode="gen"' in body and 'data-mode="hand"' in body
     assert 'btn-edit-sql' not in body and 'id="btn-ref"' in body
@@ -848,7 +855,7 @@ def test_confirmations_use_sweetalert2(client):
     """Every question the editor asks goes through SweetAlert2, like the rest of RAYD
     (operator, 2026-10-25). The browser's own confirm() stays only as the fallback
     for an install that cannot load the library."""
-    body = h(client, 'get', '/worklists').data.decode('utf-8')
+    body = h(client, 'get', '/report-composer').data.decode('utf-8')
     assert 'sweetalert2@11' in body and 'Swal.fire' in body
     # The whole page, shared header and sidebar included: a fallback is written
     # window.confirm(...), so a bare confirm( / alert( / prompt( is a native dialog.

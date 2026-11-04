@@ -1,4 +1,4 @@
--- Migration 0139: NLP findings in Dynamic Worklists (from Bekaa 5d06f2cc).
+-- Migration 0139: NLP findings in Report Composer (from Bekaa 5d06f2cc).
 --
 --   rpt.findings              one row per finding the NLP worker affirmed in a report
 --                             (negation and history removed, benign labels left out):

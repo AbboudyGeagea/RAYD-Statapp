@@ -1,7 +1,7 @@
 """
 utils/worklist_catalog.py
 ────────────────────────────────────────────────────────────────
-What a Dynamic Worklist may name: datasets, fields, groupings, measures, columns.
+What a Report Composer report may name: datasets, fields, groupings, measures, columns.
 
     catalog ──▶ the editor's tabs and pickers (GET /worklists/api/catalog)
             └─▶ the compiler, which takes EVERY identifier from here and nothing
