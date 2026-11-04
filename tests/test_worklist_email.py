@@ -10,19 +10,28 @@ attachments are read back as real workbooks.
     failures     one worklist failing, relay down, TLS never dropped, recipients refused
     patient data rows only in attachments, only to the allowed domains
     access       admin only; someone else's personal worklist stays theirs
+    Microsoft    OAuth over real TLS, against stand-ins for Entra ID and Exchange Online
 """
+import base64
 import email
 import email.policy
+import http.server
 import io
 import json
 import os
 import re
 import socketserver
+import ssl
 import threading
+import urllib.parse
 from datetime import datetime, time, timedelta
 
 import openpyxl
 import pytest
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.x509.oid import NameOID
 from sqlalchemy import text
 
 from conftest import ROOT
@@ -30,7 +39,7 @@ from test_worklists import ADMIN, TEC, VIEWER, ae, h, save, sql, study, users
 from utils import worklist_catalog as cat
 from utils import worklist_email as mailer
 from utils import worklist_engine as engine
-from utils.crypto import decrypt
+from utils.crypto import decrypt, encrypt
 
 OTHER_ADMIN = 9004
 PAST = datetime(2020, 1, 1, 7, 0)
@@ -734,3 +743,344 @@ def test_the_editor_offers_scheduling_to_admins_only(client):
     html = h(client, 'get', '/report-composer', uid=VIEWER).get_data(as_text=True)
     assert 'id="btn-sched" type="button" hidden' in html
     assert h(client, 'get', '/worklists/api/catalog', uid=VIEWER).get_json()['me']['can_schedule'] is False
+
+
+# ── Microsoft 365 ─────────────────────────────────────────────────────────────
+#
+# Stand-ins for Entra ID and Exchange Online, spoken to over real sockets and real TLS.
+# The stand-in Exchange is strict in the ways the real one is on port 587: nothing can sign
+# in before STARTTLS, EHLO again after it, and no mail without signing in. XOAUTH2 follows
+# Microsoft's example: AUTH XOAUTH2, a 334, then the token. None of this is a real tenant.
+
+TENANT = '11111111-2222-3333-4444-555555555555'
+CLIENT = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+SECRET = 's3cret-value'
+MAILBOX = 'rayd@laumc.test'
+TOKEN = 'tok-' + 'x' * 2400     # real ones run to a couple of thousand characters
+
+
+class _Exchange(socketserver.StreamRequestHandler):
+    def _say(self, line):
+        self.wfile.write(line.encode() + b'\r\n')
+
+    def _read(self):
+        return self.rfile.readline().decode('utf-8', 'replace').strip()
+
+    def handle(self):
+        relay = self.server.relay
+        secure = greeted = signed_in = False
+        rcpts = []
+        self._say('220 test exchange')
+        while True:
+            line = self._read()
+            if not line:
+                return
+            word = line.upper()
+            if word.startswith('EHLO'):
+                greeted = True
+                extra = ['250-AUTH PLAIN XOAUTH2'] if secure else ['250-STARTTLS'] if relay.offer_tls else []
+                self._say('\r\n'.join(['250-test exchange', *extra, '250 8BITMIME']))
+            elif word == 'STARTTLS':
+                self._say('220 go ahead')
+                self.request = relay.tls.wrap_socket(self.request, server_side=True)
+                self.rfile = self.request.makefile('rb')
+                self.wfile = self.request.makefile('wb', buffering=0)
+                secure, greeted = True, False
+            elif word.startswith('AUTH'):
+                if not (secure and greeted):
+                    relay.broken_rules.append(line[:40])
+                    self._say('503 5.5.1 STARTTLS and EHLO first')
+                elif word == 'AUTH XOAUTH2':
+                    self._say('334 ')
+                    relay.signed_in_with.append(base64.b64decode(self._read()).decode())
+                    if relay.refuse_token:
+                        self._say('535 5.7.3 Authentication unsuccessful')
+                    else:
+                        signed_in = True
+                        self._say('235 2.7.0 Authentication successful')
+                elif word.startswith('AUTH PLAIN '):
+                    relay.signed_in_with.append(base64.b64decode(line.split()[2]).decode())
+                    signed_in = True
+                    self._say('235 2.7.0 Authentication successful')
+                else:
+                    relay.broken_rules.append(line[:40])
+                    self._say('504 5.5.4 unrecognized')
+            elif word.startswith('MAIL FROM'):
+                self._say('250 ok' if signed_in else '530 5.7.57 Client not authenticated')
+            elif word.startswith('RCPT TO'):
+                rcpts.append(re.search(r'<(.*?)>', line).group(1))
+                self._say('250 ok')
+            elif word == 'DATA':
+                self._say('354 go')
+                chunks = []
+                while True:
+                    chunk = self.rfile.readline()
+                    if chunk == b'.\r\n':
+                        break
+                    chunks.append(chunk[1:] if chunk.startswith(b'..') else chunk)
+                msg = email.message_from_bytes(b''.join(chunks), policy=email.policy.default)
+                relay.mails.append(type('Mail', (), {'rcpts': rcpts, 'msg': msg}))
+                self._say('250 queued')
+            elif word == 'QUIT':
+                self._say('221 bye')
+                return
+            else:
+                self._say('250 ok')
+
+
+class _Entra(http.server.BaseHTTPRequestHandler):
+    def do_POST(self):
+        entra = self.server.entra
+        form = urllib.parse.parse_qs(self.rfile.read(int(self.headers['Content-Length'])).decode())
+        entra.requests.append((self.path, {k: v[0] for k, v in form.items()}))
+        status, answer = entra.answer
+        data = answer if isinstance(answer, bytes) else json.dumps(answer).encode()
+        self.send_response(status)
+        self.send_header('Content-Length', str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def log_message(self, *args):
+        pass
+
+
+@pytest.fixture(scope='module')
+def certificate(tmp_path_factory):
+    """A certificate for localhost, as (certificate file, key file)."""
+    key = ec.generate_private_key(ec.SECP256R1())
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, 'localhost')])
+    now = datetime.now()
+    cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now - timedelta(days=1)).not_valid_after(now + timedelta(days=1))
+            .add_extension(x509.SubjectAlternativeName([x509.DNSName('localhost')]), critical=False)
+            .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+            .sign(key, hashes.SHA256()))
+    folder = tmp_path_factory.mktemp('tls')
+    cert_file, key_file = folder / 'cert.pem', folder / 'key.pem'
+    cert_file.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    key_file.write_bytes(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                           serialization.NoEncryption()))
+    return str(cert_file), str(key_file)
+
+
+class Microsoft:
+    """Exchange Online and Entra ID, and RAYD's settings pointing at them."""
+
+    def __init__(self, certificate, monkeypatch):
+        self.mails, self.signed_in_with, self.broken_rules = [], [], []
+        self.offer_tls, self.refuse_token = True, False
+        self.tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        self.tls.load_cert_chain(*certificate)
+        self.exchange = socketserver.ThreadingTCPServer(('127.0.0.1', 0), _Exchange)
+        self.exchange.relay = self
+        self.requests, self.answer = [], (200, {'access_token': TOKEN, 'token_type': 'Bearer', 'expires_in': 3599})
+        self.entra = http.server.ThreadingHTTPServer(('127.0.0.1', 0), _Entra)
+        self.entra.entra = self
+        for server in (self.exchange, self.entra):
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+        monkeypatch.setenv('NO_PROXY', '127.0.0.1')
+        monkeypatch.setattr(mailer, 'O365_TOKEN_URL',
+                            f'http://127.0.0.1:{self.entra.server_address[1]}/{{tenant}}/oauth2/v2.0/token')
+        self.trust_certificate = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        self.trust_certificate.load_verify_locations(certificate[0])
+        monkeypatch.setattr(mailer.ssl, 'create_default_context', lambda: self.trust_certificate)
+        for k, v in (('smtp_host', 'localhost'), ('smtp_port', str(self.exchange.server_address[1])),
+                     ('smtp_security', 'starttls'), ('smtp_from', MAILBOX), ('smtp_allowed_domains', 'laumc.test'),
+                     ('smtp_auth', 'oauth_o365'), ('smtp_oauth_tenant', TENANT), ('smtp_oauth_client_id', CLIENT),
+                     ('smtp_oauth_client_secret', encrypt(SECRET))):
+            setting(k, v)
+
+    def stop(self):
+        for server in (self.exchange, self.entra):
+            server.shutdown()
+            server.server_close()
+
+
+@pytest.fixture
+def microsoft(certificate, monkeypatch):
+    m = Microsoft(certificate, monkeypatch)
+    yield m
+    m.stop()
+
+
+def due_schedule(client):
+    users()
+    sid = schedule(client, [worklist(client, 'Today', LIST)])
+    make_due(sid)
+    return sid
+
+
+def test_o365_signs_in_with_a_token_and_sends(client, microsoft):
+    study(1, accession_number='ACC-1')
+    sid = due_schedule(client)
+    assert mailer.run_due() == 1
+
+    run = run_rows(sid)[0]
+    assert run['status'] == 'sent', run['error']
+    path, form = microsoft.requests[0]
+    assert path == f'/{TENANT}/oauth2/v2.0/token'
+    assert form == {'grant_type': 'client_credentials', 'client_id': CLIENT, 'client_secret': SECRET,
+                    'scope': 'https://outlook.office365.com/.default'}
+    assert microsoft.signed_in_with == [f'user={MAILBOX}\x01auth=Bearer {TOKEN}\x01\x01']
+    assert microsoft.broken_rules == []
+    mail = microsoft.mails[0]
+    assert mail.msg['From'] == MAILBOX and sorted(mail.rcpts) == ['a@laumc.test', 'b@laumc.test']
+    assert cells(attachments(mail)['Today.xlsx'])[1][0] == 'ACC-1'
+
+
+def test_o365_a_refused_secret_is_a_failed_run_with_microsofts_reason(client, microsoft):
+    sid = due_schedule(client)
+    microsoft.answer = (401, {'error': 'invalid_client', 'error_description':
+                              'AADSTS7000215: Invalid client secret provided.\r\nTrace ID: abc\r\nTimestamp: now'})
+    mailer.run_due()
+    run = run_rows(sid)[0]
+    assert run['status'] == 'failed'
+    assert run['error'] == 'Microsoft refused the sign-in: AADSTS7000215: Invalid client secret provided.'
+    assert microsoft.signed_in_with == [] and microsoft.mails == []
+
+
+def test_o365_an_answer_that_is_not_json_is_still_a_clear_failure(client, microsoft):
+    sid = due_schedule(client)
+    microsoft.answer = (502, b'<html>Bad gateway</html>')
+    mailer.run_due()
+    assert run_rows(sid)[0]['error'] == 'Microsoft refused the sign-in: HTTP 502'
+
+
+def test_o365_a_token_refused_for_the_mailbox_says_where_to_look(client, microsoft):
+    sid = due_schedule(client)
+    microsoft.refuse_token = True
+    mailer.run_due()
+    run = run_rows(sid)[0]
+    assert run['status'] == 'failed' and microsoft.mails == []
+    assert 'refused it for ' + MAILBOX in run['error'] and '535' in run['error']
+    assert 'docs/LAUMC_O365_EMAIL_SETUP.md' in run['error']
+    assert TOKEN not in run['error'] and SECRET not in run['error']
+
+
+def test_o365_entra_unreachable_is_a_failed_run_without_the_secret(client, microsoft, monkeypatch):
+    sid = due_schedule(client)
+    monkeypatch.setattr(mailer, 'O365_TOKEN_URL', 'http://127.0.0.1:1/{tenant}/oauth2/v2.0/token')
+    mailer.run_due()
+    run = run_rows(sid)[0]
+    assert run['status'] == 'failed' and run['error'] and SECRET not in run['error']
+
+
+@pytest.mark.parametrize('security', ['none', 'starttls_unverified'])
+def test_o365_no_token_goes_over_a_plain_or_unverified_connection(client, microsoft, security):
+    sid = due_schedule(client)
+    setting('smtp_security', security)
+    mailer.run_due()
+    run = run_rows(sid)[0]
+    assert run['status'] == 'failed' and 'certificate checked' in run['error']
+    assert microsoft.requests == [] and microsoft.signed_in_with == []
+
+
+def test_o365_a_relay_without_starttls_gets_no_token(client, microsoft):
+    sid = due_schedule(client)
+    microsoft.offer_tls = False
+    mailer.run_due()
+    run = run_rows(sid)[0]
+    assert run['status'] == 'failed' and 'STARTTLS' in run['error']
+    assert microsoft.requests == [] and microsoft.signed_in_with == []
+
+
+def test_o365_an_untrusted_certificate_gets_no_token(client, microsoft, monkeypatch):
+    sid = due_schedule(client)
+    monkeypatch.setattr(mailer.ssl, 'create_default_context', lambda: ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT))
+    mailer.run_due()
+    run = run_rows(sid)[0]
+    assert run['status'] == 'failed' and 'CERTIFICATE_VERIFY_FAILED' in run['error']
+    assert microsoft.requests == [] and microsoft.signed_in_with == []
+
+
+def test_password_sign_in_over_real_starttls(client, microsoft):
+    """The password path, which only ever met a relay with no TLS and no login above."""
+    sid = due_schedule(client)
+    setting('smtp_auth', 'password')
+    setting('smtp_username', 'relay-user')
+    setting('smtp_password', encrypt('relay-pass'))
+    mailer.run_due()
+    assert run_rows(sid)[0]['status'] == 'sent'
+    assert microsoft.signed_in_with == ['\x00relay-user\x00relay-pass']
+    assert microsoft.requests == [] and microsoft.broken_rules == []
+
+
+O365_FORM = {'smtp_host': 'smtp.office365.com', 'smtp_port': '587', 'smtp_security': 'starttls',
+             'smtp_from': MAILBOX, 'smtp_allowed_domains': 'laumc.test', 'smtp_auth': 'oauth_o365',
+             'smtp_oauth_tenant': TENANT, 'smtp_oauth_client_id': CLIENT, 'smtp_oauth_client_secret': SECRET}
+
+
+def stored(key):
+    return sql("SELECT value FROM settings WHERE key = :k", k=key)[0]['value']
+
+
+def test_o365_settings_keep_the_secret_encrypted_and_to_themselves(client):
+    users()
+    r = h(client, 'post', '/worklists/api/mail-settings', json=O365_FORM)
+    assert r.status_code == 200 and r.get_json()['ready'] is True and SECRET not in r.get_data(as_text=True)
+    saved = stored('smtp_oauth_client_secret')
+    assert saved != SECRET and decrypt(saved) == SECRET
+    page = h(client, 'get', '/worklists/api/schedules')
+    assert saved not in page.get_data(as_text=True)
+    mail = page.get_json()['mail']
+    assert mail['client_secret_set'] is True and 'smtp_oauth_client_secret' not in mail
+    assert (mail['smtp_auth'], mail['smtp_oauth_tenant'], mail['smtp_oauth_client_id']) == ('oauth_o365', TENANT, CLIENT)
+
+    # left empty it is kept, and an earlier password does not linger
+    setting('smtp_password', encrypt('old'))
+    assert h(client, 'post', '/worklists/api/mail-settings',
+             json={**O365_FORM, 'smtp_oauth_client_secret': ''}).status_code == 200
+    assert stored('smtp_oauth_client_secret') == saved and stored('smtp_password') == ''
+
+
+def test_going_back_to_a_password_drops_the_microsoft_settings(client):
+    users()
+    h(client, 'post', '/worklists/api/mail-settings', json=O365_FORM)
+    r = h(client, 'post', '/worklists/api/mail-settings',
+          json={**O365_FORM, 'smtp_auth': 'password', 'smtp_username': 'u', 'smtp_password': 'p'})
+    assert r.status_code == 200
+    assert stored('smtp_oauth_client_secret') == '' and stored('smtp_oauth_tenant') == ''
+    assert decrypt(stored('smtp_password')) == 'p' and stored('smtp_username') == 'u'
+
+
+@pytest.mark.parametrize('change, word', [
+    ({'smtp_auth': 'magic'}, 'sign-in'),
+    ({'smtp_security': 'none'}, 'certificate checked'),
+    ({'smtp_security': 'starttls_unverified'}, 'certificate checked'),
+    ({'smtp_oauth_tenant': ''}, 'tenant'),
+    ({'smtp_oauth_tenant': 'evil.com/../x'}, 'tenant'),      # it goes into the token URL
+    ({'smtp_oauth_tenant': 'contoso.com?x=1'}, 'tenant'),
+    ({'smtp_oauth_client_id': 'not-a-guid'}, 'client ID'),
+    ({'smtp_oauth_client_secret': ''}, 'client secret'),
+])
+def test_bad_microsoft_settings_are_refused(client, change, word):
+    users()
+    r = h(client, 'post', '/worklists/api/mail-settings', json={**O365_FORM, **change})
+    assert r.status_code == 400 and word in r.get_json()['error']
+
+
+def test_a_tenant_may_be_its_domain(client):
+    users()
+    r = h(client, 'post', '/worklists/api/mail-settings',
+          json={**O365_FORM, 'smtp_oauth_tenant': 'laumc.onmicrosoft.com'})
+    assert r.status_code == 200 and stored('smtp_oauth_tenant') == 'laumc.onmicrosoft.com'
+
+
+def test_not_ready_until_every_microsoft_setting_is_there(client, microsoft):
+    for key in ('smtp_oauth_tenant', 'smtp_oauth_client_id', 'smtp_oauth_client_secret'):
+        before = stored(key)
+        setting(key, '')
+        assert not mailer.is_ready(mailer.mail_config()), key
+        setting(key, before)
+    assert mailer.is_ready(mailer.mail_config())
+
+
+def test_the_o365_test_email_goes_through_the_same_sign_in(client, microsoft):
+    users()
+    r = h(client, 'post', '/worklists/api/mail-settings/test', json={'to': 'me@laumc.test'})
+    assert r.status_code == 200, r.get_data(as_text=True)
+    assert microsoft.signed_in_with and attachments(microsoft.mails[0]) == {}
+    microsoft.answer = (401, {'error_description': 'AADSTS7000222: The provided client secret keys are expired.'})
+    r = h(client, 'post', '/worklists/api/mail-settings/test', json={'to': 'me@laumc.test'})
+    assert r.status_code == 502 and 'AADSTS7000222' in r.get_json()['error']

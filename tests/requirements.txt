@@ -9,5 +9,6 @@ psycopg2-binary
 cryptography
 xlsxwriter
 openpyxl
+requests
 pytest
 pytest-timeout

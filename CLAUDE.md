@@ -60,7 +60,9 @@ routes/
                                    column is undocumented); SQL runs only as the rpt_<db> role.
                                    Scheduled emails (admin; migration 0138): utils/worklist_email.py
                                    mails saved reports as .xlsx through settings smtp_*, only to
-                                   smtp_allowed_domains. Off until the relay is set
+                                   smtp_allowed_domains. Off until the relay is set. Microsoft 365
+                                   signs in with OAuth (client credentials, XOAUTH2; migration 0140,
+                                   docs/LAUMC_O365_EMAIL_SETUP.md)
   report_cache.py               — shared cache/dropdown helpers
 hl7_listener.py                 — MLLP :6661: stores ORU (fill-only), orders, PACS completions;
                                    then hands each message to BRAYN AFTER the ACK

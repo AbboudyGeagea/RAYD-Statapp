@@ -20,6 +20,13 @@ PATIENT DATA stays out of the message: the body holds worklist names and row cou
 rows travel in attachments, and those go only to the domains in smtp_allowed_domains
 (empty means none). Errors stay in the run log, for the admins who can read it.
 
+MICROSOFT 365 signs in with OAuth (smtp_auth = oauth_o365): an app token from Entra ID,
+presented over SMTP as XOAUTH2. Microsoft turns basic auth off by default at the end of
+December 2026. Nobody is there to sign in when a schedule runs, so the app signs in as
+itself (client credentials) and sends as the one mailbox IT granted it, the From address:
+docs/LAUMC_O365_EMAIL_SETUP.md. The token only ever travels over TLS with the certificate
+checked.
+
 Every time is naive hospital time from Python, as in the engine: LAUMC's Postgres is UTC.
 """
 import calendar
@@ -33,6 +40,7 @@ from datetime import datetime, timedelta
 from email.message import EmailMessage
 from email.utils import formatdate, make_msgid
 
+import requests
 import xlsxwriter
 from sqlalchemy import text
 
@@ -50,12 +58,19 @@ SMTP_TIMEOUT = 30
 STALE_RUN = timedelta(hours=1)               # longer than any run: 20 worklists at 20 s each
 
 SECURITY = ('starttls', 'ssl', 'starttls_unverified', 'none')
+SECURITY_FOR_TOKENS = ('starttls', 'ssl')    # encrypted, with the certificate checked
+AUTH = ('password', 'oauth_o365')
+O365_TOKEN_URL = 'https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token'
+O365_SCOPE = 'https://outlook.office365.com/.default'
 XLSX_SUBTYPE = 'vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
 _DEFAULTS = {'smtp_host': '', 'smtp_port': '587', 'smtp_security': 'starttls', 'smtp_username': '',
-             'smtp_password': '', 'smtp_from': '', 'smtp_allowed_domains': '', 'demo_mode': 'false'}
+             'smtp_password': '', 'smtp_from': '', 'smtp_allowed_domains': '', 'demo_mode': 'false',
+             'smtp_auth': 'password', 'smtp_oauth_tenant': '', 'smtp_oauth_client_id': '',
+             'smtp_oauth_client_secret': ''}
 _ADDRESS = re.compile(r"[A-Za-z0-9._%+'-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+")
 _DOMAIN = re.compile(r'[a-z0-9-]+(\.[a-z0-9-]+)+')
+_GUID = re.compile(r'[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}')
 
 
 class ScheduleError(ValueError):
@@ -75,14 +90,19 @@ def allowed_domains(cfg):
 
 
 def is_ready(cfg):
-    return bool(cfg['smtp_host'] and cfg['smtp_from'] and allowed_domains(cfg))
+    if not (cfg['smtp_host'] and cfg['smtp_from'] and allowed_domains(cfg)):
+        return False
+    return cfg['smtp_auth'] != 'oauth_o365' or bool(
+        cfg['smtp_oauth_tenant'] and cfg['smtp_oauth_client_id'] and cfg['smtp_oauth_client_secret'])
 
 
 def public_config(cfg):
-    """The settings for the page: the password only as "one is saved"."""
+    """The settings for the page: each secret only as "one is saved"."""
     out = {k: cfg[k] for k in ('smtp_host', 'smtp_port', 'smtp_security', 'smtp_username',
-                               'smtp_from', 'smtp_allowed_domains')}
+                               'smtp_from', 'smtp_allowed_domains', 'smtp_auth',
+                               'smtp_oauth_tenant', 'smtp_oauth_client_id')}
     out['password_set'] = bool(cfg['smtp_password'])
+    out['client_secret_set'] = bool(cfg['smtp_oauth_client_secret'])
     return out
 
 
@@ -107,14 +127,37 @@ def save_mail_config(form):
     for d in domains:
         if not _DOMAIN.fullmatch(d):
             raise ScheduleError(f'{d!r} is not a domain, e.g. laumc.com')
+    auth = form.get('smtp_auth') or 'password'
+    if auth not in AUTH:
+        raise ScheduleError(f'unknown sign-in {auth!r}')
+    oauth = auth == 'oauth_o365'
+    tenant = str(form.get('smtp_oauth_tenant') or '').strip()
+    client_id = str(form.get('smtp_oauth_client_id') or '').strip()
+    client_secret = str(form.get('smtp_oauth_client_secret') or '')
+    if oauth and host:
+        if security not in SECURITY_FOR_TOKENS:
+            raise ScheduleError('Microsoft 365 sign-in needs STARTTLS or SSL/TLS with the certificate checked')
+        # The tenant goes into the token URL, so it can only be an ID, never a path.
+        if not (_GUID.fullmatch(tenant) or _DOMAIN.fullmatch(tenant.lower())):
+            raise ScheduleError('the tenant is the Directory (tenant) ID, or a domain like laumc.onmicrosoft.com')
+        if not _GUID.fullmatch(client_id):
+            raise ScheduleError('the client ID is the Application (client) ID, a GUID')
+        if not (client_secret or mail_config()['smtp_oauth_client_secret']):
+            raise ScheduleError('enter the client secret')
+    # Each sign-in's secret goes when the other is chosen: nothing unused stays stored.
     values = {'smtp_host': host, 'smtp_port': str(port), 'smtp_security': security, 'smtp_from': sender,
-              'smtp_username': str(form.get('smtp_username') or '').strip(),
-              'smtp_allowed_domains': ', '.join(domains)}
+              'smtp_username': '' if oauth else str(form.get('smtp_username') or '').strip(),
+              'smtp_allowed_domains': ', '.join(domains), 'smtp_auth': auth,
+              'smtp_oauth_tenant': tenant if oauth else '', 'smtp_oauth_client_id': client_id if oauth else ''}
     password = str(form.get('smtp_password') or '')
-    if form.get('clear_password'):
+    if oauth or form.get('clear_password'):
         values['smtp_password'] = ''
     elif password:
         values['smtp_password'] = encrypt(password)
+    if not oauth:
+        values['smtp_oauth_client_secret'] = ''
+    elif client_secret:
+        values['smtp_oauth_client_secret'] = encrypt(client_secret)
     for key, value in values.items():
         db.session.execute(text("""
             INSERT INTO settings (key, value) VALUES (:k, :v)
@@ -146,9 +189,40 @@ def clean_recipients(raw, cfg):
     return out
 
 
+def _o365_token(cfg):
+    """An app token from Entra ID (client credentials). Asked for on each send: sends are
+    rare, and a token outlives any one of them."""
+    res = requests.post(O365_TOKEN_URL.format(tenant=cfg['smtp_oauth_tenant']), timeout=SMTP_TIMEOUT, data={
+        'grant_type': 'client_credentials', 'client_id': cfg['smtp_oauth_client_id'],
+        'client_secret': decrypt(cfg['smtp_oauth_client_secret']), 'scope': O365_SCOPE})
+    try:
+        answer = res.json()
+    except ValueError:
+        answer = {}
+    if not answer.get('access_token'):
+        reason = str(answer.get('error_description') or answer.get('error') or f'HTTP {res.status_code}')
+        raise RuntimeError(f'Microsoft refused the sign-in: {reason.splitlines()[0][:300]}')
+    return answer['access_token']
+
+
+def _sign_in_o365(smtp, cfg):
+    xoauth2 = f"user={cfg['smtp_from']}\x01auth=Bearer {_o365_token(cfg)}\x01\x01"
+    smtp.ehlo()     # STARTTLS forgets the first one, and SSL/TLS has not sent one yet
+    try:
+        # In two steps, as in Microsoft's example: AUTH XOAUTH2, a 334, then the token.
+        smtp.auth('XOAUTH2', lambda _challenge=None: xoauth2, initial_response_ok=False)
+    except smtplib.SMTPAuthenticationError as exc:
+        raise RuntimeError(f"Microsoft issued a token but the mail server refused it for {cfg['smtp_from']} "
+                           f'({exc.smtp_code}). Check the setup in docs/LAUMC_O365_EMAIL_SETUP.md: SMTP AUTH '
+                           'on the mailbox, and the app registered in Exchange with access to it.') from exc
+
+
 def send_mail(cfg, to, subject, body, attachments=()):
     """One message through the relay. Returns the recipients it refused; raises if it took none.
     Asked for TLS, it never falls back to plain: a relay without STARTTLS is an error."""
+    oauth = cfg['smtp_auth'] == 'oauth_o365'
+    if oauth and cfg['smtp_security'] not in SECURITY_FOR_TOKENS:
+        raise ScheduleError('Microsoft 365 sign-in needs STARTTLS or SSL/TLS with the certificate checked')
     msg = EmailMessage()
     msg['Subject'] = subject
     msg['From'] = cfg['smtp_from']
@@ -170,7 +244,9 @@ def send_mail(cfg, to, subject, body, attachments=()):
     with connection as smtp:
         if security in ('starttls', 'starttls_unverified'):
             smtp.starttls(context=context)
-        if cfg['smtp_username']:
+        if oauth:
+            _sign_in_o365(smtp, cfg)
+        elif cfg['smtp_username']:
             smtp.login(cfg['smtp_username'], decrypt(cfg['smtp_password']))
         return smtp.send_message(msg)
 
