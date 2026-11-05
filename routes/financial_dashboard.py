@@ -5,6 +5,8 @@ from datetime import date
 from db import db, user_has_page
 from utils.financial import _get_config, effective_rate
 from utils.permissions import permission_required
+from utils.report_filters import study_site_sql
+from utils.site_resolver import default_site
 
 financial_dashboard_bp = Blueprint('financial_dashboard', __name__)
 
@@ -21,6 +23,16 @@ _STUDY_BASE = """
 """
 
 _MOD_EXPR = "UPPER(TRIM(COALESCE(m.modality, s.study_modality, 'Unknown')))"
+
+
+def _site_scope():
+    """RH only (operator, 2026-11-05), the same LAUMC rule as the reports. Returns the
+    SQL to append after a WHERE and its binds. No default site, as on a single-site
+    install, means no filter rather than an empty dashboard."""
+    rh_site_id = default_site()
+    if rh_site_id is None:
+        return "", {}
+    return f" AND {study_site_sql('rh_site_id')}", {"rh_site_id": rh_site_id}
 
 
 def _apply_rates(rows, cfg, mod_col='modality', proc_col=None, rvu_col='total_rvu'):
@@ -41,6 +53,9 @@ def _apply_rates(rows, cfg, mod_col='modality', proc_col=None, rvu_col='total_rv
 
 def _collect(start: str, end: str) -> dict:
     cfg = _get_config()
+    site_sql, site_params = _site_scope()
+    base_sql = _STUDY_BASE + site_sql
+    params = {'start': start, 'end': end, **site_params}
 
     # ── By modality ─────────────────────────────────────────────────────────
     mod_rows = db.session.execute(text(f"""
@@ -48,10 +63,10 @@ def _collect(start: str, end: str) -> dict:
             {_MOD_EXPR}                                AS modality,
             COUNT(DISTINCT s.study_db_uid)              AS study_count,
             COALESCE(SUM(pdm.technical_rvu), 0)         AS total_rvu
-        {_STUDY_BASE}
+        {base_sql}
         GROUP BY 1
         ORDER BY total_rvu DESC
-    """), {'start': start, 'end': end}).fetchall()
+    """), params).fetchall()
     by_modality = _apply_rates(mod_rows, cfg)
 
     # ── KPI totals ───────────────────────────────────────────────────────────
@@ -74,9 +89,10 @@ def _collect(start: str, end: str) -> dict:
         WHERE s.study_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '12 months')
           AND COALESCE(UPPER(TRIM(COALESCE(m.modality, s.study_modality, ''))), '') NOT IN ('SR', 'BMD')
           AND s.study_has_report = true
+          {site_sql}
         GROUP BY 1, 2
         ORDER BY 1, 2
-    """), {}).fetchall()
+    """), site_params).fetchall()
 
     # Aggregate by month, applying per-modality rates
     month_map: dict = {}
@@ -105,12 +121,12 @@ def _collect(start: str, end: str) -> dict:
             COUNT(DISTINCT s.study_db_uid)                AS study_count,
             {_MOD_EXPR}                                   AS modality,
             COALESCE(SUM(pdm.clinical_rvu), 0)            AS total_rvu
-        {_STUDY_BASE}
+        {base_sql}
           AND COALESCE(s.rep_study_last_composed_by, s.rep_final_signed_by) IS NOT NULL
           AND COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) IS NOT NULL
         GROUP BY 1, 3
         ORDER BY total_rvu DESC
-    """), {'start': start, 'end': end}).fetchall()
+    """), params).fetchall()
     rated_phys = _apply_rates(phys_rows, cfg)
     phys_agg: dict = {}
     for row in rated_phys:
@@ -134,13 +150,13 @@ def _collect(start: str, end: str) -> dict:
             {_MOD_EXPR}                            AS modality,
             COUNT(DISTINCT s.study_db_uid)                          AS study_count,
             COALESCE(SUM(pdm.clinical_rvu + pdm.technical_rvu), 0)  AS total_rvu
-        {_STUDY_BASE}
+        {base_sql}
           AND o.proc_id IS NOT NULL
           AND TRIM(o.proc_id) != ''
         GROUP BY 1, 2, 3
         ORDER BY total_rvu DESC
         LIMIT 15
-    """), {'start': start, 'end': end}).fetchall()
+    """), params).fetchall()
     by_procedure = _apply_rates(proc_rows, cfg, proc_col='procedure_code')
 
     return {

@@ -181,6 +181,65 @@ def test_report_27_pacs_side_leaves_out_a_device_at_the_other_site():
     assert report_27_pacs_total() == 0
 
 
+# ── Financial dashboard ───────────────────────────────────────────────────────
+
+def financial(start=START, end=END):
+    from routes.financial_dashboard import _collect
+    return _collect(start, end)
+
+
+def test_financial_counts_only_rh_studies(every_case):
+    sql("UPDATE etl_didb_studies SET study_has_report = TRUE")
+    data = financial()
+    assert data['kpi']['total_studies'] == len(RH_CASES)
+    modalities = {r['modality']: r['study_count'] for r in data['by_modality']}
+    assert modalities['MG'] == 2
+
+
+# Every section has its own query, so each is checked on money that must not count.
+@pytest.fixture
+def an_exam_at_each_site():
+    from datetime import date
+    today = date.today().isoformat()
+    device('RH_SCANNER', 'CT', site_id('RH'))
+    device('SJH_SCANNER', 'CT', site_id('SJH'))
+    sql("""INSERT INTO procedure_duration_map
+               (procedure_code, duration_minutes, clinical_rvu, technical_rvu)
+           VALUES ('FIN1', 15, 2, 3)""")
+    for uid, ae, label in ((1, 'RH_SCANNER', '0'), (2, 'SJH_SCANNER', '1')):
+        sql("""INSERT INTO etl_didb_studies
+                   (study_db_uid, patient_db_uid, study_instance_uid, accession_number, storing_ae,
+                    study_date, study_modality, pacs_site_id_raw, study_has_report,
+                    rep_study_last_composed_by, rep_study_last_composed_ts)
+               VALUES (:u, :u, :iuid, :a, :ae, :d, 'CT', :label, TRUE, :by, NOW())""",
+            u=uid, iuid=f'1.2.3.{uid}', a=f'A{uid}', ae=ae, d=today, label=label, by=f'dr.{ae}')
+        sql("""INSERT INTO etl_orders (order_dbid, study_db_uid, accession_number, order_status,
+                                       modality, proc_id)
+               VALUES (:u, :u, :a, 'CM', 'CT', 'FIN1')""", u=uid, a=f'A{uid}')
+    return today
+
+
+def test_financial_rvu_is_only_rh(an_exam_at_each_site):
+    data = financial(an_exam_at_each_site, an_exam_at_each_site)
+    assert data['kpi']['total_rvu'] == 3
+
+
+def test_financial_monthly_trend_is_only_rh(an_exam_at_each_site):
+    trend = financial(an_exam_at_each_site, an_exam_at_each_site)['monthly_trend']
+    assert sum(m['total_rvu'] for m in trend) == 5
+
+
+def test_financial_physician_table_is_only_rh(an_exam_at_each_site):
+    rows = financial(an_exam_at_each_site, an_exam_at_each_site)['by_physician']
+    assert [r['physician'] for r in rows] == ['dr.RH_SCANNER']
+
+
+def test_financial_procedure_table_is_only_rh(an_exam_at_each_site):
+    rows = financial(an_exam_at_each_site, an_exam_at_each_site)['by_procedure']
+    assert [r['study_count'] for r in rows] == [1]
+    assert rows[0]['total_rvu'] == 5
+
+
 # ── reports that resolve site through the device map ──────────────────────────
 
 def test_migration_takes_the_router_out_of_every_site(client):
