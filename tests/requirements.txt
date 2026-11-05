@@ -1,5 +1,8 @@
-# What the LAUMC pytest suite needs. It imports db, db_migrations and the listener,
-# not the report routes, so pandas / Oracle client / APScheduler are not required.
+# What the LAUMC pytest suite needs. It imports db, db_migrations and the listener, and
+# pandas only for tests/test_er_detection.py (which drives Reports 25, 33 and 35 and is
+# skipped without it). Oracle client / APScheduler are not required.
+pandas==2.2.1
+numpy==1.26.4
 Flask==3.0.2
 Flask-Login==0.6.3
 Flask-SQLAlchemy==3.1.1

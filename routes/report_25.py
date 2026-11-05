@@ -1295,10 +1295,16 @@ def get_gold_standard_data(form_data):
         logger.exception("Failed to build hourly modality utilization pattern")
         db.session.rollback()
 
+    # ER Avg TAT, over studies tat_sla.er_mask() calls ER. This report's template has no
+    # accession_number column, so the old '2XE' check here could only ever show 0m.
+    _er_tat = pd.to_numeric(df['total_tat_min'], errors='coerce')[tat_sla.er_mask(df)] \
+        if 'total_tat_min' in df.columns else pd.Series(dtype=float)
+    _er_tat = _er_tat[_er_tat > 0]
+
     result = ({
         "summary": {
             "total": len(df), "global_util": f"{(sum(r['avg'] * r.get('total_cap', 1) for r in matrix_rows) / sum(r.get('total_cap', 1) for r in matrix_rows) if matrix_rows and sum(r.get('total_cap', 1) for r in matrix_rows) > 0 else 0):.1f}%",
-            "er_wait": f"{df[df['accession_number'].str.upper().str.startswith('2XE').fillna(False) & (df['total_tat_min'] > 0)]['total_tat_min'].mean():.1f}m" if 'accession_number' in df.columns and (df['accession_number'].str.upper().str.startswith('2XE').fillna(False) & (df['total_tat_min'] > 0)).any() else "0m",
+            "er_wait": f"{_er_tat.mean():.1f}m" if not _er_tat.empty else "0m",
             "high_stress_count": high_stress, "low_util_count": under_utilized,
             "work_hours": round(total_active_mins / 60, 1),
             # Revenue Capture (RVU) — clinical (physician) and technical

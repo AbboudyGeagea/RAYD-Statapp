@@ -53,8 +53,8 @@ report_33_bp = Blueprint("report_33", __name__)
 #   Exam done to Approved : COALESCE(done_at, pacs_done_at) -> COALESCE(rep_final_timestamp,
 #                            hl7_oru_reports.result_datetime)                  (per radiologist)
 #
-# Patient-class block assumption (confirm): "Urgent" = ER, detected the same
-# way the rest of this file already does (accession_number starts with '2XE');
+# Patient-class block assumption (confirm): "Urgent" = ER, per tat_sla.is_er()
+# (patient_location 'ER' on LAUMC, or accession_number starting '2XE');
 # Inpatient / Outpatient split on patient_class text — exact value vocabulary
 # unconfirmed (no CHECK constraint in schema), using broad ILIKE matches.
 #
@@ -120,8 +120,7 @@ def _kpi_bucket_label(minutes, buckets):
 
 
 def _kpi_class_bucket(row):
-    acc = str(row.get('accession_number') or '').upper()
-    if acc.startswith('2XE'):
+    if tat_sla.is_er(row.get('accession_number'), row.get('patient_location')):
         return 'Urg'
     pc = str(row.get('patient_class') or '').upper()
     if pc.startswith('IN') or pc in ('I', 'IP'):
@@ -165,6 +164,7 @@ def get_kpi_detailed_reading(form_data):
             SELECT
                 s.accession_number,
                 s.patient_class,
+                s.patient_location,
                 COALESCE(UPPER(m.modality), UPPER(s.study_modality), 'N/A') AS modality,
                 -- rep_final_signed_by/rep_final_timestamp (PACS) are sparse/unreliable on
                 -- this install (operator, 2026-07-27) -- rep_study_last_composed_by/_ts is

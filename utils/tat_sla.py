@@ -58,9 +58,12 @@ _DEFAULT_CLASS_VOCAB = {
     BUCKET_URG: 'E,EP,ER,EMERGENCY,URG,URGENT',
 }
 
-# Report 33's own ER convention: an accession number starting '2XE' marks an ER
-# study on this install. Kept here so every report agrees on it.
+# What marks an ER study: an accession number starting '2XE', or patient_location 'ER'.
+# Kept here (is_er / er_mask) so every report agrees on it. On LAUMC only the location
+# works: accessions start 100500 and '2XE' matched no study in the 12 months measured
+# on 2026-11-05, while 'ER' covers about 7,800 studies a year, nearly all class 'O'.
 _ER_ACCESSION_PREFIX = '2XE'
+_ER_LOCATION = 'ER'
 
 # Display labels other reports already use, mapped back onto the canonical codes
 # so a threshold set once applies wherever that label is rendered.
@@ -152,6 +155,32 @@ def resolve_bucket(label):
     return _LABEL_ALIASES.get(str(label).strip().upper())
 
 
+def is_er(accession_number=None, patient_location=None):
+    """True when a study is an ER study, whatever its patient class says."""
+    acc = str(accession_number or '').strip().upper()
+    if acc.startswith(_ER_ACCESSION_PREFIX):
+        return True
+    return str(patient_location or '').strip().upper() == _ER_LOCATION
+
+
+def er_mask(df, accession_col='accession_number', location_col='patient_location'):
+    """
+    is_er() over a DataFrame: a boolean Series aligned to df. A column the frame
+    doesn't carry counts for nothing (Report 25's template has no accession_number).
+    """
+    import pandas as pd
+
+    def _clean(col):
+        return df[col].fillna('').astype(str).str.strip().str.upper()
+
+    mask = pd.Series(False, index=df.index)
+    if accession_col in df.columns:
+        mask = mask | _clean(accession_col).str.startswith(_ER_ACCESSION_PREFIX)
+    if location_col in df.columns:
+        mask = mask | (_clean(location_col) == _ER_LOCATION)
+    return mask
+
+
 def classify(patient_class, accession_number=None, patient_location=None, vocab=None):
     """
     Classify one study into IN / URG / OUT, or None when it can't be placed.
@@ -169,12 +198,7 @@ def classify(patient_class, accession_number=None, patient_location=None, vocab=
     if vocab is None:
         vocab = get_class_vocab()
 
-    acc = str(accession_number or '').strip().upper()
-    if acc.startswith(_ER_ACCESSION_PREFIX):
-        return BUCKET_URG
-
-    loc = str(patient_location or '').strip().upper()
-    if loc == 'ER':
+    if is_er(accession_number, patient_location):
         return BUCKET_URG
 
     pc = str(patient_class or '').strip().upper()

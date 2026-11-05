@@ -63,6 +63,7 @@ from sqlalchemy import text
 from db import db, get_etl_cutoff_date
 from routes.report_cache import cache_get, cache_put, cache_invalidate
 from utils.site_resolver import default_site
+from utils import tat_sla
 
 logger = logging.getLogger("report_35")
 
@@ -316,14 +317,16 @@ def get_technician_tat_data(form_data):
             _lap("completed/pending split", completed=len(completed), pending=len(pending))
 
             # Pre-index ER orders: modality → sorted arrays of (arrived_at, accession,
-            # patient_class). An order is "ER" if accession_number starts with '2XE'
-            # (case-insensitive). Sorted + numpy so _find_concurrent_er can binary-search
-            # the arrival-time range instead of linear-scanning every ER row per lookup --
-            # matters on ER-heavy modalities (CT/CR) over wide date ranges, where that scan
-            # was O(too_late_flagged_count x ER_count_for_that_modality).
+            # patient_class). An order is "ER" per tat_sla.er_mask(): patient_location 'ER'
+            # on LAUMC, or an accession_number starting '2XE'. An exam with no PACS study
+            # yet has no location, so it isn't seen as ER until it has one. Sorted + numpy
+            # so _find_concurrent_er can binary-search the arrival-time range instead of
+            # linear-scanning every ER row per lookup -- matters on ER-heavy modalities
+            # (CT/CR) over wide date ranges, where that scan was
+            # O(too_late_flagged_count x ER_count_for_that_modality).
             if 'patient_class' not in tdf.columns:
                 tdf['patient_class'] = None
-            er_rows = tdf[tdf['accession_number'].str.upper().str.startswith('2XE').fillna(False)].copy()
+            er_rows = tdf[tat_sla.er_mask(tdf)].copy()
             er_by_modality = {}
             for mod, grp in er_rows.groupby(er_rows['modality'].fillna('').astype(str).str.upper()):
                 grp = grp.sort_values('arrived_at')
