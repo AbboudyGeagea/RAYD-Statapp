@@ -16,11 +16,16 @@ column names), per docs/LAUMC_RIS_TABLES.md's VISIT section:
         would need a join through etl_orders.visit_dbid, left for a later enrichment
         pass rather than guessed at now.
 
-Watermark: MAX(visit_number) already loaded (fixed 2026-07-30, operator instruction),
-plus the go-live cutoff for the initial fresh load only. NOTE: visit_number is stored
-as TEXT (it's the raw HL7 PV1.19 value) -- if it's ever a non-zero-padded numeric
-string of varying length, a textual MAX() could pick the wrong "highest" value. Not
-verified against real data; flagging here rather than silently assuming it's safe.
+Watermark: MAX(visit_key) already loaded, plus the go-live cutoff. VISIT_KEY rises with
+CREATED_ON_DATE (checked month by month against RIS, May to November 2026).
+
+It was MAX(visit_number) from 2026-07-30 to 2026-11-05. visit_number is free text (the
+raw HL7 PV1.19 value), and a few test visits start with 't', which sorts above the real
+numbers (they start with 0 or M). No new visit qualified after 2026-07-31, and every run
+still reported SUCCESS with 0 rows.
+
+Only new visits are pulled: later changes to a visit already loaded, such as its
+discharge date, are not picked up.
 """
 import os
 import logging
@@ -127,7 +132,7 @@ def run_ris_visits_etl(pg_engine, oracle_source, go_live_date):
 
     try:
         with pg_engine.connect() as conn:
-            watermark = conn.execute(text("SELECT MAX(visit_number) FROM std_visits")).fetchone()[0]
+            watermark = conn.execute(text("SELECT MAX(visit_key) FROM std_visits")).fetchone()[0]
     except Exception as e:
         logging.warning(f"RIS Visits ETL: could not read watermark, falling back to full pull: {e}")
         watermark = None
@@ -145,14 +150,14 @@ def run_ris_visits_etl(pg_engine, oracle_source, go_live_date):
             PATIENT_ACCOUNT_NUMBER, IS_MASTER, DELETED, DELETED_DATE
         FROM {_VISIT_TABLE}
         WHERE CREATED_ON_DATE >= TO_DATE(:cutoff, 'YYYY-MM-DD')
-        {"" if is_fresh_load else "AND VISIT_NUMBER > :watermark"}
+        {"" if is_fresh_load else "AND VISIT_KEY > :watermark"}
     """
 
     ora_conn = OracleConnector.get_connection(oracle_source)
     cursor   = ora_conn.cursor()
 
     try:
-        mode_str = f"fresh load, cutoff: {gd_str}" if is_fresh_load else f"incremental, watermark visit_number>{watermark}"
+        mode_str = f"fresh load, cutoff: {gd_str}" if is_fresh_load else f"incremental, watermark visit_key>{watermark}"
         logging.info(f"RIS Visits ETL starting — {mode_str}")
         print(f"[RIS Visits ETL] 🚀 Starting ({_VISIT_TABLE}) — {mode_str}")
 
