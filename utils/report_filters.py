@@ -42,6 +42,16 @@ def study_site_sql(param):
             f"ELSE m.site_id = :{param} END)")
 
 
+def rh_device_sql(alias='m'):
+    """
+    SQL condition for screens that list devices from aetitle_modality_map itself, where
+    removing studies changes nothing: leaves out devices mapped to another site (RH only,
+    operator 2026-11-05). A device with no site stays, as does every device on an install
+    with no default site.
+    """
+    return f"COALESCE({alias}.site_id = (SELECT id FROM sites WHERE is_default), TRUE)"
+
+
 def sidebar_filters(form_data):
     """
     Left-sidebar filter set (date range, patient class, modality, AE title,

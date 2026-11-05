@@ -65,7 +65,7 @@ DATA_TABLES = [
     'std_worklist_exam_done', 'std_worklist_cancellations', 'std_reports', 'std_pps',
     'std_patient_ids', 'std_patients_ris', 'std_resources_ris', 'std_procedure_priorities',
     'etl_didb_serieses', 'summary_storage_daily', 'fact_exam',
-    'etl_didb_studies', 'etl_patient_view', 'etl_orders',
+    'etl_didb_studies', 'etl_patient_view', 'etl_orders', 'etl_excluded_orders',
     # BRAYN (migration 0133), children of the archive first
     'brayn_findings', 'hl7_study_events', 'hl7_patients', 'hl7_message_archive',
     'brayn_study_state', 'brayn_interface_stats', 'brayn_unknown_values',

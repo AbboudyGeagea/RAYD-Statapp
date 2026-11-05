@@ -170,6 +170,10 @@ _DERIVE_SQL = f"""
                     WHEN d.pclass = 'O' THEN 'Outpatient'
                     ELSE COALESCE(d.pclass, '(blank)') END                        AS patient_type,
                CASE
+                   -- RH only (operator, 2026-11-05). This table records exclusions
+                   -- rather than dropping them, so it is not purged by etl_rh_only.py.
+                   WHEN d.site_id <> (SELECT id FROM sites WHERE is_default)
+                        THEN 'SJH (RH only)'
                    -- RH2026... / SJ2026...: imported outside studies (operator,
                    -- 2026-10-06). 'SJ' also covers anything starting 'SJH'.
                    WHEN UPPER(COALESCE(d.accession_number, '')) LIKE 'RH%'

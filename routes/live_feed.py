@@ -134,7 +134,8 @@ def live_status():
             -- mapping-tab edit writes room_name only.
             SELECT aetitle, modality, COALESCE(display_aetitle, room_name, station_name, aetitle) AS label,
                    floor_x, floor_y
-            FROM aetitle_modality_map
+            FROM aetitle_modality_map m
+            WHERE COALESCE(m.site_id = (SELECT id FROM sites WHERE is_default), TRUE)
             ORDER BY modality, aetitle
         """)).mappings().fetchall()
         devices = [dict(r) for r in device_rows]

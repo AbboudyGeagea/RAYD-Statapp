@@ -239,7 +239,8 @@ def test_without_a_named_patient_record_the_his_order_names_the_patient(app, dev
 
 def test_floor_plan_positions_and_the_site_filter(app, devices):
     """Each device carries its place on the plan; a site keeps its own devices and the
-    ones with no site; every site's plan image is listed."""
+    ones with no site; the plan image is listed. RH only (operator, 2026-11-05): a device
+    of another site is not on the board even with no site filter."""
     sites = {r['code']: r['id'] for r in devices.q("SELECT id, code FROM sites")}
     if len(sites) < 2:
         devices.exec("INSERT INTO sites (code, name) VALUES ('TS1', 'Test site 1'), ('TS2', 'Test site 2')")
@@ -259,7 +260,7 @@ def test_floor_plan_positions_and_the_site_filter(app, devices):
         assert device(b, 'DR_RH')['x'] is None
         assert [(p['site_code'], p['image_path'], p['width']) for p in b['plans']] == \
                [(one, 'floor_plans/plan.png', 1600)]
-        assert 'CT2_RH' in {d['aetitle'] for lane in get_board(app)['lanes'] for d in lane['devices']}
+        assert 'CT2_RH' not in {d['aetitle'] for lane in get_board(app)['lanes'] for d in lane['devices']}
     finally:
         devices.exec("DELETE FROM floor_plans")
         devices.exec("DELETE FROM sites WHERE code IN ('TS1', 'TS2')")

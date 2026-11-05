@@ -169,6 +169,7 @@ SELECT m.aetitle, upper(btrim(m.aetitle)) AS ae_key, m.modality,
          ON upper(btrim(ws.aetitle)) = upper(btrim(m.aetitle)) AND ws.day_of_week = :dow
  WHERE m.active IS NOT FALSE
    AND COALESCE(m.modality, '') NOT IN ('SR', 'PR', 'KO', 'PACS')
+   AND COALESCE(m.site_id = (SELECT id FROM sites WHERE is_default), TRUE)
  ORDER BY m.modality, m.aetitle
 """
 
@@ -358,14 +359,19 @@ def build_board(site=None, now=None):
                [w for lane in out if lane['unassigned'] for w in lane['unassigned']['waiting']]
     busy = sum(d['busy_min'] for d in all_dev)
     opened = sum(d['open_min'] for d in all_dev)
-    sites = db.session.execute(text(
-        "SELECT code, name FROM sites WHERE active IS NOT FALSE ORDER BY name")).mappings().all()
+    sites = db.session.execute(text("""
+        SELECT s.code, s.name FROM sites s
+         WHERE s.active IS NOT FALSE
+           AND COALESCE(s.id = (SELECT id FROM sites WHERE is_default), TRUE)
+         ORDER BY s.name
+    """)).mappings().all()
     # The floor plan of each site (Admin > Floor plan): the image, under static/.
     plans = db.session.execute(text("""
         SELECT si.code AS site_code, si.name AS site_name, fp.image_path,
                fp.image_width AS width, fp.image_height AS height
           FROM floor_plans fp JOIN sites si ON si.id = fp.site_id
          WHERE fp.image_path IS NOT NULL AND si.active IS NOT FALSE
+           AND COALESCE(si.id = (SELECT id FROM sites WHERE is_default), TRUE)
          ORDER BY si.name
     """)).mappings().all()
     return {

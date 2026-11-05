@@ -39,7 +39,8 @@ def floor_plan_page():
     if current_user.role != 'admin':
         abort(403)
     sites = db.session.execute(text(
-        "SELECT id, code, name FROM sites WHERE active ORDER BY code"
+        "SELECT s.id, s.code, s.name FROM sites s WHERE s.active "
+        "AND COALESCE(s.id = (SELECT id FROM sites WHERE is_default), TRUE) ORDER BY s.code"
     )).mappings().fetchall()
     return render_template('floor_plan_admin.html', sites=sites)
 

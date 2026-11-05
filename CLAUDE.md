@@ -215,6 +215,10 @@ procedure_exceptions    — legacy exceptions table (see device_exceptions for c
 
 ## Critical Conventions
 
+0. **RH only** — SJH appears in nothing on this branch (operator, 2026-11-05).
+   `ETL_JOBS/etl_rh_only.py` removes SJH rows after each load. To decide a study's site use
+   `utils/report_filters.study_site_sql`, never the PACS label alone: double reading stamps RH
+   mammography with PACS site '1'. Lists read from `aetitle_modality_map` use `rh_device_sql`.
 1. **DB changes** — always via `migrations/NNNN_description.sql`. Never run DDL from psql CLI directly.
 2. **SR exclusion** — every query touching `etl_didb_studies` must filter:
    `COALESCE(m.modality, s.study_modality, '') != 'SR'`

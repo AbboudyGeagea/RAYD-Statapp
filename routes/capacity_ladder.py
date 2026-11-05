@@ -16,6 +16,7 @@ from flask import Blueprint, request, jsonify, render_template
 from flask_login import login_required
 from sqlalchemy import text
 from db import db
+from utils.report_filters import rh_device_sql
 
 logger = logging.getLogger("CAPACITY_LADDER")
 capacity_ladder_bp = Blueprint("capacity_ladder", __name__)
@@ -59,9 +60,10 @@ def overview():
         result     = []
 
         # Get all AEs
-        aes = db.session.execute(text("""
+        aes = db.session.execute(text(f"""
             SELECT a.aetitle, a.modality, a.daily_capacity_minutes
             FROM aetitle_modality_map a
+            WHERE {rh_device_sql('a')}
             ORDER BY a.modality, a.aetitle
         """)).mappings().fetchall()
 

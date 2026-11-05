@@ -30,7 +30,7 @@ from sqlalchemy import text
 from db import db, get_etl_cutoff_date
 from routes.report_cache import cache_get, cache_put
 from utils.site_resolver import default_site
-from utils.report_filters import sidebar_filters as _sidebar_filters
+from utils.report_filters import rh_device_sql, sidebar_filters as _sidebar_filters
 from utils.radiologist_resolve import rad_alias_join_sql, rad_display_sql
 from utils.pacs_roles import role_lookup_cte as _role_lookup_cte, role_precedence as _role_precedence
 from utils.ae_display import ae_display_sql
@@ -1393,7 +1393,7 @@ def report_25():
     # label on this page (utils.ae_display), not station_name alone.
     tree_raw = db.session.execute(text(
         f"SELECT modality, aetitle, {ae_display_sql('m', 'm.aetitle')} AS label "
-        "FROM aetitle_modality_map m"
+        f"FROM aetitle_modality_map m WHERE {rh_device_sql('m')}"
     )).all()
     tree_dict = {}
     for mod, ae, label in tree_raw:
