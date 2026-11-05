@@ -59,6 +59,13 @@ flags this as suspected; Query 1 below measures it.
 [utils/site_resolver.py:9-12](../utils/site_resolver.py#L9-L12)). Filtering on
 that instead needs no join and cannot drop unmapped devices.
 
+> **Corrected 2026-11-05: do not filter on the PACS site alone.** Double reading stamps
+> RH mammography with PACS site `'1'` (`SENO1`: 167 of 183 studies in October 2026, all
+> on RH RIS orders), so `pacs_site_id_raw = '0'` loses it. Reports use
+> `utils/report_filters.study_site_sql`: a physical device gives the site, and the PACS
+> site decides only for gateways and unmapped devices. In the Oracle queries below,
+> `is_rh` and `s3_rh_only` therefore leave out most RH mammography.
+
 > Do **not** switch to `etl_didb_studies.site_id` — migration 0049 added the
 > column and migration 0051 documents an enrichment pass in
 > `ETL_JOBS/etl_site_enrichment.py`, **but that file does not exist**. The column
@@ -178,7 +185,7 @@ FROM flagged;
 |---|---|
 | `s0_all_pacs_studies` | the number the customer is probably quoting |
 | `s1`, `s2` | removed on purpose by the ETL (cardiology archive, junk signers) |
-| `s3_rh_only` | SJH removed — the true RH study count |
+| `s3_rh_only` | SJH removed — the RH study count, except double-read mammography (add `SENO1` on site `'1'`) |
 | `s4_what_report_23_shows` | roughly what the screen shows, before SR/OT |
 | **`lost_to_unmapped_ae`** | **S1 damage — real RH studies deleted by the site filter** |
 
@@ -287,7 +294,7 @@ a tight comparison use a wide window, or anchor both on the same month.
 
 | | Fix | Risk |
 |---|---|---|
-| **S1** | Filter on `s.pacs_site_id_raw = '0'` instead of `m.site_id = :rh_site_id`. No join needed, cannot drop unmapped devices. Keep the five `NOT LIKE '%SJH%'` guards as defence in depth. | Low. Needs confirming `pacs_site_id_raw` is populated in production — **run Query 1 first**; if `pacs_site = '0'` and `'1'` both return sensible counts, it is good. |
+| **S1** | **Superseded 2026-11-05:** use `utils/report_filters.study_site_sql`, not `s.pacs_site_id_raw = '0'`, which loses double-read RH mammography. Keep the five `NOT LIKE '%SJH%'` guards as defence in depth. | Done. |
 | **S2** | Test SR/PR against `s.study_modality` directly rather than through the `COALESCE`, and add `'PACS'` to the excluded set so gateway traffic stops being counted as studies. | Medium — will **lower** the reported number. Confirm with the operator first. |
 | **S3** | Decide whether DEXA (`GELUNAR11`, modality `'OT'`) is a real exam for this report. If yes, drop `'OT'` from the exclusion, or remap that AE. | Operator decision. |
 | **S4** | Not a bug. Give the customer the Query 3 reconciliation. | — |

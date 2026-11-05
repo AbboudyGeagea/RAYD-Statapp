@@ -11,6 +11,10 @@ site differently, and the `sites` table (migration 0046) is the single translato
     RH  (main)     | '0'                           | 'SAP_PROD'    | '3926'         | '1000'
     SJH (satellite)| '1'                           | 'SAP_SJH'     | '5320'         | '2000'
 
+The PACS column is a label, not the truth: double reading stamps RH mammography with '1'
+(operator, 2026-11-05), and LAUMCWFM1AR carries '2', which is not a site. To decide a
+study's site in a report, use utils/report_filters.study_site_sql or the device map.
+
 Each ingestion path calls ONLY its own resolver:
     * PACS study ETL          → resolve_pacs(site_id)
     * RIS worklist/orders ETL → resolve_ris_issuer(issuer)  or  resolve_ris_org(org_structure_key)

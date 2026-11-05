@@ -196,6 +196,12 @@
                     <tbody id="vol-body"></tbody>
                 </table>
             </div>
+            {% if data.volume.reports_without_images %}
+            <p class="px-5 py-3 text-[11px] text-slate-400">
+                <b>Reports without images: {{ "{:,}".format(data.volume.reports_without_images) }}</b>
+                for these dates, from the LAUMCWFM1AR router. Counted aside: not in this table or in any chart on this page.
+            </p>
+            {% endif %}
             {% endif %}
         </div>
         {% endif %}
@@ -946,6 +952,9 @@
             const lines = [['Modality', ...m.labels, 'Total']]
                 .concat(m.rows.map(r => [r.modality, ...r.cells, r.total]))
                 .concat([['TOTAL', ...m.colTotals, m.grand]]);
+            if (d.volume.reports_without_images) {
+                lines.push(['Reports without images (not in TOTAL)', ...m.labels.map(() => ''), d.volume.reports_without_images]);
+            }
             const csv = lines.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\r\n');
             const start = document.querySelector('input[name="start_date"]').value;
             const end   = document.querySelector('input[name="end_date"]').value;

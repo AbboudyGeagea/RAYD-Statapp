@@ -12,6 +12,35 @@ from datetime import date
 from db import get_etl_cutoff_date
 from utils.site_resolver import default_site
 
+# AE titles that carry reports with no images attached (operator, 2026-09-18).
+# Real PACS rows and worth knowing about, but not imaging studies — mixing them
+# into the study total inflates every volume chart and every modality breakdown,
+# while dropping them loses a number the operator wants to see. A report using this
+# list leaves them out of its totals and charts and shows their count on its own.
+#
+# LAUMCWFM1AR also carries PACS SITE_ID '2', which is not a real site (operator,
+# 2026-11-05) and not in the `sites` table. It is excluded by name rather than by
+# site, so the rule keeps holding if the AE is ever re-stamped with a known site.
+REPORTS_WITHOUT_IMAGES_AES = ('LAUMCWFM1AR',)
+
+
+def study_site_sql(param):
+    """
+    SQL condition: this study belongs to the site bound to :param. For queries that
+    must keep studies on unmapped devices, which `m.site_id = :param` alone would drop.
+    Needs etl_didb_studies as s and aetitle_modality_map as m (LEFT JOIN is fine).
+
+        physical device    the device's site. The PACS label cannot decide this:
+                           double reading stamps RH mammography (SENO1) with site '1',
+                           167 of 183 studies in October 2026, all on RH RIS orders.
+        gateway (modality  the study's PACS site. A gateway carries traffic for both
+        'PACS'), unmapped  sites, so its mapped site says nothing about one study, and
+        or no site         an unmapped device has no mapped site to read.
+    """
+    pacs_label = f"s.pacs_site_id_raw = (SELECT pacs_site_id FROM sites WHERE id = :{param})"
+    return (f"(CASE WHEN m.site_id IS NULL OR m.modality = 'PACS' THEN {pacs_label} "
+            f"ELSE m.site_id = :{param} END)")
+
 
 def sidebar_filters(form_data):
     """

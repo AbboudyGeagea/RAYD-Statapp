@@ -149,8 +149,8 @@ will move when real RVUs land.
 | 2 | Report 23 **S3** — `'OT'` exclusion drops real DEXA (`GELUNAR`) | operator decision; changes the number |
 | 3 | ~21 unmapped AEs need `aetitle_modality_map` rows — they now count correctly but show modality NULL, so they are missing from modality charts and the Modality filter | device types confirmed (list in the todo memory) |
 | 4 | Four near-miss seed names: `GELUNAR11`/`GELUNAR`, `SYMBIANET`/`SYMBIA`, `AWCTHD1`/`CTHD`, `SENO2`/`SENO1` | same migration as #3 |
-| 5 | PACS `SITE_ID = '2'` (`LAUMCWFM1AR`, 1,024 studies) is not in the `sites` table | is it a real third site? |
-| 6 | `SENO1` appears on both sites (1,415 SJH / 102 RH) — one AE title cannot carry a single `site_id` | same treatment as the SJH gateway AEs |
+| 5 | PACS `SITE_ID = '2'` (`LAUMCWFM1AR`, 1,024 studies) is not in the `sites` table | **Answered 2026-11-05:** not a real site, counted aside (migration 0141) |
+| 6 | `SENO1` appears on both sites (1,415 SJH / 102 RH) | **Answered 2026-11-05:** an RH device; double reading stamps PACS site `'1'`. Do **not** treat it like the SJH gateways. Site comes from the device (`utils/report_filters.study_site_sql`) |
 | 7 | Report 31 fix | section 3 answer first |
 | 8 | Four SQL sites still sum clinical + technical (`financial_dashboard.py:68,:136`, `report_widgets.py:711,:719`) | **not a bug** — they feed revenue, where professional + technical is the correct global fee |
 

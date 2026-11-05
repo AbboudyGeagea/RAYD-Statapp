@@ -6,6 +6,7 @@ from flask import Blueprint, render_template, request, Response
 from flask_login import login_required
 from sqlalchemy import text
 from db import db, get_go_live_date
+from utils.report_filters import REPORTS_WITHOUT_IMAGES_AES
 from utils.site_resolver import default_site
 
 report_22_bp = Blueprint("report_22", __name__)
@@ -17,9 +18,14 @@ report_22_bp = Blueprint("report_22", __name__)
 # missing from LAUMC's list as of 2026-09-21), so the report guards it as well.
 # It has to test s.study_modality, not the mapped modality -- the gateway AEs map
 # to one modality for all their traffic, so the CARD tag only survives on the study.
-_BASE_EXCLUSIONS = """
+#
+# Reports without images are counted aside (operator, 2026-11-05), the same as
+# Report 23: see _count_reports_without_images.
+_NO_IMAGE_AES_SQL = ", ".join(f"'{ae}'" for ae in REPORTS_WITHOUT_IMAGES_AES)
+_BASE_EXCLUSIONS = f"""
     COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT', 'BMD')
     AND UPPER(TRIM(COALESCE(s.study_modality, ''))) NOT IN ('CARD', 'SJH_CARD', 'CARDUS', 'SJHCARD')
+    AND UPPER(TRIM(COALESCE(s.storing_ae, ''))) NOT IN ({_NO_IMAGE_AES_SQL})
 """
 
 def get_where_params(form):
@@ -78,7 +84,9 @@ def get_where_params(form):
     # site) only, SJH excluded, for now. etl_didb_studies.site_id is never
     # actually populated by the ETL, so site is resolved via the device instead:
     # storing_ae -> aetitle_modality_map.site_id (same pattern as report_25 /
-    # utils/report_filters.py). site_clause must be appended inside each
+    # utils/report_filters.py). Not the raw PACS SITE_ID: double reading stamps RH
+    # mammography with site '1' (SENO1, operator 2026-11-05: 167 of 183 studies in
+    # October 2026, all on RH RIS orders). site_clause must be appended inside each
     # base_data CTE's WHERE, where the `m` (aetitle_modality_map) alias is in
     # scope -- the outer `where` string here runs against base_data's already
     # de-aliased column list, which doesn't carry site_id.
@@ -101,6 +109,17 @@ def _month_starts(start, end):
         out.append(m)
         m = (m.replace(day=28) + timedelta(days=4)).replace(day=1)
     return out
+
+
+def _count_reports_without_images(start, end):
+    """Studies counted aside for the date range. Only the date range applies: the
+    sidebar filters describe imaging studies, as on Report 23's tile."""
+    return int(db.session.execute(text("""
+        SELECT COUNT(*)
+        FROM etl_didb_studies s
+        WHERE UPPER(TRIM(COALESCE(s.storing_ae, ''))) = ANY(:aes)
+          AND s.study_date BETWEEN :start AND :end
+    """), {"aes": list(REPORTS_WITHOUT_IMAGES_AES), "start": start, "end": end}).scalar() or 0)
 
 
 def _build_volume(cte, where, params):
@@ -177,6 +196,7 @@ def _build_volume(cte, where, params):
         "rows": out_rows,
         "total_studies": sum(sum(r["studies"]) for r in out_rows),
         "total_exams": sum(sum(r["exams"]) for r in out_rows),
+        "reports_without_images": _count_reports_without_images(params["start"], params["end"]),
     }
 
 

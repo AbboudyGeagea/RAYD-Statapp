@@ -64,7 +64,7 @@ DATA_TABLES = [
     'std_pps_person_reference', 'std_worklist_scheduled', 'std_worklist_arrivals',
     'std_worklist_exam_done', 'std_worklist_cancellations', 'std_reports', 'std_pps',
     'std_patient_ids', 'std_patients_ris', 'std_resources_ris', 'std_procedure_priorities',
-    'etl_didb_serieses', 'summary_storage_daily',
+    'etl_didb_serieses', 'summary_storage_daily', 'fact_exam',
     'etl_didb_studies', 'etl_patient_view', 'etl_orders',
     # BRAYN (migration 0133), children of the archive first
     'brayn_findings', 'hl7_study_events', 'hl7_patients', 'hl7_message_archive',
@@ -276,9 +276,13 @@ def app(database_url):
     from routes.live_feed import live_feed_bp
     from routes.department_board import department_board_bp
     from routes.worklists import worklists_bp
+    from routes.report_22 import report_22_bp
+    from routes.report_23 import report_23_bp
     flask_app.register_blueprint(live_feed_bp)
     flask_app.register_blueprint(department_board_bp)
     flask_app.register_blueprint(worklists_bp)
+    flask_app.register_blueprint(report_22_bp)
+    flask_app.register_blueprint(report_23_bp)
 
     from db import db
     from sqlalchemy import text

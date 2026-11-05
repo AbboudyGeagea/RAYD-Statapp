@@ -146,10 +146,22 @@ _DERIVE_SQL = f"""
                CASE WHEN b.own_mod IS NOT NULL THEN b.accession_number ELSE m.m_acc END AS main_accession,
                COALESCE(b.patient_class, m.m_pclass)                             AS pclass,
                COALESCE(b.patient_location, m.m_ploc)                            AS ploc,
-               st.id                                                             AS site_id
+               -- Same rule as utils/report_filters.study_site_sql: a physical device
+               -- gives the site. The PACS label only decides for gateways and unmapped
+               -- devices, since double reading stamps RH mammography with site '1'.
+               CASE WHEN dev.site_id IS NULL OR dev.modality = 'PACS' THEN st.id
+                    ELSE dev.site_id END                                         AS site_id
         FROM base b
         JOIN master m ON m.grp_key = b.grp_key
         LEFT JOIN sites st ON st.pacs_site_id = b.pacs_site_id
+        LEFT JOIN LATERAL (
+            SELECT am.site_id, am.modality
+            FROM aetitle_modality_map am
+            WHERE UPPER(TRIM(am.aetitle)) =
+                  CASE WHEN b.own_mod IS NOT NULL THEN b.storing_ae ELSE m.m_ae END
+            ORDER BY am.id
+            LIMIT 1
+        ) dev ON TRUE
     ),
     r AS (
         SELECT d.*,

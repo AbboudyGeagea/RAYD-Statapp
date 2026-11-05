@@ -7,21 +7,10 @@ from flask import Blueprint, render_template, request, Response
 from flask_login import login_required
 from sqlalchemy import text
 from db import db
+from utils.report_filters import REPORTS_WITHOUT_IMAGES_AES, study_site_sql
 from utils.site_resolver import default_site
 
 report_23_bp = Blueprint('report_23', __name__)
-
-# AE titles that carry reports with no images attached (operator, 2026-09-18).
-# Real PACS rows and worth knowing about, but not imaging studies — mixing them
-# into the study total inflates every volume chart and every modality breakdown,
-# while dropping them loses a number the operator wants to see. They get counted
-# separately and shown on their own tile.
-#
-# LAUMCWFM1AR also carries PACS SITE_ID '2', which is not in the `sites` table
-# ('0' = RH, '1' = SJH), so the site filter below would exclude it regardless —
-# the explicit exclusion here is what makes that intentional rather than
-# accidental, and keeps holding if the AE is ever re-stamped with a known site.
-_REPORTS_WITHOUT_IMAGES_AES = ('LAUMCWFM1AR',)
 
 # Procedure codes are internal RIS/PACS identifiers and mean nothing to a reader —
 # every report shows the procedure DESCRIPTION instead, falling back to the raw code
@@ -142,10 +131,10 @@ def get_report_config(form):
         # scenario. "radiologists" doesn't apply either — Report 23's base query has no
         # radiologist/physician column at all (verified against the live report_template
         # row and this file); nothing to filter for that dimension.
-        # SITE FILTER — anchored on the study's own PACS site marker, NOT on the
-        # device map.
+        # SITE FILTER — see utils/report_filters.study_site_sql. Physical devices use the
+        # device's site; gateways and unmapped devices use the study's PACS site.
         #
-        # This used to be `AND m.site_id = :rh_site_id`. `m` is a LEFT join, so any
+        # Why not the device alone: this used to be `AND m.site_id = :rh_site_id`. `m` is a LEFT join, so any
         # study whose storing_ae had no aetitle_modality_map row got m.site_id =
         # NULL, `NULL = 1` is NULL, and the row was dropped — silently turning the
         # LEFT JOIN into an INNER JOIN. Measured against the live PACS Oracle on
@@ -156,11 +145,9 @@ def get_report_config(form):
         # listed under a near-miss name (seeded GELUNAR11 vs real GELUNAR, SYMBIANET
         # vs SYMBIA, AWCTHD1 vs CTHD).
         #
-        # etl_didb_studies.pacs_site_id_raw is the raw PACS SITE_ID loaded straight
-        # by the studies ETL ('0' = RH, '1' = SJH — utils/site_resolver.py), so it
-        # needs no join and cannot be lost to an unmapped device. It is resolved
-        # through `sites` rather than hardcoded so the ~2027 PACS upgrade only has to
-        # change that table.
+        # Why not the PACS site alone: from 2026-09-18 to 2026-11-05 this filtered on
+        # pacs_site_id_raw only, which dropped double-read RH mammography from this
+        # report, because double reading stamps it with PACS site '1'.
         #
         # NOT etl_didb_studies.site_id: migration 0049 adds the column and 0051
         # documents an enrichment pass in ETL_JOBS/etl_site_enrichment.py, but that
@@ -172,11 +159,11 @@ def get_report_config(form):
         # old site_id check they never drop an unmapped device.
         rh_site_id = default_site()
         if rh_site_id is not None:
-            no_image_aes = ", ".join(f"'{ae}'" for ae in _REPORTS_WITHOUT_IMAGES_AES)
+            no_image_aes = ", ".join(f"'{ae}'" for ae in REPORTS_WITHOUT_IMAGES_AES)
             base_sql = base_sql.replace(
                 "WHERE 1=1 AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT', 'BMD')",
                 "WHERE 1=1 AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT', 'BMD')"
-                " AND s.pacs_site_id_raw = (SELECT pacs_site_id FROM sites WHERE id = :rh_site_id)"
+                f" AND {study_site_sql('rh_site_id')}"
                 f" AND UPPER(TRIM(COALESCE(s.storing_ae, ''))) NOT IN ({no_image_aes})"
                 " AND UPPER(COALESCE(s.storing_ae, '')) NOT LIKE '%SJH%'"
                 " AND UPPER(COALESCE(m.description, '')) NOT LIKE '%SJH%'"
@@ -267,7 +254,7 @@ def report_23():
                 FROM etl_didb_studies s
                 WHERE UPPER(TRIM(COALESCE(s.storing_ae, ''))) = ANY(:aes)
                   AND s.study_date BETWEEN :s AND :e
-            """), {"aes": list(_REPORTS_WITHOUT_IMAGES_AES),
+            """), {"aes": list(REPORTS_WITHOUT_IMAGES_AES),
                    "s": start_date, "e": end_date}).scalar() or 0)
         except Exception as e:
             db.session.rollback()

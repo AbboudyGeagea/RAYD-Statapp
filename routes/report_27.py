@@ -5,6 +5,7 @@ from flask import Blueprint, render_template, request, Response
 from flask_login import login_required
 from sqlalchemy import text
 from db import db, get_go_live_date
+from utils.report_filters import study_site_sql
 from utils.site_resolver import default_site
 
 report_27_bp = Blueprint("report_27", __name__)
@@ -118,6 +119,10 @@ def _build_system_agreement(start, end):
     imported outside studies that never had a RIS order). Rows with a NULL linked_id
     are single-step exams and are their own group, hence the COALESCE onto order_dbid.
 
+    Those measurements predate 2026-11-05, when the PACS side filtered on the PACS site
+    alone and so left out double-read RH mammography (see study_site_sql). PACS now
+    includes it, so the 0.8% no longer holds; re-measure before quoting a figure.
+
     Returns rows oldest-first; each carries `maturing` so the template can grey out
     months that have not had time to be read yet.
     """
@@ -129,10 +134,7 @@ def _build_system_agreement(start, end):
     if site_id is not None:
         params["site_id"] = site_id
         ris_site  = "AND o.site_id = :site_id"
-        # etl_didb_studies carries the RAW PACS marker, not the resolved site id --
-        # resolve it through `sites` so the ~2027 PACS upgrade only touches that table.
-        pacs_site = ("AND s.pacs_site_id_raw = "
-                     "(SELECT pacs_site_id FROM sites WHERE id = :site_id)")
+        pacs_site = f"AND {study_site_sql('site_id')}"
 
     exact = _has_status_key()
     ris_approved = (f"o.status_key = {_RIS_APPROVED_KEY}" if exact
@@ -162,7 +164,7 @@ def _build_system_agreement(start, end):
             -- case-variant rows would both match and double every count here (the
             -- fan-out migration 0116 had to repair). LIMIT 1 makes that impossible.
             LEFT JOIN LATERAL (
-                SELECT m.modality FROM aetitle_modality_map m
+                SELECT m.modality, m.site_id FROM aetitle_modality_map m
                 WHERE UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae)) LIMIT 1
             ) m ON TRUE
             WHERE s.study_date BETWEEN :start AND :end
