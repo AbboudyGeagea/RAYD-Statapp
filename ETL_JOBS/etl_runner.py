@@ -112,7 +112,6 @@ from etl_didb_raw_images   import run_raw_images_etl
 from etl_image_locations   import run_images_etl
 from etl_patients_view     import run_patients_etl
 from etl_orders            import run_orders_etl
-from etl_rh_only           import purge_sjh_studies, purge_sjh_orders, run_rh_only_purge
 from etl_sticky_notes      import run_sticky_notes_etl, record_access_history
 from etl_analytics_refresh import refresh_storage_summary
 from etl_ris_reports       import run_ris_reports_etl
@@ -178,9 +177,6 @@ _PHASE_LABELS = {
     '2':  ('Series',             'Oracle: DIDB_SERIESES — heavy'),
     '2b': ('Modality backfill',  'PostgreSQL only — cheap'),
     '2c': ('SJH gateway CARD purge', 'PostgreSQL only — cheap (LAUMC)'),
-    # Not a gate: the RH-only purge runs at the end of every sync whatever is listed.
-    # RAYD_ETL_PHASES=2d therefore runs that purge alone, with nothing read from Oracle.
-    '2d': ('RH-only purge',      'PostgreSQL only — heavy on its first run, light after (LAUMC)'),
     '3':  ('Raw Images',         'Oracle: DIDB_RAW_IMAGES — VERY heavy (100M+ rows)'),
     '4':  ('Image Locations',    'Oracle: DIDB_IMAGE_LOCATIONS — VERY heavy'),
     '5':  ('Patients',           'Oracle: DIDB_PATIENTS_VIEW — moderate'),
@@ -280,17 +276,6 @@ def _ensure_active_ids(engine, active_ids):
     return ids
 
 
-def _rh_only(step, engine, label, failures):
-    """One step of ETL_JOBS/etl_rh_only.py. A failure is reported in the sync's status
-    and does not stop the phases after it. Returns the step's result, or None."""
-    try:
-        return step(engine)
-    except Exception as _e:
-        failures.append(f"RH-only purge ({label})")
-        logger.error(f"🛑 RH-only purge ({label}) failed — continuing: {_e}", exc_info=True)
-        return None
-
-
 _ETL_SYNC_LOCK_ID = 872951065  # distinct from db_migrations.py's 872951064
 
 
@@ -356,14 +341,6 @@ def _perform_migration(engine):
             except Exception as _e:
                 _phase_failures.append("1 (Studies)")
                 logger.error(f"🛑 Phase 1 (Studies) failed — continuing to next phase: {_e}", exc_info=True)
-
-            # Before Phases 2-4, so no series or images are fetched for studies that go.
-            if _rh_only(purge_sjh_studies, engine, "studies", _phase_failures) and active_ids:
-                with engine.connect() as _c:
-                    active_ids = _c.execute(
-                        text("SELECT study_db_uid FROM etl_didb_studies WHERE study_db_uid = ANY(:ids)"),
-                        {"ids": active_ids}
-                    ).scalars().all()
 
         # ── PHASE 2: Series ───────────────────────────────────────────────
         if _confirm_phase(2):
@@ -511,7 +488,6 @@ def _perform_migration(engine):
                 except Exception as _e:
                     _phase_failures.append("6 (Orders)")
                     logger.error(f"🛑 Phase 6 (Orders) failed — continuing to next phase: {_e}", exc_info=True)
-                _rh_only(purge_sjh_orders, engine, "orders", _phase_failures)
 
         # ── PHASE 7: Storage Summary (all tables must be populated first) ─
         if _confirm_phase(7):
@@ -864,13 +840,6 @@ def _perform_migration(engine):
             except Exception as _e:
                 _phase_failures.append("20 (Exam Fact)")
                 logger.error(f"🛑 Phase 20 (Exam Fact) failed — continuing: {_e}", exc_info=True)
-
-        # ── RH only (operator, 2026-11-05): last, because the RIS phases above add
-        # detail rows for orders already left out. Unconditional on purpose: a phase
-        # that a RAYD_ETL_PHASES list omits never runs, which is how Phase 2c went missing
-        # on LAUMC, and SJH would come back with the next load.
-        logger.info("📋 RH-only purge")
-        _rh_only(run_rh_only_purge, engine, "final", _phase_failures)
 
         # ── Sticky notes + study access history, for the JCI urgent read measure
         # (migration 0143). Follows Phase 1 rather than having its own number: a site's
