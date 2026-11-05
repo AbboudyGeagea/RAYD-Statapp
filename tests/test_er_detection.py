@@ -160,6 +160,27 @@ def test_report_25_er_avg_tat_averages_er_studies_only():
     assert data['summary']['er_wait'] == '90.0m'
 
 
+def test_report_25_unread_aging_loads_in_bucket_order():
+    # The query used to fail every time, on a SELECT alias inside an ORDER BY expression,
+    # and the error was only logged, so the page showed no aging data at all.
+    from routes.report_25 import get_gold_standard_data
+    device()
+    study(41, '100500041', 'O', 'DEF')
+    sql("UPDATE etl_didb_studies SET study_status = 'UNREAD' WHERE study_db_uid = 41")
+    study(42, '100500042', 'O', 'DEF')
+    sql("""UPDATE etl_didb_studies SET study_status = 'UNREAD', study_date = :d
+           WHERE study_db_uid = 42""", d=TODAY - timedelta(days=5))
+
+    period_with_old_study = MultiDict({'start_date': (TODAY - timedelta(days=5)).isoformat(),
+                                       'end_date': TODAY.isoformat()})
+    data, _start, _end = get_gold_standard_data(period_with_old_study)
+
+    assert data['unread_aging'] == [
+        {'bucket': '0-24h', 'modality': 'CT', 'cnt': 1},
+        {'bucket': '72h+', 'modality': 'CT', 'cnt': 1},
+    ]
+
+
 def test_report_25_er_avg_tat_is_zero_without_er_studies():
     from routes.report_25 import get_gold_standard_data
     device()

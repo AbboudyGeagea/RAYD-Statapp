@@ -1091,8 +1091,9 @@ def get_gold_standard_data(form_data):
               AND s.study_date BETWEEN :start AND :end
               {_sec_filters}
             GROUP BY 1, 2
-            ORDER BY
-                CASE bucket WHEN '0-24h' THEN 1 WHEN '24-48h' THEN 2 WHEN '48-72h' THEN 3 ELSE 4 END
+            -- Positions, not CASE bucket: Postgres can't see a SELECT alias inside an ORDER
+            -- BY expression. These bucket labels already sort oldest-last as text.
+            ORDER BY 1, 2
         """), params).fetchall()
         for bucket, modality, cnt in aging_rows:
             unread_aging.append({'bucket': bucket, 'modality': modality, 'cnt': int(cnt)})
