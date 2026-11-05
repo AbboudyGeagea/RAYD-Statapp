@@ -76,7 +76,9 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
             # fields that actually carry data on this install (operator, 2026-07-27). Raw value for now
             # (e.g. "abdallah.noufaily@ad") — resolving to a real name/role (radiologist vs resident) is
             # deferred, operator: "i will find a way, for now let's proceed with this change."
-            'rep_study_last_composed_by', 'rep_study_last_composed_ts'
+            'rep_study_last_composed_by', 'rep_study_last_composed_ts',
+            # The latest lock on the study, for the JCI urgent read measure (migration 0143).
+            'study_locked', 'study_lock_time', 'rep_last_accessed_by'
         ]
 
         ora_conn = OracleConnector.get_connection(oracle_source)
@@ -115,7 +117,8 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
                     CASE WHEN s.IS_LINKED_STUDY = 'Y' THEN 'true' ELSE 'false' END,
                     SUBSTR(s.PATIENT_LOCATION, 1, 3),
                     TO_CHAR(s.SITE_ID),
-                    s.REP_STUDY_LAST_COMPOSED_BY, s.REP_STUDY_LAST_COMPOSED_TS
+                    s.REP_STUDY_LAST_COMPOSED_BY, s.REP_STUDY_LAST_COMPOSED_TS,
+                    s.STUDY_LOCKED, s.STUDY_LOCK_TIME, s.REP_LAST_ACCESSED_BY
                 FROM medistore.didb_studies s
                 LEFT JOIN medistore.didb_patients_view p ON p.PATIENT_DB_UID = s.PATIENT_DB_UID
         """
@@ -144,7 +147,8 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
                     CASE WHEN s.IS_LINKED_STUDY = 'Y' THEN 'true' ELSE 'false' END,
                     SUBSTR(s.PATIENT_LOCATION, 1, 3),
                     TO_CHAR(s.SITE_ID),
-                    s.REP_STUDY_LAST_COMPOSED_BY, s.REP_STUDY_LAST_COMPOSED_TS
+                    s.REP_STUDY_LAST_COMPOSED_BY, s.REP_STUDY_LAST_COMPOSED_TS,
+                    s.STUDY_LOCKED, s.STUDY_LOCK_TIME, s.REP_LAST_ACCESSED_BY
                 FROM medistore.didb_studies s
         """
 

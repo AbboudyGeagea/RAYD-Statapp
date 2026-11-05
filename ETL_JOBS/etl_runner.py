@@ -112,6 +112,7 @@ from etl_didb_raw_images   import run_raw_images_etl
 from etl_image_locations   import run_images_etl
 from etl_patients_view     import run_patients_etl
 from etl_orders            import run_orders_etl
+from etl_sticky_notes      import run_sticky_notes_etl, record_access_history
 from etl_analytics_refresh import refresh_storage_summary
 from etl_ris_reports       import run_ris_reports_etl
 from etl_ris_modality      import run_ris_modality_etl
@@ -839,6 +840,20 @@ def _perform_migration(engine):
             except Exception as _e:
                 _phase_failures.append("20 (Exam Fact)")
                 logger.error(f"🛑 Phase 20 (Exam Fact) failed — continuing: {_e}", exc_info=True)
+
+        # ── Sticky notes + study access history, for the JCI urgent read measure
+        # (migration 0143). Follows Phase 1 rather than having its own number: a site's
+        # RAYD_ETL_PHASES list always has Phase 1, and one that omitted a new number would
+        # skip this without a word.
+        if _phase_enabled(1):
+            logger.info("📋 Sticky notes and study access history")
+            try:
+                h_total = record_access_history(engine)
+                n_total = run_sticky_notes_etl(engine, src, go_live)
+                logger.info(f"✅ Sticky notes done — {n_total:,} notes read, {h_total:,} study access rows")
+            except Exception as _e:
+                _phase_failures.append("Sticky Notes")
+                logger.error(f"🛑 Sticky notes failed — continuing: {_e}", exc_info=True)
 
         # ── Mark overall sync SUCCESS (or PARTIAL if any phase failed but the
         # run still made it to the end — each phase is now isolated by its own
