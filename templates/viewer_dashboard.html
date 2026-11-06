@@ -219,6 +219,26 @@
                         </a>
                     </div>
                     {% endif %}
+
+                    <!-- Sticky Notes card -->
+                    {% if current_user.role == 'admin' or current_user|user_has_page('sticky_notes') %}
+                    <div class="card-custom p-6 flex flex-col hover:border-[#fbbf24]/30 transition-colors" style="border-top:2px solid #fbbf24;">
+                        <div class="flex items-start justify-between mb-4">
+                            <div class="p-2.5 rounded-xl" style="background:rgba(251,191,36,0.1);">
+                                <i class="bi bi-sticky-fill text-xl" style="color:#fbbf24;"></i>
+                            </div>
+                            <span style="font-size:9px;font-weight:900;padding:2px 8px;border-radius:4px;background:rgba(251,191,36,0.15);color:#fbbf24;text-transform:uppercase;letter-spacing:0.08em;">JCI</span>
+                        </div>
+                        <h3 class="text-base font-bold text-white mb-2">Sticky Notes: Urgent Reads</h3>
+                        <p class="text-slate-400 text-xs leading-relaxed mb-6 flex-1">How long urgent ER and inpatient cases wait for the resident's sticky note, which have none, and who signed next. Admins choose the urgent departments and the limit.</p>
+                        <a href="{{ url_for('sticky_notes.page') }}" target="_blank"
+                           class="w-full py-3 text-center text-xs font-black uppercase tracking-widest rounded-xl transition-colors"
+                           style="background:#fbbf24;color:#181f1c;">
+                            Open Sticky Notes
+                        </a>
+                    </div>
+                    {% endif %}
+                    <!-- /Sticky Notes card -->
                 </div>
 
                 <div id="grid-it" class="hidden grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

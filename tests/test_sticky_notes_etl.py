@@ -122,7 +122,7 @@ def test_a_later_deletion_in_pacs_reaches_the_row_already_copied(engine, monkeyp
 
 
 def test_notes_on_studies_rayd_does_not_hold_are_removed(engine, monkeypatch):
-    # An SJH study, or a device the studies ETL leaves out.
+    # A device the studies ETL leaves out.
     study(engine, 100)
     run_notes(engine, monkeypatch, [note_row(1, 100), note_row(2, 999)])
 
@@ -168,7 +168,7 @@ def test_studies_older_than_the_nightly_window_are_not_copied(engine):
 
 
 def test_history_of_a_study_rayd_no_longer_holds_is_removed(engine):
-    # What the RH-only purge leaves behind when it removes an SJH study.
+    # A study removed from Postgres, as a device exclusion does.
     study(engine, 100)
     study(engine, 200)
     etl_sticky_notes.record_access_history(engine, NIGHT)
@@ -199,7 +199,7 @@ def pacs_study_row(sql, locked, lock_time, login):
     row = [None] * _select_columns(sql)
     row[0], row[1], row[6] = 100, 100, TODAY            # study, patient, study date
     row[30], row[39], row[40] = 'false', 'false', 'false'   # the three required flags
-    row[-3:] = [locked, lock_time, login]
+    row[-4:] = [locked, lock_time, login, 'MSU7']
     return tuple(row)
 
 
@@ -223,9 +223,10 @@ def test_the_studies_pull_stores_the_lock_fields(engine, monkeypatch, join_fails
 
     assert (total, uids) == (1, [100])
     with engine.connect() as conn:
-        row = conn.execute(text('SELECT study_locked, study_lock_time, rep_last_accessed_by '
+        row = conn.execute(text('SELECT study_locked, study_lock_time, rep_last_accessed_by, '
+                                'patient_location_full '
                                 'FROM etl_didb_studies WHERE study_db_uid = 100')).one()
-    assert tuple(row) == ('LOCKED', NIGHT, 'res.one@ad')
+    assert tuple(row) == ('LOCKED', NIGHT, 'res.one@ad', 'MSU7')
 
 
 def test_the_next_night_updates_the_lock_fields(engine, monkeypatch):
@@ -249,66 +250,20 @@ def test_the_next_night_updates_the_lock_fields(engine, monkeypatch):
     assert tuple(row) == ('UNLOCKED', NIGHT + timedelta(hours=1))
 
 
-# ── the question the copy has to answer ───────────────────────────────────────
+# ── the orders pull ───────────────────────────────────────────────────────────
 
-# Given to the operator to run in Postgres: on notes not yet reported when the next nightly
-# copy was taken, was there a lock before the note, and by whom?
-EVIDENCE_SQL = """
-WITH first_note AS (
-    SELECT DISTINCT ON (n.study_db_uid) n.study_db_uid, n.user_name, n.date_created
-    FROM etl_sticky_notes n
-    WHERE n.delete_indication = 'N' AND n.data_len > 1
-    ORDER BY n.study_db_uid, n.date_created
-),
-next_copy AS (
-    SELECT DISTINCT ON (f.study_db_uid)
-           f.study_db_uid, f.user_name, f.date_created, h.captured_at,
-           h.study_lock_time, h.rep_last_accessed_by, h.last_accessed_time
-    FROM first_note f
-    JOIN study_access_history h ON h.study_db_uid = f.study_db_uid
-                               AND h.captured_at >= f.date_created
-    ORDER BY f.study_db_uid, h.captured_at
-)
-SELECT CASE WHEN c.study_lock_time IS NULL THEN '1 no lock'
-            WHEN c.study_lock_time <= c.date_created THEN '2 lock before note'
-            ELSE '3 lock after note' END AS lock_timing,
-       COUNT(*) AS notes,
-       COUNT(*) FILTER (WHERE UPPER(c.rep_last_accessed_by) = UPPER(c.user_name)) AS login_is_author,
-       COUNT(*) FILTER (WHERE c.last_accessed_time <= c.date_created) AS access_before_note,
-       ROUND((PERCENTILE_CONT(0.5) WITHIN GROUP (
-             ORDER BY EXTRACT(EPOCH FROM c.date_created - c.study_lock_time) / 60))::numeric, 1)
-             AS median_min_lock_to_note
-FROM next_copy c
-JOIN etl_didb_studies s ON s.study_db_uid = c.study_db_uid
-WHERE COALESCE(s.rep_study_last_composed_ts, 'infinity'::timestamp) > c.captured_at
-GROUP BY 1
-ORDER BY 1
-"""
+def test_the_orders_pull_stores_the_ordering_organization(engine, monkeypatch):
+    from db import chunked_upsert
+    from ETL_JOBS import etl_orders
 
+    pacs = FakeOracle([(5001, 77, 88, '100500001', 'CT01', 'CT Chest', NIGHT, 100, 'CT',
+                        'SAP_PROD', None, NIGHT, 4242)])
+    monkeypatch.setattr(etl_orders, 'OracleConnector',
+                        SimpleNamespace(get_connection=lambda source: pacs))
 
-def test_the_evidence_query_reads_notes_as_the_next_copy_saw_them(engine, monkeypatch):
-    evening = NIGHT - timedelta(hours=9)
-    author = 'res.one@ad'
-    # A lock by the author 30 minutes before the note, not reported by the copy: counts.
-    study(engine, 100, locked='UNLOCKED', lock_time=evening - timedelta(minutes=30),
-          login=author, access=evening - timedelta(minutes=30))
-    # No lock at all, not reported: counts as "no lock".
-    study(engine, 101, access=evening - timedelta(minutes=5))
-    # Another login's lock after the note, not reported: counts.
-    study(engine, 102, locked='UNLOCKED', lock_time=evening + timedelta(hours=2), login='other@ad',
-          access=evening + timedelta(hours=2))
-    # Reported before the copy, so its lock was overwritten: left out.
-    study(engine, 103, locked='UNLOCKED', lock_time=evening + timedelta(hours=3), login=author,
-          composed=evening + timedelta(hours=2))
-    run_notes(engine, monkeypatch, [note_row(i, 100 + i, created=evening) for i in range(4)])
-    etl_sticky_notes.record_access_history(engine, NIGHT)
+    etl_orders.run_orders_etl(engine, 'ris', 'etl_orders', chunked_upsert, GO_LIVE)
 
+    assert 'ORDERING_ORGANIZATION_KEY' in pacs.sql
     with engine.connect() as conn:
-        rows = [tuple(r) for r in conn.execute(text(EVIDENCE_SQL))]
-
-    assert [(r[0], r[1], r[2], r[3]) for r in rows] == [
-        ('1 no lock', 1, 0, 1),
-        ('2 lock before note', 1, 1, 1),
-        ('3 lock after note', 1, 0, 0),
-    ]
-    assert float(rows[1][4]) == 30.0
+        assert conn.execute(text('SELECT ordering_organization_key FROM etl_orders '
+                                 'WHERE order_dbid = 5001')).scalar() == 4242

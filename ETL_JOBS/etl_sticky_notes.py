@@ -14,10 +14,10 @@ record_access_history   Postgres only: copies each recent study's lock and acces
 Real notes are the rows with delete_indication = 'N' AND data_len > 1. Blank and deleted
 ones are kept here so a later deletion in PACS reaches the row already copied.
 
-Notes and history on studies RAYD does not hold are removed each run. That keeps SJH out
-(operator, 2026-11-05: only RH) once the RH-only purge has removed its studies, along with
-the devices the studies ETL leaves out. A note whose study is not loaded yet comes back the
-next night, because the lookback pulls it again.
+Notes and history on studies RAYD does not hold are removed each run: those are the devices
+the studies ETL leaves out. A note whose study is not loaded yet comes back the next night,
+because the lookback pulls it again. SJH studies stay in Postgres, so their rows stay too;
+the Sticky Notes page shows RH only, through utils/report_filters.study_site_sql.
 """
 import logging
 from datetime import datetime, timedelta

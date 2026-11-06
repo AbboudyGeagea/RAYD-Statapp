@@ -489,7 +489,7 @@ class SchedulingEntry(db.Model):
 ALL_FEATURE_KEYS = [
     # patient_portal + scheduling: modules removed at LAUMC (see docs/LAUMC_SCOPE.md)
     'live_feed', 'hl7_orders', 'report_ai', 'oru', 'mapping',
-    'financial', 'cd_print', 'referring_intel', 'custom_reports',
+    'financial', 'cd_print', 'referring_intel', 'custom_reports', 'sticky_notes',
 ]
 
 # Default pages granted to each role at approval / role-change time.

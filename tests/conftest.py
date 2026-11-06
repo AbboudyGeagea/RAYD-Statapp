@@ -283,6 +283,8 @@ def app(database_url):
     flask_app.register_blueprint(worklists_bp)
     flask_app.register_blueprint(report_22_bp)
     flask_app.register_blueprint(report_23_bp)
+    from routes.sticky_notes import sticky_notes_bp
+    flask_app.register_blueprint(sticky_notes_bp)
 
     from db import db
     from sqlalchemy import text

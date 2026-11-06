@@ -33,6 +33,12 @@ routes/
   super_report.py               — aggregated multi-section report
   report_25.py                  — shift & device utilization
   er_dashboard.py               — ER unread studies panel + SLA tracking
+  sticky_notes.py               — JCI urgent read measure (card next to ER in Clinical KPIs; page
+                                   permission `sticky_notes`). Reads Postgres only. Clock is images
+                                   reach PACS -> first sticky note: PACS keeps no history of opens
+                                   RAYD can read, and only the ETL may read the PACS server, so
+                                   never poll it. ETL_JOBS/etl_sticky_notes.py copies note times
+                                   nightly; note text is never read. Migrations 0143, 0144
   oru_analytics.py              — HL7 ORU analytics (NLP word cloud, critical findings log)
   viewer_controller.py          — daily briefing, home dashboard
   mapping_controller.py         — AE/modality/procedure mapping config (lazy-loaded tabs)

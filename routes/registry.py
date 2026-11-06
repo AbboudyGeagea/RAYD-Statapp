@@ -342,6 +342,11 @@ def register_blueprints(app):
     app.register_blueprint(ai_alerts_bp)
     logger.info("  ai_alerts: enabled")
 
+    # ── Sticky Notes (JCI requirement at LAUMC, gated by its page permission) ─────
+    from routes.sticky_notes import sticky_notes_bp
+    app.register_blueprint(sticky_notes_bp)
+    logger.info("  sticky_notes: enabled")
+
     # ── Inject license into templates ─────────────────────────
     @app.context_processor
     def inject_license():

@@ -78,7 +78,9 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
             # deferred, operator: "i will find a way, for now let's proceed with this change."
             'rep_study_last_composed_by', 'rep_study_last_composed_ts',
             # The latest lock on the study, for the JCI urgent read measure (migration 0143).
-            'study_locked', 'study_lock_time', 'rep_last_accessed_by'
+            'study_locked', 'study_lock_time', 'rep_last_accessed_by',
+            # patient_location above is cut to 3 characters; this is the whole value (0144).
+            'patient_location_full'
         ]
 
         ora_conn = OracleConnector.get_connection(oracle_source)
@@ -118,7 +120,8 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
                     SUBSTR(s.PATIENT_LOCATION, 1, 3),
                     TO_CHAR(s.SITE_ID),
                     s.REP_STUDY_LAST_COMPOSED_BY, s.REP_STUDY_LAST_COMPOSED_TS,
-                    s.STUDY_LOCKED, s.STUDY_LOCK_TIME, s.REP_LAST_ACCESSED_BY
+                    s.STUDY_LOCKED, s.STUDY_LOCK_TIME, s.REP_LAST_ACCESSED_BY,
+                    s.PATIENT_LOCATION
                 FROM medistore.didb_studies s
                 LEFT JOIN medistore.didb_patients_view p ON p.PATIENT_DB_UID = s.PATIENT_DB_UID
         """
@@ -148,7 +151,8 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
                     SUBSTR(s.PATIENT_LOCATION, 1, 3),
                     TO_CHAR(s.SITE_ID),
                     s.REP_STUDY_LAST_COMPOSED_BY, s.REP_STUDY_LAST_COMPOSED_TS,
-                    s.STUDY_LOCKED, s.STUDY_LOCK_TIME, s.REP_LAST_ACCESSED_BY
+                    s.STUDY_LOCKED, s.STUDY_LOCK_TIME, s.REP_LAST_ACCESSED_BY,
+                    s.PATIENT_LOCATION
                 FROM medistore.didb_studies s
         """
 

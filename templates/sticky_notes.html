@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | Sticky Notes</title>
+    <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
+    <style>
+        :root { --accent:#fbbf24; }
+        body  { font-family:'Inter',sans-serif; background:#181f1c; color:#e2e8f0; }
+        .card { background:#232b28; border:1px solid #28332e; border-radius:1.25rem; }
+        .kpi-card { background:#232b28; border:1px solid #28332e; border-radius:1rem; padding:1.25rem 1.5rem; }
+        .kpi-card.red   { border-color:rgba(244,63,94,0.35);  background:rgba(244,63,94,0.06); }
+        .kpi-card.green { border-color:rgba(34,197,94,0.35);  background:rgba(34,197,94,0.06); }
+        .kpi-label { font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:0.1em; color:#64748b; margin-bottom:0.25rem; }
+        .kpi-value { font-size:1.75rem; font-weight:900; color:#fff; line-height:1.2; }
+        .kpi-sub   { font-size:10px; color:#64748b; margin-top:0.25rem; }
+        .sidebar-item { transition:all 0.2s; border-radius:0.75rem; margin-bottom:0.25rem; cursor:pointer; text-decoration:none!important; color:#94a3b8; }
+        .sidebar-item:hover { background:#1d2522; color:var(--accent)!important; }
+        .sidebar-item.active { background:#1d2522; color:var(--accent)!important; border-left:4px solid var(--accent); }
+        .section-title { font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:0.15em; color:var(--accent); margin-bottom:0.75rem; }
+        .badge-jci { background:rgba(251,191,36,0.15); color:#fbbf24; border:1px solid rgba(251,191,36,0.3); font-size:9px; font-weight:900; padding:2px 8px; border-radius:4px; text-transform:uppercase; letter-spacing:0.08em; }
+        .pill { font-size:9px; font-weight:900; padding:2px 8px; border-radius:4px; text-transform:uppercase; letter-spacing:0.06em; white-space:nowrap; }
+        .pill-within { background:rgba(34,197,94,0.15); color:#22c55e; }
+        .pill-over   { background:rgba(244,63,94,0.15); color:#f43f5e; }
+        .pill-none   { background:rgba(148,163,184,0.15); color:#94a3b8; }
+        .pill-noted  { background:rgba(96,165,250,0.15); color:#60a5fa; }
+        th { white-space:nowrap; }
+        .check { display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:700; color:#cbd5e1; cursor:pointer; }
+        .field { background:#1d2522; border:1px solid #28332e; border-radius:0.5rem; padding:0.375rem 0.75rem; font-size:12px; font-weight:700; color:#fff; }
+        .field:focus { outline:none; border-color:var(--accent); }
+        .btn-main { background:var(--accent); color:#181f1c; font-size:12px; font-weight:900; text-transform:uppercase; letter-spacing:0.1em; border-radius:0.5rem; padding:0.375rem 1rem; }
+        .btn-soft { border:1px solid #28332e; color:#cbd5e1; font-size:12px; font-weight:900; text-transform:uppercase; letter-spacing:0.1em; border-radius:0.5rem; padding:0.375rem 1rem; }
+        /* Light mode */
+        body.light { background:#f0f4f8; color:#1a202c; }
+        body.light aside, body.light header { background:#ffffff!important; border-color:#e2e8f0!important; }
+        body.light main { background:#f0f4f8!important; }
+        body.light .sidebar-item { color:#4a5568; }
+        body.light .sidebar-item:hover, body.light .sidebar-item.active { background:#e2e8f0!important; color:#c0392b!important; }
+        body.light .card, body.light .kpi-card { background:#ffffff; border-color:#e2e8f0; }
+        body.light .kpi-card.red   { background:#fff5f5; border-color:#fca5a5; }
+        body.light .kpi-card.green { background:#f0fdf4; border-color:#86efac; }
+        body.light .kpi-value, body.light .text-white { color:#1a202c!important; }
+        body.light .check { color:#2d3748; }
+        body.light .text-slate-400 { color:#4a5568!important; }
+        body.light .text-slate-500, body.light .kpi-label, body.light .kpi-sub { color:#718096!important; }
+        body.light table thead tr, body.light table tbody tr { border-color:#e2e8f0!important; }
+        body.light .field { background:#f8fafc; border-color:#e2e8f0; color:#1a202c; }
+        body.light .btn-soft { border-color:#e2e8f0; color:#2d3748; }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+
+{% include '_header.html' %}
+
+<div class="flex flex-1 overflow-hidden">
+    {% include '_sidebar.html' %}
+
+    <main class="flex-1 overflow-y-auto bg-[#181f1c] p-8">
+
+        <div class="flex flex-wrap items-center justify-between gap-4 mb-6">
+            <div>
+                <div class="flex items-center gap-3 mb-1">
+                    <span class="badge-jci">JCI</span>
+                    <h1 class="text-2xl font-black text-white tracking-tight">Sticky Notes: Urgent Reads</h1>
+                </div>
+                <p class="text-slate-400 text-sm">How long urgent ER and inpatient cases wait for the resident's sticky note, and which have none.</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-3">
+                <input id="start-input" type="date" value="{{ default_start }}" class="field" aria-label="From">
+                <span class="text-xs text-slate-500">to</span>
+                <input id="end-input" type="date" value="{{ default_end }}" class="field" aria-label="To">
+                <button onclick="loadData()" class="btn-main">Apply</button>
+                <button onclick="exportCsv()" class="btn-soft"><i class="bi bi-download mr-1"></i>CSV</button>
+            </div>
+        </div>
+
+        <div class="card p-4 mb-6 text-xs text-slate-400 leading-relaxed">
+            <p><i class="bi bi-info-circle mr-1" style="color:#fbbf24;"></i><strong class="text-white">Clock: {{ clock_label }}.</strong>
+               PACS keeps no history of who first opened a study that RAYD can read, so this page cannot yet time from the resident opening the images.</p>
+            <p class="mt-1">{{ open_seen_note }} PACS cannot show who received a note, so this page shows who wrote it and who signed next.</p>
+        </div>
+
+        <div id="loading" class="text-center py-20 text-slate-500 text-sm font-bold uppercase tracking-widest">
+            <i class="bi bi-hourglass-split text-2xl block mb-3"></i>Loading sticky notes…
+        </div>
+
+        <div id="content" class="hidden space-y-6">
+
+            <div class="card p-4 space-y-3">
+                <div>
+                    <p class="section-title" style="margin-bottom:0.5rem;">Modalities counted</p>
+                    <div id="modality-filter" class="flex flex-wrap gap-4"></div>
+                </div>
+                <p class="text-xs text-slate-400"><strong class="text-white">Urgent:</strong> <span id="urgent-summary"></span>
+                   &nbsp;·&nbsp; <strong class="text-white">Limit:</strong> <span id="limit-summary"></span></p>
+            </div>
+
+            <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-4" id="kpi-row"></div>
+
+            <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                <div class="card p-5">
+                    <p class="section-title">By department</p>
+                    <div class="overflow-x-auto"><table class="w-full text-left text-sm" id="dept-table"></table></div>
+                </div>
+                <div class="card p-5">
+                    <p class="section-title">By modality</p>
+                    <div class="overflow-x-auto"><table class="w-full text-left text-sm" id="mod-table"></table></div>
+                </div>
+            </div>
+
+            <div class="card p-5">
+                <p class="section-title">Cases <span id="cases-note" class="text-slate-500" style="font-weight:400;text-transform:none;letter-spacing:0;"></span></p>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-sm">
+                        <thead>
+                            <tr class="border-b border-[#28332e] text-[#fbbf24] text-[10px] uppercase tracking-widest font-black">
+                                <th class="pb-3 pr-4">Accession</th>
+                                <th class="pb-3 pr-4">Images reached PACS</th>
+                                <th class="pb-3 pr-4">Modality</th>
+                                <th class="pb-3 pr-4">Department</th>
+                                <th class="pb-3 pr-4">Note written</th>
+                                <th class="pb-3 pr-4">To note</th>
+                                <th class="pb-3 pr-4">Note author</th>
+                                <th class="pb-3 pr-4">Open seen</th>
+                                <th class="pb-3 pr-4">First signature</th>
+                                <th class="pb-3 pr-4">Signed by</th>
+                                <th class="pb-3 pr-4">Outcome</th>
+                            </tr>
+                        </thead>
+                        <tbody id="cases-body" class="divide-y divide-[#28332e]"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            {% if is_admin %}
+            <div class="card p-5">
+                <p class="section-title"><i class="bi bi-gear-fill mr-1"></i>Settings (admin only)</p>
+                <p class="text-xs text-slate-400 mb-3">ER always counts. Tick the other departments that count as urgent. Names come from the RIS and PACS over the last year.</p>
+                <div id="dept-options" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2 mb-4"></div>
+                <div class="flex flex-wrap items-center gap-3">
+                    <label for="limit-input" class="text-xs font-bold text-slate-400">Limit, images reach PACS to note (minutes)</label>
+                    <input id="limit-input" type="number" min="1" step="1" class="field w-24" placeholder="None">
+                    <button onclick="saveSettings()" class="btn-main">Save</button>
+                    <span id="settings-msg" class="text-xs" role="status"></span>
+                </div>
+                <p class="text-xs text-slate-500 mt-2">Cases show within or over the limit only once a limit is set.</p>
+            </div>
+            {% endif %}
+        </div>
+    </main>
+</div>
+
+<script>
+let unticked = new Set();
+
+function esc(value) {
+    const div = document.createElement('div');
+    div.textContent = value === null || value === undefined ? '' : value;
+    return div.innerHTML;
+}
+
+function fmtTime(minutes) {
+    if (minutes === null || minutes === undefined) return '—';
+    return minutes < 60 ? `${Math.round(minutes)} min` : `${(minutes / 60).toFixed(1)} h`;
+}
+
+function queryString() {
+    const params = new URLSearchParams({
+        start: document.getElementById('start-input').value,
+        end: document.getElementById('end-input').value,
+    });
+    if (unticked.size) params.set('unticked', [...unticked].join(','));
+    return params.toString();
+}
+
+function exportCsv() {
+    window.location = `{{ url_for('sticky_notes.export_csv') }}?${queryString()}`;
+}
+
+async function loadData() {
+    const r = await fetch(`{{ url_for('sticky_notes.data') }}?${queryString()}`);
+    const d = await r.json().catch(() => ({ error: 'The sticky notes data could not be loaded.' }));
+    if (!r.ok || d.error) {
+        document.getElementById('loading').classList.remove('hidden');
+        document.getElementById('loading').innerHTML =
+            `<i class="bi bi-exclamation-triangle text-red-400 text-2xl block mb-3"></i><span class="text-red-400">${esc(d.error || 'Could not load.')}</span>`;
+        return;
+    }
+    document.getElementById('loading').classList.add('hidden');
+    document.getElementById('content').classList.remove('hidden');
+    renderFilters(d);
+    renderKpis(d);
+    renderBreakdown('dept-table', d.by_department, 'department', 'Department');
+    renderBreakdown('mod-table', d.by_modality, 'modality', 'Modality');
+    renderCases(d);
+    {% if is_admin %}renderSettings(d);{% endif %}
+}
+
+function renderFilters(d) {
+    document.getElementById('modality-filter').innerHTML = d.modalities.length
+        ? d.modalities.map(m => `
+            <label class="check"><input type="checkbox" data-modality="${esc(m)}" ${unticked.has(m) ? '' : 'checked'}
+                onchange="toggleModality(this)"> ${esc(m)}</label>`).join('')
+        : '<span class="text-xs text-slate-500">No urgent cases in this period.</span>';
+    document.getElementById('urgent-summary').textContent = ['ER (always)', ...d.urgent_departments].join(', ');
+    document.getElementById('limit-summary').textContent =
+        d.limit_minutes ? `${d.limit_minutes} minutes` : 'not set, so no case is marked within or over';
+}
+
+function toggleModality(box) {
+    if (box.checked) unticked.delete(box.dataset.modality);
+    else unticked.add(box.dataset.modality);
+    loadData();
+}
+
+function kpi(label, value, sub, tone) {
+    return `<div class="kpi-card ${tone || ''}"><p class="kpi-label">${esc(label)}</p>
+        <p class="kpi-value">${esc(value)}</p><p class="kpi-sub">${esc(sub || '')}</p></div>`;
+}
+
+function renderKpis(d) {
+    const k = d.kpi;
+    const judged = k.within + k.over;
+    document.getElementById('kpi-row').innerHTML = [
+        kpi('Urgent cases', k.cases, 'in this period'),
+        kpi('With a note', k.noted_pct === null ? '—' : `${k.noted_pct}%`, `${k.noted} of ${k.cases}`),
+        kpi('No note', k.no_note, 'cases with no sticky note', k.no_note ? 'red' : 'green'),
+        kpi('Images to note', fmtTime(k.median_to_note), `median · 90th percentile ${fmtTime(k.p90_to_note)}`),
+        d.limit_minutes
+            ? kpi('Over the limit', k.over, `${k.within} of ${judged} noted cases within ${d.limit_minutes} min`, k.over ? 'red' : 'green')
+            : kpi('Over the limit', '—', 'no limit set'),
+        kpi('Exam done to signature', fmtTime(k.median_exam_to_sign), `median of ${k.exam_to_sign_cases} cases`),
+        kpi('Open seen to note', fmtTime(k.median_open_to_note), `median, caught on ${k.open_seen} of ${k.noted} notes`),
+    ].join('');
+}
+
+function renderBreakdown(id, rows, field, label) {
+    const head = `<thead><tr class="border-b border-[#28332e] text-[#fbbf24] text-[10px] uppercase tracking-widest font-black">
+        <th class="pb-3 pr-4">${esc(label)}</th><th class="pb-3 pr-4">Cases</th><th class="pb-3 pr-4">With note</th>
+        <th class="pb-3 pr-4">No note</th><th class="pb-3 pr-4">Median to note</th><th class="pb-3 pr-4">Over limit</th></tr></thead>`;
+    const body = rows.map(r => `<tr class="border-b border-[#28332e]">
+        <td class="py-2 pr-4 font-bold text-white">${esc(r[field])}</td>
+        <td class="py-2 pr-4">${r.cases}</td>
+        <td class="py-2 pr-4">${r.noted_pct === null ? '—' : r.noted_pct + '%'}</td>
+        <td class="py-2 pr-4">${r.no_note}</td>
+        <td class="py-2 pr-4">${fmtTime(r.median_to_note)}</td>
+        <td class="py-2 pr-4">${r.over}</td></tr>`).join('');
+    document.getElementById(id).innerHTML = head + `<tbody>${body}</tbody>`;
+}
+
+const OUTCOMES = {
+    within:  ['Within limit', 'pill-within'],
+    over:    ['Over limit', 'pill-over'],
+    no_note: ['No note', 'pill-none'],
+    noted:   ['Noted', 'pill-noted'],
+};
+const ROLES = { residents: 'RES', radiologists: 'RAD' };
+
+function renderCases(d) {
+    document.getElementById('cases-note').textContent = d.cases_total > d.cases.length
+        ? `· newest ${d.cases.length} of ${d.cases_total}; the CSV has them all` : `· ${d.cases_total}`;
+    document.getElementById('cases-body').innerHTML = d.cases.map(c => {
+        const [label, tone] = OUTCOMES[c.outcome];
+        const role = ROLES[c.author_role] ? ` <span class="text-slate-500">${ROLES[c.author_role]}</span>` : '';
+        return `<tr>
+            <td class="py-2 pr-4 font-bold text-white">${esc(c.accession)}</td>
+            <td class="py-2 pr-4 whitespace-nowrap">${esc(c.arrived_at)}</td>
+            <td class="py-2 pr-4">${esc(c.modality)}</td>
+            <td class="py-2 pr-4">${esc(c.department)}</td>
+            <td class="py-2 pr-4 whitespace-nowrap">${esc(c.note_at) || '—'}</td>
+            <td class="py-2 pr-4 whitespace-nowrap">${fmtTime(c.minutes_to_note)}</td>
+            <td class="py-2 pr-4">${esc(c.note_author) || '—'}${role}</td>
+            <td class="py-2 pr-4 whitespace-nowrap">${esc(c.open_at) || '—'}</td>
+            <td class="py-2 pr-4 whitespace-nowrap">${esc(c.signed_at) || '—'}</td>
+            <td class="py-2 pr-4">${esc(c.signed_by) || '—'}</td>
+            <td class="py-2 pr-4"><span class="pill ${tone}">${label}</span></td></tr>`;
+    }).join('') || '<tr><td colspan="11" class="py-6 text-center text-slate-500">No urgent cases match these filters.</td></tr>';
+}
+
+{% if is_admin %}
+function renderSettings(d) {
+    const ticked = new Set(d.urgent_departments);
+    const names = d.department_options.map(o => o.name);
+    const extra = d.urgent_departments.filter(n => !names.includes(n)).map(name => ({ name, count: 0 }));
+    document.getElementById('dept-options').innerHTML = [...d.department_options, ...extra].map(o => `
+        <label class="check"><input type="checkbox" data-department="${esc(o.name)}" ${ticked.has(o.name) ? 'checked' : ''}>
+            ${esc(o.name)} <span class="text-slate-500" style="font-weight:400;">${o.count}</span></label>`).join('')
+        || '<span class="text-xs text-slate-500">No departments found yet. They appear after the nightly ETL.</span>';
+    document.getElementById('limit-input').value = d.limit_minutes || '';
+}
+
+async function saveSettings() {
+    const msg = document.getElementById('settings-msg');
+    const departments = [...document.querySelectorAll('#dept-options input:checked')].map(b => b.dataset.department);
+    const r = await fetch(`{{ url_for('sticky_notes.save_settings') }}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ departments, limit_minutes: document.getElementById('limit-input').value }),
+    });
+    const d = await r.json().catch(() => ({ message: 'Could not save.' }));
+    if (r.ok) {
+        msg.textContent = 'Saved.';
+        msg.className = 'text-xs text-emerald-400';
+        loadData();
+    } else {
+        msg.textContent = d.message || 'Could not save.';
+        msg.className = 'text-xs text-rose-400';
+    }
+}
+{% endif %}
+
+loadData();
+</script>
+</body>
+</html>

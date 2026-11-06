@@ -224,7 +224,7 @@ def run_orders_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_l
         'order_dbid', 'patient_dbid', 'study_db_uid', 'visit_dbid',
         'study_instance_uid', 'proc_id', 'proc_text', 'scheduled_datetime',
         'order_status', 'status_key', 'modality', 'has_study', 'order_control',
-        'accession_number', 'linked_id', 'last_update'
+        'accession_number', 'linked_id', 'last_update', 'ordering_organization_key'
     ]
 
     try:
@@ -262,7 +262,8 @@ def run_orders_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_l
             w.MODALITY_TYPE,
             o.ISSUER_OF_PLACER_ORDER_NUMBER,
             w.LINKED_ID,
-            w.LAST_UPDATE_DATE
+            w.LAST_UPDATE_DATE,
+            o.ORDERING_ORGANIZATION_KEY
         FROM {_WORKLIST_TABLE} w
         JOIN {_ORDERS_TABLE} o     ON o.ORDER_KEY = w.ORDER_KEY
         LEFT JOIN {_SPS_CODE_TABLE} sc ON sc.SPS_CODE_KEY = w.SPS_CODE_KEY
@@ -294,7 +295,8 @@ def run_orders_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_l
             for row in batch:
                 (site_worklist_key, patient_person_key, visit_key, sps_id,
                  proc_code, proc_text, scheduled_date, status_key,
-                 modality_type, issuer, linked_id, last_update_date) = row
+                 modality_type, issuer, linked_id, last_update_date,
+                 ordering_organization_key) = row
 
                 if site_worklist_key is None:
                     skipped += 1
@@ -320,6 +322,7 @@ def run_orders_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_l
                     _safe_str(sps_id),                          # accession_number — enrichment join key
                     linked_id,                                  # linked_id — enrichment fallback key
                     _safe_date(last_update_date) or datetime.now(),  # last_update
+                    _safe_int(ordering_organization_key),       # department, Sticky Notes page (0144)
                 ))
 
             if clean_batch:
