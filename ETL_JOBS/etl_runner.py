@@ -276,6 +276,18 @@ def _ensure_active_ids(engine, active_ids):
     return ids
 
 
+def _resolve_study_sites(engine, failures):
+    """Keep etl_didb_studies.site_id current: the RH-only views filter on it (migration 0145).
+    A failure shows in the sync's status and does not stop the phases after it."""
+    try:
+        with engine.begin() as conn:
+            changed = conn.execute(text("SELECT rh_resolve_study_sites()")).scalar()
+        logger.info(f"✅ Study sites resolved — {changed:,} changed")
+    except Exception as _e:
+        failures.append("Study sites")
+        logger.error(f"🛑 Study sites not resolved — continuing: {_e}", exc_info=True)
+
+
 _ETL_SYNC_LOCK_ID = 872951065  # distinct from db_migrations.py's 872951064
 
 
@@ -341,6 +353,8 @@ def _perform_migration(engine):
             except Exception as _e:
                 _phase_failures.append("1 (Studies)")
                 logger.error(f"🛑 Phase 1 (Studies) failed — continuing to next phase: {_e}", exc_info=True)
+            # Right after the load, so a new SJH study is on screen for as short a time as possible.
+            _resolve_study_sites(engine, _phase_failures)
 
         # ── PHASE 2: Series ───────────────────────────────────────────────
         if _confirm_phase(2):
@@ -840,6 +854,10 @@ def _perform_migration(engine):
             except Exception as _e:
                 _phase_failures.append("20 (Exam Fact)")
                 logger.error(f"🛑 Phase 20 (Exam Fact) failed — continuing: {_e}", exc_info=True)
+
+        # ── Study sites, outside any phase: a phase that a RAYD_ETL_PHASES list omits never
+        # runs, and a device moved on the Mapping screen should take effect the same night.
+        _resolve_study_sites(engine, _phase_failures)
 
         # ── Sticky notes + study access history, for the JCI urgent read measure
         # (migration 0143). Follows Phase 1 rather than having its own number: a site's

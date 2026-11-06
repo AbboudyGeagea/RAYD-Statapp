@@ -29,7 +29,7 @@ def _guard():
 
 def _ensure_mappings_table():
     db.session.execute(text("""
-        CREATE TABLE IF NOT EXISTS adapter_mappings (
+        CREATE TABLE IF NOT EXISTS public.adapter_mappings (
             id              SERIAL PRIMARY KEY,
             connection_name VARCHAR(100) NOT NULL,
             schema_owner    VARCHAR(100),
@@ -63,7 +63,7 @@ def _ensure_mappings_table():
     ))
     # Ensure ETL log table exists (migration 0026 covers fresh installs; this covers upgrades)
     db.session.execute(text("""
-        CREATE TABLE IF NOT EXISTS adapter_etl_log (
+        CREATE TABLE IF NOT EXISTS public.adapter_etl_log (
             id            SERIAL PRIMARY KEY,
             mapping_id    INTEGER REFERENCES adapter_mappings(id) ON DELETE CASCADE,
             target_table  VARCHAR(100) NOT NULL,

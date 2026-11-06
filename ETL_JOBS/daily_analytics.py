@@ -259,7 +259,7 @@ def _briefing(label, cur, prev, start, end):
 # ── Ensure table exists ───────────────────────────────────────────────────────
 
 _ENSURE_TABLE = """
-CREATE TABLE IF NOT EXISTS analytics_snapshots (
+CREATE TABLE IF NOT EXISTS public.analytics_snapshots (
     id            SERIAL PRIMARY KEY,
     period_label  VARCHAR(20)  NOT NULL,
     period_start  DATE         NOT NULL,
@@ -270,7 +270,7 @@ CREATE TABLE IF NOT EXISTS analytics_snapshots (
     status        VARCHAR(20)  NOT NULL DEFAULT 'ok'
 );
 CREATE INDEX IF NOT EXISTS idx_snapshots_label_time
-    ON analytics_snapshots (period_label, computed_at DESC);
+    ON public.analytics_snapshots (period_label, computed_at DESC);
 """
 
 

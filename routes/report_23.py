@@ -519,8 +519,10 @@ _CONFLICT_SQL = """
         sex,
         number_of_patient_studies AS studies,
         last_update::text
-    FROM etl_patient_view
-    WHERE fallback_id LIKE '%$$$%'
+    FROM etl_patient_view p
+    WHERE p.fallback_id LIKE '%$$$%'
+      -- patients are not filtered themselves: this keeps those with a study on this site
+      AND EXISTS (SELECT 1 FROM etl_didb_studies s WHERE s.patient_db_uid = p.patient_db_uid)
     ORDER BY last_update DESC NULLS LAST
 """
 
@@ -530,7 +532,8 @@ _CONFLICT_SQL = """
 def conflict_count():
     try:
         count = db.session.execute(text(
-            "SELECT COUNT(*) FROM etl_patient_view WHERE fallback_id LIKE '%$$$%'"
+            "SELECT COUNT(*) FROM etl_patient_view p WHERE p.fallback_id LIKE '%$$$%' "
+            "AND EXISTS (SELECT 1 FROM etl_didb_studies s WHERE s.patient_db_uid = p.patient_db_uid)"
         )).scalar() or 0
 
         from flask import jsonify

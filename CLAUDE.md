@@ -222,7 +222,11 @@ procedure_exceptions    — legacy exceptions table (see device_exceptions for c
 ## Critical Conventions
 
 0. **RH only** — SJH appears in nothing on this branch (operator, 2026-11-05), and SJH rows are
-   not deleted from RAYD. To decide a study's site use
+   not deleted from RAYD. Web requests read filtered views in schema `rh` through a
+   transaction-local search_path (`utils/rh_scope.py`, migration 0145); the ETL, listener, NLP worker
+   and CRN read the real tables. A new table holding SJH rows needs a view in `rh_refresh_views()`.
+   Code that runs in a request creates tables as `public.x`. A migration that drops or retypes a
+   column of a filtered table must drop its `rh` view first. To decide a study's site use
    `utils/report_filters.study_site_sql`, never the PACS label alone: double reading stamps RH
    mammography with PACS site '1'. Lists read from `aetitle_modality_map` use `rh_device_sql`.
 1. **DB changes** — always via `migrations/NNNN_description.sql`. Never run DDL from psql CLI directly.

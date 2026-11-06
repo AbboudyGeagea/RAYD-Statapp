@@ -350,10 +350,11 @@ def test_the_mrn_flagged_primary_wins_else_the_first_listed(app):
 
 
 def test_site_by_the_ris_issuer(app):
-    ris_exam(1, order_control='SAP_SJH')
+    ris_exam(1, order_control='SAP_PROD')
     ris_exam(2, order_control='ELSEWHERE')
+    ris_exam(3, order_control='SAP_SJH')   # RH only (operator, 2026-11-05): not shown at all
     got = {r['exam_id']: r['site'] for r in sql('SELECT * FROM rpt.exams')}
-    assert got == {1: 'LAUMC - Saint John (Satellite)', 2: None}
+    assert got == {1: 'LAUMC - Rizk Hospital (Main)', 2: None}
 
 
 def test_sr_exams_are_left_out(app):

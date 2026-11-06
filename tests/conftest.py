@@ -289,6 +289,9 @@ def app(database_url):
     from db import db
     from sqlalchemy import text
     with flask_app.app_context():
+        # As create_app() does: every route under test reads the RH-only views of migration 0145.
+        from utils.rh_scope import install as install_rh_scope
+        install_rh_scope(db.engine)
         global _DATA, _CONFIG
         exists = lambda t: db.session.execute(text("SELECT to_regclass(:t) IS NOT NULL"),
                                               {'t': f'public.{t}'}).scalar()

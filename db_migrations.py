@@ -122,6 +122,20 @@ def _run_pending_migrations(db):
         except Exception as e:
             logger.error(f"[migrations] FAILED: {filename} — {e}")
 
+    _refresh_rh_views(db)
+
+
+def _refresh_rh_views(db):
+    """A view lists its table's columns as they were when it was made, so the RH-only views
+    (migration 0145) have to pick up any column a migration just added. A failure is logged, not
+    raised: the old views still filter, and the app should still start."""
+    try:
+        with db.engine.begin() as conn:
+            if conn.execute(text("SELECT to_regproc('rh_refresh_views') IS NOT NULL")).scalar():
+                conn.execute(text("SELECT rh_refresh_views()"))
+    except Exception as e:
+        logger.error(f"[migrations] RH-only views not refreshed: {e}")
+
 
 def _run_statements(db, statements):
     """

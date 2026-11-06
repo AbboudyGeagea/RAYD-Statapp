@@ -297,6 +297,11 @@ def create_app():
     with app.app_context():
         init_query_monitor(app, db.engine)
 
+    # --- RH ONLY (operator, 2026-11-05): web requests read the filtered views of migration 0145 ---
+    from utils.rh_scope import install as install_rh_scope
+    with app.app_context():
+        install_rh_scope(db.engine)
+
     # --- ROUTES ---
     register_blueprints(app)
 
@@ -759,7 +764,10 @@ def create_app():
             try:
                 from ETL_JOBS.daily_analytics import run as run_analytics
                 logger.info(f"⏰ [5:30 AM] Daily analytics snapshot starting: {datetime.now()}")
-                run_analytics(engine=db.engine)
+                # The briefing is read by people, so it counts RH only like the reports do.
+                from utils.rh_scope import rh_scope
+                with rh_scope():
+                    run_analytics(engine=db.engine)
                 logger.info("✅ [5:30 AM] Daily analytics snapshot complete.")
             except Exception as e:
                 logger.error(f"🛑 [5:30 AM] Daily analytics failed: {e}", exc_info=True)
