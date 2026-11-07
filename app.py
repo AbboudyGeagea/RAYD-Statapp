@@ -755,8 +755,11 @@ def create_app():
             if code is None:
                 logger.warning("⚠️  [Scheduled ETL] Could not start its own process — running it here instead.")
                 execute_sync(app)
+            elif code == 0:
+                logger.info("✅ [Scheduled ETL] Finished in its own process.")
             else:
-                logger.info(f"✅ [Scheduled ETL] Finished in its own process (exit code {code}).")
+                logger.error(f"🛑 [Scheduled ETL] Its process ended with exit code {code} "
+                             "(124: stopped after the time limit).")
 
     scheduler.add_job(
         func=scheduled_etl,

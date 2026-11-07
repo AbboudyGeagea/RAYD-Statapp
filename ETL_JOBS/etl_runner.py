@@ -91,7 +91,7 @@ Execution phases (in order):
 Triggered by APScheduler in app.py or manually via `python app.py -m`.
 """
 import os, sys, logging, gc
-from datetime import datetime
+from datetime import datetime, timedelta
 from sqlalchemy import text
 
 # Ensure paths are correct
@@ -360,6 +360,22 @@ def _perform_migration(engine):
                 logger.error(f"🛑 Phase 1 (Studies) failed — continuing to next phase: {_e}", exc_info=True)
             # Right after the load, so a new SJH study is on screen for as short a time as possible.
             _resolve_study_sites(engine, _phase_failures)
+
+        # ── Sticky notes + study access history, for the JCI urgent read measure
+        # (migration 0143). Straight after Phase 1, which it needs, and before everything
+        # else: the lock values must be copied the night they happened, and it used to run
+        # last, so a phase that died or hung on the way (2026-11-06 and 07) left it out.
+        # Follows Phase 1 rather than having its own number: a site's RAYD_ETL_PHASES list
+        # always has Phase 1, and one that omitted a new number would skip this silently.
+        if _phase_enabled(1):
+            logger.info("📋 Sticky notes and study access history")
+            try:
+                h_total = record_access_history(engine)
+                n_total = run_sticky_notes_etl(engine, src, go_live)
+                logger.info(f"✅ Sticky notes done — {n_total:,} notes read, {h_total:,} study access rows")
+            except Exception as _e:
+                _phase_failures.append("Sticky Notes")
+                logger.error(f"🛑 Sticky notes failed — continuing: {_e}", exc_info=True)
 
         # ── PHASE 2: Series ───────────────────────────────────────────────
         if _confirm_phase(2):
@@ -864,20 +880,6 @@ def _perform_migration(engine):
         # runs, and a device moved on the Mapping screen should take effect the same night.
         _resolve_study_sites(engine, _phase_failures)
 
-        # ── Sticky notes + study access history, for the JCI urgent read measure
-        # (migration 0143). Follows Phase 1 rather than having its own number: a site's
-        # RAYD_ETL_PHASES list always has Phase 1, and one that omitted a new number would
-        # skip this without a word.
-        if _phase_enabled(1):
-            logger.info("📋 Sticky notes and study access history")
-            try:
-                h_total = record_access_history(engine)
-                n_total = run_sticky_notes_etl(engine, src, go_live)
-                logger.info(f"✅ Sticky notes done — {n_total:,} notes read, {h_total:,} study access rows")
-            except Exception as _e:
-                _phase_failures.append("Sticky Notes")
-                logger.error(f"🛑 Sticky notes failed — continuing: {_e}", exc_info=True)
-
         # ── Mark overall sync SUCCESS (or PARTIAL if any phase failed but the
         # run still made it to the end — each phase is now isolated by its own
         # try/except above, so one bad phase no longer aborts the rest, but that
@@ -941,16 +943,29 @@ def run_sync_in_child(app_root):
     whole run killed (2026-11-06 and 2026-11-07, "WORKER TIMEOUT"), and it shared the
     worker's memory with every page. Waiting on the child keeps the worker responsive.
 
-    Returns the child's exit code, or None if it could not be started, so that the caller
-    can run the sync in-process as before rather than not at all.
+    A child still running after SYNC_TIMEOUT is killed: a query that never returns (no
+    Oracle call has a time limit) would otherwise hold the scheduler's only slot, and every
+    later night would be skipped. The next run closes its rows (_CLOSE_DEAD_RUNS_SQL).
+
+    Returns the child's exit code, SYNC_TIMED_OUT if it was killed, or None if it could not
+    be started, so that the caller can run the sync in-process as before rather than not
+    at all.
     """
     import subprocess
     script = os.path.join(app_root, 'app.py')
     try:
-        return subprocess.run([sys.executable, script, '-m'], cwd=app_root).returncode
+        return subprocess.run([sys.executable, script, '-m'], cwd=app_root,
+                              timeout=SYNC_TIMEOUT.total_seconds()).returncode
+    except subprocess.TimeoutExpired:
+        logger.error(f"🛑 The ETL was still running after {SYNC_TIMEOUT} and was stopped.")
+        return SYNC_TIMED_OUT
     except OSError as exc:
         logger.error(f"🛑 Could not start the ETL in its own process ({exc}).")
         return None
+
+
+SYNC_TIMEOUT = timedelta(hours=20)      # far longer than any night, short of the next 05:00
+SYNC_TIMED_OUT = 124                    # the exit code `timeout` uses
 
 
 _CLOSE_DEAD_RUNS_SQL = """

@@ -239,20 +239,33 @@ def test_the_sync_starts_as_a_manual_run_in_its_own_process(monkeypatch):
     import subprocess
     import etl_runner
     calls = []
-    monkeypatch.setattr(subprocess, 'run', lambda args, cwd: calls.append((args, cwd)) or SimpleNamespace(returncode=0))
+    monkeypatch.setattr(subprocess, 'run',
+                        lambda args, cwd, timeout: calls.append((args, cwd, timeout)) or SimpleNamespace(returncode=0))
 
     assert etl_runner.run_sync_in_child('/app') == 0
-    (args, cwd), = calls
+    (args, cwd, timeout), = calls
     assert args[0] == sys.executable
     assert args[1:] == [os.path.join('/app', 'app.py'), '-m']
     assert cwd == '/app'
+    assert 12 * 3600 < timeout < 24 * 3600      # longer than any night, shorter than a day
+
+
+def test_a_child_that_never_finishes_is_stopped_so_the_next_night_runs(monkeypatch):
+    import subprocess
+    import etl_runner
+
+    def hang(args, cwd, timeout):
+        raise subprocess.TimeoutExpired(args, timeout)
+    monkeypatch.setattr(subprocess, 'run', hang)
+
+    assert etl_runner.run_sync_in_child('/app') == etl_runner.SYNC_TIMED_OUT
 
 
 def test_a_child_that_cannot_start_says_so_instead_of_skipping_the_night(monkeypatch):
     import subprocess
     import etl_runner
 
-    def refuse(args, cwd):
+    def refuse(args, cwd, timeout):
         raise OSError('no such file')
     monkeypatch.setattr(subprocess, 'run', refuse)
 
@@ -277,3 +290,15 @@ def test_a_real_manual_run_starts_no_scheduler_and_no_listener():
     first_lines = guarded.splitlines()[1:3]
     assert first_lines[0].strip() == 'scheduler.start()'
     assert first_lines[1].strip().startswith('start_mllp_listener(')
+
+
+def test_the_note_copy_runs_straight_after_phase_1():
+    """It used to run last, so a phase that died or hung on the way left it out."""
+    with open(os.path.join(ROOT, 'ETL_JOBS', 'etl_runner.py'), encoding='utf-8') as f:
+        source = f.read()
+    body = source[source.index('def _perform_migration'):]
+    phase_1 = body.index('# ── PHASE 1:')
+    notes = body.index('run_sticky_notes_etl(engine')
+    phase_2 = body.index('# ── PHASE 2:')
+    assert phase_1 < notes < phase_2
+    assert body.count('run_sticky_notes_etl(engine') == 1
