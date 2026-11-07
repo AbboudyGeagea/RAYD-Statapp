@@ -302,6 +302,53 @@ def _block(cases):
     }
 
 
+# Time to note, in the bars of the page's first chart. "No note" is its own bar.
+BUCKETS = (('< 15 min', 15), ('15–30 min', 30), ('30–60 min', 60), ('1–2 h', 120),
+           ('2–4 h', 240), ('4–8 h', 480), ('8 h or more', None))
+NO_NOTE = 'No note'
+WEEKLY_AFTER_DAYS = 62      # a longer period is drawn week by week, not day by day
+
+
+def bucket_of(minutes):
+    if minutes is None:
+        return NO_NOTE
+    for label, upper in BUCKETS:
+        if upper is None or minutes < upper:
+            return label
+
+
+def _outcome_counts(cases):
+    """What each stacked bar of the page's charts is made of."""
+    return {
+        'cases': len(cases),
+        'noted': sum(c['note_at'] is not None for c in cases),
+        'within': sum(c['outcome'] == 'within' for c in cases),
+        'over': sum(c['outcome'] == 'over' for c in cases),
+        'no_note': sum(c['note_at'] is None for c in cases),
+    }
+
+
+def _trend_key(arrived, weekly):
+    day = arrived.date()
+    return (day - timedelta(days=day.weekday())).isoformat() if weekly else day.isoformat()
+
+
+def _trend(cases, start, end):
+    """One bar per day (per week for a long period), including the days with no case, so
+    a gap in the chart is a real gap."""
+    weekly = (end - start).days + 1 > WEEKLY_AFTER_DAYS
+    keys, day = [], start
+    while day <= end:
+        key = _trend_key(datetime.combine(day, datetime.min.time()), weekly)
+        if key not in keys:
+            keys.append(key)
+        day += timedelta(days=1)
+    groups = {k: [] for k in keys}
+    for case in cases:
+        groups.setdefault(case['trend_key'], []).append(case)
+    return 'week' if weekly else 'day', [{'key': k, **_outcome_counts(groups[k])} for k in keys]
+
+
 def _breakdown(cases, field):
     groups = {}
     for case in cases:
@@ -315,6 +362,13 @@ def build(start, end, unticked=frozenset()):
     urgent, limit = load_settings()
     cases = [_shape_case(r, limit) for r in _fetch_cases(start, end, urgent)]
     kept = [c for c in cases if c['modality'] not in unticked]
+    weekly = (end - start).days + 1 > WEEKLY_AFTER_DAYS
+    for case in kept:
+        case['bucket'] = bucket_of(case['minutes_to_note'])
+        case['trend_key'] = _trend_key(case['arrived_at'], weekly)
+    granularity, trend = _trend(kept, start, end)
+    by_bucket = [{'key': label, **_outcome_counts([c for c in kept if c['bucket'] == label])}
+                 for label in [b[0] for b in BUCKETS] + [NO_NOTE]]
     kpi = _block(kept)
     open_gaps = [c['minutes_open_to_note'] for c in kept]
     sign_gaps = [c['minutes_exam_to_sign'] for c in kept]
@@ -329,6 +383,9 @@ def build(start, end, unticked=frozenset()):
         'kpi': kpi,
         'by_department': _breakdown(kept, 'department'),
         'by_modality': _breakdown(kept, 'modality'),
+        'by_bucket': by_bucket,
+        'trend': trend,
+        'trend_granularity': granularity,
         'modalities': sorted({c['modality'] for c in cases}),
         'unticked': sorted(unticked),
         'limit_minutes': limit,
@@ -354,6 +411,7 @@ def case_row(case):
         'exam_done_at': _when(case['exam_done_at']), 'signed_at': _when(case['signed_at']),
         'signed_by': case['signed_by'], 'minutes_exam_to_sign': case['minutes_exam_to_sign'],
         'outcome': case['outcome'], 'outcome_label': OUTCOMES[case['outcome']],
+        'bucket': case.get('bucket'), 'trend_key': case.get('trend_key'),
     }
 
 

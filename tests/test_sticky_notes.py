@@ -6,7 +6,7 @@ cases, reading only what the nightly ETL copied into Postgres.
 """
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import pytest
 from flask import render_template_string
@@ -432,6 +432,61 @@ def test_breakdowns_add_up_to_the_page(client, sql):
     assert rows['ICU']['cases'] == 2 and rows['ICU']['noted_pct'] == 50
     assert rows['ER']['cases'] == 1
     assert sum(r['cases'] for r in data['by_department']) == data['kpi']['cases']
+
+
+# ── the charts that replace the case list ─────────────────────────────────────
+
+def test_time_to_note_bars_count_each_case_once(client, sql):
+    settings(client, limit=45)
+    for uid, minutes in ((1, 10), (2, 20), (3, 50), (4, 90), (5, 600), (6, None)):
+        study(sql, uid)
+        if minutes is not None:
+            note(sql, uid, minutes)
+
+    data = load(client)
+    bars = {b['key']: b for b in data['by_bucket']}
+
+    assert [b['key'] for b in data['by_bucket']] == ['< 15 min', '15–30 min', '30–60 min', '1–2 h',
+                                                     '2–4 h', '4–8 h', '8 h or more', 'No note']
+    assert (bars['< 15 min']['within'], bars['15–30 min']['within']) == (1, 1)
+    assert (bars['30–60 min']['over'], bars['1–2 h']['over'], bars['8 h or more']['over']) == (1, 1, 1)
+    assert bars['No note']['no_note'] == 1
+    assert sum(b['cases'] for b in data['by_bucket']) == data['kpi']['cases'] == 6
+    assert {c['bucket'] for c in data['cases']} == {'< 15 min', '15–30 min', '30–60 min', '1–2 h',
+                                                    '8 h or more', 'No note'}
+
+
+def test_the_trend_has_a_bar_for_every_day_including_empty_ones(client, sql):
+    study(sql, 1)
+    note(sql, 1, 20)
+    day_before = (T0 - timedelta(days=1)).date().isoformat()
+
+    data = load(client, start=day_before, end=DAY)
+
+    assert data['trend_granularity'] == 'day'
+    assert [(r['key'], r['cases'], r['noted']) for r in data['trend']] == [(day_before, 0, 0), (DAY, 1, 1)]
+    assert data['cases'][0]['trend_key'] == DAY
+
+
+def test_a_long_period_is_drawn_week_by_week(client, sql):
+    study(sql, 1)
+    start = (T0 - timedelta(days=90)).date()
+
+    data = load(client, start=start.isoformat(), end=DAY)
+
+    week_of_case = (T0.date() - timedelta(days=T0.weekday())).isoformat()
+    assert data['trend_granularity'] == 'week'
+    assert all(date.fromisoformat(r['key']).weekday() == 0 for r in data['trend'])
+    assert {r['key']: r['cases'] for r in data['trend']}[week_of_case] == 1
+    assert data['cases'][0]['trend_key'] == week_of_case
+
+
+def test_the_page_draws_charts_instead_of_listing_every_case(client, sql):
+    page = client.get('/sticky-notes', headers=VIEWER).get_data(as_text=True)
+    for chart in ('chart-buckets', 'chart-departments', 'chart-modalities', 'chart-trend'):
+        assert f'id="{chart}"' in page
+    assert 'id="cases-body"' not in page
+    assert 'Click any bar to see its cases' in page
 
 
 # ── the export ────────────────────────────────────────────────────────────────

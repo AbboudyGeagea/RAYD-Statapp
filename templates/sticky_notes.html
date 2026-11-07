@@ -5,6 +5,7 @@
     <title>RAYD | Sticky Notes</title>
     <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
     <style>
         :root { --accent:#fbbf24; }
@@ -21,11 +22,6 @@
         .sidebar-item.active { background:#1d2522; color:var(--accent)!important; border-left:4px solid var(--accent); }
         .section-title { font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:0.15em; color:var(--accent); margin-bottom:0.75rem; }
         .badge-jci { background:rgba(251,191,36,0.15); color:#fbbf24; border:1px solid rgba(251,191,36,0.3); font-size:9px; font-weight:900; padding:2px 8px; border-radius:4px; text-transform:uppercase; letter-spacing:0.08em; }
-        .pill { font-size:9px; font-weight:900; padding:2px 8px; border-radius:4px; text-transform:uppercase; letter-spacing:0.06em; white-space:nowrap; }
-        .pill-within { background:rgba(34,197,94,0.15); color:#22c55e; }
-        .pill-over   { background:rgba(244,63,94,0.15); color:#f43f5e; }
-        .pill-none   { background:rgba(148,163,184,0.15); color:#94a3b8; }
-        .pill-noted  { background:rgba(96,165,250,0.15); color:#60a5fa; }
         th { white-space:nowrap; }
         .check { display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:700; color:#cbd5e1; cursor:pointer; }
         .field { background:#1d2522; border:1px solid #28332e; border-radius:0.5rem; padding:0.375rem 0.75rem; font-size:12px; font-weight:700; color:#fff; }
@@ -98,40 +94,39 @@
 
             <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-4" id="kpi-row"></div>
 
+            <p class="text-xs text-slate-500">Click any bar to see its cases.</p>
+
+            <div class="card p-5">
+                <p class="section-title">How long until the sticky note</p>
+                <div id="chart-buckets" class="chart" style="height:280px;"></div>
+            </div>
+
             <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
                 <div class="card p-5">
                     <p class="section-title">By department</p>
-                    <div class="overflow-x-auto"><table class="w-full text-left text-sm" id="dept-table"></table></div>
+                    <div id="chart-departments" class="chart"></div>
                 </div>
                 <div class="card p-5">
                     <p class="section-title">By modality</p>
-                    <div class="overflow-x-auto"><table class="w-full text-left text-sm" id="mod-table"></table></div>
+                    <div id="chart-modalities" class="chart"></div>
                 </div>
             </div>
 
             <div class="card p-5">
-                <p class="section-title">Cases <span id="cases-note" class="text-slate-500" style="font-weight:400;text-transform:none;letter-spacing:0;"></span></p>
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left text-sm">
-                        <thead>
-                            <tr class="border-b border-[#28332e] text-[#fbbf24] text-[10px] uppercase tracking-widest font-black">
-                                <th class="pb-3 pr-4">Patient ID</th>
-                                <th class="pb-3 pr-4">Accession</th>
-                                <th class="pb-3 pr-4">Modality</th>
-                                <th class="pb-3 pr-4">Department</th>
-                                <th class="pb-3 pr-4">First open seen</th>
-                                <th class="pb-3 pr-4">Opened by</th>
-                                <th class="pb-3 pr-4">Sticky note inserted</th>
-                                <th class="pb-3 pr-4">Note by</th>
-                                <th class="pb-3 pr-4">Images to note</th>
-                                <th class="pb-3 pr-4">First signature</th>
-                                <th class="pb-3 pr-4">Signed by</th>
-                                <th class="pb-3 pr-4">Outcome</th>
-                            </tr>
-                        </thead>
-                        <tbody id="cases-body" class="divide-y divide-[#28332e]"></tbody>
-                    </table>
+                <p class="section-title" id="trend-title">Day by day</p>
+                <div id="chart-trend" class="chart" style="height:260px;"></div>
+            </div>
+
+            <div id="drill" class="card p-5 hidden" aria-live="polite">
+                <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+                    <p class="section-title" style="margin:0;" id="drill-title"></p>
+                    <div class="flex gap-2">
+                        <button onclick="downloadDrill()" class="btn-soft"><i class="bi bi-download mr-1"></i>These cases</button>
+                        <button onclick="closeDrill()" class="btn-soft" aria-label="Close">Close</button>
+                    </div>
                 </div>
+                <div class="overflow-x-auto"><table class="w-full text-left text-sm" id="drill-table"></table></div>
+                <p id="drill-more" class="text-xs text-slate-500 mt-2"></p>
             </div>
 
             <div class="card p-5">
@@ -213,10 +208,10 @@ async function loadData() {
     document.getElementById('loading').classList.add('hidden');
     document.getElementById('content').classList.remove('hidden');
     renderFilters(d);
+    lastData = d;
     renderKpis(d);
-    renderBreakdown('dept-table', d.by_department, 'department', 'Department');
-    renderBreakdown('mod-table', d.by_modality, 'modality', 'Modality');
-    renderCases(d);
+    renderCharts(d);
+    closeDrill();
     renderMonthly(d);
     {% if is_admin %}renderSettings(d);{% endif %}
 }
@@ -259,52 +254,183 @@ function renderKpis(d) {
     ].join('');
 }
 
-function renderBreakdown(id, rows, field, label) {
-    const head = `<thead><tr class="border-b border-[#28332e] text-[#fbbf24] text-[10px] uppercase tracking-widest font-black">
-        <th class="pb-3 pr-4">${esc(label)}</th><th class="pb-3 pr-4">Cases</th><th class="pb-3 pr-4">With note</th>
-        <th class="pb-3 pr-4">No note</th><th class="pb-3 pr-4">Median to note</th><th class="pb-3 pr-4">Over limit</th></tr></thead>`;
-    const body = rows.map(r => `<tr class="border-b border-[#28332e]">
-        <td class="py-2 pr-4 font-bold text-white">${esc(r[field])}</td>
-        <td class="py-2 pr-4">${r.cases}</td>
-        <td class="py-2 pr-4">${r.noted_pct === null ? '—' : r.noted_pct + '%'}</td>
-        <td class="py-2 pr-4">${r.no_note}</td>
-        <td class="py-2 pr-4">${fmtTime(r.median_to_note)}</td>
-        <td class="py-2 pr-4">${r.over}</td></tr>`).join('');
-    document.getElementById(id).innerHTML = head + `<tbody>${body}</tbody>`;
+// ── Charts ───────────────────────────────────────────────────────────────────
+// Blue = within the limit (or simply noted while no limit is set), red = over it,
+// yellow = no note. Validated for colour-blind separation on both surfaces; the legend,
+// the tooltips and the case table carry the words, so colour never stands alone.
+const SERIES_WITH_LIMIT = [['within', 'Within limit'], ['over', 'Over limit'], ['no_note', 'No note']];
+const SERIES_NO_LIMIT = [['noted', 'With a note'], ['no_note', 'No note']];
+let lastData = null;
+let drillCases = [];
+const charts = {};
+
+function theme() {
+    const light = document.body.classList.contains('light');
+    return light
+        ? { within: '#2a78d6', noted: '#2a78d6', over: '#d03b3b', no_note: '#eda100',
+            text: '#2d3748', muted: '#718096', grid: '#e2e8f0', surface: '#ffffff' }
+        : { within: '#3987e5', noted: '#3987e5', over: '#d03b3b', no_note: '#c98500',
+            text: '#cbd5e1', muted: '#94a3b8', grid: '#28332e', surface: '#232b28' };
 }
 
-const OUTCOMES = {
-    within:  ['Within limit', 'pill-within'],
-    over:    ['Over limit', 'pill-over'],
-    no_note: ['No note', 'pill-none'],
-    noted:   ['Noted', 'pill-noted'],
-};
+function chartFor(id, height) {
+    const el = document.getElementById(id);
+    if (height) el.style.height = height + 'px';
+    if (!charts[id]) charts[id] = echarts.init(el, null, { renderer: 'svg' });
+    else if (height) charts[id].resize();
+    return charts[id];
+}
+
+// One stacked bar per category; rows[i] holds the counts for categories[i].
+function stackedBars(id, categories, rows, opts) {
+    const t = theme();
+    const series = lastData.limit_minutes ? SERIES_WITH_LIMIT : SERIES_NO_LIMIT;
+    const horizontal = !!opts.horizontal;
+    const lastIndex = series.length - 1;
+    const height = horizontal ? Math.max(140, categories.length * 34 + 70) : null;
+    const chart = chartFor(id, height);
+    const label = key => (opts.label ? opts.label(key) : key);
+    const categoryAxis = {
+        type: 'category', data: categories, inverse: horizontal,
+        axisLine: { lineStyle: { color: t.grid } }, axisTick: { show: false },
+        axisLabel: { color: t.muted, fontSize: 11, interval: horizontal ? 0 : 'auto', formatter: label },
+    };
+    const valueAxis = {
+        type: 'value', minInterval: 1,
+        splitLine: { lineStyle: { color: t.grid } },
+        axisLabel: { color: t.muted, fontSize: 11 },
+    };
+    chart.setOption({
+        animation: false,
+        grid: { left: 8, right: 16, top: 36, bottom: 8, containLabel: true },
+        legend: { top: 0, left: 0, itemWidth: 12, itemHeight: 12, textStyle: { color: t.text, fontSize: 12 },
+                  data: series.map(s => s[1]) },
+        tooltip: {
+            trigger: 'axis', axisPointer: { type: 'shadow' },
+            formatter: items => {
+                const row = rows[items[0].dataIndex];
+                const lines = items.filter(i => i.value).map(i => `${i.marker} ${esc(i.seriesName)}: <b>${i.value}</b>`);
+                const pct = row.cases ? Math.round(row.noted * 100 / row.cases) : null;
+                return `<b>${esc(label(categories[items[0].dataIndex]))}</b><br>`
+                    + (lines.join('<br>') || 'No cases')
+                    + (row.cases ? `<br><span style="opacity:.7">${row.cases} cases · ${pct}% with a note · click to see them</span>` : '');
+            },
+        },
+        xAxis: horizontal ? valueAxis : categoryAxis,
+        yAxis: horizontal ? categoryAxis : valueAxis,
+        series: series.map(([key, name], i) => ({
+            id: key, name, type: 'bar', stack: 'cases', barMaxWidth: 28,
+            data: rows.map(r => r[key] || null),
+            itemStyle: {
+                color: t[key], borderColor: t.surface, borderWidth: 2,
+                borderRadius: i === lastIndex ? (horizontal ? [0, 4, 4, 0] : [4, 4, 0, 0]) : 0,
+            },
+            emphasis: { focus: 'series' },
+            cursor: 'pointer',
+        })),
+    }, true);
+    chart.off('click');
+    chart.on('click', p => opts.onPick(categories[p.dataIndex], p.seriesId));
+}
+
+function matchesOutcome(c, key) {
+    if (key === 'no_note') return c.outcome === 'no_note';
+    if (key === 'noted') return c.outcome !== 'no_note';
+    return c.outcome === key;
+}
+
+function outcomeName(key) {
+    return Object.fromEntries([...SERIES_WITH_LIMIT, ...SERIES_NO_LIMIT])[key];
+}
+
+function trendLabel(key) {
+    const day = new Date(key + 'T00:00:00');
+    const text = day.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+    return lastData.trend_granularity === 'week' ? `Week of ${text}` : text;
+}
+
+function renderCharts(d) {
+    stackedBars('chart-buckets', d.by_bucket.map(r => r.key), d.by_bucket, {
+        onPick: (bucket, key) => drill(`${bucket} · ${outcomeName(key)}`,
+                                       c => c.bucket === bucket && matchesOutcome(c, key)),
+    });
+    stackedBars('chart-departments', d.by_department.map(r => r.department), d.by_department, {
+        horizontal: true,
+        onPick: (dept, key) => drill(`${dept} · ${outcomeName(key)}`,
+                                     c => c.department === dept && matchesOutcome(c, key)),
+    });
+    stackedBars('chart-modalities', d.by_modality.map(r => r.modality), d.by_modality, {
+        horizontal: true,
+        onPick: (mod, key) => drill(`${mod} · ${outcomeName(key)}`,
+                                    c => c.modality === mod && matchesOutcome(c, key)),
+    });
+    document.getElementById('trend-title').textContent = d.trend_granularity === 'week' ? 'Week by week' : 'Day by day';
+    stackedBars('chart-trend', d.trend.map(r => r.key), d.trend, {
+        label: trendLabel,
+        onPick: (key, outcome) => drill(`${trendLabel(key)} · ${outcomeName(outcome)}`,
+                                        c => c.trend_key === key && matchesOutcome(c, outcome)),
+    });
+}
+
+// ── The cases behind a bar ───────────────────────────────────────────────────
+const DRILL_ROWS = 15;
 const ROLES = { residents: 'RES', radiologists: 'RAD' };
+const DRILL_COLUMNS = [
+    ['Patient ID', c => c.patient_id], ['Accession', c => c.accession], ['Modality', c => c.modality],
+    ['Department', c => c.department],
+    ['First open seen', c => c.open_overwritten ? 'Not kept' : c.open_at], ['Opened by', c => c.opened_by],
+    ['Sticky note inserted', c => c.note_at],
+    ['Note by', c => c.note_by ? c.note_by + (ROLES[c.author_role] ? ` (${ROLES[c.author_role]})` : '') : null],
+    ['Images to note', c => c.minutes_to_note === null ? null : fmtTime(c.minutes_to_note)],
+    ['Outcome', c => c.outcome_label],
+];
 
-function renderCases(d) {
-    document.getElementById('cases-note').textContent = d.cases_total > d.cases.length
-        ? `· newest ${d.cases.length} of ${d.cases_total}; the CSV has them all` : `· ${d.cases_total}`;
-    document.getElementById('cases-body').innerHTML = d.cases.map(c => {
-        const [label, tone] = OUTCOMES[c.outcome];
-        const role = ROLES[c.author_role] ? ` <span class="text-slate-500">${ROLES[c.author_role]}</span>` : '';
-        const open = c.open_overwritten
-            ? '<span class="text-slate-500" title="Reopened after the note, so PACS no longer has the first open">Not kept</span>'
-            : (esc(c.open_at) || '—');
-        return `<tr>
-            <td class="py-2 pr-4 whitespace-nowrap">${esc(c.patient_id) || '—'}</td>
-            <td class="py-2 pr-4 font-bold text-white">${esc(c.accession)}</td>
-            <td class="py-2 pr-4">${esc(c.modality)}</td>
-            <td class="py-2 pr-4">${esc(c.department)}</td>
-            <td class="py-2 pr-4 whitespace-nowrap">${open}</td>
-            <td class="py-2 pr-4" title="${esc(c.opened_by_login)}">${esc(c.opened_by) || '—'}</td>
-            <td class="py-2 pr-4 whitespace-nowrap">${esc(c.note_at) || '—'}</td>
-            <td class="py-2 pr-4" title="${esc(c.note_author)}">${esc(c.note_by) || '—'}${role}</td>
-            <td class="py-2 pr-4 whitespace-nowrap">${fmtTime(c.minutes_to_note)}</td>
-            <td class="py-2 pr-4 whitespace-nowrap">${esc(c.signed_at) || '—'}</td>
-            <td class="py-2 pr-4">${esc(c.signed_by) || '—'}</td>
-            <td class="py-2 pr-4"><span class="pill ${tone}">${label}</span></td></tr>`;
-    }).join('') || '<tr><td colspan="12" class="py-6 text-center text-slate-500">No urgent cases match these filters.</td></tr>';
+function drill(title, test) {
+    drillCases = lastData.cases.filter(test);
+    const shown = drillCases.slice(0, DRILL_ROWS);
+    document.getElementById('drill-title').textContent =
+        `${title} · ${drillCases.length} case${drillCases.length === 1 ? '' : 's'}`;
+    document.getElementById('drill-table').innerHTML =
+        `<thead><tr class="border-b border-[#28332e] text-[#fbbf24] text-[10px] uppercase tracking-widest font-black">`
+        + DRILL_COLUMNS.map(([h]) => `<th class="pb-3 pr-4">${esc(h)}</th>`).join('') + `</tr></thead><tbody>`
+        + shown.map(c => `<tr class="border-b border-[#28332e]">`
+            + DRILL_COLUMNS.map(([, get], i) =>
+                `<td class="py-2 pr-4 whitespace-nowrap${i === 1 ? ' font-bold text-white' : ''}">${esc(get(c)) || '—'}</td>`).join('')
+            + `</tr>`).join('') + `</tbody>`;
+    const more = drillCases.length - shown.length;
+    const capped = lastData.cases_total > lastData.cases.length
+        ? ` The page holds the newest ${lastData.cases.length} of ${lastData.cases_total} cases; the CSV at the top has them all.` : '';
+    document.getElementById('drill-more').textContent =
+        (more > 0 ? `Showing ${shown.length} of ${drillCases.length}. "These cases" downloads all of them.` : '') + capped;
+    const panel = document.getElementById('drill');
+    panel.classList.remove('hidden');
+    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
+
+function closeDrill() {
+    document.getElementById('drill').classList.add('hidden');
+}
+
+function csvCell(value) {
+    let text = value === null || value === undefined ? '' : String(value);
+    if (/^[=+\-@]/.test(text)) text = "'" + text;       // never run as a spreadsheet formula
+    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function downloadDrill() {
+    const lines = [DRILL_COLUMNS.map(([h]) => csvCell(h)).join(',')]
+        .concat(drillCases.map(c => DRILL_COLUMNS.map(([, get]) => csvCell(get(c))).join(',')));
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' }));
+    link.download = 'urgent_emergent_cases.csv';
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+}
+
+window.addEventListener('resize', () => Object.values(charts).forEach(c => c.resize()));
+// The header's theme switch toggles body.light: redraw in the other mode's colours.
+new MutationObserver(() => { if (lastData) renderCharts(lastData); })
+    .observe(document.body, { attributes: true, attributeFilter: ['class'] });
 
 function renderMonthly(d) {
     const head = `<thead><tr class="border-b border-[#28332e] text-[#fbbf24] text-[10px] uppercase tracking-widest font-black">
