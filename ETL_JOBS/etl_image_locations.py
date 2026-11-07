@@ -3,6 +3,7 @@ from datetime import datetime
 from sqlalchemy import text
 from db import OracleConnector
 from etl_settings import ETL_GEAR
+from etl_fk_guard import existing_ids
 
 logger = logging.getLogger("ETL_WORKER")
 
@@ -57,13 +58,10 @@ def run_images_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, stud
             # chunks trade more round trips for a bounded per-query sort footprint.
             chunk_size = 100
 
-            # Pre-load valid raw_image_db_uid values from PG to prevent FK violations.
-            with pg_engine.connect() as _c:
-                _rows = _c.execute(text("SELECT raw_image_db_uid FROM etl_didb_raw_images")).fetchall()
-            valid_raw_ids = {r[0] for r in _rows}
+            # Rows whose raw image is not in PG are dropped (FK guard), checked per batch: see
+            # etl_fk_guard for why the whole table is no longer loaded.
             total_chunks = (len(study_uid_whitelist) + chunk_size - 1) // chunk_size
-            logging.info(f"Image Locations ETL: {len(valid_raw_ids):,} valid raw image IDs loaded from PG")
-            print(f"[Image Locations ETL] 🚀 Starting — {len(study_uid_whitelist):,} study IDs | {len(valid_raw_ids):,} valid raw images")
+            print(f"[Image Locations ETL] 🚀 Starting — {len(study_uid_whitelist):,} study IDs")
 
             skipped_fk   = 0
             row_buffer   = []   # accumulate rows; flush every COMMIT_EVERY rows
@@ -106,6 +104,8 @@ def run_images_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, stud
                     if not batch:
                         break
                     # raw_image_db_uid is index 0 — skip rows whose parent doesn't exist in PG
+                    valid_raw_ids = existing_ids(pg_engine, 'etl_didb_raw_images', 'raw_image_db_uid',
+                                                 (r[0] for r in batch))
                     clean = [r for r in batch if r[0] in valid_raw_ids]
                     skipped_fk += len(batch) - len(clean)
                     row_buffer.extend(clean)

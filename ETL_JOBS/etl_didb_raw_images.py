@@ -3,6 +3,7 @@ from datetime import datetime
 from sqlalchemy import text
 from db import OracleConnector
 from etl_settings import ETL_GEAR
+from etl_fk_guard import existing_ids
 
 COMMIT_EVERY = ETL_GEAR['commit_every']  # flush to Postgres every N rows
 
@@ -28,6 +29,13 @@ def run_raw_images_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, 
 
     if not study_uid_whitelist:
         print("[Raw Images ETL] ⏭️  No study IDs in whitelist, skipping.")
+        # Close the log row: returning without it left the row RUNNING for good.
+        if log_id:
+            with pg_engine.connect() as conn:
+                conn.execute(text("UPDATE etl_job_log SET status = 'SUCCESS', end_time = :et, "
+                                  "records_processed = 0 WHERE id = :id"),
+                             {"et": datetime.now(), "id": log_id})
+                conn.commit()
         return 0
 
     col_names = [
@@ -38,12 +46,9 @@ def run_raw_images_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, 
     total_chunks = (len(study_uid_whitelist) + 999) // 1000
     print(f"[Raw Images ETL] 🚀 Starting — {len(study_uid_whitelist):,} study IDs across {total_chunks} chunks")
 
-    # Pre-load all valid series IDs from PG to guard against FK violations.
-    # Oracle sometimes has raw images referencing series that were never stored.
-    with pg_engine.connect() as _c:
-        _rows = _c.execute(text("SELECT series_db_uid FROM etl_didb_serieses")).fetchall()
-    valid_series_ids = {r[0] for r in _rows}
-    print(f"[Raw Images ETL] 🔍 {len(valid_series_ids):,} valid series IDs loaded from PG")
+    # Oracle sometimes has raw images referencing series that were never stored, so rows
+    # whose series is not in PG are dropped (FK guard), checked per batch: see etl_fk_guard
+    # for why the whole series table is no longer loaded.
 
     ora_conn = OracleConnector.get_connection(oracle_source)
     cursor   = ora_conn.cursor()
@@ -73,6 +78,8 @@ def run_raw_images_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, 
                 if not batch:
                     break
                 # series_db_uid is index 3 — skip rows whose series doesn't exist in PG
+                valid_series_ids = existing_ids(pg_engine, 'etl_didb_serieses', 'series_db_uid',
+                                                (r[3] for r in batch))
                 clean = [r for r in batch if r[3] in valid_series_ids]
                 skipped_fk += len(batch) - len(clean)
                 row_buffer.extend(clean)

@@ -2,6 +2,7 @@ import logging
 from datetime import datetime
 from sqlalchemy import text
 from db import OracleConnector
+from etl_fk_guard import existing_ids
 
 # Oracle columns this job wants from medistore.didb_serieses (uppercase — Oracle's data
 # dictionary is case-insensitive-but-stored-uppercase for unquoted identifiers). Site
@@ -68,13 +69,10 @@ def run_series_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, stud
         # so the DB record is updated with the end_time.
     else:
         # --- Extraction Logic ---
-        # Pre-load valid study IDs already in PG to guard against FK violations.
-        # Oracle sometimes returns series for study_db_uid values that failed to
-        # insert in Phase 1 (e.g. corrupt PKs like "R3" that were skipped).
-        with pg_engine.connect() as _c:
-            _rows = _c.execute(text("SELECT study_db_uid FROM etl_didb_studies")).fetchall()
-        valid_study_ids = {r[0] for r in _rows}
-        logging.info(f"Series ETL: {len(valid_study_ids):,} valid study IDs loaded from PG")
+        # Oracle sometimes returns series for study_db_uid values that failed to insert in
+        # Phase 1 (e.g. corrupt PKs like "R3" that were skipped), so rows whose study is not
+        # in PG are dropped (FK guard), checked per batch: see etl_fk_guard for why the whole
+        # studies table is no longer loaded.
 
         ora_conn = OracleConnector.get_connection(oracle_source)
         cursor = ora_conn.cursor()
@@ -120,6 +118,8 @@ def run_series_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, stud
                     batch = cursor.fetchmany(1000)
                     if not batch: break
                     # study_db_uid is index 1 — skip rows whose parent study isn't in PG
+                    valid_study_ids = existing_ids(pg_engine, 'etl_didb_studies', 'study_db_uid',
+                                                   (r[1] for r in batch))
                     clean = [r for r in batch if r[1] in valid_study_ids]
                     skipped_fk += len(batch) - len(clean)
                     if clean:

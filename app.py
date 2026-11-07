@@ -747,9 +747,16 @@ def create_app():
                     return
             except Exception:
                 pass
-            from ETL_JOBS.etl_runner import execute_sync
+            from ETL_JOBS.etl_runner import execute_sync, run_sync_in_child
             logger.info(f"⏰ [5:00 AM] Scheduled ETL Start: {datetime.now()}")
-            execute_sync(app)
+            # No connection held open for the hours the sync can take.
+            db.session.remove()
+            code = run_sync_in_child(app.root_path)
+            if code is None:
+                logger.warning("⚠️  [Scheduled ETL] Could not start its own process — running it here instead.")
+                execute_sync(app)
+            else:
+                logger.info(f"✅ [Scheduled ETL] Finished in its own process (exit code {code}).")
 
     scheduler.add_job(
         func=scheduled_etl,

@@ -317,12 +317,17 @@ def _perform_migration(engine):
 
     start_time = datetime.now()
 
+    sync_id = None
     try:
         with engine.begin() as conn:
-            conn.execute(text(
+            # A run that died (a killed worker, a restart) never closes its rows, and they
+            # used to stay RUNNING for good. The lock above means no other sync is alive, and
+            # nothing in the ETL runs for 12 hours, so anything older is marked here.
+            conn.execute(text(_CLOSE_DEAD_RUNS_SQL))
+            sync_id = conn.execute(text(
                 "INSERT INTO etl_job_log (job_name, status, start_time) "
-                "VALUES ('4TB_SYNC', 'RUNNING', now())"
-            ))
+                "VALUES ('4TB_SYNC', 'RUNNING', now()) RETURNING id"
+            )).scalar()
             res     = conn.execute(text(
                 "SELECT go_live_date FROM go_live_config ORDER BY id DESC LIMIT 1"
             )).fetchone()
@@ -879,18 +884,20 @@ def _perform_migration(engine):
         # must not get silently reported as a clean SUCCESS) ──────────────
         if _phase_failures:
             logger.warning(f"⚠️  4TB Sync finished with phase failures: {', '.join(_phase_failures)}")
+            # Each update names this run's own row. Matching every RUNNING 4TB_SYNC row also
+            # closed other runs: a manual reload on 2026-11-06 marked that morning's dead
+            # nightly run SUCCESS after 362 minutes, which hid that it had been killed.
             with engine.begin() as conn:
                 conn.execute(
                     text("UPDATE etl_job_log SET status='PARTIAL', end_time=now(), "
-                         "error_message=:msg WHERE status='RUNNING' AND job_name='4TB_SYNC'"),
-                    {"msg": f"Phases failed: {', '.join(_phase_failures)}"}
+                         "error_message=:msg WHERE id = :id"),
+                    {"msg": f"Phases failed: {', '.join(_phase_failures)}", "id": sync_id}
                 )
         else:
             with engine.begin() as conn:
                 conn.execute(text(
-                    "UPDATE etl_job_log SET status='SUCCESS', end_time=now() "
-                    "WHERE status='RUNNING' AND job_name='4TB_SYNC'"
-                ))
+                    "UPDATE etl_job_log SET status='SUCCESS', end_time=now() WHERE id = :id"
+                ), {"id": sync_id})
             logger.info("✅ 4TB Sync Complete.")
 
     except KeyboardInterrupt:
@@ -901,17 +908,18 @@ def _perform_migration(engine):
             conn.execute(
                 text("UPDATE etl_job_log SET status='STOPPED', end_time=now(), "
                      "error_message='Stopped by operator during phase pacing' "
-                     "WHERE status='RUNNING' AND job_name='4TB_SYNC'")
+                     "WHERE id = :id"), {"id": sync_id}
             )
         return
 
     except Exception as e:
         logger.error(f"🛑 Migration Error: {e}", exc_info=True)
+        # This run's row only: matching every RUNNING row also failed jobs outside the ETL.
         with engine.begin() as conn:
             conn.execute(
-                text("UPDATE etl_job_log SET status='FAILED', error_message=:msg "
-                     "WHERE status='RUNNING'"),
-                {"msg": str(e)}
+                text("UPDATE etl_job_log SET status='FAILED', end_time=now(), error_message=:msg "
+                     "WHERE id = :id"),
+                {"msg": str(e), "id": sync_id}
             )
         raise
 
@@ -923,6 +931,35 @@ def _perform_migration(engine):
         finally:
             lock_conn.close()
         gc.collect()
+
+
+def run_sync_in_child(app_root):
+    """
+    The nightly sync in its own process: `python app.py -m`, the same path as a manual run,
+    which starts no scheduler and no HL7 listener. Inside the web worker it lived under
+    gunicorn's 300-second heartbeat, so any step that kept the worker busy longer got the
+    whole run killed (2026-11-06 and 2026-11-07, "WORKER TIMEOUT"), and it shared the
+    worker's memory with every page. Waiting on the child keeps the worker responsive.
+
+    Returns the child's exit code, or None if it could not be started, so that the caller
+    can run the sync in-process as before rather than not at all.
+    """
+    import subprocess
+    script = os.path.join(app_root, 'app.py')
+    try:
+        return subprocess.run([sys.executable, script, '-m'], cwd=app_root).returncode
+    except OSError as exc:
+        logger.error(f"🛑 Could not start the ETL in its own process ({exc}).")
+        return None
+
+
+_CLOSE_DEAD_RUNS_SQL = """
+    UPDATE etl_job_log
+       SET status = 'FAILED',
+           error_message = COALESCE(error_message,
+               'Interrupted: the ETL process stopped before this finished (found by the next run)')
+     WHERE status = 'RUNNING' AND start_time < now() - interval '12 hours'
+"""
 
 
 def _sync_lookup_tables(engine):
